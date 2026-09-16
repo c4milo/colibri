@@ -48,6 +48,10 @@ pub const ValueError = error{
     FieldValueTrailingWhitespace,
 };
 
+/// One field line, unencoded: a field name (RFC 9110 §5.1) and a field value (RFC 9110 §5.5).
+/// The slices point into storage the caller or a `field_section.FieldSection` owns.
+pub const Field = struct { name: []const u8, value: []const u8 };
+
 /// The octets RFC 9110 §5.6.2 lists as tchar: `!#$%&'*+-.^_`|~`, DIGIT and ALPHA.
 const tchar_punctuation = "!#$%&'*+-.^_`|~";
 
