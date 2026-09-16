@@ -331,6 +331,14 @@ correct a candidate that looked shared and is not, or looked unshared and is.
     name+value+32 formula is in RFC 9113 §6.5.2 and RFC 9114 §4.2.2 under different setting names
     at the same identifier 0x06 — share the arithmetic, not the setting.
 
+    **TE is read as its grammar defines it.** Ruled by the owner on 2026-09-16. RFC 9113 §8.2.2 and
+    RFC 9114 §4.2 permit TE only in a request, and only when its value is "trailers". RFC 9110 §10.1.4 makes TE a list,
+    and RFC 9110 §5.6.1.2 requires a recipient to accept empty members and whitespace around the
+    commas. "trailers" is an ABNF quoted string, which matches in any case (RFC 5234 §2.3). So the
+    core accepts "Trailers", "trailers," and "trailers, TRAILERS", and nothing with another member.
+    The rejected alternative was comparing the exact octets. It refuses values the grammar admits,
+    and a refusal there reads as the peer's malformed request when the fault is colibri's.
+
 16. **No caching, and the conformance bar for RFC 9111 is zero.** RFC 9111 §2 says caching is "an
     entirely OPTIONAL feature of HTTP", every normative requirement in its §3 and §4 is scoped to
     the subject "a cache", and the single requirement binding a non-cache — §5.2, pass cache

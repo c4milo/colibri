@@ -56,7 +56,7 @@ pub const Status = struct {
         if (digits.len != constants.status_digits_len) return error.StatusNotThreeDigits;
         var code: u16 = 0;
         for (digits) |digit| {
-            // RFC 9110 §15: three digits, and DIGIT is decimal 0-9 (RFC 9110 §2.1).
+            // RFC 9110 §15: three digits; DIGIT is 0x30 to 0x39 (RFC 5234 Appendix B.1).
             if (!std.ascii.isDigit(digit)) return error.StatusNotThreeDigits;
             code = code * 10 + (digit - '0');
         }

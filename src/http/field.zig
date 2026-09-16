@@ -19,6 +19,8 @@
 //!   5. no trailing SP or HTAB, or `error.FieldValueTrailingWhitespace`.
 //! Checks 2 and 3 are distinct because RFC 9110 §5.5 treats them differently: CR, LF and NUL must
 //! be rejected or replaced, while a recipient may retain another control octet in a safe context.
+//! h3 has no such choice: RFC 9114 §10.3 makes a value holding any character field-content does not
+//! permit malformed, so the h3 module refuses check 3's reason and cites that section.
 //!
 //! Checks 4 and 5 are reasons, not rejections. RFC 9110 §5.5's grammar leaves whitespace out of a
 //! field value and tells a parser to exclude it, not to refuse it. RFC 9113 §8.2.1 is what makes
@@ -96,8 +98,8 @@ pub fn validate_value(value: []const u8) ValueError!void {
     if (is_whitespace(value[value.len - 1])) return error.FieldValueTrailingWhitespace;
 }
 
-/// CTL of RFC 5234 as RFC 9110 §2.1 includes it: 0x00 to 0x1f and 0x7f. HTAB is a CTL, but
-/// RFC 9110 §5.5 admits it between field-vchars, so it is not reported here.
+/// CTL is 0x00 to 0x1f and 0x7f (RFC 5234 Appendix B.1, which RFC 9110 §2.1 includes). HTAB is a
+/// CTL, but RFC 9110 §5.5 admits it between field-vchars, so it is not reported here.
 fn is_control(octet: u8) bool {
     return (octet < 0x20 and octet != '\t') or octet == 0x7f;
 }
