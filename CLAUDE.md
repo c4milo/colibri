@@ -214,33 +214,9 @@ There is no CI here. Every gate that a script cannot run inside `zig build test`
 person before a step is called done, and the step's entry in design §8 records what was run, on
 what, and what it printed.
 
-## Current task
+## Where the work stands
 
-**Step 0 is done.** Decision 3 was ruled on 2026-09-16: `quic` is a module inside colibri taking
-`core`, `wire`, `crypto` and `tls`. `build.zig` wires the §3 graph, the twelve module roots carry
-their `constants.zig`, and `zig build test` runs the lint, every module's tests and the graph
-gate. Design §8 step 0 records what was run and what it printed.
-
-**Step 1 is done.** `core` holds the bounded reader and writer (invariant 3) and the shared fuzz
-harness. `wire` holds the varint, the prefixed integer, the Huffman coder over a table generated
-from RFC 7541 Appendix B, and the string literal. `http` holds the field validators, the
-connection-specific denylist, and the method and status models. `src/golden/` holds the corpus and
-its mutations. Design §8 step 1 records what was run and what it printed, including the one part
-not built: invariant 3's lint rule.
-
-**Step 2 is done on macOS; its Linux half is the owner's.** `src/sim/` holds the seeded
-generator, the clock, the §6.6 trace and the byte pipe, and the `sim_run` module holds the chunk
-gate and `zig build sim` (decision 37). The gate's census digest is committed, so the Linux run is
-`zig build test-sim-run` in Debug and `-Drelease` on a Linux host. The null TLS provider and the
-null crypto suite land with steps 5 and 7, which shape their vtables.
-
-**Step 3, HPACK, is next.**
-
-Decision 9 was ruled on 2026-09-16: two vtables, `tls.Provider` for the handshake and
-`crypto.Suite` for packet protection, so step 7 has the interface it builds against.
-
-Decision 10 was ruled on 2026-09-16: chapulin provides all of colibri's crypto by filling both
-vtables. The library never imports chapulin, and `src/testing/` links it, which answers the
-dependency question design §8 step 5 raised. The request is docs/chapulin.md and is the owner's to
-send. No decision waits on the owner. Every gate that needs crypto waits on chapulin delivering
-the request, and steps 0 to 4, 6, 8 and 11 need none of it.
+Progress is not tracked here. Open work, what comes next, and what is owed by whom are GitHub
+issues at `https://github.com/c4milo/colibri/issues`. A gate met is recorded once, in its step's
+entry in design §8, with what was run, on what, and what it printed. Rulings are numbered in
+docs/decisions.md. This file holds rules only.

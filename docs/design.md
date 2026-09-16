@@ -625,7 +625,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   with a highest score of 12. `zig build sim -- --chunk-gate` prints the same census in both modes:
   `seeds=256 passed=193 rejected=63 chunks=2551 trace_octets=278583 crc32=0x418c1200`. That
   digest is `chunk_gate.census_crc32_expected`, and the gate's test requires it, so the Linux run
-  is `zig build test-sim-run` in both modes on a Linux host; it has not been run yet.
+  is `zig build test-sim-run` in both modes on a Linux host. It has not been run yet:
+  [issue 1](https://github.com/c4milo/colibri/issues/1).
 
   - **Harness.** `src/sim/` holds `Random`, SplitMix64 written out so a Zig upgrade cannot change
     what a seed replays; `Clock`, which moves only when the pipe advances it; `Trace`, the §6.6
@@ -644,8 +645,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     is the one file under `src/sim/` the `io` rule exempts, by path.
   - **Not built.** The null TLS provider and the null crypto suite. `tls.Provider` and
     `crypto.Suite` do not exist yet, and no step 2 subject calls a provider, so each null
-    implementation lands with the step that shapes its vtable: the provider with step 5, the suite
-    with step 7 (design §10 fixes the suite's sizes: a 16-octet tag and a 5-octet mask).
+    implementation lands with the step that shapes its vtable: the provider with step 5
+    ([issue 3](https://github.com/c4milo/colibri/issues/3)), the suite with step 7
+    ([issue 4](https://github.com/c4milo/colibri/issues/4); design §10 fixes its sizes: a
+    16-octet tag and a 5-octet mask).
 
   Twenty-nine mutations over the generator, the clock, the trace, the pipe, the stream, the gate
   and the command line were applied, run against `zig build test-sim` or `test-sim-run`, and
