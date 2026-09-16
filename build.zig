@@ -23,10 +23,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const generated = @import("build/generated.zig");
-
-/// The cognitive-complexity threshold of CLAUDE.md (Conventions). Never raised: a function over
-/// it is split.
-const cognitive_complexity_max = "15";
+const lint = @import("build/lint.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools" };
@@ -34,19 +31,6 @@ const source_directories = [_][]const u8{ "build", "src", "tools" };
 /// Every directory the tools/lint rules read: the sources above plus the documents, which the
 /// markdown rule covers.
 const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "docs" };
-
-/// The tools/lint rules that gate the build. CLAUDE.md (Commands) names all eleven; the ones not
-/// listed here are report-only until their findings are settled, and are run by hand.
-const lint_rules = [_][]const u8{
-    "heap",
-    "io",
-    "determinism",
-    "unbounded-loop",
-    "relative-import",
-    "module-graph",
-    "markdown",
-    "file-length",
-};
 
 /// Every tool whose own tests `zig build test` runs. A gate that does not check the checkers
 /// leaves a rule free to lose its own test with no build saying so.
@@ -83,7 +67,18 @@ pub fn build(b: *std.Build) void {
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");
-    test_step.dependOn(add_lint_step(b, pepegrillo));
+    test_step.dependOn(lint.add(b, .{
+        .source_directories = &source_directories,
+        .rule_directories = &lint_rule_directories,
+        .complexity = b.addExecutable(.{
+            .name = "cognitive_complexity",
+            .root_module = tool_module(b, pepegrillo, "tools/cognitive_complexity.zig"),
+        }),
+        .rules = b.addExecutable(.{
+            .name = "lint",
+            .root_module = tool_module(b, pepegrillo, "tools/lint/main.zig"),
+        }),
+    }));
 
     const unit_test_modules = [_]struct { name: []const u8, module: *std.Build.Module }{
         .{ .name = "core", .module = graph.core },
@@ -167,39 +162,6 @@ fn tool_module(
     const module = host_module(b, root_source_file);
     module.addImport("pepegrillo", pepegrillo);
     return module;
-}
-
-/// `zig build lint`: the cognitive-complexity score over build.zig and every source directory at
-/// the threshold of CLAUDE.md, then the tools/lint rules over the tree. Both tools run on the
-/// build host whatever `-Dtarget` says.
-fn add_lint_step(b: *std.Build, pepegrillo: *std.Build.Module) *std.Build.Step {
-    const complexity = b.addExecutable(.{
-        .name = "cognitive_complexity",
-        .root_module = tool_module(b, pepegrillo, "tools/cognitive_complexity.zig"),
-    });
-    const complexity_run = b.addRunArtifact(complexity);
-    complexity_run.addArgs(&.{ "--max", cognitive_complexity_max });
-    complexity_run.addFileArg(b.path("build.zig"));
-    for (source_directories) |directory| {
-        complexity_run.addDirectoryArg(b.path(directory));
-    }
-
-    const rules = b.addExecutable(.{
-        .name = "lint",
-        .root_module = tool_module(b, pepegrillo, "tools/lint/main.zig"),
-    });
-    const rules_run = b.addRunArtifact(rules);
-    for (lint_rules) |rule| {
-        rules_run.addArgs(&.{ "--rule", rule });
-    }
-    for (lint_rule_directories) |directory| {
-        rules_run.addDirectoryArg(b.path(directory));
-    }
-    rules_run.step.dependOn(&complexity_run.step);
-
-    const lint_step = b.step("lint", "Score cognitive complexity, then run the tools/lint rules");
-    lint_step.dependOn(&rules_run.step);
-    return lint_step;
 }
 
 /// `zig build graph-gate`: design §8 step 0's gate. A module can import only what
