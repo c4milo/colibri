@@ -24,6 +24,7 @@ const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const generated = @import("build/generated.zig");
 const lint = @import("build/lint.zig");
+const vectors = @import("build/vectors.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "src", "tools" };
@@ -122,6 +123,8 @@ pub fn build(b: *std.Build) void {
         .tool_test_step = tool_test_step,
         .golden_tests = golden_tests.?,
     });
+
+    vectors.add(b, .{ .test_step = test_step, .tool_test_step = tool_test_step });
 
     test_step.dependOn(add_graph_gate_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
