@@ -103,13 +103,18 @@ and is re-argued, not edited.
      `AlertDescription` value rather than a record (§4.8).
 
    Both modes also carry `export_keying_material`, RFC 8446 §7.5's exporter, which is the one
-   operation RFC 8446 defines as a standardized, exposed interface.
+   operation RFC 8446 gives a standard interface.
 
    Cost: every consumer supplies a stack, and colibri cannot ship a working client on its own.
    Gain: colibri never links a TLS stack, never holds a private key, never chooses a suite, and
-   the deterministic simulator substitutes a null provider of its own. RFC 8446 defines an API
-   shape for exactly two things — the exporter (§7.5) and
-   the handshake-complete indication (Appendix E.5) — so everything else in this interface is
+   the deterministic simulator substitutes a null provider of its own. RFC 8446 specifies no API
+   shape. It keeps the exporter's interface unchanged from RFC 5705 (§7.5), and it places a few
+   MUSTs on what an implementation lets the application see or choose. The application must be
+   able to tell whether the handshake has completed, and 0-RTT is enabled only when the
+   application asks for it (both Appendix E.5, in its discussion of 0-RTT replay). The
+   exporter_master_secret is used unless the application specifies otherwise (§7.5). No data is
+   sent or received after an error alert (§6). Its API SHOULDs include a separate interface for
+   the early exporter (§7.5) and a way to log alerts (§6.2). The rest of this interface is
    colibri's to specify, citing 8446 only for the semantics.
 
    The exporter is in the interface for both modes, and it is worth stating what it cannot do:
