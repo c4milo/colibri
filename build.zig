@@ -92,6 +92,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "h2", .module = graph.h2 },
         .{ .name = "h3", .module = graph.h3 },
         .{ .name = "sim", .module = graph.sim },
+        .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "golden", .module = graph.golden },
     };
     var golden_tests: ?*std.Build.Step = null;
@@ -124,6 +125,7 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(add_graph_gate_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
+    add_sim_step(b, graph.sim_run);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
 
@@ -221,6 +223,16 @@ fn add_commit_lint_step(
     const run = b.addRunArtifact(tool);
     run.addArgs(&.{ "--range", commit_lint_range });
     const step = b.step("lint-commits", "Check the commit messages this branch adds");
+    step.dependOn(&run.step);
+}
+
+/// `zig build sim -- <arguments>`: the simulator's command line (src/sim/run_main.zig), built in
+/// the mode `-Drelease` selects, so one seed can be replayed in either.
+fn add_sim_step(b: *std.Build, sim_run: *std.Build.Module) void {
+    const simulator = b.addExecutable(.{ .name = "sim", .root_module = sim_run });
+    const run = b.addRunArtifact(simulator);
+    if (b.args) |arguments| run.addArgs(arguments);
+    const step = b.step("sim", "Run the simulator: --chunk-seed <hex> or --chunk-gate [seeds]");
     step.dependOn(&run.step);
 }
 

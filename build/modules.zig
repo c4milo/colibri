@@ -12,6 +12,10 @@
 //! vtables (decisions 8 and 9) and hands its own null providers to the protocol modules in place
 //! of a real caller's. It receives no protocol module, which is what keeps the harness from
 //! knowing anything a caller would not.
+//!
+//! `sim_run` is the driver: the gates and the `zig build sim` command line, rooted at
+//! `src/sim/run.zig`. It receives `sim` and the modules its gates drive, `wire` for design §8
+//! step 2, and `sim` never receives it back, so the direction stays acyclic.
 const std = @import("std");
 
 /// Each module's root is the file named after its directory (`src/core/core.zig`), which lists
@@ -40,6 +44,8 @@ pub const Modules = struct {
     /// The deterministic harness: clock, byte pipe, datagram network, and null providers for both
     /// vtables. Design §10.
     sim: *std.Build.Module,
+    /// The driver: the gates of design §8 over `sim`, and the `zig build sim` command line.
+    sim_run: *std.Build.Module,
     /// The byte-exact corpus and its manifest.
     golden: *std.Build.Module,
 };
@@ -99,6 +105,11 @@ pub fn add(
     sim.addImport("tls", tls);
     sim.addImport("crypto", crypto);
 
+    const sim_run = create(b, "src/sim/run.zig", target, optimize);
+    sim_run.addImport("core", core);
+    sim_run.addImport("wire", wire);
+    sim_run.addImport("sim", sim);
+
     const golden = create(b, "src/golden/golden.zig", target, optimize);
     golden.addImport("core", core);
     golden.addImport("wire", wire);
@@ -115,6 +126,7 @@ pub fn add(
         .h2 = h2,
         .h3 = h3,
         .sim = sim,
+        .sim_run = sim_run,
         .golden = golden,
     };
 }

@@ -25,6 +25,27 @@ pub const chunk_delay_ns_max: u64 = 1_000_000;
 /// test runs.
 pub const gate_seeds_default: u64 = 256;
 
+/// Most values one chunk-gate stream carries before its refused tail, if it has one.
+pub const chunk_gate_values_max: u32 = 16;
+
+/// Longest text one chunk-gate string literal carries, in octets.
+pub const chunk_gate_text_len_max: u32 = 16;
+
+/// Longest encoding of one chunk-gate value, in octets. `chunk_stream.zig` pins it against the
+/// longest Huffman literal.
+pub const chunk_gate_value_len_max: u32 = 72;
+
+/// Longest chunk-gate stream: every value at its longest, and a refused tail.
+pub const chunk_gate_stream_len_max: u32 = (chunk_gate_values_max + 1) * chunk_gate_value_len_max;
+
+/// One chunk-gate seed in this many, on average, ends its stream with a refused encoding.
+pub const chunk_gate_refusal_one_in: u64 = 4;
+
+/// Most octets one chunk-gate trace holds: a record for every octet fed, every value, the refusal,
+/// and the first and last lines, each at its longest.
+pub const chunk_gate_trace_len_max: u32 =
+    (chunk_gate_stream_len_max + chunk_gate_values_max + 3) * trace_record_len_max;
+
 comptime {
     assert(trace_version > 0);
     assert(chunk_len_max > 0);

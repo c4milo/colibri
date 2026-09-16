@@ -42,6 +42,7 @@ pub const config: forbidden_references.Config = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
         .exclude_directories = &.{"src/testing"},
+        .exclude_paths = &.{"src/sim/run_main.zig"},
     },
     .prefixes = &forbidden_prefixes,
     .reason = "colibri owns no I/O (invariant 2)",

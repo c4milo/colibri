@@ -25,6 +25,11 @@ const end_word = "end";
 /// The record every chunk boundary writes, which `write_chunk_independent` leaves out.
 pub const feed_record = "feed";
 
+/// Calls to a line splitter past a trace's octet count: a trace of n octets holds at most n + 1
+/// pieces between its newlines, and one more call finds the end, so a bound of n plus this is
+/// never the reason a loop over the lines stops.
+const split_calls_past_len = 2;
+
 /// The field of the last line that gives how the run ended.
 const outcome_field = " outcome=";
 
@@ -117,8 +122,7 @@ pub const Record = struct {
 /// since the count includes them.
 pub fn write_chunk_independent(text: []const u8, output: *Writer) Error!void {
     var lines = std.mem.splitScalar(u8, text, '\n');
-    // A trace of n octets holds at most n + 1 pieces between its newlines.
-    for (0..text.len + 1) |_| {
+    for (0..text.len + split_calls_past_len) |_| {
         const line = lines.next() orelse return;
         if (line.len == 0 or is_record(line, feed_record)) continue;
         if (is_record(line, end_word)) {
@@ -129,6 +133,17 @@ pub fn write_chunk_independent(text: []const u8, output: *Writer) Error!void {
             try output.write_bytes(line);
         }
         try output.write_byte('\n');
+    }
+    unreachable;
+}
+
+/// How many records of `text`, a trace, are named `name`.
+pub fn count_records(text: []const u8, name: []const u8) u64 {
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    var count: u64 = 0;
+    for (0..text.len + split_calls_past_len) |_| {
+        const line = lines.next() orelse return count;
+        if (is_record(line, name)) count += 1;
     }
     unreachable;
 }
@@ -222,6 +237,22 @@ test "a trace out of room keeps whole lines and counts only what it wrote" {
     try testing.expectEqual(offset, output.offset);
     try testing.expectEqual(1, trace.records);
     try testing.expectError(error.NoSpaceLeft, trace.end("pass"));
+}
+
+test "records are counted by name, at a word boundary" {
+    const text = "feed a=1\nfeeding a=2\nfeed a=3\nend records=3 outcome=pass\n";
+    try testing.expectEqual(2, count_records(text, "feed"));
+    try testing.expectEqual(1, count_records(text, "feeding"));
+    try testing.expectEqual(0, count_records("", "feed"));
+    try testing.expectEqual(0, count_records("\n\n", "feed"));
+}
+
+test "the chunk-independent part of an empty trace is empty" {
+    var buffer: [test_trace_len_max]u8 = @splat(0);
+    var output = Writer.init(&buffer);
+    try write_chunk_independent("", &output);
+    try write_chunk_independent("\n", &output);
+    try testing.expectEqual(0, output.offset);
 }
 
 test "the chunk-independent part keeps every line but feeds, and the outcome without the count" {
