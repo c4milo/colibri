@@ -228,7 +228,13 @@ connection-specific denylist, and the method and status models. `src/golden/` ho
 its mutations. Design §8 step 1 records what was run and what it printed, including the one part
 not built: invariant 3's lint rule.
 
-**Step 2, the deterministic driver, is next.**
+**Step 2 is done on macOS; its Linux half is the owner's.** `src/sim/` holds the seeded
+generator, the clock, the §6.6 trace and the byte pipe, and the `sim_run` module holds the chunk
+gate and `zig build sim` (decision 37). The gate's census digest is committed, so the Linux run is
+`zig build test-sim-run` in Debug and `-Drelease` on a Linux host. The null TLS provider and the
+null crypto suite land with steps 5 and 7, which shape their vtables.
+
+**Step 3, HPACK, is next.**
 
 Decision 9 was ruled on 2026-09-16: two vtables, `tls.Provider` for the handshake and
 `crypto.Suite` for packet protection, so step 7 has the interface it builds against.

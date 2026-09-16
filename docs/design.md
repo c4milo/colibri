@@ -60,6 +60,7 @@ core   <- tls    <- h2, quic
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
+core, wire, sim  <- sim_run
 core             <- golden
 ```
 
@@ -76,6 +77,7 @@ core             <- golden
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
+| `sim_run` | the gates of §8 over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a gate drives | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 
 Three edges are load-bearing and one is forbidden.
@@ -87,7 +89,9 @@ Three edges are load-bearing and one is forbidden.
 - **`sim` imports `core`, `tls` and `crypto`, and no protocol module.** It implements the same two
   vtables a real caller does, so the build hands its null providers to the protocol modules in
   place of the caller's and nothing is conditionally compiled. It cannot import a protocol module,
-  which is what keeps the harness from knowing anything the caller would not.
+  which is what keeps the harness from knowing anything the caller would not. A gate drives a
+  protocol module through the harness, so the one module that imports both is `sim_run`, rooted at
+  `src/sim/run.zig`, and `sim` never imports it back ([decision 37](decisions.md#the-simulator)).
 - **`wire` is shared by both families and holds two different integer codecs.** That is not an
   accident of packaging; [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why
   the split is *field compression against framing* and not h2 against h3.
@@ -615,6 +619,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   does not prove: at step 2 nothing but the harness can differ, so it shows the harness is
   self-consistent. The same gate re-run over a connection at step 4 is the first point at which it
   can fail for any other reason. *Small.*
+
+  **Gate met on macOS, 2026-09-16; the Linux half is the owner's.** `zig build test` exits 0 on
+  Zig 0.16.0, macOS 25.6, arm64, in Debug and with `-Drelease`, and the lint scores 460 functions
+  with a highest score of 12. `zig build sim -- --chunk-gate` prints the same census in both modes:
+  `seeds=256 passed=193 rejected=63 chunks=2551 trace_octets=278583 crc32=0x418c1200`. That
+  digest is `chunk_gate.census_crc32_expected`, and the gate's test requires it, so the Linux run
+  is `zig build test-sim-run` in both modes on a Linux host; it has not been run yet.
+
+  - **Harness.** `src/sim/` holds `Random`, SplitMix64 written out so a Zig upgrade cannot change
+    what a seed replays; `Clock`, which moves only when the pipe advances it; `Trace`, the §6.6
+    format over a `core.Writer`; and `pipe.run`, which feeds a stream to any subject with `step`
+    and `describe` in chunks of 1 to `chunk_len_max` octets after delays of up to
+    `chunk_delay_ns_max`, writing a `feed` record per chunk and an `accept` or `reject` per value.
+  - **Gate.** `src/sim/chunk_gate.zig`, in the `sim_run` module. Each seed draws 1 to 16 values
+    across the varint, the prefixed integer at every prefix size, and the string literal at every
+    prefix size in both codings, and one seed in four appends an encoding a decoder refuses. The
+    seed runs chunked twice and in one piece once: the two chunked traces must match byte for
+    byte with the same draw count, the chunked run's accept and reject records must be the
+    one-piece run's, the outcome must be what the plan says, and the run in one piece must feed
+    exactly once, without which the comparison is vacuous.
+  - **Driver.** `zig build sim -- --chunk-seed <hex>` prints one seed's chunked trace and its
+    outcome; `--chunk-gate [seeds]` prints the census or the seed that failed. `src/sim/run_main.zig`
+    is the one file under `src/sim/` the `io` rule exempts, by path.
+  - **Not built.** The null TLS provider and the null crypto suite. `tls.Provider` and
+    `crypto.Suite` do not exist yet, and no step 2 subject calls a provider, so each null
+    implementation lands with the step that shapes its vtable: the provider with step 5, the suite
+    with step 7 (design §10 fixes the suite's sizes: a 16-octet tag and a 5-octet mask).
+
+  Twenty-nine mutations over the generator, the clock, the trace, the pipe, the stream, the gate
+  and the command line were applied, run against `zig build test-sim` or `test-sim-run`, and
+  reverted, plus three over the `wire` decoders, which the gate must see: every one **CAUGHT**,
+  eight after a new test. The three that mattered most: a chunked run replaced by a run in one
+  piece, the reverse, and a replay restarted from the seed rather than from the generator as it
+  stood after the stream was drawn.
 
 - **Step 3 — HPACK.** Static table, dynamic table with the shared size arithmetic, all five
   representations, the size-update instruction. **Gate:** `http2jp/hpack-test-case` decoded across

@@ -680,3 +680,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     change is a pepegrillo commit before it is a colibri one, and a bump must also copy the hook.
     Gain: one copy of the tooling; the hash as the guard against an edited copy; and
     `zig build --fork=<path>`, which builds this tree against an unpushed pepegrillo checkout.
+
+## The simulator
+
+37. **The gates and the `zig build sim` command line are a module of their own, `sim_run`, rooted
+    at `src/sim/run.zig`.** Ruled by the owner on 2026-09-16. A gate drives a protocol module
+    through the harness, so some module must import both `sim` and the module under test, and
+    that is a new edge in the §3 graph. `sim_run` takes it: `core`, `wire` and `sim` at step 2,
+    and each protocol module as its gate lands. `sim` never imports `sim_run`, so the direction
+    stays acyclic, and `sim` still imports no protocol module. stompy's `sim_run` is the shape.
+
+    Two alternatives lost. A `testing` module under `src/testing/` needs no lint exemption, since
+    that directory is already the one permitted to touch a socket, but it departs from stompy's
+    layout for no gain, and design §9's entry points are servers, not gates. `sim` importing
+    `wire` directly puts a codec in the harness, which §3 forbids, and still leaves the command
+    line with no home. Cost: `src/sim/run_main.zig` reads arguments and writes to the terminal, so
+    `tools/lint/io.zig` exempts that one file by path.
