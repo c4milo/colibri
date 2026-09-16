@@ -59,8 +59,9 @@ These are not style preferences; the architecture depends on them.
    *states* the rule, not the one that inherits it: h2's lowercase-field-name rule is RFC 9113
    §8.2, with its receive-side check in §8.2.1 — not RFC 9110.
 10. **Read the RFCs, never a summary and never another implementation's source.** RFC 9113
-    obsoletes RFC 7540 — do not read 7540, and do not cite it. The local copies live outside the
-    tree; fetch them from rfc-editor.org.
+    obsoletes RFC 7540 — do not read 7540, and do not cite it. The copies to read are in
+    `docs/rfcs/`, unmodified from rfc-editor.org, with `docs/rfcs/SHA256SUMS` to show they stay
+    that way.
 
 ## Tests are proved by mutation
 
