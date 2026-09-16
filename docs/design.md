@@ -175,8 +175,8 @@ RFC text. The summary, because it is the question the module graph answers:
 | Candidate | Verdict | Where it lives |
 |---|---|---|
 | Huffman code, RFC 7541 App. B | **shared**, verbatim — RFC 9204 §4.1.2 | `wire/huffman.zig` |
-| Prefixed integers, RFC 7541 §5.1 | **shared**, unmodified — RFC 9204 §4.1.1 | `wire/prefix_int.zig` |
-| String literals, RFC 7541 §5.2 | **shared**, with QPACK's mid-byte prefix added | `wire/string.zig` |
+| Prefixed integers, RFC 7541 §5.1 | **shared**, unmodified — RFC 9204 §4.1.1 | `wire/prefixed_integer.zig` |
+| String literals, RFC 7541 §5.2 | **shared**, with QPACK's mid-byte prefix added | `wire/string_literal.zig` |
 | Dynamic-table size formula | **shared** arithmetic — 7541 §4.1, 9204 §3.2.1 | `wire/table_size.zig` |
 | RFC 9110 semantics core | **shared**; the *verdicts* are not | `http/` |
 | Bounded slot pool with a watermark | **shared** structure; the rules are not | `core/slots.zig` |
@@ -353,7 +353,11 @@ leaves the caller to place the struct.
 `continuation_count_max` · `concurrent_streams_max` · `window_initial` · `window_max` (2^31 − 1) ·
 `settings_pending_max` · `ping_pending_max` · `rst_stream_rate_max` · `settings_timeout_ns`.
 
-**HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` · `integer_octets_max` ·
+**wire** (`wire`): `varint_value_max` (2^62 − 1, RFC 9000 §16) · `integer_value_max` (2^62 − 1, the
+62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 octets, the length those 62 bits need
+past a 1-bit prefix) · `huffman_padding_bits_max` (7, RFC 7541 §5.2).
+
+**HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` ·
 `huffman_expansion_max` (a 5-bit minimum code means Huffman data expands by up to 1.6x, so
 bounding the input does not bound the output) · `blocked_streams_max` · `encoder_stream_bytes_max`.
 
@@ -429,6 +433,124 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   padding that is not EOS's high bits, EOS inside the data) and one per varint length; RFC 9000
   Appendix A's sample varint decodings; fuzzing of every decoder; and a mutation per check
   reported `CAUGHT`. *Small to medium.*
+
+  **Gate met, 2026-09-16.** `zig build test` exits 0 on Zig 0.16.0, macOS 25.6, arm64:
+  262 tests pass, the lint scores 583 functions with a highest score of 12 against the limit of
+  15, the eight `tools/lint` rules run clean, and `huffman_table --check` confirms that
+  `src/wire/huffman_table.zig` is what RFC 7541 Appendix B yields.
+
+  - **Reader and writer.** `core.Reader` and `core.Writer` work over caller-owned slices and hold
+    no memory ([decision 35](decisions.md#memory)). A read or write that does not fit returns an
+    error and moves no cursor, and each entry point asserts that the cursor is inside the slice
+    ([invariant 3](invariants.md#inv-3--every-write-is-inside-the-callers-buffer)). Every decoder
+    built on them consumes a whole structure or nothing.
+  - **Huffman table.** `tools/huffman_table.zig` generates the table from the RFC text. It reads
+    both code columns of every row and refuses a row where they disagree. Comptime asserts in
+    `src/wire/huffman.zig` pin Kraft equality, EOS as thirty set bits, and the canonical order the
+    decoder depends on. The octets 204 and 22 encode to `ff ff fb ff ff ff ff 7f`, whose run of
+    thirty-four ones decodes with no EOS
+    ([decision 11](decisions.md#what-is-shared-between-h2-and-h3)).
+  - **Corpus.** `src/golden/` holds 32 cases in four formats, 14 of them invalid, each format with
+    a version 1 manifest: 10 varint, 9 prefixed integer, 7 Huffman and 6 string literal. They cover
+    one valid case and one truncation per varint length, RFC 9000 Appendix A.1's five sample
+    decodings, RFC 7541 Appendix C.1's three integers, the Appendix C strings, one case per Huffman
+    decode error, and QPACK's mid-octet string literal at 4-bit and 2-bit prefixes.
+    `zig build golden-check` compares every committed file and manifest with the case table, and
+    runs the 15 corpus mutations of `src/golden/mutations.zig`, each of which produces the verdict
+    it names.
+  - **Fuzzing.** Every decoder and validator has a `std.testing.fuzz` property function.
+    `zig build test` runs each one over its corpus and over every input of up to two octets, at
+    every prefix size where the decoder takes one (`core.fuzz.sweep`). The fuzzer itself does not
+    run: with Zig 0.16.0, `zig build test-wire --fuzz` fails to compile the fuzz-mode test runner,
+    because `lib/compiler/test_runner.zig:566` passes a `builtin.StackTrace` where
+    `std.debug.writeStackTrace` takes a `debug.StackTrace`. The property functions are ready for a
+    toolchain that fixes it. A corpus entry is not raw octets: outside `--fuzz`, `Smith` reads a
+    4-octet length before each slice, which `core.fuzz.input` writes.
+  - **Not built.** Invariant 3's lint rule, no slicing with a peer-derived index outside the reader
+    and writer, is not written. Its runtime assertions and fuzzing are.
+
+  Seventy-two source mutations were applied, run against the narrowest test step that can catch
+  them, and reverted. The first run found one `NOT CAUGHT`: an encoder that ended the prefixed
+  integer one value early wrote `ff 00` for a remainder of 127, which decodes to the same value, so
+  no test saw it. The test "continuation octets follow only while the remainder is 128 or more" now
+  pins RFC 7541 §5.1's loop condition. Five mutations failed only to compile, because they left a
+  local unused, which proves nothing about the rule. Each was replaced with a mutation that
+  compiles. Every row below is the final result.
+
+  | Mutation | Result | Caught by |
+  |---|---|---|
+  | reader: take accepts one octet past the end | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | reader: peek_byte skips the empty check | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | reader: read_byte does not advance | **CAUGHT** | test `reader`: "a read inside the slice returns the octets and moves the cursor" |
+  | reader: read_int shifts seven bits | **CAUGHT** | test `reader`: "integers read in network byte order" |
+  | writer: write_bytes accepts one octet past the end | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | writer: write_byte skips the full check | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | writer: write_int writes little-endian | **CAUGHT** | test `writer`: "a write inside the buffer lands and moves the cursor" |
+  | writer: print advances at most one octet | **CAUGHT** | test `writer`: "formatted text lands whole or not at all" |
+  | varint: length read from the top bit alone | **CAUGHT** | test `varint`: "a non-minimal encoding decodes and re-encodes at its own length" |
+  | varint: length bits left in the value | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | varint: encoder writes the length bits one place low | **CAUGHT** | test `varint`: "a non-minimal encoding decodes and re-encodes at its own length" |
+  | varint: one-octet range includes 64 | **CAUGHT** | test `varint`: "each length's largest value round-trips and one more needs the next length" |
+  | prefixed integer: a full prefix read as the value | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
+  | prefixed integer: continuation flag read from bit 6 | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
+  | prefixed integer: value limit one past 62 bits | **CAUGHT** | test `prefixed_integer`: "a value one past the ceiling is IntegerTooLarge" |
+  | prefixed integer: octet limit one longer | **CAUGHT** | test `prefixed_integer`: "an eleventh octet is IntegerTooLong even when every group is zero" |
+  | prefixed integer: groups shifted by eight | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
+  | prefixed integer: caller high bits kept in the prefix | **CAUGHT** | test `prefixed_integer`: "the high bits belong to the caller and never change the value" |
+  | prefixed integer: encoder ends one value early | **CAUGHT** | test `prefixed_integer`: "continuation octets follow only while the remainder is 128 or more" |
+  | prefixed integer: failed decode still consumes | **CAUGHT** | test `prefixed_integer`: "a value one past the ceiling is IntegerTooLarge" |
+  | wire constants: integer_len_max nine | **CAUGHT** | comptime assert |
+  | huffman: EOS compared with symbol 255 | **CAUGHT** | test `huffman`: "every octet round-trips, and the empty string is empty" |
+  | huffman: EOS found by scanning for thirty ones (invariant 12) | **CAUGHT** | test `huffman`: "octets 204 and 22 decode through a run of thirty-four ones with no EOS" |
+  | huffman: padding of eight bits allowed | **CAUGHT** | test `huffman`: "padding longer than seven bits is HuffmanPaddingTooLong" |
+  | huffman: padding not checked against EOS | **CAUGHT** | test `huffman`: "padding that is not a prefix of EOS is HuffmanPaddingNotEos" |
+  | huffman: canonical range admits one code too many | **CAUGHT** | test `huffman`: "octets 204 and 22 decode through a run of thirty-four ones with no EOS" |
+  | huffman: encoder pads with zeros | **CAUGHT** | test `huffman`: "octets 204 and 22 decode through a run of thirty-four ones with no EOS" |
+  | huffman: failed decode commits partial output | **CAUGHT** | test `huffman`: "a complete EOS inside the data is HuffmanEosInData, even before a valid symbol" |
+  | huffman table: one code changed | **CAUGHT** | comptime assert |
+  | huffman table: one length changed | **CAUGHT** | comptime assert |
+  | huffman table: generated comment edited by hand | **CAUGHT** | `huffman_table --check` in `zig build test` |
+  | string literal: H flag one bit low | **CAUGHT** | test `string_literal`: "a Huffman error inside the data fails the literal and consumes nothing" |
+  | string literal: length read at N bits | **CAUGHT** | test `string_literal`: "a Huffman error inside the data fails the literal and consumes nothing" |
+  | string literal: declared length clamped to the data present | **CAUGHT** | test `string_literal`: "a length longer than the data present is Truncated and consumes nothing" |
+  | string literal: Huffman data copied raw | **CAUGHT** | test `string_literal`: "a Huffman error inside the data fails the literal and consumes nothing" |
+  | string literal: decode never commits the reader | **CAUGHT** | test `string_literal`: "fuzz: a literal consumes its whole length or nothing" |
+  | field: bar dropped from tchar | **CAUGHT** | test `field`: "every tchar RFC 9110 §5.6.2 lists is a tchar, and nothing else is" |
+  | field: empty name accepted | **CAUGHT** | test `field`: "a field name is a non-empty token within the limit" |
+  | field: name limit refuses the limit itself | **CAUGHT** | test `field`: "a field name is a non-empty token within the limit" |
+  | field: name octets above 0x7f accepted | **CAUGHT** | test `field`: "a field name is a non-empty token within the limit" |
+  | field: CR not refused as CR | **CAUGHT** | test `field`: "a field value is refused in check order" |
+  | field: HTAB reported as control | **CAUGHT** | test `field`: "a field value admits VCHAR, obs-text and inner whitespace" |
+  | field: DEL not a control | **CAUGHT** | test `field`: "a field value is refused in check order" |
+  | field: control octets accepted | **CAUGHT** | test `field`: "a field value is refused in check order" |
+  | field: leading whitespace accepted | **CAUGHT** | test `field`: "a field value is refused in check order" |
+  | field: trailing whitespace read from the first octet | **CAUGHT** | test `field`: "a field value is refused in check order" |
+  | field: value limit refuses the limit itself | **CAUGHT** | test `field`: "a field value admits VCHAR, obs-text and inner whitespace" |
+  | field: names compared case-sensitively | **CAUGHT** | test `field`: "field names compare case-insensitively" |
+  | connection-specific: Connection dropped | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | connection-specific: Proxy-Connection dropped | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | connection-specific: Keep-Alive dropped | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | connection-specific: TE dropped | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | connection-specific: Transfer-Encoding dropped | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | connection-specific: Upgrade dropped | **CAUGHT** | test panicked (null unwrap or bounds check) |
+  | connection-specific: TE trailers matched by prefix | **CAUGHT** | test `connection_specific`: "TE is trailers only when it says exactly that" |
+  | method: empty method accepted | **CAUGHT** | test `method`: "a method that is not a token is refused" |
+  | method: space accepted in a method | **CAUGHT** | test `method`: "a method that is not a token is refused" |
+  | method: standard methods matched case-insensitively | **CAUGHT** | test `method`: "a method is case-sensitive, and an unknown token is still a method" |
+  | status: 99 in range | **CAUGHT** | test `status`: "the range ends are 100 and 599" |
+  | status: 600 in range | **CAUGHT** | test `status`: "the range ends are 100 and 599" |
+  | status: four digits accepted | **CAUGHT** | test `status`: "three digits parse, and anything else is refused in check order" |
+  | status: digits not checked | **CAUGHT** | test `status`: "three digits parse, and anything else is refused in check order" |
+  | status: recognised codes not kept | **CAUGHT** | test `status`: "an unrecognised code is understood as the x00 of its class" |
+  | status: 426 dropped from the recognised codes | **CAUGHT** | test `status`: "the recognised codes are exactly those RFC 9110 §15.2 to §15.6 define" |
+  | golden: constructor value changed | **CAUGHT** | test `golden`: "golden-check: every committed case file is what its constructor builds" |
+  | golden: rejection named wrongly | **CAUGHT** | test `golden`: "golden-check: every committed manifest is what the table renders" |
+  | golden: manifest checksum edited | **CAUGHT** | test `golden`: "golden-check: every committed manifest is what the table renders" |
+  | golden: corpus mutation names the wrong verdict | **CAUGHT** | test `golden`: "golden-check: every corpus mutation produces the verdict it names" |
+  | golden tool: frozen marker ignored | **CAUGHT** | test `golden`: "a frozen directory is refused and a writable one is written in full" |
+  | golden tool: stale cases kept | **CAUGHT** | test `golden`: "a frozen directory is refused and a writable one is written in full" |
+  | huffman tool: only a larger hex column refused | **CAUGHT** | test `huffman_table`: "a row whose bits and hex disagree is refused" |
+  | huffman tool: symbol order not checked | **CAUGHT** | test `huffman_table`: "a missing, reordered or short appendix is refused" |
 
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the

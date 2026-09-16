@@ -186,6 +186,8 @@ writes to, and it moves when the step lands, not before.
   a mutation is measured against.
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
+- Huffman table: `zig build huffman-table` regenerates `src/wire/huffman_table.zig` from RFC 7541
+  Appendix B, and `zig build test` fails when the committed table differs from what the RFC yields.
 - Simulator: `zig build sim -- --<gate>-seed <hex>` runs one seed and prints its trace;
   `zig build sim -- --<gate>-gate [seeds]` runs the gate over `[0, seeds)` and prints the census.
   Every gate is also a test inside its module, so `zig build test` runs them, silently.
@@ -207,8 +209,14 @@ what, and what it printed.
 their `constants.zig`, and `zig build test` runs the lint, every module's tests and the graph
 gate. Design §8 step 0 records what was run and what it printed.
 
-**Step 1 — `wire` and `http` — is next.** Nothing of either is written: every `src/<module>/`
-holds a root and a `constants.zig` and no protocol code.
+**Step 1 is done.** `core` holds the bounded reader and writer (invariant 3) and the shared fuzz
+harness. `wire` holds the varint, the prefixed integer, the Huffman coder over a table generated
+from RFC 7541 Appendix B, and the string literal. `http` holds the field validators, the
+connection-specific denylist, and the method and status models. `src/golden/` holds the corpus and
+its mutations. Design §8 step 1 records what was run and what it printed, including the one part
+not built: invariant 3's lint rule.
+
+**Step 2, the deterministic driver, is next.**
 
 Decision 9 was ruled on 2026-09-16: two vtables, `tls.Provider` for the handshake and
 `crypto.Suite` for packet protection, so step 7 has the interface it builds against.
