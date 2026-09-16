@@ -18,6 +18,7 @@ RFC 7540 is deliberately absent. RFC 9113 obsoletes it, and colibri never reads 
 | RFC | Title | What colibri uses it for |
 |---|---|---|
 | [9110](rfc9110.txt) | HTTP Semantics | The semantics core h2 and h3 share (decision 15) |
+| [5234](rfc5234.txt) | Augmented BNF for Syntax Specifications: ABNF | The core rules RFC 9110 §2.1 includes, and case-insensitive quoted strings (decision 15) |
 | [9111](rfc9111.txt) | HTTP Caching | Not implemented; its conformance bar is zero (decision 16) |
 | [9112](rfc9112.txt) | HTTP/1.1 | Not implemented; read to state why (decision 2) |
 | [9113](rfc9113.txt) | HTTP/2 | `h2` |
