@@ -709,3 +709,38 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     out of `zig build test`, leaving it to be run by hand like h2spec. A converted binary form
     adds a colibri format to version, a regenerate-and-check pair, and a copy of the corpus that
     is not what its authors published. Cost: a clone carries the corpus.
+
+## The h2 connection
+
+39. **The connection consumes one frame per call and returns what it produced.** Design §4.1 has
+    the caller hand colibri the octets it read and learn how many were consumed. `receive` takes a
+    slice and an instant, consumes at most one whole frame, and returns the count consumed and at
+    most one event: a field section, a data payload, a stream reset, a GOAWAY, an acknowledged
+    PING or SETTINGS. A count of 0 means the slice holds no whole frame yet. Frames colibri owes in
+    reply, a SETTINGS or PING acknowledgment, a WINDOW_UPDATE, a RST_STREAM, a GOAWAY, are queued
+    in fixed slots and written by `write_pending` into the caller's buffer when the caller asks.
+
+    Two alternatives lost. Consuming every whole frame in the slice needs somewhere to hold every
+    event that produces, and a bounded event queue either drops events or refuses input, both of
+    which hide a peer's frame from the caller. Callbacks the caller registers give colibri a call
+    it makes at a time of its choosing, which design §4 forbids. Cost: a caller loops over
+    `receive` until it returns 0, one frame per iteration. Gain: an event's slices point into the
+    caller's own input or into one slot the connection owns, valid until the next call, and no
+    frame is ever processed before the caller has seen the last one's event.
+
+40. **A field block is decoded fragment by fragment, and the connection holds one partial
+    representation, never a whole block.** RFC 9113 §4.3 delivers a field block as a HEADERS or
+    PUSH_PROMISE frame and any number of CONTINUATION frames, contiguous on the connection. Each
+    fragment is fed to the HPACK decoder as it arrives, which reads every representation the
+    fragment completes and leaves the cursor at the first it does not (hpack's block reader is
+    all-or-nothing per representation for this reason). The connection keeps that tail, at most
+    one representation long, and prepends it to the next fragment. The decoded lines go into one
+    field section slot on the connection, and END_HEADERS hands the section to the caller.
+
+    The alternative lost is reassembling the whole block before decoding, which needs storage of
+    `continuation_count_max` times `frame_size_max` octets per connection, 512 KiB at the limits,
+    for a block that decodes to at most `field_section_size_max`. Cost: a representation that
+    spans two fragments is read twice, once to find it cut and once whole. Gain: the slot is one
+    representation plus one frame, invariant 14's byte count is a counter rather than a buffer,
+    and a peer that never sends END_HEADERS holds no more memory than one that does; the count of
+    CONTINUATION frames is still bounded by `continuation_count_max` (§10.5's limits).
