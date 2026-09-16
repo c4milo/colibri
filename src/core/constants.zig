@@ -21,6 +21,12 @@ pub const field_value_len_max: u32 = 8192;
 /// the limit sets its size.
 pub const field_count_max: u32 = 128;
 
+/// Octets added to a field line's name and value lengths wherever both protocols measure lines:
+/// a field section against `SETTINGS_MAX_HEADER_LIST_SIZE` (RFC 9113 §6.5.2) and
+/// `SETTINGS_MAX_FIELD_SECTION_SIZE` (RFC 9114 §4.2.2), and a dynamic table entry (RFC 7541 §4.1,
+/// RFC 9204 §3.2.1). The four give the same formula, and this is its one constant.
+pub const field_line_overhead: u32 = 32;
+
 /// Largest field section colibri will accept, measured the way both protocols measure it: the sum
 /// over field lines of `name_len + value_len + 32`, on the unencoded strings (RFC 9113 §6.5.2,
 /// RFC 9114 §4.2.2). colibri advertises this value to the peer and enforces it locally; RFC 9113
@@ -42,9 +48,10 @@ pub const streams_per_connection_max: u32 = 128;
 comptime {
     // A field section that could not hold one maximal field line would make the two limits
     // disagree, and the disagreement would surface as a refusal the peer cannot diagnose.
-    assert(field_section_size_max >= field_name_len_max + field_value_len_max + 32);
+    assert(field_section_size_max >= field_name_len_max + field_value_len_max + field_line_overhead);
     // The per-line limits must fit the accounting type the size formula uses.
-    assert(@as(u64, field_name_len_max) + field_value_len_max + 32 <= std.math.maxInt(u32));
+    assert(@as(u64, field_name_len_max) + field_value_len_max + field_line_overhead <= std.math.maxInt(u32));
+    assert(field_line_overhead == 32);
     // A fixed array of this many field lines is the section's storage; keep it representable.
     assert(field_count_max > 0);
     assert(connections_max > 0);
@@ -52,7 +59,7 @@ comptime {
 }
 
 test "field_section_size_max admits one maximal field line" {
-    const line_size: u64 = @as(u64, field_name_len_max) + field_value_len_max + 32;
+    const line_size: u64 = @as(u64, field_name_len_max) + field_value_len_max + field_line_overhead;
     try std.testing.expect(line_size <= field_section_size_max);
 }
 

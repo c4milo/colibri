@@ -6,6 +6,7 @@
 //! primitive (decision 11). They share a 62-bit ceiling and nothing else.
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
 
 /// Largest value a QUIC variable-length integer carries: 62 usable bits (RFC 9000 §16).
 pub const varint_value_max: u64 = (1 << 62) - 1;
@@ -45,9 +46,8 @@ pub const string_prefix_bits_min: u4 = 2;
 pub const integer_continuation_bits: u8 = 7;
 
 /// Octets added to an entry's name and value lengths when a dynamic table's size is computed
-/// (RFC 7541 §4.1, RFC 9204 §3.2.1). The RFCs estimate it as two 64-bit pointers and two 64-bit
-/// reference counts, and fix it so both endpoints account alike.
-pub const table_entry_overhead: u32 = 32;
+/// (RFC 7541 §4.1, RFC 9204 §3.2.1): the one constant both protocols measure field lines by.
+pub const table_entry_overhead: u32 = core.constants.field_line_overhead;
 
 /// Symbols in the Huffman code: the 256 octets and EOS (RFC 7541 Appendix B).
 pub const huffman_symbol_count: u16 = 257;
