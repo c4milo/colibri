@@ -111,6 +111,7 @@ test "rfc-citation reads neither operational errors, test errors nor test blocks
         \\pub fn take(self: *Reader, len: usize) ![]const u8 {
         \\    if (len > self.remaining_len()) return error.Truncated;
         \\    if (len > self.buffer.len) return error.NoSpaceLeft;
+        \\    if (len > self.slots.len) return error.Full;
         \\    return error.TestUnexpectedResult;
         \\}
         \\test "a refusal" {

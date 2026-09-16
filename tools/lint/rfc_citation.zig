@@ -19,8 +19,8 @@
 //!
 //! Two kinds of error are not RFC rules, and the rule does not read them:
 //!
-//! - `operational_errors`: a short input or a full output buffer, which CLAUDE.md calls operational
-//!   and which no RFC states.
+//! - `operational_errors`: a short input, a full output buffer or a full pool, which CLAUDE.md calls
+//!   operational and which no RFC states.
 //! - a name starting `Test`, which a fuzz property function returns to fail its test.
 //!
 //! What the rule cannot see. It reads `return error.Name` only, so a validation that returns
@@ -47,9 +47,9 @@ pub const scope: Scope = .{
     .exclude_directories = &.{ "src/golden", "src/sim", "src/testing" },
 };
 
-/// Errors that report a short input or a full output buffer. CLAUDE.md calls these operational,
-/// and no RFC states them, so they need no citation.
-const operational_errors = [_][]const u8{ "Truncated", "NoSpaceLeft" };
+/// Errors that report a short input, a full output buffer or a full pool. CLAUDE.md calls these
+/// operational: a limit reached, which no RFC states, so they need no citation.
+const operational_errors = [_][]const u8{ "Truncated", "NoSpaceLeft", "Full" };
 
 /// The prefix of an error a fuzz property function returns to fail its test.
 const test_error_prefix = "Test";

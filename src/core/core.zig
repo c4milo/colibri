@@ -11,6 +11,11 @@ pub const writer = @import("writer.zig");
 pub const Reader = reader.Reader;
 pub const Writer = writer.Writer;
 
+/// The bounded slot pool with a per-class watermark of decision 14 and invariant 13, which the
+/// h2 and QUIC stream tables are built on.
+pub const slots = @import("slots.zig");
+pub const Pool = slots.Pool;
+
 /// The fuzz harness every decoder's tests share. Test-only.
 pub const fuzz = @import("fuzz.zig");
 
@@ -19,5 +24,6 @@ test {
     _ = constants;
     _ = reader;
     _ = writer;
+    _ = slots;
     _ = fuzz;
 }
