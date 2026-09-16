@@ -119,9 +119,12 @@ exists — never propose a second one.
 
 - A commit message is a Conventional Commit: `type(scope)!: description`, with the scope and the
   `!` optional. The type is one of a closed set — `feat`, `fix`, `docs`, `test`, `refactor`,
-  `perf`, `build`, `ci`, `chore` — and a scope, when present, holds lowercase letters and
-  hyphens. Scopes track the module graph: `h2`, `h3`, `quic`, `hpack`, `qpack`, `wire`, `http`,
-  `tls`, `crypto`, `core`, `sim`, `golden`, `bench`.
+  `perf`, `build`, `ci`, `chore` — and a scope, when present, holds lowercase letters, digits and
+  hyphens. The digits are not decoration: `h2` and `h3` are the two commonest scopes, and a rule
+  admitting letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`,
+  `hpack`, `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`. A scope
+  outside that set is a warning rather than a refusal, because the set grows when the graph does
+  and docs/design.md §3 is the authority on it, not the linter.
 - The description is imperative, starts with a lowercase letter, and ends without a period: write
   `add the huffman decoder`, never `Adds the Huffman decoder.` The subject line stays at or under
   72 columns.
@@ -194,13 +197,17 @@ what, and what it printed.
 
 ## Current task
 
-Design §8 step 0 — scaffolding — is next, and nothing before it is written. The four documents
-are committed; no protocol code exists.
+**Step 0 is done.** Decision 3 was ruled on 2026-09-16: `quic` is a module inside colibri taking
+`core`, `wire`, `crypto` and `tls`. `build.zig` wires the §3 graph, the twelve module roots carry
+their `constants.zig`, and `zig build test` runs the lint, every module's tests and the graph
+gate. Design §8 step 0 records what was run and what it printed.
 
-The three decisions waiting on the owner are in docs/decisions.md: entry 3 (QUIC as a module
-rather than its own repository), entry 9 (the packet-protection vtable, which is how h3 gets AES
-without chapulin), and the ask to chapulin in entry 10. Do not start step 0 before entry 3 is
-ruled on: step 0 writes the module graph into `build.zig` and states its gate over `src/quic/`.
+**Step 1 — `wire` and `http` — is next.** Nothing of either is written: every `src/<module>/`
+holds a root and a `constants.zig` and no protocol code.
+
+Two decisions still wait on the owner: docs/decisions.md entry 9 (the packet-protection vtable,
+which is how h3 gets AES without chapulin) and entry 10 (the ask to chapulin). Entry 9 wants
+settling before step 7; neither blocks step 1.
 
 One gap the plan names and does not close: no step delivers a TLS implementation, and every gate
 from step 5 onward needs a TLS 1.3 server with certificate signing. Design §8 step 5 records it

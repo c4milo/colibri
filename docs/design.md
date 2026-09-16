@@ -386,10 +386,38 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   loop, relative-import, magic numbers, markdown GFM) plus colibri's own three: the `io` import
   denylist, the module-graph rule, and the RFC-citation rule, which fails a validation branch
   carrying no RFC section comment. Commit hooks.
-  **Gate:** `zig build lint` and `zig build test` pass on an empty tree, and a deliberately added
-  `@import("http")` inside `src/quic/` fails to build. That last clause is the one that matters —
-  it proves [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) is enforced by the
-  build rather than by review. *Small.*
+  **Gate:** `zig build lint` and `zig build test` pass, and a deliberately added `@import("http")`
+  inside `src/quic/` fails to build. That last clause is the one that matters — it proves
+  [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) is enforced by the build
+  rather than by review. *Small.*
+
+  **Gate met, 2026-09-16.** `zig build test` exits 0: the lint scores 396 functions across
+  `build/`, `src/`, `tools/` and `build.zig` with a highest score of 11 against the limit of 15;
+  the eight `tools/lint` rules run clean; twelve module test binaries pass; and `zig build
+  graph-gate` prints the control line and five refusals. Zig 0.16.0 on macOS 25.6, arm64.
+
+  The gate is two halves, and saying so matters because neither half alone is what it looks like.
+  `tools/graph_gate.zig` compiles a fixture as the root of a module carrying `quic`'s import set
+  and requires the compile to fail — that is a real compiler verdict, not a rule about what the
+  source says. But the set it compiles against is a list in the tool, so the `module-graph` lint
+  rule reads `build/modules.zig` and `tools/graph_gate.zig` and requires the two to agree. The
+  compile proves the consequence; the rule proves the premise.
+
+  Three properties of the gate were checked by mutation rather than assumed, each applied, run,
+  and reverted:
+  - `http` added to the tool's import set — **CAUGHT**, the fixture compiled and the gate exited 1
+    naming INV-26.
+  - The fixture's `comptime` block removed, making the import lazy — **CAUGHT**, and it fails loud
+    rather than silent, which is why the block is there: Zig analyses lazily, so an unreferenced
+    `const x = @import("http");` compiles clean and would have made the gate vacuous.
+  - `quic.addImport("http", http)` added to `build/modules.zig` — **CAUGHT** by `module-graph` in
+    both directions (the build gained an import the graph forbids; the tool's list no longer
+    matched), and `zig build test` exited 1.
+
+  The positive control is what stops the whole thing being vacuous: a sixth fixture imports
+  `core`, which `quic` does have, and must compile. A run where the control fails is reported as a
+  broken gate rather than a pass — and it did fail on the first run, on a real defect (`--dep=x`
+  instead of `--dep x`), which is the control earning its place.
 
 - **Step 1 — `wire` and `http`.** The varint (RFC 9000 §16), the prefixed integer generic over N
   in 1..8 and sized for 62 bits, the Huffman coder over RFC 7541 Appendix B, the string literal
