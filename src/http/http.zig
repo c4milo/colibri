@@ -6,7 +6,16 @@ const std = @import("std");
 pub const core = @import("core");
 pub const constants = @import("constants.zig");
 
+pub const field = @import("field.zig");
+pub const connection_specific = @import("connection_specific.zig");
+pub const method = @import("method.zig");
+pub const status = @import("status.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
+    _ = field;
+    _ = connection_specific;
+    _ = method;
+    _ = status;
 }
