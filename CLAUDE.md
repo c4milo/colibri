@@ -182,8 +182,9 @@ writes to, and it moves when the step lands, not before.
   offered, because assertions stay on in production.
 - Lint: `zig build lint` — cognitive complexity over `src`, `tools`, `build/` and `build.zig`,
   then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG), unbounded-loop,
-  relative-import, module-graph, magic-numbers, markdown GFM, file length, RFC-citation
-  (a validation branch with no RFC section comment). Design §8 step 0 lands all eleven.
+  relative-import, module-graph, magic-numbers, markdown GFM, file length, rfc-citation
+  (a validation branch with no RFC section comment) and peer-index (invariant 3). Every rule
+  `tools/lint/main.zig` registers gates, and a canary tree in `build/lint.zig` proves it.
 - Test: `zig build test` — depends on `lint`, then every module's unit tests and `golden-check`.
   `zig build test-<module>` runs one target's tests with nothing else in the graph, which is what
   a mutation is measured against.

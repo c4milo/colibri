@@ -67,7 +67,8 @@ lands its check.
   reads past the end of the bytes it was told are present.
 - **Mechanism.** All output goes through one bounds-checked writer and all parsing through one
   bounds-checked reader. No raw pointer arithmetic exists outside those two files.
-- **Check.** Lint rule (no slicing with a peer-derived index outside the reader and writer), plus
+- **Check.** Lint rule (`tools/lint/peer_index.zig`: no index or slice bound that reads a value
+  a `Reader` produced, followed through one function, outside the reader and writer), plus
   a runtime assertion at every reader and writer entry that the cursor is within the slice, plus
   fuzzing of every parser. Step 1.
 - **Violation.** A parser that reads a length, then slices with it, and checks the length

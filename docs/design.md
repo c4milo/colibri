@@ -431,8 +431,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the graph gate. Old and new tools printed the same findings for all eight rules, the same scores
   at `--max 15` and `--max 0`, and the same commit verdicts, over this tree, stompy's and
   pepegrillo's. Each of the 62 configuration lines was mutated once and every mutant was
-  **CAUGHT**; ten needed a new fixture first. The magic-numbers and RFC-citation rules named above
-  are still not built.
+  **CAUGHT**; ten needed a new fixture first.
+
+  **The last two rules, 2026-09-16.** `magic-numbers` gates over `src/`, but for each
+  `constants.zig`, the generated `huffman_table.zig`, and the corpus and mutation tables of
+  `src/golden/`. The 111 literals it found are now named: an octet's width is `@bitSizeOf(u8)`,
+  the varint lengths and prefix bounds are `wire` constants, and the RFC 9110 §15 status codes are
+  `http.status.Code`. `rfc-citation` reads every `return error.Name` under `src/`, but for the
+  short-buffer errors, the test errors, `src/golden/`, `src/sim/` and `src/testing/`, and requires
+  an `RFC <number> §<section>` or `RFC <number> Appendix <letter>` comment on the statement or the
+  comment lines directly above it. It found three citations above a `const` rather than above the
+  check. `zig build lint` passes no `--rule`, so every rule `tools/lint/main.zig` registers gates,
+  and the lint must report every rule over a canary tree holding one violation of each. Each rule's
+  mutations are in its commit, and every one is **CAUGHT**.
 
 - **Step 1 — `wire` and `http`.** The varint (RFC 9000 §16), the prefixed integer generic over N
   in 1..8 and sized for 62 bits, the Huffman coder over RFC 7541 Appendix B, the string literal
@@ -475,8 +486,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `std.debug.writeStackTrace` takes a `debug.StackTrace`. The property functions are ready for a
     toolchain that fixes it. A corpus entry is not raw octets: outside `--fuzz`, `Smith` reads a
     4-octet length before each slice, which `core.fuzz.input` writes.
-  - **Not built.** Invariant 3's lint rule, no slicing with a peer-derived index outside the reader
-    and writer, is not written. Its runtime assertions and fuzzing are.
+  - **Built after the gate.** Invariant 3's lint rule, no slicing with a peer-derived index
+    outside the reader and writer, was not written when the gate was met; its runtime assertions
+    and fuzzing were. `tools/lint/peer_index.zig` added it on 2026-09-16, and the tree was clean
+    under it.
 
   Seventy-two source mutations were applied, run against the narrowest test step that can catch
   them, and reverted. The first run found one `NOT CAUGHT`: an encoder that ended the prefixed
