@@ -8,6 +8,9 @@
 //! inside `src/quic/` and requires the compile to fail. That is what shows invariant 26 is held
 //! by the build rather than by review.
 //!
+//! `zig build huffman-table` rewrites the Huffman table of step 1, and `zig build test` checks it
+//! against RFC 7541 Appendix B; build/generated.zig wires both.
+//!
 //! `zig build lint-commits` checks the commit messages this branch adds and `zig build hooks`
 //! points this clone's core.hooksPath at .githooks; neither is part of `zig build test`, because
 //! commit shape is a property of the history, not of the code.
@@ -17,6 +20,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
+const generated = @import("build/generated.zig");
 
 /// The cognitive-complexity threshold of CLAUDE.md (Conventions). Never raised: a function over
 /// it is split.
@@ -103,6 +107,11 @@ pub fn build(b: *std.Build) void {
         test_step.dependOn(run);
         tool_test_step.dependOn(run);
     }
+
+    generated.add(b, .{
+        .test_step = test_step,
+        .tool_test_step = tool_test_step,
+    });
 
     test_step.dependOn(add_graph_gate_step(b));
     add_commit_lint_step(b, install_step);

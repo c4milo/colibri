@@ -6,7 +6,18 @@ const std = @import("std");
 pub const core = @import("core");
 pub const constants = @import("constants.zig");
 
+pub const varint = @import("varint.zig");
+pub const prefixed_integer = @import("prefixed_integer.zig");
+pub const huffman = @import("huffman.zig");
+pub const huffman_table = @import("huffman_table.zig");
+pub const string_literal = @import("string_literal.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
+    _ = varint;
+    _ = prefixed_integer;
+    _ = huffman;
+    _ = huffman_table;
+    _ = string_literal;
 }
