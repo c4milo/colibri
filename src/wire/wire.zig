@@ -11,6 +11,7 @@ pub const prefixed_integer = @import("prefixed_integer.zig");
 pub const huffman = @import("huffman.zig");
 pub const huffman_table = @import("huffman_table.zig");
 pub const string_literal = @import("string_literal.zig");
+pub const table_size = @import("table_size.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -20,4 +21,5 @@ test {
     _ = huffman;
     _ = huffman_table;
     _ = string_literal;
+    _ = table_size;
 }

@@ -44,6 +44,11 @@ pub const string_prefix_bits_min: u4 = 2;
 /// Bits of value each continuation octet of a prefixed integer carries (RFC 7541 §5.1).
 pub const integer_continuation_bits: u8 = 7;
 
+/// Octets added to an entry's name and value lengths when a dynamic table's size is computed
+/// (RFC 7541 §4.1, RFC 9204 §3.2.1). The RFCs estimate it as two 64-bit pointers and two 64-bit
+/// reference counts, and fix it so both endpoints account alike.
+pub const table_entry_overhead: u32 = 32;
+
 /// Symbols in the Huffman code: the 256 octets and EOS (RFC 7541 Appendix B).
 pub const huffman_symbol_count: u16 = 257;
 
@@ -68,6 +73,7 @@ comptime {
     assert(integer_value_max == varint_value_max);
     assert(huffman_code_bits_min <= huffman_code_bits_max);
     assert(huffman_padding_bits_max < 8);
+    assert(table_entry_overhead == 32);
     // The four lengths are the powers of two up to the longest, and the shortest carries a value.
     for (varint_lens, 0..) |len, index| assert(len == @as(u8, 1) << @intCast(index));
     assert(varint_lens[varint_lens.len - 1] * 8 - varint_length_bits == 62);
