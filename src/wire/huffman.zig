@@ -162,8 +162,8 @@ pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
     }
     // RFC 7541 §5.2: padding strictly longer than 7 bits is a decoding error.
     if (partial.bit_count > constants.huffman_padding_bits_max) return error.HuffmanPaddingTooLong;
-    // RFC 7541 §5.2: padding that is not the most significant bits of EOS is a decoding error.
     const eos_prefix = (@as(u32, 1) << @intCast(partial.bit_count)) - 1;
+    // RFC 7541 §5.2: padding that is not the most significant bits of EOS is a decoding error.
     if (partial.code != eos_prefix) return error.HuffmanPaddingNotEos;
     output.* = cursor;
 }

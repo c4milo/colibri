@@ -25,6 +25,7 @@ const canary_rules = [_][]const u8{
     "markdown",
     "file-length",
     "magic-numbers",
+    "rfc-citation",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -35,13 +36,14 @@ const file_length_max_lines = 500;
 const canary_source =
     \\const std = @import("std");
     \\const other = @import("../other.zig");
-    \\pub fn canary(allocator: std.mem.Allocator) void {
+    \\pub fn canary(allocator: std.mem.Allocator) !void {
     \\    _ = allocator;
     \\    _ = std.posix;
     \\    _ = std.time;
     \\    while (true) {}
     \\    var buffer: [4096]u8 = undefined;
     \\    _ = &buffer;
+    \\    if (buffer.len == 0) return error.Empty;
     \\}
     \\
 ++ "//\n" ** file_length_max_lines;

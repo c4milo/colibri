@@ -84,8 +84,8 @@ pub const Status = struct {
 
     /// The status whose code is `code`.
     pub fn from_code(code: u16) Error!Status {
-        // RFC 9110 §15: all valid status codes are within the range of 100 to 599, inclusive.
         const in_range = code >= constants.status_code_min and code <= constants.status_code_max;
+        // RFC 9110 §15: all valid status codes are within the range of 100 to 599, inclusive.
         if (!in_range) return error.StatusOutOfRange;
         return .{ .code = code };
     }

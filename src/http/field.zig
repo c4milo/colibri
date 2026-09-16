@@ -88,8 +88,8 @@ pub fn validate_value(value: []const u8) ValueError!void {
     if (value.len > limits.field_value_len_max) return error.FieldValueTooLong;
     var control_seen = false;
     for (value) |octet| {
-        // RFC 9110 §5.5: a recipient of CR, LF or NUL must reject the message or replace them.
         const forbidden = octet == 0x00 or octet == '\r' or octet == '\n';
+        // RFC 9110 §5.5: a recipient of CR, LF or NUL must reject the message or replace them.
         if (forbidden) return error.FieldValueNulCarriageReturnOrLineFeed;
         // RFC 9110 §5.5: field-vchar is VCHAR or obs-text, with SP and HTAB between them.
         if (is_control(octet)) control_seen = true;
