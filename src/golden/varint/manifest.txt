@@ -1,0 +1,11 @@
+colibri-golden-manifest version=1 format=varint cases=10
+varint_1_octet_37 len=1 crc32=0x99063bca verdict=accept construction=varint value=37 encoded_len=1
+varint_2_octets_37 len=2 crc32=0xfaa489bd verdict=accept construction=varint value=37 encoded_len=2
+varint_2_octets_15293 len=2 crc32=0x38c27df3 verdict=accept construction=varint value=15293 encoded_len=2
+varint_4_octets_494878333 len=4 crc32=0x5eb2dff4 verdict=accept construction=varint value=494878333 encoded_len=4
+varint_8_octets_151288809941952652 len=8 crc32=0xe3a7419c verdict=accept construction=varint value=151288809941952652 encoded_len=8
+varint_8_octets_max len=8 crc32=0x2144df1c verdict=accept construction=varint value=4611686018427387903 encoded_len=8
+varint_empty len=0 crc32=0x00000000 verdict=Truncated construction=literal
+varint_2_octets_truncated len=1 crc32=0x15d54739 verdict=Truncated construction=truncated of=varint_2_octets_15293 drop=1
+varint_4_octets_truncated len=3 crc32=0x634c8a23 verdict=Truncated construction=truncated of=varint_4_octets_494878333 drop=1
+varint_8_octets_truncated len=7 crc32=0xcb20fe22 verdict=Truncated construction=truncated of=varint_8_octets_151288809941952652 drop=1

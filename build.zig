@@ -8,8 +8,8 @@
 //! inside `src/quic/` and requires the compile to fail. That is what shows invariant 26 is held
 //! by the build rather than by review.
 //!
-//! `zig build huffman-table` rewrites the Huffman table of step 1, and `zig build test` checks it
-//! against RFC 7541 Appendix B; build/generated.zig wires both.
+//! `zig build huffman-table` and `zig build golden` rewrite the generated sources of step 1, and
+//! `zig build test` checks both against their sources; build/generated.zig wires them.
 //!
 //! `zig build lint-commits` checks the commit messages this branch adds and `zig build hooks`
 //! points this clone's core.hooksPath at .githooks; neither is part of `zig build test`, because
@@ -88,12 +88,14 @@ pub fn build(b: *std.Build) void {
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "golden", .module = graph.golden },
     };
+    var golden_tests: ?*std.Build.Step = null;
     for (unit_test_modules) |entry| {
         const unit_tests = b.addTest(.{ .name = entry.name, .root_module = entry.module });
         install_step.dependOn(&unit_tests.step);
         const run = &b.addRunArtifact(unit_tests).step;
         test_step.dependOn(run);
         add_narrow_test_step(b, entry.name).dependOn(run);
+        if (entry.module == graph.golden) golden_tests = run;
     }
 
     // The tools verify the tree, so they run on the host in Debug: a tool never ships.
@@ -111,6 +113,7 @@ pub fn build(b: *std.Build) void {
     generated.add(b, .{
         .test_step = test_step,
         .tool_test_step = tool_test_step,
+        .golden_tests = golden_tests.?,
     });
 
     test_step.dependOn(add_graph_gate_step(b));

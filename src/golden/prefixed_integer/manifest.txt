@@ -1,0 +1,10 @@
+colibri-golden-manifest version=1 format=prefixed_integer cases=9
+prefixed_integer_5_bit_10 len=1 crc32=0x32d70693 verdict=accept prefix_size=5 construction=prefixed_integer high_bits=0x00 value=10
+prefixed_integer_5_bit_1337 len=3 crc32=0x8340b6d1 verdict=accept prefix_size=5 construction=prefixed_integer high_bits=0x00 value=1337
+prefixed_integer_8_bit_42 len=1 crc32=0x09b9265b verdict=accept prefix_size=8 construction=prefixed_integer high_bits=0x00 value=42
+prefixed_integer_5_bit_1337_high_bits len=3 crc32=0x2aa26671 verdict=accept prefix_size=5 construction=prefixed_integer high_bits=0xe0 value=1337
+prefixed_integer_1_bit_max len=10 crc32=0x8d7ed985 verdict=accept prefix_size=1 construction=prefixed_integer high_bits=0x00 value=4611686018427387903
+prefixed_integer_8_bit_max len=10 crc32=0x77307d76 verdict=accept prefix_size=8 construction=prefixed_integer high_bits=0x00 value=4611686018427387903
+prefixed_integer_1_bit_too_large len=10 crc32=0x9a05cdc6 verdict=IntegerTooLarge prefix_size=1 construction=literal
+prefixed_integer_5_bit_too_long len=11 crc32=0x954d763d verdict=IntegerTooLong prefix_size=5 construction=literal
+prefixed_integer_5_bit_truncated len=2 crc32=0x9c59663b verdict=Truncated prefix_size=5 construction=truncated of=prefixed_integer_5_bit_1337 drop=1

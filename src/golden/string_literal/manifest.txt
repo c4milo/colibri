@@ -1,0 +1,7 @@
+colibri-golden-manifest version=1 format=string_literal cases=6
+string_literal_raw_custom_key len=11 crc32=0x8cbdb9e1 verdict=accept prefix_size=8 construction=string_literal high_bits=0x00 coding=raw text=637573746f6d2d6b6579
+string_literal_huffman_www_example_com len=13 crc32=0xc152c36f verdict=accept prefix_size=8 construction=string_literal high_bits=0x00 coding=huffman text=7777772e6578616d706c652e636f6d
+string_literal_4_bit_huffman_no_cache len=7 crc32=0x3148a79a verdict=accept prefix_size=4 construction=string_literal high_bits=0x20 coding=huffman text=6e6f2d6361636865
+string_literal_2_bit_raw_custom_key len=12 crc32=0xdf2f4799 verdict=accept prefix_size=2 construction=string_literal high_bits=0xfc coding=raw text=637573746f6d2d6b6579
+string_literal_truncated len=10 crc32=0x61af6201 verdict=Truncated prefix_size=8 construction=truncated of=string_literal_raw_custom_key drop=1
+string_literal_huffman_padding_not_eos len=2 crc32=0x702d23a3 verdict=HuffmanPaddingNotEos prefix_size=8 construction=literal
