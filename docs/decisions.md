@@ -35,12 +35,11 @@ and is re-argued, not edited.
    the Upgrade mechanism "was never widely deployed and is deprecated". Prior-knowledge cleartext
    h2 stays, and entry 8 explains why it is load-bearing rather than a convenience.
 
-3. **owner — QUIC is a module inside colibri, not its own library.** Recommended: a module,
-   `src/quic/`, that imports `core`, `wire`, `crypto` and `tls` and nothing else, and that may never
-   import `http`, `h2`, `h3`, `hpack` or `qpack`. Cost: colibri's repository carries the larger half
-   of
-   the work, and somebody who wants QUIC alone takes an HTTP library to get it. Gain: one
-   CLAUDE.md, one simulator, one corpus format, one commit discipline, and no version skew
+3. **QUIC is a module inside colibri, not its own library.** Ruled by the owner on 2026-09-16. A
+   module, `src/quic/`, that imports `core`, `wire`, `crypto` and `tls` and nothing else, and that
+   may never import `http`, `h2`, `h3`, `hpack` or `qpack`. Cost: colibri's repository carries the
+   larger half of the work, and somebody who wants QUIC alone takes an HTTP library to get it.
+   Gain: one CLAUDE.md, one simulator, one corpus format, one commit discipline, and no version skew
    between two repositories that change together for a year. The boundary that a separate
    repository would enforce socially is enforced here mechanically, by the module graph in
    `build.zig`, and the gate that proves it is that the QUIC simulator runs with no HTTP module
@@ -119,9 +118,10 @@ and is re-argued, not edited.
    is exactly why QUIC mode needs new provider API rather than exporter calls, and it is the
    sharpest way to say what "no record layer" costs.
 
-9. **owner — packet protection is a *second* caller-supplied vtable, and that is how h3 gets AES
-   without asking chapulin for it.** `crypto.Suite` supplies `aead_seal`, `aead_open`,
-   `header_protection_mask(hp_key, sample) -> [5]u8`, `hkdf_extract` and `hkdf_expand_label`.
+9. **Packet protection is a *second* caller-supplied vtable, and that is how h3 gets AES without
+   asking chapulin for it.** Ruled by the owner on 2026-09-16. `crypto.Suite` supplies
+   `aead_seal`, `aead_open`, `header_protection_mask(hp_key, sample) -> [5]u8`, `hkdf_extract` and
+   `hkdf_expand_label`.
    colibri drives it directly for QUIC packet protection; the TLS provider never sees it.
 
    The header-protection member is a mask function and not a block cipher on purpose. RFC 9001

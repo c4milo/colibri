@@ -205,9 +205,10 @@ gate. Design §8 step 0 records what was run and what it printed.
 **Step 1 — `wire` and `http` — is next.** Nothing of either is written: every `src/<module>/`
 holds a root and a `constants.zig` and no protocol code.
 
-Two decisions still wait on the owner: docs/decisions.md entry 9 (the packet-protection vtable,
-which is how h3 gets AES without chapulin) and entry 10 (the ask to chapulin). Entry 9 wants
-settling before step 7; neither blocks step 1.
+Decision 9 was ruled on 2026-09-16: two vtables, `tls.Provider` for the handshake and
+`crypto.Suite` for packet protection, so step 7 has the interface it builds against. One decision
+still waits on the owner: docs/decisions.md entry 10, the ask to chapulin, which is the owner's to
+send and blocks nothing before step 5.
 
 One gap the plan names and does not close: no step delivers a TLS implementation, and every gate
 from step 5 onward needs a TLS 1.3 server with certificate signing. Design §8 step 5 records it

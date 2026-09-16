@@ -624,12 +624,11 @@ before a step is called done.
 
 ## 12. Open questions for the owner
 
-1. **QUIC as a module or its own repository** ([decision 3](decisions.md#scope-and-shape)). The
-   recommendation is a module with a mechanically enforced boundary. This sets the module graph, so
-   it is answered before step 1.
-2. **The packet-protection vtable** ([decision 9](decisions.md#the-seams)). Splitting packet
-   protection away from the TLS provider is what lets h3 have AES without chapulin having AES. It
-   is the single most consequential shape decision in the document.
+1. **QUIC as a module or its own repository** ([decision 3](decisions.md#scope-and-shape)).
+   Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and gated.
+2. **The packet-protection vtable** ([decision 9](decisions.md#the-seams)). Ruled 2026-09-16: two
+   vtables, `tls.Provider` and `crypto.Suite`. Splitting packet protection away from the TLS
+   provider is what lets h3 have AES without chapulin having AES, and step 7 builds against it.
 3. **The ask to chapulin** ([decision 10](decisions.md#the-seams)). ALPN, and the field reporting
    what was negotiated. Nothing else. Not colibri's to send.
 4. **RFC 9002's one internal disagreement**, which step 10 must settle in writing and pin with a
