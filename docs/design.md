@@ -393,9 +393,11 @@ leaves the caller to place the struct.
 62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 octets, the length those 62 bits need
 past a 1-bit prefix) · `huffman_padding_bits_max` (7, RFC 7541 §5.2).
 
-**HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` ·
-`huffman_expansion_max` (a 5-bit minimum code means Huffman data expands by up to 1.6x, so
-bounding the input does not bound the output) · `blocked_streams_max` · `encoder_stream_bytes_max`.
+**HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` (16,384, ruled 2026-09-16) ·
+`dynamic_table_entries_max` (the capacity over the 32-octet overhead) · `size_updates_per_block_max`
+(2, RFC 7541 §4.2) · `blocked_streams_max` · `encoder_stream_bytes_max`. Huffman data expands by up
+to 1.6x, since the shortest code is 5 bits, and `wire.huffman.decoded_len_max` is that bound; a
+literal's decoded length is capped by `core`'s field-length limits (RFC 7541 §7.4).
 
 **QUIC** (`quic`): `datagram_size_max` · `datagram_size_min` (1200) · `ack_ranges_max` ·
 `crypto_buffer_bytes_max` · `connection_ids_active_max` (at least 2; the default is 2) ·
@@ -662,6 +664,38 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **every** encoder directory, not only nghttp2's — the naive, static and linear strategies crossed
   with Huffman and plain are what exercise the dynamic table; round-trip of `raw-data`; the three
   interop breaks of §6.2 each with a named error and a corpus case; fuzzing; mutations. *Medium.*
+
+  **Gate met, 2026-09-16.** `zig build test` exits 0 on Zig 0.16.0, macOS 25.6, arm64: 256 tests
+  pass, the lint scores 556 functions with a highest score of 15 against the limit of 15, the
+  eleven `tools/lint` rules run clean, `static_table --check` confirms `src/hpack/static_table.zig`
+  is what RFC 7541 Appendix A yields, and `hpack-vectors` prints
+  `directories=15 stories=478 cases=47142 fields=548382 round_trips=10152` in 2.9 s.
+
+  - **Module.** `hpack.Decoder` walks a block one representation at a time and hands each field
+    line to the caller, which is §3.1's minimal transitory memory; `hpack.Encoder` writes a block
+    with the strategy Appendix C's examples follow, and the tests hold both to C.3 through C.6
+    byte for byte. `DynamicTable` is shared by the two, with the size formula in
+    `wire/table_size.zig` (decision 11) and invariant 11's sum recomputed after every insert and
+    eviction. The size-update rules of §4.2 and §6.3, and RFC 9113 §4.3.1's rule that a block
+    after a lowered limit opens with a conformant update, are decoder errors with their sections
+    on the checks. The static table is generated from Appendix A by `tools/static_table.zig`,
+    as the Huffman table is from Appendix B.
+  - **Vectors.** Every directory of `http2jp/hpack-test-case` decodes, `nghttp2-change-table-size`
+    and `nghttp2-16384-4096` included, and `raw-data` round-trips through the encoder in each of
+    its three Huffman settings (decision 38 on how the corpus is held).
+  - **Corpus.** `src/golden/hpack/` holds the three interop breaks of §6.2 beside their legal
+    twins, six cases with five mutations, and `golden` now imports `hpack` to check them.
+  - **Not built.** Nothing of the step. `Decoder` and `Encoder` are 29 KiB and 21 KiB, sized by
+    `dynamic_table_capacity_max`; the h2 connection of step 4 places one of each.
+
+  Forty-three source mutations were applied over the table, the decoder, the encoder, the
+  constants, the golden decode and the vectors tool, run against the narrowest step that can
+  catch them, and reverted: 42 **CAUGHT**, eight of them only after a test was added (an exact-fit
+  insert, a duplicate entry in `find`, the `never_indexed` flag, a name referenced from the entry
+  its own insert evicts and then compacts over, a size update held to a case's
+  `header_table_size`), and one equivalent: preferring the dynamic table's exact match over the
+  static table's cannot be observed, because a line the static table holds is indexed and never
+  inserted, so the mirror never holds one. The code now says so and prefers the static index.
 
 - **Step 4 — h2 connection and streams, cleartext, prior knowledge.** Frame reader and writer,
   the two prefaces, settings with the ACK discipline, the stream state machine, the signed send

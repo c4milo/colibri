@@ -190,8 +190,12 @@ writes to, and it moves when the step lands, not before.
   a mutation is measured against.
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
-- Huffman table: `zig build huffman-table` regenerates `src/wire/huffman_table.zig` from RFC 7541
-  Appendix B, and `zig build test` fails when the committed table differs from what the RFC yields.
+- Generated tables: `zig build huffman-table` regenerates `src/wire/huffman_table.zig` from RFC
+  7541 Appendix B and `zig build static-table` regenerates `src/hpack/static_table.zig` from its
+  Appendix A; `zig build test` fails when a committed table differs from what the RFC yields.
+- Vectors: `zig build hpack-vectors` decodes every story of the vendored
+  `src/hpack/hpack-test-case/` and round-trips `raw-data/` through the encoder (decision 38);
+  `zig build test` runs it.
 - Simulator: `zig build sim -- --<gate>-seed <hex>` runs one seed and prints its trace;
   `zig build sim -- --<gate>-gate [seeds]` runs the gate over `[0, seeds)` and prints the census.
   Every gate is also a test inside its module, so `zig build test` runs them, silently.
