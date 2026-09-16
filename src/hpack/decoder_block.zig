@@ -2,6 +2,11 @@
 //! `Block` walks one complete field block over a `Decoder`, reading one representation of
 //! RFC 7541 §6 per call to `next`. The check order each representation goes through is listed
 //! in decoder.zig's header, and the tests of the refusals are here, beside the code that refuses.
+//!
+//! A representation is read whole or not at all. On `error.Truncated` the cursor stays at its
+//! first octet and the dynamic table is untouched, so a caller holding a block cut mid-way, as
+//! h2 does between a HEADERS frame and its CONTINUATION, can decode what is whole, keep the tail,
+//! and feed it again with the next fragment.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -73,11 +78,13 @@ pub const Block = struct {
         // RFC 9113 §4.3.1: after a lowered limit, the block must start with a size update.
         if (block.is_first() and block.decoder.lowered_limit != null) return error.SizeUpdateMissing;
         const decoder = block.decoder;
-        const name_index = try prefixed_integer.decode(prefix_bits, &block.reader);
+        // The cursor moves once, when the whole representation has been read.
+        var cursor = block.reader;
+        const name_index = try prefixed_integer.decode(prefix_bits, &cursor);
         var name = Writer.init(&decoder.name_scratch);
         if (name_index == 0) {
             // RFC 7541 §6.2.1: a value 0 in place of the index means a literal name follows.
-            try block.string(&name);
+            try string(&cursor, &name);
         } else {
             // RFC 7541 §4.4: the entry this name refers to may be evicted by this very insert, so
             // the name is copied before the table changes.
@@ -85,7 +92,8 @@ pub const Block = struct {
             name.write_bytes(field.name) catch unreachable;
         }
         var value = Writer.init(&decoder.value_scratch);
-        try block.string(&value);
+        try string(&cursor, &value);
+        block.reader = cursor;
         // RFC 7541 §3.2: a literal with incremental indexing is inserted at the beginning of the
         // dynamic table; the other two literals leave the table alone.
         if (kind == .incremental) decoder.table.insert(name.written(), value.written());
@@ -115,9 +123,9 @@ pub const Block = struct {
         block.updates += 1;
     }
 
-    /// One string literal into `output`, which is sized to the implementation limit.
-    fn string(block: *Block, output: *Writer) Error!void {
-        _ = string_literal.decode(constants.string_prefix_bits, &block.reader, output) catch |failure| {
+    /// One string literal from `cursor` into `output`, which is sized to the implementation limit.
+    fn string(cursor: *Reader, output: *Writer) Error!void {
+        _ = string_literal.decode(constants.string_prefix_bits, cursor, output) catch |failure| {
             // RFC 7541 §7.4: a string past the implementation's length limit is refused.
             if (failure == error.NoSpaceLeft) return error.StringTooLong;
             return failure;
@@ -258,6 +266,21 @@ test "two lowerings before a block require an update at or below the smaller" {
     decoder_module.test_decoder.set_capacity_limit(300);
     try expect_refused("\x3f\xd5\x01\x82", error.SizeUpdateMissing);
     try expect_lines("\x3f\xa9\x01\x82", &.{.{ .name = ":method", .value = "GET" }});
+}
+
+test "a literal cut after its name moves nothing, and decodes once the rest arrives" {
+    decoder_module.test_decoder.init(4096);
+    const whole = "\x82\x40\x0acustom-key\x0ccustom-value";
+    const cut = whole[0 .. whole.len - 5];
+    var block = decoder_module.test_decoder.block(cut);
+    try testing.expectEqualStrings(":method", (try block.next()).?.name);
+    try testing.expectError(error.Truncated, block.next());
+    try testing.expectEqual(1, block.consumed_len());
+    try testing.expectEqual(0, decoder_module.test_decoder.table.len());
+    var rest = decoder_module.test_decoder.block(whole[block.consumed_len()..]);
+    try testing.expectEqualStrings("custom-key", (try rest.next()).?.name);
+    try testing.expectEqual(null, try rest.next());
+    try testing.expectEqual(1, decoder_module.test_decoder.table.len());
 }
 
 test "a string past the implementation limit, and a block cut inside a string, are refused" {
