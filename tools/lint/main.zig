@@ -6,10 +6,13 @@
 //!
 //! The driver is pepegrillo's (decision 36): it walks every PATH, hands every regular file to every
 //! enabled rule, reports a `.zig` file that does not parse under the `parse` pseudo-rule, and prints
-//! one line per finding, sorted by path, line, column and rule:
+//! one line per finding, sorted by path, line, column and rule, in the shape the Zig compiler prints
+//! an error:
 //!
-//!     path:line: [rule-name] message
+//!     path:line:column: error: [rule-name] message
 //!
+//! A PATH under the working directory is read relative to it, so the build's absolute paths
+//! report as `src/...`.
 //! Exit status: 0 when nothing was found, 1 when any finding was reported or a file failed to read,
 //! 2 on a usage error.
 //!

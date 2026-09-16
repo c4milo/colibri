@@ -11,12 +11,12 @@
 //! first words refused as not imperative. The limits are the ones CLAUDE.md states, which are
 //! pepegrillo's defaults.
 //!
-//! One line per finding:
+//! One line per finding, in the shape the Zig compiler prints an error:
 //!
-//!     source: severity: rule-name: message
+//!     source: error: [rule-name] message
 //!
-//! The severity is `violation` for a rule of CLAUDE.md that was broken, and `warning` for a scope
-//! outside the module graph. CLAUDE.md states that scopes track the module graph, and a closed
+//! `error` marks a rule of CLAUDE.md that was broken, and `warning` a scope outside the module
+//! graph. CLAUDE.md states that scopes track the module graph, and a closed
 //! check would make this tool, rather than the design, the authority on what modules exist, so an
 //! unknown scope never changes the exit status.
 //!
