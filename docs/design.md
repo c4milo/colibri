@@ -22,9 +22,9 @@ stompy is the first consumer and will vendor colibri the way it vendors chapulin
 depends on stompy and never names it in source.
 
 **Deliberately excluded:** HTTP/1.1, caching, server push, priority scheduling, extended CONNECT,
-0-RTT, active connection migration, QUIC datagrams and multipath. [decisions 2, 16 to
-23](decisions.md)
-give each one a reason and state what saying no still costs on the wire.
+0-RTT, active connection migration, QUIC datagrams and multipath.
+[Decisions 2, 16 to 23](decisions.md) give each one a reason and state what saying no still costs
+on the wire.
 
 ## 2. What the two protocols actually are
 
