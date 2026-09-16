@@ -338,6 +338,38 @@ because the wire formats are the RFCs' and cannot be versioned by us:
 - **The simulator trace record**, one per abstract transition, which is what the replay gate
   compares byte for byte.
 
+A trace is text, one record per line, so a failing seed prints a trace a person can read. Version
+1 has this shape:
+
+```text
+colibri-sim-trace version=1 gate=<gate> seed=0x<16 hex digits>
+<record> <key>=<value> <key>=<value> ...
+end records=<count> outcome=<outcome>
+```
+
+- The first line names the version, the gate and the seed. A change to what any line holds is a
+  new version, never a silent edit.
+- Each record between the first line and the last is a name, then fields separated by one space.
+  A key is lowercase letters, digits and underscores. A value holds no space: an unsigned decimal
+  integer, octets as lowercase hexadecimal with no prefix, or a word such as an error name.
+- The last line gives the size, the count of records between the first line and itself, and how
+  the run ended. A trace with no `end` line was cut short.
+- The seed is the only value written in hexadecimal with a `0x` prefix, because it is the value a
+  person copies into `zig build sim -- --<gate>-seed <hex>`.
+
+The records design §8 step 2 writes are the byte pipe's:
+
+| Record | Fields | Written when |
+|---|---|---|
+| `feed` | `at_ns`, `len`, `held` | a chunk of the stream reaches the caller; `held` counts the octets the caller holds after it |
+| `accept` | `offset`, `len`, then the subject's fields | the subject consumed a whole value; `offset` is its first octet in the stream |
+| `reject` | `offset`, `error` | the subject refused the octets at `offset` |
+
+No record but `feed` carries an instant. The chunk schedule decides when a value completes, so
+removing every `feed` record, and the record count from the `end` line, leaves the lines that do
+not depend on the chunking. The step 2 gate compares exactly those lines between a chunked run and
+a run fed in one piece.
+
 ## 7. Named limits
 
 Every one lives in a `constants.zig` and never inline. The RFCs leave most of these to the
