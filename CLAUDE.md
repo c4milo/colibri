@@ -29,8 +29,9 @@ These are not style preferences; the architecture depends on them.
    syscall, you are in the wrong repository.
 2. **colibri owns no crypto.** Two caller-supplied vtables, `tls.Provider` and `crypto.Suite`,
    with no production implementation in this tree (decisions 8 and 9): `src/sim/` carries null
-   implementations, which are test-only and are never packaged. colibri never links a TLS stack,
-   never holds a private key, and never chooses a cipher suite.
+   implementations, which are test-only and are never packaged. chapulin fills both vtables for the
+   gates, linked by `src/testing/` alone (decision 10). The library never links a TLS stack, never
+   holds a private key, and never chooses a cipher suite.
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and
@@ -161,7 +162,8 @@ exists — never propose a second one.
 
 - Changing a named limit.
 - Adding a dependency. colibri is meant to have none: no package, no vendored C, no allocator it
-  did not receive from the caller.
+  did not receive from the caller. The one ruled exception is chapulin, which `src/testing/` links
+  and the library never imports (decision 10).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
@@ -207,10 +209,10 @@ gate. Design §8 step 0 records what was run and what it printed.
 holds a root and a `constants.zig` and no protocol code.
 
 Decision 9 was ruled on 2026-09-16: two vtables, `tls.Provider` for the handshake and
-`crypto.Suite` for packet protection, so step 7 has the interface it builds against. One decision
-still waits on the owner: docs/decisions.md entry 10, the ask to chapulin, which is the owner's to
-send and blocks nothing before step 5.
+`crypto.Suite` for packet protection, so step 7 has the interface it builds against.
 
-One gap the plan names and does not close: no step delivers a TLS implementation, and every gate
-from step 5 onward needs a TLS 1.3 server with certificate signing. Design §8 step 5 records it
-as an "Ask before" that nobody has answered.
+Decision 10 was ruled on 2026-09-16: chapulin provides all of colibri's crypto by filling both
+vtables. The library never imports chapulin, and `src/testing/` links it, which answers the
+dependency question design §8 step 5 raised. The request is docs/chapulin.md and is the owner's to
+send. No decision waits on the owner. Every gate that needs crypto waits on chapulin delivering
+the request, and steps 0 to 4, 6, 8 and 11 need none of it.

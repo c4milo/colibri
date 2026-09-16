@@ -460,14 +460,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   library. **Gate:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
   Go's `net/http2` and h2o, **both directions**, with the exact versions recorded.
 
-  **This step is blocked on an unanswered question, and so is every step after it.** The gate needs
-  a TLS 1.3 *server* — certificate signing included — and nothing in colibri supplies one:
-  [decision 8](decisions.md#the-seams) keeps production implementations out of the tree, and
-  [decision 10](decisions.md#the-seams) deliberately does not ask chapulin for a server role.
-  Steps 9, 12 and 13 need the same thing for the interop endpoint, h3spec and `secnetperf`. The
-  answer is a test-only TLS dependency linked by `src/testing/` alone and never by the packaged
-  library, and naming it is an "Ask before" under CLAUDE.md that nobody has answered. *Medium,
-  once that is settled.*
+  **This step waits on chapulin, and so does every later gate that needs TLS.** The gate needs a
+  TLS 1.3 *server*, certificate signing included, and colibri's library supplies none:
+  [decision 8](decisions.md#the-seams) keeps production implementations out of the tree.
+  [Decision 10](decisions.md#the-seams) answers the "Ask before" this paragraph used to raise:
+  chapulin fills both vtables, and `src/testing/` links it while the packaged library never does.
+  Steps 9, 10, 12 and 13 need the same server for the interop endpoint, h3spec and `secnetperf`,
+  and step 7 needs chapulin's `crypto.Suite` for RFC 9001 Appendix A's vectors. chapulin has
+  neither a server role nor ALPN today, so this step waits for the h2 items of
+  [the request](chapulin.md). *Medium, once chapulin delivers them.*
 
 - **Step 6 — the counted-cost gate.** Allocations, syscalls the caller would have made, copies and
   bytes per request, counted inside the simulator and committed as exact numbers. **Gate:** the
@@ -629,8 +630,9 @@ before a step is called done.
 2. **The packet-protection vtable** ([decision 9](decisions.md#the-seams)). Ruled 2026-09-16: two
    vtables, `tls.Provider` and `crypto.Suite`. Splitting packet protection away from the TLS
    provider is what lets h3 have AES without chapulin having AES, and step 7 builds against it.
-3. **The ask to chapulin** ([decision 10](decisions.md#the-seams)). ALPN, and the field reporting
-   what was negotiated. Nothing else. Not colibri's to send.
+3. **The ask to chapulin** ([decision 10](decisions.md#the-seams)). Ruled 2026-09-16: chapulin
+   provides all of colibri's crypto by filling both vtables, and `src/testing/` links it. The
+   request is [docs/chapulin.md](chapulin.md), and sending it is the owner's.
 4. **RFC 9002's one internal disagreement**, which step 10 must settle in writing and pin with a
    test. Its §5.3 updates `smoothed_rtt` first and then computes `rttvar` against the new value,
    while its Appendix A.7 computes `rttvar` first against the old value. These produce different
@@ -657,11 +659,14 @@ before a step is called done.
 - **No CI.** Every gate a script cannot run inside `zig build test` is run by a person, and the
   step's entry in §8 records what was run, on what, and what it printed. This is the same
   arrangement stompy's full crash tier runs under, and it works only if the recording is honest.
-- **The TLS provider has no implementation, and this blocks more than it looks like.** colibri
-  cannot ship a working client on its own, and a consumer with no TLS stack has no h2-over-TLS.
-  Worse for the plan: every gate from step 5 onward needs a TLS 1.3 *server* with certificate
-  signing, for h2spec's TLS mode, the interop endpoint, h3spec and `secnetperf`. Step 4's cleartext
-  h2 unblocks step 4 and nothing beyond it, which is why cleartext comes first — and why step 5
-  opens with the unanswered question rather than a gate.
+- **Every gate that needs crypto waits on chapulin.** [Decision 10](decisions.md#the-seams) has
+  chapulin fill both vtables, and what chapulin must add first reverses five of its recorded
+  decisions: a server role with constant-time signing, a non-blocking handshake with no global
+  state, a QUIC mode and host-side AES ([docs/chapulin.md](chapulin.md)). That work runs on
+  chapulin's schedule, not colibri's. Step 5's h2spec TLS mode and interop, step 7's RFC 9001
+  Appendix A vectors, and the interop endpoint, h3spec and `secnetperf` of steps 9, 10, 12 and 13
+  all wait for it. The mitigation is the order of the plan: steps 0 to 4, 6, 8 and 11 need no
+  crypto, and step 4's cleartext h2 is a working library with no TLS. colibri still cannot ship a
+  working client on its own, and a consumer with no TLS stack still has no h2-over-TLS.
 - **The development machine is not the measurement machine.** Every real number needs Linux.
   A macOS-only development loop can hide a regression that only a kernel mechanism would show.

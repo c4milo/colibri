@@ -118,8 +118,8 @@ and is re-argued, not edited.
    is exactly why QUIC mode needs new provider API rather than exporter calls, and it is the
    sharpest way to say what "no record layer" costs.
 
-9. **Packet protection is a *second* caller-supplied vtable, and that is how h3 gets AES without
-   asking chapulin for it.** Ruled by the owner on 2026-09-16. `crypto.Suite` supplies
+9. **Packet protection is a *second* caller-supplied vtable, so the TLS provider never has to carry
+   AES.** Ruled by the owner on 2026-09-16. `crypto.Suite` supplies
    `aead_seal`, `aead_open`, `header_protection_mask(hp_key, sample) -> [5]u8`, `hkdf_extract` and
    `hkdf_expand_label`.
    colibri drives it directly for QUIC packet protection; the TLS provider never sees it.
@@ -146,8 +146,8 @@ and is re-argued, not edited.
 
    None of that is negotiated and none of it is optional, so a QUIC endpoint cannot be built
    without AES-128-GCM, AES-128-ECB and HKDF-SHA256 — even one that negotiates
-   `TLS_CHACHA20_POLY1305_SHA256` for everything after the handshake, which RFC 9001 §5.3 does
-   permit. Two notes for the code: RFC 9001 never writes "MUST use AES-128-GCM", it states it
+   `TLS_CHACHA20_POLY1305_SHA256` for every packet after the Initial packets, which RFC 9001 §5.3
+   does permit. Two notes for the code: RFC 9001 never writes "MUST use AES-128-GCM", it states it
    declaratively with no alternative offered, so cite §5 and §5.4.1 and do not write MUST; and
    the header-protection key never changes across a key update (§5.4, §6.1), so it is installed
    once per direction at 1-RTT and never touched again while `key` and `iv` rotate under
@@ -157,17 +157,22 @@ and is re-argued, not edited.
    reason it works is that once QUIC takes over the record layer (§3) the TLS stack does no bulk
    cipher work at all: the Initial keys, the AES header protection and the Retry tag are all
    computed by the QUIC layer from a fixed salt, a hardcoded key and the client's connection ID.
-   A caller may therefore supply chapulin, which will not carry AES, as the TLS provider, and a
-   separate AES source as the suite. Cost: two vtables where a smaller library would have one, and
-   a caller that must fill both. Rejected: one combined vtable, which would have made every h3
-   consumer's TLS stack an AES stack, and would have made colibri's ask to chapulin an ask to
-   break its decision 6.
+   A caller may therefore fill the TLS provider from a stack with no AES and the suite from a
+   separate AES source. Cost: two vtables where a smaller library would have one, and a caller that
+   must fill both. Rejected: one combined vtable, which would have made every h3 consumer's TLS
+   stack an AES stack.
 
-   Be precise about the gain, because it is narrower than it first looks. h3 is not blocked on the
-   TLS stack **carrying** AES. It is not independent of what that stack **negotiates**: RFC 9001
-   §5.3 and §5.4.1 make packet protection and header protection follow the negotiated suite, so a
-   TLS provider that offers only `TLS_CHACHA20_POLY1305_SHA256` obliges the suite to carry
-   ChaCha20-Poly1305 and raw ChaCha20 as well as the three mandatory AES members.
+   Be precise about the gain, because it is narrower than it first looks, and entry 10 narrowed it
+   again. h3 is not blocked on the TLS provider **carrying** AES, but colibri's own tree does not
+   use that freedom: entry 10 has chapulin fill both vtables, so chapulin supplies the AES as well,
+   and [the request](chapulin.md) reverses chapulin's decision 6 to get it. What the split still
+   buys there is placement: the AES sits behind `crypto.Suite`, where chapulin can carry it as a
+   host-side mode of its own rather than inside its TLS record layer. Nor is h3 independent of what
+   the TLS stack **negotiates**: RFC 9001 §5.3 and §5.4.1 make packet protection and header
+   protection follow the negotiated suite, so a TLS provider that offers only
+   `TLS_CHACHA20_POLY1305_SHA256` obliges the suite to carry ChaCha20-Poly1305 and raw ChaCha20 as
+   well as the three mandatory members, AES-128-GCM, AES-128-ECB and HKDF-SHA256. That is why the
+   request asks chapulin's suite for all five.
 
    A caller that supplies a suite without AES-128-GCM, AES-128-ECB or HKDF-SHA256 is rejected at
    init, not at the first Initial packet. A suite that lacks the AEAD or header-protection
@@ -175,33 +180,33 @@ and is re-argued, not edited.
    until EncryptedExtensions is decrypted; that case returns the same configuration error class at
    the first Handshake packet, so it still does not read like an attack.
 
-10. **owner — the ask to chapulin is ALPN, and only ALPN.** chapulin's charter is a set of
-    decisions argued on the record, and colibri's job is to ask for the one thing that fits it
-    and to own everything else. The ask, in the shape chapulin's decision 36 set as precedent:
+10. **chapulin provides all of colibri's crypto, through colibri's two vtables.** Ruled by the
+    owner on 2026-09-16. chapulin fills both `tls.Provider` (entry 8) and `crypto.Suite` (entry
+    9). colibri's library source never imports chapulin, so the packaged library still links no
+    TLS stack and this tree still carries no production implementation of either vtable.
+    `src/testing/` links chapulin. That answers the dependency question design §8 step 5 raised
+    under CLAUDE.md's "Ask before": the gates from step 5 onward get their TLS 1.3 server, and
+    its certificate signing, from chapulin.
 
-    - *Ask 1 — ALPN as a build-flagged extension offering exactly one protocol*, with the
-      server's echoed selection required to equal the offered one or the handshake fails closed.
-      That is chapulin's decision 1 applied unchanged — offer one of everything, the server takes
-      it or the handshake fails. Scoping it to `TRUST=webpki` keeps the raw and ca objects
-      byte-identical and `make lint-trust-separation` green. The cheapest variant, if even a
-      `ch_cfg` field is too much, is a compile-time `CH_ALPN` string constant, which costs no API
-      surface and no `sizeof(ch_tls)` variance.
-    - *Ask 2 — report the negotiated protocol in `ch_tls`*, exactly as `ch_tls.group` already
-      reports the key exchange the ServerHello selected. Zero new exported symbols.
+    The request is [docs/chapulin.md](chapulin.md). Sending it is the owner's, and this repository
+    never edits chapulin's. It asks for a server role, ALPN, a non-blocking handshake with no
+    global state, the exporter, a QUIC mode and host-side AES, and it names what each item
+    reverses: chapulin's decisions 6, 8, 9, 20 and 28, and its server non-goal. chapulin's decision
+    36, "a mode, not a change", is the shape it follows.
 
-    Not asked, and the reasons are chapulin's own: **the server role** (a second codebase, and it
-    collides with decisions 9, 8, 12, 20, 1 and 28 at once — RSA is verify-only and signing needs
-    a constant-time private path that does not exist); **AES** (decision 6, and entry 9 above
-    means colibri does not need it from chapulin); **the QUIC key schedule** (decision 28's four
-    exported symbols, and decision 1's no-negotiation surface); and **non-blocking I/O**
-    (decision 20, and every SRAM number in chapulin's README moves with it).
+    Cost: every colibri gate that needs TLS or real packet protection now waits on work in another
+    repository, and that work reverses five of chapulin's recorded decisions. Gain: one crypto
+    source for colibri's whole tree, argued under one charter, with no third-party stack in
+    `src/testing/`. Two alternatives lost. The ask this entry used to make, ALPN and nothing else,
+    left every gate from step 5 onward with no TLS server at all. A different test-only TLS stack
+    would have added a dependency whose charter nobody here argued, and its interop results would
+    measure that stack rather than chapulin.
 
-    If chapulin says no to all of it, colibri changes nothing. The TLS provider interface of entry
-    8 already has zero implementations, and step 4 of the build plan ships prior-knowledge cleartext
-    h2 so
-    the whole h2 core — HPACK, flow control, stream state, GOAWAY — is built and tested with no
-    TLS at all. That is the larger part of colibri by volume and it does not depend on this
-    conversation. Do not edit chapulin's charter from this repository.
+    If chapulin declines an item, colibri's source does not change. The vtables already have zero
+    implementations in this tree, and steps 0 to 4, 6, 8 and 11 need no crypto at all: step 4
+    ships prior-knowledge cleartext h2, so the whole h2 core is built and tested with no TLS. Only
+    the gates that need the declined item wait, and naming a different provider for
+    `src/testing/` would be a new "Ask before".
 
 ## What is shared between h2 and h3
 
