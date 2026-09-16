@@ -344,6 +344,27 @@ correct a candidate that looked shared and is not, or looked unshared and is.
     The rejected alternative was comparing the exact octets. It refuses values the grammar admits,
     and a refusal there reads as the peer's malformed request when the fault is colibri's.
 
+    **h3 refuses a field value with leading or trailing whitespace, as h2 does, with one
+    exception.** Ruled by the owner on 2026-09-16. RFC 9113 §8.2.1 makes such a value malformed in
+    h2. RFC 9114 has no such rule: its §4.1.2 and §10.3 refuse invalid characters, and SP and HTAB
+    are valid inside a value. The ruling takes h2's rule for h3 because no conformant sender
+    generates such a value: RFC 9110 §5.5's field-value grammar has no whitespace at either end,
+    and RFC 9110 §2.2 forbids a sender to generate an element outside its grammar. Nor does
+    RFC 9110 §5.5's instruction to exclude that whitespace apply. It binds a version that lets
+    whitespace appear around a value, which is HTTP/1.1 (RFC 9112 §5), and h3 carries a value as a
+    length-delimited string.
+
+    The exception is RFC 9110 §5.6.1.2, which requires a recipient to accept a list whose first or
+    last member is empty, as in `, gzip` after leading OWS or `gzip, ` with trailing OWS. Senders
+    that merge values produce those. h2 still refuses them, because RFC 9113 §8.2.1 is the more
+    specific rule. h3 trims exactly that whitespace with `field.trim_empty_member_whitespace` and
+    refuses any that remains. Two alternatives lost. Refusing every such value in h3 would break
+    §5.6.1.2's MUST. Trimming all edge whitespace in h3 would give the two protocols different
+    verdicts for octets no conformant sender produces. What remains is refused with
+    `H3_MESSAGE_ERROR`, the code RFC 9114 §8.1 defines for a malformed message, applied here by
+    colibri's classification rather than an RFC 9114 rule. A conformant intermediary that forwards
+    such a value unchanged is refused too, though only the value's first sender broke the grammar.
+
 16. **No caching, and the conformance bar for RFC 9111 is zero.** RFC 9111 §2 says caching is "an
     entirely OPTIONAL feature of HTTP", every normative requirement in its §3 and §4 is scoped to
     the subject "a cache", and the single requirement binding a non-cache — §5.2, pass cache

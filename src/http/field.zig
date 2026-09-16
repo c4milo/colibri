@@ -22,10 +22,12 @@
 //! h3 has no such choice: RFC 9114 §10.3 makes a value holding any character field-content does not
 //! permit malformed, so the h3 module refuses check 3's reason and cites that section.
 //!
-//! Checks 4 and 5 are reasons, not rejections. RFC 9110 §5.5's grammar leaves whitespace out of a
-//! field value and tells a parser to exclude it, not to refuse it. RFC 9113 §8.2.1 is what makes
-//! such a value malformed in h2. RFC 9114 states no whitespace rule, so whether h3 refuses one is
-//! the h3 module's decision to record.
+//! Checks 4 and 5 come from two rules. RFC 9113 §8.2.1 makes a value that starts or ends with SP
+//! or HTAB malformed in h2. RFC 9114 has no such rule, and the owner ruled on 2026-09-16 that h3
+//! refuses it too, with one exception (decision 15). RFC 9110 §5.6.1.2 requires a recipient to
+//! accept a list whose first or last member is empty, which puts whitespace at an end: `, gzip`
+//! after leading OWS, or `gzip, ` with trailing OWS. `trim_empty_member_whitespace` removes exactly
+//! that whitespace, and the h3 module calls it before `validate_value`; the h2 module does not.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -92,11 +94,34 @@ pub fn validate_value(value: []const u8) ValueError!void {
     // RFC 9110 §5.5: field values containing other CTL characters are also invalid.
     if (control_seen) return error.FieldValueControl;
     if (value.len == 0) return;
-    // RFC 9113 §8.2.1: a field value MUST NOT start with SP or HTAB (RFC 9110 §5.5 excludes it).
+    // RFC 9113 §8.2.1: no leading SP or HTAB. h3 refuses it too (decision 15).
     if (is_whitespace(value[0])) return error.FieldValueLeadingWhitespace;
-    // RFC 9113 §8.2.1: a field value MUST NOT end with SP or HTAB (RFC 9110 §5.5 excludes it).
+    // RFC 9113 §8.2.1: no trailing SP or HTAB. h3 refuses it too (decision 15).
     if (is_whitespace(value[value.len - 1])) return error.FieldValueTrailingWhitespace;
 }
+
+/// `value` without the whitespace RFC 9110 §5.6.1.2 requires a recipient to accept at either end
+/// of a list: OWS before a leading comma, and OWS after a trailing comma, where the first or last
+/// member is empty. Whitespace anywhere else stays, so `validate_value` still refuses a value that
+/// starts or ends with it. The result is a slice of `value`.
+///
+/// It applies to every field, because a field value does not say whether its field is a list. A
+/// singleton field that trims to a leading or trailing comma then fails its own grammar.
+pub fn trim_empty_member_whitespace(value: []const u8) []const u8 {
+    var trimmed = value;
+    // RFC 9110 §5.6.1.2: `[ element ] *( OWS "," OWS [ element ] )` with an empty first element.
+    const leading = std.mem.trimStart(u8, trimmed, list_whitespace);
+    if (leading.len < trimmed.len and leading.len > 0 and leading[0] == ',') trimmed = leading;
+    // RFC 9110 §5.6.1.2: the same syntax with an empty last element.
+    const trailing = std.mem.trimEnd(u8, trimmed, list_whitespace);
+    if (trailing.len < trimmed.len and trailing.len > 0 and trailing[trailing.len - 1] == ',') {
+        trimmed = trailing;
+    }
+    return trimmed;
+}
+
+/// OWS: SP or HTAB (RFC 9110 §5.6.3).
+const list_whitespace = " \t";
 
 /// CTL is 0x00 to 0x1f and 0x7f (RFC 5234 Appendix B.1, which RFC 9110 §2.1 includes). HTAB is a
 /// CTL, but RFC 9110 §5.5 admits it between field-vchars, so it is not reported here.
@@ -165,6 +190,28 @@ test "a field value is refused in check order" {
     try testing.expectError(error.FieldValueTrailingWhitespace, validate_value("a\t"));
 }
 
+test "whitespace beside an empty first or last list member is trimmed, and nothing else is" {
+    const trimmed = [_]struct { []const u8, []const u8 }{
+        .{ " , gzip", ", gzip" },
+        .{ "gzip, ", "gzip," },
+        .{ "trailers,\t ", "trailers," },
+        .{ " \t,x, \t", ",x," },
+        .{ " , ", "," },
+    };
+    for (trimmed) |case| try testing.expectEqualStrings(case[1], trim_empty_member_whitespace(case[0]));
+    const kept = [_][]const u8{ " gzip", "gzip ", " ", "\t", "", "a , b", "gzip ,", ",", " x ,y" };
+    for (kept) |value| try testing.expectEqualStrings(value, trim_empty_member_whitespace(value));
+}
+
+test "a value h3 trims still fails validation when whitespace remains at an end" {
+    try validate_value(trim_empty_member_whitespace("trailers, "));
+    try validate_value(trim_empty_member_whitespace(" , trailers"));
+    const leading = validate_value(trim_empty_member_whitespace(" trailers"));
+    try testing.expectError(error.FieldValueLeadingWhitespace, leading);
+    const trailing = validate_value(trim_empty_member_whitespace("trailers "));
+    try testing.expectError(error.FieldValueTrailingWhitespace, trailing);
+}
+
 test "field names compare case-insensitively" {
     try testing.expect(names_equal("Content-Length", "content-length"));
     try testing.expect(!names_equal("content-length", "content-type"));
@@ -194,6 +241,30 @@ test "fuzz: a name or value that validates holds no forbidden octet" {
         core.fuzz.input("a\x00"),
         core.fuzz.input("\x80"),
     } });
+}
+
+fn fuzz_trim(_: void, smith: *testing.Smith) anyerror!void {
+    var input: [16]u8 = @splat(0);
+    const bytes = input[0..smith.slice(&input)];
+    const trimmed = trim_empty_member_whitespace(bytes);
+    const start = std.mem.indexOf(u8, bytes, trimmed) orelse return error.TestUnexpectedResult;
+    // Only whitespace goes, and only beside a comma that stays.
+    for (bytes[0..start]) |octet| try testing.expect(is_whitespace(octet));
+    for (bytes[start + trimmed.len ..]) |octet| try testing.expect(is_whitespace(octet));
+    if (start > 0) try testing.expectEqual(',', trimmed[0]);
+    if (start + trimmed.len < bytes.len) try testing.expectEqual(',', trimmed[trimmed.len - 1]);
+}
+
+test "fuzz: trimming removes only whitespace beside a comma at an end" {
+    try testing.fuzz({}, fuzz_trim, .{ .corpus = &.{
+        core.fuzz.input(" , gzip"),
+        core.fuzz.input("gzip, \t"),
+        core.fuzz.input(" gzip "),
+    } });
+}
+
+test "sweep: every value of up to two octets loses only whitespace beside an end comma" {
+    try core.fuzz.sweep(fuzz_trim, null);
 }
 
 test "sweep: every name or value of up to two octets that validates holds no forbidden octet" {
