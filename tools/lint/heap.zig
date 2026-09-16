@@ -1,23 +1,22 @@
-//! heap: colibri allocates at init and never after (CLAUDE.md non-negotiable 4, invariant 1).
-//! Storage is the caller's, sized once, and every later call writes into it.
+//! heap: colibri is zero heap (CLAUDE.md non-negotiable 4, decision 35, invariant 1). The caller
+//! owns every struct and buffer, colibri exposes their sizes as comptime constants, and nothing
+//! under `src/` obtains memory.
 //!
 //! Over every `.zig` file under `src/`, the rule makes two checks:
-//!   1. a chain that starts with `std.heap` at a dot boundary, such as `std.heap.page_allocator`
-//!      or `std.heap.ArenaAllocator`. Naming `std.heap` at all means a file has an allocator of
-//!      its own rather than one it received;
-//!   2. a parameter whose type names `Allocator`, on a function whose name is not `init`. The
-//!      type is matched by segment, so `std.mem.Allocator`, `mem.Allocator` and a bare
-//!      `Allocator` all match, and so do the wrapped forms `?Allocator`, `*const Allocator` and
-//!      `[]const Allocator`, because the whole type expression is searched.
+//!   1. a chain that starts with one of `forbidden_prefixes` at a dot boundary: `std.heap`, such
+//!      as `std.heap.page_allocator` or `std.heap.ArenaAllocator`, and the allocators of
+//!      `std.testing`. Naming one means a file has an allocator of its own, and a test is no
+//!      exception: a test that needs scratch memory declares a fixed array;
+//!   2. a parameter whose type names `Allocator`, on any function. No name is exempt, `init`
+//!      included. The type is matched by segment, so `std.mem.Allocator`, `mem.Allocator` and a
+//!      bare `Allocator` all match, and so do the wrapped forms `?Allocator`, `*const Allocator`
+//!      and `[]const Allocator`, because the whole type expression is searched.
 //!
-//! What check 2 cannot see: a parameter declared `anytype` carries no type expression, so an
-//! allocator passed as `anytype` is invisible to this rule. It also reads the function's own
-//! name only — a function named `init` may take an allocator, and one it calls may not, which is
-//! exactly the direction invariant 1 wants.
-//!
-//! Every function in `src/` is read, a test helper included. A test that needs scratch memory
-//! calls `std.testing.allocator` where it needs it rather than taking a parameter, so that the
-//! signature of a function in `src/` never says an allocator reaches it.
+//! What the rule cannot see: a parameter declared `anytype` carries no type expression, so an
+//! allocator passed as `anytype` is invisible to check 2. A field or a local typed `Allocator` is
+//! not read either, but it has to be filled from somewhere, and the three places a file under
+//! `src/` could get an allocator from are `std.heap`, `std.testing` and a parameter, which the two
+//! checks cover. A module the build hands a file is the module graph's to bound, not this rule's.
 
 const std = @import("std");
 const Ast = std.zig.Ast;
@@ -33,9 +32,6 @@ pub const name = "heap";
 /// `tools/` is linked into the library.
 const source_directory = "src";
 
-/// The one function name allowed an allocator parameter.
-const allocating_function_name = "init";
-
 /// A parameter type holding this segment is an allocator.
 const allocator_type_segment = "Allocator";
 
@@ -43,10 +39,23 @@ const allocator_type_segment = "Allocator";
 /// vtable declaration, `fn (*anyopaque) void`.
 const anonymous_function_name = "an anonymous function type";
 
+/// Every chain that names an allocator a file did not receive. `std.testing` is listed member by
+/// member, because the rest of it is what every test uses.
+const forbidden_prefixes = [_][]const u8{
+    "std.heap",
+    "std.testing.allocator",
+    "std.testing.allocator_instance",
+    "std.testing.failing_allocator",
+    "std.testing.FailingAllocator",
+};
+
+/// Why an allocator is forbidden, printed after every finding.
+const reason = "colibri is zero heap (decision 35, invariant 1)";
+
 const forbidden: chain_scan.Forbidden = .{
     .name = name,
-    .prefixes = &.{"std.heap"},
-    .reason = "colibri allocates at init and never after (invariant 1)",
+    .prefixes = &forbidden_prefixes,
+    .reason = reason,
 };
 
 pub fn applies(path: []const u8) bool {
@@ -90,7 +99,6 @@ const Visitor = struct {
         var buffer: [1]Node.Index = undefined;
         const prototype = self.tree.fullFnProto(&buffer, node) orelse return;
         const declared_name = self.name_of(prototype);
-        if (std.mem.eql(u8, declared_name, allocating_function_name)) return;
         for (prototype.ast.params) |parameter| {
             if (!self.names_allocator(parameter)) continue;
             const location = ast.node_start_location(self.tree, parameter);
@@ -99,8 +107,8 @@ const Visitor = struct {
                 self.path,
                 location.line,
                 location.column,
-                "{s} takes an allocator parameter; only {s} may take one (invariant 1)",
-                .{ declared_name, allocating_function_name },
+                "{s} takes an allocator parameter: " ++ reason,
+                .{declared_name},
             );
         }
     }
@@ -156,10 +164,10 @@ const passing_fixture: [:0]const u8 =
     \\const core = @import("core");
     \\
     \\pub const Connection = struct {
-    \\    streams: []Stream,
+    \\    streams: [core.constants.streams_per_connection_max]Stream,
     \\
-    \\    pub fn init(allocator: std.mem.Allocator, count: u32) !Connection {
-    \\        return .{ .streams = try allocator.alloc(Stream, count) };
+    \\    pub fn init(self: *Connection, count: u32) void {
+    \\        for (self.streams[0..count]) |*stream| stream.* = .{};
     \\    }
     \\
     \\    pub fn read(self: *Connection, bytes: []const u8) !usize {
@@ -167,7 +175,13 @@ const passing_fixture: [:0]const u8 =
     \\    }
     \\};
     \\
+    \\pub const connection_bytes = @sizeOf(Connection);
     \\const heap_bytes = core.constants.connection_heap_bytes;
+    \\
+    \\test "a test declares its scratch memory" {
+    \\    var scratch: [64]u8 = @splat(0);
+    \\    try std.testing.expectEqual(0, scratch[0]);
+    \\}
 ;
 
 const failing_fixture: [:0]const u8 =
@@ -181,7 +195,7 @@ const failing_fixture: [:0]const u8 =
     \\}
 ;
 
-test "heap passes a file that allocates only in init" {
+test "heap passes a file whose storage the caller owns" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/quic/quic.zig", passing_fixture);
@@ -193,11 +207,47 @@ test "heap flags std.heap and an allocator parameter outside init" {
     defer arena_state.deinit();
     const findings = try findings_of(arena_state.allocator(), "src/quic/quic.zig", failing_fixture);
     try harness.expect_messages(findings, &.{
-        "reference to std.heap.ArenaAllocator: colibri allocates at init and never after (invariant 1)",
-        "read takes an allocator parameter; only init may take one (invariant 1)",
+        "reference to std.heap.ArenaAllocator: colibri is zero heap (decision 35, invariant 1)",
+        "read takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
     });
     try testing.expectEqual(3, findings[0].line);
     try testing.expectEqual(5, findings[1].line);
+}
+
+test "heap flags an init that takes an allocator, because no name is exempt" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/h2/connection.zig",
+        \\pub const Connection = struct {
+        \\    pub fn init(allocator: std.mem.Allocator, count: u32) !Connection {
+        \\        return .{ .streams = try allocator.alloc(Stream, count) };
+        \\    }
+        \\};
+    );
+    try harness.expect_messages(findings, &.{
+        "init takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
+    });
+    try testing.expectEqual(2, findings[0].line);
+}
+
+test "heap flags a test that reaches for an allocator of std.testing" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/wire/huffman.zig",
+        \\test "decode" {
+        \\    const one = std.testing.allocator;
+        \\    const two = std.testing.failing_allocator;
+        \\    var three = std.testing.FailingAllocator.init(one, .{});
+        \\    const four = std.testing.allocator_instance;
+        \\    try std.testing.expect(true);
+        \\}
+    );
+    try harness.expect_messages(findings, &.{
+        "reference to std.testing.allocator: colibri is zero heap (decision 35, invariant 1)",
+        "reference to std.testing.failing_allocator: colibri is zero heap (decision 35, invariant 1)",
+        "reference to std.testing.FailingAllocator.init: colibri is zero heap (decision 35, invariant 1)",
+        "reference to std.testing.allocator_instance: colibri is zero heap (decision 35, invariant 1)",
+    });
 }
 
 test "heap finds an allocator wrapped in a pointer, an optional or a slice" {
@@ -209,9 +259,9 @@ test "heap finds an allocator wrapped in a pointer, an optional or a slice" {
         \\fn three(allocators: []const mem.Allocator) void {}
     );
     try harness.expect_messages(findings, &.{
-        "one takes an allocator parameter; only init may take one (invariant 1)",
-        "two takes an allocator parameter; only init may take one (invariant 1)",
-        "three takes an allocator parameter; only init may take one (invariant 1)",
+        "one takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
+        "two takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
+        "three takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
     });
 }
 
@@ -235,8 +285,8 @@ test "heap reports one finding per parameter and reads a nested function" {
         \\};
     );
     try harness.expect_messages(findings, &.{
-        "grow takes an allocator parameter; only init may take one (invariant 1)",
-        "grow takes an allocator parameter; only init may take one (invariant 1)",
+        "grow takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
+        "grow takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
     });
 }
 
@@ -249,7 +299,7 @@ test "heap names an anonymous function type when a prototype has no name" {
         \\};
     );
     try harness.expect_messages(findings, &.{
-        "an anonymous function type takes an allocator parameter; only init may take one (invariant 1)",
+        "an anonymous function type takes an allocator parameter: colibri is zero heap (decision 35, invariant 1)",
     });
 }
 

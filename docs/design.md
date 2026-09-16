@@ -13,8 +13,8 @@ Every section is cited by number in commits and comments ("§8 step 4").
 colibri is an HTTP/2 and HTTP/3 library, client and server, written from the RFCs. It owns no
 I/O, no crypto and no clock: bytes, keys and time all arrive from the caller. What it owns is the
 part that is hard to get right and easy to get wrong — framing, field compression, stream state,
-flow control, loss recovery — and it owns it under static allocation, bounded loops and assertions
-that stay on in production.
+flow control, loss recovery — and it owns it with no heap, bounded loops and assertions that stay
+on in production.
 
 The narrowness is the point. A library that owns no sockets can be driven by a deterministic
 simulator, replayed from a seed, and embedded in a runtime whose I/O model it never heard of.
@@ -342,7 +342,9 @@ because the wire formats are the RFCs' and cannot be versioned by us:
 
 Every one lives in a `constants.zig` and never inline. The RFCs leave most of these to the
 implementation and say so, which is exactly why they are named here rather than chosen at a call
-site.
+site. A limit that sizes storage sizes storage the caller owns: colibri allocates nothing
+([decision 35](decisions.md#memory)), exposes each struct's size as a comptime constant, and
+leaves the caller to place the struct.
 
 **Shared** (`core`): `field_name_len_max` · `field_value_len_max` · `field_count_max` ·
 `field_section_size_max` · `connections_max` · `streams_per_connection_max`.
@@ -470,12 +472,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   neither a server role nor ALPN today, so this step waits for the h2 items of
   [the request](chapulin.md). *Medium, once chapulin delivers them.*
 
-- **Step 6 — the counted-cost gate.** Allocations, syscalls the caller would have made, copies and
-  bytes per request, counted inside the simulator and committed as exact numbers. **Gate:** the
-  numbers are in the tree and a diff that changes one fails `zig build test` until the new number
-  is committed on purpose. This is the cheap half of [decision 34](decisions.md#performance) and it
-  lands before any QUIC code, so the h2 half has a regression floor while the larger half is
-  built. *Small.*
+- **Step 6 — the counted-cost gate.** Syscalls the caller would have made, copies and bytes per
+  request, counted inside the simulator and committed as exact numbers. Allocations are not
+  counted: [decision 35](decisions.md#memory) makes them zero, and `tools/lint/heap.zig` holds
+  it. **Gate:** the numbers are in the tree and a diff that changes one fails `zig build test`
+  until the new number is committed on purpose. This is the cheap half of
+  [decision 34](decisions.md#performance) and it lands before any QUIC code, so the h2 half has a
+  regression floor while the larger half is built. *Small.*
 
 - **Step 7 — QUIC packet formats and the crypto seam.** The RFC 8999 invariant reader as its own
   file with an empty import set, the version-1 reader above it, long and short headers, packet

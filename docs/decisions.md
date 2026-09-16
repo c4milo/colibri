@@ -404,7 +404,7 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
     RFC 9000 §7.4.1 requires a 0-RTT client to remember every server transport parameter it can
     process, apart from seven it must never reuse, and forbids a server accepting 0-RTT from
     lowering seven named limits; that is persistent cross-connection state, which conflicts
-    directly with allocating once at init.
+    directly with fixed storage the caller owns per connection (entry 35).
 
     Saying no also deletes the stream-state rollback a client must perform when a server rejects
     0-RTT (RFC 9001 §4.6.2), which is a path that would otherwise exist solely to be got wrong.
@@ -535,11 +535,11 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
     memory dominate there. colibri states where it expects to win, where it expects only to match,
     and where it expects to lose, and reports all three:
 
-    - **Win, plausibly:** per-connection memory and per-connection allocation, and the teardown
-      cost nobody optimises. A fixed connection struct from a preallocated slab, a small advertised
-      field-table capacity, windows sized for small requests rather than bulk transfer, and
-      reset-instead-of-construct on reuse. Also tail latency under churn, by having no garbage
-      collector.
+    - **Win, plausibly:** per-connection memory, no allocation at all, and the teardown cost
+      nobody optimises. A fixed connection struct whose size is a comptime constant and whose
+      storage the caller owns (entry 35), a small advertised field-table capacity, windows sized
+      for small requests rather than bulk transfer, and reset-instead-of-construct on reuse. Also
+      tail latency under churn, by having no garbage collector.
 
       Two QUIC-specific optimizations are worth naming and are **not** colibri's to claim as the
       seams stand: batching header protection across a datagram's packets into one pass, and
@@ -552,7 +552,7 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
       syscalls, which are the caller's.
     - **Lose, probably:** bulk single-stream throughput, where msquic's GSO and GRO work is years
       deep; congestion control and ACK policy maturity, where getting ACK frequency wrong costs
-      more than every allocator win combined; and the whole maturity surface — PMTUD, ECN
+      more than every memory win combined; and the whole maturity surface — PMTUD, ECN
       validation, key update, stateless reset, QPACK dynamic tables under load.
 
     The honest opportunity is narrower and better than "we beat quiche". With an ECDSA certificate
@@ -584,11 +584,38 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
     everything — so a published number names the path it was measured over.
 
 34. **The regression gate has two layers, because there is no CI here.** The cheap layer runs
-    inside the deterministic simulator and cannot drift with the weather: counted allocations,
-    syscalls, copies and bytes per request, committed as exact numbers that a diff has to change on
-    purpose. That layer runs in `zig build test` on every change. The expensive layer is `bench/`
-    with committed baselines and a threshold that fails, run by a person before a step is called
-    done — stompy's full crash tier is the precedent. Static memory per connection is a comptime
+    inside the deterministic simulator and cannot drift with the weather: counted syscalls, copies
+    and bytes per request, committed as exact numbers that a diff has to change on purpose.
+    Allocations are not counted, because entry 35 makes that number zero by construction. That
+    layer runs in `zig build test` on every change. The expensive layer is `bench/` with committed
+    baselines and a threshold that fails, run by a person before a step is called done — stompy's
+    full crash tier is the precedent. Static memory per connection is a comptime
     number and is measured the way chapulin's `bench/sram.sh` measures its SRAM rows, never
     estimated, and the README's table is generated from the measurement rather than written beside
     it.
+
+## Memory
+
+Entry 35 was ruled after entries 1 to 34 were numbered, so it takes the next number.
+
+35. **colibri is zero heap.** Ruled by the owner on 2026-09-16. There is no `Allocator` anywhere in
+    `src/`: no parameter, no field, no `std.heap`, and no test that allocates. The caller owns
+    every connection struct and every buffer, and places each one where it chooses: static
+    storage, its own arena, or memory it mapped. colibri exposes their sizes as comptime
+    constants, so `@sizeOf` and the named limits of design §7 are the whole memory story.
+    chapulin's decision 18 is the precedent.
+
+    The rejected alternative is the rule this repository started with: allocate at init, through
+    one constructor per connection type that takes an `Allocator`, and never after. Three things
+    beat it. An allocating constructor puts `error.OutOfMemory` into colibri's API, and a failure
+    path into every caller that no protocol requires. The lint could hold that rule only by
+    function name, so any function named `init` could take an allocator. And a connection pool
+    that colibri allocated would have made colibri decide how many connections a process holds and
+    where their memory lives, which is the caller's decision.
+
+    Cost: the caller places every struct and cannot ask colibri to grow one, so a peer that exceeds
+    a limit colibri sized for is refused, never accommodated. Gain: nothing to allocate, fail or
+    leak; no signature that obtains memory; and an embedding runtime that places memory as it
+    chooses, such as on huge pages or in buffers registered with the kernel, without colibri
+    knowing. `tools/lint/heap.zig` holds the rule with no exception by name, and invariant 1 is
+    its runtime half.

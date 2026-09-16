@@ -37,7 +37,9 @@ These are not style preferences; the architecture depends on them.
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and
    all nine become parameters on five entry points (design §8 step 10). No source file may import
    a clock. `tools/lint/determinism.zig` enforces it.
-4. **TigerStyle.** Static allocation at init. Every loop and queue bounded. Every limit named in
+4. **TigerStyle.** Zero heap: no `Allocator` anywhere in `src/`, tests included. The caller owns
+   every struct and buffer, and colibri exposes their sizes as comptime constants (decision 35).
+   Every loop and queue bounded. Every limit named in
    a `constants.zig` and never written inline. Assertions on in production, roughly two per
    function, covering positive and negative space.
 5. **Determinism.** One seed replays byte-identically across hosts and build modes. Nothing on a
@@ -161,8 +163,8 @@ exists — never propose a second one.
 ## Ask before
 
 - Changing a named limit.
-- Adding a dependency. colibri is meant to have none: no package, no vendored C, no allocator it
-  did not receive from the caller. The one ruled exception is chapulin, which `src/testing/` links
+- Adding a dependency. colibri is meant to have none: no package, no vendored C, and no allocator
+  at all (decision 35). The one ruled exception is chapulin, which `src/testing/` links
   and the library never imports (decision 10).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.

@@ -30,21 +30,24 @@ lands its check.
 
 ## Allocation and ownership
 
-### INV-1 — no allocation after init
+### INV-1 — colibri never allocates
 
-- **Claim.** colibri never allocates while a connection is running. Every buffer a connection
-  uses is either inside the connection struct, sized at comptime from `constants.zig`, or was
-  handed in by the caller for the duration of one call.
-- **Mechanism.** No module takes an `Allocator` except the one constructor per connection type,
-  and that constructor runs before the connection is usable. The connection struct is an `extern
-  struct` whose size is a comptime constant, so `@sizeOf` is the memory story.
-- **Check.** Lint rule (`tools/lint/heap.zig`: no `Allocator` parameter outside a constructor, no
-  `std.heap` import in `src/`) at step 0; plus a comptime assert pinning each connection struct's
-  size, which lands with the struct it pins (steps 4 and 9) and is cross-checked against what
-  `bench/run.sh` publishes when `bench/` lands at step 13.
+- **Claim.** colibri never allocates. Every buffer a connection uses is either inside a struct the
+  caller owns, sized at comptime from `constants.zig`, or was handed in by the caller for the
+  duration of one call.
+- **Mechanism.** No module takes, holds or names an `Allocator`, and no source under `src/`
+  reaches `std.heap` (decision 35). The caller owns every struct colibri defines and places it
+  where it chooses. The connection struct is an `extern struct` whose size is a comptime
+  constant, so `@sizeOf` is the memory story.
+- **Check.** Lint rule (`tools/lint/heap.zig`: no parameter whose type names `Allocator` on any
+  function in `src/`, `init` included, and no reference to `std.heap` or to the allocators of
+  `std.testing`) at step 0, with the `init` exception removed when decision 35 was ruled; plus a
+  comptime assert pinning each connection struct's size, which lands with the struct it pins
+  (steps 4 and 9) and is cross-checked against what `bench/run.sh` publishes when `bench/` lands
+  at step 13.
 - **Violation.** A "temporary" growable buffer for an oversized field section, so the static
-  memory table silently stops being true.
-- See [decisions 31, 34](decisions.md#performance).
+  memory table silently stops being true. Or an `init` that takes an allocator "only once".
+- See [decisions 31, 34](decisions.md#performance) and [35](decisions.md#memory).
 
 ### INV-2 — colibri performs no I/O
 

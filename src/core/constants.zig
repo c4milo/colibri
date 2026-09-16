@@ -18,7 +18,7 @@ pub const field_name_len_max: u32 = 256;
 pub const field_value_len_max: u32 = 8192;
 
 /// Most field lines in one field section. Policy. A section is a fixed array of this length, so
-/// the limit is the allocation.
+/// the limit sets its size.
 pub const field_count_max: u32 = 128;
 
 /// Largest field section colibri will accept, measured the way both protocols measure it: the sum
@@ -28,8 +28,9 @@ pub const field_count_max: u32 = 128;
 /// decoder must still consume every octet (invariant 10).
 pub const field_section_size_max: u32 = 16384;
 
-/// Most connections one endpoint holds at once. The connection pool is a fixed array of this
-/// length, allocated at init and never grown (invariant 1).
+/// Most connections one endpoint holds at once. The caller owns every connection struct and places
+/// it where it chooses; colibri exposes the struct's size as a comptime constant, allocates none
+/// of them and grows nothing (decision 35, invariant 1).
 pub const connections_max: u32 = 1024;
 
 /// Most concurrent streams one connection holds at once, in either protocol. h2 advertises it as
@@ -44,7 +45,7 @@ comptime {
     assert(field_section_size_max >= field_name_len_max + field_value_len_max + 32);
     // The per-line limits must fit the accounting type the size formula uses.
     assert(@as(u64, field_name_len_max) + field_value_len_max + 32 <= std.math.maxInt(u32));
-    // A fixed array of this many sections is the allocation; keep it representable.
+    // A fixed array of this many field lines is the section's storage; keep it representable.
     assert(field_count_max > 0);
     assert(connections_max > 0);
     assert(streams_per_connection_max > 0);
