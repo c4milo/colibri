@@ -51,10 +51,13 @@ pub const ValueError = error{
 /// The octets RFC 9110 §5.6.2 lists as tchar: `!#$%&'*+-.^_`|~`, DIGIT and ALPHA.
 const tchar_punctuation = "!#$%&'*+-.^_`|~";
 
-const tchar_table: [256]bool = build_tchar_table();
+/// One entry per octet value.
+const TcharTable = [std.math.maxInt(u8) + 1]bool;
 
-fn build_tchar_table() [256]bool {
-    var table: [256]bool = @splat(false);
+const tchar_table: TcharTable = build_tchar_table();
+
+fn build_tchar_table() TcharTable {
+    var table: TcharTable = @splat(false);
     for (tchar_punctuation) |octet| table[octet] = true;
     for ('0'..'9' + 1) |octet| table[octet] = true;
     for ('A'..'Z' + 1) |octet| table[octet] = true;
@@ -126,7 +129,7 @@ const list_whitespace = " \t";
 /// CTL is 0x00 to 0x1f and 0x7f (RFC 5234 Appendix B.1, which RFC 9110 §2.1 includes). HTAB is a
 /// CTL, but RFC 9110 §5.5 admits it between field-vchars, so it is not reported here.
 fn is_control(octet: u8) bool {
-    return (octet < 0x20 and octet != '\t') or octet == 0x7f;
+    return std.ascii.isControl(octet) and octet != '\t';
 }
 
 fn is_whitespace(octet: u8) bool {
@@ -243,8 +246,11 @@ test "fuzz: a name or value that validates holds no forbidden octet" {
     } });
 }
 
+/// Most octets `fuzz_trim` reads. Test-only.
+const fuzz_trim_input_len_max = 16;
+
 fn fuzz_trim(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [16]u8 = @splat(0);
+    var input: [fuzz_trim_input_len_max]u8 = @splat(0);
     const bytes = input[0..smith.slice(&input)];
     const trimmed = trim_empty_member_whitespace(bytes);
     const start = std.mem.indexOf(u8, bytes, trimmed) orelse return error.TestUnexpectedResult;

@@ -16,7 +16,7 @@ const Writer = core.Writer;
 
 /// The first octet's two most significant bits encode the base-2 logarithm of the length
 /// (RFC 9000 §16).
-const length_shift: u3 = 6;
+const length_shift: u3 = @bitSizeOf(u8) - constants.varint_length_bits;
 const value_mask: u8 = 0x3f;
 
 pub const Decoded = struct {
@@ -33,7 +33,7 @@ pub fn decode(reader: *Reader) core.reader.Error!Decoded {
     // RFC 9000 §16: the value occupies the rest of the encoding, so a short read is a truncation.
     const octets = try reader.take(encoded_len);
     var value: u64 = octets[0] & value_mask;
-    for (octets[1..]) |octet| value = (value << 8) | octet;
+    for (octets[1..]) |octet| value = (value << @bitSizeOf(u8)) | octet;
     assert(value <= constants.varint_value_max);
     return .{ .value = value, .encoded_len = encoded_len };
 }
@@ -41,10 +41,22 @@ pub fn decode(reader: *Reader) core.reader.Error!Decoded {
 /// The fewest octets that carry `value`.
 pub fn encoded_len_minimal(value: u64) u8 {
     assert(value <= constants.varint_value_max);
-    if (value < 1 << 6) return 1;
-    if (value < 1 << 14) return 2;
-    if (value < 1 << 30) return 4;
-    return constants.varint_len_max;
+    for (constants.varint_lens) |len| {
+        if (value <= value_max(len)) return len;
+    }
+    unreachable;
+}
+
+/// The largest value `encoded_len` octets carry: every bit but the length bits (RFC 9000 §16).
+fn value_max(encoded_len: u8) u64 {
+    assert(is_length(encoded_len));
+    const value_bits = @as(u8, @bitSizeOf(u8)) * encoded_len - constants.varint_length_bits;
+    return (@as(u64, 1) << @intCast(value_bits)) - 1;
+}
+
+/// True for one of the four lengths RFC 9000 §16 defines.
+fn is_length(encoded_len: u8) bool {
+    return std.mem.indexOfScalar(u8, &constants.varint_lens, encoded_len) != null;
 }
 
 /// Encodes `value` in the fewest octets.
@@ -55,13 +67,13 @@ pub fn encode(writer: *Writer, value: u64) core.writer.Error!void {
 /// Encodes `value` in exactly `encoded_len` octets, all of them or none. RFC 9000 §16 permits a
 /// longer encoding than the minimum outside the Frame Type field.
 pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.writer.Error!void {
-    assert(encoded_len == 1 or encoded_len == 2 or encoded_len == 4 or encoded_len == 8);
+    assert(is_length(encoded_len));
     assert(encoded_len >= encoded_len_minimal(value));
     var octets: [constants.varint_len_max]u8 = @splat(0);
     var rest = value;
     for (0..encoded_len) |index| {
         octets[encoded_len - 1 - index] = @truncate(rest);
-        rest >>= 8;
+        rest >>= @bitSizeOf(u8);
     }
     assert(rest == 0);
     octets[0] |= @as(u8, std.math.log2_int(u8, encoded_len)) << length_shift;
@@ -69,6 +81,13 @@ pub fn encode_with_len(writer: *Writer, value: u64, encoded_len: u8) core.writer
 }
 
 const testing = std.testing;
+
+test "the lengths are exactly the four RFC 9000 §16 defines" {
+    for (0..constants.varint_len_max + 2) |len| {
+        const defined = len == 1 or len == 2 or len == 4 or len == 8;
+        try testing.expectEqual(defined, is_length(@intCast(len)));
+    }
+}
 
 fn expect_decodes(bytes: []const u8, value: u64) !void {
     var reader = Reader.init(bytes);

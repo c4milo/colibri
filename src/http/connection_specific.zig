@@ -58,15 +58,18 @@ pub fn classify(name: []const u8) ?ConnectionSpecific {
     return null;
 }
 
+/// Most calls `te_is_trailers` makes to its splitter. n octets hold at most n + 1 members, and one
+/// more call finds the end, so the bound is never the reason the loop stops.
+const te_split_calls_max = core.constants.field_value_len_max + te_split_calls_past_len;
+const te_split_calls_past_len = 2;
+
 /// True when every member of a TE value is "trailers", the one member RFC 9113 §8.2.2 and RFC 9114
 /// §4.2 permit. A value with no member at all holds nothing else, so it is true too. A value longer
 /// than `field_value_len_max` is false: field validation has already refused it.
 pub fn te_is_trailers(value: []const u8) bool {
     if (value.len > core.constants.field_value_len_max) return false;
     var members = std.mem.splitScalar(u8, value, ',');
-    // n octets hold at most n + 1 members, and one more call finds the end, so the bound is never
-    // the reason the loop stops.
-    for (0..core.constants.field_value_len_max + 2) |_| {
+    for (0..te_split_calls_max) |_| {
         const member = members.next() orelse return true;
         // RFC 9110 §5.6.1.2: OWS around the comma, and empty members are ignored.
         const trimmed = std.mem.trim(u8, member, optional_whitespace);
@@ -118,8 +121,11 @@ test "TE at the length limit, all empty members, ends the list rather than the l
     try testing.expect(te_is_trailers(&commas));
 }
 
+/// Most octets a fuzz input carries. Test-only.
+const fuzz_input_len_max = 32;
+
 fn fuzz_te(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [32]u8 = @splat(0);
+    var input: [fuzz_input_len_max]u8 = @splat(0);
     const value = input[0..smith.slice(&input)];
     if (!te_is_trailers(value)) return;
     // Every octet of a value that holds only trailers is a letter of it, a comma or OWS.

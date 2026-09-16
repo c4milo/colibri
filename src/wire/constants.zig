@@ -13,6 +13,14 @@ pub const varint_value_max: u64 = (1 << 62) - 1;
 /// Longest QUIC variable-length integer, in octets (RFC 9000 §16).
 pub const varint_len_max: u8 = 8;
 
+/// The four lengths a QUIC variable-length integer takes, in octets, shortest first (RFC 9000 §16,
+/// Table 4).
+pub const varint_lens = [_]u8{ 1, 2, 4, varint_len_max };
+
+/// Bits of a QUIC variable-length integer's first octet that encode its length (RFC 9000 §16). The
+/// rest of the encoding carries the value.
+pub const varint_length_bits: u8 = 2;
+
 /// Largest value the prefixed-integer decoder accepts. RFC 9204 §4.1.1 requires decoding integers
 /// up to and including 62 bits long, and RFC 7541 §5.1 requires an integer over an implementation
 /// limit to be treated as a decoding error, so 62 bits is both the floor and the limit.
@@ -23,6 +31,15 @@ pub const integer_value_max: u64 = (1 << 62) - 1;
 /// §5.1 requires an encoding longer than an implementation limit to be treated as a decoding
 /// error, which is what stops a peer sending an unbounded run of zero-valued continuation octets.
 pub const integer_len_max: u8 = 10;
+
+/// Fewest and most bits a prefixed integer's prefix takes. RFC 7541 §5.1 names the prefix N and
+/// leaves its size to the representation using it; colibri's codec takes every size an octet holds.
+pub const integer_prefix_bits_min: u4 = 1;
+pub const integer_prefix_bits_max: u4 = 8;
+
+/// Fewest bits a string literal's prefix takes: the H flag and a 1-bit length prefix
+/// (RFC 9204 §4.1.2). The most is `integer_prefix_bits_max`, HPACK's form (RFC 7541 §5.2).
+pub const string_prefix_bits_min: u4 = 2;
 
 /// Bits of value each continuation octet of a prefixed integer carries (RFC 7541 §5.1).
 pub const integer_continuation_bits: u8 = 7;
@@ -51,6 +68,11 @@ comptime {
     assert(integer_value_max == varint_value_max);
     assert(huffman_code_bits_min <= huffman_code_bits_max);
     assert(huffman_padding_bits_max < 8);
+    // The four lengths are the powers of two up to the longest, and the shortest carries a value.
+    for (varint_lens, 0..) |len, index| assert(len == @as(u8, 1) << @intCast(index));
+    assert(varint_lens[varint_lens.len - 1] * 8 - varint_length_bits == 62);
+    assert(integer_prefix_bits_max == 8);
+    assert(string_prefix_bits_min == integer_prefix_bits_min + 1);
 }
 
 test "the prefixed integer length limit is exactly what 62 bits need" {

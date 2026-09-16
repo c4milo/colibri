@@ -82,8 +82,11 @@ test "a method that is not a token is refused" {
     try testing.expectError(error.MethodNotToken, validate("G\x00T"));
 }
 
+/// Most octets a fuzz input carries. Test-only.
+const fuzz_input_len_max = 32;
+
 fn fuzz_validate(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [32]u8 = @splat(0);
+    var input: [fuzz_input_len_max]u8 = @splat(0);
     const method = input[0..smith.slice(&input)];
     validate(method) catch return testing.expectEqual(null, standard(method));
     for (method) |octet| try testing.expect(field.is_tchar(octet));

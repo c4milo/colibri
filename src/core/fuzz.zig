@@ -37,7 +37,7 @@ pub fn input_with_value(comptime value: u64, comptime octets: []const u8) []cons
 
 fn little_endian(comptime T: type, comptime value: u64) [@sizeOf(T)]u8 {
     var octets: [@sizeOf(T)]u8 = @splat(0);
-    for (&octets, 0..) |*octet, index| octet.* = @truncate(value >> @intCast(8 * index));
+    for (&octets, 0..) |*octet, index| octet.* = @truncate(value >> @intCast(@bitSizeOf(u8) * index));
     return octets;
 }
 
@@ -67,7 +67,7 @@ fn sweep_length(
     if (with_value) write_little_endian(entry[0..value_octets], value);
     write_little_endian(entry[prefix_len..][0..slice_length_octets], len);
     const octets = entry[prefix_len + slice_length_octets ..][0..len];
-    const count = @as(usize, 1) << @intCast(8 * len);
+    const count = @as(usize, 1) << @intCast(@bitSizeOf(u8) * len);
     for (0..count) |index| {
         write_little_endian(octets, index);
         var smith: Smith = .{ .in = entry[0 .. prefix_len + slice_length_octets + len] };
@@ -76,13 +76,16 @@ fn sweep_length(
 }
 
 fn write_little_endian(octets: []u8, value: u64) void {
-    for (octets, 0..) |*octet, index| octet.* = @truncate(value >> @intCast(8 * index));
+    for (octets, 0..) |*octet, index| octet.* = @truncate(value >> @intCast(@bitSizeOf(u8) * index));
 }
 
 const testing = std.testing;
 
+/// Most octets `expect_slice` reads back. Test-only.
+const expect_slice_len_max = 16;
+
 fn expect_slice(context: []const u8, smith: *Smith) anyerror!void {
-    var buffer: [16]u8 = @splat(0);
+    var buffer: [expect_slice_len_max]u8 = @splat(0);
     const len = smith.slice(&buffer);
     try testing.expectEqualSlices(u8, context, buffer[0..len]);
 }

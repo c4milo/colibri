@@ -72,11 +72,11 @@ pub const Reader = struct {
     /// An unsigned integer of `@sizeOf(T)` octets in network byte order.
     pub fn read_int(self: *Reader, comptime T: type) Error!T {
         comptime assert(@typeInfo(T).int.signedness == .unsigned);
-        comptime assert(@bitSizeOf(T) % 8 == 0 and @bitSizeOf(T) > 0);
+        comptime assert(@bitSizeOf(T) % @bitSizeOf(u8) == 0 and @bitSizeOf(T) > 0);
         const bytes = try self.take(@sizeOf(T));
         var value: T = 0;
         for (bytes) |byte| {
-            value = if (@sizeOf(T) == 1) byte else (value << 8) | byte;
+            value = if (@sizeOf(T) == 1) byte else (value << @bitSizeOf(u8)) | byte;
         }
         return value;
     }

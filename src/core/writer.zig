@@ -70,12 +70,12 @@ pub const Writer = struct {
     /// An unsigned integer as `@sizeOf(T)` octets in network byte order, all of them or none.
     pub fn write_int(self: *Writer, comptime T: type, value: T) Error!void {
         comptime assert(@typeInfo(T).int.signedness == .unsigned);
-        comptime assert(@bitSizeOf(T) % 8 == 0 and @bitSizeOf(T) > 0);
+        comptime assert(@bitSizeOf(T) % @bitSizeOf(u8) == 0 and @bitSizeOf(T) > 0);
         var octets: [@sizeOf(T)]u8 = @splat(0);
         var rest: T = value;
         for (0..@sizeOf(T)) |index| {
             octets[@sizeOf(T) - 1 - index] = @truncate(rest);
-            rest = if (@sizeOf(T) == 1) 0 else rest >> 8;
+            rest = if (@sizeOf(T) == 1) 0 else rest >> @bitSizeOf(u8);
         }
         assert(rest == 0);
         try self.write_bytes(&octets);

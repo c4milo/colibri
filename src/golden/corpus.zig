@@ -22,6 +22,10 @@ const Writer = core.Writer;
 const Case = cases.Case;
 const Format = cases.Format;
 
+const prefix_bits_min = wire.constants.integer_prefix_bits_min;
+const prefix_bits_max = wire.constants.integer_prefix_bits_max;
+const string_prefix_bits_min = wire.constants.string_prefix_bits_min;
+
 /// Every error a corpus decode can return. A rejection outside this set does not compile.
 pub const DecodeError = core.reader.Error || wire.string_literal.DecodeError || error{
     /// The decoder succeeded without consuming every octet of the case.
@@ -66,7 +70,7 @@ pub fn build(format: Format, case: *const Case, output: *Writer) core.writer.Err
             varint.encoded_len,
         ),
         .prefixed_integer => |integer| switch (case.prefix_size) {
-            inline 1...8 => |size| try wire.prefixed_integer.encode(
+            inline prefix_bits_min...prefix_bits_max => |size| try wire.prefixed_integer.encode(
                 size,
                 output,
                 integer.high_bits,
@@ -76,7 +80,7 @@ pub fn build(format: Format, case: *const Case, output: *Writer) core.writer.Err
         },
         .huffman => |text| try wire.huffman.encode(text, output),
         .string_literal => |literal| switch (case.prefix_size) {
-            inline 2...8 => |size| try wire.string_literal.encode(
+            inline string_prefix_bits_min...prefix_bits_max => |size| try wire.string_literal.encode(
                 size,
                 output,
                 literal.high_bits,
@@ -103,12 +107,14 @@ pub fn decode(format: Format, prefix_size: u4, octets: []const u8) DecodeError!v
     switch (format) {
         .varint => _ = try wire.varint.decode(&reader),
         .prefixed_integer => switch (prefix_size) {
-            inline 1...8 => |size| _ = try wire.prefixed_integer.decode(size, &reader),
+            inline prefix_bits_min...prefix_bits_max,
+            => |size| _ = try wire.prefixed_integer.decode(size, &reader),
             else => unreachable,
         },
         .huffman => try wire.huffman.decode(reader.take_rest(), &output),
         .string_literal => switch (prefix_size) {
-            inline 2...8 => |size| _ = try wire.string_literal.decode(size, &reader, &output),
+            inline string_prefix_bits_min...prefix_bits_max,
+            => |size| _ = try wire.string_literal.decode(size, &reader, &output),
             else => unreachable,
         },
     }

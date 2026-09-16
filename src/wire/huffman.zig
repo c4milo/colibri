@@ -48,8 +48,11 @@ const Canonical = struct {
 
 const canonical: Canonical = build_canonical();
 
+/// Branches the comptime build of the canonical table may take: 257 rows placed and checked.
+const canonical_eval_branch_quota = 65_536;
+
 fn build_canonical() Canonical {
-    @setEvalBranchQuota(1 << 16);
+    @setEvalBranchQuota(canonical_eval_branch_quota);
     var result: Canonical = .{
         .first_code = @splat(std.math.maxInt(u32)),
         .count = @splat(0),
@@ -113,14 +116,14 @@ fn assert_canonical_order() void {
 /// The most octets `data_len` octets of Huffman data can decode to. Every symbol costs at least
 /// `huffman_code_bits_min` bits, so a caller sizes its output from this and never guesses.
 pub fn decoded_len_max(data_len: usize) usize {
-    return data_len * 8 / constants.huffman_code_bits_min;
+    return data_len * @bitSizeOf(u8) / constants.huffman_code_bits_min;
 }
 
 /// The octets `bytes` occupies once encoded, padding included.
 pub fn encoded_len(bytes: []const u8) usize {
     var bit_total: usize = 0;
     for (bytes) |byte| bit_total += table.codes[byte].bit_count;
-    return std.math.divCeil(usize, bit_total, 8) catch unreachable;
+    return std.math.divCeil(usize, bit_total, @bitSizeOf(u8)) catch unreachable;
 }
 
 /// The code being assembled, one bit at a time.
@@ -149,8 +152,8 @@ pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
     var cursor = output.*;
     var partial: Partial = .{};
     for (encoded) |octet| {
-        for (0..8) |bit_index| {
-            const bit: u1 = @truncate(octet >> @intCast(7 - bit_index));
+        for (0..@bitSizeOf(u8)) |bit_index| {
+            const bit: u1 = @truncate(octet >> @intCast(@bitSizeOf(u8) - 1 - bit_index));
             const symbol = partial.push(bit) orelse continue;
             // RFC 7541 §5.2: a Huffman-encoded string literal containing EOS is a decoding error.
             if (symbol == constants.huffman_eos_symbol) return error.HuffmanEosInData;
@@ -165,6 +168,11 @@ pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
     output.* = cursor;
 }
 
+/// Most whole octets ready to write after one symbol. At most seven bits wait between symbols and a
+/// code is at most thirty, so no more than four octets are ever ready at once.
+const ready_octets_max = (constants.huffman_padding_bits_max + constants.huffman_code_bits_max) /
+    @bitSizeOf(u8);
+
 /// Encodes `bytes` into `output`, padded with the most significant bits of EOS (RFC 7541 §5.2).
 /// All of the octets are written, or none.
 pub fn encode(bytes: []const u8, output: *Writer) core.writer.Error!void {
@@ -175,26 +183,27 @@ pub fn encode(bytes: []const u8, output: *Writer) core.writer.Error!void {
         const row = table.codes[byte];
         pending = (pending << @intCast(row.bit_count)) | row.code;
         pending_bits += row.bit_count;
-        // At most seven bits wait between symbols and a code is at most thirty, so no more than
-        // four octets are ever ready at once.
-        for (0..4) |_| {
-            if (pending_bits < 8) break;
-            pending_bits -= 8;
+        for (0..ready_octets_max) |_| {
+            if (pending_bits < @bitSizeOf(u8)) break;
+            pending_bits -= @bitSizeOf(u8);
             output.write_byte(@truncate(pending >> @intCast(pending_bits))) catch unreachable;
         }
-        assert(pending_bits < 8);
+        assert(pending_bits < @bitSizeOf(u8));
         pending &= (@as(u64, 1) << @intCast(pending_bits)) - 1;
     }
     if (pending_bits == 0) return;
-    const padding_bits: u8 = 8 - pending_bits;
+    const padding_bits: u8 = @bitSizeOf(u8) - pending_bits;
     const padding: u64 = (@as(u64, 1) << @intCast(padding_bits)) - 1;
     output.write_byte(@truncate((pending << @intCast(padding_bits)) | padding)) catch unreachable;
 }
 
 const testing = std.testing;
 
+/// Octets of output the test helpers decode or encode into. Test-only.
+const expect_buffer_len = 256;
+
 fn expect_decodes(encoded: []const u8, decoded: []const u8) !void {
-    var buffer: [256]u8 = @splat(0);
+    var buffer: [expect_buffer_len]u8 = @splat(0);
     var output = Writer.init(&buffer);
     try decode(encoded, &output);
     try testing.expectEqualSlices(u8, decoded, output.written());
@@ -202,7 +211,7 @@ fn expect_decodes(encoded: []const u8, decoded: []const u8) !void {
 }
 
 fn expect_encodes(decoded: []const u8, encoded: []const u8) !void {
-    var buffer: [256]u8 = @splat(0);
+    var buffer: [expect_buffer_len]u8 = @splat(0);
     var output = Writer.init(&buffer);
     try encode(decoded, &output);
     try testing.expectEqualSlices(u8, encoded, output.written());

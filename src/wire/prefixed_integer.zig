@@ -35,7 +35,8 @@ const continuation_value_mask: u8 = 0x7f;
 
 /// `2^N - 1`: the largest value the prefix holds, and the mask that selects it.
 fn prefix_max(comptime prefix_size: u4) u8 {
-    comptime assert(prefix_size >= 1 and prefix_size <= 8);
+    comptime assert(prefix_size >= constants.integer_prefix_bits_min);
+    comptime assert(prefix_size <= constants.integer_prefix_bits_max);
     return @intCast((@as(u16, 1) << prefix_size) - 1);
 }
 
@@ -173,12 +174,17 @@ test "a truncated integer consumes nothing" {
 const fuzz_input_len_max = constants.integer_len_max + 1;
 
 fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
-    const prefix_size: u4 = smith.valueRangeAtMost(u4, 1, 8);
+    const prefix_size: u4 = smith.valueRangeAtMost(
+        u4,
+        constants.integer_prefix_bits_min,
+        constants.integer_prefix_bits_max,
+    );
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const input_len = smith.slice(&input);
     var reader = Reader.init(input[0..input_len]);
     const value = switch (prefix_size) {
-        inline 1...8 => |size| decode(size, &reader),
+        inline constants.integer_prefix_bits_min...constants.integer_prefix_bits_max,
+        => |size| decode(size, &reader),
         else => unreachable,
     } catch {
         try testing.expectEqual(0, reader.offset);

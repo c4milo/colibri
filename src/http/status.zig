@@ -29,15 +29,55 @@ pub const Class = enum(u3) {
     server_error = 5,
 };
 
-/// Every status code RFC 9110 §15.2 to §15.6 defines. 306 and 418 are absent: §15.4.7 and
-/// §15.5.19 mark them unused, so they carry no semantics and are understood as their class's x00.
-const recognized = informational ++ successful ++ redirection ++ client_error ++ server_error;
-const informational = [_]u16{ 100, 101 };
-const successful = [_]u16{ 200, 201, 202, 203, 204, 205, 206 };
-const redirection = [_]u16{ 300, 301, 302, 303, 304, 305, 307, 308 };
-const client_error = [_]u16{ 400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412 } ++
-    [_]u16{ 413, 414, 415, 416, 417, 421, 422, 426 };
-const server_error = [_]u16{ 500, 501, 502, 503, 504, 505 };
+/// Every status code RFC 9110 §15.2 to §15.6 defines, named as its section heading names it. 306
+/// and 418 are absent: §15.4.7 and §15.5.19 mark them unused, so they carry no semantics and are
+/// understood as their class's x00.
+pub const Code = enum(u16) {
+    @"continue" = 100,
+    switching_protocols = 101,
+    ok = 200,
+    created = 201,
+    accepted = 202,
+    non_authoritative_information = 203,
+    no_content = 204,
+    reset_content = 205,
+    partial_content = 206,
+    multiple_choices = 300,
+    moved_permanently = 301,
+    found = 302,
+    see_other = 303,
+    not_modified = 304,
+    use_proxy = 305,
+    temporary_redirect = 307,
+    permanent_redirect = 308,
+    bad_request = 400,
+    unauthorized = 401,
+    payment_required = 402,
+    forbidden = 403,
+    not_found = 404,
+    method_not_allowed = 405,
+    not_acceptable = 406,
+    proxy_authentication_required = 407,
+    request_timeout = 408,
+    conflict = 409,
+    gone = 410,
+    length_required = 411,
+    precondition_failed = 412,
+    content_too_large = 413,
+    uri_too_long = 414,
+    unsupported_media_type = 415,
+    range_not_satisfiable = 416,
+    expectation_failed = 417,
+    misdirected_request = 421,
+    unprocessable_content = 422,
+    upgrade_required = 426,
+    internal_server_error = 500,
+    not_implemented = 501,
+    bad_gateway = 502,
+    service_unavailable = 503,
+    gateway_timeout = 504,
+    http_version_not_supported = 505,
+};
 
 pub const Status = struct {
     code: u16,
@@ -58,7 +98,7 @@ pub const Status = struct {
         for (digits) |digit| {
             // RFC 9110 §15: three digits; DIGIT is 0x30 to 0x39 (RFC 5234 Appendix B.1).
             if (!std.ascii.isDigit(digit)) return error.StatusNotThreeDigits;
-            code = code * 10 + (digit - '0');
+            code = code * constants.status_digit_radix + (digit - '0');
         }
         return from_code(code);
     }
@@ -71,7 +111,7 @@ pub const Status = struct {
 
     /// True when RFC 9110 §15.2 to §15.6 define this code.
     pub fn is_recognized(self: Status) bool {
-        return std.mem.indexOfScalar(u16, &recognized, self.code) != null;
+        return std.enums.fromInt(Code, self.code) != null;
     }
 
     /// The status a recipient acts on: the code itself when recognised, otherwise the x00 code of
@@ -80,7 +120,7 @@ pub const Status = struct {
         // RFC 9110 §15: treat an unrecognized status code as the x00 status code of its class.
         if (self.is_recognized()) return self;
         const understood_code = @as(u16, @intFromEnum(self.class())) * constants.status_class_size;
-        assert(std.mem.indexOfScalar(u16, &recognized, understood_code) != null);
+        assert(std.enums.fromInt(Code, understood_code) != null);
         return .{ .code = understood_code };
     }
 
@@ -150,8 +190,11 @@ test "the recognised codes are exactly those RFC 9110 §15.2 to §15.6 define" {
     }
 }
 
+/// Most octets a fuzz input carries: one more than a status, so a fourth digit is reachable.
+const fuzz_input_len_max = constants.status_digits_len + 1;
+
 fn fuzz_from_digits(_: void, smith: *testing.Smith) anyerror!void {
-    var input: [4]u8 = @splat(0);
+    var input: [fuzz_input_len_max]u8 = @splat(0);
     const digits = input[0..smith.slice(&input)];
     const status = Status.from_digits(digits) catch return;
     try testing.expect(status.code >= constants.status_code_min);
