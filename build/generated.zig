@@ -5,6 +5,8 @@
 //!   - `zig build huffman-table` rewrites src/wire/huffman_table.zig from RFC 7541 Appendix B, and
 //!     the test step runs the same tool with `--check`, which fails when the committed table is not
 //!     what the RFC text yields.
+//!   - `zig build static-table` rewrites src/hpack/static_table.zig from RFC 7541 Appendix A, and
+//!     the test step runs the same tool with `--check`.
 //!   - `zig build golden` rewrites the corpus under src/golden/ from its pure case table, and
 //!     `zig build golden-check` runs the golden module's tests, which compare the committed files
 //!     with the same table through `@embedFile`.
@@ -14,6 +16,7 @@ const std = @import("std");
 
 const rfc7541_path = "docs/rfcs/rfc7541.txt";
 const huffman_table_path = "src/wire/huffman_table.zig";
+const static_table_path = "src/hpack/static_table.zig";
 const golden_directory = "src/golden";
 
 pub const Steps = struct {
@@ -27,6 +30,7 @@ pub const Steps = struct {
 
 pub fn add(b: *std.Build, steps: Steps) void {
     add_huffman_table(b, steps);
+    add_static_table(b, steps);
     add_golden(b, steps);
 }
 
@@ -56,13 +60,46 @@ fn add_huffman_table(b: *std.Build, steps: Steps) void {
     add_tool_tests(b, steps, tool.root_module, "huffman_table");
 }
 
+fn add_static_table(b: *std.Build, steps: Steps) void {
+    const tool = b.addExecutable(.{
+        .name = "static_table",
+        .root_module = host_module(b, "tools/static_table.zig"),
+    });
+
+    const write = b.addRunArtifact(tool);
+    write.addArg("--write");
+    write.addFileArg(b.path(rfc7541_path));
+    write.addArg(b.pathFromRoot(static_table_path));
+    write.has_side_effects = true;
+    const write_step = b.step(
+        "static-table",
+        "Rewrite " ++ static_table_path ++ " from RFC 7541 Appendix A",
+    );
+    write_step.dependOn(&write.step);
+
+    const check = b.addRunArtifact(tool);
+    check.addArg("--check");
+    check.addFileArg(b.path(rfc7541_path));
+    check.addFileArg(b.path(static_table_path));
+    steps.test_step.dependOn(&check.step);
+
+    add_tool_tests(b, steps, tool.root_module, "static_table");
+}
+
 fn add_golden(b: *std.Build, steps: Steps) void {
     const core = host_module(b, "src/core/core.zig");
     const wire = host_module(b, "src/wire/wire.zig");
     wire.addImport("core", core);
+    const http = host_module(b, "src/http/http.zig");
+    http.addImport("core", core);
+    const hpack = host_module(b, "src/hpack/hpack.zig");
+    hpack.addImport("core", core);
+    hpack.addImport("wire", wire);
+    hpack.addImport("http", http);
     const corpus = host_module(b, "src/golden/corpus.zig");
     corpus.addImport("core", core);
     corpus.addImport("wire", wire);
+    corpus.addImport("hpack", hpack);
 
     const tool_module = host_module(b, "tools/golden.zig");
     tool_module.addImport("golden_corpus", corpus);

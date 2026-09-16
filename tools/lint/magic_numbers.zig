@@ -11,7 +11,8 @@
 //! one:
 //!
 //! - `constants.zig`, where the names live.
-//! - `huffman_table.zig`, which `zig build huffman-table` generates from RFC 7541 Appendix B.
+//! - `huffman_table.zig` and `static_table.zig`, which `zig build huffman-table` and
+//!   `zig build static-table` generate from RFC 7541 Appendix B and Appendix A.
 //! - `src/golden/corpus_cases.zig`, the octets and values the corpus cases are built from.
 //! - `src/golden/mutations.zig`, the offsets and octets each corpus mutation writes.
 //!
@@ -31,7 +32,7 @@ pub const config: magic_numbers.Config = .{
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
-        .exclude_basenames = &.{ "constants.zig", "huffman_table.zig" },
+        .exclude_basenames = &.{ "constants.zig", "huffman_table.zig", "static_table.zig" },
         .exclude_paths = &.{ "src/golden/corpus_cases.zig", "src/golden/mutations.zig" },
     },
 };
@@ -98,6 +99,7 @@ test "magic-numbers reads src/ but not its constants or its tables" {
     });
     try expect_findings("src/wire/constants.zig", failing_fixture, &.{});
     try expect_findings("src/wire/huffman_table.zig", failing_fixture, &.{});
+    try expect_findings("src/hpack/static_table.zig", failing_fixture, &.{});
     try expect_findings("src/golden/corpus_cases.zig", failing_fixture, &.{});
     try expect_findings("src/golden/mutations.zig", failing_fixture, &.{});
     try expect_findings("tools/golden.zig", failing_fixture, &.{});
