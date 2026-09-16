@@ -156,16 +156,19 @@ exists — never propose a second one.
   library and is the only directory permitted to touch a socket.
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
-- `tools/` is developer tooling, run by `zig build lint` and never linked into the library.
+- `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its
+  engines come from pepegrillo, a lazy Zig package in `build.zig.zon` (decision 36); `tools/`
+  holds colibri's configuration of each rule and the rules only colibri has.
 - `docs/` is the design set. `bench/` holds benchmarks with their scripts and their committed
   baselines.
 
 ## Ask before
 
 - Changing a named limit.
-- Adding a dependency. colibri is meant to have none: no package, no vendored C, and no allocator
-  at all (decision 35). The one ruled exception is chapulin, which `src/testing/` links
-  and the library never imports (decision 10).
+- Adding a dependency. The library is meant to have none: no package, no vendored C, and no
+  allocator at all (decision 35). There are two ruled exceptions, and the library imports neither:
+  chapulin, which `src/testing/` links (decision 10), and pepegrillo, the tooling `tools/` builds
+  on (decision 36).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
@@ -197,6 +200,14 @@ writes to, and it moves when the step lands, not before.
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
 - Format: `zig fmt --check build.zig build src tools`.
+- Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
+  `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
+  linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
+  `zig build test` fails when the two differ.
+- Tooling: the first build on a machine fetches pepegrillo (decision 36). After a bump with
+  `zig fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm
+  `.lazy = true` is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
+  builds against a local pepegrillo instead of the pinned commit.
 
 There is no CI here. Every gate that a script cannot run inside `zig build test` is run by a
 person before a step is called done, and the step's entry in design §8 records what was run, on

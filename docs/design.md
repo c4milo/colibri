@@ -425,6 +425,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   broken gate rather than a pass — and it did fail on the first run, on a real defect (`--dep=x`
   instead of `--dep x`), which is the control earning its place.
 
+  **Tooling moved to pepegrillo, 2026-09-16.** The lint driver and its generic rules, the
+  complexity scorer and the commit linter now come from pepegrillo (decision 36). `tools/` keeps
+  colibri's configuration of each rule with the fixtures that pin it, the `module-graph` rule and
+  the graph gate. Old and new tools printed the same findings for all eight rules, the same scores
+  at `--max 15` and `--max 0`, and the same commit verdicts, over this tree, stompy's and
+  pepegrillo's. Each of the 62 configuration lines was mutated once and every mutant was
+  **CAUGHT**; ten needed a new fixture first. The magic-numbers and RFC-citation rules named above
+  are still not built.
+
 - **Step 1 — `wire` and `http`.** The varint (RFC 9000 §16), the prefixed integer generic over N
   in 1..8 and sized for 62 bits, the Huffman coder over RFC 7541 Appendix B, the string literal
   including QPACK's mid-byte prefix form, the `tchar` and field-value validators, the

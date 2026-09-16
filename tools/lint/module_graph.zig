@@ -25,9 +25,10 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ast = std.zig.Ast;
 const Node = Ast.Node;
-const ast = @import("ast.zig");
-const paths = @import("paths.zig");
-const report = @import("report.zig");
+const pepegrillo = @import("pepegrillo");
+const ast = pepegrillo.lint.ast;
+const paths = pepegrillo.lint.paths;
+const report = pepegrillo.lint.report;
 
 pub const name = "module-graph";
 
@@ -298,7 +299,7 @@ fn holds_entry(entries: []const Entry, wanted: []const u8) bool {
 // both files in memory, so the fixtures are string constants rather than files on disk.
 
 const testing = std.testing;
-const harness = @import("harness.zig");
+const harness = pepegrillo.lint.harness;
 
 const passing_build: [:0]const u8 =
     \\pub fn add(b: *std.Build) Modules {

@@ -13,20 +13,14 @@
 //! from build/modules.zig can call through it, and this rule cannot see where that call ends up.
 //! The module graph is what bounds that; this rule is what stops a file under `src/` reaching the
 //! host through `std` directly.
+//!
+//! The rule is pepegrillo's `forbidden_references` (decision 36). This file holds colibri's configuration of it
+//! and the fixtures that pin that configuration.
 
 const std = @import("std");
-const chain_scan = @import("chain_scan.zig");
-const paths = @import("paths.zig");
-const report = @import("report.zig");
-
-pub const name = "io";
-
-/// The directory the rule reads.
-const source_directory = "src";
-
-/// The one directory under `src/` permitted to touch a socket: the test-only entry points of
-/// docs/design.md §9, which are excluded from the packaged library.
-const exempt_directory = "src/testing";
+const pepegrillo = @import("pepegrillo");
+const lint = pepegrillo.lint;
+const forbidden_references = lint.rules.forbidden_references;
 
 /// A chain that starts with one of these at a dot boundary is a finding. Each names a way to
 /// reach the host: the syscall surface, the filesystem, the network, threads, the `std.Io`
@@ -40,34 +34,34 @@ const forbidden_prefixes = [_][]const u8{
     "std.process",
 };
 
-const forbidden: chain_scan.Forbidden = .{
-    .name = name,
+/// The configuration. It reads `src/`, and exempts `src/testing/`: the test-only entry points of
+/// docs/design.md §9, which are excluded from the packaged library.
+pub const config: forbidden_references.Config = .{
+    .name = "io",
+    .scope = .{
+        .extensions = &.{lint.paths.zig_extension},
+        .include_directories = &.{"src"},
+        .exclude_directories = &.{"src/testing"},
+    },
     .prefixes = &forbidden_prefixes,
     .reason = "colibri owns no I/O (invariant 2)",
 };
 
-pub fn applies(path: []const u8) bool {
-    if (!paths.has_extension(path, paths.zig_extension)) return false;
-    if (paths.is_under(path, exempt_directory)) return false;
-    return paths.is_under(path, source_directory);
-}
-
-pub fn check(context: *report.Context, file: report.File) !void {
-    if (!applies(file.path)) return;
-    try chain_scan.scan(context, file, forbidden);
-}
+const Rule = forbidden_references.Rule(config);
+pub const name = Rule.name;
+pub const check = Rule.check;
 
 // Tests. Each fixture pins one shape from the header.
 
 const testing = std.testing;
-const harness = @import("harness.zig");
+const harness = lint.harness;
 
 fn findings_of(
     arena: std.mem.Allocator,
     path: []const u8,
     source: [:0]const u8,
-) ![]const report.Finding {
-    return harness.run(arena, @This(), path, source);
+) ![]const lint.report.Finding {
+    return harness.run(arena, Rule, path, source);
 }
 
 const passing_fixture: [:0]const u8 =
@@ -154,10 +148,10 @@ test "io exempts src/testing/ and reads nothing outside src/" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(applies("src/quic/quic.zig"));
-    try testing.expect(!applies("src/testing/endpoint.zig"));
-    try testing.expect(!applies("./src/testing/deep/endpoint.zig"));
-    try testing.expect(!applies("tools/lint/main.zig"));
+    try testing.expect(config.scope.applies("src/quic/quic.zig"));
+    try testing.expect(!config.scope.applies("src/testing/endpoint.zig"));
+    try testing.expect(!config.scope.applies("./src/testing/deep/endpoint.zig"));
+    try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try harness.expect_messages(try findings_of(arena, "src/testing/endpoint.zig", failing_fixture), &.{});
     try harness.expect_messages(try findings_of(arena, "tools/graph_gate.zig", failing_fixture), &.{});
 }

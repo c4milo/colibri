@@ -22,155 +22,49 @@
 //! no LaTeX, a pipe inside a table cell written `\|` — and the render itself. It reads lines, not
 //! a document tree, so a table written without its outer pipes, or a fence opened inside a list
 //! item's indentation, is outside what it can see.
+//!
+//! The rule is pepegrillo's `markdown` (decision 36). This file holds colibri's configuration of it
+//! and the fixtures that pin that configuration.
 
 const std = @import("std");
-const paths = @import("paths.zig");
-const report = @import("report.zig");
-const text = @import("text.zig");
+const pepegrillo = @import("pepegrillo");
+const lint = pepegrillo.lint;
+const markdown = lint.rules.markdown;
 
-pub const name = "markdown";
-
-const markdown_extension = ".md";
-
-/// The line that opens and closes a fenced code block.
-const fence_marker = "```";
-
-/// The cell separator of a table row.
-const cell_separator: u8 = '|';
-
-/// The byte that escapes a cell separator inside a cell.
-const escape: u8 = '\\';
-
-pub fn applies(path: []const u8) bool {
-    return paths.has_extension(path, markdown_extension);
-}
-
-pub fn check(context: *report.Context, file: report.File) !void {
-    if (!applies(file.path)) return;
-    var scanner: Scanner = .{ .findings = &context.findings, .path = file.path };
-    var lines: text.LineIterator = .{ .source = file.source };
-    while (lines.next()) |line| try scanner.read(line);
-}
-
-/// Reads the document one line at a time, carrying the two pieces of state a line check needs:
-/// whether the reader is inside a fenced code block, and how many columns the table being read
-/// declared in its header.
-const Scanner = struct {
-    findings: *report.Findings,
-    path: []const u8,
-    inside_fence: bool = false,
-    /// Columns the header of the table being read declared, or null between tables.
-    table_columns: ?usize = null,
-
-    fn read(self: *Scanner, line: text.Line) !void {
-        try self.check_trailing_whitespace(line);
-        const trimmed = std.mem.trimStart(u8, line.text, " \t");
-        if (std.mem.startsWith(u8, trimmed, fence_marker)) return self.read_fence(line, trimmed);
-        if (self.inside_fence) return;
-        try self.check_pseudo_list_item(line, trimmed);
-        try self.check_table_row(line, trimmed);
-    }
-
-    fn read_fence(self: *Scanner, line: text.Line, trimmed: []const u8) !void {
-        self.table_columns = null;
-        self.inside_fence = !self.inside_fence;
-        // A closing fence carries no language, so only the opening one is checked.
-        if (!self.inside_fence) return;
-        const language = std.mem.trim(u8, trimmed[fence_marker.len..], " \t");
-        if (language.len != 0) return;
-        try self.add(line, "fenced code block opened with no language", .{});
-    }
-
-    fn check_trailing_whitespace(self: *Scanner, line: text.Line) !void {
-        if (line.raw.len == 0) return;
-        const last = line.raw[line.raw.len - 1];
-        if (last != ' ' and last != '\t') return;
-        try self.add(line, "trailing whitespace", .{});
-    }
-
-    fn check_pseudo_list_item(self: *Scanner, line: text.Line, trimmed: []const u8) !void {
-        const marker = pseudo_list_marker(trimmed) orelse return;
-        try self.add(
-            line,
-            "bare \"{s}\" folds into the paragraph above on GitHub; nest it as a list item",
-            .{marker},
-        );
-    }
-
-    fn check_table_row(self: *Scanner, line: text.Line, trimmed: []const u8) !void {
-        if (trimmed.len == 0 or trimmed[0] != cell_separator) {
-            self.table_columns = null;
-            return;
-        }
-        const columns = count_columns(trimmed);
-        const header_columns = self.table_columns orelse {
-            self.table_columns = columns;
-            return;
-        };
-        if (columns == header_columns) return;
-        // A separator row is measured too: a `|---|---|` of the wrong width is the same error.
-        try self.add(
-            line,
-            "table row holds {d} columns; its header holds {d}",
-            .{ columns, header_columns },
-        );
-    }
-
-    fn add(
-        self: *Scanner,
-        line: text.Line,
-        comptime format: []const u8,
-        arguments: anytype,
-    ) !void {
-        try self.findings.add(name, self.path, line.number, 1, format, arguments);
-    }
+/// The configuration. It reads every `.md` file and runs the four checks above. A pseudo list item
+/// is matched with a letter of either case and reported at the line's first column.
+pub const config: markdown.Config = .{
+    .scope = .{ .extensions = &.{".md"} },
+    .pseudo_list_item = true,
+    .pseudo_list_letters = .any,
+    .pseudo_list_column = .first,
+    .fence_language = true,
+    .table_columns = true,
+    .trailing_whitespace = true,
+    .messages = .{
+        .pseudo_list_item = "bare \"{[marker]s}\" folds into the paragraph above on GitHub;" ++
+            " nest it as a list item",
+        .fence_language = "fenced code block opened with no language",
+        .table_columns = "table row holds {[columns]d} columns; its header holds {[header_columns]d}",
+        .trailing_whitespace = "trailing whitespace",
+    },
 };
 
-/// The `3b.` of a line that starts with digits, one letter, a period and a space.
-fn pseudo_list_marker(line: []const u8) ?[]const u8 {
-    var index: usize = 0;
-    while (index < line.len and std.ascii.isDigit(line[index])) index += 1;
-    if (index == 0) return null;
-    if (index + 2 >= line.len) return null;
-    if (!std.ascii.isAlphabetic(line[index])) return null;
-    if (line[index + 1] != '.' or line[index + 2] != ' ') return null;
-    return line[0 .. index + 2];
-}
-
-/// The number of cells a table row holds. The outer separators are not cells, so `| a | b |` holds
-/// two; a separator escaped as `\|` is content and does not split a cell.
-fn count_columns(row: []const u8) usize {
-    const trimmed = std.mem.trimEnd(u8, row, " \t");
-    var body = trimmed;
-    if (body.len != 0 and body[0] == cell_separator) body = body[1..];
-    if (body.len != 0 and ends_with_separator(body)) body = body[0 .. body.len - 1];
-    var cells: usize = 1;
-    for (body, 0..) |byte, index| {
-        if (byte != cell_separator) continue;
-        if (index != 0 and body[index - 1] == escape) continue;
-        cells += 1;
-    }
-    return cells;
-}
-
-/// True when the row's last byte is a separator that no backslash escapes.
-fn ends_with_separator(body: []const u8) bool {
-    if (body[body.len - 1] != cell_separator) return false;
-    if (body.len < 2) return true;
-    return body[body.len - 2] != escape;
-}
+const Rule = markdown.Rule(config);
+pub const name = Rule.name;
+pub const check = Rule.check;
 
 // Tests. Each fixture pins one shape from the header.
 
 const testing = std.testing;
-const harness = @import("harness.zig");
+const harness = lint.harness;
 
 fn findings_of(
     arena: std.mem.Allocator,
     path: []const u8,
     source: [:0]const u8,
-) ![]const report.Finding {
-    return harness.run(arena, @This(), path, source);
+) ![]const lint.report.Finding {
+    return harness.run(arena, Rule, path, source);
 }
 
 const passing_fixture: [:0]const u8 =
@@ -251,33 +145,42 @@ test "markdown does not read the inside of a fence as Markdown" {
     try harness.expect_messages(findings, &.{});
 }
 
-test "markdown counts a table's columns the way GitHub splits them" {
-    try testing.expectEqual(2, count_columns("| a | b |"));
-    try testing.expectEqual(2, count_columns("|---|---|"));
-    try testing.expectEqual(3, count_columns("| a | b | c |"));
-    try testing.expectEqual(2, count_columns("| a \\| b | c |"));
-    try testing.expectEqual(2, count_columns("| a `x | y` |"));
-    try testing.expectEqual(2, count_columns("| a | b"));
-}
-
-test "markdown reads a pseudo list item and nothing that resembles one" {
-    try testing.expectEqualStrings("3b.", pseudo_list_marker("3b. text").?);
-    try testing.expectEqualStrings("0a.", pseudo_list_marker("0a. text").?);
-    try testing.expectEqualStrings("12A.", pseudo_list_marker("12A. text").?);
-    try testing.expectEqual(null, pseudo_list_marker("3. text"));
-    try testing.expectEqual(null, pseudo_list_marker("3b.text"));
-    try testing.expectEqual(null, pseudo_list_marker("b. text"));
-    try testing.expectEqual(null, pseudo_list_marker("3b."));
-}
-
 test "markdown reads every .md file and no other" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(applies("docs/design.md"));
-    try testing.expect(applies("README.md"));
-    try testing.expect(applies("./CLAUDE.md"));
-    try testing.expect(!applies("src/quic/quic.zig"));
-    try testing.expect(!applies("docs/design.txt"));
+    try testing.expect(config.scope.applies("docs/design.md"));
+    try testing.expect(config.scope.applies("README.md"));
+    try testing.expect(config.scope.applies("./CLAUDE.md"));
+    try testing.expect(!config.scope.applies("src/quic/quic.zig"));
+    try testing.expect(!config.scope.applies("docs/design.txt"));
     try harness.expect_messages(try findings_of(arena, "docs/design.txt", failing_fixture), &.{});
+}
+
+test "markdown flags an uppercase marker and an indented one, each at column 1" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "docs/design.md",
+        \\12A. Upper case.
+        \\
+        \\  3b. Indented.
+    );
+    try harness.expect_messages(findings, &.{
+        "bare \"12A.\" folds into the paragraph above on GitHub; nest it as a list item",
+        "bare \"3b.\" folds into the paragraph above on GitHub; nest it as a list item",
+    });
+    try testing.expectEqual(1, findings[1].column);
+}
+
+test "markdown counts a pipe inside a code span as a cell boundary and reports nothing else" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    // GitHub splits the row into three cells, which is the header's count, so nothing is wrong
+    // with the table as GitHub renders it.
+    const findings = try findings_of(arena_state.allocator(), "docs/design.md",
+        \\| a | b | c |
+        \\|---|---|---|
+        \\| `x|y` | z |
+    );
+    try harness.expect_messages(findings, &.{});
 }

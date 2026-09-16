@@ -15,8 +15,10 @@
 //! points this clone's core.hooksPath at .githooks; neither is part of `zig build test`, because
 //! commit shape is a property of the history, not of the code.
 //!
-//! There are no dependencies, and colibri is meant to keep it that way (CLAUDE.md, Ask before).
-//! The module graph is build/modules.zig.
+//! The library has no dependencies, and colibri is meant to keep it that way (CLAUDE.md, Ask
+//! before). The tools take one: pepegrillo, a lazy package in build.zig.zon that only the root
+//! build requests, so a project depending on colibri never fetches it (decision 36). The module
+//! graph is build/modules.zig.
 const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
@@ -60,6 +62,9 @@ const commit_lint_range = "origin/main..HEAD";
 /// The directory `zig build hooks` points this clone's core.hooksPath at.
 const hooks_directory = ".githooks";
 
+/// The pre-push hook: a copy of pepegrillo's, which `zig build test` compares byte for byte.
+const pre_push_hook = hooks_directory ++ "/pre-push";
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     // Assertions stay on in production (CLAUDE.md non-negotiable 4), so the build offers Debug
@@ -70,9 +75,15 @@ pub fn build(b: *std.Build) void {
 
     const graph = modules.add(b, target, optimize);
 
+    // Everything below is colibri's own build: the tests, the gates and the tools. A project that
+    // depends on colibri stops here, before the tools request pepegrillo.
+    if (b.pkg_hash.len != 0) return;
+    const pepegrillo_dependency = b.lazyDependency("pepegrillo", .{}) orelse return;
+    const pepegrillo = pepegrillo_dependency.module("pepegrillo");
+
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");
-    test_step.dependOn(add_lint_step(b));
+    test_step.dependOn(add_lint_step(b, pepegrillo));
 
     const unit_test_modules = [_]struct { name: []const u8, module: *std.Build.Module }{
         .{ .name = "core", .module = graph.core },
@@ -103,7 +114,7 @@ pub fn build(b: *std.Build) void {
     for (tool_test_roots) |root| {
         const tool_tests = b.addTest(.{
             .name = std.fs.path.stem(root),
-            .root_module = host_module(b, root),
+            .root_module = tool_module(b, pepegrillo, root),
         });
         const run = &b.addRunArtifact(tool_tests).step;
         test_step.dependOn(run);
@@ -117,7 +128,8 @@ pub fn build(b: *std.Build) void {
     });
 
     test_step.dependOn(add_graph_gate_step(b));
-    add_commit_lint_step(b, install_step);
+    test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
+    add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
 
     const fmt_step = b.step("fmt", "Check formatting of every Zig source");
@@ -146,13 +158,24 @@ fn host_module(b: *std.Build, root_source_file: []const u8) *std.Build.Module {
     });
 }
 
+/// A host module that imports `pepegrillo`: every tool built on pepegrillo's engines.
+fn tool_module(
+    b: *std.Build,
+    pepegrillo: *std.Build.Module,
+    root_source_file: []const u8,
+) *std.Build.Module {
+    const module = host_module(b, root_source_file);
+    module.addImport("pepegrillo", pepegrillo);
+    return module;
+}
+
 /// `zig build lint`: the cognitive-complexity score over build.zig and every source directory at
 /// the threshold of CLAUDE.md, then the tools/lint rules over the tree. Both tools run on the
 /// build host whatever `-Dtarget` says.
-fn add_lint_step(b: *std.Build) *std.Build.Step {
+fn add_lint_step(b: *std.Build, pepegrillo: *std.Build.Module) *std.Build.Step {
     const complexity = b.addExecutable(.{
         .name = "cognitive_complexity",
-        .root_module = host_module(b, "tools/cognitive_complexity.zig"),
+        .root_module = tool_module(b, pepegrillo, "tools/cognitive_complexity.zig"),
     });
     const complexity_run = b.addRunArtifact(complexity);
     complexity_run.addArgs(&.{ "--max", cognitive_complexity_max });
@@ -163,7 +186,7 @@ fn add_lint_step(b: *std.Build) *std.Build.Step {
 
     const rules = b.addExecutable(.{
         .name = "lint",
-        .root_module = host_module(b, "tools/lint/main.zig"),
+        .root_module = tool_module(b, pepegrillo, "tools/lint/main.zig"),
     });
     const rules_run = b.addRunArtifact(rules);
     for (lint_rules) |rule| {
@@ -202,14 +225,37 @@ fn add_graph_gate_step(b: *std.Build) *std.Build.Step {
     return step;
 }
 
+/// `zig build hook-check`: .githooks/pre-push must be byte-identical to the hook of the pinned
+/// pepegrillo. After a pepegrillo bump, copy the new hook over it.
+fn add_hook_check_step(b: *std.Build, pepegrillo: *std.Build.Dependency) *std.Build.Step {
+    const compare = b.addSystemCommand(&.{"cmp"});
+    compare.addFileArg(pepegrillo.path("hooks/pre-push"));
+    compare.addFileArg(b.path(pre_push_hook));
+    const step = b.step(
+        "hook-check",
+        "Require " ++ pre_push_hook ++ " to match pepegrillo's hooks/pre-push; copy it when not",
+    );
+    step.dependOn(&compare.step);
+    return step;
+}
+
 /// `zig build lint-commits`: the Conventional Commit rules of CLAUDE.md over the commits this
 /// branch adds. Not part of `zig build test`: commit shape is a property of the history.
-fn add_commit_lint_step(b: *std.Build, install_step: *std.Build.Step) void {
+/// `zig build install-commit-lint` installs the linter alone, which .githooks/pre-push runs when
+/// zig-out/bin/commit_lint is missing.
+fn add_commit_lint_step(
+    b: *std.Build,
+    pepegrillo: *std.Build.Module,
+    install_step: *std.Build.Step,
+) void {
     const tool = b.addExecutable(.{
         .name = "commit_lint",
-        .root_module = host_module(b, "tools/commit_lint.zig"),
+        .root_module = tool_module(b, pepegrillo, "tools/commit_lint.zig"),
     });
-    install_step.dependOn(&tool.step);
+    const install_tool = b.addInstallArtifact(tool, .{});
+    install_step.dependOn(&install_tool.step);
+    const install_tool_step = b.step("install-commit-lint", "Install the commit-message linter alone");
+    install_tool_step.dependOn(&install_tool.step);
     const run = b.addRunArtifact(tool);
     run.addArgs(&.{ "--range", commit_lint_range });
     const step = b.step("lint-commits", "Check the commit messages this branch adds");

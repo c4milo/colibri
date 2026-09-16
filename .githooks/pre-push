@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
-# pre-push: refuse a push whose commits break the message rules of CLAUDE.md (Commits), checked by
-# tools/commit_lint.zig. Install it once per clone with `zig build hooks`, which points this
-# clone's core.hooksPath at .githooks.
+# pre-push: refuse a push whose commits break the project's commit rules, checked by the project's
+# commit_lint binary, which forwards to pepegrillo's commit-message linter.
 #
 # git runs this hook with the remote name as $1 and its URL as $2, and writes one line per ref
 # being pushed on standard input:
@@ -17,34 +16,53 @@
 #   - otherwise it lints <remote sha>..<local sha>, the commits the push adds.
 #
 # `--not --remotes` needs no refs/remotes/<remote>/HEAD and no guess at how many commits are new,
-# so a fresh clone whose history predates these rules does not have that history linted on its
+# so a fresh clone whose history predates the rules does not have that history linted on its
 # first branch push.
 #
 # The linter exits 1 for a rule that was violated and 2 when it could not run. The hook refuses the
-# push on either, and says which happened. It exits 0 for a message that only drew warnings, whose
-# lines the hook still prints: a scope outside the module graph is reported and never refused.
+# push on either, and says which happened. The linter exits 0 for a message that only drew
+# warnings, whose lines the hook still prints and does not refuse.
 #
-# The hook reads only local git objects and runs one linter that compiles one file: no network call
-# and no build of the tree.
+# The hook runs zig-out/bin/commit_lint. When that binary is missing, the hook builds it once with
+# `zig build install-commit-lint` and then runs it. It never uses `zig run`: the project's entry
+# point imports the pepegrillo module, which only the project's build can resolve. The hook reads
+# local git objects only. The one build may fetch the project's pinned dependencies when the Zig
+# cache does not hold them yet.
 
 set -euo pipefail
 
 # The sha git writes for a ref that does not exist yet or is being deleted.
 readonly absent_sha_pattern='^0+$'
-# The linter, preferred as the installed binary and run from source when that binary has not been
-# built.
+# The linter binary the project's build installs, relative to the top of the work tree.
 readonly compiled_linter="zig-out/bin/commit_lint"
-readonly linter_source="tools/commit_lint.zig"
+# The build step that installs the linter binary.
+readonly install_step="install-commit-lint"
 # The exit status the linter reports when it ran and found a rule violated. Any other non-zero
 # status is the linter itself failing.
 readonly linter_found_violations=1
 
 cd "$(git rev-parse --show-toplevel)"
 
-if [[ ! -x "$compiled_linter" ]] && ! command -v zig >/dev/null 2>&1; then
-  echo "pre-push: no $compiled_linter and no zig on PATH, so commit messages cannot be linted" >&2
-  exit 1
-fi
+# Builds the linter when it is missing. Standard input is closed, so the build cannot read the ref
+# lines git wrote for the loop below, and its output goes to standard error.
+ensure_linter() {
+  if [[ -x "$compiled_linter" ]]; then
+    return 0
+  fi
+  if ! command -v zig >/dev/null 2>&1; then
+    echo "pre-push: no $compiled_linter and no zig on PATH, so commit messages cannot be linted" >&2
+    return 1
+  fi
+  echo "pre-push: $compiled_linter is missing, running zig build $install_step" >&2
+  if ! zig build "$install_step" </dev/null >&2; then
+    echo "pre-push: zig build $install_step failed, so commit messages cannot be linted" >&2
+    return 1
+  fi
+  if [[ ! -x "$compiled_linter" ]]; then
+    echo "pre-push: zig build $install_step did not install $compiled_linter" >&2
+    return 1
+  fi
+}
 
 # Prints the git revision arguments to lint for one pushed ref, one per line.
 revisions_for() {
@@ -59,19 +77,17 @@ revisions_for() {
 }
 
 # Runs the linter over the revision arguments it is given, printing one line per finding and
-# exiting with the linter's own status. Standard input is closed, so nothing the linter runs eats
+# exiting with the linter's own status. Standard input is closed, so nothing the linter runs reads
 # the ref lines the loop below reads.
 run_linter() {
-  if [[ -x "$compiled_linter" ]]; then
-    "$compiled_linter" --range "$@" </dev/null
-  else
-    zig run "$linter_source" -- --range "$@" </dev/null
-  fi
+  "$compiled_linter" --range "$@" </dev/null
 }
 
+ensure_linter
+
 status=0
-# Set when a message actually broke a rule, which is the only case a rebase fixes. A linter that
-# failed to run says so on its own line instead.
+# Set when a message broke a rule, which is the only case a rebase fixes. A linter that failed to
+# run says so on its own line instead.
 found_violations=0
 
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -98,17 +114,20 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 
   status=1
   if [[ "$linter_status" -ne "$linter_found_violations" ]]; then
-    echo "pre-push: the commit linter failed on ${revisions[*]} (exit ${linter_status}); the messages were not checked" >&2
+    echo "pre-push: the commit linter failed on ${revisions[*]} (exit ${linter_status});" \
+      "the messages were not checked" >&2
     continue
   fi
   found_violations=1
-  echo "pre-push: ${local_ref} -> ${remote_ref} (${revisions[*]}) has commit messages that break the rules:" >&2
+  echo "pre-push: ${local_ref} -> ${remote_ref} (${revisions[*]})" \
+    "has commit messages that break the rules:" >&2
   if [[ -n "$findings" ]]; then
     printf '%s\n' "$findings" >&2
   fi
 done
 
 if [[ "$found_violations" -ne 0 ]]; then
-  echo "pre-push: fix the messages with git rebase -i, or push with --no-verify to skip this hook" >&2
+  echo "pre-push: fix the messages with git rebase -i," \
+    "or push with --no-verify to skip this hook" >&2
 fi
 exit "$status"

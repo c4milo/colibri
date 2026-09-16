@@ -17,27 +17,14 @@
 //! not read either, but it has to be filled from somewhere, and the three places a file under
 //! `src/` could get an allocator from are `std.heap`, `std.testing` and a parameter, which the two
 //! checks cover. A module the build hands a file is the module graph's to bound, not this rule's.
+//!
+//! The rule is pepegrillo's `forbidden_references` (decision 36). This file holds colibri's configuration of it
+//! and the fixtures that pin that configuration.
 
 const std = @import("std");
-const Ast = std.zig.Ast;
-const Node = Ast.Node;
-const ast = @import("ast.zig");
-const chain_scan = @import("chain_scan.zig");
-const paths = @import("paths.zig");
-const report = @import("report.zig");
-
-pub const name = "heap";
-
-/// The directory the rule reads. Developer tooling under `tools/` allocates freely; nothing under
-/// `tools/` is linked into the library.
-const source_directory = "src";
-
-/// A parameter type holding this segment is an allocator.
-const allocator_type_segment = "Allocator";
-
-/// The name a prototype with no name token is reported under: a function type in a field or a
-/// vtable declaration, `fn (*anyopaque) void`.
-const anonymous_function_name = "an anonymous function type";
+const pepegrillo = @import("pepegrillo");
+const lint = pepegrillo.lint;
+const forbidden_references = lint.rules.forbidden_references;
 
 /// Every chain that names an allocator a file did not receive. `std.testing` is listed member by
 /// member, because the rest of it is what every test uses.
@@ -49,114 +36,32 @@ const forbidden_prefixes = [_][]const u8{
     "std.testing.FailingAllocator",
 };
 
-/// Why an allocator is forbidden, printed after every finding.
-const reason = "colibri is zero heap (decision 35, invariant 1)";
-
-const forbidden: chain_scan.Forbidden = .{
-    .name = name,
+/// The configuration. It reads `src/` alone: developer tooling under `tools/` allocates freely,
+/// and nothing under `tools/` is linked into the library. A parameter type holding the segment
+/// `Allocator` is an allocator, and the reason is printed after every finding.
+pub const config: forbidden_references.Config = .{
+    .name = "heap",
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
     .prefixes = &forbidden_prefixes,
-    .reason = reason,
+    .parameter_check = .{ .type_segment = "Allocator", .description = "an allocator parameter" },
+    .reason = "colibri is zero heap (decision 35, invariant 1)",
 };
 
-pub fn applies(path: []const u8) bool {
-    if (!paths.has_extension(path, paths.zig_extension)) return false;
-    return paths.is_under(path, source_directory);
-}
-
-pub fn check(context: *report.Context, file: report.File) !void {
-    if (!applies(file.path)) return;
-    try chain_scan.scan(context, file, forbidden);
-    const tree = file.tree orelse return;
-    var visitor: Visitor = .{ .tree = tree, .findings = &context.findings, .path = file.path };
-    for (tree.rootDecls()) |declaration| visitor.child(declaration);
-    if (visitor.failure) |failure| return failure;
-}
-
-const Visitor = struct {
-    tree: *const Ast,
-    findings: *report.Findings,
-    path: []const u8,
-    depth: u32 = 0,
-    failure: ?anyerror = null,
-
-    pub fn child(self: *Visitor, node: Node.Index) void {
-        self.depth += 1;
-        defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
-        self.visit(node) catch |failure| {
-            self.failure = failure;
-        };
-    }
-
-    fn visit(self: *Visitor, node: Node.Index) !void {
-        // A `fn_decl` holds its prototype as a child, which this walk reaches on its own; reading
-        // the prototype here as well would report every parameter twice.
-        if (self.tree.nodeTag(node) != .fn_decl) try self.visit_prototype(node);
-        ast.for_each_child(self.tree, node, self);
-    }
-
-    fn visit_prototype(self: *Visitor, node: Node.Index) !void {
-        var buffer: [1]Node.Index = undefined;
-        const prototype = self.tree.fullFnProto(&buffer, node) orelse return;
-        const declared_name = self.name_of(prototype);
-        for (prototype.ast.params) |parameter| {
-            if (!self.names_allocator(parameter)) continue;
-            const location = ast.node_start_location(self.tree, parameter);
-            try self.findings.add(
-                name,
-                self.path,
-                location.line,
-                location.column,
-                "{s} takes an allocator parameter: " ++ reason,
-                .{declared_name},
-            );
-        }
-    }
-
-    fn name_of(self: *const Visitor, prototype: Ast.full.FnProto) []const u8 {
-        const token = prototype.name_token orelse return anonymous_function_name;
-        return self.tree.tokenSlice(token);
-    }
-
-    /// True when the parameter's type expression names `Allocator` anywhere inside it, so a
-    /// pointer, an optional or a slice of one is found along with the plain type.
-    fn names_allocator(self: *const Visitor, parameter: Node.Index) bool {
-        var search: TypeSearch = .{ .tree = self.tree };
-        search.child(parameter);
-        return search.found;
-    }
-};
-
-/// Walks one parameter's type expression and records whether it names `Allocator`.
-const TypeSearch = struct {
-    tree: *const Ast,
-    found: bool = false,
-    depth: u32 = 0,
-
-    pub fn child(self: *TypeSearch, node: Node.Index) void {
-        self.depth += 1;
-        defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
-        var buffer: [ast.max_chain_bytes]u8 = undefined;
-        if (ast.chain_text(self.tree, node, &buffer)) |chain| {
-            if (ast.has_segment(chain, allocator_type_segment)) self.found = true;
-            return;
-        }
-        ast.for_each_child(self.tree, node, self);
-    }
-};
+const Rule = forbidden_references.Rule(config);
+pub const name = Rule.name;
+pub const check = Rule.check;
 
 // Tests. Each fixture pins one shape from the header.
 
 const testing = std.testing;
-const harness = @import("harness.zig");
+const harness = lint.harness;
 
 fn findings_of(
     arena: std.mem.Allocator,
     path: []const u8,
     source: [:0]const u8,
-) ![]const report.Finding {
-    return harness.run(arena, @This(), path, source);
+) ![]const lint.report.Finding {
+    return harness.run(arena, Rule, path, source);
 }
 
 const passing_fixture: [:0]const u8 =
@@ -307,10 +212,10 @@ test "heap reads src/ alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(applies("src/quic/quic.zig"));
-    try testing.expect(applies("./src/testing/endpoint.zig"));
-    try testing.expect(!applies("tools/lint/main.zig"));
-    try testing.expect(!applies("build/modules.zig"));
-    try testing.expect(!applies("docs/design.md"));
+    try testing.expect(config.scope.applies("src/quic/quic.zig"));
+    try testing.expect(config.scope.applies("./src/testing/endpoint.zig"));
+    try testing.expect(!config.scope.applies("tools/lint/main.zig"));
+    try testing.expect(!config.scope.applies("build/modules.zig"));
+    try testing.expect(!config.scope.applies("docs/design.md"));
     try harness.expect_messages(try findings_of(arena, "tools/lint/heap.zig", failing_fixture), &.{});
 }

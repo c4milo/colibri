@@ -1,0 +1,21 @@
+.{
+    .name = .colibri,
+    .version = "0.0.0",
+    .fingerprint = 0xa648cb8abe808f5a,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        // Developer tooling only, never linked into the library (decision 36). Lazy, and requested
+        // only when colibri is the root build, so a project that depends on colibri never fetches it.
+        .pepegrillo = .{
+            .url = "git+https://github.com/c4milo/pepegrillo#a07a15beb05899059bcb452f73c95d40cc5cdde5",
+            .hash = "pepegrillo-0.0.0-axiFUJxhBgAP7Vb9Qey76z22PTZmSr-Nkd0chv98yYc9",
+            .lazy = true,
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "build",
+        "src",
+    },
+}

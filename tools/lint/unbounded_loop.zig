@@ -25,32 +25,14 @@
 //! `while (iterator.next()) |item|` and `while (!done)` are all outside both checks. A loop it
 //! passes is therefore not proved bounded; the runtime assertion INV-8 asks for is what proves
 //! that, and this rule catches the two shapes that are unbounded on their face.
+//!
+//! The rule is pepegrillo's `unbounded_loop` (decision 36). This file holds colibri's configuration of it
+//! and the fixtures that pin that configuration.
 
 const std = @import("std");
-const Ast = std.zig.Ast;
-const Node = Ast.Node;
-const ast = @import("ast.zig");
-const paths = @import("paths.zig");
-const report = @import("report.zig");
-
-pub const name = "unbounded-loop";
-
-/// The directory the rule reads.
-const source_directory = "src";
-
-/// The condition text of check 1.
-const forever_condition = "true";
-
-/// The condition of a loop that never runs. It is a literal, not a peer value, so check 2 skips
-/// it the way it skips `true`.
-const never_condition = "false";
-
-/// A chain holding this segment names a limit from a module's `constants.zig`.
-const bound_segment = "constants";
-
-/// A chain whose last segment ends with this names a limit: `field_count_max`,
-/// `streams_per_connection_max`.
-const bound_name_suffix = "_max";
+const pepegrillo = @import("pepegrillo");
+const lint = pepegrillo.lint;
+const unbounded_loop = lint.rules.unbounded_loop;
 
 /// The last name of a length read. A call or a field with one of these names, compared against an
 /// integer literal, is the shape of check 2.
@@ -63,163 +45,40 @@ const length_reader_names = [_][]const u8{
     "bytes_left",
 };
 
-pub fn applies(path: []const u8) bool {
-    if (!paths.has_extension(path, paths.zig_extension)) return false;
-    return paths.is_under(path, source_directory);
-}
-
-pub fn check(context: *report.Context, file: report.File) !void {
-    if (!applies(file.path)) return;
-    const tree = file.tree orelse return;
-    var visitor: Visitor = .{ .tree = tree, .findings = &context.findings, .path = file.path };
-    for (tree.rootDecls()) |declaration| visitor.child(declaration);
-    if (visitor.failure) |failure| return failure;
-}
-
-const Visitor = struct {
-    tree: *const Ast,
-    findings: *report.Findings,
-    path: []const u8,
-    depth: u32 = 0,
-    failure: ?anyerror = null,
-
-    pub fn child(self: *Visitor, node: Node.Index) void {
-        self.depth += 1;
-        defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
-        self.visit(node) catch |failure| {
-            self.failure = failure;
-        };
-    }
-
-    fn visit(self: *Visitor, node: Node.Index) !void {
-        if (ast.is_while(self.tree.nodeTag(node))) try self.visit_while(node);
-        ast.for_each_child(self.tree, node, self);
-    }
-
-    fn visit_while(self: *Visitor, node: Node.Index) !void {
-        const loop = self.tree.fullWhile(node).?;
-        const scan = scan_loop(self.tree, loop);
-        var buffer: [ast.max_chain_bytes]u8 = undefined;
-        if (ast.chain_text(self.tree, loop.ast.cond_expr, &buffer)) |condition| {
-            if (std.mem.eql(u8, condition, never_condition)) return;
-            if (std.mem.eql(u8, condition, forever_condition)) return self.report_forever(node, scan);
-            return;
-        }
-        if (scan.names_bound) return;
-        var read_buffer: [ast.max_chain_bytes]u8 = undefined;
-        const read = length_read_against_literal(self.tree, loop.ast.cond_expr, &read_buffer) orelse return;
-        try self.add(
-            node,
-            "the condition reads {s} against a literal and the loop names no limit (invariant 8)",
-            .{read},
-        );
-    }
-
-    fn report_forever(self: *Visitor, node: Node.Index, scan: LoopScan) !void {
-        if (!scan.has_break) {
-            return self.add(node, "while (true) has no break; nothing ends the loop (invariant 8)", .{});
-        }
-        if (scan.names_bound) return;
-        try self.add(
-            node,
-            "while (true) breaks on no named limit; bound it with a constants.zig value (invariant 8)",
-            .{},
-        );
-    }
-
-    fn add(self: *Visitor, node: Node.Index, comptime format: []const u8, arguments: anytype) !void {
-        const location = ast.node_location(self.tree, node);
-        try self.findings.add(name, self.path, location.line, location.column, format, arguments);
-    }
+/// The configuration. It reads `src/`. A chain holding the segment `constants` names a limit from
+/// a module's `constants.zig`, and a chain whose last segment ends with `_max` names a limit:
+/// `field_count_max`, `streams_per_connection_max`. pepegrillo numbers the length-read check 3;
+/// the header above calls it check 2.
+pub const config: unbounded_loop.Config = .{
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .forever = .unless_bounded_break,
+    .length_read = true,
+    .bound = .{ .segments = &.{"constants"}, .last_segment_suffixes = &.{"_max"} },
+    .length_reader_names = &length_reader_names,
+    .messages = .{
+        .forever_without_break = "while (true) has no break; nothing ends the loop (invariant 8)",
+        .forever_without_bound = "while (true) breaks on no named limit;" ++
+            " bound it with a constants.zig value (invariant 8)",
+        .length_read = "the condition reads {[read]s} against a literal" ++
+            " and the loop names no limit (invariant 8)",
+    },
 };
 
-/// What one loop's condition, continue expression and body hold: whether a `break` can end the
-/// loop, and whether a named limit is mentioned anywhere in it.
-const LoopScan = struct {
-    tree: *const Ast,
-    has_break: bool = false,
-    names_bound: bool = false,
-    depth: u32 = 0,
-
-    pub fn child(self: *LoopScan, node: Node.Index) void {
-        self.depth += 1;
-        defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
-        if (self.tree.nodeTag(node) == .@"break") self.has_break = true;
-        var buffer: [ast.max_chain_bytes]u8 = undefined;
-        if (ast.chain_text(self.tree, node, &buffer)) |chain| {
-            // A chain holds no break and no further chain, so it is read whole and not descended
-            // into.
-            if (is_named_bound(chain)) self.names_bound = true;
-            return;
-        }
-        ast.for_each_child(self.tree, node, self);
-    }
-};
-
-fn scan_loop(tree: *const Ast, loop: Ast.full.While) LoopScan {
-    var scan: LoopScan = .{ .tree = tree };
-    scan.child(loop.ast.cond_expr);
-    scan.child(loop.ast.then_expr);
-    if (loop.ast.cont_expr.unwrap()) |continue_expression| scan.child(continue_expression);
-    return scan;
-}
-
-/// True when the chain names a limit: a `constants.zig` value, or a name ending in `_max`.
-fn is_named_bound(chain: []const u8) bool {
-    if (ast.has_segment(chain, bound_segment)) return true;
-    return std.mem.endsWith(u8, ast.last_segment(chain), bound_name_suffix);
-}
-
-fn is_comparison(tag: Node.Tag) bool {
-    return switch (tag) {
-        .less_than, .less_or_equal, .greater_than, .greater_or_equal, .equal_equal, .bang_equal => true,
-        else => false,
-    };
-}
-
-/// The length read of a comparison between a length and an integer literal, or null when the
-/// condition is any other expression.
-fn length_read_against_literal(
-    tree: *const Ast,
-    node: Node.Index,
-    buffer: *[ast.max_chain_bytes]u8,
-) ?[]const u8 {
-    if (!is_comparison(tree.nodeTag(node))) return null;
-    const left, const right = tree.nodeData(node).node_and_node;
-    if (tree.nodeTag(right) == .number_literal) return length_read(tree, left, buffer);
-    if (tree.nodeTag(left) == .number_literal) return length_read(tree, right, buffer);
-    return null;
-}
-
-/// The chain of a length read: `reader.remaining` for the call `reader.remaining()`, `chunk.len`
-/// for the field `chunk.len`. Null when the expression is anything else.
-fn length_read(tree: *const Ast, node: Node.Index, buffer: *[ast.max_chain_bytes]u8) ?[]const u8 {
-    const read = if (ast.is_call(tree.nodeTag(node))) ast.callee(tree, node) else node;
-    const chain = ast.chain_text(tree, read, buffer) orelse return null;
-    if (!is_length_reader(ast.last_segment(chain))) return null;
-    return chain;
-}
-
-fn is_length_reader(segment: []const u8) bool {
-    for (length_reader_names) |reader| {
-        if (std.mem.eql(u8, segment, reader)) return true;
-    }
-    return false;
-}
+const Rule = unbounded_loop.Rule(config);
+pub const name = Rule.name;
+pub const check = Rule.check;
 
 // Tests. Each fixture pins one shape from the header.
 
 const testing = std.testing;
-const harness = @import("harness.zig");
+const harness = lint.harness;
 
 fn findings_of(
     arena: std.mem.Allocator,
     path: []const u8,
     source: [:0]const u8,
-) ![]const report.Finding {
-    return harness.run(arena, @This(), path, source);
+) ![]const lint.report.Finding {
+    return harness.run(arena, Rule, path, source);
 }
 
 const passing_fixture: [:0]const u8 =
@@ -362,8 +221,33 @@ test "unbounded-loop reads src/ alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(applies("src/quic/quic.zig"));
-    try testing.expect(!applies("tools/lint/main.zig"));
-    try testing.expect(!applies("build/modules.zig"));
+    try testing.expect(config.scope.applies("src/quic/quic.zig"));
+    try testing.expect(!config.scope.applies("tools/lint/main.zig"));
+    try testing.expect(!config.scope.applies("build/modules.zig"));
     try harness.expect_messages(try findings_of(arena, "tools/lint/main.zig", failing_fixture), &.{});
+}
+
+test "unbounded-loop reads every length reader name on its list" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/h2/settings.zig",
+        \\pub fn drain(self: *Connection, reader: *Reader, chunk: []const u8) void {
+        \\    while (reader.remaining() > 0) self.step();
+        \\    while (chunk.len != 0) self.step();
+        \\    while (reader.size() > 0) self.step();
+        \\    while (self.entries.count() > 0) self.step();
+        \\    while (reader.bytes_remaining > 0) self.step();
+        \\    while (reader.bytes_left() != 0) self.step();
+        \\    while (reader.total() != 0) self.step();
+        \\}
+    );
+    const suffix = " against a literal and the loop names no limit (invariant 8)";
+    try harness.expect_messages(findings, &.{
+        "the condition reads reader.remaining" ++ suffix,
+        "the condition reads chunk.len" ++ suffix,
+        "the condition reads reader.size" ++ suffix,
+        "the condition reads self.entries.count" ++ suffix,
+        "the condition reads reader.bytes_remaining" ++ suffix,
+        "the condition reads reader.bytes_left" ++ suffix,
+    });
 }

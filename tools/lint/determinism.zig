@@ -17,42 +17,36 @@
 //! That is the shape colibri wants — the caller supplies the instant — and the rule cannot tell
 //! it from a caller-supplied value that happens to be named `now`. It reads what a file under
 //! `src/` names in `std`, which is where a clock would have to come from.
+//!
+//! The rule is pepegrillo's `forbidden_references` (decision 36). This file holds colibri's configuration of it
+//! and the fixtures that pin that configuration.
 
 const std = @import("std");
-const chain_scan = @import("chain_scan.zig");
-const paths = @import("paths.zig");
-const report = @import("report.zig");
-
-pub const name = "determinism";
-
-/// The directory the rule reads.
-const source_directory = "src";
+const pepegrillo = @import("pepegrillo");
+const lint = pepegrillo.lint;
+const forbidden_references = lint.rules.forbidden_references;
 
 /// A chain that starts with one of these at a dot boundary is a finding: the clock, the general
 /// pseudo-random generator, and the system entropy source.
 const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random", "std.crypto.random" };
 
-const forbidden: chain_scan.Forbidden = .{
-    .name = name,
+/// The configuration. It reads `src/`, `src/testing/` included.
+pub const config: forbidden_references.Config = .{
+    .name = "determinism",
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
     .prefixes = &forbidden_prefixes,
     .reason = "time is a caller-supplied parameter and randomness is the caller's" ++
         " (invariants 4 and 5)",
 };
 
-pub fn applies(path: []const u8) bool {
-    if (!paths.has_extension(path, paths.zig_extension)) return false;
-    return paths.is_under(path, source_directory);
-}
-
-pub fn check(context: *report.Context, file: report.File) !void {
-    if (!applies(file.path)) return;
-    try chain_scan.scan(context, file, forbidden);
-}
+const Rule = forbidden_references.Rule(config);
+pub const name = Rule.name;
+pub const check = Rule.check;
 
 // Tests. Each fixture pins one shape from the header.
 
 const testing = std.testing;
-const harness = @import("harness.zig");
+const harness = lint.harness;
 
 const reason = "time is a caller-supplied parameter and randomness is the caller's" ++
     " (invariants 4 and 5)";
@@ -61,8 +55,8 @@ fn findings_of(
     arena: std.mem.Allocator,
     path: []const u8,
     source: [:0]const u8,
-) ![]const report.Finding {
-    return harness.run(arena, @This(), path, source);
+) ![]const lint.report.Finding {
+    return harness.run(arena, Rule, path, source);
 }
 
 const passing_fixture: [:0]const u8 =
@@ -132,10 +126,10 @@ test "determinism reads src/ alone, src/testing/ included" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(applies("src/quic/recovery.zig"));
-    try testing.expect(applies("src/testing/endpoint.zig"));
-    try testing.expect(!applies("tools/lint/main.zig"));
-    try testing.expect(!applies("docs/design.md"));
+    try testing.expect(config.scope.applies("src/quic/recovery.zig"));
+    try testing.expect(config.scope.applies("src/testing/endpoint.zig"));
+    try testing.expect(!config.scope.applies("tools/lint/main.zig"));
+    try testing.expect(!config.scope.applies("docs/design.md"));
     try harness.expect_messages(try findings_of(arena, "tools/graph_gate.zig", failing_fixture), &.{});
     const in_testing = try findings_of(arena, "src/testing/endpoint.zig", failing_fixture);
     try testing.expectEqual(4, in_testing.len);

@@ -11,92 +11,38 @@
 //! The rule reads the literal string only. `@import(module_name)` with a computed name is
 //! invisible to it, as is `@embedFile`, which the rule ignores on purpose: a corpus file lives
 //! beside the module that reads it and is not a module edge.
+//!
+//! The rule is pepegrillo's `relative_import` (decision 36). This file holds colibri's configuration of it
+//! and the fixtures that pin that configuration.
 
 const std = @import("std");
-const Ast = std.zig.Ast;
-const Node = Ast.Node;
-const ast = @import("ast.zig");
-const paths = @import("paths.zig");
-const report = @import("report.zig");
+const pepegrillo = @import("pepegrillo");
+const lint = pepegrillo.lint;
+const relative_import = lint.rules.relative_import;
 
-pub const name = "relative-import";
-
-/// The directory the rule reads.
-const source_directory = "src";
-
-/// The segment that climbs out of the importing file's directory.
-const parent_segment = "../";
-
-/// The first byte of an absolute path.
-const absolute_root: u8 = '/';
-
-pub fn applies(path: []const u8) bool {
-    if (!paths.has_extension(path, paths.zig_extension)) return false;
-    return paths.is_under(path, source_directory);
-}
-
-pub fn check(context: *report.Context, file: report.File) !void {
-    if (!applies(file.path)) return;
-    const tree = file.tree orelse return;
-    var visitor: Visitor = .{ .tree = tree, .findings = &context.findings, .path = file.path };
-    for (tree.rootDecls()) |declaration| visitor.child(declaration);
-    if (visitor.failure) |failure| return failure;
-}
-
-const Visitor = struct {
-    tree: *const Ast,
-    findings: *report.Findings,
-    path: []const u8,
-    depth: u32 = 0,
-    failure: ?anyerror = null,
-
-    pub fn child(self: *Visitor, node: Node.Index) void {
-        self.depth += 1;
-        defer self.depth -= 1;
-        std.debug.assert(self.depth <= ast.max_tree_depth);
-        self.visit(node) catch |failure| {
-            self.failure = failure;
-        };
-    }
-
-    fn visit(self: *Visitor, node: Node.Index) !void {
-        if (ast.imported_path(self.tree, node)) |imported| {
-            if (leaves_the_module(imported)) {
-                const location = ast.node_location(self.tree, node);
-                try self.findings.add(
-                    name,
-                    self.path,
-                    location.line,
-                    location.column,
-                    "@import(\"{s}\") reaches out of the module by path;" ++
-                        " import the module name build/modules.zig declares",
-                    .{imported},
-                );
-            }
-        }
-        ast.for_each_child(self.tree, node, self);
-    }
+/// The configuration. It reads `src/` and flags a path holding `../` or starting with `/`.
+pub const config: relative_import.Config = .{
+    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .mode = .parent_or_absolute,
+    .message = "@import(\"{[path]s}\") reaches out of the module by path;" ++
+        " import the module name build/modules.zig declares",
 };
 
-/// True when the imported path climbs above the importing file's directory or names an absolute
-/// location.
-fn leaves_the_module(imported: []const u8) bool {
-    if (imported.len == 0) return false;
-    if (imported[0] == absolute_root) return true;
-    return std.mem.indexOf(u8, imported, parent_segment) != null;
-}
+const Rule = relative_import.Rule(config);
+pub const name = Rule.name;
+pub const check = Rule.check;
 
 // Tests. Each fixture pins one shape from the header.
 
 const testing = std.testing;
-const harness = @import("harness.zig");
+const harness = lint.harness;
 
 fn findings_of(
     arena: std.mem.Allocator,
     path: []const u8,
     source: [:0]const u8,
-) ![]const report.Finding {
-    return harness.run(arena, @This(), path, source);
+) ![]const lint.report.Finding {
+    return harness.run(arena, Rule, path, source);
 }
 
 const passing_fixture: [:0]const u8 =
@@ -170,8 +116,25 @@ test "relative-import reads src/ alone" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
-    try testing.expect(applies("src/quic/packet/header.zig"));
-    try testing.expect(!applies("tools/lint/main.zig"));
-    try testing.expect(!applies("build/modules.zig"));
+    try testing.expect(config.scope.applies("src/quic/packet/header.zig"));
+    try testing.expect(!config.scope.applies("tools/lint/main.zig"));
+    try testing.expect(!config.scope.applies("build/modules.zig"));
     try harness.expect_messages(try findings_of(arena, "tools/graph_gate.zig", failing_fixture), &.{});
+}
+
+test "relative-import reads the path as written, not where it resolves" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    // Both paths resolve inside `src/quic/`. The rule flags them all the same, because it reads a
+    // `../` segment and does not resolve it.
+    const findings = try findings_of(arena_state.allocator(), "src/quic/packet/packet_header.zig",
+        \\const constants = @import("../constants.zig");
+        \\const frame = @import("stream/../frame.zig");
+    );
+    try harness.expect_messages(findings, &.{
+        "@import(\"../constants.zig\") reaches out of the module by path;" ++
+            " import the module name build/modules.zig declares",
+        "@import(\"stream/../frame.zig\") reaches out of the module by path;" ++
+            " import the module name build/modules.zig declares",
+    });
 }
