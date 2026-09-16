@@ -73,7 +73,7 @@ test "golden-check: every corpus mutation produces the verdict it names" {
         var mutated = Writer.init(&buffer);
         try mutations.apply(mutation, committed, &mutated);
         const case = corpus.find(mutation.format, mutation.case_name);
-        const result = corpus.decode(mutation.format, case.prefix_size, mutated.written());
+        const result = corpus.decode(mutation.format, case, mutated.written());
         verdict_matches(mutation.rejection, result) catch |err| {
             std.debug.print("golden-check: mutation of {s} no longer holds: {s}\n", .{
                 mutation.case_name,

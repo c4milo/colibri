@@ -13,6 +13,8 @@ pub const Format = enum {
     prefixed_integer,
     huffman,
     string_literal,
+    /// An HPACK field block, decoded by a fresh `hpack.Decoder` of the case's `capacity`.
+    hpack,
 };
 
 /// How a case's octets are made.
@@ -40,6 +42,9 @@ pub const Case = struct {
     /// N, the prefix size a prefixed integer or string literal decodes at. Unused by the other
     /// formats.
     prefix_size: u4 = 8,
+    /// The dynamic table capacity an hpack case's decoder starts with. Unused by the other
+    /// formats.
+    capacity: u32 = 4096,
     construction: Construction,
     /// Null when the case must decode and consume every octet; otherwise the error its decoder
     /// must return.
@@ -60,6 +65,13 @@ fn reject(name: []const u8, construction: Construction, rejection: anyerror) Cas
 fn at_prefix(prefix_size: u4, case: Case) Case {
     var result = case;
     result.prefix_size = prefix_size;
+    return result;
+}
+
+/// `case`, decoded by an HPACK decoder whose table starts at `capacity`.
+fn at_capacity(capacity: u32, case: Case) Case {
+    var result = case;
+    result.capacity = capacity;
     return result;
 }
 
@@ -181,9 +193,31 @@ pub const string_literal = [_]Case{
 };
 
 /// Every format's cases, in the order the manifest and the tool visit them.
+/// The interop breaks design §6.2 names, each with a named error, beside their legal twins.
+pub const hpack = [_]Case{
+    // RFC 7541 §6.1: index 0 in an indexed field is a decoding error.
+    reject("hpack_indexed_index_zero", .{ .literal = "\x80" }, error.IndexZero),
+    // RFC 7541 §6.2.1: index 0 in a literal is the new-name discriminator, not an error.
+    accept("hpack_literal_name_index_zero", .{ .literal = "\x40\x0acustom-key\x0ccustom-value" }),
+    // RFC 7541 §2.3.3: index 62 is the first dynamic entry, absent from an empty table.
+    reject("hpack_index_past_empty_table", .{ .literal = "\xbe" }, error.IndexOutOfRange),
+    // RFC 7541 §2.3.3: after one insert, index 62 is that entry.
+    at_capacity(40, accept("hpack_insert_fits_then_indexed", .{ .literal = "\x40\x01a\x01b\xbe" })),
+    // RFC 7541 §4.4: an insert larger than the capacity is not an error; it empties the table,
+    // so the index that was valid a moment ago is now past it.
+    at_capacity(40, reject(
+        "hpack_insert_larger_than_capacity_empties",
+        .{ .literal = "\x40\x01a\x01b\x40\x01c\x08dddddddd\xbe" },
+        error.IndexOutOfRange,
+    )),
+    // RFC 7541 §6.3: a size update above the protocol's limit, here 4,097 over 4,096.
+    reject("hpack_size_update_above_limit", .{ .literal = "\x3f\xe2\x1f" }, error.SizeUpdateTooLarge),
+};
+
 pub const all = [_]struct { format: Format, cases: []const Case }{
     .{ .format = .varint, .cases = &varint },
     .{ .format = .prefixed_integer, .cases = &prefixed_integer },
     .{ .format = .huffman, .cases = &huffman },
     .{ .format = .string_literal, .cases = &string_literal },
+    .{ .format = .hpack, .cases = &hpack },
 };

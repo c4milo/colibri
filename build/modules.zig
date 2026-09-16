@@ -113,6 +113,7 @@ pub fn add(
     const golden = create(b, "src/golden/golden.zig", target, optimize);
     golden.addImport("core", core);
     golden.addImport("wire", wire);
+    golden.addImport("hpack", hpack);
 
     return .{
         .core = core,

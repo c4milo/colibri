@@ -32,6 +32,41 @@ pub const Mutation = struct {
 
 pub const all = [_]Mutation{
     .{
+        .format = .hpack,
+        .case_name = "hpack_indexed_index_zero",
+        .rule = "RFC 7541 §6.1: index 1 is the first static entry, where 0 was the decoding error",
+        .edit = .{ .set = .{ .offset = 0, .value = 0x81 } },
+        .rejection = null,
+    },
+    .{
+        .format = .hpack,
+        .case_name = "hpack_literal_name_index_zero",
+        .rule = "RFC 7541 §6.1: the same index 0 that named a new name is an error once indexed",
+        .edit = .{ .set = .{ .offset = 0, .value = 0x80 } },
+        .rejection = error.IndexZero,
+    },
+    .{
+        .format = .hpack,
+        .case_name = "hpack_insert_fits_then_indexed",
+        .rule = "RFC 7541 §2.3.3: one past the sum of both tables' lengths is a decoding error",
+        .edit = .{ .set = .{ .offset = 5, .value = 0xbf } },
+        .rejection = error.IndexOutOfRange,
+    },
+    .{
+        .format = .hpack,
+        .case_name = "hpack_insert_larger_than_capacity_empties",
+        .rule = "RFC 7541 §4.4: the oversized insert itself is not an error, only the index after it",
+        .edit = .{ .truncate = 1 },
+        .rejection = null,
+    },
+    .{
+        .format = .hpack,
+        .case_name = "hpack_size_update_above_limit",
+        .rule = "RFC 7541 §6.3: a size equal to the limit is allowed; one above it is not",
+        .edit = .{ .set = .{ .offset = 1, .value = 0xe1 } },
+        .rejection = null,
+    },
+    .{
         .format = .varint,
         .case_name = "varint_1_octet_37",
         .rule = "RFC 9000 §16: the two high bits of the first octet give the length; 01 is two octets",

@@ -1,0 +1,7 @@
+colibri-golden-manifest version=1 format=hpack cases=6
+hpack_indexed_index_zero len=1 crc32=0x3fba6cad verdict=IndexZero capacity=4096 construction=literal
+hpack_literal_name_index_zero len=25 crc32=0x75c6f565 verdict=accept capacity=4096 construction=literal
+hpack_index_past_empty_table len=1 crc32=0xfedb7106 verdict=IndexOutOfRange capacity=4096 construction=literal
+hpack_insert_fits_then_indexed len=6 crc32=0x7ab0ef80 verdict=accept capacity=40 construction=literal
+hpack_insert_larger_than_capacity_empties len=18 crc32=0xe64a2c43 verdict=IndexOutOfRange capacity=40 construction=literal
+hpack_size_update_above_limit len=3 crc32=0x3136e724 verdict=SizeUpdateTooLarge capacity=4096 construction=literal
