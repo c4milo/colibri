@@ -12,6 +12,7 @@ pub const FieldSection = field_section.FieldSection;
 pub const connection_specific = @import("connection_specific.zig");
 pub const method = @import("method.zig");
 pub const status = @import("status.zig");
+pub const content_length = @import("content_length.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -21,4 +22,5 @@ test {
     _ = connection_specific;
     _ = method;
     _ = status;
+    _ = content_length;
 }

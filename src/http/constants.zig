@@ -15,6 +15,10 @@ pub const status_digits_len: u8 = 3;
 /// The base the status digits are written in: DIGIT is a decimal digit (RFC 5234 Appendix B.1).
 pub const status_digit_radix: u16 = 10;
 
+/// The base a Content-Length value is written in: `Content-Length = 1*DIGIT` (RFC 9110 §8.6), and
+/// DIGIT is a decimal digit (RFC 5234 Appendix B.1). It is the base of the status digits too.
+pub const content_length_radix: u64 = status_digit_radix;
+
 /// The step between status classes: the first digit is the class (RFC 9110 §15).
 pub const status_class_size: u16 = 100;
 
