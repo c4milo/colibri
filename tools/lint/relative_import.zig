@@ -3,10 +3,15 @@
 //! dependency direction is enforced by the build and not by review — and an `@import` that climbs
 //! out of its own directory reaches past the build and takes that away.
 //!
-//! Over every `.zig` file under `src/`, the rule flags an `@import` whose path holds `../`, and an
-//! `@import` of an absolute path, which names a machine rather than a tree. A file reaching a
-//! sibling or a subdirectory of its own module is untouched: `@import("frame_header.zig")` and
-//! `@import("packet/header.zig")` stay inside the module whose root build/modules.zig named.
+//! Over every `.zig` file under `src/`, the rule resolves each `@import` path against the directory
+//! of the importing file and flags one that names a file outside that file's module, which is the
+//! child of `src/` the file sits in. It also flags an `@import` of an absolute path, which names a
+//! machine rather than a tree. A file reaching a sibling, a subdirectory, or its module's root
+//! directory from a subdirectory is untouched: `@import("frame_header.zig")`,
+//! `@import("packet/header.zig")` and, from `src/h2/frame/frame_header.zig`,
+//! `@import("../constants.zig")` all stay inside the module whose root build/modules.zig named.
+//! The last shape is what CLAUDE.md's layout rule produces when four or more files share a prefix
+//! and move into a subdirectory, so the rule resolves paths rather than refusing every `../`.
 //!
 //! The rule reads the literal string only. `@import(module_name)` with a computed name is
 //! invisible to it, as is `@embedFile`, which the rule ignores on purpose: a corpus file lives
@@ -20,10 +25,11 @@ const pepegrillo = @import("pepegrillo");
 const lint = pepegrillo.lint;
 const relative_import = lint.rules.relative_import;
 
-/// The configuration. It reads `src/` and flags a path holding `../` or starting with `/`.
+/// The configuration. It reads `src/` and flags a path that resolves outside the importing file's
+/// module under `src/`, or starts with `/`.
 pub const config: relative_import.Config = .{
     .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
-    .mode = .parent_or_absolute,
+    .mode = .leaves_subsystem,
     .message = "@import(\"{[path]s}\") reaches out of the module by path;" ++
         " import the module name build/modules.zig declares",
 };
@@ -122,19 +128,28 @@ test "relative-import reads src/ alone" {
     try harness.expect_messages(try findings_of(arena, "tools/graph_gate.zig", failing_fixture), &.{});
 }
 
-test "relative-import reads the path as written, not where it resolves" {
+test "relative-import resolves a path: a subdirectory file may reach its module's root directory" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    // Both paths resolve inside `src/quic/`. The rule flags them all the same, because it reads a
-    // `../` segment and does not resolve it.
+    // Both paths resolve inside `src/quic/`, the module of the importing file, so neither is a
+    // finding: the rule resolves the `../` segment rather than refusing it.
     const findings = try findings_of(arena_state.allocator(), "src/quic/packet/packet_header.zig",
         \\const constants = @import("../constants.zig");
         \\const frame = @import("stream/../frame.zig");
     );
+    try harness.expect_messages(findings, &.{});
+}
+
+test "relative-import flags a subdirectory file that climbs into another module" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const findings = try findings_of(arena_state.allocator(), "src/h2/frame/frame_header.zig",
+        \\const reader = @import("../../core/reader.zig");
+        \\const constants = @import("../constants.zig");
+    );
     try harness.expect_messages(findings, &.{
-        "@import(\"../constants.zig\") reaches out of the module by path;" ++
-            " import the module name build/modules.zig declares",
-        "@import(\"stream/../frame.zig\") reaches out of the module by path;" ++
+        "@import(\"../../core/reader.zig\") reaches out of the module by path;" ++
             " import the module name build/modules.zig declares",
     });
+    try testing.expectEqual(1, findings[0].line);
 }

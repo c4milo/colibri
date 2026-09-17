@@ -36,7 +36,7 @@ const file_length_max_lines = 500;
 /// comment lines to pass the file-length limit.
 const canary_source =
     \\const std = @import("std");
-    \\const other = @import("../other.zig");
+    \\const other = @import("/canary/other.zig");
     \\pub fn canary(allocator: std.mem.Allocator) !void {
     \\    _ = allocator;
     \\    _ = std.posix;
