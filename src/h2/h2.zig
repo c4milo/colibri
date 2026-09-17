@@ -16,10 +16,12 @@ pub const constants = @import("constants.zig");
 pub const role = @import("role.zig");
 pub const Role = role.Role;
 pub const frame = @import("frame/frame.zig");
+pub const settings = @import("settings.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
     _ = role;
     _ = frame;
+    _ = settings;
 }
