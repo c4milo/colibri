@@ -387,7 +387,11 @@ leaves the caller to place the struct.
 
 **h2** (`h2`): `frame_size_max` (16,384, the RFC 9113 §4.2 floor, and colibri does not raise it) ·
 `continuation_count_max` · `concurrent_streams_max` · `window_initial` · `window_max` (2^31 − 1) ·
-`settings_pending_max` · `ping_pending_max` · `rst_stream_rate_max` · `settings_timeout_ns`.
+`settings_pending_max` · `ping_pending_max` · `rst_stream_rate_max` · `settings_timeout_ns` ·
+`representation_len_max` (31,721 encoded octets: the longest field line within
+`field_name_len_max`, `field_value_len_max` and `integer_len_max`, Huffman-coded at 30 bits an
+octet, so it refuses no line those limits admit) · `field_block_buffer_len` (one cut representation
+plus one frame, decision 40).
 
 **wire** (`wire`): `varint_value_max` (2^62 − 1, RFC 9000 §16) · `integer_value_max` (2^62 − 1, the
 62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 octets, the length those 62 bits need

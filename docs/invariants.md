@@ -231,7 +231,8 @@ lands its check.
   `PROTOCOL_ERROR` (RFC 9113 §4.3) — not an assertion, because a peer produces both (INV-24). The
   h2spec §4.3 cases and a golden corpus case interleaving a PING inside a block are what prove it.
   The runtime assertion is on colibri's own bookkeeping: the reassembly byte count never exceeds
-  `continuation_count_max * frame_size_max`. Step 4.
+  `(continuation_count_max + 1) * frame_size_max`, one HEADERS or PUSH_PROMISE frame and at most
+  `continuation_count_max` CONTINUATION frames, each at most `frame_size_max`. Step 4.
 - **Violation.** A per-stream reassembly buffer, which is both unnecessary and a memory
   amplification path.
 

@@ -92,10 +92,12 @@ pub const FieldSection = struct {
 
     /// Adds a line after every line the section holds, or refuses it and changes nothing.
     ///
-    /// `name` and `value` were validated by the caller (`field.validate_name`,
-    /// `field.validate_value`), so their lengths are within `field_name_len_max` and
-    /// `field_value_len_max`. The two assertions state that contract; they check the caller, never
-    /// the peer, whose input the caller's validation already refused (invariant 24).
+    /// The caller guarantees that `name` and `value` are within `field_name_len_max` and
+    /// `field_value_len_max`: either it validated them (`field.validate_name`,
+    /// `field.validate_value`), or a decoder whose own limits are these refused anything longer,
+    /// as h2's field block does before it validates the section whole. The two assertions state
+    /// that contract; they check the caller, never the peer (invariant 24). Nothing here checks
+    /// the octets, so a section is read only after its protocol module validated it.
     pub fn append(section: *FieldSection, name: []const u8, value: []const u8) AppendError!void {
         assert(name.len <= limits.field_name_len_max);
         assert(value.len <= limits.field_value_len_max);

@@ -2,8 +2,9 @@
 //!
 //! The pieces, bottom up: `frame` reads and writes the ten frame types (§4, §6); `settings` holds
 //! the six settings and the acknowledgment discipline (§6.5); `window` is the signed flow-control
-//! window (§5.2, §6.9, invariant 15); `stream` is the state machine of §5.1 as pure functions.
-//! The connection ties them together (decision 39).
+//! window (§5.2, §6.9, invariant 15); `stream` is the state machine of §5.1 as pure functions;
+//! `field_block` reassembles a field block fragment by fragment into one field section (§4.3,
+//! decision 40). The connection ties them together (decision 39).
 const std = @import("std");
 
 pub const core = @import("core");
@@ -19,6 +20,8 @@ pub const frame = @import("frame/frame.zig");
 pub const settings = @import("settings.zig");
 pub const window = @import("window.zig");
 pub const stream = @import("stream/stream.zig");
+pub const field_block = @import("field_block.zig");
+pub const FieldBlock = field_block.FieldBlock;
 
 test {
     std.testing.refAllDecls(@This());
@@ -28,4 +31,7 @@ test {
     _ = settings;
     _ = window;
     _ = stream;
+    _ = field_block;
+    _ = @import("field_block_decode.zig");
+    _ = @import("field_block_limit.zig");
 }
