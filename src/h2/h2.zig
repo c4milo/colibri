@@ -18,6 +18,7 @@ pub const Role = role.Role;
 pub const frame = @import("frame/frame.zig");
 pub const settings = @import("settings.zig");
 pub const window = @import("window.zig");
+pub const stream = @import("stream.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -26,4 +27,5 @@ test {
     _ = frame;
     _ = settings;
     _ = window;
+    _ = stream;
 }
