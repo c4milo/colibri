@@ -12,7 +12,7 @@
 //! it. The extension that defines a frame carries its own rule, and colibri sends none.
 const std = @import("std");
 const stream = @import("stream.zig");
-const Role = @import("role.zig").Role;
+const Role = @import("../role.zig").Role;
 
 const Closed = stream.Closed;
 const Kind = stream.Kind;

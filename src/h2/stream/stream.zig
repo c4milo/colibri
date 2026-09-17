@@ -37,8 +37,8 @@
 //! files apply §5.1 alone to a PUSH_PROMISE they are shown.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("constants.zig");
-const Role = @import("role.zig").Role;
+const constants = @import("../constants.zig");
+const Role = @import("../role.zig").Role;
 const receive = @import("stream_receive.zig");
 const send = @import("stream_send.zig");
 

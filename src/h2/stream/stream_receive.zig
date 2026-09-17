@@ -8,7 +8,7 @@
 //! value (invariant 24).
 const std = @import("std");
 const stream = @import("stream.zig");
-const Role = @import("role.zig").Role;
+const Role = @import("../role.zig").Role;
 
 const Closed = stream.Closed;
 const Kind = stream.Kind;
