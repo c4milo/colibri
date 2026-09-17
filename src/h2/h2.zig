@@ -17,6 +17,7 @@ pub const role = @import("role.zig");
 pub const Role = role.Role;
 pub const frame = @import("frame/frame.zig");
 pub const settings = @import("settings.zig");
+pub const window = @import("window.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -24,4 +25,5 @@ test {
     _ = role;
     _ = frame;
     _ = settings;
+    _ = window;
 }
