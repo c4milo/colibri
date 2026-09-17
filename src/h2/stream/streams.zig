@@ -72,23 +72,23 @@ const Pool = core.Pool(Stream, constants.concurrent_streams_max, constants.strea
 
 /// What a peer frame's stream identifier finds in the table.
 pub const Lookup = union(enum) {
-    /// A record the table holds: an open or half-closed stream, or a stream closed by a
-    /// RST_STREAM colibri sent.
+    /// A record the table holds: an open or half-closed stream, or a closed stream whose record
+    /// the table still keeps. The state machine decides a frame on it from `state` and `closed`.
     live: *Stream,
     /// An identifier above its parity's watermark, whose stream is idle (RFC 9113 §5.1). The
     /// payload is true when the identifier has the peer's parity, and it is the state machine's
     /// `peer_initiated`.
     idle: bool,
-    /// An identifier at or below its parity's watermark with no record. Its stream is closed, by
-    /// the implicit close of RFC 9113 §5.1.1 or by a close whose record the table no longer holds.
-    /// The payload is the `closed` the state machine decides a frame on it by. At or below
-    /// `highest_forgotten_reset_id` it is `rst_stream_sent`: colibri may have reset the stream, and
-    /// §5.1 says to discard frames after a RST_STREAM colibri sent. §5.1 lets an endpoint discard
-    /// frames on any closed stream, so a stream colibri did not reset loses only an optional error.
-    /// Above that value it is `end_stream`, whose verdicts §5.1 permits for every other close:
-    /// DATA, HEADERS and PUSH_PROMISE are the optional connection error STREAM_CLOSED, and
-    /// WINDOW_UPDATE and RST_STREAM are discarded.
-    closed: stream.Closed,
+    /// An identifier at or below `highest_forgotten_reset_id` for its parity: colibri reset the
+    /// stream and the table dropped the record. RFC 9113 §5.1 discards the frames that arrive
+    /// after a RST_STREAM colibri sent, because the peer sent them before it read the reset.
+    reset_and_dropped,
+    /// An identifier at or below its parity's watermark with no record and no reset to its name:
+    /// the peer never opened it, which RFC 9113 §5.1.1 closes implicitly, or it closed long enough
+    /// ago that the table dropped the record. §5.1 lets an endpoint treat any frame but PRIORITY
+    /// on a closed stream as a connection error of PROTOCOL_ERROR once a signal says the peer has
+    /// seen the close, and a later identifier is such a signal.
+    forgotten,
 };
 
 /// Why `open_peer` refused a stream. `streams_open.zig` names the error each is.
@@ -164,7 +164,7 @@ pub const Streams = struct {
         assert(id <= constants.stream_id_max);
         if (streams.pool.get(id)) |record| return .{ .live = record };
         if (streams.pool.is_above_watermark(id)) return .{ .idle = open.initiated_by_peer(streams, id) };
-        return .{ .closed = closed_without_record(streams, id) };
+        return if (was_reset_and_dropped(streams, id)) .reset_and_dropped else .forgotten;
     }
 
     /// Opens a stream, at a server, for a HEADERS the peer sent on an idle identifier, with a send
@@ -193,8 +193,8 @@ pub const Streams = struct {
     /// Applies the state machine's verdict of `.state` on a frame to `record`, which the pool
     /// holds. `direction`, `kind` and `end_stream` are the frame's, as the state machine saw them.
     /// Any other verdict is the connection's to act on. When the stream closes, `closed` names how,
-    /// its initiator's active count drops by one and `closed_at` takes `sequence`. The record then
-    /// leaves the pool and `record` is invalid, unless a RST_STREAM colibri sent closed it.
+    /// its initiator's active count drops by one and `closed_at` takes `sequence`. The record stays
+    /// in the pool, where `lookup` finds it until an open needs its slot.
     pub fn transition(
         streams: *Streams,
         record: *Stream,
@@ -268,19 +268,18 @@ pub const Streams = struct {
         }
         record.closed_at = streams.sequence;
         streams.sequence += 1;
-        // RFC 9113 §5.1: after sending RST_STREAM an endpoint discards the frames it receives on
-        // the stream, and the state machine reads the record to do so. After any other close the
-        // table forgets the stream, and `lookup` finds its identifier closed below the watermark.
-        if (closed.? != .rst_stream_sent) streams.pool.close(record.id);
+        // The record stays in the pool: RFC 9113 §5.1 decides a frame on a closed stream by how the
+        // stream closed, and the state machine reads the record to do it. `streams_open.zig` drops
+        // the oldest closed record when an open needs the slot.
     }
 };
 
-/// The `closed` of an identifier at or below its watermark with no record, as `Lookup.closed`
-/// describes it.
-fn closed_without_record(streams: *const Streams, id: u32) stream.Closed {
+/// Whether an identifier at or below its watermark with no record names a stream colibri reset and
+/// the table dropped, as `Lookup.reset_and_dropped` describes it.
+fn was_reset_and_dropped(streams: *const Streams, id: u32) bool {
     assert(!streams.pool.is_above_watermark(id));
-    const highest = streams.highest_forgotten_reset_id[open.class_of(id)] orelse return .end_stream;
-    return if (id <= highest) .rst_stream_sent else .end_stream;
+    const highest = streams.highest_forgotten_reset_id[open.class_of(id)] orelse return false;
+    return id <= highest;
 }
 
 /// Whether a stream in `state` counts toward SETTINGS_MAX_CONCURRENT_STREAMS: open and both
@@ -353,15 +352,17 @@ test "lookup at a server: 1 is live, 2 idle and its own, 7 idle and the peer's, 
     const record = try expect_live(3);
     try apply_frame(record, .receive, .data, true);
     try apply_frame(record, .send, .data, true);
-    try testing.expectEqual(Lookup{ .closed = .end_stream }, test_streams.lookup(3));
+    const closed = try expect_live(3);
+    try testing.expectEqual(stream.State.closed, closed.state);
+    try testing.expectEqual(stream.Closed.end_stream, closed.closed.?);
     try testing.expectEqual(1, (try expect_live(1)).id);
 }
 
 test "lookup: opening 9 closes the skipped 7 by the implicit close of §5.1.1, and a client reads parity the other way" {
     test_streams.init(.server);
     _ = try test_streams.open_peer(9, test_send_window);
-    try testing.expectEqual(Lookup{ .closed = .end_stream }, test_streams.lookup(7));
-    try testing.expectEqual(Lookup{ .closed = .end_stream }, test_streams.lookup(1));
+    try testing.expectEqual(Lookup.forgotten, test_streams.lookup(7));
+    try testing.expectEqual(Lookup.forgotten, test_streams.lookup(1));
     try testing.expectEqual(Lookup{ .idle = true }, test_streams.lookup(11));
     test_streams.init(.client);
     try testing.expectEqual(Lookup{ .idle = true }, test_streams.lookup(2));
@@ -371,7 +372,7 @@ test "lookup: opening 9 closes the skipped 7 by the implicit close of §5.1.1, a
     try testing.expectEqual(Lookup{ .idle = false }, test_streams.lookup(3));
 }
 
-test "http2/5.1/11 to /13: END_STREAM received, then sent, closes the stream and frees its slot at once" {
+test "http2/5.1/11 to /13: END_STREAM received, then sent, closes the stream and keeps its record" {
     test_streams.init(.server);
     const record = try test_streams.open_peer(1, test_send_window);
     try apply_frame(record, .receive, .data, true);
@@ -381,23 +382,37 @@ test "http2/5.1/11 to /13: END_STREAM received, then sent, closes the stream and
     try testing.expectEqual(1, test_streams.len());
     try apply_frame(record, .send, .data, true);
     try testing.expectEqual(0, test_streams.peer_active);
-    try testing.expectEqual(0, test_streams.len());
-    const found = test_streams.lookup(1);
-    try testing.expectEqual(Lookup{ .closed = .end_stream }, found);
-    const late = stream.on_receive(.closed, found.closed, .data, false, .server, true);
+    try testing.expectEqual(1, test_streams.len());
+    const closed = try expect_live(1);
+    try testing.expectEqual(stream.Closed.end_stream, closed.closed.?);
+    const late = stream.on_receive(closed.state, closed.closed, .data, false, .server, true);
     try testing.expectEqual(stream.stream_closed_connection_error, late);
 }
 
-test "http2/5.1/8 to /10: a RST_STREAM received closes a half-closed stream, frees its slot, and a late DATA is STREAM_CLOSED" {
+test "http2/5.1.1/2: an identifier the peer never opened, below the watermark, is forgotten and not closed" {
+    test_streams.init(.server);
+    const record = try test_streams.open_peer(5, test_send_window);
+    try apply_frame(record, .receive, .data, true);
+    try apply_frame(record, .send, .data, true);
+    // http2/5.1/12 sends a second HEADERS on the stream that closed: the record answers it.
+    const closed = try expect_live(5);
+    try testing.expectEqual(stream.State.closed, closed.state);
+    try testing.expectEqual(stream.Closed.end_stream, closed.closed.?);
+    // http2/5.1.1/2 sends HEADERS on the lower identifier 3, which was never opened.
+    try testing.expectEqual(Lookup.forgotten, test_streams.lookup(3));
+    try testing.expectEqual(Lookup.forgotten, test_streams.lookup(1));
+}
+
+test "http2/5.1/8 to /10: a RST_STREAM received closes a half-closed stream, and a late HEADERS is STREAM_CLOSED" {
     test_streams.init(.server);
     const record = try test_streams.open_peer(1, test_send_window);
     try apply_frame(record, .receive, .data, true);
     try apply_frame(record, .receive, .rst_stream, false);
     try testing.expectEqual(0, test_streams.peer_active);
-    try testing.expectEqual(0, test_streams.len());
-    const found = test_streams.lookup(1);
-    try testing.expectEqual(Lookup{ .closed = .end_stream }, found);
-    const late = stream.on_receive(.closed, found.closed, .headers, false, .server, true);
+    try testing.expectEqual(1, test_streams.len());
+    const closed = try expect_live(1);
+    try testing.expectEqual(stream.Closed.rst_stream_received, closed.closed.?);
+    const late = stream.on_receive(closed.state, closed.closed, .headers, false, .server, true);
     try testing.expectEqual(stream.stream_closed_connection_error, late);
 }
 
@@ -442,7 +457,7 @@ test "a RST_STREAM colibri sends on a half-closed stream lowers the active count
     try apply_frame(other, .receive, .data, true);
     try testing.expectEqual(0, test_streams.local_active);
     try testing.expectEqual(0, test_streams.peer_active);
-    try testing.expectEqual(1, test_streams.len());
+    try testing.expectEqual(2, test_streams.len());
 }
 
 test "http2/6.9.2/1: a change to the initial window moves every send window colibri keeps by the difference, and no other" {
@@ -485,7 +500,7 @@ test "a change that takes one send window past window_max is Overflow and moves 
     try testing.expectEqual(constants.window_max, second.send_window.available);
 }
 
-test "the iterator visits every record the pool holds, a stream closed by a RST_STREAM sent included" {
+test "the iterator visits every record the pool holds, the closed streams included" {
     test_streams.init(.server);
     for ([_]u32{ 1, 3, 5 }) |id| _ = try test_streams.open_peer(id, test_send_window);
     try apply_frame(try expect_live(3), .send, .rst_stream, false);
@@ -494,6 +509,7 @@ test "the iterator visits every record the pool holds, a stream closed by a RST_
     var count: u32 = 0;
     var records = test_streams.iterator();
     while (records.next()) |record| : (count += 1) visited[count] = record.id;
-    try testing.expectEqualSlices(u64, &.{ 1, 3, 0 }, &visited);
-    try testing.expectEqual(2, test_streams.len());
+    try testing.expectEqualSlices(u64, &.{ 1, 3, 5 }, &visited);
+    try testing.expectEqual(3, test_streams.len());
+    try testing.expectEqual(1, test_streams.peer_active);
 }

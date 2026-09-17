@@ -232,22 +232,22 @@ fn ensure_free_slot(streams: *Streams) bool {
     return drop_oldest_closed(streams);
 }
 
-/// Drops the record with the lowest `closed_at` among the records the pool holds for streams
-/// closed by a RST_STREAM colibri sent, and records the reset for `lookup`. False when there is
-/// none.
+/// Drops the record with the lowest `closed_at` among the closed streams the pool holds, and, when
+/// colibri reset that stream, records the reset for `lookup`. False when the pool holds no closed
+/// stream.
 fn drop_oldest_closed(streams: *Streams) bool {
     var oldest: ?*Stream = null;
     var records = streams.pool.iterator();
     while (records.next()) |record| {
         if (record.state != .closed) continue;
-        // `Streams.transition` frees the slot of a stream closed any other way.
-        assert(record.closed == .rst_stream_sent);
+        assert(record.closed != null);
         assert(record.closed_at < streams.sequence);
         if (oldest == null or record.closed_at < oldest.?.closed_at) oldest = record;
     }
     const dropped = oldest orelse return false;
     assert(dropped.id <= constants.stream_id_max);
-    record_forgotten_reset(streams, @intCast(dropped.id));
+    // RFC 9113 §5.1: only a stream colibri reset goes on discarding frames once its record is gone.
+    if (dropped.closed == .rst_stream_sent) record_forgotten_reset(streams, @intCast(dropped.id));
     streams.pool.close(dropped.id);
     assert(streams.pool.len() < constants.concurrent_streams_max);
     return true;
@@ -346,8 +346,8 @@ test "http2/5.1.2/1: the stream past concurrent_streams_max is Refused, the wate
     try testing.expectEqual(refused, test_table.last_peer_stream_id());
     try testing.expectEqual(client_id(constants.concurrent_streams_max - 1), test_table.highest_peer_opened_id);
     const found = test_table.lookup(refused);
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, found);
-    try testing.expectEqual(stream.Verdict.ignore, stream.on_receive(.closed, found.closed, .data, false, .server, true));
+    try testing.expectEqual(Lookup.reset_and_dropped, found);
+    try testing.expectEqual(Lookup.reset_and_dropped, found);
     try testing.expectError(error.IdentifierNotIncreasing, test_table.open_peer(refused, test_send_window));
     try apply_frame(try expect_live(1), .receive, .rst_stream, false);
     const next = client_id(constants.concurrent_streams_max + 1);
@@ -365,10 +365,34 @@ test "a closed identifier at or below the highest stream colibri reset without a
     const record = try test_table.open_peer(above, test_send_window);
     try apply_frame(record, .receive, .data, true);
     try apply_frame(record, .send, .data, true);
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, test_table.lookup(1));
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, test_table.lookup(refused));
-    try testing.expectEqual(Lookup{ .closed = .end_stream }, test_table.lookup(above));
+    try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(1));
+    try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(refused));
+    try testing.expectEqual(stream.State.closed, (try expect_live(above)).state);
     try testing.expectEqual(refused, test_table.highest_forgotten_reset_id[1]);
+}
+
+/// Closes `record` with END_STREAM in both directions, as the state machine decides it. Test-only.
+fn finish(record: *Stream) !void {
+    try apply_frame(record, .receive, .data, true);
+    try apply_frame(record, .send, .data, true);
+    try testing.expectEqual(stream.Closed.end_stream, record.closed.?);
+}
+
+test "a pool full of streams closed by END_STREAM gives way too, and a dropped identifier is forgotten, not reset" {
+    test_table.init(.server);
+    try fill_with_peer_streams();
+    const last_index = constants.concurrent_streams_max - 1;
+    // Closing from the highest identifier down puts the oldest close in the last slot.
+    for (0..constants.concurrent_streams_max) |index| try finish(try expect_live(client_id(last_index - @as(u32, @intCast(index)))));
+    try testing.expectEqual(0, test_table.peer_active);
+    try testing.expectEqual(constants.concurrent_streams_max, test_table.len());
+    _ = try test_table.open_peer(client_id(last_index + 1), test_send_window);
+    // The oldest close was the highest identifier, and nothing colibri reset was dropped.
+    try testing.expectEqual(Lookup.forgotten, test_table.lookup(client_id(last_index)));
+    try testing.expectEqual([_]?u32{ null, null }, test_table.highest_forgotten_reset_id);
+    try testing.expectEqual(stream.State.closed, (try expect_live(client_id(last_index - 1))).state);
+    try testing.expectEqual(constants.concurrent_streams_max, test_table.len());
+    try testing.expectEqual(1, test_table.peer_active);
 }
 
 test "a pool full of streams closed by a RST_STREAM colibri sent gives way to new streams, oldest close first" {
@@ -380,10 +404,10 @@ test "a pool full of streams closed by a RST_STREAM colibri sent gives way to ne
     try testing.expectEqual(0, test_table.peer_active);
     try testing.expectEqual(constants.concurrent_streams_max, test_table.len());
     _ = try test_table.open_peer(client_id(last_index + 1), test_send_window);
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, test_table.lookup(client_id(last_index)));
+    try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(client_id(last_index)));
     try testing.expectEqual(stream.State.closed, (try expect_live(client_id(last_index - 1))).state);
     _ = try test_table.open_peer(client_id(last_index + 2), test_send_window);
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, test_table.lookup(client_id(last_index - 1)));
+    try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(client_id(last_index - 1)));
     try testing.expectEqual(client_id(last_index), test_table.highest_forgotten_reset_id[1]);
     try testing.expectEqual(stream.State.closed, (try expect_live(client_id(0))).state);
     try testing.expectEqual(2, test_table.peer_active);
@@ -460,7 +484,7 @@ test "open_local checks the peer's GOAWAY, the identifiers left, the peer's limi
     try testing.expectError(error.Full, test_table.open_local(null, test_send_window));
     try reset(try expect_live(client_id(0)));
     try testing.expectEqual(client_id(limit), (try test_table.open_local(null, test_send_window)).id);
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, test_table.lookup(client_id(0)));
+    try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(client_id(0)));
     try testing.expectError(error.PeerLimitReached, test_table.open_local(limit, test_send_window));
     test_table.next_local_id = constants.stream_id_max + constants.stream_id_step;
     try testing.expectError(error.IdentifiersExhausted, test_table.open_local(limit, test_send_window));
@@ -480,9 +504,9 @@ test "IdentifiersExhausted: a client opens stream_id_max, and then has no identi
 test "a client records promised streams 2 and 6 closed by its reset, and a promise at or below 6 is IdentifierNotIncreasing (§5.1.1, §6.6)" {
     test_table.init(.client);
     try test_table.reserve_peer(2);
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, test_table.lookup(2));
+    try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(2));
     try test_table.reserve_peer(6);
-    try testing.expectEqual(Lookup{ .closed = .rst_stream_sent }, test_table.lookup(4));
+    try testing.expectEqual(Lookup.reset_and_dropped, test_table.lookup(4));
     try testing.expectEqual(Lookup{ .idle = true }, test_table.lookup(8));
     try testing.expectError(error.IdentifierNotIncreasing, test_table.reserve_peer(4));
     try testing.expectError(error.IdentifierNotIncreasing, test_table.reserve_peer(6));
