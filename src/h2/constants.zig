@@ -29,6 +29,23 @@ pub const stream_id_max: u32 = (1 << 31) - 1;
 /// The stream identifier of a frame that concerns the connection as a whole (RFC 9113 §4.1).
 pub const connection_stream_id: u32 = 0;
 
+// Stream identifiers (RFC 9113 §5.1.1).
+
+/// The two parities of stream identifiers: odd for a stream a client opens, even for one a server
+/// opens (§5.1.1). They are the identifier classes of the stream table's slot pool.
+pub const stream_id_parity_count: u32 = 2;
+
+/// The first identifier a client opens: the lowest odd identifier (§5.1.1).
+pub const stream_id_client_first: u32 = 1;
+
+/// The first identifier a server opens: the lowest even identifier, since 0 is the connection's
+/// and cannot open a stream (§5.1.1).
+pub const stream_id_server_first: u32 = 2;
+
+/// The distance from one identifier colibri opens to the next it opens: the next identifier of the
+/// same parity, which is numerically greater, as §5.1.1 requires, and skips none.
+pub const stream_id_step: u32 = 2;
+
 /// The mask of the reserved bit above a 31-bit identifier or window increment, ignored on receipt
 /// and unset on send (RFC 9113 §4.1, §6.2, §6.9).
 pub const reserved_bit_mask: u32 = 1 << 31;
@@ -260,6 +277,13 @@ comptime {
     assert(enable_push_initial == enable_push_enabled and enable_push_disabled != enable_push_enabled);
     // The six settings are numbered consecutively from 0x01, so the count is the identifier range.
     assert(settings_count == setting_max_header_list_size - setting_header_table_size + 1);
+    // A client's first identifier is odd and a server's even and not the connection's (§5.1.1),
+    // and one step keeps the parity.
+    assert(stream_id_client_first % stream_id_parity_count == 1);
+    assert(stream_id_server_first % stream_id_parity_count == 0);
+    assert(stream_id_server_first != connection_stream_id and stream_id_step == stream_id_parity_count);
+    // The largest identifier is odd: a client's last is `stream_id_max`, a server's the one below.
+    assert(stream_id_max % stream_id_parity_count == 1);
 }
 
 test "the preface is the 24 octets RFC 9113 §3.4 gives, in hexadecimal" {
