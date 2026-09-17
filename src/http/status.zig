@@ -104,6 +104,22 @@ pub const Status = struct {
     }
 
     /// The class the first digit names (RFC 9110 §15).
+    /// Writes the three digits of the status code into `digits`, the mirror of `from_digits`:
+    /// RFC 9113 §8.3.2 and RFC 9114 §4.3.2 carry them as the `:status` value, and RFC 9110 §15
+    /// makes them three, leading zeros included.
+    pub fn write_digits(self: Status, digits: *[constants.status_digits_len]u8) []const u8 {
+        assert(self.code >= constants.status_code_min and self.code <= constants.status_code_max);
+        var rest = self.code;
+        var index = constants.status_digits_len;
+        while (index > 0) {
+            index -= 1;
+            digits[index] = '0' + @as(u8, @intCast(rest % constants.status_digit_radix));
+            rest /= constants.status_digit_radix;
+        }
+        assert(rest == 0);
+        return digits;
+    }
+
     pub fn class(self: Status) Class {
         assert(self.code >= constants.status_code_min and self.code <= constants.status_code_max);
         return @enumFromInt(self.code / constants.status_class_size);
@@ -132,6 +148,19 @@ pub const Status = struct {
 };
 
 const testing = std.testing;
+
+test "write_digits is the mirror of from_digits over every status code" {
+    var digits: [constants.status_digits_len]u8 = undefined;
+    var code: u16 = constants.status_code_min;
+    while (code <= constants.status_code_max) : (code += 1) {
+        const status = try Status.from_code(code);
+        const written = status.write_digits(&digits);
+        try std.testing.expectEqual(constants.status_digits_len, written.len);
+        try std.testing.expectEqual(code, (try Status.from_digits(written)).code);
+    }
+    const found = try Status.from_code(200);
+    try std.testing.expectEqualStrings("200", found.write_digits(&digits));
+}
 
 test "the range ends are 100 and 599" {
     try testing.expectError(error.StatusOutOfRange, Status.from_code(99));

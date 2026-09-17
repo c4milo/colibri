@@ -151,6 +151,9 @@ pub const Connection = struct {
     /// Whether the section of the field block in progress is dropped once it is decoded: the
     /// stream it belongs to was refused, reset or never opened (`connection_headers.zig`).
     block_discarded: bool,
+    /// Where a field section colibri sends is encoded before it is cut into frames
+    /// (`connection_send.zig`).
+    send_block: [constants.send_block_len_max]u8,
     /// RST_STREAM frames colibri has sent since `rst_stream_period_start_ns` (§10.5).
     rst_stream_sent: u32,
     /// The instant the current RST_STREAM rate period began.
@@ -179,6 +182,7 @@ pub const Connection = struct {
         connection.receive_window = window.Receiver.init(constants.initial_window_size_initial);
         connection.replies.init();
         connection.block_discarded = false;
+        connection.send_block = @splat(0);
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
         assert(!connection.has_failed());

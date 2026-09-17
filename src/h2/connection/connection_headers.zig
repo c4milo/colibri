@@ -32,19 +32,35 @@ const Event = connection.Event;
 const Error = connection.Error;
 const Stream = streams_table.Stream;
 
+/// What the stream of a HEADERS frame is, once the table has been asked to open it.
+const Opened = union(enum) {
+    /// The table holds the stream, and the section the block decodes to is the caller's.
+    held,
+    /// The stream was refused or ignored: the block is decoded and its section dropped, with this
+    /// event for the caller.
+    dropped: ?Event,
+};
+
 /// Reads one HEADERS frame: it opens a stream or continues one, and starts a field block.
 pub fn on_headers(target: *Connection, header: frame.Header, payload: frame.Headers, now_ns: u64) Error!?Event {
     const id = header.stream_id;
     const found = try stream_frames.find(target, id, .headers, payload.end_stream, now_ns);
     var refusal: ?Event = null;
+    var dropped = true;
     switch (found) {
         .refused => |event| refusal = event,
         .discard => {},
-        .open => |verdict| refusal = try open_stream(target, id, verdict, payload.end_stream, now_ns),
-        .act => |acting| target.streams.transition(acting.record, acting.verdict, .receive, .headers, payload.end_stream),
+        .open => |verdict| switch (try open_stream(target, id, verdict, payload.end_stream, now_ns)) {
+            .held => dropped = false,
+            .dropped => |event| refusal = event,
+        },
+        .act => |acting| {
+            target.streams.transition(acting.record, acting.verdict, .receive, .headers, payload.end_stream);
+            dropped = false;
+        },
     }
     target.block.begin(id, .headers, payload.end_stream);
-    target.block_discarded = refusal != null or found == .discard;
+    target.block_discarded = dropped;
     const done = try feed_fragment(target, payload.fragment, payload.end_headers);
     const event = try finish(target, done, now_ns);
     // The stream's refusal is what the caller hears about; the block was read for the decoder.
@@ -73,9 +89,9 @@ pub fn on_push_promise(target: *Connection, header: frame.Header, payload: frame
     return refusal;
 }
 
-/// Opens the stream a HEADERS frame names at a server, and returns the refusal when the table
-/// cannot hold it. The block is decoded either way.
-fn open_stream(target: *Connection, id: u32, verdict: stream.Verdict, end_stream: bool, now_ns: u64) Error!?Event {
+/// Opens the stream a HEADERS frame names at a server. A table that cannot hold the stream leaves
+/// the block to be decoded and its section dropped.
+fn open_stream(target: *Connection, id: u32, verdict: stream.Verdict, end_stream: bool, now_ns: u64) Error!Opened {
     const record = target.streams.open_peer(id, target.peer.initial_window_size) catch |failure| {
         return switch (failure) {
             // RFC 9113 §5.1.1: a stream identifier of the wrong parity, or one not above every
@@ -83,14 +99,14 @@ fn open_stream(target: *Connection, id: u32, verdict: stream.Verdict, end_stream
             error.WrongParity, error.IdentifierNotIncreasing => target.fail(constants.error_protocol_error),
             // RFC 9113 §6.8: a stream above the last identifier of a GOAWAY colibri sent is one the
             // peer must retry on another connection, and this one ignores it.
-            error.AfterGoaway => null,
+            error.AfterGoaway => .{ .dropped = null },
             // RFC 9113 §5.1.2: a stream past SETTINGS_MAX_CONCURRENT_STREAMS is a stream error of
             // REFUSED_STREAM, which §8.7 says the peer may retry.
-            error.Refused => try stream_frames.reset_stream(target, id, constants.error_refused_stream, now_ns),
+            error.Refused => .{ .dropped = try stream_frames.reset_stream(target, id, constants.error_refused_stream, now_ns) },
         };
     };
     target.streams.transition(record, verdict, .receive, .headers, end_stream);
-    return null;
+    return .held;
 }
 
 /// Records the stream a PUSH_PROMISE promises and resets it, at a client (RFC 9113 §6.6).
@@ -129,6 +145,9 @@ fn finish(target: *Connection, done: ?field_block.Done, now_ns: u64) Error!?Even
         // more work than it should.
         return try stream_frames.reset_stream(target, block.stream_id, constants.error_enhance_your_calm, now_ns);
     }
+    // The block was not dropped, so the table held its stream when the block opened, and nothing
+    // between then and now removes a record: only an open drops one, and §4.3 admits no frame in
+    // the middle of a field block.
     const record = target.streams.lookup(block.stream_id).live;
     if (record.section_received) return validate_trailers(target, block, record, now_ns);
     record.section_received = true;

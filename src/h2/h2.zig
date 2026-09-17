@@ -51,4 +51,5 @@ test {
     _ = @import("connection/connection_data.zig");
     _ = @import("connection/connection_headers.zig");
     _ = @import("connection/connection_reply.zig");
+    _ = @import("connection/connection_send.zig");
 }

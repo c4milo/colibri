@@ -246,6 +246,12 @@ pub const settings_ack_pending_max: u32 = 4;
 /// reason §10.5 gives: a peer that sends more of a frame than an endpoint answers costs memory.
 pub const ping_ack_pending_max: u32 = 4;
 
+/// The largest field block colibri sends, before it is cut into a HEADERS frame and the
+/// CONTINUATION frames that follow it (§6.10). Policy: two frames' worth, so a section larger than
+/// one frame is ordinary rather than a corner. A caller that asks for more is refused, never
+/// truncated. It holds every section colibri would accept, so what colibri can read it can send.
+pub const send_block_len_max: u32 = 2 * frame_size_max;
+
 /// Most replies about single streams, a RST_STREAM (§6.4) or a WINDOW_UPDATE (§6.9), that colibri
 /// holds unwritten. One past it, the connection stops reading until the caller writes them.
 pub const stream_replies_max: u32 = 32;
@@ -275,6 +281,12 @@ comptime {
     assert(header_table_size_advertised <= hpack.constants.dynamic_table_capacity_max);
     assert(continuation_count_max > 0 and settings_pending_max > 0 and ping_pending_max > 0);
     assert(settings_ack_pending_max > 0 and ping_ack_pending_max > 0 and stream_replies_max > 0);
+    // A line's own octets: the first octet, its name's length and its value's length, all of which
+    // the 32 octets §6.5.2 charges per line cover, so a section colibri accepts encodes within its
+    // own size plus the size updates that may open the block.
+    assert(core.constants.field_line_overhead >= @sizeOf(u8) + 2 * wire.constants.integer_len_max);
+    assert(send_block_len_max >= core.constants.field_section_size_max +
+        hpack.constants.size_updates_per_block_max * wire.constants.integer_len_max);
     // The longest line fits in the most fragments one block may span, so the CONTINUATION count
     // refuses no line the field-length limits admit (§6.10).
     assert(representation_len_max <= (continuation_count_max + 1) * frame_size_max);
