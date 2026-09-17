@@ -237,7 +237,7 @@ fn add_sim_step(b: *std.Build, sim_run: *std.Build.Module) void {
     const simulator = b.addExecutable(.{ .name = "sim", .root_module = sim_run });
     const run = b.addRunArtifact(simulator);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("sim", "Run the simulator: --chunk-seed <hex> or --chunk-gate [seeds]");
+    const step = b.step("sim", "Run the simulator: --<gate>-seed <hex> or --<gate>-gate [seeds]");
     step.dependOn(&run.step);
 }
 

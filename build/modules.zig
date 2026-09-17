@@ -18,7 +18,7 @@
 //!
 //! `sim_run` is the driver: the gates and the `zig build sim` command line, rooted at
 //! `src/sim/run.zig`. It receives `sim` and the modules its gates drive, `wire` for design §8
-//! step 2, and `sim` never receives it back, so the direction stays acyclic.
+//! step 2 and `h2` for step 4, and `sim` never receives it back, so the direction stays acyclic.
 const std = @import("std");
 
 /// Each module's root is the file named after its directory (`src/core/core.zig`), which lists
@@ -115,6 +115,7 @@ pub fn add(
     sim_run.addImport("core", core);
     sim_run.addImport("wire", wire);
     sim_run.addImport("sim", sim);
+    sim_run.addImport("h2", h2);
 
     const golden = create(b, "src/golden/golden.zig", target, optimize);
     golden.addImport("core", core);
