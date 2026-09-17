@@ -38,6 +38,7 @@ const stream = @import("stream.zig");
 const window = @import("../window.zig");
 const open = @import("streams_open.zig");
 const goaway = @import("streams_goaway.zig");
+const window_sweep = @import("streams_window.zig");
 
 /// The record of one stream, and the pool's entry. Every field but `id` has a default because the
 /// pool writes a fresh entry whole (invariant 5). `open_peer` and `open_local` set the state, the
@@ -216,27 +217,9 @@ pub const Streams = struct {
     }
 
     /// Adds `delta`, the change in the peer's SETTINGS_INITIAL_WINDOW_SIZE, to the send window of
-    /// every stream colibri may still send DATA on (RFC 9113 §6.9.2). colibri keeps no send window
-    /// for a half-closed (local) or closed stream (§5.1), so that window neither moves nor
-    /// overflows. `error.Overflow` is the connection error FLOW_CONTROL_ERROR, and no window moves.
+    /// every stream colibri may still send DATA on (RFC 9113 §6.9.2). See `streams_window.zig`.
     pub fn adjust_send_windows(streams: *Streams, delta: i64) error{Overflow}!void {
-        assert(delta >= -@as(i64, constants.window_max) and delta <= constants.window_max);
-        open.assert_counts(streams);
-        var probes = streams.pool.iterator();
-        while (probes.next()) |record| {
-            if (!may_send_data(record.state)) continue;
-            var probe = record.send_window;
-            // RFC 9113 §6.9.2: a change to SETTINGS_INITIAL_WINDOW_SIZE that causes any
-            // flow-control window to exceed the maximum is a connection error of
-            // FLOW_CONTROL_ERROR. Every window is checked on a copy before any window moves.
-            try probe.adjust(delta);
-        }
-        var records = streams.pool.iterator();
-        while (records.next()) |record| {
-            if (!may_send_data(record.state)) continue;
-            // The first pass adjusted a copy of this window by the same delta.
-            record.send_window.adjust(delta) catch unreachable;
-        }
+        return window_sweep.adjust_send_windows(streams, delta);
     }
 
     /// Records the last stream identifier of a GOAWAY colibri sends. See `streams_goaway.zig`.
@@ -291,29 +274,20 @@ fn is_active(state: stream.State) bool {
     };
 }
 
-/// Whether colibri may still send DATA on a stream in `state` (RFC 9113 §5.1): on an open or
-/// half-closed (remote) stream, and on a reserved (local) one once it sends HEADERS. Not on an
-/// idle, half-closed (local), closed or reserved (remote) stream.
-fn may_send_data(state: stream.State) bool {
-    return switch (state) {
-        .open, .half_closed_remote, .reserved_local => true,
-        .idle, .reserved_remote, .half_closed_local, .closed => false,
-    };
-}
-
 // Tests. `streams_open.zig` tests the opens and `streams_goaway.zig` the GOAWAY values; these test
 // what the table does with its records.
 
 const testing = std.testing;
 
-/// The table the tests run in, placed outside any stack frame.
-var test_streams: Streams = undefined;
+/// The table the tests run in, placed outside any stack frame. Test-only, and
+/// `streams_window.zig` runs its tests on it too.
+pub var test_streams: Streams = undefined;
 
-/// The peer's SETTINGS_INITIAL_WINDOW_SIZE in the tests.
-const test_send_window: u32 = 1000;
+/// The peer's SETTINGS_INITIAL_WINDOW_SIZE in the tests. Test-only.
+pub const test_send_window: u32 = 1000;
 
 /// Asks the state machine for its verdict on a frame on `record`, and applies it. Test-only.
-fn apply_frame(record: *Stream, direction: stream.Direction, kind: stream.Kind, end_stream: bool) !void {
+pub fn apply_frame(record: *Stream, direction: stream.Direction, kind: stream.Kind, end_stream: bool) !void {
     const role = test_streams.role;
     const verdict = switch (direction) {
         .receive => stream.on_receive(record.state, record.closed, kind, end_stream, role, record.peer_initiated),
@@ -458,46 +432,6 @@ test "a RST_STREAM colibri sends on a half-closed stream lowers the active count
     try testing.expectEqual(0, test_streams.local_active);
     try testing.expectEqual(0, test_streams.peer_active);
     try testing.expectEqual(2, test_streams.len());
-}
-
-test "http2/6.9.2/1: a change to the initial window moves every send window colibri keeps by the difference, and no other" {
-    test_streams.init(.server);
-    const first = try test_streams.open_peer(1, test_send_window);
-    const second = try test_streams.open_peer(3, test_send_window);
-    const half_closed = try test_streams.open_peer(5, test_send_window);
-    const reset = try test_streams.open_peer(7, test_send_window);
-    try first.send_window.consume(400);
-    try second.send_window.add(500);
-    try apply_frame(half_closed, .receive, .data, true);
-    try apply_frame(reset, .send, .rst_stream, false);
-    try test_streams.adjust_send_windows(-700);
-    try testing.expectEqual(-100, first.send_window.available);
-    try testing.expectEqual(800, second.send_window.available);
-    try testing.expectEqual(300, half_closed.send_window.available);
-    try testing.expectEqual(1000, reset.send_window.available);
-    test_streams.init(.client);
-    const local = try test_streams.open_local(null, test_send_window);
-    const finished = try test_streams.open_local(null, test_send_window);
-    try finished.send_window.add(constants.window_max - test_send_window);
-    try apply_frame(finished, .send, .headers, true);
-    try test_streams.adjust_send_windows(-1500);
-    try test_streams.adjust_send_windows(2200);
-    try testing.expectEqual(1700, local.send_window.available);
-    try testing.expectEqual(constants.window_max, finished.send_window.available);
-}
-
-test "a change that takes one send window past window_max is Overflow and moves none, and a reset stream's window never overflows" {
-    test_streams.init(.server);
-    const first = try test_streams.open_peer(1, test_send_window);
-    const second = try test_streams.open_peer(3, test_send_window);
-    try second.send_window.add(constants.window_max - test_send_window);
-    try testing.expectError(error.Overflow, test_streams.adjust_send_windows(1));
-    try testing.expectEqual(test_send_window, first.send_window.available);
-    try testing.expectEqual(constants.window_max, second.send_window.available);
-    try apply_frame(second, .send, .rst_stream, false);
-    try test_streams.adjust_send_windows(1);
-    try testing.expectEqual(test_send_window + 1, first.send_window.available);
-    try testing.expectEqual(constants.window_max, second.send_window.available);
 }
 
 test "the iterator visits every record the pool holds, the closed streams included" {

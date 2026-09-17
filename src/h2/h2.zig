@@ -36,6 +36,8 @@ test {
     _ = window;
     _ = stream;
     _ = streams;
+    _ = @import("stream/streams_slot.zig");
+    _ = @import("stream/streams_window.zig");
     _ = field_block;
     _ = @import("field_block_decode.zig");
     _ = @import("field_block_limit.zig");
