@@ -16,6 +16,9 @@ const hpack = @import("hpack");
 /// Octets in every frame header, not counted in its Length field (RFC 9113 §4.1).
 pub const frame_header_len: u32 = 9;
 
+/// Octets of the Length field: a 24-bit integer (RFC 9113 §4.1).
+pub const frame_length_len: u32 = 3;
+
 /// Largest value the 24-bit Length field holds (RFC 9113 §4.1).
 pub const frame_length_max: u32 = (1 << 24) - 1;
 
@@ -28,6 +31,10 @@ pub const connection_stream_id: u32 = 0;
 /// The mask of the reserved bit above a 31-bit identifier or window increment, ignored on receipt
 /// and unset on send (RFC 9113 §4.1, §6.2, §6.9).
 pub const reserved_bit_mask: u32 = 1 << 31;
+
+/// The mask of the Exclusive bit above the 31-bit Stream Dependency of the priority fields a
+/// HEADERS frame carries under the PRIORITY flag (§6.2) and a PRIORITY frame always carries (§6.3).
+pub const exclusive_bit_mask: u32 = 1 << 31;
 
 // Frame types (RFC 9113 §6).
 
@@ -72,6 +79,11 @@ pub const rst_stream_len: u32 = 4;
 /// Octets per setting in a SETTINGS payload: a 16-bit identifier and a 32-bit value (§6.5.1).
 pub const setting_len: u32 = 6;
 
+/// Most settings one SETTINGS frame colibri accepts can carry: the largest payload it accepts
+/// (`frame_size_max`) over `setting_len`. The bound of the loop that walks a SETTINGS payload
+/// (§6.5.3: values are processed in the order they appear).
+pub const settings_per_frame_max: u32 = frame_size_max / setting_len;
+
 /// The payload of a PING frame: eight octets of opaque data (§6.7).
 pub const ping_len: u32 = 8;
 
@@ -100,6 +112,16 @@ pub const header_table_size_initial: u32 = 4096;
 pub const enable_push_initial: u32 = 1;
 pub const initial_window_size_initial: u32 = 65_535;
 pub const max_frame_size_initial: u32 = 1 << 14;
+
+/// The two values SETTINGS_ENABLE_PUSH may take (§6.5.2): any other is a connection error of
+/// PROTOCOL_ERROR. colibri never pushes (decision 17), so a client sends `enable_push_disabled`
+/// and a server omits the setting, which §6.5.2 lets it do.
+pub const enable_push_disabled: u32 = 0;
+pub const enable_push_enabled: u32 = 1;
+
+/// The settings §6.5.2 defines, numbered 0x01 to 0x06, and so the most (identifier, value) pairs
+/// colibri puts in one SETTINGS frame it sends.
+pub const settings_count: u32 = 6;
 
 /// The range SETTINGS_MAX_FRAME_SIZE may take: the initial value to the largest Length (§4.2,
 /// §6.5.2). A value outside it is a connection error of PROTOCOL_ERROR.
@@ -195,6 +217,13 @@ comptime {
     assert(flag_end_stream & flag_end_headers == 0 and flag_padded & flag_priority == 0);
     assert(flag_end_headers & flag_padded == 0 and flag_end_stream & flag_padded == 0);
     assert(goaway_len_min == rst_stream_len + promised_stream_id_len);
+    // The header is the Length field, the Type octet, the Flags octet and the Stream Identifier.
+    assert(frame_length_len + @sizeOf(u8) + @sizeOf(u8) + @sizeOf(u32) == frame_header_len);
+    assert(settings_per_frame_max > 0 and settings_per_frame_max * setting_len <= frame_size_max);
+    // ENABLE_PUSH starts enabled (§6.5.2), and its two legal values are distinct.
+    assert(enable_push_initial == enable_push_enabled and enable_push_disabled != enable_push_enabled);
+    // The six settings are numbered consecutively from 0x01, so the count is the identifier range.
+    assert(settings_count == setting_max_header_list_size - setting_header_table_size + 1);
 }
 
 test "the preface is the 24 octets RFC 9113 §3.4 gives, in hexadecimal" {

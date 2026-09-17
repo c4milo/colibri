@@ -2,17 +2,30 @@
 //! build.zig stays short (CLAUDE.md, Layout), so the wiring lives here.
 //!
 //! `zig build hpack-vectors` runs tools/hpack_vectors.zig over the vendored
-//! src/hpack/hpack-test-case, and `zig build test` runs the same step. The tool runs on the build
-//! host in Debug: a tool never ships.
+//! src/hpack/hpack-test-case, and `zig build h2-frames` runs tools/h2_frames.zig over the vendored
+//! src/h2/http2-frame-test-case; `zig build test` runs both steps. Each tool runs on the build host
+//! in Debug over its own host copy of the module graph: a tool never ships.
 const std = @import("std");
 
 const hpack_test_case_directory = "src/hpack/hpack-test-case";
+const http2_frame_test_case_directory = "src/h2/http2-frame-test-case";
 
 pub const Steps = struct {
     /// `zig build test`.
     test_step: *std.Build.Step,
     /// `zig build test-tools`.
     tool_test_step: *std.Build.Step,
+};
+
+/// One vectors tool: its source, the module it imports, the step that runs it and the directory
+/// it runs over.
+const Tool = struct {
+    name: []const u8,
+    root_source_file: []const u8,
+    module_name: []const u8,
+    module: *std.Build.Module,
+    step_name: []const u8,
+    directory: []const u8,
 };
 
 pub fn add(b: *std.Build, steps: Steps) void {
@@ -25,18 +38,51 @@ pub fn add(b: *std.Build, steps: Steps) void {
     hpack.addImport("core", core);
     hpack.addImport("wire", wire);
     hpack.addImport("http", http);
+    const tls = host_module(b, "src/tls/tls.zig");
+    tls.addImport("core", core);
+    // The same imports build/modules.zig gives `h2`.
+    const h2 = host_module(b, "src/h2/h2.zig");
+    h2.addImport("core", core);
+    h2.addImport("wire", wire);
+    h2.addImport("http", http);
+    h2.addImport("hpack", hpack);
+    h2.addImport("tls", tls);
 
-    const tool_module = host_module(b, "tools/hpack_vectors.zig");
-    tool_module.addImport("hpack", hpack);
-    const tool = b.addExecutable(.{ .name = "hpack_vectors", .root_module = tool_module });
+    add_tool(b, steps, .{
+        .name = "hpack_vectors",
+        .root_source_file = "tools/hpack_vectors.zig",
+        .module_name = "hpack",
+        .module = hpack,
+        .step_name = "hpack-vectors",
+        .directory = hpack_test_case_directory,
+    });
+    add_tool(b, steps, .{
+        .name = "h2_frames",
+        .root_source_file = "tools/h2_frames.zig",
+        .module_name = "h2",
+        .module = h2,
+        .step_name = "h2-frames",
+        .directory = http2_frame_test_case_directory,
+    });
+}
 
-    const run = b.addRunArtifact(tool);
-    run.addDirectoryArg(b.path(hpack_test_case_directory));
-    const step = b.step("hpack-vectors", "Decode " ++ hpack_test_case_directory ++ " with the hpack module");
+/// Wires one tool: its run step over its directory, hooked into `zig build test`, and its own
+/// tests, hooked into `zig build test` and `zig build test-tools`.
+fn add_tool(b: *std.Build, steps: Steps, tool: Tool) void {
+    const tool_module = host_module(b, tool.root_source_file);
+    tool_module.addImport(tool.module_name, tool.module);
+    const executable = b.addExecutable(.{ .name = tool.name, .root_module = tool_module });
+
+    const run = b.addRunArtifact(executable);
+    run.addDirectoryArg(b.path(tool.directory));
+    const step = b.step(
+        tool.step_name,
+        b.fmt("Run {s} with the {s} module", .{ tool.directory, tool.module_name }),
+    );
     step.dependOn(&run.step);
     steps.test_step.dependOn(&run.step);
 
-    const tests = b.addTest(.{ .name = "hpack_vectors", .root_module = tool_module });
+    const tests = b.addTest(.{ .name = tool.name, .root_module = tool_module });
     const run_tests = &b.addRunArtifact(tests).step;
     steps.test_step.dependOn(run_tests);
     steps.tool_test_step.dependOn(run_tests);
