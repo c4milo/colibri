@@ -65,6 +65,9 @@ pub const Stream = struct {
     data_received_len: u64 = 0,
     /// The value of `Streams.sequence` when the stream closed. The lowest is the oldest.
     closed_at: u64 = 0,
+    /// Whether a field section has arrived on the stream, which makes the next one a trailer
+    /// section (RFC 9113 §8.1). This table only stores it.
+    section_received: bool = false,
 };
 
 /// The slot pool the table keeps its records in: `concurrent_streams_max` slots, the

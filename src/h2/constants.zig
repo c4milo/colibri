@@ -238,6 +238,18 @@ pub const settings_pending_max: u32 = 4;
 /// Most PING frames colibri has sent and not yet seen answered.
 pub const ping_pending_max: u32 = 4;
 
+/// Most SETTINGS frames the peer has sent that colibri has not yet written an acknowledgment for
+/// (§6.5.3). One past it, the connection stops reading until the caller writes what is pending.
+pub const settings_ack_pending_max: u32 = 4;
+
+/// Most PING frames the peer has sent that colibri has not yet answered (§6.7). Bounded for the
+/// reason §10.5 gives: a peer that sends more of a frame than an endpoint answers costs memory.
+pub const ping_ack_pending_max: u32 = 4;
+
+/// Most replies about single streams, a RST_STREAM (§6.4) or a WINDOW_UPDATE (§6.9), that colibri
+/// holds unwritten. One past it, the connection stops reading until the caller writes them.
+pub const stream_replies_max: u32 = 32;
+
 /// Most RST_STREAM frames colibri sends in one `rst_stream_rate_period_ns`, after which invalid
 /// requests are a connection error of ENHANCE_YOUR_CALM (§10.5: track the use of these features
 /// and set limits).
@@ -262,6 +274,7 @@ comptime {
     assert(header_list_size_max >= core.constants.field_name_len_max + core.constants.field_value_len_max);
     assert(header_table_size_advertised <= hpack.constants.dynamic_table_capacity_max);
     assert(continuation_count_max > 0 and settings_pending_max > 0 and ping_pending_max > 0);
+    assert(settings_ack_pending_max > 0 and ping_ack_pending_max > 0 and stream_replies_max > 0);
     // The longest line fits in the most fragments one block may span, so the CONTINUATION count
     // refuses no line the field-length limits admit (§6.10).
     assert(representation_len_max <= (continuation_count_max + 1) * frame_size_max);
