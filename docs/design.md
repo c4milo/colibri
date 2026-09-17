@@ -62,6 +62,7 @@ core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
 core, wire, sim  <- sim_run
 core             <- golden
+core, h2         <- testing
 ```
 
 | Module | Holds | Imports | RFCs |
@@ -79,6 +80,7 @@ core             <- golden
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
 | `sim_run` | the gates of §8 over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a gate drives | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
+| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
 
 Three edges are load-bearing and one is forbidden.
 
@@ -95,7 +97,9 @@ Three edges are load-bearing and one is forbidden.
 - **`wire` is shared by both families and holds two different integer codecs.** That is not an
   accident of packaging; [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why
   the split is *field compression against framing* and not h2 against h3.
-- **Nothing imports `h2` or `h3`.** They are the roots. A consumer picks one or both.
+- **Nothing imports `h2` or `h3`.** They are the roots. A consumer picks one or both, and
+  `testing` is a consumer like any other: the library it drives cannot reach the socket it opens,
+  because the edge runs one way and nothing imports `testing` back.
 
 ## 4. The seams
 
@@ -391,7 +395,10 @@ leaves the caller to place the struct.
 `representation_len_max` (31,721 encoded octets: the longest field line within
 `field_name_len_max`, `field_value_len_max` and `integer_len_max`, Huffman-coded at 30 bits an
 octet, so it refuses no line those limits admit) · `field_block_buffer_len` (one cut representation
-plus one frame, decision 40).
+plus one frame, decision 40) · `send_block_len_max` (two frames' worth of field block colibri
+sends, cut into a HEADERS frame and the CONTINUATION frames it needs) · `settings_ack_pending_max`
+· `ping_ack_pending_max` · `stream_replies_max` (the reply queues of decision 39: a full queue
+stops the reading, and no reply is ever dropped).
 
 **wire** (`wire`): `varint_value_max` (2^62 − 1, RFC 9000 §16) · `integer_value_max` (2^62 − 1, the
 62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 octets, the length those 62 bits need

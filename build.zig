@@ -95,6 +95,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "golden", .module = graph.golden },
+        .{ .name = "testing", .module = graph.testing },
     };
     var golden_tests: ?*std.Build.Step = null;
     for (unit_test_modules) |entry| {
@@ -129,6 +130,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(add_graph_gate_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
+    add_h2_server_step(b, graph.testing);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
 
@@ -240,6 +242,17 @@ fn add_sim_step(b: *std.Build, sim_run: *std.Build.Module) void {
 }
 
 /// `zig build hooks`: point this clone's core.hooksPath at .githooks, once after cloning.
+/// The cleartext h2 server of design §9, which `tools/h2spec.sh` runs the pinned suite against.
+/// It is built from the `testing` module and is never part of the library.
+fn add_h2_server_step(b: *std.Build, testing: *std.Build.Module) void {
+    const server = b.addExecutable(.{ .name = "h2-server", .root_module = testing });
+    const run = b.addRunArtifact(server);
+    if (b.args) |args| run.addArgs(args);
+    const step = b.step("h2-server", "Run the test-only cleartext h2 server: -- --port <port>");
+    step.dependOn(&run.step);
+    b.installArtifact(server);
+}
+
 fn add_hooks_step(b: *std.Build) void {
     const run = b.addSystemCommand(&.{ "git", "config", "core.hooksPath", hooks_directory });
     const step = b.step("hooks", "Point this clone's core.hooksPath at " ++ hooks_directory);

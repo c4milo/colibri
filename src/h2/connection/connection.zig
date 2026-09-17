@@ -31,6 +31,7 @@ const message = @import("../message/message.zig");
 const streams_table = @import("../stream/streams.zig");
 const field_block = @import("../field_block.zig");
 const connection_receive = @import("connection_receive.zig");
+const connection_send = @import("connection_send.zig");
 const reply = @import("connection_reply.zig");
 
 const Role = @import("../role.zig").Role;
@@ -40,6 +41,12 @@ const Writer = core.Writer;
 /// names the code of the GOAWAY now queued (RFC 9113 §5.4.1). The caller writes what is pending
 /// and closes the transport.
 pub const Error = error{ConnectionFailed};
+
+/// Why a send the caller asked for did not happen (`connection_send.zig`).
+pub const SendError = connection_send.Error;
+
+/// What `write_data` sent and wrote (`connection_send.zig`).
+pub const DataWritten = connection_send.DataWritten;
 
 /// A request the peer sent, at a server: its pseudo-header fields, and the field section it came
 /// from, which `field_section` returns until the next call (RFC 9113 §8.3.1).
@@ -193,6 +200,39 @@ pub const Connection = struct {
     /// what a count of 0 means.
     pub fn receive(connection: *Connection, input: []const u8, now_ns: u64) Error!Received {
         return connection_receive.receive(connection, input, now_ns);
+    }
+
+    /// Writes the response for `stream_id` into `output`: see `connection_send.zig`.
+    pub fn write_response(
+        connection: *Connection,
+        output: []u8,
+        stream_id: u32,
+        status: u16,
+        fields: []const hpack.Field,
+        end_stream: bool,
+    ) SendError!usize {
+        return connection_send.write_response(connection, output, stream_id, status, fields, end_stream);
+    }
+
+    /// Writes as much of `payload` as the windows and the room allow: see `connection_send.zig`.
+    pub fn write_data(
+        connection: *Connection,
+        output: []u8,
+        stream_id: u32,
+        payload: []const u8,
+        end_stream: bool,
+    ) SendError!connection_send.DataWritten {
+        return connection_send.write_data(connection, output, stream_id, payload, end_stream);
+    }
+
+    /// Queues a RST_STREAM for `stream_id` (RFC 9113 §6.4): see `connection_send.zig`.
+    pub fn reset_stream(connection: *Connection, stream_id: u32, error_code: u32) SendError!void {
+        return connection_send.reset(connection, stream_id, error_code);
+    }
+
+    /// Queues the GOAWAY of a graceful shutdown (RFC 9113 §6.8): see `connection_send.zig`.
+    pub fn shutdown(connection: *Connection, error_code: u32) void {
+        connection_send.shutdown(connection, error_code);
     }
 
     /// Writes the preface colibri owes and the frames it has queued into `output`, and returns the

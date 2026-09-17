@@ -13,6 +13,9 @@
 //! of a real caller's. It receives no protocol module, which is what keeps the harness from
 //! knowing anything a caller would not.
 //!
+//! `testing` is design §9's endpoints: it receives the protocol modules it serves and nothing
+//! receives it back, so the library it drives cannot reach the socket it opens.
+//!
 //! `sim_run` is the driver: the gates and the `zig build sim` command line, rooted at
 //! `src/sim/run.zig`. It receives `sim` and the modules its gates drive, `wire` for design §8
 //! step 2, and `sim` never receives it back, so the direction stays acyclic.
@@ -48,6 +51,9 @@ pub const Modules = struct {
     sim_run: *std.Build.Module,
     /// The byte-exact corpus and its manifest.
     golden: *std.Build.Module,
+    /// The test-only entry points of design §9, excluded from the packaged library and the only
+    /// place permitted to touch a socket. Receives the protocol modules it serves.
+    testing: *std.Build.Module,
 };
 
 pub fn add(
@@ -115,6 +121,12 @@ pub fn add(
     golden.addImport("wire", wire);
     golden.addImport("hpack", hpack);
 
+    // Design §9: the test-only endpoints. Nothing imports this module, so the library never
+    // reaches the socket it opens, and decision 10 links chapulin here alone when step 5 lands.
+    const testing = create(b, "src/testing/testing.zig", target, optimize);
+    testing.addImport("core", core);
+    testing.addImport("h2", h2);
+
     return .{
         .core = core,
         .wire = wire,
@@ -129,6 +141,7 @@ pub fn add(
         .sim = sim,
         .sim_run = sim_run,
         .golden = golden,
+        .testing = testing,
     };
 }
 

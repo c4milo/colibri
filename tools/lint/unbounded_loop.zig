@@ -2,7 +2,7 @@
 //! (docs/invariants.md INV-8, CLAUDE.md non-negotiable 4). INV-8 names this file as its check and
 //! `while (reader.remaining() > 0)` over a peer-controlled buffer as its violation.
 //!
-//! Over every `.zig` file under `src/`, the rule reports two shapes:
+//! Over every `.zig` file under `src/` but not under `src/testing/`, the rule reports two shapes:
 //!   1. `while (true)`. With no `break` anywhere in the body, nothing ends the loop at all. With a
 //!      `break` but no named limit anywhere in the loop, a peer decides how many iterations run
 //!      before the break fires.
@@ -50,7 +50,15 @@ const length_reader_names = [_][]const u8{
 /// `field_count_max`, `streams_per_connection_max`. pepegrillo numbers the length-read check 3;
 /// the header above calls it check 2.
 pub const config: unbounded_loop.Config = .{
-    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .scope = .{
+        .extensions = &.{lint.paths.zig_extension},
+        .include_directories = &.{"src"},
+        // `src/testing/` holds the test-only endpoints of docs/design.md §9, which own the socket
+        // the `io` rule exempts them for. Their accept loop and their per-connection read loop run
+        // until the operator stops the process or the peer closes, and neither trip count is a
+        // peer-supplied count, which is what INV-8 bounds. Every other file under `src/` is read.
+        .exclude_directories = &.{"src/testing"},
+    },
     .forever = .unless_bounded_break,
     .length_read = true,
     .bound = .{ .segments = &.{"constants"}, .last_segment_suffixes = &.{"_max"} },

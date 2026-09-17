@@ -28,6 +28,7 @@ pub const FieldBlock = field_block.FieldBlock;
 pub const message = @import("message/message.zig");
 pub const connection = @import("connection/connection.zig");
 pub const Connection = connection.Connection;
+pub const Event = connection.Event;
 
 test {
     std.testing.refAllDecls(@This());
