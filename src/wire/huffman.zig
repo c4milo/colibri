@@ -119,6 +119,12 @@ pub fn decoded_len_max(data_len: usize) usize {
     return data_len * @bitSizeOf(u8) / constants.huffman_code_bits_min;
 }
 
+/// The most octets `data_len` octets can occupy once encoded, padding included. Every symbol costs
+/// at most `huffman_code_bits_max` bits, so a limit on decoded octets gives a limit on encoded ones.
+pub fn encoded_len_max(data_len: usize) usize {
+    return std.math.divCeil(usize, data_len * constants.huffman_code_bits_max, @bitSizeOf(u8)) catch unreachable;
+}
+
 /// The octets `bytes` occupies once encoded, padding included.
 pub fn encoded_len(bytes: []const u8) usize {
     var bit_total: usize = 0;
@@ -241,6 +247,20 @@ test "octets 204 and 22 decode through a run of thirty-four ones with no EOS" {
     // zero inside symbol 204, thirty-four ones, and the zero that ends symbol 22.
     const bits = std.mem.readInt(u64, &encoded, .big);
     try testing.expectEqual(0x7fffffffe, (bits >> 7) & 0xfffffffff);
+}
+
+test "no octet encodes past encoded_len_max, and octet 22, at thirty bits, reaches it" {
+    for (0..256) |value| {
+        const octet = [_]u8{@intCast(value)};
+        try testing.expect(encoded_len(&octet) <= encoded_len_max(1));
+    }
+    // One octet rounds 30 bits up to 4 octets, and eight take exactly 240 bits, 30 octets.
+    const longest: [8]u8 = @splat(22);
+    try testing.expectEqual(4, encoded_len_max(1));
+    try testing.expectEqual(encoded_len_max(1), encoded_len(longest[0..1]));
+    try testing.expectEqual(30, encoded_len_max(8));
+    try testing.expectEqual(encoded_len_max(8), encoded_len(&longest));
+    try testing.expectEqual(0, encoded_len_max(0));
 }
 
 test "every octet round-trips, and the empty string is empty" {
