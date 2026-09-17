@@ -719,6 +719,47 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   [invariants 13 to 16](invariants.md#http2) after every step of every seed; fuzzing; mutations.
   **This is the largest single step and the first shippable thing.** *Large.*
 
+  **Gate met, 2026-09-17.** `zig build test` exits 0 on Zig 0.16.0, macOS 26.6, arm64: 587 tests
+  pass, the lint scores 1,324 functions with a highest score of 13 against the limit of 15, and
+  the twelve `tools/lint` rules run clean. `tools/h2spec.sh` prints `146 tests, 144 passed,
+  0 skipped, 2 failed` against h2spec 2.6.0, and the script names the two: both test RFC 7540
+  §5.3.1's rule that a stream cannot depend on itself, which RFC 9113 §5.3.2 dropped with the rest
+  of the priority scheme, leaving §6.3 two rules that colibri does enforce. `h2-frames` prints
+  `cases=34 normal=12 errors=22 round_trips=12`. The simulator gate prints
+  `connection: seeds=256 passed=195 rejected=61 frames=4670 chunks=9636 trace_octets=588614
+  crc32=0x629e2e40`, the same number in Debug and `-Drelease`.
+
+  - **Connection.** `receive` consumes one frame and returns at most one event, and the frames
+    colibri owes are queued in fixed slots that a short buffer never truncates (decision 39). The
+    send path writes a response, its DATA under both windows, a RST_STREAM and a graceful GOAWAY
+    into the caller's buffer. A connection error queues the GOAWAY and stops the reading; a stream
+    error queues a RST_STREAM and the connection goes on (invariant 27).
+  - **Streams.** The table keeps every closed record until an open needs its slot, which is what
+    tells a stream the peer opened and closed from an identifier it never opened: h2spec
+    `http2/5.1/12` wants `STREAM_CLOSED` for the first and `http2/5.1.1/2` `PROTOCOL_ERROR` for
+    the second, and §5.1 permits both only if the two are distinguished.
+  - **Field blocks.** Every fragment reaches the decoder whatever colibri thinks of its stream, or
+    the dynamic table would fall out of step with the peer's (invariant 10, decision 40).
+    `representation_len_max` is the longest line the decoder's own limits admit, so it refuses none
+    of them.
+  - **Simulator.** `src/sim/connection_gate.zig` drives one connection through the step 2 pipe and
+    reads invariants 13 to 16 after every frame it accepts. A seed replays byte for byte and
+    chunking changes no verdict, which at this step can fail for the connection's own reasons and
+    not only the harness's.
+  - **Endpoint.** `src/testing/` holds the cleartext server of §9, in two halves: a session with no
+    socket in it, which the unit tests drive, and the socket around it. Nothing imports the module
+    back, so the library cannot reach that socket.
+  - **Not built.** TLS, which is step 5, and with it h2spec's `-t` mode. Push stays refused
+    (decision 17) and priority parsed and never scheduled (decision 18).
+
+  Two hundred and nineteen source mutations were applied over the field-block slot, the message
+  validators, the stream table, the connection's two paths, the Huffman bound and the simulator
+  gate, each run against the narrowest step that can catch it, and reverted: 215 **CAUGHT** and
+  four equivalent. The four: two in the stream table that change no answer it gives, one weakening
+  the gate's replay comparison, which two runs of a seed cannot tell apart, and one that makes the
+  highest identifier the peer opened lag without ever decreasing, which invariant 13 does not
+  forbid and `zig build test-h2` catches on h2spec's `http2/5.1.1/2` case.
+
 - **Step 5 — the TLS provider seam and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Gate:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
