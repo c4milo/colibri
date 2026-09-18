@@ -1,9 +1,9 @@
-//! The stream the chunk gate feeds (design §8 step 2) and the subject that decodes it with the
+//! The stream the chunk check feeds (design §8 step 2) and the subject that decodes it with the
 //! step 1 decoders of `wire`.
 //!
-//! A seed draws a `Plan`: 1 to `chunk_gate_values_max` values, each a QUIC variable-length
+//! A seed draws a `Plan`: 1 to `chunk_check_values_max` values, each a QUIC variable-length
 //! integer, a prefixed integer or a string literal, with the prefix size, high bits, coding and
-//! value drawn too. One seed in `chunk_gate_refusal_one_in` then appends one encoding the decoders
+//! value drawn too. One seed in `chunk_check_refusal_one_in` then appends one encoding the decoders
 //! refuse. `write` encodes the plan into a stream, and `Subject` decodes the stream in plan order,
 //! the way a protocol parser knows which field comes next.
 //!
@@ -41,12 +41,12 @@ pub const Value = struct {
     high_bits: u8 = 0,
     integer: u64 = 0,
     coding: wire.string_literal.Coding = .raw,
-    text: [constants.chunk_gate_text_len_max]u8 = @splat(0),
+    text: [constants.chunk_check_text_len_max]u8 = @splat(0),
     text_len: u8 = 0,
 };
 
 pub const Plan = struct {
-    values: [constants.chunk_gate_values_max]Value,
+    values: [constants.chunk_check_values_max]Value,
     count: u32,
     refusal: ?Refusal,
 
@@ -54,15 +54,15 @@ pub const Plan = struct {
     pub fn draw(random: *Random) Plan {
         var plan: Plan = .{
             .values = @splat(.{ .format = .varint }),
-            .count = @intCast(random.between(1, constants.chunk_gate_values_max)),
+            .count = @intCast(random.between(1, constants.chunk_check_values_max)),
             .refusal = null,
         };
         for (plan.values[0..plan.count]) |*value| value.* = draw_value(random);
-        if (random.below(constants.chunk_gate_refusal_one_in) == 0) {
+        if (random.below(constants.chunk_check_refusal_one_in) == 0) {
             const refusals = std.enums.values(Refusal);
             plan.refusal = refusals[random.below(refusals.len)];
         }
-        assert(plan.count >= 1 and plan.count <= constants.chunk_gate_values_max);
+        assert(plan.count >= 1 and plan.count <= constants.chunk_check_values_max);
         return plan;
     }
 
@@ -92,7 +92,7 @@ fn draw_value(random: *Random) Value {
             value.high_bits = draw_high_bits(random, value.prefix_size);
             const codings = std.enums.values(wire.string_literal.Coding);
             value.coding = codings[random.below(codings.len)];
-            value.text_len = @intCast(random.between(0, constants.chunk_gate_text_len_max));
+            value.text_len = @intCast(random.between(0, constants.chunk_check_text_len_max));
             for (value.text[0..value.text_len]) |*octet| octet.* = @truncate(random.next());
         },
     }
@@ -186,7 +186,7 @@ pub const Subject = struct {
     /// The values accepted so far; the next one is `plan.values[accepted]`.
     accepted: u32 = 0,
     last: Value = .{ .format = .varint },
-    decoded: [constants.chunk_gate_text_len_max]u8 = @splat(0),
+    decoded: [constants.chunk_check_text_len_max]u8 = @splat(0),
 
     pub fn step(subject: *Subject, held: []const u8) sim.pipe.Step {
         var reader = Reader.init(held);
@@ -256,7 +256,7 @@ fn decode_refusal(reader: *Reader) anyerror!void {
         _ = try decode_integer(refusal_prefix_size, reader);
         return;
     }
-    var buffer: [constants.chunk_gate_text_len_max]u8 = @splat(0);
+    var buffer: [constants.chunk_check_text_len_max]u8 = @splat(0);
     var output = Writer.init(&buffer);
     _ = try wire.string_literal.decode(refusal_prefix_size, reader, &output);
 }
@@ -266,17 +266,17 @@ comptime {
     // length prefix of at most two octets at the smallest prefix.
     const huffman_len_max = std.math.divCeil(
         u32,
-        constants.chunk_gate_text_len_max * wire_constants.huffman_code_bits_max,
+        constants.chunk_check_text_len_max * wire_constants.huffman_code_bits_max,
         @bitSizeOf(u8),
     ) catch unreachable;
-    assert(huffman_len_max + wire_constants.integer_len_max <= constants.chunk_gate_value_len_max);
-    assert(integer_too_long.len <= constants.chunk_gate_value_len_max);
+    assert(huffman_len_max + wire_constants.integer_len_max <= constants.chunk_check_value_len_max);
+    assert(integer_too_long.len <= constants.chunk_check_value_len_max);
 }
 
 const testing = std.testing;
 
 fn expect_refused(refusal: Refusal, expected: anyerror) !void {
-    var buffer: [constants.chunk_gate_value_len_max]u8 = @splat(0);
+    var buffer: [constants.chunk_check_value_len_max]u8 = @splat(0);
     var output = Writer.init(&buffer);
     try write_refusal(refusal, &output);
     var reader = Reader.init(output.written());
@@ -293,10 +293,10 @@ test "each refusal is refused by its decoder, and is only truncated one octet sh
 }
 
 test "a drawn plan's stream decodes in one piece to the values drawn" {
-    for (0..constants.gate_seeds_default) |seed| {
+    for (0..constants.check_seeds_default) |seed| {
         var random = Random.init(seed);
         const plan = Plan.draw(&random);
-        var buffer: [constants.chunk_gate_stream_len_max]u8 = @splat(0);
+        var buffer: [constants.chunk_check_stream_len_max]u8 = @splat(0);
         var output = Writer.init(&buffer);
         try plan.write(&output);
         var subject: Subject = .{ .plan = &plan };

@@ -1,17 +1,17 @@
-//! The simulator's command line, split off `run.zig` so that the driver file names the gates and
+//! The simulator's command line, split off `run.zig` so that the driver file names the checks and
 //! this one holds the ways to ask for a run:
 //!
 //!     sim --chunk-seed <hex>           one seed: its chunked trace, then its outcome
-//!     sim --chunk-gate [seeds]         seeds [0, seeds): the census, or the seed that failed
+//!     sim --chunk-check [seeds]         seeds [0, seeds): the census, or the seed that failed
 //!     sim --connection-seed <hex>      the same, over one h2 connection (design §8 step 4)
-//!     sim --connection-gate [seeds]
+//!     sim --connection-check [seeds]
 //!
 //! It is the one file under `src/sim/` that reads its arguments and writes to the terminal, and
 //! `tools/lint/io.zig` exempts it by path for that reason. Nothing reaches it but `zig build sim`.
 const std = @import("std");
 const sim = @import("sim");
-const chunk_gate = @import("chunk_gate.zig");
-const connection_gate = @import("connection_gate.zig");
+const chunk_check = @import("chunk_check.zig");
+const connection_check = @import("connection_check.zig");
 
 const constants = sim.constants;
 
@@ -26,19 +26,19 @@ const seed_radix = 16;
 const count_radix = 10;
 const hex_prefix = "0x";
 
-const usage = "usage: sim --chunk-seed <hex> | --chunk-gate [seeds]" ++
-    " | --connection-seed <hex> | --connection-gate [seeds]\n";
+const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
+    " | --connection-seed <hex> | --connection-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
-    chunk_gate: u64,
+    chunk_check: u64,
     connection_seed: u64,
-    connection_gate: u64,
+    connection_check: u64,
 };
 
-/// The storage each gate writes into, placed outside any stack frame.
-var chunk_storage: chunk_gate.Storage = .zeroed;
-var connection_storage: connection_gate.Storage = .zeroed;
+/// The storage each check writes into, placed outside any stack frame.
+var chunk_storage: chunk_check.Storage = .zeroed;
+var connection_storage: connection_check.Storage = .zeroed;
 
 pub fn main(init: std.process.Init) !void {
     var arguments: [arguments_max][]const u8 = @splat("");
@@ -56,9 +56,9 @@ pub fn main(init: std.process.Init) !void {
     };
     switch (parsed) {
         .chunk_seed => |seed| try chunk_seed(seed),
-        .chunk_gate => |seeds| try chunk_gate_seeds(seeds),
+        .chunk_check => |seeds| try chunk_check_seeds(seeds),
         .connection_seed => |seed| try connection_seed(seed),
-        .connection_gate => |seeds| try connection_gate_seeds(seeds),
+        .connection_check => |seeds| try connection_check_seeds(seeds),
     }
 }
 
@@ -68,12 +68,12 @@ pub fn parse(arguments: []const []const u8) error{Usage}!Command {
     const value: ?[]const u8 = if (arguments.len == arguments_max) arguments[1] else null;
     const flag = arguments[0];
     if (std.mem.eql(u8, flag, "--chunk-seed")) return .{ .chunk_seed = try parse_seed(value) };
-    if (std.mem.eql(u8, flag, "--chunk-gate")) return .{ .chunk_gate = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--chunk-check")) return .{ .chunk_check = try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--connection-seed")) {
         return .{ .connection_seed = try parse_seed(value) };
     }
-    if (std.mem.eql(u8, flag, "--connection-gate")) {
-        return .{ .connection_gate = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--connection-check")) {
+        return .{ .connection_check = try parse_seeds(value) };
     }
     return error.Usage;
 }
@@ -87,12 +87,12 @@ fn parse_seed(text: ?[]const u8) error{Usage}!u64 {
 
 /// A seed count in decimal, or the default when the command line gives none.
 fn parse_seeds(text: ?[]const u8) error{Usage}!u64 {
-    const given = text orelse return constants.gate_seeds_default;
+    const given = text orelse return constants.check_seeds_default;
     return std.fmt.parseInt(u64, given, count_radix) catch error.Usage;
 }
 
 fn chunk_seed(seed: u64) !void {
-    const result = chunk_gate.run_seed(&chunk_storage, seed) catch |failure| {
+    const result = chunk_check.run_seed(&chunk_storage, seed) catch |failure| {
         std.debug.print("{s}", .{chunk_storage.chunked[0..whole_lines_len(&chunk_storage.chunked)]});
         std.debug.print("chunk: seed 0x{x} failed: {t}\n", .{ seed, failure });
         return failure;
@@ -102,7 +102,7 @@ fn chunk_seed(seed: u64) !void {
 
 fn connection_seed(seed: u64) !void {
     const storage = &connection_storage;
-    const result = connection_gate.run_seed(storage, seed) catch |failure| {
+    const result = connection_check.run_seed(storage, seed) catch |failure| {
         std.debug.print("{s}", .{storage.chunked[0..whole_lines_len(&storage.chunked)]});
         std.debug.print("connection: seed 0x{x} failed: {t}\n", .{ seed, failure });
         return failure;
@@ -117,10 +117,10 @@ fn whole_lines_len(text: []const u8) usize {
     return last + 1;
 }
 
-fn chunk_gate_seeds(seeds: u64) !void {
-    var census: chunk_gate.Census = .{};
+fn chunk_check_seeds(seeds: u64) !void {
+    var census: chunk_check.Census = .{};
     var failed_seed: ?u64 = null;
-    chunk_gate.run_gate(&chunk_storage, seeds, &census, &failed_seed) catch |failure| {
+    chunk_check.run_check(&chunk_storage, seeds, &census, &failed_seed) catch |failure| {
         std.debug.print("chunk: seed 0x{x} failed: {t}; rerun it with --chunk-seed\n", .{
             failed_seed.?,
             failure,
@@ -139,10 +139,10 @@ fn chunk_gate_seeds(seeds: u64) !void {
     });
 }
 
-fn connection_gate_seeds(seeds: u64) !void {
-    var census: connection_gate.Census = .{};
+fn connection_check_seeds(seeds: u64) !void {
+    var census: connection_check.Census = .{};
     var failed_seed: ?u64 = null;
-    connection_gate.run_gate(&connection_storage, seeds, &census, &failed_seed) catch |failure| {
+    connection_check.run_check(&connection_storage, seeds, &census, &failed_seed) catch |failure| {
         std.debug.print("connection: seed 0x{x} failed: {t}; rerun it with --connection-seed\n", .{
             failed_seed.?,
             failure,
@@ -164,32 +164,32 @@ fn connection_gate_seeds(seeds: u64) !void {
 
 const testing = std.testing;
 
-test "a seed parses in hexadecimal with or without 0x, and a gate count in decimal" {
+test "a seed parses in hexadecimal with or without 0x, and a check count in decimal" {
     const prefixed: Command = .{ .chunk_seed = 0xc0ffee };
     try testing.expectEqual(prefixed, try parse(&.{ "--chunk-seed", "0xc0ffee" }));
     try testing.expectEqual(Command{ .chunk_seed = 0x10 }, try parse(&.{ "--chunk-seed", "10" }));
-    try testing.expectEqual(Command{ .chunk_gate = 10 }, try parse(&.{ "--chunk-gate", "10" }));
-    const default: Command = .{ .chunk_gate = constants.gate_seeds_default };
-    try testing.expectEqual(default, try parse(&.{"--chunk-gate"}));
+    try testing.expectEqual(Command{ .chunk_check = 10 }, try parse(&.{ "--chunk-check", "10" }));
+    const default: Command = .{ .chunk_check = constants.check_seeds_default };
+    try testing.expectEqual(default, try parse(&.{"--chunk-check"}));
 }
 
-test "the connection gate takes the same two forms" {
+test "the connection check takes the same two forms" {
     const seed: Command = .{ .connection_seed = 0xbeef };
     try testing.expectEqual(seed, try parse(&.{ "--connection-seed", "0xbeef" }));
-    try testing.expectEqual(Command{ .connection_gate = 7 }, try parse(&.{ "--connection-gate", "7" }));
-    const default: Command = .{ .connection_gate = constants.gate_seeds_default };
-    try testing.expectEqual(default, try parse(&.{"--connection-gate"}));
+    try testing.expectEqual(Command{ .connection_check = 7 }, try parse(&.{ "--connection-check", "7" }));
+    const default: Command = .{ .connection_check = constants.check_seeds_default };
+    try testing.expectEqual(default, try parse(&.{"--connection-check"}));
     try testing.expectError(error.Usage, parse(&.{"--connection-seed"}));
-    try testing.expectError(error.Usage, parse(&.{ "--connection-gate", "0x10" }));
+    try testing.expectError(error.Usage, parse(&.{ "--connection-check", "0x10" }));
 }
 
 test "anything else is a usage error" {
     try testing.expectError(error.Usage, parse(&.{}));
     try testing.expectError(error.Usage, parse(&.{"--chunk-seed"}));
     try testing.expectError(error.Usage, parse(&.{ "--chunk-seed", "0xg" }));
-    try testing.expectError(error.Usage, parse(&.{ "--chunk-gate", "0x10" }));
+    try testing.expectError(error.Usage, parse(&.{ "--chunk-check", "0x10" }));
     try testing.expectError(error.Usage, parse(&.{ "--seed", "10" }));
-    try testing.expectError(error.Usage, parse(&.{ "--chunk-gate", "10", "extra" }));
+    try testing.expectError(error.Usage, parse(&.{ "--chunk-check", "10", "extra" }));
 }
 
 test "a failed seed prints only whole trace lines" {

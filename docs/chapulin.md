@@ -3,14 +3,14 @@
 Status: written 2026-09-16 for the owner to send. colibri never edits chapulin's repository, and
 nothing here binds chapulin until chapulin's own decisions record it.
 
-[Decision 10](decisions.md#the-seams) rules that chapulin provides all of colibri's crypto. This
+[Decision 10](decisions.md#what-the-caller-supplies) rules that chapulin provides all of colibri's crypto. This
 document is the request that ruling needs: what colibri asks chapulin to add, why each item is
 needed, and which of chapulin's recorded decisions each item reverses.
 
 ## How colibri would use chapulin
 
 colibri defines two caller-supplied vtables and implements neither in its library
-([decisions 8 and 9](decisions.md#the-seams)):
+([decisions 8 and 9](decisions.md#what-the-caller-supplies)):
 
 - `tls.Provider` runs the TLS 1.3 handshake. Its record mode serves h2, and its QUIC mode serves
   h3.
@@ -18,7 +18,7 @@ colibri defines two caller-supplied vtables and implements neither in its librar
   `hkdf_extract` and `hkdf_expand_label`.
 
 chapulin would fill both. colibri's library source never imports chapulin, so the packaged library
-links no TLS stack. `src/testing/` links chapulin, because every gate from design §8 step 5 onward
+links no TLS stack. `src/testing/` links chapulin, because every check from design §8 step 5 onward
 needs a TLS 1.3 server that signs its certificate. A consumer that wants chapulin links it the same
 way.
 
@@ -83,7 +83,7 @@ Design §8 step 7's vectors wait for these five, and every QUIC connection needs
 
 The first two are not optional. RFC 9001 fixes Initial packets (§5), the header protection used
 before a suite is selected (§5.4.1) and the Retry tag (§5.8) to AES whatever suite TLS negotiates,
-so no QUIC endpoint works without them ([decision 9](decisions.md#the-seams)).
+so no QUIC endpoint works without them ([decision 9](decisions.md#what-the-caller-supplies)).
 
 ## What the request reverses in chapulin
 
@@ -93,7 +93,7 @@ so no QUIC endpoint works without them ([decision 9](decisions.md#the-seams)).
 | 8 and 9, one pinned algorithm and RSA verify-only | A server signs, and QUIC needs both AES and ChaCha20. |
 | 20, a single blocking connection and a global DRBG | The handshake stops blocking, and sessions share no global state. |
 | 28, four exported symbols | Filling two vtables needs more than four entry points. |
-| The server non-goal | colibri's gates need a server. |
+| The server non-goal | colibri's checks need a server. |
 
 ## The shape the request suggests
 
@@ -108,7 +108,7 @@ and test endpoints run.
 ## What colibri keeps, whatever chapulin answers
 
 - colibri's library never imports chapulin, and this tree carries no production implementation of
-  either vtable ([decisions 8 and 9](decisions.md#the-seams)).
-- If chapulin declines an item, colibri's source does not change. The gates that need the item
+  either vtable ([decisions 8 and 9](decisions.md#what-the-caller-supplies)).
+- If chapulin declines an item, colibri's source does not change. The checks that need the item
   wait, and naming a different provider for `src/testing/` is a new "Ask before" under CLAUDE.md.
 - Design §8 steps 0 to 4, 6, 8 and 11 need none of this, and step 4 ships cleartext h2.

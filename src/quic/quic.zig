@@ -1,5 +1,5 @@
 //! The transport of RFC 8999, 9000, 9001 and 9002. Knows nothing about HTTP (decision 5,
-//! invariant 26), which build/modules.zig enforces and tools/graph_gate.zig proves.
+//! invariant 26), which build/modules.zig enforces and tools/graph_check.zig proves.
 const std = @import("std");
 
 pub const core = @import("core");

@@ -1,4 +1,4 @@
-//! The gate of design §8 step 4: one h2 connection driven through the byte pipe at seeded chunk
+//! The check of design §8 step 4: one h2 connection driven through the byte pipe at seeded chunk
 //! boundaries, over a range of seeds, with invariants 13 to 16 read after every frame it accepts.
 //!
 //! `Subject` is the connection under the pipe's contract. `step` writes what the connection owes,
@@ -14,11 +14,11 @@
 //!
 //! The run must end `pass` when the plan has no refusal and `rejected` when it has one.
 //!
-//! Across hosts and build modes the gate compares by digest: the census hashes every chunked trace
-//! of seeds `[0, gate_seeds_default)` with CRC-32, and the test requires the digest committed
+//! Across hosts and build modes the check compares by digest: the census hashes every chunked trace
+//! of seeds `[0, check_seeds_default)` with CRC-32, and the test requires the digest committed
 //! below. Debug and ReleaseSafe, macOS and Linux, all must compute that one number.
 //!
-//! This is the step 2 gate over something that can fail for a reason of its own. At step 2 the
+//! This is the step 2 check over something that can fail for a reason of its own. At step 2 the
 //! subject consumed a whole value or nothing and nothing but the harness could differ; here the
 //! subject holds state across frames, so a divergence between two runs, or between a chunked run
 //! and one in one piece, is the connection's.
@@ -36,16 +36,16 @@ const Trace = sim.Trace;
 const constants = sim.constants;
 const h2_constants = h2.constants;
 
-/// The name every connection-gate trace carries on its first line.
-pub const gate_name = "connection";
+/// The name every connection-check trace carries on its first line.
+pub const check_name = "connection";
 
-/// The CRC-32 of the chunked traces of seeds `[0, gate_seeds_default)`, concatenated in seed
+/// The CRC-32 of the chunked traces of seeds `[0, check_seeds_default)`, concatenated in seed
 /// order. A change to the harness, the stream a seed draws, the trace format or the connection's
-/// own behaviour changes it, and is committed with the new value after the gate passes on both
+/// own behaviour changes it, and is committed with the new value after the check passes on both
 /// build modes.
-pub const census_crc32_expected: u32 = 0x629e2e40;
+pub const census_crc32_expected: u32 = 0xe8f7c0b4;
 
-/// How a seed failed the gate: the harness's three, then one per invariant read off the connection.
+/// How a seed failed the check: the harness's three, then one per invariant read off the connection.
 pub const Violation = error{
     /// Two chunked runs of the seed wrote different traces or drew a different number of values.
     ReplayDiverged,
@@ -87,9 +87,9 @@ pub const Subject = struct {
     highest_peer_opened_id: u32,
     goaway_sent_last_id: ?u32,
     goaway_received_last_id: ?u32,
-    /// Where the connection writes the frames it owes. The gate reads the connection's state and
+    /// Where the connection writes the frames it owes. The check reads the connection's state and
     /// not the octets it sends, so the octets are written and dropped.
-    output: [constants.connection_gate_output_len_max]u8,
+    output: [constants.connection_check_output_len_max]u8,
 
     /// Empties the connection and the values the invariants are compared against.
     pub fn init(subject: *Subject, clock: *Clock) void {
@@ -248,7 +248,7 @@ const output_len_needed: u32 = h2_constants.frame_header_len +
     h2_constants.frame_header_len + h2_constants.goaway_len_min;
 
 comptime {
-    assert(output_len_needed <= constants.connection_gate_output_len_max);
+    assert(output_len_needed <= constants.connection_check_output_len_max);
 }
 
 /// The storage one seed runs in: the connection, the clock it reads, the stream, and the three
@@ -260,12 +260,12 @@ pub const Storage = struct {
     subject: Subject,
     /// The instant the pipe advances and the subject reads (design §4.2).
     clock: Clock,
-    stream: [constants.connection_gate_stream_len_max]u8,
-    chunked: [constants.connection_gate_trace_len_max]u8,
-    replayed: [constants.connection_gate_trace_len_max]u8,
-    one_piece: [constants.connection_gate_trace_len_max]u8,
-    chunked_independent: [constants.connection_gate_trace_len_max]u8,
-    one_piece_independent: [constants.connection_gate_trace_len_max]u8,
+    stream: [constants.connection_check_stream_len_max]u8,
+    chunked: [constants.connection_check_trace_len_max]u8,
+    replayed: [constants.connection_check_trace_len_max]u8,
+    one_piece: [constants.connection_check_trace_len_max]u8,
+    chunked_independent: [constants.connection_check_trace_len_max]u8,
+    one_piece_independent: [constants.connection_check_trace_len_max]u8,
 
     pub const zeroed: Storage = .{
         .subject = undefined,
@@ -336,7 +336,7 @@ const Run = struct {
 
     fn once(run: *const Run, schedule: sim.pipe.Schedule, buffer: []u8) sim.trace.Error!SeedResult {
         var output = Writer.init(buffer);
-        var trace = try Trace.begin(&output, gate_name, run.seed);
+        var trace = try Trace.begin(&output, check_name, run.seed);
         const storage = run.storage;
         storage.clock = Clock.init();
         storage.subject.init(&storage.clock);
@@ -386,7 +386,7 @@ pub const Census = struct {
 const accept_record = "accept";
 
 /// Runs seeds `[0, seeds)` in order. On a violation, `failed_seed` names the seed.
-pub fn run_gate(
+pub fn run_check(
     storage: *Storage,
     seeds: u64,
     census: *Census,
@@ -402,14 +402,14 @@ pub fn run_gate(
 
 const testing = std.testing;
 
-/// The storage the gate tests run in, placed outside any stack frame.
+/// The storage the check tests run in, placed outside any stack frame.
 var test_storage: Storage = .zeroed;
 
-test "connection gate: seeds replay, chunking changes no verdict, and traces hash as committed" {
+test "connection check: seeds replay, chunking changes no verdict, and traces hash as committed" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
-    run_gate(&test_storage, constants.gate_seeds_default, &census, &failed_seed) catch |failure| {
-        std.debug.print("connection gate: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
+    run_check(&test_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
+        std.debug.print("connection check: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
     try testing.expect(census.passed > 0);
@@ -422,7 +422,7 @@ test "connection gate: seeds replay, chunking changes no verdict, and traces has
 /// Feeds `stream` to a fresh connection in one piece and returns how the run ended. Test-only.
 fn run_stream(stream: []const u8) !sim.pipe.Outcome {
     var output = Writer.init(&test_storage.chunked);
-    var trace = try Trace.begin(&output, gate_name, 0);
+    var trace = try Trace.begin(&output, check_name, 0);
     test_storage.clock = Clock.init();
     test_storage.subject.init(&test_storage.clock);
     const subject = &test_storage.subject;

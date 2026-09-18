@@ -59,7 +59,7 @@ lands its check.
   `src/testing/`, which design §9 makes the one place a socket may be opened). Step 0.
 - **Violation.** A convenience helper that takes a socket "just for the test server" and lands in
   a library module instead of in `src/testing/`.
-- See [decisions 6](decisions.md#the-seams).
+- See [decisions 6](decisions.md#what-the-caller-supplies).
 
 ### INV-3 — every write is inside the caller's buffer
 
@@ -83,11 +83,11 @@ lands its check.
 - **Mechanism.** `std.time` is not in any module's import set, and every function needing an
   instant takes a `now_ns: u64` parameter. RFC 9002 reads `now()` at nine sites across five entry
   points, and all nine are parameters on those five.
-- **Check.** Lint rule (`tools/lint/determinism.zig`), plus the simulator's replay gate, which
+- **Check.** Lint rule (`tools/lint/determinism.zig`), plus the simulator's replay check, which
   fails if two runs of one seed differ by a byte. Steps 0 and 10.
 - **Violation.** An idle-timeout helper that reads the monotonic clock "because the caller would
   only pass the same value anyway".
-- See [decisions 7](decisions.md#the-seams).
+- See [decisions 7](decisions.md#what-the-caller-supplies).
 
 ### INV-5 — no source reads randomness or uninitialised memory
 
@@ -98,7 +98,7 @@ lands its check.
   filled before the call. `undefined` appears only in a declaration immediately followed by a
   full initialisation in the same function.
 - **Check.** Lint rule (`std.Random` denylist; `undefined` audited per site with a comment naming
-  the initialiser), plus the simulator's replay gate. Step 0.
+  the initialiser), plus the simulator's replay check. Step 0.
 - **Violation.** A connection-ID generator inside `src/quic/`, which would make every QUIC seed
   irreproducible and would also be the wrong place to make a security decision.
 
@@ -108,7 +108,7 @@ lands its check.
   configuration, the bytes it has been fed, and the instants it has been given, in order.
 - **Mechanism.** INV-1, INV-2, INV-4 and INV-5 together leave no other input. No branch reads a
   pointer value, an address, or a hash of one.
-- **Check.** Simulator invariant: every gate runs each seed twice and requires the two runs to
+- **Check.** Simulator invariant: every check runs each seed twice and requires the two runs to
   produce byte-identical output, byte-identical traces and the same outcome, on macOS and Linux
   and in both optimization modes. Steps 2 and 8.
 - **Violation.** Iterating a hash map whose order depends on a pointer, then writing frames in
@@ -330,7 +330,7 @@ lands its check.
 - **Check.** Runtime assertion in the setter (step 7); the RFC 9001 Appendix A vectors, which
   prove the derivation but not this invariant — Appendix A carries keys, both Initials, Retry and
   a ChaCha20 short-header packet, and no key-update vector; and the interop runner's `keyupdate`
-  case, which is the gate that does prove it (step 9). Steps 7 and 9.
+  case, which is the check that does prove it (step 9). Steps 7 and 9.
 - **Violation.** Re-deriving header protection under `"quic ku"` alongside `key` and `iv`, which
   produces packets no peer can unprotect.
 
@@ -352,7 +352,7 @@ lands its check.
 - **Violation.** Applying RFC 9000's 20-byte connection-ID maximum in the invariant reader, which
   RFC 9000 §17.2.1 forbids from influencing whether a Version Negotiation packet is sent.
 
-## The seams
+## What the caller supplies
 
 ### INV-23 — colibri holds no long-lived secret it was not handed
 
@@ -395,7 +395,7 @@ lands its check.
 - **Check.** Runtime assertion in the constructor plus a unit test per missing member. Step 7.
 - **Violation.** A lazy check at first use, which surfaces a misconfiguration as a handshake
   failure and reads like an attack.
-- See [decisions 9](decisions.md#the-seams).
+- See [decisions 9](decisions.md#what-the-caller-supplies).
 
 ### INV-26 — `quic` imports no HTTP module
 
@@ -404,7 +404,7 @@ lands its check.
 - **Mechanism.** The module graph in `build.zig` gives `quic` only `core`, `wire`, `crypto` and
   `tls`. A module can import only what the build gives it, so a forbidden import does not
   compile.
-- **Check.** Type system, by way of the build graph — and the gate that proves it is that the QUIC
+- **Check.** Type system, by way of the build graph — and the check that proves it is that the QUIC
   simulator builds and runs with no HTTP module in the graph at all. A lint rule covers the
   identifier half. Steps 0 and 8.
 - **Violation.** A stream-type constant for h3's control stream inside `src/quic/`, which is how a

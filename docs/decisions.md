@@ -42,7 +42,7 @@ and is re-argued, not edited.
    Gain: one CLAUDE.md, one simulator, one corpus format, one commit discipline, and no version skew
    between two repositories that change together for a year. The boundary that a separate
    repository would enforce socially is enforced here mechanically, by the module graph in
-   `build.zig`, and the gate that proves it is that the QUIC simulator runs with no HTTP module
+   `build.zig`, and the check that proves it is that the QUIC simulator runs with no HTTP module
    in the graph at all.
 
    Extraction stays cheap on purpose: moving `src/quic/` to its own repository is a build-file
@@ -63,7 +63,7 @@ and is re-argued, not edited.
    draw, so a rule is only ever in one place, and the QUIC simulator is a transport simulator
    that no HTTP change can perturb. Violation: a `if (stream_type == control)` inside `src/quic/`.
 
-## The seams
+## What the caller supplies
 
 6. **colibri owns no I/O.** No socket, no descriptor, no `poll`, no thread. The caller reads
    bytes and hands them in; colibri writes bytes into storage the caller owns and tells it how
@@ -190,7 +190,7 @@ and is re-argued, not edited.
     9). colibri's library source never imports chapulin, so the packaged library still links no
     TLS stack and this tree still carries no production implementation of either vtable.
     `src/testing/` links chapulin. That answers the dependency question design §8 step 5 raised
-    under CLAUDE.md's "Ask before": the gates from step 5 onward get their TLS 1.3 server, and
+    under CLAUDE.md's "Ask before": the checks from step 5 onward get their TLS 1.3 server, and
     its certificate signing, from chapulin.
 
     The request is [docs/chapulin.md](chapulin.md). Sending it is the owner's, and this repository
@@ -199,18 +199,18 @@ and is re-argued, not edited.
     reverses: chapulin's decisions 6, 8, 9, 20 and 28, and its server non-goal. chapulin's decision
     36, "a mode, not a change", is the shape it follows.
 
-    Cost: every colibri gate that needs TLS or real packet protection now waits on work in another
+    Cost: every colibri check that needs TLS or real packet protection now waits on work in another
     repository, and that work reverses five of chapulin's recorded decisions. Gain: one crypto
     source for colibri's whole tree, argued under one charter, with no third-party stack in
     `src/testing/`. Two alternatives lost. The ask this entry used to make, ALPN and nothing else,
-    left every gate from step 5 onward with no TLS server at all. A different test-only TLS stack
+    left every check from step 5 onward with no TLS server at all. A different test-only TLS stack
     would have added a dependency whose charter nobody here argued, and its interop results would
     measure that stack rather than chapulin.
 
     If chapulin declines an item, colibri's source does not change. The vtables already have zero
     implementations in this tree, and steps 0 to 4, 6, 8 and 11 need no crypto at all: step 4
     ships prior-knowledge cleartext h2, so the whole h2 core is built and tested with no TLS. Only
-    the gates that need the declined item wait, and naming a different provider for
+    the checks that need the declined item wait, and naming a different provider for
     `src/testing/` would be a new "Ask before".
 
 ## What is shared between h2 and h3
@@ -500,7 +500,7 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
 ## Correctness
 
 24. **Reading the RFC is not evidence.** Every step in the build plan names which of the five
-    gates proves it, and a step with no gate is not a step. The five are the golden corpus,
+    checks proves it, and a step with no check is not a step. The five are the golden corpus,
     published test vectors, the conformance suites, interop against real stacks, and the
     deterministic simulator — with fuzzing over every parser and mutation over every test.
 
@@ -525,7 +525,7 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
     invalid cases both, because a parser that accepts everything passes a valid-only corpus.
     `zig build golden` regenerates and refuses a directory carrying a `FROZEN` marker.
 
-27. **Conformance suites are gates, and their versions are pinned.** h2spec for the h2 server,
+27. **Conformance suites are checks, and their versions are pinned.** h2spec for the h2 server,
     h3spec for the h3 server. Both need a test-only server entry point, which design §9 names,
     and their maturity is not equal: h2spec has 147 cases but is written against RFC 7540 and
     7541 rather than 9113, with its last release in 2020 — so its version is pinned and a
@@ -543,15 +543,15 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
     ALPN `hq-interop`, so that ALPN is a test-only entry point too. For h2 the equivalent is
     nghttp2, curl, Go's `net/http2` and h2o, in both directions.
 
-29. **Fuzz every parser, and every gate is seeded.** A parser is anything that reads peer bytes:
+29. **Fuzz every parser, and every check is seeded.** A parser is anything that reads peer bytes:
     the frame readers, the packet reader, HPACK, QPACK, the varint and prefixed-integer decoders,
     the field validators, the transport-parameter reader. chapulin's `fuzz/` is the shape.
 
-30. **The deterministic simulator is the gate that the others cannot be.** Seeded connection
+30. **The deterministic simulator is the check that the others cannot be.** Seeded connection
     state, flow control, loss, reordering and recovery, with byte-identical replay across hosts
     and build modes as the pass condition. It is built before the protocol it drives (CLAUDE.md
     non-negotiable 7), which is possible only because entries 6, 7 and 8 made I/O, time and crypto
-    into seams.
+    the caller's.
 
     Say what the null crypto suite does and does not buy, because it is easy to overclaim. It is
     **not** what makes a seed replay: AES-GCM and ChaCha20-Poly1305 are pure functions of key,
@@ -576,7 +576,7 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
       tail latency under churn, by having no garbage collector.
 
       Two QUIC-specific optimizations are worth naming and are **not** colibri's to claim as the
-      seams stand: batching header protection across a datagram's packets into one pass, and
+      vtables stand: batching header protection across a datagram's packets into one pass, and
       precomputing the key schedule for the fixed Initial salt. Both live behind `crypto.Suite`
       (entry 9), so they belong to the caller. Reaching them means widening the vtable with a
       many-sample mask call and a precomputed extract handle, which is a decision nobody has
@@ -617,7 +617,7 @@ because a feature you refuse is not a feature you can ignore. A no now is cheape
     be worth far more. Loopback is not a network — its MTU and its absent driver path flatter
     everything — so a published number names the path it was measured over.
 
-34. **The regression gate has two layers, because there is no CI here.** The cheap layer runs
+34. **The regression check has two layers, because there is no CI here.** The cheap layer runs
     inside the deterministic simulator and cannot drift with the weather: counted syscalls, copies
     and bytes per request, committed as exact numbers that a diff has to change on purpose.
     Allocations are not counted, because entry 35 makes that number zero by construction. That
@@ -665,7 +665,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     by URL and hash as a lazy dependency, and `build.zig` requests it only when colibri is the root
     build, so a project that depends on colibri never fetches it. `tools/` keeps what is colibri's
     alone: the configuration of each rule and the fixtures that pin it, the `module-graph` rule,
-    and the graph gate. `.githooks/pre-push` is a copy of pepegrillo's hook, and `zig build test`
+    and the graph check. `.githooks/pre-push` is a copy of pepegrillo's hook, and `zig build test`
     compares the two byte for byte. The library never imports pepegrillo.
 
     Design §8 step 0 copied the tooling from another repository, and within a day the two copies
@@ -683,16 +683,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 ## The simulator
 
-37. **The gates and the `zig build sim` command line are a module of their own, `sim_run`, rooted
-    at `src/sim/run.zig`.** Ruled by the owner on 2026-09-16. A gate drives a protocol module
+37. **The checks and the `zig build sim` command line are a module of their own, `sim_run`, rooted
+    at `src/sim/run.zig`.** Ruled by the owner on 2026-09-16. A check drives a protocol module
     through the harness, so some module must import both `sim` and the module under test, and
     that is a new edge in the §3 graph. `sim_run` takes it: `core`, `wire` and `sim` at step 2,
-    and each protocol module as its gate lands. `sim` never imports `sim_run`, so the direction
+    and each protocol module as its check lands. `sim` never imports `sim_run`, so the direction
     stays acyclic, and `sim` still imports no protocol module. stompy's `sim_run` is the shape.
 
     Two alternatives lost. A `testing` module under `src/testing/` needs no lint exemption, since
     that directory is already the one permitted to touch a socket, but it departs from stompy's
-    layout for no gain, and design §9's entry points are servers, not gates. `sim` importing
+    layout for no gain, and design §9's entry points are servers, not checks. `sim` importing
     `wire` directly puts a codec in the harness, which §3 forbids, and still leaves the command
     line with no home. Cost: `src/sim/run_main.zig` reads arguments and writes to the terminal, so
     `tools/lint/io.zig` exempts that one file by path.
@@ -702,10 +702,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     66 MB, about 3 MB packed, at `src/hpack/hpack-test-case/` with its commit and license in
     `COLIBRI.md`. The library is zero heap (decision 35) and `std.json` allocates, so the module's
     own tests cannot read the corpus; `tools/hpack_vectors.zig` reads it, drives the module, and
-    `zig build test` runs the tool. The gate stays in-process, as design §9 says the HPACK vectors
+    `zig build test` runs the tool. The check stays in-process, as design §9 says the HPACK vectors
     are, and nothing is generated from the corpus.
 
-    Two alternatives lost. A fetch-on-demand script keeps the repository small but takes the gate
+    Two alternatives lost. A fetch-on-demand script keeps the repository small but takes the check
     out of `zig build test`, leaving it to be run by hand like h2spec. A converted binary form
     adds a colibri format to version, a regenerate-and-check pair, and a copy of the corpus that
     is not what its authors published. Cost: a clone carries the corpus.

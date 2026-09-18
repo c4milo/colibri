@@ -4,7 +4,7 @@
 //! `zig build test-<module>` runs one module's tests with nothing else in the graph, which is
 //! what a mutation is measured against.
 //!
-//! `zig build graph-gate` is step 0's own gate: it compiles a source that imports `http` from
+//! `zig build graph-check` is step 0's own check: it compiles a source that imports `http` from
 //! inside `src/quic/` and requires the compile to fail. That is what shows invariant 26 is held
 //! by the build rather than by review.
 //!
@@ -33,7 +33,7 @@ const source_directories = [_][]const u8{ "build", "src", "tools" };
 /// markdown rule covers.
 const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "docs" };
 
-/// Every tool whose own tests `zig build test` runs. A gate that does not check the checkers
+/// Every tool whose own tests `zig build test` runs. A check that does not check the checkers
 /// leaves a rule free to lose its own test with no build saying so.
 const tool_test_roots = [_][]const u8{
     "tools/lint/main.zig",
@@ -60,7 +60,7 @@ pub fn build(b: *std.Build) void {
 
     const graph = modules.add(b, target, optimize);
 
-    // Everything below is colibri's own build: the tests, the gates and the tools. A project that
+    // Everything below is colibri's own build: the tests, the checks and the tools. A project that
     // depends on colibri stops here, before the tools request pepegrillo.
     if (b.pkg_hash.len != 0) return;
     const pepegrillo_dependency = b.lazyDependency("pepegrillo", .{}) orelse return;
@@ -142,7 +142,7 @@ pub fn build(b: *std.Build) void {
 }
 
 /// `zig build test-<name>`: the tests of one module, or of the tools, with nothing else in the
-/// graph. `zig build test` is the gate and stays the gate; these steps are the inner loop of a
+/// graph. `zig build test` is the check and stays the check; these steps are the inner loop of a
 /// mutation, which is run against the narrowest target that can catch it.
 fn add_narrow_test_step(b: *std.Build, name: []const u8) *std.Build.Step {
     return b.step(
@@ -171,26 +171,26 @@ fn tool_module(
     return module;
 }
 
-/// `zig build graph-gate`: design §8 step 0's gate. A module can import only what
+/// `zig build graph-check`: design §8 step 0's check. A module can import only what
 /// build/modules.zig gives it, and the way to show that is to try the import that must fail.
-/// `tools/graph_gate.zig` compiles `tools/fixtures/quic_imports_http.zig` as a module of the
-/// `quic` shape and requires the compile to fail with an unknown-module error. A gate that
+/// `tools/graph_check.zig` compiles `tools/fixtures/quic_imports_http.zig` as a module of the
+/// `quic` shape and requires the compile to fail with an unknown-module error. A check that
 /// asserted the rule in a linter would only be checking what the source says; this checks what
 /// the build does.
 fn add_graph_gate_step(b: *std.Build) *std.Build.Step {
-    const gate = b.addExecutable(.{
-        .name = "graph_gate",
-        .root_module = host_module(b, "tools/graph_gate.zig"),
+    const check = b.addExecutable(.{
+        .name = "graph_check",
+        .root_module = host_module(b, "tools/graph_check.zig"),
     });
-    const gate_run = b.addRunArtifact(gate);
-    gate_run.addArg(b.graph.zig_exe);
-    gate_run.addDirectoryArg(b.path("src"));
-    gate_run.addDirectoryArg(b.path("tools/fixtures"));
-    // Re-run the gate when the graph it checks changes, not only when the tool does.
-    gate_run.addFileInput(b.path("build/modules.zig"));
+    const check_run = b.addRunArtifact(check);
+    check_run.addArg(b.graph.zig_exe);
+    check_run.addDirectoryArg(b.path("src"));
+    check_run.addDirectoryArg(b.path("tools/fixtures"));
+    // Re-run the check when the graph it checks changes, not only when the tool does.
+    check_run.addFileInput(b.path("build/modules.zig"));
 
-    const step = b.step("graph-gate", "Require that src/quic/ cannot import an HTTP module");
-    step.dependOn(&gate_run.step);
+    const step = b.step("graph-check", "Require that src/quic/ cannot import an HTTP module");
+    step.dependOn(&check_run.step);
     return step;
 }
 
@@ -237,7 +237,7 @@ fn add_sim_step(b: *std.Build, sim_run: *std.Build.Module) void {
     const simulator = b.addExecutable(.{ .name = "sim", .root_module = sim_run });
     const run = b.addRunArtifact(simulator);
     if (b.args) |arguments| run.addArgs(arguments);
-    const step = b.step("sim", "Run the simulator: --<gate>-seed <hex> or --<gate>-gate [seeds]");
+    const step = b.step("sim", "Run the simulator: --<check>-seed <hex> or --<check>-check [seeds]");
     step.dependOn(&run.step);
 }
 

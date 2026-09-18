@@ -1,4 +1,4 @@
-//! The gate of design §8 step 2: the step 1 decoders driven through the byte pipe at seeded chunk
+//! The check of design §8 step 2: the step 1 decoders driven through the byte pipe at seeded chunk
 //! boundaries, over a range of seeds.
 //!
 //! Each seed draws a plan and its stream (`chunk_stream.zig`), then runs it three times:
@@ -10,14 +10,14 @@
 //!
 //! The run must end `pass` when the plan has no refusal and `rejected` when it has one.
 //!
-//! Across hosts and build modes the gate compares by digest: the census hashes every chunked trace
-//! of seeds `[0, gate_seeds_default)` with CRC-32, and the test requires the digest committed
+//! Across hosts and build modes the check compares by digest: the census hashes every chunked trace
+//! of seeds `[0, check_seeds_default)` with CRC-32, and the test requires the digest committed
 //! below. Debug and ReleaseSafe, macOS and Linux, all must compute that one number.
 //!
 //! Say plainly what this shows. At step 2 the subject is the step 1 decoders, which consume a
-//! whole value or nothing, so nothing but the harness can make two runs differ: the gate shows the
+//! whole value or nothing, so nothing but the harness can make two runs differ: the check shows the
 //! harness is self-consistent and that the decoders' verdicts do not depend on where a chunk ends.
-//! The same gate over a connection at step 4 is the first point at which it can fail for any other
+//! The same check over a connection at step 4 is the first point at which it can fail for any other
 //! reason.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -31,23 +31,23 @@ const Clock = sim.Clock;
 const Trace = sim.Trace;
 const constants = sim.constants;
 
-/// The name every chunk-gate trace carries on its first line.
-pub const gate_name = "chunk";
+/// The name every chunk-check trace carries on its first line.
+pub const check_name = "chunk";
 
-/// The CRC-32 of the chunked traces of seeds `[0, gate_seeds_default)`, concatenated in seed
+/// The CRC-32 of the chunked traces of seeds `[0, check_seeds_default)`, concatenated in seed
 /// order. A change to the harness, the stream a seed draws or the trace format changes it, and is
-/// committed with the new value after the gate passes on both build modes.
-pub const census_crc32_expected: u32 = 0x418c1200;
+/// committed with the new value after the check passes on both build modes.
+pub const census_crc32_expected: u32 = 0x11c9c07a;
 
 /// The storage one seed runs in: the stream, and the three traces with the two chunk-independent
 /// copies compared. The caller places it; it is too large for a stack.
 pub const Storage = struct {
-    stream: [constants.chunk_gate_stream_len_max]u8,
-    chunked: [constants.chunk_gate_trace_len_max]u8,
-    replayed: [constants.chunk_gate_trace_len_max]u8,
-    one_piece: [constants.chunk_gate_trace_len_max]u8,
-    chunked_independent: [constants.chunk_gate_trace_len_max]u8,
-    one_piece_independent: [constants.chunk_gate_trace_len_max]u8,
+    stream: [constants.chunk_check_stream_len_max]u8,
+    chunked: [constants.chunk_check_trace_len_max]u8,
+    replayed: [constants.chunk_check_trace_len_max]u8,
+    one_piece: [constants.chunk_check_trace_len_max]u8,
+    chunked_independent: [constants.chunk_check_trace_len_max]u8,
+    one_piece_independent: [constants.chunk_check_trace_len_max]u8,
 
     pub const zeroed: Storage = .{
         .stream = @splat(0),
@@ -59,7 +59,7 @@ pub const Storage = struct {
     };
 };
 
-/// How one seed failed the gate.
+/// How one seed failed the check.
 pub const Violation = error{
     /// Two chunked runs of the seed wrote different traces or drew a different number of values.
     ReplayDiverged,
@@ -116,7 +116,7 @@ const Run = struct {
 
     fn once(run: *const Run, schedule: sim.pipe.Schedule, buffer: []u8) sim.trace.Error!SeedResult {
         var output = Writer.init(buffer);
-        var trace = try Trace.begin(&output, gate_name, run.seed);
+        var trace = try Trace.begin(&output, check_name, run.seed);
         var subject: chunk_stream.Subject = .{ .plan = run.plan };
         var clock = Clock.init();
         const Subject = chunk_stream.Subject;
@@ -149,7 +149,7 @@ pub const Census = struct {
 };
 
 /// Runs seeds `[0, seeds)` in order. On a violation, `failed_seed` names the seed.
-pub fn run_gate(
+pub fn run_check(
     storage: *Storage,
     seeds: u64,
     census: *Census,
@@ -165,14 +165,14 @@ pub fn run_gate(
 
 const testing = std.testing;
 
-/// The storage the gate test runs in, placed outside any stack frame.
+/// The storage the check test runs in, placed outside any stack frame.
 var test_storage: Storage = .zeroed;
 
-test "chunk gate: seeds replay, chunking changes no verdict, and traces hash as committed" {
+test "chunk check: seeds replay, chunking changes no verdict, and traces hash as committed" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
-    run_gate(&test_storage, constants.gate_seeds_default, &census, &failed_seed) catch |failure| {
-        std.debug.print("chunk gate: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
+    run_check(&test_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
+        std.debug.print("chunk check: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
     try testing.expect(census.passed > 0);

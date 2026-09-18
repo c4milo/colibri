@@ -6,17 +6,17 @@
 //! The rule reads two files and requires both to agree with `expected_quic_imports`:
 //!   1. `build/modules.zig` — every `quic.addImport("<name>", ...)` call, which is what the
 //!      compiler actually acts on;
-//!   2. `tools/graph_gate.zig` — the `quic_imports` list the gate compiles its fixtures against,
-//!      which must name what the build names. The gate proves that a `quic`-shaped module cannot
+//!   2. `tools/graph_check.zig` — the `quic_imports` list the check compiles its fixtures against,
+//!      which must name what the build names. The check proves that a `quic`-shaped module cannot
 //!      import HTTP. If its list drifts from the build's, it proves that about a module graph
 //!      colibri does not have, and the proof stops covering the real one.
 //!
-//! The rule runs when the walk reaches `build/modules.zig`; `tools/graph_gate.zig` is found beside
+//! The rule runs when the walk reaches `build/modules.zig`; `tools/graph_check.zig` is found beside
 //! it, at the same prefix, and read as a second file. A run that never visits `build/modules.zig`
 //! never runs this rule, so `zig build lint` passes it the `build` directory.
 //!
 //! The `addImport` calls are read from the parsed tree, by receiver name: a call is `quic`'s when
-//! the receiver's last name is `quic`. The gate's list is read from the tokens of its
+//! the receiver's last name is `quic`. The check's list is read from the tokens of its
 //! `quic_imports` declaration, each `.name = "..."` field in it. Neither read follows a value
 //! through a variable, so a list built by a loop or a name held in a `const` would be invisible;
 //! both files spell their lists out, and the rule requires that they keep doing so.
@@ -36,7 +36,7 @@ pub const name = "module-graph";
 const build_modules_path = "build/modules.zig";
 
 /// The file read beside it, at the same prefix.
-const graph_gate_path = "tools/graph_gate.zig";
+const graph_check_path = "tools/graph_check.zig";
 
 /// The module whose import list is pinned.
 const module_name = "quic";
@@ -44,11 +44,11 @@ const module_name = "quic";
 /// The method call that wires one module into another.
 const add_import_method = "addImport";
 
-/// The declaration in tools/graph_gate.zig that holds the gate's copy of the list.
-const gate_list_name = "quic_imports";
+/// The declaration in tools/graph_check.zig that holds the check's copy of the list.
+const check_list_name = "quic_imports";
 
-/// The field of a gate entry that holds the module name.
-const gate_name_field = "name";
+/// The field of a check entry that holds the module name.
+const check_name_field = "name";
 
 /// The import set docs/design.md §3 gives `quic`. Every other module in the graph is checked by
 /// the compiler the moment a file names it; this one is checked here because its whole point is
@@ -82,61 +82,61 @@ pub fn check(context: *report.Context, file: report.File) !void {
     if (!applies(file.path)) return;
     const tree = file.tree orelse return;
     var path_buffer: [max_path_bytes]u8 = undefined;
-    const gate_path = try gate_path_beside(&path_buffer, file.path);
-    const gate_source = context.read_file(gate_path) orelse {
+    const check_path = try check_path_beside(&path_buffer, file.path);
+    const check_source = context.read_file(check_path) orelse {
         return context.findings.add(
             name,
-            gate_path,
+            check_path,
             file_line,
             1,
-            "cannot read {s}; the gate's {s} list is what proves the edge (invariant 26)",
-            .{ gate_path, gate_list_name },
+            "cannot read {s}; the check's {s} list is what proves the edge (invariant 26)",
+            .{ check_path, check_list_name },
         );
     };
-    var gate_tree = try Ast.parse(context.arena, gate_source, .zig);
-    defer gate_tree.deinit(context.arena);
-    if (gate_tree.errors.len != 0) {
-        return context.findings.add(name, gate_path, file_line, 1, "{s} does not parse", .{gate_path});
+    var check_tree = try Ast.parse(context.arena, check_source, .zig);
+    defer check_tree.deinit(context.arena);
+    if (check_tree.errors.len != 0) {
+        return context.findings.add(name, check_path, file_line, 1, "{s} does not parse", .{check_path});
     }
     try compare(
         context.arena,
         &context.findings,
         .{ .path = file.path, .tree = tree },
-        .{ .path = gate_path, .tree = &gate_tree },
+        .{ .path = check_path, .tree = &check_tree },
     );
 }
 
-/// `<prefix>build/modules.zig` becomes `<prefix>tools/graph_gate.zig`, so the rule finds the gate
+/// `<prefix>build/modules.zig` becomes `<prefix>tools/graph_check.zig`, so the rule finds the check
 /// whatever the walk's PATH argument was.
-fn gate_path_beside(buffer: []u8, modules_path: []const u8) ![]const u8 {
+fn check_path_beside(buffer: []u8, modules_path: []const u8) ![]const u8 {
     const prefix = paths.without_suffix(modules_path, build_modules_path);
-    return std.fmt.bufPrint(buffer, "{s}{s}", .{ prefix, graph_gate_path });
+    return std.fmt.bufPrint(buffer, "{s}{s}", .{ prefix, graph_check_path });
 }
 
-/// Requires the build's list to be the expected one, and the gate's list to be the build's.
+/// Requires the build's list to be the expected one, and the tool's list to be the build's.
 pub fn compare(
     arena: Allocator,
     findings: *report.Findings,
     build: Source,
-    gate: Source,
+    tool: Source,
 ) !void {
     const build_imports = try collect_add_imports(arena, build.tree);
     try report_unexpected(findings, build.path, build_imports, &expected_quic_imports);
     try report_absent(findings, build.path, build_imports, &expected_quic_imports);
 
-    const gate_imports = try collect_gate_imports(arena, gate.tree) orelse {
+    const tool_imports = try collect_tool_imports(arena, tool.tree) orelse {
         return findings.add(
             name,
-            gate.path,
+            tool.path,
             file_line,
             1,
-            "{s} declares no {s} list; the gate cannot state the graph it proves (invariant 26)",
-            .{ gate.path, gate_list_name },
+            "{s} declares no {s} list; the check cannot state the graph it proves (invariant 26)",
+            .{ tool.path, check_list_name },
         );
     };
     const build_names = try names_of(arena, build_imports);
-    try report_unexpected(findings, gate.path, gate_imports, build_names);
-    try report_absent(findings, gate.path, gate_imports, build_names);
+    try report_unexpected(findings, tool.path, tool_imports, build_names);
+    try report_absent(findings, tool.path, tool_imports, build_names);
 }
 
 /// Every `quic.addImport("<name>", ...)` call of the build's module graph, in source order.
@@ -186,10 +186,10 @@ const ImportCollector = struct {
     }
 };
 
-/// Every `.name = "<name>"` field of the gate's `quic_imports` declaration, in source order, or
+/// Every `.name = "<name>"` field of the check's `quic_imports` declaration, in source order, or
 /// null when the declaration is absent.
-fn collect_gate_imports(arena: Allocator, tree: *const Ast) !?[]const Entry {
-    const declaration = find_declaration(tree, gate_list_name) orelse return null;
+fn collect_tool_imports(arena: Allocator, tree: *const Ast) !?[]const Entry {
+    const declaration = find_declaration(tree, check_list_name) orelse return null;
     var entries: std.ArrayList(Entry) = .empty;
     const last = tree.lastToken(declaration);
     var token = tree.firstToken(declaration);
@@ -211,7 +211,7 @@ fn collect_gate_imports(arena: Allocator, tree: *const Ast) !?[]const Entry {
 fn is_name_field(tree: *const Ast, token: Ast.TokenIndex) bool {
     if (tree.tokenTag(token) != .period) return false;
     if (tree.tokenTag(token + 1) != .identifier) return false;
-    if (!std.mem.eql(u8, tree.tokenSlice(token + 1), gate_name_field)) return false;
+    if (!std.mem.eql(u8, tree.tokenSlice(token + 1), check_name_field)) return false;
     if (tree.tokenTag(token + 2) != .equal) return false;
     return tree.tokenTag(token + 3) == .string_literal;
 }
@@ -317,7 +317,7 @@ const passing_build: [:0]const u8 =
     \\}
 ;
 
-const passing_gate: [:0]const u8 =
+const passing_check: [:0]const u8 =
     \\const quic_imports = [_]Import{
     \\    .{ .name = "core", .root = "core/core.zig", .deps = &.{} },
     \\    .{ .name = "wire", .root = "wire/wire.zig", .deps = &.{"core"} },
@@ -331,27 +331,27 @@ const passing_gate: [:0]const u8 =
 fn compare_sources(
     arena: Allocator,
     build_source: [:0]const u8,
-    gate_source: [:0]const u8,
+    check_source: [:0]const u8,
 ) ![]const report.Finding {
     var build_tree = try Ast.parse(arena, build_source, .zig);
     try testing.expectEqual(0, build_tree.errors.len);
-    var gate_tree = try Ast.parse(arena, gate_source, .zig);
-    try testing.expectEqual(0, gate_tree.errors.len);
+    var check_tree = try Ast.parse(arena, check_source, .zig);
+    try testing.expectEqual(0, check_tree.errors.len);
     var findings: report.Findings = .{ .arena = arena };
     try compare(
         arena,
         &findings,
         .{ .path = build_modules_path, .tree = &build_tree },
-        .{ .path = graph_gate_path, .tree = &gate_tree },
+        .{ .path = graph_check_path, .tree = &check_tree },
     );
     findings.sort();
     return findings.items.items;
 }
 
-test "module-graph passes when the build and the gate both name the four modules" {
+test "module-graph passes when the build and the check both name the four modules" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
-    const findings = try compare_sources(arena_state.allocator(), passing_build, passing_gate);
+    const findings = try compare_sources(arena_state.allocator(), passing_build, passing_check);
     try harness.expect_messages(findings, &.{});
 }
 
@@ -366,16 +366,16 @@ test "module-graph flags an HTTP module the build gives quic" {
         \\    quic.addImport("tls", tls);
         \\    quic.addImport("http", http);
         \\}
-    , passing_gate);
-    // The first is the build's own extra import; the second is the gate's list not naming it,
-    // which is the drift that would leave the gate proving something about another graph.
+    , passing_check);
+    // The first is the build's own extra import; the second is the check's list not naming it,
+    // which is the drift that would leave the check proving something about another graph.
     try harness.expect_messages(findings, &.{
         "quic receives \"http\", which the graph does not give it (decision 5, invariant 26)",
         "quic does not receive \"http\", which the graph gives it (design §3)",
     });
     try testing.expectEqualStrings(build_modules_path, findings[0].path);
     try testing.expectEqual(6, findings[0].line);
-    try testing.expectEqualStrings(graph_gate_path, findings[1].path);
+    try testing.expectEqualStrings(graph_check_path, findings[1].path);
 }
 
 test "module-graph flags a module the build no longer gives quic" {
@@ -387,16 +387,16 @@ test "module-graph flags a module the build no longer gives quic" {
         \\    quic.addImport("wire", wire);
         \\    quic.addImport("crypto", crypto);
         \\}
-    , passing_gate);
+    , passing_check);
     try harness.expect_messages(findings, &.{
         "quic does not receive \"tls\", which the graph gives it (design §3)",
         "quic receives \"tls\", which the graph does not give it (decision 5, invariant 26)",
     });
     try testing.expectEqualStrings(build_modules_path, findings[0].path);
-    try testing.expectEqualStrings(graph_gate_path, findings[1].path);
+    try testing.expectEqualStrings(graph_check_path, findings[1].path);
 }
 
-test "module-graph flags a gate list that drifts from the build" {
+test "module-graph flags a check list that drifts from the build" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try compare_sources(arena_state.allocator(), passing_build,
@@ -409,18 +409,18 @@ test "module-graph flags a gate list that drifts from the build" {
     try harness.expect_messages(findings, &.{
         "quic does not receive \"tls\", which the graph gives it (design §3)",
     });
-    try testing.expectEqualStrings(graph_gate_path, findings[0].path);
+    try testing.expectEqualStrings(graph_check_path, findings[0].path);
 }
 
-test "module-graph flags a gate with no quic_imports list at all" {
+test "module-graph flags a check with no quic_imports list at all" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try compare_sources(arena_state.allocator(), passing_build,
         \\const forbidden = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
     );
     try harness.expect_messages(findings, &.{
-        "tools/graph_gate.zig declares no quic_imports list;" ++
-            " the gate cannot state the graph it proves (invariant 26)",
+        "tools/graph_check.zig declares no quic_imports list;" ++
+            " the check cannot state the graph it proves (invariant 26)",
     });
 }
 
@@ -436,19 +436,19 @@ test "module-graph reads the addImport calls of quic and of no other module" {
     try testing.expectEqual(9, entries[3].line);
 }
 
-test "module-graph finds the gate beside build/modules.zig, whatever the walk's prefix was" {
+test "module-graph finds the check beside build/modules.zig, whatever the walk's prefix was" {
     var buffer: [max_path_bytes]u8 = undefined;
     try testing.expectEqualStrings(
-        "tools/graph_gate.zig",
-        try gate_path_beside(&buffer, "build/modules.zig"),
+        "tools/graph_check.zig",
+        try check_path_beside(&buffer, "build/modules.zig"),
     );
     try testing.expectEqualStrings(
-        "./tools/graph_gate.zig",
-        try gate_path_beside(&buffer, "./build/modules.zig"),
+        "./tools/graph_check.zig",
+        try check_path_beside(&buffer, "./build/modules.zig"),
     );
     try testing.expectEqualStrings(
-        "/home/me/colibri/tools/graph_gate.zig",
-        try gate_path_beside(&buffer, "/home/me/colibri/build/modules.zig"),
+        "/home/me/colibri/tools/graph_check.zig",
+        try check_path_beside(&buffer, "/home/me/colibri/build/modules.zig"),
     );
 }
 
@@ -457,5 +457,5 @@ test "module-graph runs on build/modules.zig and on nothing else" {
     try testing.expect(applies("./build/modules.zig"));
     try testing.expect(!applies("build/other.zig"));
     try testing.expect(!applies("src/quic/quic.zig"));
-    try testing.expect(!applies("tools/graph_gate.zig"));
+    try testing.expect(!applies("tools/graph_check.zig"));
 }

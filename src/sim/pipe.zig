@@ -214,7 +214,7 @@ test "one piece: every value accepted, in order, with its offset" {
     try one.start(three_values, .one_piece, 0);
     try testing.expectEqual(.pass, one.outcome);
     try testing.expectEqualStrings(
-        \\colibri-sim-trace version=1 gate=pipe seed=0x0000000000000000
+        \\colibri-sim-trace version=1 check=pipe seed=0x0000000000000000
         \\feed at_ns=0 len=10 held=10
         \\accept offset=0 len=3 value=6162
         \\accept offset=3 len=1 value=
@@ -230,7 +230,7 @@ test "a seed replays byte for byte, and without feeds matches the run in one pie
     var whole_buffer: [test_trace_len_max]u8 = @splat(0);
     var whole = Writer.init(&whole_buffer);
     try trace_module.write_chunk_independent(one.text(), &whole);
-    for (0..constants.gate_seeds_default) |seed| {
+    for (0..constants.check_seeds_default) |seed| {
         var first_random = Random.init(seed);
         var second_random = Random.init(seed);
         var first: TestRun = .{};
@@ -251,7 +251,7 @@ test "a refusal ends the run with the offset of the refused value" {
     try one.start("\x01a\xff\x01b", .one_piece, 0);
     try testing.expectEqual(.rejected, one.outcome);
     try testing.expectEqualStrings(
-        \\colibri-sim-trace version=1 gate=pipe seed=0x0000000000000000
+        \\colibri-sim-trace version=1 check=pipe seed=0x0000000000000000
         \\feed at_ns=0 len=5 held=5
         \\accept offset=0 len=2 value=61
         \\reject offset=2 error=LengthRefused
@@ -268,7 +268,7 @@ test "a stream that ends inside a value is truncated, and an empty stream passes
     try empty.start("", .one_piece, 0);
     try testing.expectEqual(.pass, empty.outcome);
     try testing.expectEqualStrings(
-        \\colibri-sim-trace version=1 gate=pipe seed=0x0000000000000000
+        \\colibri-sim-trace version=1 check=pipe seed=0x0000000000000000
         \\end records=0 outcome=pass
         \\
     , empty.text());
@@ -344,7 +344,7 @@ const Reading = struct {
 
 test "seeds cut at every boundary, reach the longest chunk, delay, and hold what they say" {
     var reading: Reading = .{};
-    for (0..constants.gate_seeds_default) |seed| {
+    for (0..constants.check_seeds_default) |seed| {
         var random = Random.init(seed);
         var seeded: TestRun = .{};
         try seeded.start(repeated_values, .{ .seeded = &random }, seed);

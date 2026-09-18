@@ -1,4 +1,4 @@
-//! The gate of docs/design.md §8 step 0, and the check behind
+//! The check of docs/design.md §8 step 0, and the check behind
 //! [invariant 26](../docs/invariants.md): `src/quic/` cannot import an HTTP module.
 //!
 //! A lint rule over the source would only check what build/modules.zig *says*. This checks what
@@ -6,13 +6,13 @@
 //! build/modules.zig gives `quic`, and requires the compile to fail with Zig's own
 //! "no module named" error.
 //!
-//! It runs a positive control in the same pass, and that control is what stops the gate from
-//! being vacuous. A gate that only requires a failure passes when the failure has nothing to do
+//! It runs a positive control in the same pass, and that control is what stops the check from
+//! being vacuous. A check that only requires a failure passes when the failure has nothing to do
 //! with the rule — a mistyped fixture path, a missing source, a broken `zig` invocation. So one
 //! fixture imports `core`, which `quic` does have, and must compile clean. A run in which the
-//! control fails is reported as a broken gate, not as a pass.
+//! control fails is reported as a broken check, not as a pass.
 //!
-//! Usage: `graph_gate <zig-exe> <src-root> <fixtures-dir>`
+//! Usage: `graph_check <zig-exe> <src-root> <fixtures-dir>`
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
     if (args.len < 4) {
-        std.debug.print("usage: graph_gate <zig-exe> <src-root> <fixtures-dir>\n", .{});
+        std.debug.print("usage: graph_check <zig-exe> <src-root> <fixtures-dir>\n", .{});
         std.process.exit(2);
     }
     const zig_exe = args[1];
@@ -59,22 +59,22 @@ pub fn main(init: std.process.Init) !void {
     const control_outcome = try compile(arena, init.io, zig_exe, src_root, control_path);
     if (control_outcome != .compiled) {
         std.debug.print(
-            "graph-gate BROKEN: the control fixture importing '{s}' did not compile.\n" ++
-                "  Nothing else this gate reports is meaningful until that is fixed.\n",
+            "graph-check BROKEN: the control fixture importing '{s}' did not compile.\n" ++
+                "  Nothing else this check reports is meaningful until that is fixed.\n",
             .{control},
         );
         std.process.exit(1);
     }
-    std.debug.print("graph-gate control: import '{s}' compiles, as it must\n", .{control});
+    std.debug.print("graph-check control: import '{s}' compiles, as it must\n", .{control});
 
     for (forbidden) |module_name| {
         const path = try fixture_path(arena, fixtures, module_name);
         const outcome = try compile(arena, init.io, zig_exe, src_root, path);
         if (outcome == .rejected) {
-            std.debug.print("graph-gate: src/quic/ cannot import '{s}'\n", .{module_name});
+            std.debug.print("graph-check: src/quic/ cannot import '{s}'\n", .{module_name});
         } else {
             std.debug.print(
-                "graph-gate FAILED: src/quic/ compiled an @import(\"{s}\").\n" ++
+                "graph-check FAILED: src/quic/ compiled an @import(\"{s}\").\n" ++
                     "  build/modules.zig has given quic an HTTP module. See docs/invariants.md INV-26.\n",
                 .{module_name},
             );
@@ -126,7 +126,7 @@ fn compile(
 
 test "the forbidden list names every HTTP module of the graph" {
     // docs/design.md §3: these five are the HTTP side. A module added to the graph that `quic`
-    // must not reach is added here, or the gate stops covering it.
+    // must not reach is added here, or the check stops covering it.
     const expected = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {

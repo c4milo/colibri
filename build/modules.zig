@@ -5,7 +5,7 @@
 //! The one edge that must never exist is `quic` importing anything of HTTP. RFC 9000 defines a
 //! transport with streams and no opinion about payloads, and decision 5 keeps it that way:
 //! `quic` receives `core`, `wire`, `crypto` and `tls`, and nothing else. `src/quic/` naming
-//! `http`, `h2`, `h3`, `hpack` or `qpack` does not compile, which is invariant 26 and the gate of
+//! `http`, `h2`, `h3`, `hpack` or `qpack` does not compile, which is invariant 26 and the check of
 //! design §8 step 0.
 //!
 //! `sim` receives `core`, `tls` and `crypto` because it implements the two caller-supplied
@@ -16,8 +16,8 @@
 //! `testing` is design §9's endpoints: it receives the protocol modules it serves and nothing
 //! receives it back, so the library it drives cannot reach the socket it opens.
 //!
-//! `sim_run` is the driver: the gates and the `zig build sim` command line, rooted at
-//! `src/sim/run.zig`. It receives `sim` and the modules its gates drive, `wire` for design §8
+//! `sim_run` is the driver: the checks and the `zig build sim` command line, rooted at
+//! `src/sim/run.zig`. It receives `sim` and the modules its checks drive, `wire` for design §8
 //! step 2 and `h2` for step 4, and `sim` never receives it back, so the direction stays acyclic.
 const std = @import("std");
 
@@ -47,7 +47,7 @@ pub const Modules = struct {
     /// The deterministic harness: clock, byte pipe, datagram network, and null providers for both
     /// vtables. Design §10.
     sim: *std.Build.Module,
-    /// The driver: the gates of design §8 over `sim`, and the `zig build sim` command line.
+    /// The driver: the checks of design §8 over `sim`, and the `zig build sim` command line.
     sim_run: *std.Build.Module,
     /// The byte-exact corpus and its manifest.
     golden: *std.Build.Module,

@@ -12,7 +12,7 @@ colibri measures (docs/design.md §11); it does not inform what colibri's API lo
 ## Read before changing behaviour
 
 - `docs/design.md` — the module graph, the wire formats, and the numbered build plan. Each step
-  names the gate that proves it. Cite sections by number in commits and comments ("§8 step 4").
+  names the check that proves it. Cite sections by number in commits and comments ("§8 step 4").
 - `docs/decisions.md` — numbered decisions, each with the alternatives it beat.
 - `docs/invariants.md` — numbered invariants, each one a runtime assertion.
 
@@ -30,7 +30,7 @@ These are not style preferences; the architecture depends on them.
 2. **colibri owns no crypto.** Two caller-supplied vtables, `tls.Provider` and `crypto.Suite`,
    with no production implementation in this tree (decisions 8 and 9): `src/sim/` carries null
    implementations, which are test-only and are never packaged. chapulin fills both vtables for the
-   gates, linked by `src/testing/` alone (decision 10). The library never links a TLS stack, never
+   checks, linked by `src/testing/` alone (decision 10). The library never links a TLS stack, never
    holds a private key, and never chooses a cipher suite.
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
@@ -51,8 +51,9 @@ These are not style preferences; the architecture depends on them.
    cannot be versioned by us — which is exactly why our own structures must be.
 7. **The simulator precedes the protocol it tests.** Do not write connection code before the
    deterministic harness that can drive it. For QUIC this is the whole difficulty and design §8
-   steps 2 and 8 settle it: the simulator is built against the *seams* — `io` is the caller's,
-   time is a parameter, crypto is a vtable — so it exists before there is a protocol to drive.
+   steps 2 and 8 settle it: the simulator is built against what the caller supplies — `io` is
+   the caller's, time is a parameter, crypto is a vtable — so it exists before there is a
+   protocol to drive.
 8. **Invariants are code.** Every numbered invariant in `docs/invariants.md` wants at least one
    runtime assertion. A violated invariant halts with the seed and the byte offset that produced
    it.
@@ -148,7 +149,7 @@ exists — never propose a second one.
   module or an edge.
 - The one edge that must never exist: **`quic` may not import `http`, `h2`, `h3`, `hpack` or
   `qpack`.** QUIC knows nothing about HTTP (decision 5). The QUIC simulator runs with no HTTP
-  module in the graph at all, and that is the gate which proves the boundary.
+  module in the graph at all, and that is the check that proves the boundary.
 - Each module owns its `constants.zig`. A limit two modules share lives in
   `src/core/constants.zig`. A comptime assert stays with the constant it pins.
 - Tests live in the file they test. Fixtures and corpora live beside the module that reads them.
@@ -184,7 +185,7 @@ writes to, and it moves when the step lands, not before.
   then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG), unbounded-loop,
   relative-import, module-graph, magic-numbers, markdown GFM, file length, rfc-citation
   (a validation branch with no RFC section comment) and peer-index (invariant 3). Every rule
-  `tools/lint/main.zig` registers gates, and a canary tree in `build/lint.zig` proves it.
+  `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it.
 - Test: `zig build test` — depends on `lint`, then every module's unit tests and `golden-check`.
   `zig build test-<module>` runs one target's tests with nothing else in the graph, which is what
   a mutation is measured against.
@@ -196,9 +197,9 @@ writes to, and it moves when the step lands, not before.
 - Vectors: `zig build hpack-vectors` decodes every story of the vendored
   `src/hpack/hpack-test-case/` and round-trips `raw-data/` through the encoder (decision 38);
   `zig build test` runs it.
-- Simulator: `zig build sim -- --<gate>-seed <hex>` runs one seed and prints its trace;
-  `zig build sim -- --<gate>-gate [seeds]` runs the gate over `[0, seeds)` and prints the census.
-  Every gate is also a test inside its module, so `zig build test` runs them, silently.
+- Simulator: `zig build sim -- --<check>-seed <hex>` runs one seed and prints its trace;
+  `zig build sim -- --<check>-check [seeds]` runs the check over `[0, seeds)` and prints the census.
+  Every check is also a test inside its module, so `zig build test` runs them, silently.
 - Conformance: `tools/h2spec.sh`, `tools/h3spec.sh`, `tools/interop.sh` — each starts the
   test-only endpoint of design §9 and runs the pinned suite version. None is part of
   `zig build test`; run them by hand before calling a step done.
@@ -214,13 +215,13 @@ writes to, and it moves when the step lands, not before.
   `.lazy = true` is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
   builds against a local pepegrillo instead of the pinned commit.
 
-There is no CI here. Every gate that a script cannot run inside `zig build test` is run by a
+There is no CI here. Every check that a script cannot run inside `zig build test` is run by a
 person before a step is called done, and the step's entry in design §8 records what was run, on
 what, and what it printed.
 
 ## Where the work stands
 
 Progress is not tracked here. Open work, what comes next, and what is owed by whom are GitHub
-issues at `https://github.com/c4milo/colibri/issues`. A gate met is recorded once, in its step's
+issues at `https://github.com/c4milo/colibri/issues`. A check met is recorded once, in its step's
 entry in design §8, with what was run, on what, and what it printed. Rulings are numbered in
 docs/decisions.md. This file holds rules only.

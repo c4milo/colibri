@@ -78,7 +78,7 @@ core, h2         <- testing
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
-| `sim_run` | the gates of §8 over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a gate drives: `h2` at step 4 | — |
+| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4 | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
 
@@ -86,12 +86,12 @@ Three edges are load-bearing and one is forbidden.
 
 - **`quic` does not import `http`, `h2`, `h3`, `hpack` or `qpack`.** This is
   [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) and
-  [decision 5](decisions.md#scope-and-shape). The gate that proves it is that the QUIC simulator
+  [decision 5](decisions.md#scope-and-shape). The check that proves it is that the QUIC simulator
   builds and runs with no HTTP module in the graph at all — not a lint rule, a link.
 - **`sim` imports `core`, `tls` and `crypto`, and no protocol module.** It implements the same two
   vtables a real caller does, so the build hands its null providers to the protocol modules in
   place of the caller's and nothing is conditionally compiled. It cannot import a protocol module,
-  which is what keeps the harness from knowing anything the caller would not. A gate drives a
+  which is what keeps the harness from knowing anything the caller would not. A check drives a
   protocol module through the harness, so the one module that imports both is `sim_run`, rooted at
   `src/sim/run.zig`, and `sim` never imports it back ([decision 37](decisions.md#the-simulator)).
 - **`wire` is shared by both families and holds two different integer codecs.** That is not an
@@ -101,7 +101,7 @@ Three edges are load-bearing and one is forbidden.
   `testing` is a consumer like any other: the library it drives cannot reach the socket it opens,
   because the edge runs one way and nothing imports `testing` back.
 
-## 4. The seams
+## 4. What the caller supplies
 
 Four things cross the boundary out of colibri. Each is a value or a vtable, never a callback
 colibri invokes at a time of its choosing.
@@ -130,7 +130,7 @@ deadline colibri computes and the caller honours.
 ### 4.3 The TLS provider
 
 Two modes, because RFC 9001 §3 says QUIC "takes over the responsibilities of the TLS record
-layer". The full list is [decision 8](decisions.md#the-seams); the shape is:
+layer". The full list is [decision 8](decisions.md#what-the-caller-supplies); the shape is:
 
 | Operation | Record mode (h2) | QUIC mode (h3) |
 |---|---|---|
@@ -173,7 +173,7 @@ integrity tag (§5.8). The suite must additionally carry the AEAD and header-pro
 TLS goes on to negotiate (§5.3, §5.4.1). A suite missing one of the three mandatory members is
 refused when the endpoint is constructed
 ([invariant 25](invariants.md#inv-25--a-suite-without-aes-is-refused-at-init)), never at the first
-packet. [decision 9](decisions.md#the-seams) is why this is a separate vtable and what it buys.
+packet. [decision 9](decisions.md#what-the-caller-supplies) is why this is a separate vtable and what it buys.
 
 ## 5. What is shared, and what only looks shared
 
@@ -343,19 +343,19 @@ because the wire formats are the RFCs' and cannot be versioned by us:
 
 - **The golden manifest line**, one per corpus file, naming the file's length, checksum, expected
   verdict and the parameters it was built from. stompy's `src/golden/*/manifest.txt` is the shape.
-- **The simulator trace record**, one per abstract transition, which is what the replay gate
+- **The simulator trace record**, one per abstract transition, which is what the replay check
   compares byte for byte.
 
 A trace is text, one record per line, so a failing seed prints a trace a person can read. Version
 1 has this shape:
 
 ```text
-colibri-sim-trace version=1 gate=<gate> seed=0x<16 hex digits>
+colibri-sim-trace version=1 check=<check> seed=0x<16 hex digits>
 <record> <key>=<value> <key>=<value> ...
 end records=<count> outcome=<outcome>
 ```
 
-- The first line names the version, the gate and the seed. A change to what any line holds is a
+- The first line names the version, the check and the seed. A change to what any line holds is a
   new version, never a silent edit.
 - Each record between the first line and the last is a name, then fields separated by one space.
   A key is lowercase letters, digits and underscores. A value holds no space: an unsigned decimal
@@ -363,7 +363,7 @@ end records=<count> outcome=<outcome>
 - The last line gives the size, the count of records between the first line and itself, and how
   the run ended. A trace with no `end` line was cut short.
 - The seed is the only value written in hexadecimal with a `0x` prefix, because it is the value a
-  person copies into `zig build sim -- --<gate>-seed <hex>`.
+  person copies into `zig build sim -- --<check>-seed <hex>`.
 
 The records design §8 step 2 writes are the byte pipe's:
 
@@ -375,7 +375,7 @@ The records design §8 step 2 writes are the byte pipe's:
 
 No record but `feed` carries an instant. The chunk schedule decides when a value completes, so
 removing every `feed` record, and the record count from the `end` line, leaves the lines that do
-not depend on the chunking. The step 2 gate compares exactly those lines between a chunked run and
+not depend on the chunking. The step 2 check compares exactly those lines between a chunked run and
 a run fed in one piece.
 
 ## 7. Named limits
@@ -430,7 +430,7 @@ not name one.
 
 ## 8. Build plan
 
-Each step names the gate that proves it. **A step with no gate is not a step.** Reading the RFC is
+Each step names the check that proves it. **A step with no check is not a step.** Reading the RFC is
 not evidence. Every step that adds a check reports its mutations as `CAUGHT` or `NOT CAUGHT`, and
 a `NOT CAUGHT` blocks the step.
 
@@ -441,48 +441,48 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   loop, relative-import, magic numbers, markdown GFM) plus colibri's own three: the `io` import
   denylist, the module-graph rule, and the RFC-citation rule, which fails a validation branch
   carrying no RFC section comment. Commit hooks.
-  **Gate:** `zig build lint` and `zig build test` pass, and a deliberately added `@import("http")`
+  **Check:** `zig build lint` and `zig build test` pass, and a deliberately added `@import("http")`
   inside `src/quic/` fails to build. That last clause is the one that matters — it proves
   [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) is enforced by the build
   rather than by review. *Small.*
 
-  **Gate met, 2026-09-16.** `zig build test` exits 0: the lint scores 396 functions across
+  **Check passed, 2026-09-16.** `zig build test` exits 0: the lint scores 396 functions across
   `build/`, `src/`, `tools/` and `build.zig` with a highest score of 11 against the limit of 15;
   the eight `tools/lint` rules run clean; twelve module test binaries pass; and `zig build
-  graph-gate` prints the control line and five refusals. Zig 0.16.0 on macOS 25.6, arm64.
+  graph-check` prints the control line and five refusals. Zig 0.16.0 on macOS 25.6, arm64.
 
-  The gate is two halves, and saying so matters because neither half alone is what it looks like.
-  `tools/graph_gate.zig` compiles a fixture as the root of a module carrying `quic`'s import set
+  The check has two halves, and neither half alone proves what it appears to prove.
+  `tools/graph_check.zig` compiles a fixture as the root of a module carrying `quic`'s import set
   and requires the compile to fail — that is a real compiler verdict, not a rule about what the
   source says. But the set it compiles against is a list in the tool, so the `module-graph` lint
-  rule reads `build/modules.zig` and `tools/graph_gate.zig` and requires the two to agree. The
+  rule reads `build/modules.zig` and `tools/graph_check.zig` and requires the two to agree. The
   compile proves the consequence; the rule proves the premise.
 
-  Three properties of the gate were checked by mutation rather than assumed, each applied, run,
+  Three properties of the check were checked by mutation rather than assumed, each applied, run,
   and reverted:
-  - `http` added to the tool's import set — **CAUGHT**, the fixture compiled and the gate exited 1
+  - `http` added to the tool's import set — **CAUGHT**, the fixture compiled and the check exited 1
     naming INV-26.
   - The fixture's `comptime` block removed, making the import lazy — **CAUGHT**, and it fails loud
     rather than silent, which is why the block is there: Zig analyses lazily, so an unreferenced
-    `const x = @import("http");` compiles clean and would have made the gate vacuous.
+    `const x = @import("http");` compiles clean and would have made the check vacuous.
   - `quic.addImport("http", http)` added to `build/modules.zig` — **CAUGHT** by `module-graph` in
     both directions (the build gained an import the graph forbids; the tool's list no longer
     matched), and `zig build test` exited 1.
 
   The positive control is what stops the whole thing being vacuous: a sixth fixture imports
   `core`, which `quic` does have, and must compile. A run where the control fails is reported as a
-  broken gate rather than a pass — and it did fail on the first run, on a real defect (`--dep=x`
+  broken check rather than a pass — and it did fail on the first run, on a real defect (`--dep=x`
   instead of `--dep x`), which is the control earning its place.
 
   **Tooling moved to pepegrillo, 2026-09-16.** The lint driver and its generic rules, the
   complexity scorer and the commit linter now come from pepegrillo (decision 36). `tools/` keeps
   colibri's configuration of each rule with the fixtures that pin it, the `module-graph` rule and
-  the graph gate. Old and new tools printed the same findings for all eight rules, the same scores
+  the graph check. Old and new tools printed the same findings for all eight rules, the same scores
   at `--max 15` and `--max 0`, and the same commit verdicts, over this tree, stompy's and
   pepegrillo's. Each of the 62 configuration lines was mutated once and every mutant was
   **CAUGHT**; ten needed a new fixture first.
 
-  **The last two rules, 2026-09-16.** `magic-numbers` gates over `src/`, but for each
+  **The last two rules, 2026-09-16.** `magic-numbers` runs over `src/`, but for each
   `constants.zig`, the generated `huffman_table.zig`, and the corpus and mutation tables of
   `src/golden/`. The 111 literals it found are now named: an octet's width is `@bitSizeOf(u8)`,
   the varint lengths and prefix bounds are `wire` constants, and the RFC 9110 §15 status codes are
@@ -490,20 +490,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   short-buffer errors, the test errors, `src/golden/`, `src/sim/` and `src/testing/`, and requires
   an `RFC <number> §<section>` or `RFC <number> Appendix <letter>` comment on the statement or the
   comment lines directly above it. It found three citations above a `const` rather than above the
-  check. `zig build lint` passes no `--rule`, so every rule `tools/lint/main.zig` registers gates,
+  check. `zig build lint` passes no `--rule`, so every rule `tools/lint/main.zig` registers runs,
   and the lint must report every rule over a canary tree holding one violation of each. Each rule's
   mutations are in its commit, and every one is **CAUGHT**.
 
 - **Step 1 — `wire` and `http`.** The varint (RFC 9000 §16), the prefixed integer generic over N
   in 1..8 and sized for 62 bits, the Huffman coder over RFC 7541 Appendix B, the string literal
   including QPACK's mid-byte prefix form, the `tchar` and field-value validators, the
-  connection-option denylist, the status and method models. **Gate:** a golden corpus with a
+  connection-option denylist, the status and method models. **Check:** a golden corpus with a
   manifest, valid and invalid, including one case per Huffman decode error (padding over 7 bits,
   padding that is not EOS's high bits, EOS inside the data) and one per varint length; RFC 9000
   Appendix A's sample varint decodings; fuzzing of every decoder; and a mutation per check
   reported `CAUGHT`. *Small to medium.*
 
-  **Gate met, 2026-09-16.** `zig build test` exits 0 on Zig 0.16.0, macOS 25.6, arm64:
+  **Check passed, 2026-09-16.** `zig build test` exits 0 on Zig 0.16.0, macOS 25.6, arm64:
   262 tests pass, the lint scores 583 functions with a highest score of 12 against the limit of
   15, the eight `tools/lint` rules run clean, and `huffman_table --check` confirms that
   `src/wire/huffman_table.zig` is what RFC 7541 Appendix B yields.
@@ -535,8 +535,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `std.debug.writeStackTrace` takes a `debug.StackTrace`. The property functions are ready for a
     toolchain that fixes it. A corpus entry is not raw octets: outside `--fuzz`, `Smith` reads a
     4-octet length before each slice, which `core.fuzz.input` writes.
-  - **Built after the gate.** Invariant 3's lint rule, no slicing with a peer-derived index
-    outside the reader and writer, was not written when the gate was met; its runtime assertions
+  - **Built after the step passed.** Invariant 3's lint rule, no slicing with a peer-derived
+    index outside the reader and writer, was not written when the step passed; its assertions
     and fuzzing were. `tools/lint/peer_index.zig` added it on 2026-09-16, and the tree was clean
     under it.
 
@@ -626,18 +626,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the
   h2 half, and it exists before there is a connection to drive, which is possible only because
-  §4 made I/O, time and crypto into seams. **Gate:** the step 1 decoders driven through the
+  §4 put I/O, time and crypto in the caller's hands. **Check:** the step 1 decoders driven through the
   harness at seeded chunk boundaries over a seed range, with the §6.6 trace records compared byte
   for byte across macOS and Linux and across Debug and ReleaseSafe. Say plainly what this does and
   does not prove: at step 2 nothing but the harness can differ, so it shows the harness is
-  self-consistent. The same gate re-run over a connection at step 4 is the first point at which it
+  self-consistent. The same check re-run over a connection at step 4 is the first point at which it
   can fail for any other reason. *Small.*
 
-  **Gate met on macOS, 2026-09-16; the Linux half is the owner's.** `zig build test` exits 0 on
+  **Check passed on macOS, 2026-09-16; the Linux half is the owner's.** `zig build test` exits 0 on
   Zig 0.16.0, macOS 25.6, arm64, in Debug and with `-Drelease`, and the lint scores 460 functions
-  with a highest score of 12. `zig build sim -- --chunk-gate` prints the same census in both modes:
-  `seeds=256 passed=193 rejected=63 chunks=2551 trace_octets=278583 crc32=0x418c1200`. That
-  digest is `chunk_gate.census_crc32_expected`, and the gate's test requires it, so the Linux run
+  with a highest score of 12. `zig build sim -- --chunk-check` prints the same census in both modes:
+  `seeds=256 passed=193 rejected=63 chunks=2551 trace_octets=278839 crc32=0x11c9c07a`. That
+  digest is `chunk_check.census_crc32_expected`, and the check's test requires it, so the Linux run
   is `zig build test-sim-run` in both modes on a Linux host. It has not been run yet:
   [issue 1](https://github.com/c4milo/colibri/issues/1).
 
@@ -646,7 +646,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     format over a `core.Writer`; and `pipe.run`, which feeds a stream to any subject with `step`
     and `describe` in chunks of 1 to `chunk_len_max` octets after delays of up to
     `chunk_delay_ns_max`, writing a `feed` record per chunk and an `accept` or `reject` per value.
-  - **Gate.** `src/sim/chunk_gate.zig`, in the `sim_run` module. Each seed draws 1 to 16 values
+  - **Check.** `src/sim/chunk_check.zig`, in the `sim_run` module. Each seed draws 1 to 16 values
     across the varint, the prefixed integer at every prefix size, and the string literal at every
     prefix size in both codings, and one seed in four appends an encoding a decoder refuses. The
     seed runs chunked twice and in one piece once: the two chunked traces must match byte for
@@ -654,7 +654,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     one-piece run's, the outcome must be what the plan says, and the run in one piece must feed
     exactly once, without which the comparison is vacuous.
   - **Driver.** `zig build sim -- --chunk-seed <hex>` prints one seed's chunked trace and its
-    outcome; `--chunk-gate [seeds]` prints the census or the seed that failed. `src/sim/run_main.zig`
+    outcome; `--chunk-check [seeds]` prints the census or the seed that failed. `src/sim/run_main.zig`
     is the one file under `src/sim/` the `io` rule exempts, by path.
   - **Not built.** The null TLS provider and the null crypto suite. `tls.Provider` and
     `crypto.Suite` do not exist yet, and no step 2 subject calls a provider, so each null
@@ -663,20 +663,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     ([issue 4](https://github.com/c4milo/colibri/issues/4); design §10 fixes its sizes: a
     16-octet tag and a 5-octet mask).
 
-  Twenty-nine mutations over the generator, the clock, the trace, the pipe, the stream, the gate
+  Twenty-nine mutations over the generator, the clock, the trace, the pipe, the stream, the check
   and the command line were applied, run against `zig build test-sim` or `test-sim-run`, and
-  reverted, plus three over the `wire` decoders, which the gate must see: every one **CAUGHT**,
+  reverted, plus three over the `wire` decoders, which the check must see: every one **CAUGHT**,
   eight after a new test. The three that mattered most: a chunked run replaced by a run in one
   piece, the reverse, and a replay restarted from the seed rather than from the generator as it
   stood after the stream was drawn.
 
 - **Step 3 — HPACK.** Static table, dynamic table with the shared size arithmetic, all five
-  representations, the size-update instruction. **Gate:** `http2jp/hpack-test-case` decoded across
+  representations, the size-update instruction. **Check:** `http2jp/hpack-test-case` decoded across
   **every** encoder directory, not only nghttp2's — the naive, static and linear strategies crossed
   with Huffman and plain are what exercise the dynamic table; round-trip of `raw-data`; the three
   interop breaks of §6.2 each with a named error and a corpus case; fuzzing; mutations. *Medium.*
 
-  **Gate met, 2026-09-16.** `zig build test` exits 0 on Zig 0.16.0, macOS 25.6, arm64: 256 tests
+  **Check passed, 2026-09-16.** `zig build test` exits 0 on Zig 0.16.0, macOS 25.6, arm64: 256 tests
   pass, the lint scores 556 functions with a highest score of 15 against the limit of 15, the
   eleven `tools/lint` rules run clean, `static_table --check` confirms `src/hpack/static_table.zig`
   is what RFC 7541 Appendix A yields, and `hpack-vectors` prints
@@ -712,22 +712,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the two prefaces, settings with the ACK discipline, the stream state machine, the signed send
   window and the retroactive settings sweep, GOAWAY, `RST_STREAM`, the field-block reassembly
   slot, request and response validation. Push refused per [decision 17](decisions.md), priority
-  parsed but never scheduled per [decision 18](decisions.md). **Gate:** `h2spec` green at the
+  parsed but never scheduled per [decision 18](decisions.md). **Check:** `h2spec` green at the
   pinned version against the test-only prior-knowledge cleartext h2 server of §9 — h2spec connects
   in cleartext unless `-t` is given — with every skipped case named and justified;
   `http2jp/http2-frame-test-case`; the step 2 driver checking
   [invariants 13 to 16](invariants.md#http2) after every step of every seed; fuzzing; mutations.
   **This is the largest single step and the first shippable thing.** *Large.*
 
-  **Gate met, 2026-09-17.** `zig build test` exits 0 on Zig 0.16.0, macOS 26.6, arm64: 587 tests
+  **Check passed, 2026-09-17.** `zig build test` exits 0 on Zig 0.16.0, macOS 26.6, arm64: 587 tests
   pass, the lint scores 1,324 functions with a highest score of 13 against the limit of 15, and
   the twelve `tools/lint` rules run clean. `tools/h2spec.sh` prints `146 tests, 144 passed,
   0 skipped, 2 failed` against h2spec 2.6.0, and the script names the two: both test RFC 7540
   §5.3.1's rule that a stream cannot depend on itself, which RFC 9113 §5.3.2 dropped with the rest
   of the priority scheme, leaving §6.3 two rules that colibri does enforce. `h2-frames` prints
-  `cases=34 normal=12 errors=22 round_trips=12`. The simulator gate prints
-  `connection: seeds=256 passed=195 rejected=61 frames=4670 chunks=9636 trace_octets=588614
-  crc32=0x629e2e40`, the same number in Debug and `-Drelease`.
+  `cases=34 normal=12 errors=22 round_trips=12`. The simulator check prints
+  `connection: seeds=256 passed=195 rejected=61 frames=4670 chunks=9636 trace_octets=588870
+  crc32=0xe8f7c0b4`, the same number in Debug and `-Drelease`.
 
   - **Connection.** `receive` consumes one frame and returns at most one event, and the frames
     colibri owes are queued in fixed slots that a short buffer never truncates (decision 39). The
@@ -742,7 +742,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the dynamic table would fall out of step with the peer's (invariant 10, decision 40).
     `representation_len_max` is the longest line the decoder's own limits admit, so it refuses none
     of them.
-  - **Simulator.** `src/sim/connection_gate.zig` drives one connection through the step 2 pipe and
+  - **Simulator.** `src/sim/connection_check.zig` drives one connection through the step 2 pipe and
     reads invariants 13 to 16 after every frame it accepts. A seed replays byte for byte and
     chunking changes no verdict, which at this step can fail for the connection's own reasons and
     not only the harness's.
@@ -754,54 +754,54 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Two hundred and nineteen source mutations were applied over the field-block slot, the message
   validators, the stream table, the connection's two paths, the Huffman bound and the simulator
-  gate, each run against the narrowest step that can catch it, and reverted: 215 **CAUGHT** and
+  check, each run against the narrowest step that can catch it, and reverted: 215 **CAUGHT** and
   four equivalent. The four: two in the stream table that change no answer it gives, one weakening
-  the gate's replay comparison, which two runs of a seed cannot tell apart, and one that makes the
+  the check's replay comparison, which two runs of a seed cannot tell apart, and one that makes the
   highest identifier the peer opened lag without ever decreasing, which invariant 13 does not
   forbid and `zig build test-h2` catches on h2spec's `http2/5.1.1/2` case.
 
-- **Step 5 — the TLS provider seam and h2 over TLS.** The record-mode vtable, ALPN, the
+- **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
-  library. **Gate:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
+  library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
   Go's `net/http2` and h2o, **both directions**, with the exact versions recorded.
 
-  **This step waits on chapulin, and so does every later gate that needs TLS.** The gate needs a
+  **This step waits on chapulin, and so does every later check that needs TLS.** The check needs a
   TLS 1.3 *server*, certificate signing included, and colibri's library supplies none:
-  [decision 8](decisions.md#the-seams) keeps production implementations out of the tree.
-  [Decision 10](decisions.md#the-seams) answers the "Ask before" this paragraph used to raise:
+  [decision 8](decisions.md#what-the-caller-supplies) keeps production implementations out of the tree.
+  [Decision 10](decisions.md#what-the-caller-supplies) answers the "Ask before" this paragraph used to raise:
   chapulin fills both vtables, and `src/testing/` links it while the packaged library never does.
   Steps 9, 10, 12 and 13 need the same server for the interop endpoint, h3spec and `secnetperf`,
   and step 7 needs chapulin's `crypto.Suite` for RFC 9001 Appendix A's vectors. chapulin has
   neither a server role nor ALPN today, so this step waits for the h2 items of
   [the request](chapulin.md). *Medium, once chapulin delivers them.*
 
-- **Step 6 — the counted-cost gate.** Syscalls the caller would have made, copies and bytes per
+- **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not
   counted: [decision 35](decisions.md#memory) makes them zero, and `tools/lint/heap.zig` holds
-  it. **Gate:** the numbers are in the tree and a diff that changes one fails `zig build test`
+  it. **Check:** the numbers are in the tree and a diff that changes one fails `zig build test`
   until the new number is committed on purpose. This is the cheap half of
   [decision 34](decisions.md#performance) and it lands before any QUIC code, so the h2 half has a
   regression floor while the larger half is built. *Small.*
 
-- **Step 7 — QUIC packet formats and the crypto seam.** The RFC 8999 invariant reader as its own
+- **Step 7 — QUIC packet formats and the crypto vtable.** The RFC 8999 invariant reader as its own
   file with an empty import set, the version-1 reader above it, long and short headers, packet
   number encoding and decoding, the Initial key schedule, packet protection, header protection,
-  Retry integrity. **Gate:** RFC 9001 Appendix A's sample packet protection, byte for byte, in the
+  Retry integrity. **Check:** RFC 9001 Appendix A's sample packet protection, byte for byte, in the
   golden corpus; RFC 9000 Appendix A.2 and A.3's packet number encoding and decoding; corpus cases
   with connection IDs longer than 20 octets under an unknown version, which must **parse** rather
   than fail; a mutation that applies the 20-octet cap in the invariant reader, reported `CAUGHT`;
   fuzzing of the packet reader. *Medium to large.*
 
 - **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and
-  ECN marking, over the step 2 clock, with a null crypto suite. **Gate:** one seed replays
+  ECN marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays
   byte-identically across hosts and build modes — and the harness **builds and runs with no HTTP
-  module in the graph**, which is the gate for [decision 5](decisions.md#scope-and-shape). *Medium.*
+  module in the graph**, which is the check for [decision 5](decisions.md#scope-and-shape). *Medium.*
 
 - **Step 9 — QUIC transport.** The handshake over CRYPTO frames, the three packet number spaces,
   ACK generation and processing, streams with both state machines, offset-based flow control,
   `MAX_STREAMS`, connection IDs, path validation, anti-amplification, idle timeout, the close and
   drain states. `disable_active_migration` per [decision 21](decisions.md), which saves less than
-  it sounds like. **Gate:** the step 8 simulator checking
+  it sounds like. **Check:** the step 8 simulator checking
   [invariants 17 to 21](invariants.md#quic) after every step; the QUIC Interop Runner's
   `handshake`, `transfer`, `retry`, `resumption`, `keyupdate`, `multiplexing`, `ipv6`,
   `amplificationlimit`, `rebind-port` and `rebind-addr` cases against the endpoint of §9, with
@@ -811,7 +811,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
-  `now()` sites are caller-supplied parameters on the five entry points of §4.2. **Gate:** the
+  `now()` sites are caller-supplied parameters on the five entry points of §4.2. **Check:** the
   simulator's loss, reorder and blackhole scenarios with a census per seed; the interop runner's
   `handshakeloss`, `transferloss`, `blackhole`, `longrtt` and `ecn` cases; and, because RFC 9002's
   prose and its appendix pseudocode differ in two places, a written decision in this document's
@@ -820,23 +820,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 - **Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
   zero and a static-only encoder is legal and useful; then the dynamic table with the encoder and
   decoder streams, Known Received Count, Required Insert Count, Base, relative and post-base
-  indexing, and blocked streams. **Gate:** `qpackers/qifs` vectors at the three settings its
+  indexing, and blocked streams. **Check:** `qpackers/qifs` vectors at the three settings its
   filenames encode, with the draft-05 caveat of [decision 25](decisions.md#correctness) applied —
   a mismatch is checked against RFC 9204 before it is treated as colibri's bug; RFC 9204 Appendix
   B's reference encodings; fuzzing; mutations. *Large.*
 
 - **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
-  request and response mapping, GOAWAY, greasing. **Gate:** `h3spec` against the h3 entry point,
+  request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,
   with every case accounted for; the interop runner's `http3` case; `h2load --h3`; and the h2
   suite's semantics tests re-run against h3, which is what proves the `http` module is genuinely
   shared rather than duplicated. *Medium.*
 
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
-  **Gate:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the
+  **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the
   same session, and the machine written down beside the numbers. *Medium.*
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
-both. Step 6 exists where it does on purpose: the cheap regression gate is in place before the
+both. Step 6 exists where it does on purpose: the cheap regression check is in place before the
 larger half begins.
 
 ## 9. Test-only entry points
@@ -922,7 +922,7 @@ discarded, at least five runs reported as median with spread and never a best-of
 same session on the same kernel, and the machine written down beside the numbers. Anything under
 about 5% is noise until shown otherwise.
 
-### 11.5 The gate
+### 11.5 What must hold
 
 Two layers, because there is no CI here. The cheap layer is step 6's counted costs in the
 simulator — exact numbers a diff must change on purpose — and it runs in `zig build test`. The
@@ -932,11 +932,11 @@ before a step is called done.
 ## 12. Open questions for the owner
 
 1. **QUIC as a module or its own repository** ([decision 3](decisions.md#scope-and-shape)).
-   Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and gated.
-2. **The packet-protection vtable** ([decision 9](decisions.md#the-seams)). Ruled 2026-09-16: two
+   Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and proved.
+2. **The packet-protection vtable** ([decision 9](decisions.md#what-the-caller-supplies)). Ruled 2026-09-16: two
    vtables, `tls.Provider` and `crypto.Suite`. Splitting packet protection away from the TLS
    provider is what lets h3 have AES without chapulin having AES, and step 7 builds against it.
-3. **The ask to chapulin** ([decision 10](decisions.md#the-seams)). Ruled 2026-09-16: chapulin
+3. **The ask to chapulin** ([decision 10](decisions.md#what-the-caller-supplies)). Ruled 2026-09-16: chapulin
    provides all of colibri's crypto by filling both vtables, and `src/testing/` links it. The
    request is [docs/chapulin.md](chapulin.md), and sending it is the owner's.
 4. **RFC 9002's one internal disagreement**, which step 10 must settle in writing and pin with a
@@ -962,10 +962,10 @@ before a step is called done.
   treated as colibri's bug, and the version is pinned so the answer does not move.
 - **The QPACK vectors are stale.** `qpackers/qifs` targets draft-05 and has not moved since 2021.
   RFC 9204 Appendix B is the authority where they disagree.
-- **No CI.** Every gate a script cannot run inside `zig build test` is run by a person, and the
+- **No CI.** Every check a script cannot run inside `zig build test` is run by a person, and the
   step's entry in §8 records what was run, on what, and what it printed. This is the same
   arrangement stompy's full crash tier runs under, and it works only if the recording is honest.
-- **Every gate that needs crypto waits on chapulin.** [Decision 10](decisions.md#the-seams) has
+- **Every check that needs crypto waits on chapulin.** [Decision 10](decisions.md#what-the-caller-supplies) has
   chapulin fill both vtables, and what chapulin must add first reverses five of its recorded
   decisions: a server role with constant-time signing, a non-blocking handshake with no global
   state, a QUIC mode and host-side AES ([docs/chapulin.md](chapulin.md)). That work runs on

@@ -154,5 +154,5 @@ test "io exempts src/testing/ and reads nothing outside src/" {
     try testing.expect(!config.scope.applies("./src/testing/deep/endpoint.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try harness.expect_messages(try findings_of(arena, "src/testing/endpoint.zig", failing_fixture), &.{});
-    try harness.expect_messages(try findings_of(arena, "tools/graph_gate.zig", failing_fixture), &.{});
+    try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});
 }

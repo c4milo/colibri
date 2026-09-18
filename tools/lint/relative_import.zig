@@ -125,7 +125,7 @@ test "relative-import reads src/ alone" {
     try testing.expect(config.scope.applies("src/quic/packet/header.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("build/modules.zig"));
-    try harness.expect_messages(try findings_of(arena, "tools/graph_gate.zig", failing_fixture), &.{});
+    try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});
 }
 
 test "relative-import resolves a path: a subdirectory file may reach its module's root directory" {

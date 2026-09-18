@@ -3,7 +3,7 @@
 //! `tools/golden.zig` writes them to disk; `golden.zig` checks the files against this table.
 //!
 //! Valid and invalid cases both, because a parser that accepts everything passes a valid-only
-//! corpus. The gate of design §8 step 1 asks for one case per varint length, one per Huffman
+//! corpus. The check of design §8 step 1 asks for one case per varint length, one per Huffman
 //! decode error, and RFC 9000 Appendix A.1's sample decodings. The published vectors of RFC 7541
 //! Appendix C are here beside them (decision 25).
 const wire = @import("wire");

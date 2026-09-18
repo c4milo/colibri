@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The h2spec gate of docs/design.md §8 step 4: run the pinned suite against the test-only
+# The h2spec check of docs/design.md §8 step 4: run the pinned suite against the test-only
 # cleartext h2 server of §9 and require every case to pass but the ones named below.
 #
 # h2spec is not installed by this repository. On macOS: brew install h2spec. Elsewhere, take the
@@ -33,7 +33,7 @@ command -v h2spec >/dev/null 2>&1 || fail "h2spec is not installed; see the head
 
 installed_version="$(h2spec --version 2>&1 | head -1 | awk '{print $2}')"
 [ "${installed_version}" = "${h2spec_version}" ] ||
-  fail "h2spec ${installed_version} is installed; this gate is pinned to ${h2spec_version}"
+  fail "h2spec ${installed_version} is installed; this check is pinned to ${h2spec_version}"
 
 echo "h2spec.sh: building the test-only server"
 (cd "${repository_root}" && zig build install)

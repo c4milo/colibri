@@ -130,7 +130,7 @@ test "determinism reads src/ alone, src/testing/ included" {
     try testing.expect(config.scope.applies("src/testing/endpoint.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("docs/design.md"));
-    try harness.expect_messages(try findings_of(arena, "tools/graph_gate.zig", failing_fixture), &.{});
+    try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});
     const in_testing = try findings_of(arena, "src/testing/endpoint.zig", failing_fixture);
     try testing.expectEqual(4, in_testing.len);
 }

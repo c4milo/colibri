@@ -2,7 +2,7 @@
 //! the same rules over a canary tree. build.zig stays short (CLAUDE.md, Layout), so the wiring
 //! lives here.
 //!
-//! The rules run with no `--rule` argument, so every rule tools/lint/main.zig registers gates the
+//! The rules run with no `--rule` argument, so every rule tools/lint/main.zig registers checks the
 //! build. A clean tree cannot show that: a run that dropped a rule passes a tree that rule would
 //! have passed anyway. The canary can. It is a tree written into the build cache holding one
 //! violation of every rule, and the lint must exit 1 over it and print each rule of `canary_rules`

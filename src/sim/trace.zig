@@ -1,12 +1,12 @@
 //! `Trace`, the per-seed record of every abstract transition a run takes, in the version 1 format
 //! of design §6.6:
 //!
-//!     colibri-sim-trace version=1 gate=<gate> seed=0x<16 hex digits>
+//!     colibri-sim-trace version=1 check=<check> seed=0x<16 hex digits>
 //!     <record> <key>=<value> ...
 //!     end records=<count> outcome=<outcome>
 //!
 //! The trace is written into a `core.Writer` over storage the caller owns, never to a file. A run
-//! prints it when a seed fails, and a gate compares two runs of one seed byte for byte. Each record
+//! prints it when a seed fails, and a check compares two runs of one seed byte for byte. Each record
 //! is built whole in a `Record` and then written all at once, so a trace that runs out of room
 //! ends at a whole line and the error says so.
 const std = @import("std");
@@ -38,14 +38,14 @@ pub const Trace = struct {
     /// Records written between the first line and the last.
     records: u64,
 
-    /// Writes the first line: the version, the gate and the seed.
-    pub fn begin(output: *Writer, gate: []const u8, seed: u64) Error!Trace {
-        assert(gate.len > 0 and gate.len <= constants.gate_name_len_max);
-        assert(is_word(gate));
-        try output.print("{s} version={d} gate={s} seed=0x{x:0>16}\n", .{
+    /// Writes the first line: the version, the check and the seed.
+    pub fn begin(output: *Writer, check: []const u8, seed: u64) Error!Trace {
+        assert(check.len > 0 and check.len <= constants.check_name_len_max);
+        assert(is_word(check));
+        try output.print("{s} version={d} check={s} seed=0x{x:0>16}\n", .{
             header_word,
             constants.trace_version,
-            gate,
+            check,
             seed,
         });
         return .{ .output = output, .records = 0 };
@@ -190,7 +190,7 @@ test "a trace is its first line, one line per record, and a last line that count
     try trace.write(&accept);
     try trace.end("pass");
     try testing.expectEqualStrings(
-        \\colibri-sim-trace version=1 gate=chunk seed=0x0000000000c0ffee
+        \\colibri-sim-trace version=1 check=chunk seed=0x0000000000c0ffee
         \\feed at_ns=1500 len=3
         \\accept offset=0 text=00ab empty= coding=huffman
         \\end records=2 outcome=pass
@@ -224,7 +224,7 @@ test "a record keeps its last octet for the newline" {
 }
 
 test "a trace out of room keeps whole lines and counts only what it wrote" {
-    const first_line = "colibri-sim-trace version=1 gate=chunk seed=0x0000000000000000\n";
+    const first_line = "colibri-sim-trace version=1 check=chunk seed=0x0000000000000000\n";
     // Room for one record and its newline, then for a second record but not its newline.
     var buffer: [first_line.len + "feed len=1\n".len + "feed len=1".len]u8 = @splat(0);
     var output = Writer.init(&buffer);
@@ -259,7 +259,7 @@ test "the chunk-independent part keeps every line but feeds, and the outcome wit
     var buffer: [test_trace_len_max]u8 = @splat(0);
     var output = Writer.init(&buffer);
     try write_chunk_independent(
-        \\colibri-sim-trace version=1 gate=chunk seed=0x0000000000000001
+        \\colibri-sim-trace version=1 check=chunk seed=0x0000000000000001
         \\feed at_ns=0 len=1 held=1
         \\accept offset=0 len=1 value=5
         \\feeding offset=1
@@ -269,7 +269,7 @@ test "the chunk-independent part keeps every line but feeds, and the outcome wit
         \\
     , &output);
     try testing.expectEqualStrings(
-        \\colibri-sim-trace version=1 gate=chunk seed=0x0000000000000001
+        \\colibri-sim-trace version=1 check=chunk seed=0x0000000000000001
         \\accept offset=0 len=1 value=5
         \\feeding offset=1
         \\reject offset=1 error=IntegerTooLong

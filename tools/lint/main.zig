@@ -1,7 +1,7 @@
 //! colibri lint: the rules of CLAUDE.md and docs/invariants.md that a parser and a line scanner
 //! can check, one file per rule under tools/lint/.
 //!
-//! Run:  zig build lint, which passes no `--rule`, so every rule registered here runs and gates.
+//! Run:  zig build lint, which passes no `--rule`, so every rule registered here runs and checks.
 //! `--rule NAME` runs one rule by hand.
 //!
 //! The driver is pepegrillo's (decision 36): it walks every PATH, hands every regular file to every
@@ -26,7 +26,7 @@ const std = @import("std");
 const pepegrillo = @import("pepegrillo");
 
 /// Every rule, in the order `--rule` names are looked up. Each exports a `name` and a
-/// `check(context, file)`, and every one gates `zig build lint`.
+/// `check(context, file)`, and every one checks `zig build lint`.
 const rules = .{
     @import("heap.zig"),
     @import("io.zig"),
