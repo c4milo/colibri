@@ -8,7 +8,7 @@
 //! would leave its dynamic table one insert behind the peer's and every later block would decode
 //! to the wrong field lines (invariant 10). So a block on a stream colibri has refused, reset or
 //! never opened is decoded like any other, and only the section it produces is
-//! dropped, which `discarded` marks.
+//! dropped, which `block_discarded` marks.
 //!
 //! The stream moves when the HEADERS frame arrives, not when the block ends: §6.2 makes the
 //! CONTINUATION frames that follow logically part of that frame, and §4.3 lets nothing come

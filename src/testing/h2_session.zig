@@ -5,10 +5,13 @@
 //! `step` does three things in order, each bounded by the caller's buffers:
 //!   1. writes what the connection owes: its preface, the acknowledgments, the window updates and
 //!      the GOAWAY (RFC 9113 §3.4, §6.5.3, §6.7, §6.9, §6.8);
-//!   2. finishes a response it began and had no room to write whole;
-//!   3. reads frames until one ends a request, and answers that one.
-//! A step that writes nothing and consumes nothing means the caller must read more octets, or the
-//! connection is finished, which `done` says.
+//!   2. reads frames until the input runs out, the connection owes as many responses as the queue
+//!      holds, or the connection fails;
+//!   3. writes as much of the owed responses as the windows and the caller's room allow, oldest
+//!      first, and leaves the rest owed.
+//! A connection that fails in step 2 writes its GOAWAY before the step returns. A step that writes
+//! nothing and consumes nothing means the caller must read more octets, or the connection is
+//! finished, which `done` says.
 //!
 //! The server answers every request the same way, whatever its method or path: design §9 asks for
 //! 200 and a non-empty body, which is what h2spec's DATA cases and h2load both need. A request the

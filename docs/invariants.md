@@ -25,8 +25,9 @@ Each entry has four fields. **Claim** is the invariant. **Mechanism** is what ma
 **Violation** is what a breaking change looks like, so review can recognise one. An entry whose
 Check is grade 7 or 8 is a weaker entry, and the scale says so.
 
-Nothing in this file is implemented yet. Each entry names the build-plan step (design §8) that
-lands its check.
+The invariants whose build-plan step has landed are implemented; the rest are not. Each entry names
+the build-plan step (design §8) that lands its check. Each entry names the build-plan step (design
+§8) that lands its check.
 
 ## Allocation and ownership
 
@@ -37,14 +38,14 @@ lands its check.
   duration of one call.
 - **Mechanism.** No module takes, holds or names an `Allocator`, and no source under `src/`
   references `std.heap` (decision 35). The caller owns every struct colibri defines and places it
-  where it chooses. The connection struct is an `extern struct` whose size is a comptime
-  constant, so `@sizeOf` gives its total memory use.
+  where it chooses. The connection struct's size is a comptime constant, so `@sizeOf` gives its
+  total memory use.
 - **Check.** Lint rule (`tools/lint/heap.zig`: no parameter whose type names `Allocator` on any
   function in `src/`, `init` included, and no reference to `std.heap` or to the allocators of
   `std.testing`) at step 0, with the `init` exception removed when decision 35 was ruled; plus a
-  comptime assert pinning each connection struct's size, which lands with the struct it pins
-  (steps 4 and 9) and is cross-checked against what `bench/run.sh` publishes when `bench/` lands
-  at step 13.
+  comptime assert pinning each connection struct's size, which lands with the struct it pins (steps
+  4 and 9; h2's is not written yet) and is cross-checked against what `bench/run.sh` publishes when
+  `bench/` lands at step 13.
 - **Violation.** A "temporary" growable buffer for an oversized field section, so the static
   memory table silently stops being true. Or an `init` that takes an allocator "only once".
 - See [decisions 31, 34](decisions.md#performance) and [35](decisions.md#memory).
@@ -211,13 +212,16 @@ lands its check.
   peer opens are strictly increasing; and every identifier below the watermark for its parity is
   closed, whether or not colibri ever held a record for it.
 - **Mechanism.** Two watermarks, one per parity, and a fixed slot pool. "Closed" is the implicit
-  default below the watermark rather than a stored record, which keeps a 31-bit identifier
-  space from becoming a 31-bit table (RFC 9113 §5.1.1). This is the shared slot-pool structure of
-  decision 14.
-- **Check.** A peer identifier at or below the watermark returns a connection error of
-  `PROTOCOL_ERROR` — never an assertion, because a peer supplies the value (INV-24). The runtime
-  assertion is on colibri's own bookkeeping: that a watermark never decreases. Plus a simulator
-  invariant checked after every step, and the h2spec cases for §5.1.1. Step 4.
+  default below the watermark rather than a stored record, which keeps a 31-bit identifier space
+  from becoming a 31-bit table (RFC 9113 §5.1.1). The pool does keep the most recent closes, so
+  §5.1 can decide a late frame by how its stream closed, and an open drops the oldest of them when
+  it needs the slot. This is the shared slot-pool structure of decision 14.
+- **Check.** An identifier at or below the watermark that the table holds no record for is a
+  connection error of `PROTOCOL_ERROR`; one whose record the table still keeps takes the verdict
+  §5.1 gives for the way it closed. Neither is an assertion, because a peer supplies the value
+  (INV-24). The runtime assertion is on colibri's own bookkeeping: that a watermark never
+  decreases. Plus a simulator invariant checked after every step, and the h2spec cases for §5.1.1.
+  Step 4.
 - **Violation.** A hash map keyed by stream identifier, which one frame can grow by 2^31 entries.
 
 ### INV-14 — exactly one field-block reassembly is in progress

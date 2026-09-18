@@ -1,5 +1,5 @@
-//! The deterministic harness: clock, byte pipe, datagram network, and a null provider for each
-//! vtable (design §10). It imports no protocol module, so it cannot know anything a caller would
+//! The deterministic harness: clock, byte pipe and trace (design §10). The datagram network and
+//! the null provider for each vtable land with design §8 step 8. It imports no protocol module, so it cannot know anything a caller would
 //! not.
 const std = @import("std");
 

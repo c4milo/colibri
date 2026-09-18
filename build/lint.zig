@@ -32,8 +32,8 @@ const canary_rules = [_][]const u8{
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
 const file_length_max_lines = 500;
 
-/// One violation of each Zig rule under `src/`, in the order `canary_rules` names them, then enough
-/// comment lines to pass the file-length limit.
+/// One violation of each Zig rule under `src/`, then enough comment lines to pass the file-length
+/// limit. (Drop "in the order `canary_rules` names them": the relative-import violation is written first, before heap's.)
 const canary_source =
     \\const std = @import("std");
     \\const other = @import("/canary/other.zig");

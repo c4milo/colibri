@@ -61,7 +61,7 @@ core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
 core, wire, sim, h2 <- sim_run
-core             <- golden
+core, wire, hpack <- golden
 core, h2         <- testing
 ```
 
@@ -361,8 +361,8 @@ end records=<count> outcome=<outcome>
 - Each record between the first line and the last is a name, then fields separated by one space.
   A key is lowercase letters, digits and underscores. A value holds no space: an unsigned decimal
   integer, octets as lowercase hexadecimal with no prefix, or a word such as an error name.
-- The last line gives the size, the count of records between the first line and itself, and how
-  the run ended. A trace with no `end` line was cut short.
+- The last line gives the count of records between the first line and itself, and how the run ended.
+  A trace with no `end` line was cut short.
 - The seed is the only value written in hexadecimal with a `0x` prefix, because it is the value a
   person copies into `zig build sim -- --<check>-seed <hex>`.
 
@@ -697,7 +697,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     its three Huffman settings (decision 38 on how the corpus is held).
   - **Corpus.** `src/golden/hpack/` holds the three interop breaks of §6.2 beside their legal
     twins, six cases with five mutations, and `golden` now imports `hpack` to check them.
-  - **Not built.** Nothing of the step. `Decoder` and `Encoder` are 29 KiB and 21 KiB, sized by
+  - **Not built.** Nothing of the step. `Decoder` and `Encoder` are 30 KiB and 22 KiB, sized by
     `dynamic_table_capacity_max`; the h2 connection of step 4 places one of each.
 
   Forty-three source mutations were applied over the table, the decoder, the encoder, the
@@ -722,7 +722,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **Check passed, 2026-09-17.** `zig build test` exits 0 on Zig 0.16.0, macOS 26.6, arm64: 587 tests
   pass, the lint scores 1,324 functions with a highest score of 13 against the limit of 15, and
-  the twelve `tools/lint` rules run clean. `tools/h2spec.sh` prints `146 tests, 144 passed,
+  the eleven `tools/lint` rules run clean. `tools/h2spec.sh` prints `146 tests, 144 passed,
   0 skipped, 2 failed` against h2spec 2.6.0, and the script names the two: both test RFC 7540
   §5.3.1's rule that a stream cannot depend on itself, which RFC 9113 §5.3.2 dropped with the rest
   of the priority scheme, leaving §6.3 two rules that colibri does enforce

@@ -95,7 +95,7 @@ pub const Event = union(enum) {
     settings_acknowledged,
     /// The peer's SETTINGS frame was applied; colibri owes the acknowledgment (§6.5.3).
     settings_applied,
-    /// The peer answered a PING colibri sent, with this Opaque Data (§6.7).
+    /// The peer sent a PING carrying the ACK flag, with this Opaque Data (§6.7). colibri sends no PING of its own, so it never asked for one.
     ping_acknowledged: [constants.ping_len]u8,
     request: Request,
     response: Response,
@@ -128,9 +128,6 @@ pub const Connection = struct {
     peer: settings.Values,
     /// The SETTINGS frames colibri sent and has not seen acknowledged (§6.5.3).
     pending: settings.Pending,
-    /// The peer's SETTINGS_HEADER_TABLE_SIZE, to give the encoder once colibri acknowledges the
-    /// frame that carried it (RFC 9113 §4.3.1), or null when none is waiting.
-    encoder_capacity_pending: ?u32,
     /// Octets of the client connection preface colibri has read, at a server (§3.4).
     preface_read_len: u32,
     /// Whether the client connection preface has been written, at a client (§3.4).
@@ -173,7 +170,6 @@ pub const Connection = struct {
         connection.local = settings.advertised(role);
         connection.peer = settings.initial;
         connection.pending.init();
-        connection.encoder_capacity_pending = null;
         connection.preface_read_len = 0;
         connection.preface_written = false;
         connection.settings_written = false;
@@ -250,8 +246,7 @@ pub const Connection = struct {
     }
 
     /// Whether colibri's SETTINGS_ENABLE_PUSH of 0 has been acknowledged, after which RFC 9113
-    /// §6.5.2 makes a PUSH_PROMISE a connection error. colibri sends the value in its preface and
-    /// never changes it, so the acknowledgment is the only thing to wait for (decision 17).
+    /// §6.5.2 makes a PUSH_PROMISE a connection error. a client sends the value in its preface and never changes it, so the acknowledgment is the only thing to wait for (decision 17); a server omits the setting (§6.5.2) and never reaches this call, because `on_push_promise` refuses a PUSH_PROMISE on its role first.
     pub fn push_refused(connection: *const Connection) bool {
         return connection.settings_written and connection.pending.len() == 0;
     }

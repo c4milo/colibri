@@ -10,7 +10,7 @@
 //! and discard (§4.1, §5.5). `verdict` is the one table that maps each parse error, for the type
 //! and stream it occurred on, to the connection or stream error and the code the RFC attaches.
 //!
-//! The codec is a pure function of the header and the payload (invariant 5): it holds no state,
+//! The codec is a pure function of the header and the payload (invariant 6): it holds no state,
 //! reads no clock and allocates nothing. Every parser is a check on the shape of one frame; every
 //! rule that needs the connection's state, such as which stream is open, is the connection's.
 const std = @import("std");

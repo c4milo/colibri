@@ -1,6 +1,6 @@
 //! The representation reader of the HPACK decoder, split off decoder.zig for length: one
-//! `Block` decodes one complete field block over a `Decoder`, reading one representation of
-//! RFC 7541 §6 per call to `next`. The order of the checks on each representation is listed
+//! `Block` decodes one complete field block over a `Decoder`, reading the size updates the block
+//! opens with and then one field-line representation of RFC 7541 §6 per call to `next`. The order of the checks on each representation is listed
 //! in decoder.zig's header, and the tests of the refusals are here, beside the code that refuses.
 //!
 //! A representation is read whole or not at all. On `error.Truncated` the cursor stays at its

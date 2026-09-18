@@ -11,7 +11,7 @@
 //!      order. The wire is network byte order in h2 (RFC 9113 §2.2) and in QUIC (RFC 9000 §1.3).
 //!
 //! A parser that must not consume anything on failure copies the reader, reads through the copy,
-//! and assigns the copy back only when the whole structure parsed. The reader is two words, so
+//! and assigns the copy back only when the whole structure parsed. The reader is three words, so
 //! the copy is free.
 const std = @import("std");
 const assert = std.debug.assert;

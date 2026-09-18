@@ -45,7 +45,8 @@ pub const check_name = "connection";
 /// build modes.
 pub const census_crc32_expected: u32 = 0xe8f7c0b4;
 
-/// How a seed failed the check: the harness's three, then one per invariant read off the connection.
+/// How a seed failed the check: the harness's three, then the six the four invariants read off the
+/// connection raise, two each for invariants 13 and 16 and one each for 14 and 15.
 pub const Violation = error{
     /// Two chunked runs of the seed wrote different traces or drew a different number of values.
     ReplayDiverged,

@@ -3,8 +3,8 @@
 //! `reserve_peer` records the stream a PUSH_PROMISE promises, at a client, which colibri resets
 //! (decision 17). An open gives the record the state open, a send window of the peer's
 //! SETTINGS_INITIAL_WINDOW_SIZE, a receive window of `window_initial`, and one more in its
-//! initiator's active count. An open into a full pool first drops the oldest record closed by a
-//! RST_STREAM colibri sent. This serves decision 14 and invariants 13 and 16.
+//! initiator's active count. An open into a full pool first drops the oldest closed record,
+//! whatever closed it. This serves decision 14 and invariants 13 and 16.
 //!
 //! Each operation asserts its role, because §5.1 gives it to one role and the connection calls it
 //! only after the state machine permits the frame. `open_peer` checks in this order (invariant 7):
@@ -35,7 +35,8 @@
 //! `reserve_peer` asserts the client role and an even identifier other than 0, which the frame
 //! codec checked (§6.6), then checks that the identifier is above the even watermark, or
 //! `error.IdentifierNotIncreasing` (§5.1.1, §6.6). A refusal at step 5, a reservation and a
-//! dropped record each raise `highest_forgotten_reset_id` of the identifier's parity.
+//! dropped record of a stream colibri reset each raise `highest_forgotten_reset_id` of the
+//! identifier's parity.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");

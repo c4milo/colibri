@@ -138,8 +138,9 @@ pub const Change = union(enum) {
     /// be negative, and a change that makes any window exceed `window_max` is a connection error
     /// of FLOW_CONTROL_ERROR (RFC 9113 §6.9.2). The connection does both from `old` and `new`.
     initial_window_size: WindowChange,
-    /// SETTINGS_HEADER_TABLE_SIZE: the limit the peer's decoder set on colibri's encoder, in force
-    /// once colibri acknowledges the frame (RFC 9113 §4.3.1).
+    /// SETTINGS_HEADER_TABLE_SIZE: the limit the peer's decoder set on colibri's encoder. §4.3.1
+    /// puts a change in force at the acknowledgment; `connection_control.zig` applies it on read,
+    /// which never gives colibri a table larger than the peer allows.
     header_table_size: u32,
     /// A setting the connection reads where it applies and need not act on now.
     other,
@@ -250,8 +251,7 @@ pub const Pending = struct {
     }
 
     /// Pops the oldest frame, whose values are in force from now on (RFC 9113 §6.5.3): the
-    /// connection binds the peer's encoder to a reduced HEADER_TABLE_SIZE (§4.3.1) and moves every
-    /// receive window by a changed INITIAL_WINDOW_SIZE (§6.9.2). Null when nothing is pending.
+    /// connection holds them in `local`. Null when nothing is pending.
     pub fn acknowledge(pending: *Pending) ?Values {
         assert(pending.count <= constants.settings_pending_max);
         if (pending.count == 0) return null;
@@ -271,7 +271,7 @@ pub const Pending = struct {
     }
 
     /// True from the deadline on. RFC 9113 §6.5.3 lets the sender issue a connection error of
-    /// SETTINGS_TIMEOUT when no ACK arrives in a reasonable time; colibri takes the MAY.
+    /// SETTINGS_TIMEOUT when no ACK arrives in a reasonable time; the connection does not ask.
     pub fn is_timed_out(pending: *const Pending, now_ns: u64) bool {
         const deadline = pending.deadline_ns() orelse return false;
         return now_ns >= deadline;

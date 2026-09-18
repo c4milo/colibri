@@ -27,11 +27,12 @@ The architecture depends on every rule in this section.
    are written into storage the caller owns and parsed out of bytes the caller has already read.
    Every function that would block instead returns a value naming the I/O it needs. Do not
    make a syscall in this repository.
-2. **colibri owns no crypto.** Two caller-supplied vtables, `tls.Provider` and `crypto.Suite`,
-   with no production implementation in this tree (decisions 8 and 9): `src/sim/` carries null
-   implementations, which are test-only and are never packaged. chapulin fills both vtables for the
-   checks, linked by `src/testing/` alone (decision 10). The library never links a TLS stack, never
-   holds a private key, and never chooses a cipher suite.
+2. **colibri owns no crypto.** Two caller-supplied vtables, `tls.Provider` and `crypto.Suite`, with
+   no production implementation in this tree (decisions 8 and 9): `src/sim/` will carry the null
+   implementations, which are test-only and are never packaged; design §8 step 2 records that the
+   null provider lands with step 5 and the null suite with step 7. chapulin fills both vtables for
+   the checks, linked by `src/testing/` alone (decision 10). The library never links a TLS stack,
+   never holds a private key, and never chooses a cipher suite.
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and
@@ -204,8 +205,8 @@ tree. Design §11 holds the method and the numbers.
 
 ## Commands
 
-Nothing below exists yet; design §8 step 0 adds it. This section is the specification that step
-writes to; change it when that step is done, not before.
+Everything below exists but `tools/h3spec.sh`, `tools/interop.sh` and `bench/run.sh`, which land
+with design §8 steps 12, 9 and 13. Change this section when a step adds or renames a command.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.

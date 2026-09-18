@@ -407,10 +407,11 @@ because a refused feature still imposes obligations on the wire.
     RFC 9218 is optional: §1 says servers "can ignore client priority signals and still successfully
     serve HTTP responses", and §10 says expressing priority is only a suggestion. colibri ignores it
     and applies the unknown-extension rules — discard `PRIORITY_UPDATE` as an unknown frame type,
-    and ignore the `SETTINGS_NO_RFC7540_PRIORITIES` identifier if a peer sends it. It does take the
-    one cheap position RFC 9218 §2.1 offers: send `SETTINGS_NO_RFC7540_PRIORITIES` with value 1 in
-    its first SETTINGS frame, immutable thereafter, to declare that it ignores 7540 signals. §2.1
-    permits that without adopting 9218's scheme.
+    and ignore the `SETTINGS_NO_RFC7540_PRIORITIES` identifier if a peer sends it. RFC 9218 §2.1
+    offers one cheap position, sending `SETTINGS_NO_RFC7540_PRIORITIES` with value 1 in the first
+    SETTINGS frame, immutable thereafter, to declare that 7540 signals are ignored; §2.1 permits
+    that without adopting 9218's scheme, and colibri does not send it today — its preface carries
+    the six settings of RFC 9113 §6.5.2 alone. §2.1 permits that without adopting 9218's scheme.
 
 19. **Extended CONNECT: no.** `SETTINGS_ENABLE_CONNECT_PROTOCOL` is identifier 0x08 with initial
     value 0 (RFC 8441 §9.1), and a client may use extended CONNECT only on receipt of value 1 (§3).
@@ -540,8 +541,8 @@ because a refused feature still imposes obligations on the wire.
 
 29. **Fuzz every parser, and every check is seeded.** A parser is anything that reads peer bytes:
     the frame readers, the packet reader, HPACK, QPACK, the varint and prefixed-integer decoders,
-    the field validators, the transport-parameter reader. colibri follows the layout of chapulin's
-    `fuzz/`.
+    the field validators, the transport-parameter reader. Every property function lives in the file
+    it tests, with the shared harness in `src/core/fuzz.zig`.
 
 30. **The deterministic simulator is the check that the others cannot be.** Seeded connection
     state, flow control, loss, reordering and recovery, with byte-identical replay across hosts
@@ -710,13 +711,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
 ## The h2 connection
 
-39. **The connection consumes one frame per call and returns what it produced.** Design §4.1 has
-    the caller hand colibri the octets it read and learn how many were consumed. `receive` takes a
-    slice and an instant, consumes at most one whole frame, and returns the count consumed and at
-    most one event: a field section, a data payload, a stream reset, a GOAWAY, an acknowledged
-    PING or SETTINGS. A count of 0 means the slice holds no whole frame yet. Frames colibri owes in
-    reply, a SETTINGS or PING acknowledgment, a WINDOW_UPDATE, a RST_STREAM, a GOAWAY, are queued
-    in fixed slots and written by `write_pending` into the caller's buffer when the caller asks.
+39. **The connection consumes one frame per call and returns what it produced.** Design §4.1 has the
+    caller hand colibri the octets it read and learn how many were consumed. `receive` takes a slice
+    and an instant, consumes at most one whole frame, and returns the count consumed and at most one
+    event: a field section, a data payload, a stream reset, a GOAWAY, an acknowledged PING or
+    SETTINGS. A count of 0 means the slice holds no whole frame yet, or the queued replies must be
+    written before more frames are read; `has_pending` tells the two apart. Frames colibri owes in
+    reply, a SETTINGS or PING acknowledgment, a WINDOW_UPDATE, a RST_STREAM, a GOAWAY, are queued in
+    fixed slots and written by `write_pending` into the caller's buffer when the caller asks.
 
     Two alternatives lost. Consuming every whole frame in the slice needs somewhere to hold every
     event that produces, and a bounded event queue either drops events or refuses input, both of

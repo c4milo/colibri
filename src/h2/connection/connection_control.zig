@@ -37,7 +37,7 @@ pub fn on_settings(target: *Connection, values: frame.Settings) Error!?Event {
 /// values in force (RFC 9113 §6.5.3).
 fn acknowledge(target: *Connection) ?Event {
     // RFC 9113 §6.5.3 gives no rule for an acknowledgment of a frame that was never sent, so
-    // colibri discards it, as it discards a PING acknowledgment it did not ask for (§6.7).
+    // colibri discards it, unlike a PING acknowledgment it did not ask for, which `on_ping` still reports to the caller (§6.7).
     const acknowledged = target.pending.acknowledge() orelse return null;
     target.local = acknowledged;
     return .settings_acknowledged;

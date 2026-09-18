@@ -1,4 +1,4 @@
-//! The step 1 corpus as a pure table (decision 26, design §8 step 1): what each case is built from
+//! The golden corpus as a pure table (decision 26, design §8 steps 1 and 3): what each case is built from
 //! and the verdict its decoder must return. `corpus.zig` builds, decodes and describes the cases;
 //! `tools/golden.zig` writes them to disk; `golden.zig` checks the files against this table.
 //!

@@ -64,7 +64,9 @@ pub fn write(writer: *Writer, header: Header) core.writer.Error!void {
 }
 
 /// Whether `flag` is set. A flag the frame type does not define is unused and read by nothing
-/// (RFC 9113 §4.1), so this is only called with a flag the type defines.
+/// (RFC 9113 §4.1), so the answer means something only for a flag the type defines:
+/// `connection_receive.zig` reads ACK before it knows the type and drops the answer when it is
+/// not SETTINGS.
 pub fn has_flag(header: Header, flag: u8) bool {
     assert(flag != 0);
     return header.flags & flag != 0;

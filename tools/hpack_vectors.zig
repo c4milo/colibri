@@ -7,7 +7,7 @@
 //!
 //! Usage: hpack_vectors <hpack-test-case directory>
 //!
-//! Every directory but `raw-data` holds the output of one encoder over the same 32 stories, and a
+//! Every directory but `raw-data` holds the output of one encoder over the same stories — 32 in most, 31 in `nghttp2-16384-4096` and `nghttp2-change-table-size`, which stop at `story_30.json`, and a
 //! story is one connection's field blocks in order, sharing a decoding context. For each story
 //! the tool starts a decoder at the protocol's initial capacity, applies each case's
 //! `header_table_size` as a limit the peer acknowledged, decodes the case's `wire` and requires

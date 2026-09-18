@@ -2,17 +2,18 @@
 //!
 //! A `Decoder` is one endpoint's decoding context (§2.2): its dynamic table and the limit the
 //! protocol set on it, which in h2 is this endpoint's own `SETTINGS_HEADER_TABLE_SIZE`. A
-//! `Block` decodes one complete field block over it, and each call to `next` reads one
-//! representation (§6) and returns the field line it produced, or null at the end. The caller
+//! `Block` decodes one complete field block over it, and each call to `next` consumes the size
+//! updates the block opens with, then reads one field-line representation (§6) and returns the
+//! field line it produced, or null at the end. The caller
 //! places the decoder and reads the lines as they come, which is the "minimal transitory memory"
 //! of §3.1: no line is held past the next call.
 //!
 //! `Block` is in decoder_block.zig and reads one representation per call. Each is checked in
 //! this order (invariant 7):
 //!   1. its pattern, from the first octet's high bits (§6);
-//!   2. a size update: it comes before every field line in the block (§4.2), at most twice
-//!      (§4.2), at or below the protocol's limit (§6.3), and, after the limit was lowered, at or
-//!      below the lowered limit (RFC 9113 §4.3.1);
+//!   2. a size update: at most twice (§4.2), before every field line in the block (§4.2), at or
+//!      below the protocol's limit (§6.3), and, after the limit was lowered, at or below the
+//!      lowered limit (RFC 9113 §4.3.1);
 //!   3. an index: not 0 in an indexed field (§6.1), and inside the address space (§2.3.3);
 //!   4. a string: an integer and octets `wire.string_literal` accepts, decoding to at most
 //!      `name_len_max` or `value_len_max` octets, or `error.StringTooLong` (§7.4).

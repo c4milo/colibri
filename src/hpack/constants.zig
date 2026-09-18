@@ -35,7 +35,7 @@ pub const name_len_max: u32 = core.constants.field_name_len_max;
 pub const value_len_max: u32 = core.constants.field_value_len_max;
 
 /// Most field lines one block may hold. A block of n octets holds at most n representations, and
-/// a caller that reads them one at a time needs no array; this bounds the decode loop.
+/// Most field lines one block may hold. A block of n octets holds at most n representations, and a caller that reads them one at a time needs no array. No decode loop reads this constant: `Block.next` is bounded by `size_updates_per_block_max` and h2's loop by `h2.constants.field_block_buffer_len`.
 pub const block_len_max: u32 = core.constants.field_section_size_max;
 
 /// The first-octet patterns of the five representations (RFC 7541 §6), each a mask over the

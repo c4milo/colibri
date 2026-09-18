@@ -47,7 +47,7 @@ pub const stream_id_server_first: u32 = 2;
 pub const stream_id_step: u32 = 2;
 
 /// The mask of the reserved bit above a 31-bit identifier or window increment, ignored on receipt
-/// and unset on send (RFC 9113 §4.1, §6.2, §6.9).
+/// and unset on send (RFC 9113 §4.1, §6.6, §6.8, §6.9).
 pub const reserved_bit_mask: u32 = 1 << 31;
 
 /// The mask of the Exclusive bit above the 31-bit Stream Dependency of the priority fields a

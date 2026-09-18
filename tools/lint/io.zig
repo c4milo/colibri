@@ -3,7 +3,7 @@
 //! parsed out of bytes the caller has already read, so every function that would block returns
 //! what it wants instead.
 //!
-//! Over every `.zig` file under `src/` but not under `src/testing/`, the rule flags a chain that
+//! Over every `.zig` file under `src/` but not under `src/testing/` and not `src/sim/run_main.zig`, the rule flags a chain that
 //! starts with one of `forbidden_prefixes` at a dot boundary: `std.posix`, `std.fs`, `std.net`,
 //! `std.Thread`, `std.Io` and `std.process`. `src/testing/` holds the test-only entry points of
 //! design §9 and is the one directory permitted to touch a socket (CLAUDE.md, Layout), so it is

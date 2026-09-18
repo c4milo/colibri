@@ -33,7 +33,7 @@ const source_directories = [_][]const u8{ "build", "src", "tools" };
 /// markdown rule covers.
 const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "docs" };
 
-/// Every tool whose own tests `zig build test` runs. A build that does not run the checkers' own
+/// Every tool built on pepegrillo whose own tests `zig build test` runs; build/generated.zig and build/vectors.zig hook in the tests of the generator and vectors tools. A build that does not run the checkers' own
 /// tests lets a rule lose its own test without the build reporting it.
 const tool_test_roots = [_][]const u8{
     "tools/lint/main.zig",
@@ -127,7 +127,7 @@ pub fn build(b: *std.Build) void {
 
     vectors.add(b, .{ .test_step = test_step, .tool_test_step = tool_test_step });
 
-    test_step.dependOn(add_graph_gate_step(b));
+    test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
     add_h2_server_step(b, graph.testing);
@@ -173,11 +173,14 @@ fn tool_module(
 
 /// `zig build graph-check`: design §8 step 0's check. A module can import only what
 /// build/modules.zig gives it, and the way to show that is to try the import that must fail.
-/// `tools/graph_check.zig` compiles `tools/fixtures/quic_imports_http.zig` as a module of the
-/// `quic` shape and requires the compile to fail with an unknown-module error. A check that
+/// `tools/graph_check.zig` first compiles the control `tools/fixtures/quic_imports_core.zig` as a
+/// module of the `quic` shape and requires it to compile, then compiles one fixture per forbidden
+/// module, `quic_imports_http.zig`, `quic_imports_h2.zig`, `quic_imports_h3.zig`,
+/// `quic_imports_hpack.zig` and `quic_imports_qpack.zig`, and requires each compile to fail with
+/// an unknown-module error. A check that
 /// asserted the rule in a linter would only be checking what the source says; this checks what
 /// the build does.
-fn add_graph_gate_step(b: *std.Build) *std.Build.Step {
+fn add_graph_check_step(b: *std.Build) *std.Build.Step {
     const check = b.addExecutable(.{
         .name = "graph_check",
         .root_module = host_module(b, "tools/graph_check.zig"),
@@ -241,7 +244,6 @@ fn add_sim_step(b: *std.Build, sim_run: *std.Build.Module) void {
     step.dependOn(&run.step);
 }
 
-/// `zig build hooks`: point this clone's core.hooksPath at .githooks, once after cloning.
 /// The cleartext h2 server of design §9, which `tools/h2spec.sh` runs the pinned suite against.
 /// It is built from the `testing` module and is never part of the library.
 fn add_h2_server_step(b: *std.Build, testing: *std.Build.Module) void {

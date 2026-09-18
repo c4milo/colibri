@@ -20,9 +20,10 @@
 //! needs its slot, and the record that closed first is dropped first. `sequence` counts the
 //! closes, so the order needs no clock (non-negotiable 3).
 //!
-//! A refused stream, a promised stream and a dropped record are streams colibri reset and holds no
-//! record for. Each raises `highest_forgotten_reset_id` of its parity, and `lookup` discards frames
-//! on every closed identifier at or below it. The kept records hold that value low, so most closed
+//! A refused stream, a promised stream and a dropped record of a stream colibri reset are streams
+//! colibri reset and holds no record for. Each raises `highest_forgotten_reset_id` of its parity,
+//! and `lookup` discards frames on every closed identifier at or below it. A record dropped after
+//! any other close raises nothing, and its identifier is forgotten. The kept records hold that value low, so most closed
 //! streams colibri did not reset keep their STREAM_CLOSED error.
 //!
 //! `peer_active` and `local_active` count the streams each endpoint opened that are open or
@@ -148,8 +149,8 @@ pub const Streams = struct {
         assert(!open.initiated_by_peer(streams, streams.next_local_id));
     }
 
-    /// Records in the pool: the open and half-closed streams, and the streams closed by a
-    /// RST_STREAM colibri sent that the pool still holds.
+    /// Records in the pool: the open and half-closed streams, and every closed stream whose
+    /// record the pool still holds.
     pub fn len(streams: *const Streams) u32 {
         open.assert_counts(streams);
         return streams.pool.len();

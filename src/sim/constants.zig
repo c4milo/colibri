@@ -106,7 +106,7 @@ pub const connection_check_trace_len_max: u32 = (connection_check_stream_len_max
     connection_check_refusal_frames_max + 3) * trace_record_len_max;
 
 /// Octets the connection-check subject gives the connection to write the frames it owes: its own
-/// SETTINGS frame and every reply its queues can hold. `connection_stream.zig` pins it.
+/// SETTINGS frame and every reply its queues can hold. `connection_check.zig` pins it.
 pub const connection_check_output_len_max: u32 = 1024;
 
 comptime {

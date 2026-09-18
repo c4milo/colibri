@@ -8,8 +8,8 @@
 //! The strategy is the one RFC 7541 Appendix C's examples follow, and the tests hold the encoder
 //! to those examples byte for byte:
 //!
-//! - a line found whole in either table is an indexed field (§6.1), the dynamic table searched
-//!   first because its indices change and the static ones do not;
+//! - a line found whole in either table is an indexed field (§6.1), the static table's index
+//!   preferred because a line the static table holds is never inserted into the mirror;
 //! - otherwise a literal, with the name by index when either table holds it (§6.2), and with
 //!   incremental indexing (§6.2.1) unless the caller asked for another representation or the
 //!   entry would not fit the table at all, in which case indexing it would only empty the table
@@ -20,7 +20,7 @@
 //! The capacity the encoder declares is the smaller of the peer's limit and
 //! `dynamic_table_capacity_max` (§4.2 lets an encoder use less than the limit). A change is
 //! signalled at the start of the next block, with the smallest capacity of the interval first and
-//! the final one second when they differ (§4.2), and the mirror is resized as each is written,
+//! the final one second when it differs from the capacity last declared (§4.2), and the mirror is resized as each is written,
 //! which is when the peer's decoder resizes.
 const std = @import("std");
 const assert = std.debug.assert;

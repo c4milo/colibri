@@ -140,7 +140,9 @@ test "every command whose spelling ends in ed or ing passes" {
     }
 }
 
-// The message of commit 6e04c77, which was written to these rules.
+// The body the tree's first docs commit was written with, before a later rewrite reflowed it. That
+// commit is no longer in the history; the text is kept because it breaks exactly one rule, which is
+// what the test below pins.
 
 const head_commit_message =
     \\docs: establish colibri's rules, decisions, invariants and build plan

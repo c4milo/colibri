@@ -104,7 +104,6 @@ pub const Status = struct {
         return from_code(code);
     }
 
-    /// The class the first digit names (RFC 9110 §15).
     /// Writes the three digits of the status code into `digits`, the mirror of `from_digits`:
     /// RFC 9113 §8.3.2 and RFC 9114 §4.3.2 carry them as the `:status` value, and RFC 9110 §15
     /// makes them three, leading zeros included.
@@ -121,6 +120,7 @@ pub const Status = struct {
         return digits;
     }
 
+    /// The class the first digit names (RFC 9110 §15).
     pub fn class(self: Status) Class {
         assert(self.code >= constants.status_code_min and self.code <= constants.status_code_max);
         return @enumFromInt(self.code / constants.status_class_size);

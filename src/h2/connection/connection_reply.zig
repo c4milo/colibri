@@ -231,8 +231,7 @@ test "a short buffer writes what fits and keeps the rest, frame by frame" {
     test_replies.push_settings_ack();
     test_replies.push_settings_ack();
     test_replies.push_ping_ack("01234567".*);
-    // Two SETTINGS acknowledgments fit in the room given; the PING acknowledgment needs eight
-    // octets more than what is left, so it stays queued.
+    // Two SETTINGS acknowledgments fit in the room given; the PING acknowledgment needs seventeen octets and one is left, so it stays queued.
     const room = 2 * constants.frame_header_len + 1;
     try testing.expectEqual(2 * constants.frame_header_len, test_replies.write(test_output[0..room]));
     try testing.expectEqual(0, test_replies.settings_acks);

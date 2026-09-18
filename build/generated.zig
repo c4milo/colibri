@@ -1,7 +1,7 @@
-//! The generated sources of docs/design.md §8 step 1, and the steps that write and check them.
+//! The generated sources of docs/design.md §8 steps 1 and 3, and the steps that write and check them.
 //! build.zig stays short (CLAUDE.md, Layout), so this file holds the wiring.
 //!
-//! Two generators, each a tool that writes into `src/` and a check that `zig build test` runs:
+//! Three generators, each a tool that writes into `src/` and a check that `zig build test` runs:
 //!   - `zig build huffman-table` rewrites src/wire/huffman_table.zig from RFC 7541 Appendix B, and
 //!     the test step runs the same tool with `--check`, which fails when the committed table is not
 //!     what the RFC text yields.
@@ -11,7 +11,7 @@
 //!     `zig build golden-check` runs the golden module's tests, which compare the committed files
 //!     with the same table through `@embedFile`.
 //!
-//! Both tools run on the build host in Debug: a tool never ships.
+//! All three tools run on the build host in Debug: a tool never ships.
 const std = @import("std");
 
 const rfc7541_path = "docs/rfcs/rfc7541.txt";

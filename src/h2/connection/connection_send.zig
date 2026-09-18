@@ -1,5 +1,4 @@
-//! What the caller asks the connection to send: a response at a server, a request at a client, the
-//! DATA of either, a RST_STREAM that ends one stream and the GOAWAY that ends the connection.
+//! What the caller asks the connection to send: a response at a server, the DATA that follows it, a RST_STREAM that ends one stream and the GOAWAY that ends the connection.
 //! Every one writes into the caller's buffer and returns the octets it wrote (design §4.1); none
 //! of them touches a socket.
 //!
@@ -37,7 +36,7 @@ pub const Error = error{
     /// RFC 9113 §5.1 does not let colibri send this frame on this stream, or the stream is not one
     /// colibri holds a record for.
     StreamNotSendable,
-    /// The caller's buffer is too small for the frame. A larger buffer sends the same frame.
+    /// The caller's buffer is too small for the frame, or the field section does not fit the connection's `send_block_len_max` buffer. A larger caller buffer sends the same frame only in the first case; a section past the buffer is refused whole (RFC 9113 §4.3).
     OutputTooSmall,
     /// The status is not a three-digit code RFC 9110 §15 defines.
     StatusInvalid,

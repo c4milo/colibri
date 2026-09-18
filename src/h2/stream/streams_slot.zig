@@ -35,8 +35,7 @@ fn record_forgotten_reset(streams: *Streams, id: u32) void {
     assert(streams.highest_forgotten_reset_id[class].? >= id);
 }
 
-/// Whether the pool has a free slot, after dropping the oldest record closed by a RST_STREAM
-/// colibri sent when it had none.
+/// Whether the pool has a free slot, after dropping the oldest closed record when it had none.
 pub fn ensure_free_slot(streams: *Streams) bool {
     // The pool's capacity is `concurrent_streams_max` (`streams.zig`'s `Pool`).
     if (streams.pool.len() < constants.concurrent_streams_max) return true;
