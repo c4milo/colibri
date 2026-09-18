@@ -15,7 +15,7 @@
 //!   entry would not fit the table at all, in which case indexing it would only empty the table
 //!   (§4.4);
 //! - a string is Huffman-coded as `huffman` says: always, as the RFC's examples do; never; or only
-//!   when that is strictly shorter, which is what nghttp2 does.
+//!   when that is strictly shorter, as nghttp2 does.
 //!
 //! The capacity the encoder declares is the smaller of the peer's limit and
 //! `dynamic_table_capacity_max` (§4.2 lets an encoder use less than the limit). A change is

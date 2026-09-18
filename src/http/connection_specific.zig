@@ -14,10 +14,11 @@
 //! is an ABNF quoted string, which matches in any case (RFC 5234 §2.3). The owner ruled on
 //! 2026-09-16 that colibri accepts all of these (decision 15). The function trims whitespace from
 //! every member, so it also accepts whitespace at either end of the value. Field validation
-//! refuses that whitespace before this function is asked.
+//! refuses that whitespace before this function is called.
 //!
-//! This file classifies; it does not decide. `classify` names which connection-specific field a
-//! name is, and `te_is_trailers` answers the exception's question. Whether a TE in a response, or a
+//! This file classifies a name; it returns no verdict. `classify` names which connection-specific
+//! field a name is, and `te_is_trailers` reports whether a TE value holds only "trailers". Whether
+//! a TE in a response, or a
 //! TE with another value, is malformed, and what error that is, is the protocol module's.
 const std = @import("std");
 const core = @import("core");

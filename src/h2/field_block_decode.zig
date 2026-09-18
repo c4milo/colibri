@@ -13,7 +13,7 @@
 //!
 //! A section that refuses a line does not stop the decoding: `too_large` is set, every later
 //! octet still goes through the decoder, and its lines are discarded, so the dynamic table stays
-//! in step with the peer's (invariant 10, RFC 9113 §10.5.1).
+//! synchronized with the peer's (invariant 10, RFC 9113 §10.5.1).
 //!
 //! The lines are stored without validation, which departs from `FieldSection.append`'s documented
 //! contract that the caller validated each name and value first. The validation is the
@@ -172,7 +172,7 @@ test "a size update that opens a CONTINUATION after a field line is refused as i
     try testing.expectEqual(null, try test_block.feed(test_decoder, "\x20\x20", false));
     try testing.expectEqual(2, test_block.size_updates);
     try testing.expectError(error.DecodeFailed, test_block.feed(test_decoder, "\x20\x82", true));
-    // The legal twin: the update opens the block, and the field lines follow in the next frame.
+    // The legal case: the update opens the block, and the field lines follow in the next frame.
     start(1, .headers, false);
     try testing.expectEqual(null, try test_block.feed(test_decoder, "\x20", false));
     try testing.expectEqual(1, test_block.size_updates);

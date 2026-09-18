@@ -73,7 +73,7 @@ fn release_slot(slot: usize) void {
 }
 
 /// Serves one connection in `slot`, then closes it and frees the slot. A connection that broke is
-/// the peer's business, not the server's: the suites drop connections on purpose.
+/// not reported as a server error: the suites drop connections on purpose.
 fn serve_slot(io: Io, stream: Io.net.Stream, slot: usize) void {
     defer {
         stream.close(io);
@@ -104,8 +104,8 @@ fn serve(io: Io, stream: Io.net.Stream, serving: *Serving) !void {
     }
 }
 
-/// Steps the session until it stops moving, writing everything it produces. True when the session
-/// is done and the connection is to be closed.
+/// Steps the session until it neither consumes nor writes, writing everything it produces. True
+/// when the session is done and the connection is to be closed.
 fn run_steps(writer: *Io.net.Stream.Writer, serving: *Serving) !bool {
     for (0..constants.steps_per_read_max) |_| {
         const step = serving.session.step(serving.input[0..serving.input_len], &serving.output);

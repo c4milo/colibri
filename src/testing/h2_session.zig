@@ -1,4 +1,4 @@
-//! One connection of the test-only h2 server, with no socket in sight: octets in, octets out, and
+//! One connection of the test-only h2 server, with no socket in it: octets in, octets out, and
 //! a 200 response to every request that ends (design §9). `h2_server.zig` is the socket around it,
 //! and these tests drive the same code the socket does.
 //!
@@ -12,7 +12,8 @@
 //!
 //! The server answers every request the same way, whatever its method or path: design §9 asks for
 //! 200 and a non-empty body, which is what h2spec's DATA cases and h2load both need. A request the
-//! connection refuses never reaches here, because the refusal is the connection's (§5.4.2).
+//! connection refuses is never passed to the session, because the refusal is the connection's
+//! (§5.4.2).
 //!
 //! Time is a value, never a clock: each step reports an instant `tick_ns` after the last, so the
 //! rate limits of §10.5 move and two runs of the same octets stay identical (invariant 6).
@@ -107,7 +108,7 @@ pub const Session = struct {
     }
 
     /// Writes what is left of the oldest owed response: its field section, then as much of the
-    /// body as fits. A response written whole leaves the queue.
+    /// body as fits. A response written whole is removed from the queue.
     fn write_oldest(session: *Session, output: []u8) usize {
         assert(session.owed_count > 0);
         const stream_id = session.owed[0];
@@ -173,9 +174,9 @@ var test_input: [constants.read_buffer_len]u8 = @splat(0);
 /// The client preface and an empty SETTINGS frame, which every test starts with. Test-only.
 const client_preface = h2.constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 
-/// Feeds `input` one step at a time until the session stops moving, and returns everything it
-/// wrote. A session that failed leaves the rest of the input unread, which is why the count is
-/// checked only while it is running. Test-only.
+/// Feeds `input` one step at a time until the session neither consumes nor writes, and returns
+/// everything it wrote. A session that failed leaves the rest of the input unread, which is why the
+/// count is checked only while it is running. Test-only.
 fn feed(input: []const u8) ![]const u8 {
     var consumed: usize = 0;
     var written: usize = 0;

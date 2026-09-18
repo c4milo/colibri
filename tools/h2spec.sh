@@ -15,7 +15,7 @@ readonly server="${repository_root}/zig-out/bin/h2-server"
 
 # The cases colibri does not pass, and why. Each one tests a rule RFC 7540 §5.3.1 stated and
 # RFC 9113 dropped with the rest of the priority scheme: §5.3.2 deprecates the signalling and §6.3
-# keeps two rules alone, a stream identifier of 0 and no PRIORITY inside a field block, both of
+# keeps only two rules, a stream identifier of 0 and no PRIORITY inside a field block, both of
 # which colibri enforces. colibri reads RFC 9113 and never RFC 7540 (CLAUDE.md), and decision 18
 # parses the priority fields without acting on them, so a stream that depends on itself is a
 # signal colibri ignores rather than an error it reports.
@@ -43,7 +43,7 @@ echo "h2spec.sh: building the test-only server"
 readonly server_pid=$!
 trap 'kill "${server_pid}" 2>/dev/null || true' EXIT
 
-# Give the listener a moment to come up before the first case connects.
+# Wait one second for the listener to start accepting connections before the first case connects.
 sleep 1
 kill -0 "${server_pid}" 2>/dev/null || fail "the server exited before the suite started"
 

@@ -1,5 +1,5 @@
 //! The published vectors colibri decodes in-process (decision 25), and the steps that run them.
-//! build.zig stays short (CLAUDE.md, Layout), so the wiring lives here.
+//! build.zig stays short (CLAUDE.md, Layout), so this file holds the wiring.
 //!
 //! `zig build hpack-vectors` runs tools/hpack_vectors.zig over the vendored
 //! src/hpack/hpack-test-case, and `zig build h2-frames` runs tools/h2_frames.zig over the vendored

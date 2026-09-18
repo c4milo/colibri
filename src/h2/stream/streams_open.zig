@@ -29,8 +29,8 @@
 //!      `error.PeerLimitReached` (§5.1.2);
 //!   5. the pool has a free slot after the drop, or `error.Full`.
 //!
-//! The slot machinery those steps use — the drop of the oldest closed record and the two markers
-//! an identifier without a record is read by — is `streams_slot.zig`.
+//! `streams_slot.zig` holds the slot operations those steps use: the drop of the oldest closed
+//! record, and the two markers an identifier without a record is read by.
 //!
 //! `reserve_peer` asserts the client role and an even identifier other than 0, which the frame
 //! codec checked (§6.6), then checks that the identifier is above the even watermark, or

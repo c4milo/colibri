@@ -95,7 +95,7 @@ pub const varint = [_]Case{
     accept("varint_8_octets_max", .{
         .varint = .{ .value = wire.constants.varint_value_max, .encoded_len = 8 },
     }),
-    // One truncation per length: the first octet promises more octets than are present.
+    // One truncation per length: the first octet declares more octets than are present.
     reject("varint_empty", .{ .literal = &.{} }, error.Truncated),
     reject("varint_2_octets_truncated", truncated_from("varint_2_octets_15293"), error.Truncated),
     reject(
@@ -117,7 +117,7 @@ pub const prefixed_integer = [_]Case{
         .prefixed_integer = .{ .value = 1337 },
     })),
     at_prefix(8, accept("prefixed_integer_8_bit_42", .{ .prefixed_integer = .{ .value = 42 } })),
-    // The caller's high bits beside a 5-bit prefix, and the 62-bit ceiling at both prefix extremes.
+    // The caller's high bits beside a 5-bit prefix, and the 62-bit maximum at both prefix extremes.
     at_prefix(5, accept("prefixed_integer_5_bit_1337_high_bits", .{
         .prefixed_integer = .{ .value = 1337, .high_bits = 0xe0 },
     })),
@@ -131,7 +131,7 @@ pub const prefixed_integer = [_]Case{
     at_prefix(1, reject("prefixed_integer_1_bit_too_large", .{
         .literal = &.{ 0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f },
     }, error.IntegerTooLarge)),
-    // A full prefix and nine zero-valued continuation octets that all promise another.
+    // A full prefix and nine zero-valued continuation octets that each set the continuation flag.
     at_prefix(5, reject("prefixed_integer_5_bit_too_long", .{
         .literal = &.{ 0x1f, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00 },
     }, error.IntegerTooLong)),
@@ -204,7 +204,7 @@ pub const hpack = [_]Case{
     // RFC 7541 §2.3.3: after one insert, index 62 is that entry.
     at_capacity(40, accept("hpack_insert_fits_then_indexed", .{ .literal = "\x40\x01a\x01b\xbe" })),
     // RFC 7541 §4.4: an insert larger than the capacity is not an error; it empties the table,
-    // so the index that was valid a moment ago is now past it.
+    // so the index that was valid before the insert is now past it.
     at_capacity(40, reject(
         "hpack_insert_larger_than_capacity_empties",
         .{ .literal = "\x40\x01a\x01b\x40\x01c\x08dddddddd\xbe" },

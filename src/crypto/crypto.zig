@@ -1,5 +1,5 @@
 //! The packet-protection vtable colibri drives for QUIC (decision 9). No production implementation
-//! lives here.
+//! is in this tree.
 const std = @import("std");
 
 pub const core = @import("core");

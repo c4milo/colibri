@@ -1,5 +1,5 @@
 //! The generated sources of docs/design.md §8 step 1, and the steps that write and check them.
-//! build.zig stays short (CLAUDE.md, Layout), so the wiring lives here.
+//! build.zig stays short (CLAUDE.md, Layout), so this file holds the wiring.
 //!
 //! Two generators, each a tool that writes into `src/` and a check that `zig build test` runs:
 //!   - `zig build huffman-table` rewrites src/wire/huffman_table.zig from RFC 7541 Appendix B, and
@@ -24,7 +24,7 @@ pub const Steps = struct {
     test_step: *std.Build.Step,
     /// `zig build test-tools`.
     tool_test_step: *std.Build.Step,
-    /// The run of the golden module's unit tests, which is what golden-check is.
+    /// The run of the golden module's unit tests, which `zig build golden-check` depends on.
     golden_tests: *std.Build.Step,
 };
 

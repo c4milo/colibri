@@ -7,7 +7,8 @@
 //!   2. every octet a DIGIT, or `error.StatusNotThreeDigits`;
 //!   3. the value in 100 to 599, or `error.StatusOutOfRange`.
 //! h2 and h3 both carry the status as the text of the `:status` pseudo-header, so the text form is
-//! the one peer bytes reach. `error.StatusOutOfRange` is a reason, not a verdict: RFC 9110 §15 asks
+//! the form the peer's octets carry. `error.StatusOutOfRange` is a reason, not a verdict:
+//! RFC 9110 §15 asks
 //! a client to process an invalid code as a 5xx, so the protocol module decides whether to refuse
 //! the response and cites its own rule when it does.
 const std = @import("std");
@@ -200,7 +201,7 @@ test "an unrecognised code is understood as the x00 of its class" {
     try testing.expectEqual(400, (try Status.from_code(418)).understood().code);
     try testing.expectEqual(500, (try Status.from_code(599)).understood().code);
     try testing.expectEqual(100, (try Status.from_code(199)).understood().code);
-    // Every class's x00 is itself recognised, so understanding never needs a second step.
+    // Every class's x00 is itself recognised, so `understood` never needs a second call.
     for (1..6) |digit| {
         const code: u16 = @intCast(digit * constants.status_class_size);
         try testing.expect((try Status.from_code(code)).is_recognized());

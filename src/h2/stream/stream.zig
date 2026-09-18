@@ -85,7 +85,7 @@ pub const Verdict = union(enum) {
     /// The frame is permitted; the connection processes it and the stream is now in this state,
     /// which may be the state it was in.
     state: State,
-    /// The frame moves the stream nowhere and raises no error. On receive, §5.1 or §5.5 says to
+    /// The frame changes no state and raises no error. On receive, §5.1 or §5.5 says to
     /// discard it after the minimal processing the connection does before it asks here. On send,
     /// colibri may send it and the stream records nothing.
     ignore,
@@ -235,7 +235,7 @@ test "on_reserve: an idle stream becomes reserved by direction, and a promise of
 }
 
 test "each verdict constant carries the error kind and the RFC 9113 §7 code its name promises" {
-    // RFC 9113 §7: PROTOCOL_ERROR is 0x01 and STREAM_CLOSED is 0x05. The literals are deliberate:
+    // RFC 9113 §7: PROTOCOL_ERROR is 0x01 and STREAM_CLOSED is 0x05. The literals are intentional:
     // the per-state walks compare against these constants, so only a test that states the code
     // and the kind on its own can tell a wrong code or a connection-versus-stream flip
     // (invariants 27 and 28).

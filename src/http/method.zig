@@ -32,7 +32,7 @@ const tokens = [_]struct { []const u8, Standard }{
 };
 
 /// Checks that `method` is a token. RFC 9110 §9.1 sets no length limit on a method, and a method
-/// travels as a field value in both h2 and h3, where the field-value limit already bounds it.
+/// is sent as a field value in both h2 and h3, where the field-value limit already bounds it.
 pub fn validate(method: []const u8) Error!void {
     // RFC 9110 §5.6.2: a token is one or more tchar, so an empty method is not a token.
     if (method.len == 0) return error.MethodEmpty;

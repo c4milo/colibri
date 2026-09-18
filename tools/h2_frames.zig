@@ -11,7 +11,7 @@
 //! `frame` naming the header fields and the payload fields the codec must produce, or an `error`
 //! list of codes, one of which the codec must attach. For each case the tool reads the header
 //! with `frame.read_header` and the rest with `frame.parse`. A wire whose Length is above
-//! `frame_size_max`, or that has fewer octets than its Length promises, is refused by the tool
+//! `frame_size_max`, or that has fewer octets than its Length declares, is refused by the tool
 //! itself with FRAME_SIZE_ERROR, the way a connection refuses such a frame before parsing it
 //! (RFC 9113 §4.2). Every other refusal is `frame.verdict` on the parse error.
 //!
@@ -21,7 +21,7 @@
 //! (RFC 9113 §6.1).
 //!
 //! This tool is developer tooling: it allocates and reads the filesystem, which the library never
-//! does. The JSON never reaches `src/`.
+//! does. `src/` never reads the JSON.
 //!
 //! Exit status: 0 when every case passed, 1 on the first failure, 2 on a usage error.
 const std = @import("std");
@@ -161,14 +161,14 @@ const Outcome = union(enum) {
     refused: frame.Verdict,
 };
 
-/// Reads the header and parses the payload of one wire, or the verdict a connection would reach.
+/// Reads the header and parses the payload of one wire, or the verdict a connection would return.
 fn decode(wire: []const u8) !Outcome {
     var reader = Reader.init(wire);
     const header = frame.read_header(&reader) catch return error.CaseMalformed;
     const rest = reader.take_rest();
     // RFC 9113 §4.2: a connection refuses a frame whose Length exceeds SETTINGS_MAX_FRAME_SIZE
     // with FRAME_SIZE_ERROR before it reads the payload, and a wire with fewer octets than its
-    // Length promises is the corpus's frame too small for its mandatory data, the same error.
+    // Length declares is the corpus's frame too small for its mandatory data, the same error.
     if (header.length > constants.frame_size_max or rest.len < header.length) {
         return .{ .refused = .{ .kind = .connection, .code = constants.error_frame_size_error } };
     }

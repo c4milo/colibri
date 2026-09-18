@@ -15,7 +15,7 @@ pub const trace_record_len_max: u32 = 512;
 pub const check_name_len_max: u32 = 32;
 
 /// Longest chunk the byte pipe hands the caller at once, in octets. A chunk is 1 to this many
-/// octets, so a seed reaches every split of a short value.
+/// octets, so a seed produces every split of a short value.
 pub const chunk_len_max: u32 = 16;
 
 /// Longest delay between two chunks, in nanoseconds: one millisecond.

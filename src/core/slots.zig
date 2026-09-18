@@ -10,15 +10,15 @@
 //! with none, is new.
 //!
 //! The pool owns no memory (decision 35): the caller places it, and its storage is inside it.
-//! `get` scans the live entries in slot order, which is deliberate: `capacity` is small and
-//! named, and a scan is deterministic (non-negotiable 5). `iterator` walks the live entries in
-//! the same order, which is what the settings sweep of invariant 15 needs. The three scans live
+//! `get` scans the live entries in slot order, because `capacity` is small and
+//! named, and a scan is deterministic (non-negotiable 5). `iterator` visits the live entries in
+//! the same order, which the settings sweep of invariant 15 requires. The three scans are
 //! in file-scope functions over the flag and entry slices, so each is scored on its own.
 //!
 //! Nothing here is a protocol rule. Which class an identifier is in, which identifiers a peer
 //! may open, and when a stream closes are h2's and QUIC's (decision 14). The protocol module
 //! refuses a peer's identifier at or below the watermark and returns its own error before the
-//! identifier reaches `open`, so every assertion here is on colibri's own bookkeeping
+//! identifier is passed to `open`, so every assertion here is on colibri's own bookkeeping
 //! (invariant 24).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -119,7 +119,7 @@ pub fn Pool(
             const class = class_index(id);
             const previous = pool.watermark[class];
             // The protocol module refused a peer identifier at or below the watermark before
-            // this call (invariant 24); reaching here with one is programmer error.
+            // this call (invariant 24); calling `open` with one is programmer error.
             assert(is_above(id, previous));
             assert(pool.count <= capacity);
             // A full pool is a limit reached, which CLAUDE.md calls operational: `capacity` is a
@@ -271,9 +271,9 @@ fn visited_ids(pool: *TestPool) [test_capacity]u64 {
     return ids;
 }
 
-// The assertions on programmer error — opening an identifier at or below its watermark, closing
-// one with no live entry, moving a watermark down, a `class_of` result at or above `class_count`
-// — are not tested: a panic is not a test outcome. Invariant 24 keeps peer input from reaching
+// The assertions on programmer error — opening an identifier at or below its watermark, closing one
+// with no live entry, moving a watermark down, a `class_of` result at or above `class_count` — are
+// not tested: a panic is not a test outcome. Invariant 24 keeps peer input from being passed to
 // them, and the protocol modules' tests prove that.
 
 test "open, get and close round-trip one entry" {

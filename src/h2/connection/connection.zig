@@ -1,4 +1,4 @@
-//! One h2 connection: the caller's octets in, one frame's worth of meaning out, and the frames
+//! One h2 connection: the caller's octets in, at most one event per frame out, and the frames
 //! colibri owes written back into the caller's buffer (decision 39, design §4.1).
 //!
 //! `receive` consumes at most one whole frame and returns how many octets it took and at most one
@@ -7,8 +7,8 @@
 //! caller loops over `receive` until it returns 0, writes what is pending, and reads more octets.
 //!
 //! `write_pending` writes, in order: the client connection preface at a client (RFC 9113 §3.4),
-//! colibri's own SETTINGS frame, then the replies `connection_reply.zig` holds. Nothing else
-//! leaves this file: the response a server sends is the caller's, through the send path.
+//! colibri's own SETTINGS frame, then the replies `connection_reply.zig` holds. This file writes
+//! nothing else: the response a server sends is the caller's, through the send path.
 //!
 //! A frame the peer sends that breaks the protocol ends the connection: `receive` returns
 //! `error.ConnectionFailed`, a GOAWAY carrying the code is queued, and `failure` holds that code

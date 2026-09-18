@@ -1,8 +1,8 @@
 //! The check of docs/design.md §8 step 0, and the check behind
 //! [invariant 26](../docs/invariants.md): `src/quic/` cannot import an HTTP module.
 //!
-//! A lint rule over the source would only check what build/modules.zig *says*. This checks what
-//! the compiler *does*: it compiles a fixture as a module carrying exactly the import set
+//! A lint rule over the source would only check what build/modules.zig declares. This checks what
+//! the compiler rejects: it compiles a fixture as a module carrying exactly the import set
 //! build/modules.zig gives `quic`, and requires the compile to fail with Zig's own
 //! "no module named" error.
 //!
@@ -17,7 +17,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 /// The import set build/modules.zig gives `quic` (docs/design.md §3). The lint rule
-/// `module-graph` is what holds build/modules.zig equal to this list; this tool is what shows the
+/// `module-graph` keeps build/modules.zig equal to this list, and this tool shows the
 /// list has the consequence the invariant claims.
 const quic_imports = [_]Import{
     .{ .name = "core", .root = "core/core.zig", .deps = &.{} },
@@ -26,7 +26,7 @@ const quic_imports = [_]Import{
     .{ .name = "tls", .root = "tls/tls.zig", .deps = &.{"core"} },
 };
 
-/// Every module name `quic` must not be able to reach. Each gets a fixture and each must fail.
+/// Every module name `quic` must not be able to import. Each gets a fixture and each must fail.
 const forbidden = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
 
 /// The module name the positive control imports: one `quic` really does have.
@@ -126,7 +126,7 @@ fn compile(
 
 test "the forbidden list names every HTTP module of the graph" {
     // docs/design.md §3: these five are the HTTP side. A module added to the graph that `quic`
-    // must not reach is added here, or the check stops covering it.
+    // must not import is added here, or the check stops covering it.
     const expected = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {

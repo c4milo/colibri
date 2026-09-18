@@ -1,6 +1,6 @@
 //! The representation reader of the HPACK decoder, split off decoder.zig for length: one
-//! `Block` walks one complete field block over a `Decoder`, reading one representation of
-//! RFC 7541 §6 per call to `next`. The check order each representation goes through is listed
+//! `Block` decodes one complete field block over a `Decoder`, reading one representation of
+//! RFC 7541 §6 per call to `next`. The order of the checks on each representation is listed
 //! in decoder.zig's header, and the tests of the refusals are here, beside the code that refuses.
 //!
 //! A representation is read whole or not at all. On `error.Truncated` the cursor stays at its
@@ -86,7 +86,7 @@ pub const Block = struct {
             // RFC 7541 §6.2.1: a value 0 in place of the index means a literal name follows.
             try string(&cursor, &name);
         } else {
-            // RFC 7541 §4.4: the entry this name refers to may be evicted by this very insert, so
+            // RFC 7541 §4.4: the entry this name refers to may be evicted by this insert, so
             // the name is copied before the table changes.
             const field = try block.resolve(name_index);
             name.write_bytes(field.name) catch unreachable;
@@ -95,7 +95,7 @@ pub const Block = struct {
         try string(&cursor, &value);
         block.reader = cursor;
         // RFC 7541 §3.2: a literal with incremental indexing is inserted at the beginning of the
-        // dynamic table; the other two literals leave the table alone.
+        // dynamic table; the other two literals do not change the table.
         if (kind == .incremental) decoder.table.insert(name.written(), value.written());
         block.fields += 1;
         return .{

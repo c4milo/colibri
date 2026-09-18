@@ -128,7 +128,7 @@ const Row = struct {
 /// Parses `| 16    | accept-encoding             | gzip, deflate |` into its three columns, with
 /// the spaces that pad each column removed. A line that is not four bars around three columns,
 /// or whose first column is not a number, is not a row: the column header and the `+---+` rules
-/// fall out here.
+/// are rejected here.
 fn parse_row(line: []const u8) ParseError!?Row {
     const trimmed = std.mem.trim(u8, line, " \r");
     if (!std.mem.startsWith(u8, trimmed, "|") or !std.mem.endsWith(u8, trimmed, "|")) return null;

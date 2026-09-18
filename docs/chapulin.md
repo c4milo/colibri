@@ -3,9 +3,9 @@
 Status: written 2026-09-16 for the owner to send. colibri never edits chapulin's repository, and
 nothing here binds chapulin until chapulin's own decisions record it.
 
-[Decision 10](decisions.md#what-the-caller-supplies) rules that chapulin provides all of colibri's crypto. This
-document is the request that ruling needs: what colibri asks chapulin to add, why each item is
-needed, and which of chapulin's recorded decisions each item reverses.
+[Decision 10](decisions.md#what-the-caller-supplies) rules that chapulin provides all of colibri's
+crypto. This document is the request that ruling needs: what colibri asks chapulin to add, why each
+item is needed, and which of chapulin's recorded decisions each item reverses.
 
 ## How colibri would use chapulin
 
@@ -44,7 +44,7 @@ Design §8 step 5 waits for these five.
    the fatal `no_application_protocol` alert, value 120 (RFC 7301 §3.2).
 2. **A server role, with constant-time signing.** The server signs CertificateVerify
    (RFC 8446 §4.4.3) with a private key, and that path must not leak the key through timing.
-3. **A non-blocking handshake that takes bytes in and hands bytes out.** colibri owns no I/O, so
+3. **A non-blocking handshake that takes bytes in and returns bytes.** colibri owns no I/O, so
    it cannot call through a callback that blocks.
 4. **Many sessions with no global state.** One process runs many connections at once, each with
    its own session.
@@ -57,11 +57,11 @@ Design §8 steps 9, 10, 12 and 13 wait for these six.
 1. **Handshake bytes per encryption level, with no record layer** (RFC 9001 §4.1.3). QUIC carries
    handshake messages in CRYPTO frames, so the provider takes and returns unframed handshake bytes
    tagged with their encryption level.
-2. **Per-level secrets handed out** (RFC 9001 §4.1.4). When an encryption level becomes
-   available, the provider hands colibri its secret, its AEAD and its KDF, and colibri derives the
+2. **Per-level secrets returned** (RFC 9001 §4.1.4). When an encryption level becomes
+   available, the provider returns that level's secret, AEAD and KDF, and colibri derives the
    packet and header protection keys from them.
 3. **The `quic_transport_parameters` extension, codepoint 0x39** (RFC 9001 §8.2). colibri
-   supplies the extension's bytes and reads the peer's; the provider carries them.
+   supplies the extension's bytes and reads the peer's; the provider carries them in the handshake.
 4. **ALPN** (RFC 9001 §8.1), which QUIC requires of clients as well as servers.
 5. **Alerts returned as values.** colibri maps each alert to the QUIC error code 0x0100 plus the
    AlertDescription (RFC 9001 §4.8) and closes the connection itself.
@@ -95,7 +95,7 @@ so no QUIC endpoint works without them ([decision 9](decisions.md#what-the-calle
 | 28, four exported symbols | Filling two vtables needs more than four entry points. |
 | The server non-goal | colibri's checks need a server. |
 
-## The shape the request suggests
+## How chapulin could add these
 
 chapulin's decision 36 set the precedent this request follows: "a mode, not a change". Each item
 above can be a build mode that chapulin's existing builds leave out.

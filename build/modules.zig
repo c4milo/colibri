@@ -3,18 +3,18 @@
 //! and not by review (CLAUDE.md, Layout).
 //!
 //! The one edge that must never exist is `quic` importing anything of HTTP. RFC 9000 defines a
-//! transport with streams and no opinion about payloads, and decision 5 keeps it that way:
-//! `quic` receives `core`, `wire`, `crypto` and `tls`, and nothing else. `src/quic/` naming
+//! transport that carries streams and never interprets their payloads; decision 5 keeps it that
+//! way: `quic` receives `core`, `wire`, `crypto` and `tls`, and nothing else. `src/quic/` naming
 //! `http`, `h2`, `h3`, `hpack` or `qpack` does not compile, which is invariant 26 and the check of
 //! design §8 step 0.
 //!
 //! `sim` receives `core`, `tls` and `crypto` because it implements the two caller-supplied
-//! vtables (decisions 8 and 9) and hands its own null providers to the protocol modules in place
-//! of a real caller's. It receives no protocol module, which is what keeps the harness from
+//! vtables (decisions 8 and 9) and passes its own null providers to the protocol modules in place
+//! of a real caller's. It receives no protocol module, which stops the harness from
 //! knowing anything a caller would not.
 //!
 //! `testing` is design §9's endpoints: it receives the protocol modules it serves and nothing
-//! receives it back, so the library it drives cannot reach the socket it opens.
+//! receives it back, so the library it drives cannot use the socket it opens.
 //!
 //! `sim_run` is the driver: the checks and the `zig build sim` command line, rooted at
 //! `src/sim/run.zig`. It receives `sim` and the modules its checks drive, `wire` for design §8
@@ -22,8 +22,8 @@
 const std = @import("std");
 
 /// Each module's root is the file named after its directory (`src/core/core.zig`), which lists
-/// the module's API as `pub const` declarations and reaches every file that carries tests. A file
-/// split off a root is reached through that root and is not named here.
+/// the module's API as `pub const` declarations and imports every file that has tests. A file
+/// split off a root is imported through that root and is not named here.
 pub const Modules = struct {
     /// Named limits, assertions, the bounded reader and writer, and the slot pool of decision 14.
     /// Imports nothing.
@@ -123,7 +123,7 @@ pub fn add(
     golden.addImport("hpack", hpack);
 
     // Design §9: the test-only endpoints. Nothing imports this module, so the library never
-    // reaches the socket it opens, and decision 10 links chapulin here alone when step 5 lands.
+    // uses the socket it opens, and decision 10 links chapulin here alone when step 5 lands.
     const testing = create(b, "src/testing/testing.zig", target, optimize);
     testing.addImport("core", core);
     testing.addImport("h2", h2);

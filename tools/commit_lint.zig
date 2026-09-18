@@ -163,9 +163,9 @@ const head_commit_message =
 ;
 
 test "the message of 6e04c77 breaks one rule: its body is 143 words" {
-    // Every other rule passes. The word count does not, and this test records that rather than
-    // hiding it: CLAUDE.md (Commits) holds a body at 100 words and 6e04c77 carries 143. Raising
-    // the limit to make this line green would be weakening a rule to pass a test, which CLAUDE.md
+    // Every other rule passes. The word count does not, and this test records it:
+    // CLAUDE.md (Commits) holds a body at 100 words and 6e04c77 carries 143. Raising
+    // the limit so this line passes would be weakening a rule to pass a test, which CLAUDE.md
     // (Ask before) puts to the owner.
     try expect_findings(head_commit_message, &.{
         "violation: body-size: the body has 143 words, over the limit of 100",

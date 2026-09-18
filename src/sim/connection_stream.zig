@@ -4,15 +4,15 @@
 //! 1 to `connection_check_frames_max` frames. `write` encodes the plan into a stream, which
 //! `connection_check.zig` hands to one `h2.Connection` through the byte pipe.
 //!
-//! The drawn frames reach invariants 13 to 16: requests on increasing identifiers, with and
+//! The drawn frames exercise invariants 13 to 16: requests on increasing identifiers, with and
 //! without END_STREAM and some cut across CONTINUATION frames (§6.10); DATA (§6.1); PING (§6.7); a
-//! SETTINGS frame whose SETTINGS_INITIAL_WINDOW_SIZE sweeps every stream's send window (§6.9.2);
+//! SETTINGS frame whose SETTINGS_INITIAL_WINDOW_SIZE resizes every stream's send window (§6.9.2);
 //! WINDOW_UPDATE on stream 0 and on a stream (§6.9); and RST_STREAM (§6.4).
 //!
 //! Every drawn frame is one the connection accepts, because the plan's outcome is what the check
-//! compares against. Two rules keep it that way. The draw opens identifiers in increasing order
-//! and steps over some, which RFC 9113 §5.1.1 closes implicitly. And a stream the client resets
-//! leaves the draw's list: §5.1 makes a later DATA or WINDOW_UPDATE on a stream closed by the
+//! compares against. Two rules keep it that way. The draw opens identifiers in increasing order and
+//! steps over some, which RFC 9113 §5.1.1 closes implicitly. And a stream the client resets is
+//! removed from the draw's list: §5.1 makes a later DATA or WINDOW_UPDATE on a stream closed by the
 //! peer's RST_STREAM a connection error of STREAM_CLOSED.
 //!
 //! One seed in `connection_check_refusal_one_in` then appends the frames of a `Refusal`, each of
@@ -168,7 +168,7 @@ pub const Plan = struct {
 };
 
 /// The streams a draw has opened and the identifier it opens next. The file header says why a
-/// stream the client resets leaves the list.
+/// stream the client resets is removed from the list.
 const Opened = struct {
     ids: [constants.connection_check_streams_max]u32,
     count: u32,

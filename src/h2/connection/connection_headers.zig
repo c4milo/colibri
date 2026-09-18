@@ -1,11 +1,13 @@
 //! The frames that carry a field block: HEADERS (RFC 9113 §6.2), CONTINUATION (§6.10) and
-//! PUSH_PROMISE (§6.6). Split off `connection_stream.zig` for the work a field block is.
+//! PUSH_PROMISE (§6.6). Split off `connection_stream.zig` for the work of reassembling a field
+//! block.
 //!
-//! Every fragment reaches the HPACK decoder, whatever colibri thinks of the stream it arrived on.
+//! Every fragment is fed to the HPACK decoder, whatever state colibri holds for the stream it
+//! arrived on.
 //! §4.3 makes a field block the connection's state and not the stream's: a block colibri skipped
 //! would leave its dynamic table one insert behind the peer's and every later block would decode
 //! to the wrong field lines (invariant 10). So a block on a stream colibri has refused, reset or
-//! never opened is decoded as carefully as one it wants, and only the section it produces is
+//! never opened is decoded like any other, and only the section it produces is
 //! dropped, which `discarded` marks.
 //!
 //! The stream moves when the HEADERS frame arrives, not when the block ends: §6.2 makes the
@@ -63,7 +65,7 @@ pub fn on_headers(target: *Connection, header: frame.Header, payload: frame.Head
     target.block_discarded = dropped;
     const done = try feed_fragment(target, payload.fragment, payload.end_headers);
     const event = try finish(target, done, now_ns);
-    // The stream's refusal is what the caller hears about; the block was read for the decoder.
+    // The stream's refusal is the event the caller gets; the block was read for the decoder.
     return refusal orelse event;
 }
 
@@ -278,7 +280,8 @@ test "§8.3.1: a request §8 refuses is a stream error, and the decoder stays in
     try testing.expectEqual(1, refused.stream_refused.stream_id);
     try testing.expectEqual(constants.error_protocol_error, refused.stream_refused.error_code);
     try testing.expectEqual(1, test_connection.decoder.table.len());
-    // The next request indexes what that block inserted, which only a decoder in step can read.
+    // The next request indexes what that block inserted, which only a decoder synchronized with
+    // the peer's encoder can read.
     var second = Writer.init(&test_block);
     try connection.test_encoder.begin_block(&second);
     try connection.test_encoder.write_field(&second, ":method", "GET", .without_indexing);

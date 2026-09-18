@@ -5,7 +5,7 @@ must a change never break". Every entry here becomes at least one runtime assert
 violated invariant halts with the seed and the byte offset that produced it.
 
 Each entry has four fields. **Claim** is the invariant. **Mechanism** is what makes it true.
-**Check** is what would catch a violation, graded honestly on this scale, strongest first:
+**Check** is what would catch a violation, graded on this scale, strongest first:
 
 1. *type system* — a violation does not compile.
 2. *comptime assert* — the property is pinned when the program is built; a violation fails the
@@ -18,12 +18,12 @@ Each entry has four fields. **Claim** is the invariant. **Mechanism** is what ma
    that produced it.
 6. *golden corpus* — a named mutation of the corpus must produce a named verdict; a mutation that
    no test fails is recorded `NOT CAUGHT` and is a missing test.
-7. *lint rule* — a structural or syntactic rule over the tree; catches any violation, honest or
+7. *lint rule* — a structural or syntactic rule over the tree; catches any violation, deliberate or
    not, that the rule can express.
-8. *convention* — code review holds the line, and nothing else does.
+8. *convention* — code review is the only check.
 
-**Violation** is what a breaking change looks like, so review knows the smell. An entry whose
-Check is grade 7 or 8 is a weaker entry, and saying so is the point of the scale.
+**Violation** is what a breaking change looks like, so review can recognise one. An entry whose
+Check is grade 7 or 8 is a weaker entry, and the scale says so.
 
 Nothing in this file is implemented yet. Each entry names the build-plan step (design §8) that
 lands its check.
@@ -36,9 +36,9 @@ lands its check.
   caller owns, sized at comptime from `constants.zig`, or was handed in by the caller for the
   duration of one call.
 - **Mechanism.** No module takes, holds or names an `Allocator`, and no source under `src/`
-  reaches `std.heap` (decision 35). The caller owns every struct colibri defines and places it
+  references `std.heap` (decision 35). The caller owns every struct colibri defines and places it
   where it chooses. The connection struct is an `extern struct` whose size is a comptime
-  constant, so `@sizeOf` is the memory story.
+  constant, so `@sizeOf` gives its total memory use.
 - **Check.** Lint rule (`tools/lint/heap.zig`: no parameter whose type names `Allocator` on any
   function in `src/`, `init` included, and no reference to `std.heap` or to the allocators of
   `std.testing`) at step 0, with the `init` exception removed when decision 35 was ruled; plus a
@@ -54,11 +54,11 @@ lands its check.
 - **Claim.** No colibri source opens, reads, writes, polls or closes anything. It has no file
   descriptors, no sockets, no threads and no timers.
 - **Mechanism.** The module graph gives no module access to `std.posix`, `std.fs`, `std.net`,
-  `std.Thread` or `std.time`. Every function that would block returns what it wants instead.
+  `std.Thread` or `std.time`. Every function that would block returns the I/O it needs instead.
 - **Check.** Lint rule (`tools/lint/io.zig`, an import denylist over `src/` excluding
   `src/testing/`, which design §9 makes the one place a socket may be opened). Step 0.
-- **Violation.** A convenience helper that takes a socket "just for the test server" and lands in
-  a library module instead of in `src/testing/`.
+- **Violation.** A convenience helper that takes a socket "just for the test server" and is written
+  in a library module instead of in `src/testing/`.
 - See [decisions 6](decisions.md#what-the-caller-supplies).
 
 ### INV-3 — every write is inside the caller's buffer
@@ -180,7 +180,7 @@ lands its check.
   in force.
 - **Mechanism.** One insert path and one evict path, each adjusting the accounted size in the same
   statement that moves the entry. The formula is RFC 7541 §4.1 and RFC 9204 §3.2.1, identical in
-  both, and lives in one shared function (decision 11).
+  both, and is written once, in one shared function (decision 11).
 - **Check.** Runtime assertion recomputing the sum on every insert and evict, plus the
   `http2jp/hpack-test-case` and `qpackers/qifs` vectors, plus a mutation of the 32-octet constant
   that must be `CAUGHT`. Steps 3 and 11.
@@ -194,7 +194,7 @@ lands its check.
   EOS symbol appears inside the data.
 - **Mechanism.** One decoder, shared by HPACK and QPACK (RFC 9204 §4.1.2 adopts RFC 7541 Appendix
   B without modification). EOS is `0x3fffffff`, thirty set bits. The two padding rules reduce to
-  run-of-ones arithmetic on the tail; **the third does not**, and must be a symbol-boundary check
+  run-of-ones arithmetic on the tail; the third does not, and must be a symbol-boundary check
   inside the decode loop. A run of thirty ones can occur with no EOS present — Appendix B's symbol
   204 ends in five ones and symbol 22 begins with twenty-nine, so `0xCC 0x16` encodes to a run of
   thirty-four — and a decoder that scans for a run rejects legal input.
@@ -211,11 +211,11 @@ lands its check.
   peer opens are strictly increasing; and every identifier below the watermark for its parity is
   closed, whether or not colibri ever held a record for it.
 - **Mechanism.** Two watermarks, one per parity, and a fixed slot pool. "Closed" is the implicit
-  default below the watermark rather than a stored record, which is what keeps a 31-bit identifier
+  default below the watermark rather than a stored record, which keeps a 31-bit identifier
   space from becoming a 31-bit table (RFC 9113 §5.1.1). This is the shared slot-pool structure of
   decision 14.
 - **Check.** A peer identifier at or below the watermark returns a connection error of
-  `PROTOCOL_ERROR` — never an assertion, because peer input reaches it (INV-24). The runtime
+  `PROTOCOL_ERROR` — never an assertion, because a peer supplies the value (INV-24). The runtime
   assertion is on colibri's own bookkeeping: that a watermark never decreases. Plus a simulator
   invariant checked after every step, and the h2spec cases for §5.1.1. Step 4.
 - **Violation.** A hash map keyed by stream identifier, which one frame can grow by 2^31 entries.
@@ -225,11 +225,11 @@ lands its check.
 - **Claim.** At most one field block is being reassembled on a connection at a time, and no frame
   of any type, from any stream, may be processed while one is.
 - **Mechanism.** A single `?{stream_id, origin}` slot on the connection. RFC 9113 §4.3 requires
-  field blocks to be a contiguous sequence with nothing interleaved, which is exactly what makes
+  field blocks to be a contiguous sequence with nothing interleaved, which makes
   one slot sufficient rather than a per-stream buffer.
 - **Check.** An interleaved frame or an orphan CONTINUATION returns a connection error of
   `PROTOCOL_ERROR` (RFC 9113 §4.3) — not an assertion, because a peer produces both (INV-24). The
-  h2spec §4.3 cases and a golden corpus case interleaving a PING inside a block are what prove it.
+  h2spec §4.3 cases and a golden corpus case interleaving a PING inside a block prove it.
   The runtime assertion is on colibri's own bookkeeping: the reassembly byte count never exceeds
   `(continuation_count_max + 1) * frame_size_max`, one HEADERS or PUSH_PROMISE frame and at most
   `continuation_count_max` CONTINUATION frames, each at most `frame_size_max`. Step 4.
@@ -239,10 +239,10 @@ lands its check.
 ### INV-15 — flow-control windows stay in range, and a send window may be negative
 
 - **Claim.** Both windows are *signed* quantities in `[-(2^31 - 1), 2^31 - 1]`. A send window goes
-  below zero when a reduction in `SETTINGS_INITIAL_WINDOW_SIZE` outruns the data already sent, and
-  RFC 9113 §6.9.2 requires tracking that. A receive window goes below zero for the mirror reason:
-  RFC 9113 §6.9.3 says a receiver that reduces its initial window "MUST be prepared to receive
-  data that exceeds this window size". A `WINDOW_UPDATE` that would push a window above
+  below zero when a reduction in `SETTINGS_INITIAL_WINDOW_SIZE` exceeds the data already
+  sent, and RFC 9113 §6.9.2 requires tracking that. A receive window goes below zero for the mirror
+  reason: RFC 9113 §6.9.3 says a receiver that reduces its initial window "MUST be prepared to
+  receive data that exceeds this window size". A `WINDOW_UPDATE` that would push a window above
   `2^31 - 1` is an error, not a clamp.
 - **Mechanism.** Both windows are `i64` with a runtime range assertion on colibri's own arithmetic.
   The settings sweep iterates the whole fixed stream array, which is why the array is directly
@@ -250,7 +250,7 @@ lands its check.
 - **Check.** Runtime assertion on the range after every adjustment; simulator invariant after every
   step; h2spec §6.9 cases; a mutation making either window unsigned that must be `CAUGHT`. Step 4.
 - **Violation.** A `u32` send window, which turns a legal settings reduction into a wrap and then
-  into a flood.
+  into sending far more data than the peer allowed.
 
 ### INV-16 — GOAWAY's last-stream-id never increases
 
@@ -262,7 +262,7 @@ lands its check.
 - **Check.** Runtime assertion in colibri's setter, a connection error on the receive path, plus a
   simulator invariant and the h2spec §6.8 cases. Step 4.
 - **Violation.** Sending a second GOAWAY with a fresh high-water mark after a graceful shutdown
-  began, which un-promises what the first one promised.
+  began, which withdraws the guarantee the first one gave.
 
 ## QUIC
 
@@ -282,7 +282,7 @@ lands its check.
 
 - **Claim.** Before a peer's address is validated, colibri never sends more than three times the
   number of bytes it has received from that address.
-- **Mechanism.** Two counters per unvalidated path, checked before every datagram is handed to the
+- **Mechanism.** Two counters per unvalidated path, checked before every datagram is returned to the
   caller (RFC 9000 §8). The check is on the datagram, not on the frame, because the limit counts
   bytes on the wire.
 - **Check.** Runtime assertion before every send on an unvalidated path, plus a simulator
@@ -342,7 +342,7 @@ lands its check.
   and stops.
 - **Mechanism.** Two files. `src/quic/packet/invariant.zig` implements RFC 8999 alone and has no
   access to any version-1 constant; the version-1 reader is a separate file that the invariant
-  reader hands to. RFC 8999 §5 scopes the invariants to the *first* packet in a datagram, and the
+  reader never calls. RFC 8999 §5 scopes the invariants to the *first* packet in a datagram, and the
   Length field that makes coalescing parseable is a version-1 field (RFC 9000 §12.2), so the
   invariant layer cannot find the second packet and must not try.
 - **Check.** Lint rule (the invariant file's import set is empty but for `core`), plus a comptime
@@ -358,7 +358,7 @@ lands its check.
 
 - **Claim.** colibri never derives a secret from a private key, never stores a private key, and
   wipes every secret it was handed when the connection that used it ends.
-- **Mechanism.** The TLS provider owns the key schedule in record mode and hands up per-level
+- **Mechanism.** The TLS provider owns the key schedule in record mode and returns per-level
   secrets in QUIC mode (decision 8). What colibri stores is the derived packet-protection
   material, which is wiped on close through one function.
 - **Check.** Runtime assertion that the wipe ran before a connection struct is returned to the
@@ -367,14 +367,14 @@ lands its check.
   not exist until step 7, and step 9's `resumption` case is where the boundary between
   provider-held and colibri-held state must be written down.
 - **Violation.** Caching a resumption secret across connections "to make reconnects cheap", which
-  is also 0-RTT arriving by the back door (decision 20).
+  is also 0-RTT, which decision 20 rules out.
 
 ### INV-24 — no assertion is reachable from peer input
 
 - **Claim.** Bad peer input produces an error value and a closed connection, never an abort.
   Assertions guard programmer error only: contract points, state-enum validity, and arithmetic
   colibri controls.
-- **Mechanism.** Parsers return error unions. Assertions sit at function entry and exit on values
+- **Mechanism.** Parsers return error unions. Assertions run at function entry and exit on values
   colibri computed, never on values it just read off the wire.
 - **Check.** Fuzzing every parser to exhaustion with abort-on-panic, which is the direct test of
   this claim, plus convention on where an assert may be written. Steps 1, 4, 9.
@@ -393,8 +393,8 @@ lands its check.
   on to negotiate (§5.3, §5.4.1) cannot be checked this early and fail at the first Handshake
   packet with the same configuration error class.
 - **Check.** Runtime assertion in the constructor plus a unit test per missing member. Step 7.
-- **Violation.** A lazy check at first use, which surfaces a misconfiguration as a handshake
-  failure and reads like an attack.
+- **Violation.** A lazy check at first use, which reports a misconfiguration as a handshake
+  failure that looks like an attack.
 - See [decisions 9](decisions.md#what-the-caller-supplies).
 
 ### INV-26 — `quic` imports no HTTP module
@@ -419,14 +419,14 @@ lands its check.
   a stream error cannot return a connection error, and the compiler says so.
 - **Mechanism.** Two Zig error sets per protocol, and the escalation from stream to connection is
   an explicit function with the RFC section that justifies it cited on the line. The cases that
-  need this are exact: RFC 9113 §4.2 makes a frame-size error a *connection* error when it appears
+  need this are three: RFC 9113 §4.2 makes a frame-size error a *connection* error when it appears
   in a frame that could alter connection state; RFC 9114 §4.1 makes a `DATA` frame before any
   `HEADERS` a *connection* error rather than a stream error; and an undefined pseudo-header makes a
-  message malformed (RFC 9113 §8.3), which §8.1.1 makes a *stream* error — which is what makes
+  message malformed (RFC 9113 §8.3), which §8.1.1 makes a *stream* error, which makes
   refusing extended CONNECT free (decision 19).
 - **Check.** Type system, plus h2spec and h3spec, which assert the exact error code and level per
   case. Steps 4 and 12.
-- **Violation.** One `ProtocolError` set for both, so an unexpected `:protocol` kills the
+- **Violation.** One `ProtocolError` set for both, so an unexpected `:protocol` closes the
   connection instead of the stream, and every extended-CONNECT client sees colibri as broken.
 
 ### INV-28 — an error's wire code is chosen in one place per protocol
@@ -441,4 +441,4 @@ lands its check.
 - **Violation.** A hand-written `0x02` at a call site. It is `INTERNAL_ERROR` in h2 and
   `CONNECTION_REFUSED` as a QUIC transport code, and it is not an h3 error code at all — h3's
   space starts at 0x0100, and RFC 9114 §8.1 makes an unrecognised code equivalent to `H3_NO_ERROR`,
-  so the literal silently means "no error" in the one protocol where it looks most like a bug.
+  so the literal silently means "no error" in h3.

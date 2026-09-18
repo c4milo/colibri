@@ -57,7 +57,7 @@ fn drop_oldest_closed(streams: *Streams) bool {
     }
     const dropped = oldest orelse return false;
     assert(dropped.id <= constants.stream_id_max);
-    // RFC 9113 §5.1: only a stream colibri reset goes on discarding frames once its record is gone.
+    // RFC 9113 §5.1: frames are discarded after the record is gone only for a stream colibri reset.
     if (dropped.closed == .rst_stream_sent) record_forgotten_reset(streams, @intCast(dropped.id));
     streams.pool.close(dropped.id);
     assert(streams.pool.len() < constants.concurrent_streams_max);

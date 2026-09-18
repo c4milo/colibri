@@ -14,7 +14,7 @@
 //! of seeds `[0, check_seeds_default)` with CRC-32, and the test requires the digest committed
 //! below. Debug and ReleaseSafe, macOS and Linux, all must compute that one number.
 //!
-//! Say plainly what this shows. At step 2 the subject is the step 1 decoders, which consume a
+//! At step 2 the subject is the step 1 decoders, which consume a
 //! whole value or nothing, so nothing but the harness can make two runs differ: the check shows the
 //! harness is self-consistent and that the decoders' verdicts do not depend on where a chunk ends.
 //! The same check over a connection at step 4 is the first point at which it can fail for any other

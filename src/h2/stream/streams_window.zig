@@ -1,7 +1,7 @@
-//! The retroactive send-window sweep of RFC 9113 §6.9.2, split off `streams.zig` for length: a
+//! The retroactive send-window adjustment of RFC 9113 §6.9.2, split off `streams.zig` for length: a
 //! change to the peer's SETTINGS_INITIAL_WINDOW_SIZE moves the send window of every stream colibri
-//! may still send DATA on, by the difference between the old value and the new. The sweep is why
-//! the table's records are an array the connection can walk rather than a map (decision 13).
+//! may still send DATA on, by the difference between the old value and the new. This adjustment is
+//! why the table's records are an array the connection can walk rather than a map (decision 13).
 //!
 //! The change is applied in two passes, because §6.9.2 makes a change that takes any window past
 //! `window_max` a connection error of FLOW_CONTROL_ERROR and colibri leaves no window half-moved:

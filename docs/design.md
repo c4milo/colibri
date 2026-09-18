@@ -82,7 +82,7 @@ core, h2         <- testing
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
 
-Three edges are load-bearing and one is forbidden.
+The architecture depends on three of these edges and forbids one.
 
 - **`quic` does not import `http`, `h2`, `h3`, `hpack` or `qpack`.** This is
   [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) and
@@ -94,11 +94,11 @@ Three edges are load-bearing and one is forbidden.
   which is what keeps the harness from knowing anything the caller would not. A check drives a
   protocol module through the harness, so the one module that imports both is `sim_run`, rooted at
   `src/sim/run.zig`, and `sim` never imports it back ([decision 37](decisions.md#the-simulator)).
-- **`wire` is shared by both families and holds two different integer codecs.** That is not an
-  accident of packaging; [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why
-  the split is *field compression against framing* and not h2 against h3.
+- **`wire` is shared by both families and holds two different integer codecs.**
+  [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why the split is *field
+  compression against framing* and not h2 against h3.
 - **Nothing imports `h2` or `h3`.** They are the roots. A consumer picks one or both, and
-  `testing` is a consumer like any other: the library it drives cannot reach the socket it opens,
+  `testing` is a consumer like any other: the library it drives cannot use the socket it opens,
   because the edge runs one way and nothing imports `testing` back.
 
 ## 4. What the caller supplies
@@ -119,7 +119,7 @@ fixed, named size (§7).
 Every function needing an instant takes `now_ns: u64`. RFC 9002's pseudocode reads `now()` at
 nine sites, reachable from five entry points: `OnPacketSent`, `OnDatagramReceived`,
 `OnAckReceived`, `SetLossDetectionTimer` and `OnLossDetectionTimeout`. The ninth site is inside
-the congestion controller's `OnCongestionEvent`, so the instant threads down there too rather than
+the congestion controller's `OnCongestionEvent`, so the instant is passed to it too rather than
 stopping at the loss detector. colibri passes one instant through a whole call, which RFC 9002
 permits and determinism requires.
 
@@ -145,7 +145,7 @@ layer". The full list is [decision 8](decisions.md#what-the-caller-supplies); th
 | exporter | `export_keying_material` | `export_keying_material` |
 
 Two facts constrain the ALPN half and are easy to get wrong. In TLS 1.3 the selected protocol
-travels in EncryptedExtensions, not ServerHello, so it is only readable after the provider has
+is sent in EncryptedExtensions, not ServerHello, so it is only readable after the provider has
 decrypted EE — colibri must not assume it knows the ALPN earlier. And `"h2"` is the two octets
 `0x68 0x32` (RFC 9113 §3.1) while `"h3"` is `0x68 0x33` (RFC 9114 §11.1); no overlap is a fatal
 `no_application_protocol` alert, value 120 (RFC 8446 §6, RFC 7301 §3.2), which RFC 9001 §8.1
@@ -169,18 +169,19 @@ could not protect a ChaCha20 connection at all.
 AES-128-GCM, AES-128-ECB and HKDF-SHA256 are mandatory members whatever suite TLS negotiates,
 because RFC 9001 fixes three things to AES: Initial packet protection (§5, §5.2), AES-based header
 protection, which is what is used before a suite is selected (§5.4.1, §5.4.3), and the Retry
-integrity tag (§5.8). The suite must additionally carry the AEAD and header-protection algorithm
-TLS goes on to negotiate (§5.3, §5.4.1). A suite missing one of the three mandatory members is
-refused when the endpoint is constructed
+integrity tag (§5.8). The suite must additionally carry the AEAD and header-protection algorithm TLS
+goes on to negotiate (§5.3, §5.4.1). A suite missing one of the three mandatory members is refused
+when the endpoint is constructed
 ([invariant 25](invariants.md#inv-25--a-suite-without-aes-is-refused-at-init)), never at the first
-packet. [decision 9](decisions.md#what-the-caller-supplies) is why this is a separate vtable and what it buys.
+packet. [decision 9](decisions.md#what-the-caller-supplies) is why this is a separate vtable and
+what it buys.
 
 ## 5. What is shared, and what only looks shared
 
 [decisions 11 to 16](decisions.md#what-is-shared-between-h2-and-h3) argue each of these from the
 RFC text. The summary, because it is the question the module graph answers:
 
-| Candidate | Verdict | Where it lives |
+| Candidate | Verdict | Module or file |
 |---|---|---|
 | Huffman code, RFC 7541 App. B | **shared**, verbatim — RFC 9204 §4.1.2 | `wire/huffman.zig` |
 | Prefixed integers, RFC 7541 §5.1 | **shared**, unmodified — RFC 9204 §4.1.1 | `wire/prefixed_integer.zig` |
@@ -198,7 +199,7 @@ RFC text. The summary, because it is the question the module graph answers:
 | **Stream table rules** | **not shared** — 31-bit parity vs 62-bit type bits | `h2/`, `quic/` |
 | QUIC varints | h3 and QUIC only | `wire/varint.zig` |
 
-The last three rows correct candidates that looked shared. Flow control is the sharpest: h2 is a
+The last three rows correct candidates that looked shared. Flow control differs most: h2 is a
 credit counter with a *signed* send window and a retroactive sweep of every stream on a settings
 change (RFC 9113 §6.9.2); QUIC is a non-decreasing offset limit with a final-size rule and no
 sweep. Forcing them through one interface buys nothing and risks an accounting bug in both.
@@ -235,7 +236,7 @@ Settings, RFC 9113 §6.5.2:
 | `SETTINGS_MAX_FRAME_SIZE` | 0x05 | 16,384 | left at the default; the range is 2^14 to 2^24−1 |
 | `SETTINGS_MAX_HEADER_LIST_SIZE` | 0x06 | unlimited | **must** be advertised |
 
-Two of the six initial values are literally unlimited. An implementation that does not advertise
+Two of the six initial values are unlimited. An implementation that does not advertise
 a concrete `SETTINGS_MAX_CONCURRENT_STREAMS` and `SETTINGS_MAX_HEADER_LIST_SIZE` in its own
 preface has bounded nothing, whatever its constants file says.
 
@@ -369,7 +370,7 @@ The records design §8 step 2 writes are the byte pipe's:
 
 | Record | Fields | Written when |
 |---|---|---|
-| `feed` | `at_ns`, `len`, `held` | a chunk of the stream reaches the caller; `held` counts the octets the caller holds after it |
+| `feed` | `at_ns`, `len`, `held` | a chunk of the stream is fed to the caller; `held` counts the octets the caller holds after it |
 | `accept` | `offset`, `len`, then the subject's fields | the subject consumed a whole value; `offset` is its first octet in the stream |
 | `reject` | `offset`, `error` | the subject refused the octets at `offset` |
 
@@ -380,8 +381,8 @@ a run fed in one piece.
 
 ## 7. Named limits
 
-Every one lives in a `constants.zig` and never inline. The RFCs leave most of these to the
-implementation and say so, which is exactly why they are named here rather than chosen at a call
+Every one is declared in a `constants.zig` and never inline. The RFCs leave most of these to the
+implementation and say so, so they are named here rather than chosen at a call
 site. A limit that sizes storage sizes storage the caller owns: colibri allocates nothing
 ([decision 35](decisions.md#memory)), exposes each struct's size as a comptime constant, and
 leaves the caller to place the struct.
@@ -419,13 +420,13 @@ literal's decoded length is capped by `core`'s field-length limits (RFC 7541 §7
 **h3** (`h3`): `uni_streams_max` · `push_ids_max` (0 — colibri never sends `MAX_PUSH_ID`) ·
 `frame_length_max`.
 
-Four of these exist only because an RFC declines to bound something and hands the job to the
+Four of these exist only because an RFC declines to bound something and leaves it to the
 implementation: `ack_ranges_max` (RFC 9000 §13.2.3, "limits the number ... to avoid resource
 exhaustion", no maximum given), `crypto_buffer_bytes_max` (§7.5 — CRYPTO data is not flow
 controlled and a peer could force unbounded buffering; the defence is this constant plus
 `CRYPTO_BUFFER_EXCEEDED` 0x0d), `continuation_count_max` (RFC 9113 §6.10 sets no cap), and
 `field_section_size_max` (RFC 9110 §5.4 says no predefined limits exist, and RFC 9113 §10.5.1 says
-there is no hard limit on field block size). Each is a named limit precisely because the RFC does
+there is no hard limit on field block size). Each is a named limit because the RFC does
 not name one.
 
 ## 8. Build plan
@@ -442,7 +443,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   denylist, the module-graph rule, and the RFC-citation rule, which fails a validation branch
   carrying no RFC section comment. Commit hooks.
   **Check:** `zig build lint` and `zig build test` pass, and a deliberately added `@import("http")`
-  inside `src/quic/` fails to build. That last clause is the one that matters — it proves
+  inside `src/quic/` fails to build. That last clause proves
   [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) is enforced by the build
   rather than by review. *Small.*
 
@@ -624,14 +625,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | huffman tool: symbol order not checked | **CAUGHT** | test `huffman_table`: "a missing, reordered or short appendix is refused" |
 
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
-  supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the
-  h2 half, and it exists before there is a connection to drive, which is possible only because
-  §4 put I/O, time and crypto in the caller's hands. **Check:** the step 1 decoders driven through the
+  supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
+  half, and it exists before there is a connection to drive, which is possible only because §4 put
+  I/O, time and crypto in the caller's hands. **Check:** the step 1 decoders driven through the
   harness at seeded chunk boundaries over a seed range, with the §6.6 trace records compared byte
-  for byte across macOS and Linux and across Debug and ReleaseSafe. Say plainly what this does and
-  does not prove: at step 2 nothing but the harness can differ, so it shows the harness is
-  self-consistent. The same check re-run over a connection at step 4 is the first point at which it
-  can fail for any other reason. *Small.*
+  for byte across macOS and Linux and across Debug and ReleaseSafe. What this does and does not
+  prove: at step 2 nothing but the harness can differ, so it shows the harness is self-consistent.
+  The same check re-run over a connection at step 4 is the first point at which it can fail for any
+  other reason. *Small.*
 
   **Check passed on macOS, 2026-09-16; the Linux half is the owner's.** `zig build test` exits 0 on
   Zig 0.16.0, macOS 25.6, arm64, in Debug and with `-Drelease`, and the lint scores 460 functions
@@ -654,8 +655,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     one-piece run's, the outcome must be what the plan says, and the run in one piece must feed
     exactly once, without which the comparison is vacuous.
   - **Driver.** `zig build sim -- --chunk-seed <hex>` prints one seed's chunked trace and its
-    outcome; `--chunk-check [seeds]` prints the census or the seed that failed. `src/sim/run_main.zig`
-    is the one file under `src/sim/` the `io` rule exempts, by path.
+    outcome; `--chunk-check [seeds]` prints the census or the seed that failed.
+    `src/sim/run_main.zig` is the one file under `src/sim/` the `io` rule exempts, by path.
   - **Not built.** The null TLS provider and the null crypto suite. `tls.Provider` and
     `crypto.Suite` do not exist yet, and no step 2 subject calls a provider, so each null
     implementation lands with the step that shapes its vtable: the provider with step 5
@@ -682,7 +683,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   is what RFC 7541 Appendix A yields, and `hpack-vectors` prints
   `directories=15 stories=478 cases=47142 fields=548382 round_trips=10152` in 2.9 s.
 
-  - **Module.** `hpack.Decoder` walks a block one representation at a time and hands each field
+  - **Module.** `hpack.Decoder` reads a block one representation at a time and returns each field
     line to the caller, which is §3.1's minimal transitory memory; `hpack.Encoder` writes a block
     with the strategy Appendix C's examples follow, and the tests hold both to C.3 through C.6
     byte for byte. `DynamicTable` is shared by the two, with the size formula in
@@ -738,8 +739,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     tells a stream the peer opened and closed from an identifier it never opened: h2spec
     `http2/5.1/12` wants `STREAM_CLOSED` for the first and `http2/5.1.1/2` `PROTOCOL_ERROR` for
     the second, and §5.1 permits both only if the two are distinguished.
-  - **Field blocks.** Every fragment reaches the decoder whatever colibri thinks of its stream, or
-    the dynamic table would fall out of step with the peer's (invariant 10, decision 40).
+  - **Field blocks.** Every fragment is passed to the decoder whatever colibri thinks of its stream,
+    or the dynamic table would stop matching the peer's (invariant 10, decision 40).
     `representation_len_max` is the longest line the decoder's own limits admit, so it refuses none
     of them.
   - **Simulator.** `src/sim/connection_check.zig` drives one connection through the step 2 pipe and
@@ -767,12 +768,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **This step waits on chapulin, and so does every later check that needs TLS.** The check needs a
   TLS 1.3 *server*, certificate signing included, and colibri's library supplies none:
-  [decision 8](decisions.md#what-the-caller-supplies) keeps production implementations out of the tree.
-  [Decision 10](decisions.md#what-the-caller-supplies) answers the "Ask before" this paragraph used to raise:
-  chapulin fills both vtables, and `src/testing/` links it while the packaged library never does.
-  Steps 9, 10, 12 and 13 need the same server for the interop endpoint, h3spec and `secnetperf`,
-  and step 7 needs chapulin's `crypto.Suite` for RFC 9001 Appendix A's vectors. chapulin has
-  neither a server role nor ALPN today, so this step waits for the h2 items of
+  [decision 8](decisions.md#what-the-caller-supplies) keeps production implementations out of the
+  tree. [Decision 10](decisions.md#what-the-caller-supplies) answers the "Ask before" this paragraph
+  used to raise: chapulin fills both vtables, and `src/testing/` links it while the packaged library
+  never does. Steps 9, 10, 12 and 13 need the same server for the interop endpoint, h3spec and
+  `secnetperf`, and step 7 needs chapulin's `crypto.Suite` for RFC 9001 Appendix A's vectors.
+  chapulin has neither a server role nor ALPN today, so this step waits for the h2 items of
   [the request](chapulin.md). *Medium, once chapulin delivers them.*
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
@@ -792,10 +793,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   than fail; a mutation that applies the 20-octet cap in the invariant reader, reported `CAUGHT`;
   fuzzing of the packet reader. *Medium to large.*
 
-- **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and
-  ECN marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays
+- **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and ECN
+  marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays
   byte-identically across hosts and build modes — and the harness **builds and runs with no HTTP
-  module in the graph**, which is the check for [decision 5](decisions.md#scope-and-shape). *Medium.*
+  module in the graph**, which is the check for [decision 5](decisions.md#scope-and-shape).
+  *Medium.*
 
 - **Step 9 — QUIC transport.** The handshake over CRYPTO frames, the three packet number spaces,
   ACK generation and processing, streams with both state machines, offset-based flow control,
@@ -828,7 +830,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 - **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
   request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,
   with every case accounted for; the interop runner's `http3` case; `h2load --h3`; and the h2
-  suite's semantics tests re-run against h3, which is what proves the `http` module is genuinely
+  suite's semantics tests re-run against h3, which proves the `http` module is
   shared rather than duplicated. *Medium.*
 
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
@@ -933,12 +935,13 @@ before a step is called done.
 
 1. **QUIC as a module or its own repository** ([decision 3](decisions.md#scope-and-shape)).
    Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and proved.
-2. **The packet-protection vtable** ([decision 9](decisions.md#what-the-caller-supplies)). Ruled 2026-09-16: two
-   vtables, `tls.Provider` and `crypto.Suite`. Splitting packet protection away from the TLS
-   provider is what lets h3 have AES without chapulin having AES, and step 7 builds against it.
-3. **The ask to chapulin** ([decision 10](decisions.md#what-the-caller-supplies)). Ruled 2026-09-16: chapulin
-   provides all of colibri's crypto by filling both vtables, and `src/testing/` links it. The
-   request is [docs/chapulin.md](chapulin.md), and sending it is the owner's.
+2. **The packet-protection vtable** ([decision 9](decisions.md#what-the-caller-supplies)). Ruled
+   2026-09-16: two vtables, `tls.Provider` and `crypto.Suite`. Splitting packet protection away from
+   the TLS provider is what lets h3 have AES without chapulin having AES, and step 7 builds against
+   it.
+3. **The ask to chapulin** ([decision 10](decisions.md#what-the-caller-supplies)). Ruled 2026-09-16:
+   chapulin provides all of colibri's crypto by filling both vtables, and `src/testing/` links it.
+   The request is [docs/chapulin.md](chapulin.md), and sending it is the owner's.
 4. **RFC 9002's one internal disagreement**, which step 10 must settle in writing and pin with a
    test. Its §5.3 updates `smoothed_rtt` first and then computes `rttvar` against the new value,
    while its Appendix A.7 computes `rttvar` first against the old value. These produce different
@@ -954,7 +957,7 @@ before a step is called done.
 
 ## 13. Risks
 
-- **Step 9 is the project.** QUIC transport is the largest single body of work and every later
+- **Step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
   first, so a QUIC schedule overrun costs h3 and nothing else.
 - **The conformance suites are older than the RFCs they test.** h2spec is written against RFC 7540
@@ -965,14 +968,15 @@ before a step is called done.
 - **No CI.** Every check a script cannot run inside `zig build test` is run by a person, and the
   step's entry in §8 records what was run, on what, and what it printed. This is the same
   arrangement stompy's full crash tier runs under, and it works only if the recording is honest.
-- **Every check that needs crypto waits on chapulin.** [Decision 10](decisions.md#what-the-caller-supplies) has
-  chapulin fill both vtables, and what chapulin must add first reverses five of its recorded
-  decisions: a server role with constant-time signing, a non-blocking handshake with no global
-  state, a QUIC mode and host-side AES ([docs/chapulin.md](chapulin.md)). That work runs on
-  chapulin's schedule, not colibri's. Step 5's h2spec TLS mode and interop, step 7's RFC 9001
-  Appendix A vectors, and the interop endpoint, h3spec and `secnetperf` of steps 9, 10, 12 and 13
-  all wait for it. The mitigation is the order of the plan: steps 0 to 4, 6, 8 and 11 need no
-  crypto, and step 4's cleartext h2 is a working library with no TLS. colibri still cannot ship a
-  working client on its own, and a consumer with no TLS stack still has no h2-over-TLS.
+- **Every check that needs crypto waits on chapulin.**
+  [Decision 10](decisions.md#what-the-caller-supplies) has chapulin fill both vtables, and what
+  chapulin must add first reverses five of its recorded decisions: a server role with constant-time
+  signing, a non-blocking handshake with no global state, a QUIC mode and host-side AES
+  ([docs/chapulin.md](chapulin.md)). That work runs on chapulin's schedule, not colibri's. Step 5's
+  h2spec TLS mode and interop, step 7's RFC 9001 Appendix A vectors, and the interop endpoint,
+  h3spec and `secnetperf` of steps 9, 10, 12 and 13 all wait for it. The mitigation is the order of
+  the plan: steps 0 to 4, 6, 8 and 11 need no crypto, and step 4's cleartext h2 is a working library
+  with no TLS. colibri still cannot ship a working client on its own, and a consumer with no TLS
+  stack still has no h2-over-TLS.
 - **The development machine is not the measurement machine.** Every real number needs Linux.
   A macOS-only development loop can hide a regression that only a kernel mechanism would show.

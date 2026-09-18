@@ -11,7 +11,7 @@
 //! ones (invariant 12). A run of thirty ones is legal without EOS: symbol 204 ends in five ones and
 //! symbol 22 begins with twenty-nine, so the octets 204 and 22 encode to a run of thirty-four.
 //!
-//! The decoder walks the code bit by bit using the table's canonical order, which the comptime
+//! The decoder reads the code bit by bit using the table's canonical order, which the comptime
 //! block below proves rather than assumes: at each length, the codes of that length are one
 //! contiguous range, so a partial code is a complete symbol exactly when it falls inside its
 //! length's range.
@@ -114,7 +114,7 @@ fn assert_canonical_order() void {
 }
 
 /// The most octets `data_len` octets of Huffman data can decode to. Every symbol costs at least
-/// `huffman_code_bits_min` bits, so a caller sizes its output from this and never guesses.
+/// `huffman_code_bits_min` bits, so a caller sizes its output from this.
 pub fn decoded_len_max(data_len: usize) usize {
     return data_len * @bitSizeOf(u8) / constants.huffman_code_bits_min;
 }
@@ -141,8 +141,8 @@ const Partial = struct {
     fn push(self: *Partial, bit: u1) ?u16 {
         self.code = (self.code << 1) | bit;
         // Kraft equality, pinned at comptime above, makes the code complete: every run of thirty
-        // bits holds a symbol, so no partial code outgrows the longest code. The check is proved
-        // at build time rather than asserted here, on a path every peer bit reaches.
+        // bits holds a symbol, so no partial code is longer than the longest code. The check is
+        // proved at build time rather than asserted here, in code that runs for every peer bit.
         self.bit_count += 1;
         const offset = self.code -% canonical.first_code[self.bit_count];
         if (offset >= canonical.count[self.bit_count]) return null;
@@ -174,8 +174,8 @@ pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
     output.* = cursor;
 }
 
-/// Most whole octets ready to write after one symbol. At most seven bits wait between symbols and a
-/// code is at most thirty, so no more than four octets are ever ready at once.
+/// Most whole octets ready to write after one symbol. At most seven bits remain between symbols and
+/// a code is at most thirty, so no more than four octets are ever ready at once.
 const ready_octets_max = (constants.huffman_padding_bits_max + constants.huffman_code_bits_max) /
     @bitSizeOf(u8);
 
@@ -332,7 +332,7 @@ fn fuzz_decode(_: void, smith: *testing.Smith) anyerror!void {
         return;
     };
     // The padding rules leave exactly one encoding per string, so a string that decoded
-    // re-encodes to the very octets it came from.
+    // re-encodes to the octets it came from.
     var encoded_buffer: [fuzz_input_len_max]u8 = @splat(0);
     var encoded = Writer.init(&encoded_buffer);
     try encode(decoded.written(), &encoded);

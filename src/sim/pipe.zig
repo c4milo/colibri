@@ -1,4 +1,4 @@
-//! The byte pipe (design §4.1, §10): the harness plays the caller of a parser, handing it a stream
+//! The byte pipe (design §4.1, §10): the harness acts as the caller of a parser, giving it a stream
 //! in chunks whose boundaries and delays the seed chooses.
 //!
 //! A real caller reads what its socket returned, hands colibri the octets it holds, and keeps what

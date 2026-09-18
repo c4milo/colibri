@@ -11,7 +11,8 @@
 //! DATA is bounded by four things at once: what the connection's send window holds, what the
 //! stream's holds (§6.9.1), what one frame carries and what the caller's buffer has room for. The
 //! call writes what all four allow and says how much of the payload that was, so a caller loops
-//! until the payload is gone or nothing moves, and waits for a WINDOW_UPDATE when nothing does.
+//! until the whole payload is sent or a call sends nothing, and waits for a WINDOW_UPDATE when a
+//! call sends nothing.
 //!
 //! The state machine decides every send before a frame is written (§5.1): a frame colibri may not
 //! send on a stream is `error.StreamNotSendable` and writes nothing, which is the `illegal` verdict
@@ -162,7 +163,7 @@ fn write_block(target: *Connection, output: []u8, stream_id: u32, block: []const
                 return error.OutputTooSmall;
             };
         } else {
-            // RFC 9113 §6.10: the rest of the block travels in CONTINUATION frames.
+            // RFC 9113 §6.10: the rest of the block is sent in CONTINUATION frames.
             frame.write_continuation(&writer, stream_id, fragment, last) catch return error.OutputTooSmall;
         }
         offset = end;
@@ -258,7 +259,7 @@ test "write_data sends what the windows allow and no more, and says how much tha
     try testing.expectEqual(0, stalled.consumed);
     try testing.expectEqual(0, stalled.written);
     try testing.expectEqual(stream.State.half_closed_remote, record.state);
-    // A WINDOW_UPDATE from the peer lets the rest go, with END_STREAM on the last frame.
+    // A WINDOW_UPDATE from the peer lets the rest be sent, with END_STREAM on the last frame.
     const update = try frame_bytes(test_input, constants.frame_type_window_update, 0, 1, "\x00\x00\x00\x06");
     _ = try feed(update);
     const rest = try write_data(test_connection, test_output, 1, body[2..], true);

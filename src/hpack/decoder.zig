@@ -2,12 +2,12 @@
 //!
 //! A `Decoder` is one endpoint's decoding context (§2.2): its dynamic table and the limit the
 //! protocol set on it, which in h2 is this endpoint's own `SETTINGS_HEADER_TABLE_SIZE`. A
-//! `Block` walks one complete field block over it, and each call to `next` reads one
+//! `Block` decodes one complete field block over it, and each call to `next` reads one
 //! representation (§6) and returns the field line it produced, or null at the end. The caller
 //! places the decoder and reads the lines as they come, which is the "minimal transitory memory"
 //! of §3.1: no line is held past the next call.
 //!
-//! `Block` lives in decoder_block.zig and reads one representation per call. Each is checked in
+//! `Block` is in decoder_block.zig and reads one representation per call. Each is checked in
 //! this order (invariant 7):
 //!   1. its pattern, from the first octet's high bits (§6);
 //!   2. a size update: it comes before every field line in the block (§4.2), at most twice
@@ -98,7 +98,7 @@ pub const Decoder = struct {
         }
     }
 
-    /// A walk over one complete field block.
+    /// A pass over one complete field block.
     pub fn block(decoder: *Decoder, octets: []const u8) Block {
         return .{ .decoder = decoder, .reader = Reader.init(octets) };
     }

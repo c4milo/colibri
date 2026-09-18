@@ -1,11 +1,11 @@
 //! Limits and format constants h2 owns (docs/design.md §7, §6.1). Never written inline (CLAUDE.md
 //! non-negotiable 4).
 //!
-//! Two kinds of number live here. The format constants are RFC 9113's: frame types, flag bits,
-//! setting identifiers, error codes, the fixed frame lengths, the preface. The limits are colibri's,
-//! each named because the RFC leaves the bound to the implementation and says so, or because the
-//! initial value the RFC gives is "unlimited" and an endpoint that advertises nothing has bounded
-//! nothing (design §6.1).
+//! This file holds two kinds of number. The format constants are RFC 9113's: frame types, flag
+//! bits, setting identifiers, error codes, the fixed frame lengths, the preface. The limits are
+//! colibri's, each named because the RFC leaves the bound to the implementation and says so, or
+//! because the initial value the RFC gives is "unlimited" and an endpoint that advertises nothing
+//! has bounded nothing (design §6.1).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -215,7 +215,8 @@ pub const representation_len_max: u32 =
 pub const field_block_buffer_len: u32 = representation_len_max + frame_size_max;
 
 /// The SETTINGS_MAX_CONCURRENT_STREAMS colibri advertises: the slot pool's capacity, so a peer that
-/// honours the setting never finds the pool full (§5.1.2). Advertised, or nothing is bounded.
+/// honours the setting never finds the pool full (§5.1.2). colibri advertises it because the
+/// initial value is unlimited.
 pub const concurrent_streams_max: u32 = core.constants.streams_per_connection_max;
 
 /// The SETTINGS_INITIAL_WINDOW_SIZE colibri advertises, and the window every stream starts with:
@@ -248,8 +249,9 @@ pub const ping_ack_pending_max: u32 = 4;
 
 /// The largest field block colibri sends, before it is cut into a HEADERS frame and the
 /// CONTINUATION frames that follow it (§6.10). Policy: two frames' worth, so a section larger than
-/// one frame is ordinary rather than a corner. A caller that asks for more is refused, never
-/// truncated. It holds every section colibri would accept, so what colibri can read it can send.
+/// one frame is an ordinary case rather than a rare one. A caller that asks for more is refused,
+/// never truncated. It holds every section colibri would accept, so what colibri can read it can
+/// send.
 pub const send_block_len_max: u32 = 2 * frame_size_max;
 
 /// Most replies about single streams, a RST_STREAM (§6.4) or a WINDOW_UPDATE (§6.9), that colibri

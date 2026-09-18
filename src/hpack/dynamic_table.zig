@@ -2,14 +2,14 @@
 //! accounted size never exceeds its capacity. The decoder and the encoder each keep one, and the
 //! encoder's is a mirror of what its peer's decoder holds.
 //!
-//! The table owns no memory (decision 35). Its entries' octets live in a fixed buffer of
+//! The table owns no memory (decision 35). Its entries' octets are stored in a fixed buffer of
 //! `dynamic_table_capacity_max` octets, oldest first, and its entry records in a ring of
 //! `dynamic_table_entries_max`. Eviction advances the start of the live octets; an insert that
 //! would run past the buffer's end first moves the live octets to its start, which happens at most
 //! once per buffer of octets inserted.
 //!
 //! Index 1 is the newest entry and `len()` the oldest (§2.3.2), before the static table's length
-//! is added to reach the fused address space of §2.3.3, which the decoder does.
+//! is added to give the fused address space of §2.3.3, which the decoder does.
 //!
 //! Invariant 11: the accounted size is recomputed from the entries after every insert and every
 //! eviction, and must equal the sum of `entry_size` over them.

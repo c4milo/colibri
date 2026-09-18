@@ -5,7 +5,7 @@
 //! what a mutation is measured against.
 //!
 //! `zig build graph-check` is step 0's own check: it compiles a source that imports `http` from
-//! inside `src/quic/` and requires the compile to fail. That is what shows invariant 26 is held
+//! inside `src/quic/` and requires the compile to fail. This shows invariant 26 is enforced
 //! by the build rather than by review.
 //!
 //! `zig build huffman-table` and `zig build golden` rewrite the generated sources of step 1, and
@@ -33,8 +33,8 @@ const source_directories = [_][]const u8{ "build", "src", "tools" };
 /// markdown rule covers.
 const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "docs" };
 
-/// Every tool whose own tests `zig build test` runs. A check that does not check the checkers
-/// leaves a rule free to lose its own test with no build saying so.
+/// Every tool whose own tests `zig build test` runs. A build that does not run the checkers' own
+/// tests lets a rule lose its own test without the build reporting it.
 const tool_test_roots = [_][]const u8{
     "tools/lint/main.zig",
     "tools/cognitive_complexity.zig",
@@ -142,7 +142,7 @@ pub fn build(b: *std.Build) void {
 }
 
 /// `zig build test-<name>`: the tests of one module, or of the tools, with nothing else in the
-/// graph. `zig build test` is the check and stays the check; these steps are the inner loop of a
+/// graph. `zig build test` is the check that must pass; these steps are the inner loop of a
 /// mutation, which is run against the narrowest target that can catch it.
 fn add_narrow_test_step(b: *std.Build, name: []const u8) *std.Build.Step {
     return b.step(

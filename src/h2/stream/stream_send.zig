@@ -20,8 +20,8 @@ const State = stream.State;
 const Verdict = stream.Verdict;
 const after_frame = stream.after_frame;
 
-/// Idle: a client's HEADERS opens the stream, PRIORITY may go, and nothing else leaves idle by
-/// sending (RFC 9113 §5.1, §6.4).
+/// Idle: a client's HEADERS opens the stream, PRIORITY may be sent, and no other frame sent
+/// leaves the idle state (RFC 9113 §5.1, §6.4).
 pub fn in_idle(kind: Kind, end_stream: bool, role: Role, peer_initiated: bool) Verdict {
     return switch (kind) {
         .headers => headers_in_idle(end_stream, role, peer_initiated),
@@ -45,7 +45,7 @@ fn headers_in_idle(end_stream: bool, role: Role, peer_initiated: bool) Verdict {
 }
 
 /// Reserved (local): HEADERS opens the stream half-closed (remote), RST_STREAM closes, PRIORITY
-/// may go, and nothing else may be sent (RFC 9113 §5.1).
+/// may be sent, and no other frame may (RFC 9113 §5.1).
 pub fn in_reserved_local(kind: Kind, end_stream: bool) Verdict {
     return switch (kind) {
         // RFC 9113 §5.1: sending a HEADERS frame opens the stream in half-closed (remote).
@@ -59,8 +59,8 @@ pub fn in_reserved_local(kind: Kind, end_stream: bool) Verdict {
     };
 }
 
-/// Reserved (remote): RST_STREAM closes, WINDOW_UPDATE and PRIORITY may go, and nothing else may
-/// be sent (RFC 9113 §5.1).
+/// Reserved (remote): RST_STREAM closes, WINDOW_UPDATE and PRIORITY may be sent, and no other
+/// frame may (RFC 9113 §5.1).
 pub fn in_reserved_remote(kind: Kind) Verdict {
     return switch (kind) {
         // RFC 9113 §5.1: either endpoint can send a RST_STREAM frame to close the stream.

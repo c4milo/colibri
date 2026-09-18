@@ -16,8 +16,9 @@
 //! left as it was.
 //!
 //! Nothing here validates a name or a value: `field.zig` does, and the protocol module calls it
-//! before it appends (invariant 7). Nothing here knows a pseudo-header from any other line: h2 and
-//! h3 read those differently (RFC 9113 §8.3, RFC 9114 §4.3), so each does it in its own module.
+//! before it appends (invariant 7). Nothing here distinguishes a pseudo-header from any other line:
+//! h2 and h3 read those differently (RFC 9113 §8.3, RFC 9114 §4.3), so each does it in its own
+//! module.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");

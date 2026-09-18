@@ -57,10 +57,10 @@ pub const Violation = error{
     WatermarkDecreased,
     /// Invariant 13: the highest identifier the peer opened decreased.
     PeerOpenedIdentifierDecreased,
-    /// Invariant 14: the octets fed to the field-block slot passed what one HEADERS frame and
+    /// Invariant 14: the octets fed to the field-block slot exceeded what one HEADERS frame and
     /// `continuation_count_max` CONTINUATION frames carry.
     FieldBlockTooLong,
-    /// Invariant 15: a flow-control window left the range of a signed 31-bit quantity.
+    /// Invariant 15: a flow-control window went outside the range of a signed 31-bit quantity.
     WindowOutOfRange,
     /// Invariant 16: the last stream identifier of a GOAWAY colibri sent rose.
     GoawaySentLastIdIncreased,
@@ -113,8 +113,8 @@ pub const Subject = struct {
         _ = subject.connection.write_pending(&subject.output, subject.clock.now_ns);
         const received = subject.connection.receive(held, subject.clock.now_ns) catch |failure| {
             // RFC 9113 §5.4.1: the connection is over. The four invariants hold over the state the
-            // queued GOAWAY left behind as much as over any other, so they are read here too, and
-            // this is the one point at which `goaway_sent_last_id` is set (§6.8).
+            // queued GOAWAY leaves as much as over any other, so they are read here too, and
+            // `goaway_sent_last_id` is set only here (§6.8).
             if (subject.check()) |broken| return subject.refuse(broken);
             return .{ .reject = failure };
         };
@@ -252,7 +252,7 @@ comptime {
 }
 
 /// The storage one seed runs in: the connection, the clock it reads, the stream, and the three
-/// traces with the two chunk-independent copies compared. The caller places it; it is far too
+/// traces with the two chunk-independent copies compared. The caller places it; it is too
 /// large for a stack.
 pub const Storage = struct {
     /// The connection the seed's three runs drive, one after another. `Subject.init` empties it

@@ -16,7 +16,7 @@
 //! decoder to read back what was written.
 //!
 //! This tool is developer tooling: it allocates and reads the filesystem, which the library never
-//! does. The JSON never reaches `src/`.
+//! does. `src/` never reads the JSON.
 //!
 //! Exit status: 0 when every case passed, 1 on the first mismatch, 2 on a usage error.
 const std = @import("std");

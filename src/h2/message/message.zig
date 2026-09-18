@@ -374,7 +374,7 @@ test "plain trailers pass, a bad line in them is refused, and step 4 does not re
 }
 
 test "every error is a stream error of PROTOCOL_ERROR (RFC 9113 §8.1.1)" {
-    // RFC 9113 §7: PROTOCOL_ERROR is 0x01. The literal is deliberate: a comparison against the
+    // RFC 9113 §7: PROTOCOL_ERROR is 0x01. The literal is intentional: a comparison against the
     // constant could not tell a wrong code or a connection error from a stream error
     // (invariants 27 and 28).
     try testing.expectEqual(stream.Verdict{ .stream_error = 0x01 }, verdict);

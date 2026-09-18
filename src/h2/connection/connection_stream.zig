@@ -5,7 +5,7 @@
 //! stream (§6.9) are here, beside `find`, which every one of them starts with.
 //!
 //! `find` reads the table once and turns the four answers of `Lookup` into three (invariant 7):
-//!   1. a record: the state machine decides the frame, and its verdict travels back with it;
+//!   1. a record: the state machine decides the frame, and its verdict is returned with it;
 //!   2. discard: RFC 9113 §5.1 says to drop the frame after the minimal processing the caller does,
 //!      which is the frames that arrive after a RST_STREAM colibri sent and those the state machine
 //!      ignores, PRIORITY among them;

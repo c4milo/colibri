@@ -8,8 +8,8 @@
 //!   2. each committed manifest is exactly what `corpus.render_manifest` writes;
 //!   3. each corpus mutation of `mutations.zig`, applied to the committed octets, produces the
 //!      verdict it names.
-//! A case added to the table with no file beside it does not compile, which is how a forgotten
-//! `zig build golden` shows up.
+//! A case added to the table with no file beside it does not compile, so a forgotten
+//! `zig build golden` fails the build.
 const std = @import("std");
 
 pub const core = @import("core");

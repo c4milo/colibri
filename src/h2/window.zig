@@ -1,6 +1,6 @@
 //! The flow-control window of RFC 9113 §5.2 and §6.9: a credit counter in octets, kept once for
 //! the connection and once per stream, in each direction (decision 13). The connection owns every
-//! window. Nothing here knows about streams or frames.
+//! window. Nothing in this file depends on streams or frames.
 //!
 //! `Window` is the counter. On the send side it holds the space the peer advertised: DATA payloads
 //! consume it, the peer's WINDOW_UPDATE frames add to it, and a change to the peer's
@@ -165,7 +165,7 @@ pub const Receiver = struct {
     /// connection window for every flow-controlled frame, even one in error, unless it treats the
     /// frame as a connection error (RFC 9113 §6.9). `error.Exceeded` means the peer sent past the
     /// limit colibri imposed, which a sender MUST respect (§5.2.1): the connection answers with
-    /// FLOW_CONTROL_ERROR (§7). One exception is the connection's to judge: on a stream window
+    /// FLOW_CONTROL_ERROR (§7). The connection decides one exception: on a stream window
     /// colibri itself reduced, the peer may have sent the data before it processed the SETTINGS
     /// frame, and §6.9.3 lets the connection either keep processing the stream or reset it with
     /// FLOW_CONTROL_ERROR. The window does not move on `error.Exceeded` either way.

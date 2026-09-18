@@ -15,7 +15,7 @@ pub const write_buffer_len: u32 = h2.constants.send_block_len_max + read_buffer_
 /// The instant one step of the server reports, in nanoseconds, and how far the next one is. The
 /// server reads no clock: design §4.2 makes time a value the caller passes, and
 /// `tools/lint/determinism.zig` holds `src/testing/` to it too. A fixed step keeps the rate limits
-/// of RFC 9113 §10.5 moving without a clock, and keeps one run byte-identical to the next.
+/// of RFC 9113 §10.5 advancing without a clock, and keeps one run byte-identical to the next.
 pub const tick_ns: u64 = 1_000_000;
 
 /// The port the server listens on when the caller names none.
@@ -29,12 +29,12 @@ pub const arguments_max: u32 = 16;
 
 /// Connections the server serves at once, each with its own session, buffers and thread. A peer
 /// past this is closed at once rather than queued: the suites this server exists for open a
-/// connection per case and hold a handful at a time.
+/// connection per case and hold a few at a time.
 pub const connections_max: u32 = 8;
 
 /// Most responses a session owes at once, one per request that ended and has not been answered
 /// whole. It is one more than the streams the connection allows, so the queue never stops the
-/// reading before the stream limit does: a peer that opens one stream too many meets
+/// reading before the stream limit does: a peer that opens one stream too many is refused by
 /// SETTINGS_MAX_CONCURRENT_STREAMS and its REFUSED_STREAM (RFC 9113 §5.1.2), not a server that
 /// stopped reading.
 pub const responses_owed_max: u32 = h2.constants.concurrent_streams_max + 1;

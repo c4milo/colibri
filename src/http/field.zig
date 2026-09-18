@@ -1,8 +1,8 @@
 //! Field names and field values as RFC 9110 §5 defines them, for both h2 and h3 (decision 15).
 //!
 //! Each validator returns the reason a field is invalid, never a protocol verdict: h2 and h3 turn
-//! the same reason into different errors, so the protocol module names the error. Two rules stay
-//! out of this file on purpose, and the protocol modules check both before they call here. The
+//! the same reason into different errors, so the protocol module names the error. This file omits
+//! two rules, and the protocol modules check both before they call here. The
 //! lowercase rule is RFC 9113 §8.2 and RFC 9114 §4.2, not RFC 9110. A pseudo-header name starts
 //! with a colon, which no token admits.
 //!
@@ -258,7 +258,7 @@ fn fuzz_trim(_: void, smith: *testing.Smith) anyerror!void {
     const bytes = input[0..smith.slice(&input)];
     const trimmed = trim_empty_member_whitespace(bytes);
     const start = std.mem.indexOf(u8, bytes, trimmed) orelse return error.TestUnexpectedResult;
-    // Only whitespace goes, and only beside a comma that stays.
+    // Only whitespace is removed, and only beside a comma that is kept.
     for (bytes[0..start]) |octet| try testing.expect(is_whitespace(octet));
     for (bytes[start + trimmed.len ..]) |octet| try testing.expect(is_whitespace(octet));
     if (start > 0) try testing.expectEqual(',', trimmed[0]);

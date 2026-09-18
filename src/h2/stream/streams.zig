@@ -3,7 +3,8 @@
 //! identifier at or below its parity's watermark with no record is closed, whether its stream
 //! closed here or by the implicit close of RFC 9113 §5.1.1, and nothing records it (invariant 13).
 //! This file adds the h2 rules: which endpoint opens which stream (§5.1, §5.1.1), the concurrency
-//! limit (§5.1.2), the two GOAWAY limits (§6.8, invariant 16) and the settings sweep (§6.9.2,
+//! limit (§5.1.2), the two GOAWAY limits (§6.8, invariant 16) and the send-window adjustment a
+//! settings change makes (§6.9.2,
 //! invariant 15). The connection that calls it is decision 39's.
 //!
 //! §5.1 opens a stream on a HEADERS a client sends or a server receives, and a server's own stream
@@ -13,11 +14,11 @@
 //! their check order, and `streams_goaway.zig` the GOAWAY values with theirs.
 //!
 //! The state machine of `stream.zig` decides every frame. `lookup` names what a peer frame's
-//! identifier finds, and `transition` applies a verdict of `.state`. A stream that closes leaves
-//! the pool at once, except one closed by a RST_STREAM colibri sent: §5.1 says frames can keep
-//! arriving for it and must be discarded, and the record's `closed` tells the state machine so.
-//! That record stays until an open needs its slot, and the record that closed first goes first.
-//! `sequence` counts the closes, so the order needs no clock (non-negotiable 3).
+//! identifier finds, and `transition` applies a verdict of `.state`. A stream that closes keeps
+//! its record, because §5.1 decides a frame on a closed stream by how that stream closed, and the
+//! record's `closed` tells the state machine which way it was. The record stays until an open
+//! needs its slot, and the record that closed first is dropped first. `sequence` counts the
+//! closes, so the order needs no clock (non-negotiable 3).
 //!
 //! A refused stream, a promised stream and a dropped record are streams colibri reset and holds no
 //! record for. Each raises `highest_forgotten_reset_id` of its parity, and `lookup` discards frames
@@ -38,7 +39,7 @@ const stream = @import("stream.zig");
 const window = @import("../window.zig");
 const open = @import("streams_open.zig");
 const goaway = @import("streams_goaway.zig");
-const window_sweep = @import("streams_window.zig");
+const window_adjust = @import("streams_window.zig");
 
 /// The record of one stream, and the pool's entry. Every field but `id` has a default because the
 /// pool writes a fresh entry whole (invariant 5). `open_peer` and `open_local` set the state, the
@@ -87,11 +88,11 @@ pub const Lookup = union(enum) {
     /// stream and the table dropped the record. RFC 9113 §5.1 discards the frames that arrive
     /// after a RST_STREAM colibri sent, because the peer sent them before it read the reset.
     reset_and_dropped,
-    /// An identifier at or below its parity's watermark with no record and no reset to its name:
-    /// the peer never opened it, which RFC 9113 §5.1.1 closes implicitly, or it closed long enough
-    /// ago that the table dropped the record. §5.1 lets an endpoint treat any frame but PRIORITY
-    /// on a closed stream as a connection error of PROTOCOL_ERROR once a signal says the peer has
-    /// seen the close, and a later identifier is such a signal.
+    /// An identifier at or below its parity's watermark with no record and no reset recorded for
+    /// it: the peer never opened it, which RFC 9113 §5.1.1 closes implicitly, or it closed long
+    /// enough ago that the table dropped the record. §5.1 lets an endpoint treat any frame but
+    /// PRIORITY on a closed stream as a connection error of PROTOCOL_ERROR once a signal says the
+    /// peer has seen the close, and a later identifier is such a signal.
     forgotten,
 };
 
@@ -154,7 +155,7 @@ pub const Streams = struct {
         return streams.pool.len();
     }
 
-    /// The records in the pool, in slot order, for a sweep over every one (invariant 15).
+    /// The records in the pool, in slot order, for a caller that walks every one (invariant 15).
     pub fn iterator(streams: *Streams) Pool.Iterator {
         open.assert_counts(streams);
         return streams.pool.iterator();
@@ -222,7 +223,7 @@ pub const Streams = struct {
     /// Adds `delta`, the change in the peer's SETTINGS_INITIAL_WINDOW_SIZE, to the send window of
     /// every stream colibri may still send DATA on (RFC 9113 §6.9.2). See `streams_window.zig`.
     pub fn adjust_send_windows(streams: *Streams, delta: i64) error{Overflow}!void {
-        return window_sweep.adjust_send_windows(streams, delta);
+        return window_adjust.adjust_send_windows(streams, delta);
     }
 
     /// Records the last stream identifier of a GOAWAY colibri sends. See `streams_goaway.zig`.

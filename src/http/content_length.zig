@@ -24,7 +24,7 @@
 //!
 //! Field validation refuses SP or HTAB at either end of a value before this file reads it
 //! (RFC 9113 §8.2.1; decision 15 for h3). This file trims that whitespace from a member all the
-//! same, so it does not depend on which protocol asks.
+//! same, so it does not depend on which protocol calls it.
 //!
 //! This file returns a reason, never a verdict. h2 and h3 each name the error a refused value is
 //! (decision 15). Whether the value equals the content's length is the protocol module's check.

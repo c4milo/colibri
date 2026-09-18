@@ -2,7 +2,7 @@
 //! here or in its own module's `constants.zig`, and never written inline (CLAUDE.md
 //! non-negotiable 4).
 //!
-//! Several of these exist precisely because an RFC declines to bound something and hands the job
+//! Several of these exist because an RFC declines to bound something and leaves the job
 //! to the implementation. Each such limit names the section that declines, so a reader can tell a
 //! limit colibri chose from a limit a protocol fixed.
 const std = @import("std");
@@ -11,7 +11,7 @@ const assert = std.debug.assert;
 /// Longest field name colibri will emit or accept, in octets. RFC 9110 §5.4 states that HTTP
 /// places no predefined limit on a field line, so this is colibri's policy and not a protocol
 /// constant. RFC 9110 §5.4 also requires a server that cannot accept what it was sent to answer
-/// 4xx rather than truncate, which is what makes a local limit conformant.
+/// 4xx rather than truncate, so a local limit is conformant.
 pub const field_name_len_max: u32 = 256;
 
 /// Longest field value colibri will emit or accept, in octets. Policy, for the reason above.
@@ -47,7 +47,7 @@ pub const streams_per_connection_max: u32 = 128;
 
 comptime {
     // A field section that could not hold one maximal field line would make the two limits
-    // disagree, and the disagreement would surface as a refusal the peer cannot diagnose.
+    // disagree, and the peer would see the disagreement as a refusal it cannot diagnose.
     assert(field_section_size_max >= field_name_len_max + field_value_len_max + field_line_overhead);
     // The per-line limits must fit the accounting type the size formula uses.
     assert(@as(u64, field_name_len_max) + field_value_len_max + field_line_overhead <= std.math.maxInt(u32));

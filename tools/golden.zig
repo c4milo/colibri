@@ -8,7 +8,7 @@
 //!
 //! For each format of `corpus_cases.zig` the tool writes one directory under the golden directory,
 //! named for the format, holding one `.bin` file per case and a version 1 `manifest.txt`. The
-//! octets and the manifest come from `corpus.build` and `corpus.render_manifest`, which live in
+//! octets and the manifest come from `corpus.build` and `corpus.render_manifest`, which are in
 //! `src/golden/` and are pure; this tool is the only part that touches the filesystem, because the
 //! `io` lint rule keeps `std.fs` out of `src/`.
 //!
@@ -29,7 +29,7 @@ const Writer = corpus.core.Writer;
 const exit_refused: u8 = 1;
 const exit_usage: u8 = 2;
 
-/// Most entries the tool reads from one format directory before giving up.
+/// Most entries the tool reads from one format directory before it fails.
 const directory_entries_max = 1024;
 
 const Outcome = union(enum) {

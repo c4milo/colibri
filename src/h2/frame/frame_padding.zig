@@ -1,6 +1,6 @@
 //! The Pad Length rule that DATA, HEADERS and PUSH_PROMISE share (RFC 9113 §6.1, §6.2, §6.6).
 //! When the PADDED flag is set, the payload starts with a Pad Length octet and ends with that many
-//! padding octets, and the frame's own fields sit between the two.
+//! padding octets, and the frame's own fields are between the two.
 //!
 //! `strip` checks, in order (invariant 7):
 //!   1. the PADDED flag is unset, in which case the whole payload is the frame's own fields;

@@ -10,8 +10,8 @@
 //!
 //! A corpus entry is not the raw octets. Outside `--fuzz`, `std.testing.Smith` reads a slice as a
 //! 4-octet little-endian length and then the octets, and reads an integer as 8 little-endian octets.
-//! `input` and `input_with_value` write entries in that shape, so a corpus entry reaches the
-//! property function as the octets it names.
+//! `input` and `input_with_value` write entries in that shape, so the property function reads a
+//! corpus entry as the octets it names.
 const std = @import("std");
 const assert = std.debug.assert;
 

@@ -12,7 +12,7 @@
 //!
 //! Every error is one of message.zig's `Error`: a malformed message, which RFC 9113 §8.1.1 makes a
 //! stream error of type PROTOCOL_ERROR. Decision 19 rests on step 1. `:protocol` is a pseudo-header
-//! RFC 9113 does not define, so it is `PseudoHeaderUndefined`, and the peer loses the stream, not
+//! RFC 9113 does not define, so it is `PseudoHeaderUndefined`, which ends the stream, not
 //! the connection.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -243,7 +243,8 @@ test "an uppercase letter at either end of 0x41-0x5a, or as the first octet alon
         try expect_request(error.FieldNameInvalid, try request_with(&.{line_of(name, "ok")}));
         try expect_trailers(error.FieldNameInvalid, try section_of(&.{line_of(name, "ok")}));
     }
-    // The neighbours of the range, 0x40 and 0x5b, are not tchar either; a and z are the legal twins.
+    // The neighbours of the range, 0x40 and 0x5b, are not tchar either; a and z are the lowercase
+    // letters that pass.
     for ([_][]const u8{ "x-a", "x-z", "a", "z" }) |name| _ = try message.validate_request(try request_with(&.{line_of(name, "ok")}));
 }
 

@@ -15,7 +15,7 @@
 //! sends the ACK once all are applied (§6.5.3).
 //!
 //! colibri never pushes (decision 17): a client advertises ENABLE_PUSH 0, because the initial
-//! value is 1 and silence is consent, and a server omits the setting, which §6.5.2 lets it do.
+//! value is 1, so a client that sends nothing leaves push enabled; a server omits it (§6.5.2).
 //!
 //! `Pending` holds the SETTINGS frames colibri has sent and not yet seen acknowledged, oldest
 //! first, because an ACK acknowledges the oldest (§6.5.3). Every instant it reads is a parameter
@@ -66,7 +66,7 @@ fn is_well_formed(values: Values) bool {
 
 /// The values colibri sends in its preface (RFC 9113 §3.4), the same for both roles: ENABLE_PUSH 0
 /// for both (decision 17; §6.5.2), and the two settings whose initial value is unlimited always
-/// advertised, or nothing is bounded (design §6.1).
+/// advertised, so both are bounded (design §6.1).
 pub fn advertised(role: Role) Values {
     const values: Values = .{
         .header_table_size = constants.header_table_size_advertised,
@@ -78,7 +78,8 @@ pub fn advertised(role: Role) Values {
     };
     // RFC 9113 §6.5.2: a server MUST NOT explicitly set ENABLE_PUSH to 1.
     assert(role == .client or values.enable_push != constants.enable_push_enabled);
-    // Decision 17: a client sends 0, because the initial value is 1 and silence is consent.
+    // Decision 17: a client sends 0, because the initial value is 1 and sending nothing leaves
+    // push enabled.
     assert(role == .server or values.enable_push == constants.enable_push_disabled);
     assert(is_well_formed(values));
     return values;

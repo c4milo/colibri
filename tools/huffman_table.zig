@@ -10,7 +10,7 @@
 //! The RFC gives every code twice: as bits aligned to the most significant bit, and as hex
 //! aligned to the least significant bit, with the length in bits in brackets. The tool reads both
 //! columns and refuses a row where they disagree, so a transcription error in either column
-//! cannot reach the table. It also refuses a table that is not exactly symbols 0 to 256 in order.
+//! is never written to the table. It also refuses a table that is not exactly symbols 0 to 256 in order.
 //!
 //! The table's own properties — Kraft equality, EOS at thirty set bits, canonical order — are
 //! pinned by comptime asserts in src/wire/huffman.zig, where the decoder that depends on them is.

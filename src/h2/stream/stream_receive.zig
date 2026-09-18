@@ -118,7 +118,7 @@ pub fn in_half_closed_remote(kind: Kind) Verdict {
     };
 }
 
-/// Closed: what a late frame gets depends on how the stream closed (RFC 9113 §5.1, §5.4.2).
+/// Closed: the verdict for a late frame depends on how the stream closed (RFC 9113 §5.1, §5.4.2).
 pub fn in_closed(kind: Kind, closed: Closed) Verdict {
     return switch (closed) {
         .end_stream => in_closed_by_end_stream(kind),
@@ -150,7 +150,8 @@ fn in_closed_by_rst_stream_received(kind: Kind) Verdict {
         // condition, so a further RST_STREAM from the peer that reset the stream is discarded.
         .rst_stream => .ignore,
         // RFC 9113 §5.1: receipt of a frame other than PRIORITY on a closed stream is a connection
-        // error of STREAM_CLOSED, and a stream the peer closed has no frame in flight to excuse.
+        // error of STREAM_CLOSED, and on a stream the peer closed no frame still in transit
+        // excuses a late one.
         .data, .headers, .window_update, .push_promise => stream_closed_connection_error,
     };
 }

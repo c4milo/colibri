@@ -1,7 +1,7 @@
 # colibri rules
 
 colibri is an HTTP/2 and HTTP/3 library — client and server — written from the RFCs, named for
-the hummingbird: small, fast, and it holds still where it needs to. Home:
+the hummingbird. Home:
 github.com/c4milo/colibri.
 
 It is a standalone library. stompy is its first consumer and will vendor it the way it vendors
@@ -16,17 +16,17 @@ colibri measures (docs/design.md §11); it does not inform what colibri's API lo
 - `docs/decisions.md` — numbered decisions, each with the alternatives it beat.
 - `docs/invariants.md` — numbered invariants, each one a runtime assertion.
 
-All three record *decisions with the alternatives they beat*. If you are about to do something a
-document rejected, say so and stop — do not quietly re-litigate it in code.
+All three record decisions with the alternatives they beat. If you are about to do something a
+document rejected, say so and stop — do not reverse it in code.
 
 ## Non-negotiables
 
-These are not style preferences; the architecture depends on them.
+The architecture depends on every rule in this section.
 
 1. **colibri owns no I/O.** No socket, no file descriptor, no `poll`, no thread. Frames and heads
    are written into storage the caller owns and parsed out of bytes the caller has already read.
-   Every function that would block instead returns what it wants. If you are reaching for a
-   syscall, you are in the wrong repository.
+   Every function that would block instead returns a value naming the I/O it needs. Do not
+   make a syscall in this repository.
 2. **colibri owns no crypto.** Two caller-supplied vtables, `tls.Provider` and `crypto.Suite`,
    with no production implementation in this tree (decisions 8 and 9): `src/sim/` carries null
    implementations, which are test-only and are never packaged. chapulin fills both vtables for the
@@ -48,13 +48,13 @@ These are not style preferences; the architecture depends on them.
    instants it was given).
 6. **Formats are versioned from the first commit.** Every internal on-disk and cross-process
    structure colibri defines carries a version and a size. The wire formats are the RFCs' and
-   cannot be versioned by us — which is exactly why our own structures must be.
+   cannot be versioned by us, so our own structures must carry a version and a size.
 7. **The simulator precedes the protocol it tests.** Do not write connection code before the
-   deterministic harness that can drive it. For QUIC this is the whole difficulty and design §8
+   deterministic harness that can drive it. For QUIC this is the hardest part, and design §8
    steps 2 and 8 settle it: the simulator is built against what the caller supplies — `io` is
    the caller's, time is a parameter, crypto is a vtable — so it exists before there is a
    protocol to drive.
-8. **Invariants are code.** Every numbered invariant in `docs/invariants.md` wants at least one
+8. **Invariants are code.** Give every numbered invariant in `docs/invariants.md` at least one
    runtime assertion. A violated invariant halts with the seed and the byte offset that produced
    it.
 9. **Every RFC rule cited by section, in the code.** A check that exists because an RFC demands
@@ -69,11 +69,11 @@ These are not style preferences; the architecture depends on them.
 
 ## Tests are proved by mutation
 
-A test no mutation can fail is not a test. When you add a check, break it on purpose and confirm
-a test fails. Report the result as `CAUGHT` or `NOT CAUGHT` per mutation, in the commit body or
-the step's entry in design §8. A `NOT CAUGHT` is a missing test, not a footnote.
+A test must fail when the code it covers is broken. When you add a check, break it on purpose and
+confirm a test fails. Report the result as `CAUGHT` or `NOT CAUGHT` per mutation, in the commit body
+or the step's entry in design §8. A `NOT CAUGHT` means a test is missing; write it.
 
-When a mutation shows a rule no test guards, land the mutant: `src/golden/mutations.zig` carries
+When a mutation shows a rule no test guards, commit the mutant: `src/golden/mutations.zig` carries
 the corpus mutations, and each one names the verdict it must produce. The framework for this
 exists — never propose a second one.
 
@@ -101,8 +101,8 @@ exists — never propose a second one.
   network byte order in h2 (RFC 9113 §2.2) and in QUIC (RFC 9000 §1.3), and colibri reads and
   writes it byte by byte.
 - Operational errors — bad peer input, short buffers, a limit reached — return error values and
-  fail closed. Assertions are for programmer error only, seeded at contract points, never in a
-  per-byte path where hostile input reaches them.
+  fail closed. Assertions are for programmer error only, placed at contract points, never in a
+  per-byte path that parses hostile input.
 - Write all prose in active voice with plain words, following Google's Technical Writing One and
   Two: short sentences with one idea each, terms defined before use, lists for list-like content,
   strong verbs, no rhetorical flourishes or metaphors.
@@ -125,7 +125,7 @@ exists — never propose a second one.
 - A commit message is a Conventional Commit: `type(scope)!: description`, with the scope and the
   `!` optional. The type is one of a closed set — `feat`, `fix`, `docs`, `test`, `refactor`,
   `perf`, `build`, `ci`, `chore` — and a scope, when present, holds lowercase letters, digits and
-  hyphens. The digits are not decoration: `h2` and `h3` are the two commonest scopes, and a rule
+  hyphens. The scope allows digits because `h2` and `h3` are the two commonest scopes, and a rule
   admitting letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`,
   `hpack`, `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`. A scope
   outside that set is a warning rather than a refusal, because the set grows when the graph does
@@ -142,26 +142,54 @@ exists — never propose a second one.
 
 ## Layout
 
-- `build.zig` stays short: build options and the module graph. Helpers live in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. A module
-  can only `@import` what `build.zig` gives it, so the dependency direction is enforced by the
-  build and not by review. The graph is design §3 and is load-bearing — read it before adding a
-  module or an edge.
+- `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. A module can
+  only `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and
+  not by review. The graph is design §3 and the rest of the design depends on it — read it before
+  adding a module or an edge.
 - The one edge that must never exist: **`quic` may not import `http`, `h2`, `h3`, `hpack` or
   `qpack`.** QUIC knows nothing about HTTP (decision 5). The QUIC simulator runs with no HTTP
   module in the graph at all, and that is the check that proves the boundary.
-- Each module owns its `constants.zig`. A limit two modules share lives in
+- Each module owns its `constants.zig`. A limit two modules share belongs in
   `src/core/constants.zig`. A comptime assert stays with the constant it pins.
-- Tests live in the file they test. Fixtures and corpora live beside the module that reads them.
+- Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
-  library and is the only directory permitted to touch a socket.
+  library and is the only directory permitted to open a socket.
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
-- `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its
-  engines come from pepegrillo, a lazy Zig package in `build.zig.zon` (decision 36); `tools/`
-  holds colibri's configuration of each rule and the rules only colibri has.
+- `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
+  implementations come from pepegrillo, a lazy Zig package in `build.zig.zon` (decision 36);
+  `tools/` holds colibri's configuration of each rule and the rules only colibri has.
 - `docs/` is the design set. `bench/` holds benchmarks with their scripts and their committed
   baselines.
+
+## Performance
+
+colibri runs inside other people's hot paths, so cost is part of the design and not a later pass.
+The discipline is [Abseil's performance hints](https://abseil.io/fast/hints.html), applied to this
+tree. Design §11 holds the method and the numbers.
+
+- **Measure; do not assume.** A performance claim carries a number, the command that produced it
+  and the machine it ran on. `bench/` holds the baselines; macOS publishes no number (decision 32).
+- **Know the order of magnitude before optimizing.** A cache reference, a main-memory read, a
+  syscall and a network round trip are orders of magnitude apart. Say which of the four a change
+  moves, and by how much.
+- **Cross the caller's boundary in bulk.** One call reads a whole frame; one call writes every
+  reply colibri owes. A per-octet entry point is a per-octet cost.
+- **The hot path allocates nothing**, which non-negotiable 4 already requires. What is left to
+  judge a change on is syscalls, copies, cache misses and branches.
+- **Lay out structs for the cache.** Keep the fields one function touches together, hold hot
+  mutable fields apart from read-only ones, use the smallest integer that holds the value, and
+  index a fixed array rather than follow a pointer.
+- **No two threads write one cache line.** colibri is single-threaded per connection; the
+  endpoints of §9 give each core its own state and share nothing.
+- **Fast path first, slow path in its own function**, so the common case stays small enough to
+  inline and the rare case costs nothing to skip.
+- **Precompute what cannot change.** The Huffman and static tables are generated at build time,
+  and a value that is the same on every call is computed once, outside the loop.
+- **Nothing counts, samples or logs on the per-frame path.** A statistic that costs a branch per
+  frame has a price; drop it or sample it outside the loop.
+- **A rewrite that only reads better is not a performance change.** Name the cost it removes.
 
 ## Ask before
 
@@ -176,8 +204,8 @@ exists — never propose a second one.
 
 ## Commands
 
-Nothing below exists yet; design §8 step 0 lands it. This section is the contract that step
-writes to, and it moves when the step lands, not before.
+Nothing below exists yet; design §8 step 0 adds it. This section is the specification that step
+writes to; change it when that step is done, not before.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
@@ -210,9 +238,9 @@ writes to, and it moves when the step lands, not before.
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
-- Tooling: the first build on a machine fetches pepegrillo (decision 36). After a bump with
-  `zig fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm
-  `.lazy = true` is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
+- Tooling: the first build on a machine fetches pepegrillo (decision 36). After a bump with `zig
+  fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm `.lazy = true`
+  is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
   builds against a local pepegrillo instead of the pinned commit.
 
 There is no CI here. Every check that a script cannot run inside `zig build test` is run by a

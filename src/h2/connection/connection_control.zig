@@ -6,7 +6,8 @@
 //! acknowledged only once every value in it was accepted: a refusal ends the connection, so there
 //! is nothing left to acknowledge. Two settings do more than change a number. A new
 //! SETTINGS_INITIAL_WINDOW_SIZE moves the send window of every stream at once (§6.9.2), which is
-//! the sweep `streams_window.zig` runs. A new SETTINGS_HEADER_TABLE_SIZE is given to colibri's
+//! what `streams_window.zig`'s `adjust_send_windows` does. A new SETTINGS_HEADER_TABLE_SIZE is
+//! given to colibri's
 //! encoder as soon as it is read, rather than when the acknowledgment is written: §4.3.1 lets the
 //! encoder use a table no larger than the limit the peer last sent, and reading it early only ever
 //! makes colibri's table smaller than the peer allows.

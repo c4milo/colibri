@@ -1,5 +1,5 @@
-//! The field-block reassembly slot of invariant 14 and decision 40: the one place on an h2
-//! connection where a field block is decoded, fragment by fragment, as its HEADERS or
+//! The field-block reassembly slot of invariant 14 and decision 40: an h2 connection decodes
+//! every field block here, fragment by fragment, as its HEADERS or
 //! PUSH_PROMISE frame and any CONTINUATION frames arrive (RFC 9113 §4.3).
 //!
 //! The connection calls `begin` when a HEADERS or PUSH_PROMISE frame opens a block, and `feed`
@@ -25,7 +25,7 @@
 //!
 //! A section that refuses a line, for its size or its line count, does not stop the decoding:
 //! `too_large` is set, every later octet still goes through the decoder, and its lines are
-//! discarded, so the dynamic table stays in step with the peer's (invariant 10, §10.5.1).
+//! discarded, so the dynamic table stays synchronized with the peer's (invariant 10, §10.5.1).
 //!
 //! Nothing here validates a name or a value, and nothing here names a stream error: a malformed
 //! line is a stream error (§8.1.1) the connection finds on the section once the block is done,

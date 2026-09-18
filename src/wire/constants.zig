@@ -1,9 +1,9 @@
 //! Limits and format constants wire owns (docs/design.md §7). Never written inline (CLAUDE.md
 //! non-negotiable 4).
 //!
-//! Two integer codecs live in `wire` and their limits are kept apart on purpose: the QUIC
+//! `wire` holds two integer codecs and keeps their limits separate on purpose: the QUIC
 //! variable-length integer is a framing primitive, and the prefixed integer is a field-compression
-//! primitive (decision 11). They share a 62-bit ceiling and nothing else.
+//! primitive (decision 11). They share a 62-bit maximum value and nothing else.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -24,13 +24,14 @@ pub const varint_length_bits: u8 = 2;
 
 /// Largest value the prefixed-integer decoder accepts. RFC 9204 §4.1.1 requires decoding integers
 /// up to and including 62 bits long, and RFC 7541 §5.1 requires an integer over an implementation
-/// limit to be treated as a decoding error, so 62 bits is both the floor and the limit.
+/// limit to be treated as a decoding error, so 62 bits is both the minimum required and the
+/// maximum accepted.
 pub const integer_value_max: u64 = (1 << 62) - 1;
 
 /// Longest prefixed integer, in octets: the prefix octet and nine continuation octets. Nine
 /// seven-bit groups carry the 62 bits `integer_value_max` needs past even a 1-bit prefix. RFC 7541
 /// §5.1 requires an encoding longer than an implementation limit to be treated as a decoding
-/// error, which is what stops a peer sending an unbounded run of zero-valued continuation octets.
+/// error, so a peer cannot send an unbounded run of zero-valued continuation octets.
 pub const integer_len_max: u8 = 10;
 
 /// Fewest and most bits a prefixed integer's prefix takes. RFC 7541 §5.1 names the prefix N and

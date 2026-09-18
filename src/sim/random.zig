@@ -3,10 +3,10 @@
 //!
 //! The generator is SplitMix64, written out here rather than taken from `std.Random` for two
 //! reasons. `tools/lint/determinism.zig` refuses `std.Random` under `src/`, so no protocol file can
-//! reach a generator by accident. And a seed must replay the same run after a Zig upgrade, which
+//! use a generator by accident. And a seed must replay the same run after a Zig upgrade, which
 //! holds only while the sequence a seed produces is this file's and not the standard library's.
 //!
-//! This is a schedule, not a secret: nothing here is unpredictable, and nothing a protocol needs
+//! Nothing here is unpredictable, and nothing a protocol needs
 //! to be unpredictable comes from it (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;
