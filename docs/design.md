@@ -725,7 +725,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the twelve `tools/lint` rules run clean. `tools/h2spec.sh` prints `146 tests, 144 passed,
   0 skipped, 2 failed` against h2spec 2.6.0, and the script names the two: both test RFC 7540
   §5.3.1's rule that a stream cannot depend on itself, which RFC 9113 §5.3.2 dropped with the rest
-  of the priority scheme, leaving §6.3 two rules that colibri does enforce. `h2-frames` prints
+  of the priority scheme, leaving §6.3 two rules that colibri does enforce
+  ([decision 41](decisions.md#the-h2-connection)). `h2-frames` prints
   `cases=34 normal=12 errors=22 round_trips=12`. The simulator check prints
   `connection: seeds=256 passed=195 rejected=61 frames=4670 chunks=9636 trace_octets=588870
   crc32=0xe8f7c0b4`, the same number in Debug and `-Drelease`.

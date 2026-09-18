@@ -18,7 +18,8 @@ readonly server="${repository_root}/zig-out/bin/h2-server"
 # keeps only two rules, a stream identifier of 0 and no PRIORITY inside a field block, both of
 # which colibri enforces. colibri reads RFC 9113 and never RFC 7540 (CLAUDE.md), and decision 18
 # parses the priority fields without acting on them, so a stream that depends on itself is a
-# signal colibri ignores rather than an error it reports.
+# signal colibri ignores rather than an error it reports. The owner ruled this on 2026-09-18:
+# docs/decisions.md entry 41.
 readonly skipped_cases=(
   "Sends HEADERS frame that depends on itself"
   "Sends PRIORITY frame that depend on itself"
