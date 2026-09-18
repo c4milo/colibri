@@ -1,6 +1,7 @@
 # The request to chapulin
 
-Status: written 2026-09-16 for the owner to send. colibri never edits chapulin's repository, and
+Status: written 2026-09-16 and refreshed against chapulin's tree on 2026-09-18. Not sent yet;
+sending it is the owner's (https://github.com/c4milo/colibri/issues/5). colibri never edits chapulin's repository, and
 nothing here binds chapulin until chapulin's own decisions record it.
 
 [Decision 10](decisions.md#what-the-caller-supplies) rules that chapulin provides all of colibri's
@@ -24,15 +25,32 @@ way.
 
 ## What chapulin has today
 
-Verified against chapulin's tree on 2026-09-16:
+Verified against chapulin's tree on 2026-09-18:
 
-- It exports `ch_connect`, `ch_read`, `ch_write` and `ch_close`, plus `ch_drbg_seed` and
-  `ch_pubkey_from_pem` (`Makefile:357`).
-- It has no server role (`cfg.h:5`).
-- Its I/O callbacks block.
+- Its public API is four calls, `ch_connect`, `ch_write`, `ch_read` and `ch_close` (`tls.h`), plus
+  `ch_drbg_seed` and `ch_pubkey_from_pem`.
+- It has no server role. The README lists it among the non-goals, `cfg.h:5` says the whole file
+  configures a client, and `docs/quic.md` repeats it for the transport mode.
+- Its I/O callbacks block, and `io.h` reads and writes a record at a time through them.
+- Each connection has its own session, because `ch_connect` takes a `ch_tls` (`tls.h:14`), but the
+  DRBG is global (`drbg.c`).
+- It has no exporter: nothing in the tree implements RFC 8446 §7.5.
+- It offers ALPN at the client: a caller lists `cfg.alpn_protocols` and reads which name the server
+  chose from `session.alpn_selected` (RFC 7301 §3.1).
+- It verifies certificates three ways: a pinned key, `TRUST=ca` against a CA it runs, and
+  `TRUST=webpki` against the caller's anchors, with the X.509, name, signature-algorithm and
+  validity machinery that mode needs.
+- Its QUIC transport mode is declared and linked as fail-closed stubs: `quic.h` and its headers
+  state the interface, and nothing implements it yet.
 - Several internal pieces the request can build on already exist: `hkdf_extract` and
   `hkdf_expand_label` (`hkdf.h`), the `ks_*` key schedule (`keysched.h`), ChaCha20-Poly1305
   `aead_seal` and `aead_open` (`aead.h`), and `chacha20.c` with `chacha20.h`.
+
+Two of these change what the request asks for. The client half of ALPN is done, so the ask is the
+server half: selecting from the client's list and sending the fatal alert when nothing overlaps.
+And `TRUST=webpki` brings certificate parsing and signature verification into the tree, which is
+the reading half of what a server does with a chain; the writing half, signing CertificateVerify,
+is what is still missing.
 
 ## What colibri asks for
 
@@ -40,8 +58,9 @@ Verified against chapulin's tree on 2026-09-16:
 
 Design §8 step 5 waits for these five.
 
-1. **ALPN** (RFC 7301). A server that shares no protocol with the client ends the handshake with
-   the fatal `no_application_protocol` alert, value 120 (RFC 7301 §3.2).
+1. **ALPN at the server** (RFC 7301). chapulin offers the client half already. A server picks a
+   name from the client's list, and one that shares no protocol ends the handshake with the fatal
+   `no_application_protocol` alert, value 120 (RFC 7301 §3.2).
 2. **A server role, with constant-time signing.** The server signs CertificateVerify
    (RFC 8446 §4.4.3) with a private key, and that path must not leak the key through timing.
 3. **A non-blocking handshake that takes bytes in and returns bytes.** colibri owns no I/O, so
