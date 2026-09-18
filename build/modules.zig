@@ -127,6 +127,9 @@ pub fn add(
     const testing = create(b, "src/testing/testing.zig", target, optimize);
     testing.addImport("core", core);
     testing.addImport("h2", h2);
+    // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's. The library links
+    // no C at all; this module is excluded from it, and decision 10 links chapulin here too.
+    testing.link_libc = true;
 
     return .{
         .core = core,

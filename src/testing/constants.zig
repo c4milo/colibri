@@ -27,10 +27,25 @@ pub const port_radix: u8 = 10;
 /// Most command-line arguments the server reads, which bounds the loop that reads them.
 pub const arguments_max: u32 = 16;
 
-/// Connections the server serves at once, each with its own session, buffers and thread. A peer
-/// past this is closed at once rather than queued: the suites this server exists for open a
-/// connection per case and hold a few at a time.
-pub const connections_max: u32 = 8;
+/// Workers the server runs, one per core up to this many. Each has its own listening socket, its
+/// own connections and its own thread, and reads no other worker's memory.
+pub const workers_max: u32 = 8;
+
+/// Connections one worker serves at once. SO_REUSEPORT ties a connection to the worker whose
+/// listener the kernel picked, and that choice is a hash rather than a balance: several peers can
+/// land on one worker while another sits idle. So a worker holds far more connections than an even
+/// spread would need, and a peer that arrives when its worker is full waits in that listener's
+/// backlog. A slot costs one session and its buffers, which the operating system maps only when a
+/// connection touches it.
+pub const connections_per_worker_max: u32 = 32;
+
+/// Connections the kernel holds for a worker before it refuses one, which is listen's backlog.
+pub const kernel_backlog: u31 = 64;
+
+/// The width of a cache line on the hosts colibri is measured on: 64 octets on x86-64 and 128 on
+/// Apple silicon. A worker is padded to a multiple of it, so no two workers write one line
+/// (CLAUDE.md, Performance).
+pub const cache_line_bytes: u32 = 128;
 
 /// Most responses a session owes at once, one per request that ended and has not been answered
 /// whole. It is one more than the streams the connection allows, so the queue never stops the
@@ -63,7 +78,8 @@ comptime {
     assert(write_buffer_len > read_buffer_len);
     assert(tick_ns > 0 and default_port > 0 and port_radix > 0);
     assert(arguments_max > 0 and steps_per_read_max > 0 and responses_owed_max > 0);
-    assert(connections_max > 0);
+    assert(workers_max > 0 and connections_per_worker_max > 0 and kernel_backlog > 0);
+    assert(cache_line_bytes > 0 and cache_line_bytes % @alignOf(u64) == 0);
     assert(response_body.len > 0);
     // The declared length is the body's, or a peer would wait for octets that never come.
     assert(response_content_length.len == 1 and response_content_length[0] - '0' == response_body.len);
