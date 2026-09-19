@@ -11,6 +11,8 @@ pub const constants = @import("constants.zig");
 pub const h2_session = @import("h2/h2_session.zig");
 pub const Session = h2_session.Session;
 pub const h2_server = @import("h2/h2_server.zig");
+pub const h2_client_exchange = @import("h2/h2_client_exchange.zig");
+pub const h2_client_session = @import("h2/h2_client_session.zig");
 
 /// The entry point of `zig build h2-server`, which is this module's executable form.
 pub const main = h2_server.main;
@@ -20,4 +22,6 @@ test {
     _ = constants;
     _ = h2_session;
     _ = h2_server;
+    _ = h2_client_exchange;
+    _ = h2_client_session;
 }

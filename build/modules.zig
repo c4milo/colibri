@@ -54,6 +54,9 @@ pub const Modules = struct {
     /// The test-only entry points of design §9, excluded from the packaged library and the only
     /// place permitted to touch a socket. Receives the protocol modules it serves.
     testing: *std.Build.Module,
+    /// The test-only h2 client of design §9, rooted at `src/testing/client.zig`: the same
+    /// directory as `testing` and the same imports, with a `main` of its own.
+    testing_client: *std.Build.Module,
 };
 
 pub fn add(
@@ -131,6 +134,12 @@ pub fn add(
     // no C at all; this module is excluded from it, and decision 10 links chapulin here too.
     testing.link_libc = true;
 
+    const testing_client = create(b, "src/testing/client.zig", target, optimize);
+    testing_client.addImport("core", core);
+    testing_client.addImport("h2", h2);
+    // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
+    testing_client.link_libc = true;
+
     return .{
         .core = core,
         .wire = wire,
@@ -146,6 +155,7 @@ pub fn add(
         .sim_run = sim_run,
         .golden = golden,
         .testing = testing,
+        .testing_client = testing_client,
     };
 }
 

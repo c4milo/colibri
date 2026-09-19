@@ -96,6 +96,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "golden", .module = graph.golden },
         .{ .name = "testing", .module = graph.testing },
+        .{ .name = "testing-client", .module = graph.testing_client },
     };
     var golden_tests: ?*std.Build.Step = null;
     for (unit_test_modules) |entry| {
@@ -131,6 +132,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
     add_h2_server_step(b, graph.testing);
+    add_h2_client_step(b, graph.testing_client);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
 
@@ -253,6 +255,18 @@ fn add_h2_server_step(b: *std.Build, testing: *std.Build.Module) void {
     const step = b.step("h2-server", "Run the test-only cleartext h2 server: -- --port <port>");
     step.dependOn(&run.step);
     b.installArtifact(server);
+}
+
+/// The cleartext h2 client of design §9, which `tools/h2_interop.sh` runs against other
+/// implementations' servers. It is built from the `testing_client` module and is never part of
+/// the library.
+fn add_h2_client_step(b: *std.Build, testing_client: *std.Build.Module) void {
+    const client = b.addExecutable(.{ .name = "h2-client", .root_module = testing_client });
+    const run = b.addRunArtifact(client);
+    if (b.args) |args| run.addArgs(args);
+    const step = b.step("h2-client", "Run the test-only cleartext h2 client: -- --port <port> --get <path>");
+    step.dependOn(&run.step);
+    b.installArtifact(client);
 }
 
 fn add_hooks_step(b: *std.Build) void {

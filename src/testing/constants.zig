@@ -73,6 +73,59 @@ pub const response_status: u16 = 200;
 /// (RFC 9110 §8.6).
 pub const response_content_length = "8";
 
+/// Most exchanges one client session runs, each a request and the response to it on a stream of
+/// its own. It bounds the plan the command line reads and the array the session holds.
+pub const exchanges_max: u32 = 8;
+
+/// Most octets of request content one exchange sends. It is past the 65,535-octet window a stream
+/// starts with (RFC 9113 §6.9.2) several times over, so a plan can make the peer's WINDOW_UPDATE
+/// frames the only way the content finishes.
+pub const request_content_len_max: u32 = 1 << 24;
+
+/// The period of the request content: octet `i` of it is `i % request_content_period`. A prime,
+/// so no frame size, record size or window divides it, and content a peer reorders, drops or
+/// repeats does not echo back as the same octets.
+pub const request_content_period: u32 = 251;
+
+/// Octets of the content pattern the session keeps, several periods of it. One `write_data` call
+/// reads a slice of it, so a call never hands over less than a frame's worth.
+pub const request_content_pattern_len: u32 = 128 * request_content_period;
+
+/// Branches the compiler may take while it fills the pattern: two per octet, the loop's and the
+/// remainder's.
+pub const request_content_pattern_branches: u32 = 2 * request_content_pattern_len;
+
+/// Decimal digits of the longest `content-length` a request carries (RFC 9110 §8.6), which is
+/// `request_content_len_max`'s.
+pub const content_length_digits_max: u32 = 8;
+
+/// The `user-agent` every request names (RFC 9110 §10.1.5).
+pub const user_agent = "colibri";
+
+/// Connections one client run holds at once, all in one `poll` call on one thread. Every one runs
+/// the whole plan, so a run with several is the same exchanges on several connections.
+pub const client_connections_max: u32 = 64;
+
+/// Most command-line arguments the client reads: its options, and two per exchange.
+pub const client_arguments_max: u32 = 16 + 2 * exchanges_max;
+
+/// Milliseconds the client waits in `poll` for any of its sockets before it gives the run up. A
+/// peer that stops answering ends the run with a failure instead of holding it forever. The
+/// waiting is the kernel's: no source file here reads a clock (design §4.2).
+pub const client_poll_timeout_ms: i32 = 10_000;
+
+/// Most `poll` calls one client run makes, which bounds its loop.
+pub const client_polls_max: u32 = 1 << 20;
+
+comptime {
+    assert(exchanges_max > 0 and client_connections_max > 0 and client_polls_max > 0);
+    assert(request_content_pattern_len % request_content_period == 0);
+    assert(request_content_pattern_len >= h2.constants.frame_size_max);
+    // The digits hold the largest length a plan may name.
+    assert(std.math.pow(u64, port_radix, content_length_digits_max) > request_content_len_max);
+    assert(client_poll_timeout_ms > 0 and client_arguments_max > arguments_max);
+}
+
 comptime {
     assert(read_buffer_len > h2.constants.frame_size_max);
     assert(write_buffer_len > read_buffer_len);
