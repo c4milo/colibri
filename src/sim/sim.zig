@@ -1,6 +1,6 @@
-//! The deterministic harness: clock, byte pipe and trace (design §10). The datagram network and
-//! the null provider for each vtable land with design §8 step 8. It imports no protocol module, so it cannot know anything a caller would
-//! not.
+//! The deterministic harness: clock, byte pipe, trace and the null TLS provider (design §10). The
+//! datagram network and the null crypto suite land with design §8 steps 7 and 8. It imports no
+//! protocol module, so it cannot know anything a caller would not.
 const std = @import("std");
 
 pub const core = @import("core");
@@ -12,6 +12,8 @@ pub const random = @import("random.zig");
 pub const clock = @import("clock.zig");
 pub const trace = @import("trace.zig");
 pub const pipe = @import("pipe.zig");
+pub const null_provider = @import("null_provider.zig");
+pub const NullProvider = null_provider.NullProvider;
 pub const Random = random.Random;
 pub const Clock = clock.Clock;
 pub const Trace = trace.Trace;
@@ -23,4 +25,5 @@ test {
     _ = clock;
     _ = trace;
     _ = pipe;
+    _ = null_provider;
 }
