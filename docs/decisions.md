@@ -615,7 +615,8 @@ because a refused feature still imposes obligations on the wire.
     result look better than it would on a real link — so a published number names the path it was
     measured over.
 
-34. **The regression check has two layers, because there is no CI here.** The cheap layer runs
+34. **The regression check has two layers.** It was ruled when there was no CI here; entry 47
+    adds one and keeps both layers. The cheap layer runs
     inside the deterministic simulator and does not vary between runs: counted syscalls, copies
     and bytes per request, committed as exact numbers that a diff has to change on purpose.
     Allocations are not counted, because entry 35 makes that number zero by construction. That
@@ -827,3 +828,54 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     non-negotiable 10 permits. An allowlist needs no registry: Appendix B.4 carries the five
     TLS 1.3 codepoints in the RFC itself. The narrower rule is both safer and the only one this
     repository can source.
+
+46. **Every endpoint in `src/testing/` does its I/O without blocking.** Ruled by the owner on
+    2026-09-19: the checks must show that colibri works under non-blocking I/O and uses the
+    processor well, because that is how a consumer will run it. A test-only endpoint holds its
+    connections in a fixed array, waits on all of them in one `poll` call, and makes no other call
+    that waits. The h2 server did this already; the h2 client of design §9 does it from its first
+    commit, its `connect` included.
+
+    The ruling decides what the client can link today. chapulin's TLS client reads its socket
+    through a callback that must return octets or fail: `io.c` turns any result of 0 or less into
+    `CH_EIO` and the session is dead, so there is no way to say "nothing yet". Under a loop that
+    never blocks it cannot run. The client therefore speaks cleartext h2 with prior knowledge
+    (RFC 9113 §3.3), which carries the same h2 octets, and TLS joins through `tls.Provider` when
+    chapulin offers a record mode that takes octets in and returns octets, the third h2 item of
+    [docs/chapulin.md](chapulin.md). chapulin's server role is headers and fail-closed stubs
+    today, and its design names the same blocking callbacks, so the request applies to it before
+    it is written.
+
+    Two alternatives lost. A blocking client around `ch_connect`, `ch_read` and `ch_write` works
+    today and would show ALPN and TLS 1.3 against real servers, but it needs a thread for each
+    connection, it is not the shape a consumer would use, and it never crosses `tls.Provider`, so
+    it proves nothing about `connection_tls.zig`. A private stack for each connection, on which
+    the callback yields instead of blocking, keeps one thread; `std.Io`'s evented implementations
+    are the ready-made form, and they take an allocator for those stacks, which non-negotiable 4
+    forbids in `src/`.
+
+    Cost: the TLS half of step 5's interop waits on chapulin in both directions, not the server
+    direction alone. Gain: the client that exists is the one the TLS provider will sit under, so
+    no harness is written twice.
+
+47. **Every check runs on each push to main, and the run leaves a report.** Ruled by the owner on
+    2026-09-19, to spot regressions in interoperability and performance. This amends the premise
+    of entry 34, "there is no CI here"; its two layers stay. `.github/workflows/main.yml` installs
+    Zig, h2spec and h2load, each pinned by checksum, and runs `tools/ci.sh`, which a person can run
+    by hand for the same answer. The script runs the format check, `zig build test`, the three
+    simulator checks in Debug and ReleaseSafe, `tools/h2spec.sh` and `tools/h2_interop.sh`, and it
+    runs every section even after one fails, so the report is whole. The report is Markdown on the
+    run's summary page and an artifact named for the commit.
+
+    The report keeps two kinds of number apart. The test count, the simulator's checksums and the
+    counted costs of entry 34's cheap layer are exact: a change in one is a change in the code, and
+    `zig build test` already fails on it. The h2load throughput is indicative. A hosted runner pins
+    no core and fixes no governor, which entry 33 requires of a published number, so the figure
+    shows a large regression and proves nothing about a small one. It carries no threshold, and
+    entry 32 holds: it comes from Linux with the machine written beside it.
+
+    Two alternatives lost. A self-hosted Linux runner would meet entry 33 and make the throughput
+    a baseline with a threshold; it costs a machine to keep, and the same script runs there the day
+    one exists. Committing each report to a branch would keep the history past the 90 days an
+    artifact lives, and it would give the workflow write access to the repository, which a job
+    that runs on every push should not hold.

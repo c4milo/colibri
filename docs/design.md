@@ -869,10 +869,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   caught by the cleartext check instead, and two equivalent, because the null provider frames its
   own records and a symmetric change to its tag length is invisible.
 
-  **Still owed for the step.** A TLS 1.3 server with certificate signing, which no implementation
-  in this tree supplies ([decision 10](decisions.md#what-the-caller-supplies)); `h2spec -t -k`;
-  interop against nghttp2, curl, Go's `net/http2` and h2o in both directions. RFC 9113 Appendix A's
-  prohibited suites are not checked and will not be: decision 45 records why.
+  **The client direction, cleartext, 2026-09-19.** `src/testing/h2/h2_client_session.zig` is one
+  client connection with no socket in it: it opens a stream for every exchange of a plan before it
+  reads a response, sends request content as the windows allow, records what each frame meant, and
+  queues a GOAWAY once every exchange has settled. `h2_client.zig` is the socket around it, and
+  [decision 46](decisions.md) shapes it: every socket is O_NONBLOCK from before it connects, one
+  thread holds up to 64 connections in one `poll` set, and no other call waits. It speaks cleartext
+  h2 with prior knowledge (RFC 9113 §3.3), because chapulin's TLS client reads its socket through
+  a callback that cannot say "nothing yet" (decision 46). `zig build h2-client` runs it and
+  `tools/h2_interop.sh` judges it.
+
+  The script ran on macOS 25.6 arm64 against three peers, on one connection and then on 64 at
+  once, and every exchange ended as planned:
+
+  | Peer | Version | What the plan covers |
+  |---|---|---|
+  | Go `net/http` | go1.27.1 | a 1 MiB response, a 300,000-octet echo read while it is sent, a 103 before a 200, a trailer section, a 404 |
+  | nghttpd | nghttp2 1.52.0, Debian bookworm | a 1 MiB response, a POST of 300,000 octets, a 404 |
+  | h2o | 2.2.5, Debian bookworm | a 1 MiB response, a POST of 300,000 octets answered 405, a 404 |
+
+  Both sizes are several times the 65,535-octet window a stream starts with (RFC 9113 §6.9.2), so
+  each finishes only if WINDOW_UPDATE frames flow the right way, and each is checked by CRC-32
+  against a pattern whose period no frame size divides. The 103 is the case the client send path
+  of step 4 fixed, now met on the wire.
+
+  Writing the client found a defect in the library. A client read DATA that arrived before any
+  response, or after an interim response alone, as the content of a message that had not begun.
+  RFC 9113 §8.1 starts a message with its HEADERS frame, so `connection_data.zig` now refuses such
+  a frame with a stream error of PROTOCOL_ERROR (§8.1.1), after both windows have counted it
+  (§6.9). h2spec still prints 144 passed and the simulator's checksums did not move.
+
+  Mutations. Over the library check: three applied, all **CAUGHT**. Over the client session:
+  seventeen applied. Thirteen were **CAUGHT** at once and four were **NOT CAUGHT**. Three of the
+  four got a test each: the GOAWAY was checked as a flag and not as a frame, a connection that
+  failed after every exchange ended still counted as a success, and so did a response that
+  arrived before the content was sent whole. The fourth, a success with no final status, was
+  what the library defect above allowed; with the defect fixed no frame sequence produces it, and
+  the check became an assertion. A second run of all sixteen that remain: all **CAUGHT**.
+
+  **Still owed for the step.** A TLS 1.3 provider that takes octets in and returns octets, in both
+  roles, with certificate signing at the server ([decisions 10 and 46](decisions.md)); `h2spec -t
+  -k`; the same interop over TLS; and the server direction against curl, nghttp and Go's client,
+  which cleartext could run today and nobody has yet. RFC 9113 Appendix A's prohibited suites are
+  not checked and will not be: decision 45 records why.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not
@@ -968,11 +1007,14 @@ larger half begins.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
-packaged library, and is the only place in the tree permitted to touch a socket
+packaged library, does its I/O without blocking ([decision 46](decisions.md)), and is the only
+place in the tree permitted to touch a socket
 ([invariant 2](invariants.md#inv-2--colibri-performs-no-io) is scoped to `src/` outside it).
 
 1. **An h2 server** answering `GET /` and `POST /` with 200 and a non-empty body, in both
-   cleartext and TLS modes. For h2spec and h2load. Lands with step 4 (cleartext) and step 5 (TLS).
+   cleartext and TLS modes, and **an h2 client** that runs a plan of exchanges against another
+   implementation's server and reports how each ended. For h2spec, h2load and
+   `tools/h2_interop.sh`. Land with step 4 (cleartext) and step 5 (TLS).
 2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
    `h2load --h3`. Lands with step 12.
 3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a
@@ -1050,10 +1092,11 @@ about 5% is noise until shown otherwise.
 
 ### 11.5 What must hold
 
-Two layers, because there is no CI here. The cheap layer is step 6's counted costs in the
-simulator — exact numbers a diff must change on purpose — and it runs in `zig build test`. The
-expensive layer is `bench/` with committed baselines and a threshold that fails, run by a person
-before a step is called done.
+Two layers. The cheap layer is step 6's counted costs in the simulator — exact numbers a diff
+must change on purpose — and it runs in `zig build test`. The expensive layer is `bench/` with
+committed baselines and a threshold that fails, run by a person before a step is called done.
+[Decision 47](decisions.md) runs the cheap layer on each push to main and prints an h2load
+figure beside it, which is indicative and carries no threshold: a hosted runner cannot meet §11.4.
 
 ## 12. Open questions for the owner
 
@@ -1089,9 +1132,10 @@ before a step is called done.
   treated as colibri's bug, and the version is pinned so the answer does not move.
 - **The QPACK vectors are stale.** `qpackers/qifs` targets draft-05 and has not moved since 2021.
   RFC 9204 Appendix B is the authority where they disagree.
-- **No CI.** Every check a script cannot run inside `zig build test` is run by a person, and the
-  step's entry in §8 records what was run, on what, and what it printed. This is the same
-  arrangement stompy's full crash tier runs under, and it works only if the recording is honest.
+- **CI runs what a hosted runner can.** [Decision 47](decisions.md) runs every check on each push
+  to main and leaves a report. What needs a machine it does not have — the published numbers of
+  §11, the QUIC interop matrix — is still run by a person, and the step's entry in §8 records what
+  was run, on what, and what it printed.
 - **Every check that needs crypto waits on chapulin.**
   [Decision 10](decisions.md#what-the-caller-supplies) has chapulin fill both vtables, and what
   chapulin must add first reverses five of its recorded decisions: a server role with constant-time

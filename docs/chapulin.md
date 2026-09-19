@@ -1,6 +1,7 @@
 # The request to chapulin
 
-Status: written 2026-09-16 and refreshed against chapulin's tree on 2026-09-18. Not sent yet;
+Status: written 2026-09-16 and refreshed against chapulin's tree on 2026-09-19, at its commit
+`3ff8517`. Not sent yet;
 sending it is the owner's (https://github.com/c4milo/colibri/issues/5). colibri never edits chapulin's repository, and
 nothing here binds chapulin until chapulin's own decisions record it.
 
@@ -25,28 +26,40 @@ way.
 
 ## What chapulin has today
 
-Verified against chapulin's tree on 2026-09-18:
+Verified against chapulin's tree on 2026-09-19:
 
-- Its public API is four calls, `ch_connect`, `ch_write`, `ch_read` and `ch_close` (`tls.h`), plus
-  `ch_drbg_seed` and `ch_pubkey_from_pem`.
-- It has no server role. The README lists it among the non-goals, `cfg.h:5` says the whole file
-  configures a client, and `docs/quic.md` repeats it for the transport mode.
-- Its I/O callbacks block, and `io.h` reads and writes a record at a time through them.
-- Each connection has its own session, because `ch_connect` takes a `ch_tls` (`tls.h:14`), but the
+- Its client API is four calls, `ch_connect`, `ch_write`, `ch_read` and `ch_close` (`tls.h`), plus
+  `ch_drbg_seed` and `ch_pubkey_from_pem`. It works: TLS 1.3 with
+  `TLS_CHACHA20_POLY1305_SHA256`, which [decision 45](decisions.md) admits.
+- Its I/O callbacks block, and they cannot do otherwise. `io.c` reads a record through
+  `cfg.recv` and turns any result of 0 or less into `CH_EIO`, after which the session is dead.
+  A callback has no way to say "nothing yet", so the client cannot run under a loop that never
+  blocks ([decision 46](decisions.md)).
+- It has a server role as an interface and no more. `srv.h` declares `ch_srv_accept` and
+  `ch_srv_check` under `ROLE=server`, and every function in `srv*.c` carries `CH_SRV_STUB` and
+  fails closed. `srv.h` describes `ch_srv_accept` as running the whole handshake over "the same
+  blocking I/O callbacks" the client uses.
+- Each connection has its own session, because `ch_connect` takes a `ch_tls` (`tls.h`), but the
   DRBG is global (`drbg.c`).
 - It has no exporter: nothing in the tree implements RFC 8446 §7.5.
 - It offers ALPN at the client: a caller lists `cfg.alpn_protocols` and reads which name the server
-  chose from `session.alpn_selected` (RFC 7301 §3.1).
+  chose from `session.alpn_selected` (RFC 7301 §3.1). The server's half is declared in
+  `srv_parser.h` and `srv_message.h`, and stubbed.
 - It verifies certificates three ways: a pinned key, `TRUST=ca` against a CA it runs, and
   `TRUST=webpki` against the caller's anchors, with the X.509, name, signature-algorithm and
   validity machinery that mode needs.
-- Its QUIC transport mode is declared and linked as fail-closed stubs: `quic.h` and its headers
-  state the interface, and nothing implements it yet.
+- Its QUIC mode has its primitives and not its API. AES-128 with a build axis for the
+  implementation, AES-GCM, the packet protection keys, the key update, and Initial and Retry
+  protection are implemented (`quic_aes*.c`, `quic_gcm.c`, `quic_keys.c`, `quic_packet.c`,
+  `quic_initial.c`, `quic_retry.c`). All fifteen `ch_quic_*` calls of `quic.h` carry
+  `CH_QUIC_STUB` and fail closed.
 - Several internal pieces the request can build on already exist: `hkdf_extract` and
   `hkdf_expand_label` (`hkdf.h`), the `ks_*` key schedule (`keysched.h`), ChaCha20-Poly1305
   `aead_seal` and `aead_open` (`aead.h`), and `chacha20.c` with `chacha20.h`.
 
-Two of these change what the request asks for. The client half of ALPN is done, so the ask is the
+Three of these change what the request asks for. The AES and the packet protection the
+`crypto.Suite` items name now exist as primitives, so what is left there is the `ch_quic_*` API
+over them. The client half of ALPN is done, so the ask is the
 server half: selecting from the client's list and sending the fatal alert when nothing overlaps.
 And `TRUST=webpki` brings certificate parsing and signature verification into the tree, which is
 the reading half of what a server does with a chain; the writing half, signing CertificateVerify,
@@ -63,8 +76,13 @@ Design §8 step 5 waits for these five.
    `no_application_protocol` alert, value 120 (RFC 7301 §3.2).
 2. **A server role, with constant-time signing.** The server signs CertificateVerify
    (RFC 8446 §4.4.3) with a private key, and that path must not leak the key through timing.
-3. **A non-blocking handshake that takes bytes in and returns bytes.** colibri owns no I/O, so
-   it cannot call through a callback that blocks.
+3. **A record mode that takes bytes in and returns bytes, in both roles, for the handshake and
+   for the records after it.** colibri owns no I/O, so it cannot call through a callback that
+   blocks, and [decision 46](decisions.md) holds its test endpoints to the same rule. This is the
+   shape `ch_quic_crypto_in` and `ch_quic_crypto_out` already give the QUIC mode. It is also why
+   colibri's h2 client runs its interop in cleartext today: the client role works, and it cannot
+   sit under a `poll` loop. The server role is stubs, so the cheapest time to give it this shape
+   is before it is written.
 4. **Many sessions with no global state.** One process runs many connections at once, each with
    its own session.
 5. **The exporter** (RFC 8446 §7.5).

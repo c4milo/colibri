@@ -155,7 +155,9 @@ exists — never propose a second one.
   `src/core/constants.zig`. A comptime assert stays with the constant it pins.
 - Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
-  library and is the only directory permitted to open a socket.
+  library and is the only directory permitted to open a socket. Every endpoint there does its I/O
+  without blocking: one `poll` call over a fixed array of connections, and no other call that
+  waits (decision 46).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
@@ -230,8 +232,13 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   `zig build sim -- --<check>-check [seeds]` runs the check over `[0, seeds)` and prints the census.
   Every check is also a test inside its module, so `zig build test` runs them, silently.
 - Conformance: `tools/h2spec.sh`, `tools/h3spec.sh`, `tools/interop.sh` — each starts the
-  test-only endpoint of design §9 and runs the pinned suite version. None is part of
-  `zig build test`; run them by hand before calling a step done.
+  test-only endpoint of design §9 and runs the pinned suite version. `tools/h2_interop.sh [go]
+  [nghttpd] [h2o]` runs the test-only h2 client (`zig build h2-client`) against other
+  implementations' servers; it needs `go`, `docker` and `python3`. None is part of
+  `zig build test`; CI runs them, and so does a person before calling a step done.
+- CI: `tools/ci.sh [report.md]` runs every check above that exists and writes the report;
+  `.github/workflows/main.yml` runs it on each push to main (decision 47). A new check joins
+  `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
 - Format: `zig fmt --check build.zig build src tools`.
@@ -244,9 +251,9 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
   builds against a local pepegrillo instead of the pinned commit.
 
-There is no CI here. Every check that a script cannot run inside `zig build test` is run by a
-person before a step is called done, and the step's entry in design §8 records what was run, on
-what, and what it printed.
+CI runs `tools/ci.sh` on each push to main (decision 47). A check CI cannot run — one that needs a
+machine a hosted runner is not — is run by a person before a step is called done. Either way the
+step's entry in design §8 records what was run, on what, and what it printed.
 
 ## Where the work stands
 
