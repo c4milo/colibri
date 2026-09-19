@@ -35,6 +35,14 @@ pub fn on_data(target: *Connection, header: frame.Header, payload: frame.Data, n
         .act => |acting| {
             const record = acting.record;
             if (try count_stream_window(target, header, record, now_ns)) |refused| return refused;
+            // RFC 9113 §8.1: a message begins with the HEADERS frame of its field section, and at a
+            // client zero or more interim responses come before it. DATA that arrives before the
+            // final field section belongs to no message, which §8.1.1 makes a stream error of
+            // PROTOCOL_ERROR. Both windows have counted it by now, as §6.9 requires of every DATA
+            // frame.
+            if (record.sections_received != .final) {
+                return try stream_frames.reset_stream(target, header.stream_id, constants.error_protocol_error, now_ns);
+            }
             record.data_received_len += payload.data.len;
             if (try check_content_length(target, header.stream_id, record, payload.end_stream, now_ns)) |refused| {
                 return refused;
@@ -107,6 +115,8 @@ const feed = connection.feed;
 const feed_request = connection.feed_request;
 const frame_bytes = connection.frame_bytes;
 const start_server = connection.start_server;
+const start_client = connection.start_client;
+const feed_response = connection.feed_response;
 const write_queued = connection.write_queued;
 const test_input = &connection.test_input;
 
@@ -221,4 +231,36 @@ test "the padding of a DATA frame costs window and is not part of the payload (�
     try testing.expectEqual(7, test_connection.receive_window.released);
     const record = test_connection.streams.lookup(1).live;
     try testing.expectEqual(2, record.data_received_len);
+}
+
+/// Opens stream 1 at a client with a request that ends the client's side. Test-only.
+fn open_stream_1() !void {
+    try start_client();
+    const request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
+    const sent = try test_connection.write_request(&connection.test_output, request, &.{}, true);
+    try testing.expectEqual(1, sent.stream_id);
+}
+
+test "§8.1: DATA before the response's field section is a stream error of PROTOCOL_ERROR" {
+    try open_stream_1();
+    const released = test_connection.receive_window.released;
+    const event = (try feed_data(1, "test", true)).?;
+    try testing.expectEqual(1, event.stream_refused.stream_id);
+    try testing.expectEqual(constants.error_protocol_error, event.stream_refused.error_code);
+    // RFC 9113 §6.9: the refused frame still cost the connection window, and gave it back.
+    try testing.expectEqual(released + "test".len, test_connection.receive_window.released);
+    try testing.expect(!test_connection.has_failed());
+}
+
+test "§8.1: DATA after an interim response alone is refused, and after the final one is read" {
+    try open_stream_1();
+    _ = try feed_response(1, "103", false);
+    const early = (try feed_data(1, "test", false)).?;
+    try testing.expectEqual(constants.error_protocol_error, early.stream_refused.error_code);
+
+    try open_stream_1();
+    _ = try feed_response(1, "103", false);
+    _ = try feed_response(1, "200", false);
+    const event = (try feed_data(1, "test", true)).?;
+    try testing.expectEqualStrings("test", event.data.payload);
 }
