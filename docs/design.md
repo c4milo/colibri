@@ -634,13 +634,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   The same check re-run over a connection at step 4 is the first point at which it can fail for any
   other reason. *Small.*
 
-  **Check passed on macOS, 2026-09-16; the Linux half is the owner's.** `zig build test` exits 0 on
-  Zig 0.16.0, macOS 25.6, arm64, in Debug and with `-Drelease`, and the lint scores 460 functions
-  with a highest score of 12. `zig build sim -- --chunk-check` prints the same census in both modes:
-  `seeds=256 passed=193 rejected=63 chunks=2551 trace_octets=278839 crc32=0x11c9c07a`. That
-  digest is `chunk_check.census_crc32_expected`, and the check's test requires it, so the Linux run
-  is `zig build test-sim-run` in both modes on a Linux host. It has not been run yet:
-  [issue 1](https://github.com/c4milo/colibri/issues/1).
+  **Check passed on macOS, 2026-09-16.** `zig build test` exits 0 on Zig 0.16.0, macOS 25.6,
+  arm64, in Debug and with `-Drelease`, and the lint scores 460 functions with a highest score
+  of 12. `zig build sim -- --chunk-check` prints the same census in both modes:
+  `seeds=256 passed=193 rejected=63 chunks=2551 trace_octets=278839 crc32=0x11c9c07a`. That digest
+  is `chunk_check.census_crc32_expected` and the check's test requires it.
+
+  **Check passed on Linux, 2026-09-18, on two architectures**
+  ([issue 1](https://github.com/c4milo/colibri/issues/1)). Debian bookworm with glibc, Zig 0.16.0,
+  under OrbStack on the development Mac, once on aarch64 and once on x86-64. `zig build test`
+  passes 622 tests on x86-64, and all three checks print what macOS prints, in Debug and with
+  `-Drelease`:
+
+  | Check | Census |
+  |---|---|
+  | chunk | `seeds=256 passed=193 rejected=63 chunks=2551 trace_octets=278839 crc32=0x11c9c07a` |
+  | connection | `seeds=256 passed=195 rejected=61 frames=4670 chunks=9636 trace_octets=588870 crc32=0xe8f7c0b4` |
+  | tls | `seeds=256 events=512 crc32=0x795236bd` |
+
+  Two qualifications, so the claim is read for what it is. The x86-64 run is Zig's own x86-64 code
+  generation, which is the part determinism depends on, executed under Rosetta rather than on
+  x86-64 hardware. And every run so far is little-endian; a big-endian host would test the
+  byte-order rules of §2.2 harder than any of these do.
 
   - **Harness.** `src/sim/` holds `Random`, SplitMix64 written out so a Zig upgrade cannot change
     what a seed replays; `Clock`, which moves only when the pipe advances it; `Trace`, the §6.6
