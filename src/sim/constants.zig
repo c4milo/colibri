@@ -109,6 +109,31 @@ pub const connection_check_trace_len_max: u32 = (connection_check_stream_len_max
 /// SETTINGS frame and every reply its queues can hold. `connection_check.zig` pins it.
 pub const connection_check_output_len_max: u32 = 1024;
 
+/// The name the null suite computes every Retry Integrity Tag under. RFC 9001 §5.8 fixes the key
+/// and the nonce of the real one for every connection, so the null one is a constant too.
+pub const null_suite_retry_name: u32 = 0x5e77_1e5d;
+
+/// The packet check of design §8 step 7 (`packet_check.zig`). Most packets one datagram holds: an
+/// Initial, a Handshake and a 1-RTT packet, which is the order RFC 9000 §12.2 asks for.
+pub const packet_check_packets_max: u32 = 3;
+
+/// Most octets of one packet's payload, of an Initial packet's token, and of a datagram. The
+/// datagram is past RFC 9000 §14.1's 1,200 octets, so three packets of the longest payload fit.
+pub const packet_check_payload_len_max: u32 = 400;
+pub const packet_check_token_len_max: u32 = 32;
+pub const packet_check_datagram_len_max: u32 = 1500;
+
+/// One in this many of the check's yes-or-no draws answers yes: whether a level is in the
+/// datagram, whether anything is acknowledged, and which endpoint sends.
+pub const packet_check_one_in: u64 = 2;
+
+/// The largest packet number a seed starts from, which leaves every distance room below 2^62-1.
+pub const packet_check_packet_number_base_max: u64 = 1 << 61;
+
+/// Most key updates a seed performs before it seals, so both values of the Key Phase bit and the
+/// keys of a later phase are drawn.
+pub const packet_check_key_updates_max: u64 = 3;
+
 comptime {
     assert(trace_version > 0);
     assert(chunk_len_max > 0);
