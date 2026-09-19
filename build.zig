@@ -94,6 +94,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "h3", .module = graph.h3 },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "sim-run", .module = graph.sim_run },
+        .{ .name = "sim-run-quic", .module = graph.sim_run_quic },
         .{ .name = "golden", .module = graph.golden },
         .{ .name = "testing", .module = graph.testing },
         .{ .name = "testing-client", .module = graph.testing_client },

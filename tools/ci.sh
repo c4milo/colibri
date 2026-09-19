@@ -66,7 +66,10 @@ simulator_checks() {
     done >"${scratch}/sim${mode}.txt"
   done
   # Non-negotiable 5: one seed replays byte-identically across build modes.
-  diff "${scratch}/sim.txt" "${scratch}/sim-Drelease.txt"
+  diff "${scratch}/sim.txt" "${scratch}/sim-Drelease.txt" || return 1
+  # The packet check has no command line until design §8 step 8. Its digest is pinned in its
+  # test, so passing in both modes is the same comparison.
+  zig build test-sim-run-quic && zig build test-sim-run-quic -Drelease
 }
 
 # One h2load run's requests per second, from the line "finished in 1.2s, 81234.56 req/s, ...".
@@ -127,7 +130,12 @@ fi
   echo
   echo "Simulator censuses, identical in Debug and ReleaseSafe:"
   echo
-  fenced <"${scratch}/sim.txt"
+  {
+    cat "${scratch}/sim.txt"
+    # The packet check's census is the one its test pins, read from the source.
+    awk -F'[ =;]+' '/^pub const census_[a-z0-9]+_expected/ { sub(/census_/, "", $3); sub(/_expected:/, "", $3); gsub(/_/, "", $5); field[$3] = $5 }
+      END { printf "packet: packets=%s octets=%s crc32=%s\n", field["packets"], field["octets"], field["crc32"] }' src/sim/packet_check.zig
+  } | fenced
   echo
   echo "Counted cost of one request (\`src/sim/cost_check.zig\`):"
   echo

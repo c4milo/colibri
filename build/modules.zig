@@ -49,6 +49,9 @@ pub const Modules = struct {
     sim: *std.Build.Module,
     /// The driver: the checks of design §8 over `sim`, and the `zig build sim` command line.
     sim_run: *std.Build.Module,
+    /// The driver of the QUIC checks, rooted at `src/sim/run_quic.zig`: `sim`, `quic` and no HTTP
+    /// module, which is the build holding decision 5's boundary.
+    sim_run_quic: *std.Build.Module,
     /// The byte-exact corpus and its manifest.
     golden: *std.Build.Module,
     /// The test-only entry points of design §9, excluded from the packaged library and the only
@@ -120,6 +123,13 @@ pub fn add(
     sim_run.addImport("sim", sim);
     sim_run.addImport("h2", h2);
 
+    // Decision 5: the QUIC checks are driven with no HTTP module in the graph, so they are not
+    // in `sim_run`, which imports `h2`.
+    const sim_run_quic = create(b, "src/sim/run_quic.zig", target, optimize);
+    sim_run_quic.addImport("core", core);
+    sim_run_quic.addImport("sim", sim);
+    sim_run_quic.addImport("quic", quic);
+
     const golden = create(b, "src/golden/golden.zig", target, optimize);
     golden.addImport("core", core);
     golden.addImport("wire", wire);
@@ -155,6 +165,7 @@ pub fn add(
         .h3 = h3,
         .sim = sim,
         .sim_run = sim_run,
+        .sim_run_quic = sim_run_quic,
         .golden = golden,
         .testing = testing,
         .testing_client = testing_client,
