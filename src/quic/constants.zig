@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const wire = @import("wire");
+const crypto = @import("crypto");
 
 /// QUIC version 1 (RFC 9000 §15).
 pub const version_1: u32 = 0x00000001;
@@ -14,16 +15,11 @@ pub const version_1: u32 = 0x00000001;
 /// longer one MUST be dropped. RFC 8999 permits 255, and only the version 1 reader applies this.
 pub const connection_id_len_max: u8 = 20;
 
-/// The largest packet number (RFC 9000 §12.3), which is the largest variable-length integer.
-pub const packet_number_max: u64 = wire.constants.varint_value_max;
-
-/// Most octets of a Packet Number field (RFC 9000 §17.1).
-pub const packet_number_len_max: u8 = 4;
-
-/// RFC 9000 §17.1: the field must represent more than twice the range between the largest
-/// acknowledged packet number and the one sent, so the receiver's window has that range on each
-/// side of the number it expects.
-pub const packet_number_range_factor: u64 = 2;
+/// What `quic` and a `crypto.Suite` must agree on is named once, in `crypto`, and read from here
+/// under the same names: the packet number's range and field length (RFC 9000 §12.3, §17.1).
+pub const packet_number_max: u64 = crypto.constants.packet_number_max;
+pub const packet_number_len_max: u8 = crypto.constants.packet_number_len_max;
+pub const packet_number_range_factor: u64 = crypto.constants.packet_number_range_factor;
 
 /// Byte 0 of a version 1 packet (RFC 9000 §17.2, §17.3.1).
 pub const fixed_bit: u8 = 0x40;
@@ -36,23 +32,18 @@ pub const long_reserved_bits: u8 = 0x0c;
 pub const short_reserved_bits: u8 = 0x18;
 /// The Spin Bit and the Key Phase bit of a short header (RFC 9000 §17.3.1).
 pub const spin_bit: u8 = 0x20;
-pub const key_phase_bit: u8 = 0x04;
+pub const key_phase_bit: u8 = crypto.constants.key_phase_bit;
 /// The Packet Number Length, one less than the field's length in octets (RFC 9000 §17.2).
 pub const packet_number_len_mask: u8 = 0x03;
 /// The four bits of a Retry packet's byte 0 that carry no meaning (RFC 9000 §17.2.5).
 pub const retry_unused_bits: u8 = 0x0f;
 
-/// Octets of the Retry Integrity Tag (RFC 9000 §17.2.5, RFC 9001 §5.8).
-pub const retry_integrity_tag_len: usize = 16;
-
-/// Octets of the AEAD tag every protected packet ends with (RFC 9001 §5.3): both AEADs QUIC
-/// version 1 uses produce 16.
-pub const aead_tag_len: usize = 16;
-
-/// Octets of the header protection sample (RFC 9001 §5.4.2), and how far past the start of the
-/// Packet Number field it begins, which is the field's longest length.
-pub const header_protection_sample_len: usize = 16;
-pub const header_protection_sample_offset: usize = packet_number_len_max;
+/// The Retry Integrity Tag (RFC 9000 §17.2.5, RFC 9001 §5.8), the AEAD tag every protected packet
+/// ends with (RFC 9001 §5.3), and the smallest Packet Number field and payload together
+/// (RFC 9001 §5.4.2), as `crypto` names them.
+pub const retry_integrity_tag_len: usize = crypto.constants.retry_integrity_tag_len;
+pub const aead_tag_len: usize = crypto.constants.aead_tag_len;
+pub const protected_len_min: usize = crypto.constants.protected_len_min;
 
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
@@ -64,8 +55,12 @@ pub const comptime_scan_branches_per_octet: u32 = 4;
 pub const length_field_lens = wire.constants.varint_lens;
 
 comptime {
-    assert(packet_number_max == (1 << 62) - 1);
+    // RFC 9000 §12.3: the largest packet number is the largest variable-length integer.
+    assert(packet_number_max == wire.constants.varint_value_max);
     assert(packet_number_len_mask + 1 == packet_number_len_max);
+    assert(packet_number_len_mask == crypto.constants.packet_number_len_mask);
+    assert(long_reserved_bits & ~crypto.constants.long_header_protected_bits == 0);
+    assert(short_reserved_bits & ~crypto.constants.short_header_protected_bits == 0);
     assert(long_packet_type_mask >> long_packet_type_shift == 0x03);
     // The fields of byte 0 do not overlap, in either header form.
     assert(fixed_bit & long_packet_type_mask & long_reserved_bits & packet_number_len_mask == 0);
