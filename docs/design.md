@@ -820,6 +820,45 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   chapulin has neither a server role nor ALPN today, so this step waits for the h2 items of
   [the request](chapulin.md). *Medium, once chapulin delivers them.*
 
+  **colibri's side, 2026-09-18.** The half of this step that needs no crypto is built, and the
+  step is not passed: its check is `h2spec -t -k` and interop in both directions, and both need a
+  TLS 1.3 server that signs a certificate.
+
+  `src/tls/` declares the record-mode vtable of [decision 8](decisions.md#what-the-caller-supplies)
+  with [decision 43](decisions.md)'s eleventh member, `negotiated_parameters`, which reports the
+  version and suite RFC 9113 §9.2 places rules on. `h2.Connection` gains an optional provider
+  ([decision 44](decisions.md)): with none it is the cleartext prior-knowledge endpoint step 4
+  built, unchanged. `attach_tls` refuses a handshake that has not completed, that selected anything
+  but "h2" (§3.1, §3.3), or whose version and suite colibri does not admit — TLS 1.3 and three
+  suites, by [decision 45](decisions.md). `decrypt` applies §9.2.3: a post-handshake
+  CertificateRequest is a connection error of PROTOCOL_ERROR, a NewSessionTicket and a KeyUpdate
+  reach h2 as nothing, a peer `close_notify` is the end of data (RFC 8446 §6.1) and every other
+  alert ends the transport. Both buffers stay the caller's, so a connection carries no record
+  storage.
+
+  `src/sim/null_provider.zig` fills the vtable with no cryptography, framing records at the sizes
+  RFC 8446 §5.1 and §5.2 give them. `src/sim/tls_check.zig` drives one connection over it three
+  ways per seed: one record holding the whole stream, records cut where the seed says, and those
+  records delivered in the pieces a socket read leaves behind. The events must be identical, which
+  is what says a frame spanning records and a record holding several frames change nothing.
+  `zig build sim -- --tls-check` prints `tls: seeds=256 events=512 crc32=0x795236bd`, the same in
+  Debug and `-Drelease`. It has no `--tls-seed` form, because it writes no trace: what it compares
+  is three runs of one seed, and the check names the seed that differed.
+
+  `zig build test` passes 619 tests, the lint is clean and `zig build sim -- --connection-check`
+  still prints `crc32=0xe8f7c0b4`, which says the cleartext path did not move.
+
+  Mutations. Over the checks of `connection_tls.zig`: eight applied, all **CAUGHT**, the last one
+  added after a mutation showed the fake provider hiding whether colibri or the provider kept a
+  non-application record out of h2. Over the simulator check: four applied, one **CAUGHT**, one
+  caught by the cleartext check instead, and two equivalent, because the null provider frames its
+  own records and a symmetric change to its tag length is invisible.
+
+  **Still owed for the step.** A TLS 1.3 server with certificate signing, which no implementation
+  in this tree supplies ([decision 10](decisions.md#what-the-caller-supplies)); `h2spec -t -k`;
+  interop against nghttp2, curl, Go's `net/http2` and h2o in both directions. RFC 9113 Appendix A's
+  prohibited suites are not checked and will not be: decision 45 records why.
+
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not
   counted: [decision 35](decisions.md#memory) makes them zero, and `tools/lint/heap.zig` holds

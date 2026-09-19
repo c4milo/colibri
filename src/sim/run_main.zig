@@ -12,6 +12,7 @@ const std = @import("std");
 const sim = @import("sim");
 const chunk_check = @import("chunk_check.zig");
 const connection_check = @import("connection_check.zig");
+const tls_check = @import("tls_check.zig");
 
 const constants = sim.constants;
 
@@ -27,18 +28,20 @@ const count_radix = 10;
 const hex_prefix = "0x";
 
 const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
-    " | --connection-seed <hex> | --connection-check [seeds]\n";
+    " | --connection-seed <hex> | --connection-check [seeds] | --tls-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
     chunk_check: u64,
     connection_seed: u64,
     connection_check: u64,
+    tls_check: u64,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
 var chunk_storage: chunk_check.Storage = .zeroed;
 var connection_storage: connection_check.Storage = .zeroed;
+var tls_storage: tls_check.Storage = .zeroed;
 
 pub fn main(init: std.process.Init) !void {
     var arguments: [arguments_max][]const u8 = @splat("");
@@ -59,6 +62,7 @@ pub fn main(init: std.process.Init) !void {
         .chunk_check => |seeds| try chunk_check_seeds(seeds),
         .connection_seed => |seed| try connection_seed(seed),
         .connection_check => |seeds| try connection_check_seeds(seeds),
+        .tls_check => |seeds| try tls_check_seeds(seeds),
     }
 }
 
@@ -75,6 +79,9 @@ pub fn parse(arguments: []const []const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--connection-check")) {
         return .{ .connection_check = try parse_seeds(value) };
     }
+    // The TLS check writes no trace, so it has no single-seed form: what it compares is the
+    // events of three runs of one seed, which the check itself prints when they differ.
+    if (std.mem.eql(u8, flag, "--tls-check")) return .{ .tls_check = try parse_seeds(value) };
     return error.Usage;
 }
 
@@ -195,4 +202,20 @@ test "anything else is a usage error" {
 test "a failed seed prints only whole trace lines" {
     try testing.expectEqual(0, whole_lines_len("feed at_ns=0"));
     try testing.expectEqual("feed\n".len, whole_lines_len("feed\nacce"));
+}
+
+/// The TLS check of design §8 step 5's colibri side, over `[0, seeds)`.
+fn tls_check_seeds(seeds: u64) !void {
+    sim.NullProvider.install();
+    var census: tls_check.Census = .{};
+    var failed_seed: ?u64 = null;
+    tls_check.run_check(&tls_storage, seeds, &census, &failed_seed) catch |failure| {
+        std.debug.print("tls: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
+        return failure;
+    };
+    std.debug.print("tls: seeds={d} events={d} crc32=0x{x:0>8}\n", .{
+        census.seeds,
+        census.events,
+        census.crc32.final(),
+    });
 }

@@ -73,6 +73,20 @@ pub const Storage = struct {
     output: [constants.tls_check_output_len_max]u8,
     events: Events,
     invariants: connection_invariants.Invariants,
+
+    /// Storage with nothing in it, which every run fills before it reads (invariant 5).
+    pub const zeroed: Storage = .{
+        .connection = undefined,
+        .provider = .{},
+        .stream = @splat(0),
+        .records = @splat(0),
+        .plaintext = @splat(0),
+        .pending = @splat(0),
+        .held = @splat(0),
+        .output = @splat(0),
+        .events = .{ .held = @splat(0), .len = 0 },
+        .invariants = undefined,
+    };
 };
 
 /// Builds the h2 byte stream every seed carries: the client preface, a SETTINGS frame, and one
@@ -216,7 +230,7 @@ pub const Census = struct {
 };
 
 /// Runs the check over `[0, seeds)` and fills `census`.
-pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *u64) Violation!void {
+pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?u64) Violation!void {
     for (0..seeds) |seed| {
         failed_seed.* = seed;
         // One record holding everything, delivered whole, is what every other run is compared
@@ -241,14 +255,14 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *u
     assert(census.seeds == seeds);
 }
 
-var check_storage: Storage = undefined;
+var check_storage: Storage = .zeroed;
 
 test "the records a stream is cut into change nothing the connection decides" {
     sim.NullProvider.install();
     var census: Census = .{};
-    var failed_seed: u64 = 0;
+    var failed_seed: ?u64 = null;
     run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
-        std.debug.print("tls check: seed {x} broke {s}\n", .{ failed_seed, @errorName(failure) });
+        std.debug.print("tls check: seed 0x{x} broke {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
     try std.testing.expect(census.events > census.seeds);
