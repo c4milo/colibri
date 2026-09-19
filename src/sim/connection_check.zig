@@ -27,6 +27,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const h2 = @import("h2");
 const sim = @import("sim");
+const connection_invariants = @import("connection_invariants.zig");
 const connection_stream = @import("connection_stream.zig");
 
 const Writer = core.Writer;
@@ -45,34 +46,19 @@ pub const check_name = "connection";
 /// build modes.
 pub const census_crc32_expected: u32 = 0xe8f7c0b4;
 
-/// How a seed failed the check: the harness's three, then the six the four invariants read off the
-/// connection raise, two each for invariants 13 and 16 and one each for 14 and 15.
-pub const Violation = error{
+/// How a seed failed the check: the harness's three, and the six `connection_invariants.zig` reads
+/// off the connection.
+pub const Violation = HarnessViolation || connection_invariants.Violation;
+
+/// The three the harness itself raises, which no invariant covers.
+pub const HarnessViolation = error{
     /// Two chunked runs of the seed wrote different traces or drew a different number of values.
     ReplayDiverged,
     /// The chunked run's accept and reject records differ from the run in one piece.
     ChunkingChangedVerdict,
     /// The run ended other than the plan says it must.
     OutcomeUnexpected,
-    /// Invariant 13: a watermark of the stream table's slot pool decreased.
-    WatermarkDecreased,
-    /// Invariant 13: the highest identifier the peer opened decreased.
-    PeerOpenedIdentifierDecreased,
-    /// Invariant 14: the octets fed to the field-block slot exceeded what one HEADERS frame and
-    /// `continuation_count_max` CONTINUATION frames carry.
-    FieldBlockTooLong,
-    /// Invariant 15: a flow-control window went outside the range of a signed 31-bit quantity.
-    WindowOutOfRange,
-    /// Invariant 16: the last stream identifier of a GOAWAY colibri sent rose.
-    GoawaySentLastIdIncreased,
-    /// Invariant 16: the last stream identifier of a GOAWAY the peer sent rose.
-    GoawayReceivedLastIdIncreased,
 };
-
-/// Invariant 14's bound on the octets one field block feeds the slot: the opening frame and at
-/// most `continuation_count_max` CONTINUATION frames, each at most `frame_size_max`.
-const field_block_octets_max: u64 =
-    (h2_constants.continuation_count_max + 1) * h2_constants.frame_size_max;
 
 /// Drives one connection in the server role with a plan's stream, for `sim.pipe.run`.
 pub const Subject = struct {
@@ -83,11 +69,8 @@ pub const Subject = struct {
     event: ?h2.Event,
     /// The invariant the connection broke, or null while it has broken none.
     violation: ?Violation,
-    /// What invariants 13 and 16 compare the connection's values against, as of the frame before.
-    watermark: [h2_constants.stream_id_parity_count]u64,
-    highest_peer_opened_id: u32,
-    goaway_sent_last_id: ?u32,
-    goaway_received_last_id: ?u32,
+    /// What invariants 13 to 16 are read through (`connection_invariants.zig`).
+    invariants: connection_invariants.Invariants,
     /// Where the connection writes the frames it owes. The check reads the connection's state and
     /// not the octets it sends, so the octets are written and dropped.
     output: [constants.connection_check_output_len_max]u8,
@@ -98,10 +81,7 @@ pub const Subject = struct {
         subject.clock = clock;
         subject.event = null;
         subject.violation = null;
-        subject.watermark = @splat(0);
-        subject.highest_peer_opened_id = 0;
-        subject.goaway_sent_last_id = null;
-        subject.goaway_received_last_id = null;
+        subject.invariants.init();
         subject.output = @splat(0);
         assert(!subject.connection.has_failed());
         assert(subject.connection.streams.len() == 0);
@@ -169,54 +149,7 @@ pub const Subject = struct {
     /// Reads invariants 13 to 16 off the connection, after every frame it read: one it accepted,
     /// or the one that ended it.
     fn check(subject: *Subject) ?Violation {
-        if (subject.check_identifiers()) |broken| return broken;
-        // Invariant 14: the slot holds one block, whose octets are the opening frame's and those
-        // of the CONTINUATION frames the connection lets follow it.
-        if (subject.connection.block.octets_fed > field_block_octets_max) return error.FieldBlockTooLong;
-        // Invariant 15: the connection's own two windows, then both windows of every stream.
-        if (!subject.connection.send_window.in_range()) return error.WindowOutOfRange;
-        if (!subject.connection.receive_window.in_range()) return error.WindowOutOfRange;
-        if (subject.check_stream_windows()) |broken| return broken;
-        return subject.check_goaway();
-    }
-
-    /// Invariant 13: neither watermark of the slot pool decreases, and neither does the highest
-    /// identifier the peer opened.
-    fn check_identifiers(subject: *Subject) ?Violation {
-        const pool = &subject.connection.streams.pool;
-        for (&subject.watermark, 0..) |*seen, class| {
-            const reached = pool.watermark[class] orelse 0;
-            if (reached < seen.*) return error.WatermarkDecreased;
-            seen.* = reached;
-        }
-        const opened = subject.connection.streams.highest_peer_opened_id;
-        if (opened < subject.highest_peer_opened_id) return error.PeerOpenedIdentifierDecreased;
-        subject.highest_peer_opened_id = opened;
-        return null;
-    }
-
-    /// Invariant 15: both windows of every record the stream table holds stay in range.
-    fn check_stream_windows(subject: *Subject) ?Violation {
-        var records = subject.connection.streams.iterator();
-        while (records.next()) |record| {
-            if (!record.send_window.in_range()) return error.WindowOutOfRange;
-            if (!record.receive.in_range()) return error.WindowOutOfRange;
-        }
-        return null;
-    }
-
-    /// Invariant 16: the last stream identifier of each endpoint's GOAWAY never rises.
-    fn check_goaway(subject: *Subject) ?Violation {
-        const streams = &subject.connection.streams;
-        if (rises(subject.goaway_sent_last_id, streams.goaway_sent_last_id)) {
-            return error.GoawaySentLastIdIncreased;
-        }
-        if (rises(subject.goaway_received_last_id, streams.goaway_received_last_id)) {
-            return error.GoawayReceivedLastIdIncreased;
-        }
-        subject.goaway_sent_last_id = streams.goaway_sent_last_id;
-        subject.goaway_received_last_id = streams.goaway_received_last_id;
-        return null;
+        return subject.invariants.read(&subject.connection);
     }
 };
 

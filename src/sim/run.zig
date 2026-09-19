@@ -13,6 +13,7 @@ const std = @import("std");
 
 pub const chunk_stream = @import("chunk_stream.zig");
 pub const chunk_check = @import("chunk_check.zig");
+pub const connection_invariants = @import("connection_invariants.zig");
 pub const connection_stream = @import("connection_stream.zig");
 pub const connection_check = @import("connection_check.zig");
 const run_main = @import("run_main.zig");
@@ -23,6 +24,7 @@ test {
     std.testing.refAllDecls(@This());
     _ = chunk_stream;
     _ = chunk_check;
+    _ = connection_invariants;
     _ = connection_stream;
     _ = connection_check;
     _ = run_main;
