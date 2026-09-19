@@ -61,8 +61,8 @@ core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
 core, wire, sim, h2 <- sim_run
-core, wire, hpack <- golden
-core, h2         <- testing
+core, wire, hpack, quic <- golden
+core, h2         <- testing, testing_client
 ```
 
 | Module | Holds | Imports | RFCs |
@@ -81,6 +81,7 @@ core, h2         <- testing
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4 | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
+| `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
 
 The architecture depends on three of these edges and forbids one.
 
@@ -955,6 +956,53 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   with connection IDs longer than 20 octets under an unknown version, which must **parse** rather
   than fail; a mutation that applies the 20-octet cap in the invariant reader, reported `CAUGHT`;
   fuzzing of the packet reader. *Medium to large.*
+
+  **The formats, 2026-09-19.** The half of this step that touches no key is built, in
+  `src/quic/packet/`. `invariant.zig` reads RFC 8999 alone: the Header Form bit, the long header's
+  Version and connection IDs of 0 to 255 octets, the short header, and the Version Negotiation
+  packet of §6 in both directions. It imports `std` and `core` and nothing else, and a comptime
+  block in `packet_header.zig` fails the build if it imports a third module or names version 1's
+  connection ID maximum ([invariant 22](invariants.md#inv-22--a-version-independent-parse-reads-only-rfc-8999-fields)).
+  `packet_header.zig` is the version 1 reader above it (RFC 9000 §17): the four long types, the
+  Initial token, the Length that ends a packet so the next one of the datagram can be read
+  (§12.2), Retry with its tag, and the short header. It reads as far as header protection
+  allows and reports where the Packet Number field starts; `unprotected_long` and
+  `unprotected_short` read byte 0 once protection is removed, and refuse set Reserved Bits.
+  `packet_header_write.zig` writes the same headers and the Retry Pseudo-Packet of RFC 9001 §5.8.
+  `packet_number.zig` is Appendix A.2 and A.3.
+
+  What was checked, on macOS 25.6 arm64, with `zig build test` at 685 of 685:
+
+  - The writers produce RFC 9001 Appendix A's published headers octet for octet: the client
+    Initial of A.2, the server Initial of A.3, the Retry packet of A.4 less its tag, and the short
+    header of A.5. The reader takes A.4's Retry packet apart into its fields.
+  - Packet numbers: A.2's two sample encodings and A.3's sample decoding, the boundary of every
+    field length, and every length encoded and decoded back. Appendix A.3's sample leaves one
+    case out: when the largest number processed is 2^62-1 every candidate is a window past the
+    largest packet number §12.3 permits. `decode` returns the number one window below, which is
+    the closest one that exists.
+  - The golden corpus gains two formats, `quic_invariant` with 8 cases and `quic_packet` with 18,
+    and seven mutations. Connection IDs of 21 octets parse under an unknown version in both
+    readers, and the same octets are dropped once one edited octet makes the version 1.
+  - Both readers have a fuzz property, run over a corpus and over every input of up to two
+    octets: a header that is read accounts for every octet of its datagram.
+
+  Mutations: 34 applied over the four files, each against `zig build test-quic` and
+  `zig build test-golden`. 32 were **CAUGHT**, the one this step names among them: the 20-octet
+  maximum applied inside `invariant.zig` fails both. One was **NOT CAUGHT**, a decode that leaves
+  the last window upward, and got its test. The last removed the comptime guard of invariant
+  22, which no test can see; it was replaced by three mutations that break what it guards — a
+  third import, an import of the version 1 constants, and the maximum's name — and each fails
+  the build.
+
+  **Still owed for the step, and one ruling it waits on.** The Initial key schedule, packet
+  protection, header protection and the Retry tag, with RFC 9001 Appendix A's sample packets in
+  the corpus. [Decision 9](decisions.md#what-the-caller-supplies) has colibri do that work over
+  the five primitives of `crypto.Suite`. chapulin's design has since ruled the opposite from its
+  side: it holds every key and seals and opens every packet, and its `quic.h` offers
+  `ch_quic_seal` and `ch_quic_open` and no primitive. Both cannot stand, and decision 9 is the
+  owner's to reverse or keep, so no crypto vtable is written yet. Nothing above depends on the
+  answer.
 
 - **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and ECN
   marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays

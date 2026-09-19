@@ -349,10 +349,12 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   reader never calls. RFC 8999 §5 scopes the invariants to the *first* packet in a datagram, and the
   Length field that makes coalescing parseable is a version-1 field (RFC 9000 §12.2), so the
   invariant layer cannot find the second packet and must not try.
-- **Check.** Lint rule (the invariant file's import set is empty but for `core`), plus a comptime
-  assert that the version-1 20-byte connection-ID cap appears only in the version-1 file, plus
-  golden corpus cases carrying connection IDs longer than 20 bytes under an unknown version, which
-  must parse rather than fail. Step 7.
+- **Check.** A comptime block in `src/quic/packet/packet_header.zig` reads the invariant file's
+  source and fails the build when it imports anything but `std` and `core`, or names the version 1
+  connection-ID maximum; it replaces the lint rule this entry first planned, because a build
+  that fails cannot be skipped. Golden corpus cases carry connection IDs longer than 20 bytes
+  under an unknown version, which must parse rather than fail, and a corpus mutation moves the
+  same bytes to version 1, where the version 1 reader must drop them. Step 7.
 - **Violation.** Applying RFC 9000's 20-byte connection-ID maximum in the invariant reader, which
   RFC 9000 §17.2.1 forbids from influencing whether a Version Negotiation packet is sent.
 
