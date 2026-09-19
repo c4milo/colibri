@@ -23,6 +23,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const http = @import("http");
 const hpack = @import("hpack");
+const tls = @import("tls");
 const constants = @import("../constants.zig");
 const frame = @import("../frame/frame.zig");
 const settings = @import("../settings.zig");
@@ -33,6 +34,7 @@ const field_block = @import("../field_block.zig");
 const connection_receive = @import("connection_receive.zig");
 const connection_send = @import("connection_send.zig");
 const connection_request = @import("connection_request.zig");
+const connection_tls = @import("connection_tls.zig");
 const reply = @import("connection_reply.zig");
 
 const Role = @import("../role.zig").Role;
@@ -168,6 +170,9 @@ pub const Connection = struct {
     /// Where a field section colibri sends is encoded before it is cut into frames
     /// (`connection_send.zig`).
     send_block: [constants.send_block_len_max]u8,
+    /// The TLS provider this connection runs over, or null for the cleartext prior-knowledge
+    /// endpoint of §3.3 (decision 44, `connection_tls.zig`).
+    provider: ?tls.Provider,
     /// RST_STREAM frames colibri has sent since `rst_stream_period_start_ns` (§10.5).
     rst_stream_sent: u32,
     /// The instant the current RST_STREAM rate period began.
@@ -196,6 +201,7 @@ pub const Connection = struct {
         connection.replies.init();
         connection.block_discarded = false;
         connection.send_block = @splat(0);
+        connection.provider = null;
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
         assert(!connection.has_failed());
@@ -223,6 +229,12 @@ pub const Connection = struct {
     /// Writes as much of `payload` as the windows and the room allow: see `connection_send.zig`.
     /// Opens a stream and writes `request` on it as HEADERS and the CONTINUATION frames its field
     /// section needs (RFC 9113 §8.1, §8.3.1). A client's call.
+    /// Attaches the TLS provider h2 runs over, after checking everything RFC 9113 §3.2 and §9.2
+    /// require of the connection (decision 44).
+    pub fn attach_tls(connection: *Connection, provider: tls.Provider) connection_tls.AttachError!void {
+        return connection_tls.attach(connection, provider);
+    }
+
     pub fn write_request(
         connection: *Connection,
         output: []u8,

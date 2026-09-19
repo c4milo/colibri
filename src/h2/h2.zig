@@ -54,4 +54,5 @@ test {
     _ = @import("connection/connection_reply.zig");
     _ = @import("connection/connection_send.zig");
     _ = @import("connection/connection_request.zig");
+    _ = @import("connection/connection_tls.zig");
 }
