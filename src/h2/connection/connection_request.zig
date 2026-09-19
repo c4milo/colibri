@@ -202,6 +202,8 @@ fn encode_request(target: *Connection, request: Request, fields: []const hpack.F
     for (fields) |line| {
         try target.encoder.write_field(&writer, line.name, line.value, .without_indexing);
     }
+    // RFC 7541 §4.2: the block is whole, so the capacity its updates named is the peer's now.
+    target.encoder.commit_block();
     return writer.written();
 }
 
@@ -337,6 +339,7 @@ test "§8.1: the trailer section is the one after the final response" {
     var writer = Writer.init(&block);
     try connection.test_encoder.begin_block(&writer);
     try connection.test_encoder.write_field(&writer, "grpc-status", "0", .without_indexing);
+    connection.test_encoder.commit_block();
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const bytes = try connection.frame_bytes(&connection.test_input, constants.frame_type_headers, flags, sent.stream_id, writer.written());
     const event = (try connection.feed(bytes)).?;
@@ -354,6 +357,7 @@ test "§8.1.1: an interim response does not set the content-length the DATA is c
     try connection.test_encoder.begin_block(&writer);
     try connection.test_encoder.write_field(&writer, ":status", "103", .without_indexing);
     try connection.test_encoder.write_field(&writer, "content-length", "5", .without_indexing);
+    connection.test_encoder.commit_block();
     const interim = try connection.frame_bytes(&connection.test_input, constants.frame_type_headers, constants.flag_end_headers, sent.stream_id, writer.written());
     _ = try connection.feed(interim);
     try testing.expectEqual(null, test_connection.streams.lookup(sent.stream_id).live.content_length);
@@ -390,4 +394,19 @@ test "§8.5: a CONNECT block carries :method and :authority alone" {
         .{ .name = ":method", .value = "CONNECT" },
         .{ .name = ":authority", .value = "example.com:443" },
     });
+}
+
+test "RFC 7541 §4.2: a table-size change is declared once and not repeated on the next request" {
+    try start_client();
+    // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
+    const settings = try connection.frame_bytes(&connection.test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
+    _ = try connection.feed(settings);
+    const first = try write_request(test_connection, test_output, test_request, &.{}, true);
+    // RFC 7541 §4.2: the block opens with the size update the change owes.
+    try testing.expectEqual(0x3f, test_output[constants.frame_header_len]);
+    try testing.expectEqual(0x45, test_output[constants.frame_header_len + 1]);
+    _ = first;
+    _ = try write_request(test_connection, test_output, test_request, &.{}, true);
+    // The first block reached the peer, so the second owes nothing.
+    try testing.expect(test_output[constants.frame_header_len] != 0x3f);
 }

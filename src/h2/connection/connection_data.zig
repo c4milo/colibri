@@ -121,6 +121,7 @@ fn feed_post(stream_id: u32, content_length: []const u8) !?Event {
     try connection.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
     try connection.test_encoder.write_field(&writer, ":authority", "example.com", .without_indexing);
     try connection.test_encoder.write_field(&writer, "content-length", content_length, .without_indexing);
+    connection.test_encoder.commit_block();
     const bytes = try frame_bytes(test_input, constants.frame_type_headers, constants.flag_end_headers, stream_id, writer.written());
     return feed(bytes);
 }

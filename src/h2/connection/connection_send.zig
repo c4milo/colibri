@@ -143,6 +143,8 @@ fn encode_response(target: *Connection, status: u16, fields: []const hpack.Field
             return error.OutputTooSmall;
         };
     }
+    // RFC 7541 §4.2: the block is whole, so the capacity its updates named is the peer's now.
+    target.encoder.commit_block();
     return writer.written();
 }
 
@@ -350,4 +352,21 @@ test "shutdown queues a GOAWAY naming the last stream colibri acted on (§6.8)" 
     try testing.expectEqual(active_before, test_connection.streams.peer_active);
     try testing.expect(test_connection.streams.lookup(5) != .live);
     try testing.expect(!test_connection.has_failed());
+}
+
+test "RFC 7541 §4.2: a table-size change is declared once and not repeated on the next response" {
+    try start_server();
+    _ = try feed_request(1, "/", true);
+    // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
+    const settings = try frame_bytes(test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
+    _ = try connection.feed(settings);
+    _ = try write_response(test_connection, test_output, 1, 200, &.{}, true);
+    // RFC 7541 §4.2: the block opens with the size update the change owes, which for 100 is two
+    // octets, the prefix full and the remainder 69.
+    try testing.expectEqual(0x3f, test_output[constants.frame_header_len]);
+    try testing.expectEqual(0x45, test_output[constants.frame_header_len + 1]);
+    _ = try feed_request(3, "/", true);
+    _ = try write_response(test_connection, test_output, 3, 200, &.{}, true);
+    // The first block reached the peer, so the second owes nothing.
+    try testing.expect(test_output[constants.frame_header_len] != 0x3f);
 }

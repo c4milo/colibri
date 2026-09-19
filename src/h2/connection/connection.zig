@@ -366,6 +366,7 @@ pub fn request_block(buffer: []u8, path: []const u8) ![]const u8 {
     try test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
     try test_encoder.write_field(&writer, ":path", path, .without_indexing);
     try test_encoder.write_field(&writer, ":authority", "example.com", .without_indexing);
+    test_encoder.commit_block();
     return writer.written();
 }
 
@@ -404,6 +405,7 @@ pub fn response_block(buffer: []u8, status: []const u8) ![]const u8 {
     var writer = Writer.init(buffer);
     try test_encoder.begin_block(&writer);
     try test_encoder.write_field(&writer, ":status", status, .without_indexing);
+    test_encoder.commit_block();
     return writer.written();
 }
 

@@ -80,6 +80,8 @@ pub const Encoder = struct {
     }
 
     /// Opens a block: writes the size updates a capacity change owes (RFC 7541 §4.2), or nothing.
+    /// The capacity is not declared until `commit_block`, because a block the caller abandons
+    /// never reaches the peer and owes its updates again.
     pub fn begin_block(encoder: *Encoder, output: *Writer) Error!void {
         var cursor = output.*;
         // RFC 7541 §4.2: the smallest maximum of the interval first, then the final one.
@@ -90,6 +92,13 @@ pub const Encoder = struct {
         output.* = cursor;
         encoder.table.resize(encoder.chosen_min);
         encoder.table.resize(encoder.chosen);
+    }
+
+    /// Declares the block the caller finished: the capacity its size updates named is what the
+    /// peer's decoder holds from here on (RFC 7541 §4.2). A caller that abandons a block never
+    /// calls this, so the next block writes the same updates again and the two tables stay the
+    /// same size.
+    pub fn commit_block(encoder: *Encoder) void {
         encoder.declared = encoder.chosen;
         encoder.chosen_min = encoder.chosen;
         assert(encoder.table.capacity == encoder.declared);
@@ -203,6 +212,7 @@ fn expect_block(lines: []const Field, expected: []const u8) !void {
     var output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
     for (lines) |line| try test_encoder.write_field(&output, line.name, line.value, .incremental);
+    test_encoder.commit_block();
     try testing.expectEqualSlices(u8, expected, output.written());
 }
 
@@ -285,6 +295,7 @@ test "when_shorter codes 302 with Huffman, which saves an octet, and not 307, wh
     try test_encoder.begin_block(&output);
     try test_encoder.write_field(&output, ":status", "302", .without_indexing);
     try test_encoder.write_field(&output, ":status", "307", .without_indexing);
+    test_encoder.commit_block();
     try testing.expectEqualSlices(u8, "\x08\x82\x64\x02\x08\x03" ++ "307", output.written());
 }
 
@@ -296,6 +307,7 @@ test "never-indexed and without-indexing lines leave the table alone, and keep a
     try test_encoder.write_field(&output, "authorization", "secret", .never_indexed);
     try test_encoder.write_field(&output, "x-trace", "1", .without_indexing);
     try test_encoder.write_field(&output, ":method", "GET", .never_indexed);
+    test_encoder.commit_block();
     try testing.expectEqualSlices(u8, "\x1f\x08\x06secret\x00\x07x-trace\x011\x12\x03GET", output.written());
     try testing.expectEqual(0, test_encoder.table.len());
 }
@@ -307,6 +319,7 @@ test "a line too large for the table is sent without indexing rather than emptyi
     try test_encoder.begin_block(&output);
     try test_encoder.write_field(&output, "a", "b", .incremental);
     try test_encoder.write_field(&output, "c", "dddddddd", .incremental);
+    test_encoder.commit_block();
     try testing.expectEqualSlices(u8, "\x40\x01a\x01b\x00\x01c\x08dddddddd", output.written());
     try testing.expectEqual(1, test_encoder.table.len());
 }
@@ -317,6 +330,7 @@ test "a line that exactly fills the table is indexed" {
     var output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
     try test_encoder.write_field(&output, "a", "b", .incremental);
+    test_encoder.commit_block();
     try testing.expectEqualSlices(u8, "\x40\x01a\x01b", output.written());
     try testing.expectEqual(1, test_encoder.table.len());
 }
@@ -328,19 +342,23 @@ test "a lowered then raised limit opens the next block with the smallest size, t
     try test_encoder.begin_block(&output);
     try test_encoder.write_field(&output, "a", "b", .incremental);
     try test_encoder.write_field(&output, "c", "d", .incremental);
+    test_encoder.commit_block();
     test_encoder.set_capacity_limit(40);
     test_encoder.set_capacity_limit(100);
     output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
+    test_encoder.commit_block();
     try testing.expectEqualSlices(u8, "\x3f\x09\x3f\x45", output.written());
     try testing.expectEqual(100, test_encoder.table.capacity);
     try testing.expectEqual(1, test_encoder.table.len());
     output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
+    test_encoder.commit_block();
     try testing.expectEqual(0, output.offset);
     test_encoder.set_capacity_limit(constants.dynamic_table_capacity_max * 2);
     output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
+    test_encoder.commit_block();
     try testing.expectEqualSlices(u8, "\x3f\xe1\x7f", output.written());
     try testing.expectEqual(constants.dynamic_table_capacity_max, test_encoder.table.capacity);
 }
@@ -351,6 +369,28 @@ test "a field that does not fit the output is not written at all, and not insert
     var output = Writer.init(&buffer);
     try test_encoder.begin_block(&output);
     try testing.expectError(error.NoSpaceLeft, test_encoder.write_field(&output, "a", "bcdef", .incremental));
+    test_encoder.commit_block();
     try testing.expectEqual(0, output.offset);
     try testing.expectEqual(0, test_encoder.table.len());
+}
+
+test "a block the caller abandons owes its size update again" {
+    test_encoder.init(4096, .never);
+    test_encoder.set_capacity_limit(100);
+    var buffer: [test_block_len_max]u8 = @splat(0);
+    var output = Writer.init(&buffer);
+    try test_encoder.begin_block(&output);
+    try testing.expectEqualSlices(u8, "\x3f\x45", output.written());
+    // The caller found no room for a field line and threw the block away, so the peer never read
+    // the update. RFC 7541 §4.2: the decoder's table holds the capacity last declared to it, so
+    // the next block owes the same update.
+    output = Writer.init(&buffer);
+    try test_encoder.begin_block(&output);
+    test_encoder.commit_block();
+    try testing.expectEqualSlices(u8, "\x3f\x45", output.written());
+    // A block that was committed does not repeat it.
+    output = Writer.init(&buffer);
+    try test_encoder.begin_block(&output);
+    test_encoder.commit_block();
+    try testing.expectEqual(0, output.offset);
 }

@@ -264,6 +264,7 @@ test "§8.1: a second field section is a trailer section, and one without END_ST
     connection.test_encoder.init(constants.header_table_size_initial, .never);
     try connection.test_encoder.begin_block(&writer);
     try connection.test_encoder.write_field(&writer, "x-checksum", "abc", .without_indexing);
+    connection.test_encoder.commit_block();
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const trailers = try frame_bytes(test_input, constants.frame_type_headers, flags, 1, writer.written());
     const event = (try feed(trailers)).?;
@@ -299,6 +300,7 @@ test "§8.3.1: a request §8 refuses is a stream error, and the decoder stays in
     try connection.test_encoder.write_field(&second, ":scheme", "http", .without_indexing);
     try connection.test_encoder.write_field(&second, ":path", "/", .without_indexing);
     try connection.test_encoder.write_field(&second, "x-trace", "abc", .without_indexing);
+    connection.test_encoder.commit_block();
     var buffer: [constants.frame_header_len + constants.frame_size_max]u8 = undefined;
     const bytes = try frame_bytes(&buffer, constants.frame_type_headers, flags, 3, second.written());
     const event = (try feed(bytes)).?;
@@ -325,6 +327,7 @@ test "http2/5.1.2/1: the stream past concurrent_streams_max is refused, and its 
     try connection.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
     try connection.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
     try connection.test_encoder.write_field(&writer, "x-trace", "abc", .incremental);
+    connection.test_encoder.commit_block();
     const inserts_before = test_connection.decoder.table.len();
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const bytes = try frame_bytes(test_input, constants.frame_type_headers, flags, id, writer.written());
@@ -365,6 +368,7 @@ test "§10.5.1: a field section past what colibri accepts is a stream error and 
     try connection.test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
     try connection.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
     try connection.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
+    connection.test_encoder.commit_block();
     // One line more than `field_count_max`, which is the section the caller's storage holds.
     var name: [16]u8 = undefined;
     for (0..core.constants.field_count_max) |index| {

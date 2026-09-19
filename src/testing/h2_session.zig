@@ -204,6 +204,7 @@ fn request_frame(stream_id: u32, path: []const u8) ![]const u8 {
     try encoder.write_field(&block_writer, ":scheme", "http", .without_indexing);
     try encoder.write_field(&block_writer, ":path", path, .without_indexing);
     try encoder.write_field(&block_writer, ":authority", "example.com", .without_indexing);
+    encoder.commit_block();
     var writer = h2.core.Writer.init(&test_input);
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
