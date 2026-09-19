@@ -124,6 +124,8 @@ pub fn add(
     golden.addImport("core", core);
     golden.addImport("wire", wire);
     golden.addImport("hpack", hpack);
+    // Design §3: the corpus imports what it checks, and step 7 adds the packet readers.
+    golden.addImport("quic", quic);
 
     // Design §9: the test-only endpoints. Nothing imports this module, so the library never
     // uses the socket it opens, and decision 10 links chapulin here alone when step 5 lands.

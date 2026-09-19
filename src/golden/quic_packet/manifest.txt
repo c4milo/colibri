@@ -1,0 +1,19 @@
+colibri-golden-manifest version=1 format=quic_packet cases=18
+quic_packet_initial_token len=14 crc32=0x16336742 verdict=accept connection_id_len=0 construction=literal
+quic_packet_zero_rtt len=10 crc32=0xa566e390 verdict=accept connection_id_len=0 construction=literal
+quic_packet_handshake len=16 crc32=0x287610eb verdict=accept connection_id_len=0 construction=literal
+quic_packet_coalesced len=32 crc32=0xa8a3a401 verdict=accept connection_id_len=0 construction=literal
+quic_packet_retry_rfc9001_a4 len=36 crc32=0xbe001999 verdict=accept connection_id_len=0 construction=literal
+quic_packet_short len=7 crc32=0xee5f0d8e verdict=accept connection_id_len=4 construction=literal
+quic_packet_version_negotiation len=17 crc32=0x5a598a02 verdict=accept connection_id_len=0 construction=literal
+quic_packet_other_version_ids_21 len=52 crc32=0xfe7a2fd2 verdict=accept connection_id_len=0 construction=literal
+quic_packet_dcid_20 len=30 crc32=0x51d22b0b verdict=accept connection_id_len=0 construction=literal
+quic_packet_dcid_21 len=31 crc32=0xa6ce4ccb verdict=ConnectionIdTooLong connection_id_len=0 construction=literal
+quic_packet_scid_21 len=31 crc32=0xb24719b7 verdict=ConnectionIdTooLong connection_id_len=0 construction=literal
+quic_packet_long_fixed_bit_clear len=16 crc32=0x0608e611 verdict=FixedBitClear connection_id_len=0 construction=literal
+quic_packet_short_fixed_bit_clear len=7 crc32=0xaa5478f7 verdict=FixedBitClear connection_id_len=4 construction=literal
+quic_packet_length_past_datagram len=22 crc32=0xb3d8e300 verdict=LengthPastDatagram connection_id_len=0 construction=literal
+quic_packet_token_past_datagram len=12 crc32=0xf88ca99c verdict=Truncated connection_id_len=0 construction=literal
+quic_packet_retry_tag_cut len=30 crc32=0xf977df6c verdict=RetryTagMissing connection_id_len=0 construction=truncated of=quic_packet_retry_rfc9001_a4 drop=6
+quic_packet_retry_token_empty len=31 crc32=0xbc909eb5 verdict=RetryTokenEmpty connection_id_len=0 construction=truncated of=quic_packet_retry_rfc9001_a4 drop=5
+quic_packet_coalesced_second_refused len=25 crc32=0xff957a40 verdict=FixedBitClear connection_id_len=0 construction=literal

@@ -1,0 +1,9 @@
+colibri-golden-manifest version=1 format=quic_invariant cases=8
+quic_invariant_unknown_version_ids_21 len=52 crc32=0xfe7a2fd2 verdict=accept construction=literal
+quic_invariant_reserved_version_dcid_21 len=28 crc32=0x8d5a526b verdict=accept construction=literal
+quic_invariant_version_1_client_initial len=22 crc32=0xb3d8e300 verdict=accept construction=literal
+quic_invariant_version_negotiation len=17 crc32=0x5a598a02 verdict=accept construction=literal
+quic_invariant_version_negotiation_empty len=9 crc32=0xa9a7f077 verdict=NoSupportedVersion construction=literal
+quic_invariant_version_negotiation_cut len=16 crc32=0x533f6992 verdict=TruncatedSupportedVersion construction=truncated of=quic_invariant_version_negotiation drop=1
+quic_invariant_scid_truncated len=48 crc32=0x039bbd94 verdict=Truncated construction=truncated of=quic_invariant_unknown_version_ids_21 drop=4
+quic_invariant_short_form len=7 crc32=0xd8a5c030 verdict=WrongForm construction=literal

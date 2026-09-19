@@ -15,6 +15,7 @@ const assert = std.debug.assert;
 pub const core = @import("core");
 const wire = @import("wire");
 const hpack = @import("hpack");
+const quic = @import("quic");
 pub const constants = @import("constants.zig");
 pub const cases = @import("corpus_cases.zig");
 
@@ -28,7 +29,8 @@ const prefix_bits_max = wire.constants.integer_prefix_bits_max;
 const string_prefix_bits_min = wire.constants.string_prefix_bits_min;
 
 /// Every error a corpus decode can return. A rejection outside this set does not compile.
-pub const DecodeError = core.reader.Error || wire.string_literal.DecodeError || hpack.decoder.Error || error{
+pub const DecodeError = core.reader.Error || wire.string_literal.DecodeError || hpack.decoder.Error ||
+    quic.packet.header.Error || error{
     /// The decoder succeeded without consuming every octet of the case.
     TrailingOctets,
 };
@@ -107,6 +109,8 @@ var hpack_decoder: hpack.Decoder = undefined;
 pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError!void {
     const prefix_size = case.prefix_size;
     if (format == .hpack) return decode_hpack(case.capacity, octets);
+    if (format == .quic_invariant) return decode_quic_invariant(octets);
+    if (format == .quic_packet) return decode_quic_packets(case.connection_id_len, octets);
     var reader = Reader.init(octets);
     var buffer: [constants.decoded_len_max]u8 = @splat(0);
     var output = Writer.init(&buffer);
@@ -123,7 +127,8 @@ pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError
             => |size| _ = try wire.string_literal.decode(size, &reader, &output),
             else => unreachable,
         },
-        .hpack => unreachable, // Returned above: a block is not one value.
+        // Returned above: none of the three is one value read through `reader`.
+        .hpack, .quic_invariant, .quic_packet => unreachable,
     }
     if (reader.remaining_len() != 0) return error.TrailingOctets;
 }
@@ -135,6 +140,30 @@ fn decode_hpack(capacity: u32, octets: []const u8) DecodeError!void {
     // A block of n octets holds at most n representations, and one more call finds the end.
     for (0..octets.len + 1) |_| {
         if (try block.next() == null) return;
+    }
+    unreachable;
+}
+
+/// The long header RFC 8999 fixes, and the Supported Version list when the packet is a Version
+/// Negotiation packet. What follows the header belongs to a version, so nothing is left over.
+fn decode_quic_invariant(octets: []const u8) DecodeError!void {
+    const long = try quic.packet.invariant.read_long(octets);
+    if (long.is_version_negotiation()) _ = try quic.packet.invariant.read_supported_versions(long);
+}
+
+/// Every packet of the datagram, in order (RFC 9000 §12.2). A packet's payload is opaque here, so
+/// the datagram is consumed when the last packet ends where the datagram does.
+fn decode_quic_packets(connection_id_len: u8, octets: []const u8) DecodeError!void {
+    var offset: usize = 0;
+    // Each packet takes at least one octet, so the datagram ends first.
+    for (0..octets.len + 1) |_| {
+        if (offset == octets.len) return;
+        offset += switch (try quic.packet.header.read(octets[offset..], connection_id_len)) {
+            .long => |long| long.packet_len,
+            .short => |short| short.packet_len,
+            // None of the three carries a Length, so each is the rest of the datagram.
+            .retry, .version_negotiation, .other_version => octets.len - offset,
+        };
     }
     unreachable;
 }
@@ -168,6 +197,7 @@ fn render_parameters(format: Format, case: *const Case, output: *Writer) core.wr
         try output.print(" prefix_size={d}", .{case.prefix_size});
     }
     if (format == .hpack) try output.print(" capacity={d}", .{case.capacity});
+    if (format == .quic_packet) try output.print(" connection_id_len={d}", .{case.connection_id_len});
     try output.print(" construction={t}", .{case.construction});
     switch (case.construction) {
         .literal => {},

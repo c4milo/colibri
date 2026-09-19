@@ -171,6 +171,55 @@ pub const all = [_]Mutation{
         .edit = .{ .set = .{ .offset = 0, .value = 0xde } },
         .rejection = null,
     },
+    .{
+        .format = .quic_invariant,
+        .case_name = "quic_invariant_unknown_version_ids_21",
+        .rule = "invariant 22: the version-independent reader applies no version 1 rule, so the same 21-octet connection IDs parse under version 1 too",
+        .edit = .{ .set = .{ .offset = 4, .value = 0x01 } },
+        .rejection = null,
+    },
+    .{
+        .format = .quic_packet,
+        .case_name = "quic_packet_other_version_ids_21",
+        .rule = "RFC 9000 §17.2: the version 1 reader drops what the octet above handed over, once the version is 1",
+        .edit = .{ .set = .{ .offset = 4, .value = 0x01 } },
+        .rejection = error.ConnectionIdTooLong,
+    },
+    .{
+        .format = .quic_packet,
+        .case_name = "quic_packet_dcid_20",
+        .rule = "RFC 9000 §17.2: the maximum is 20 octets, so a length octet of 21 is dropped before the octets it counts are looked for",
+        .edit = .{ .set = .{ .offset = 5, .value = 21 } },
+        .rejection = error.ConnectionIdTooLong,
+    },
+    .{
+        .format = .quic_packet,
+        .case_name = "quic_packet_handshake",
+        .rule = "RFC 9000 §12.2: a Length one past the datagram names a packet that is not whole",
+        .edit = .{ .set = .{ .offset = 10, .value = 6 } },
+        .rejection = error.LengthPastDatagram,
+    },
+    .{
+        .format = .quic_packet,
+        .case_name = "quic_packet_handshake",
+        .rule = "RFC 9000 §12.2: a Length one short leaves an octet that is read as the next packet, and one octet is no short header here",
+        .edit = .{ .set = .{ .offset = 10, .value = 4 } },
+        .rejection = error.FixedBitClear,
+    },
+    .{
+        .format = .quic_packet,
+        .case_name = "quic_packet_version_negotiation",
+        .rule = "RFC 8999 §6: the seven bits after the Header Form bit are unused and ignored, the Fixed Bit among them",
+        .edit = .{ .set = .{ .offset = 0, .value = 0xbf } },
+        .rejection = null,
+    },
+    .{
+        .format = .quic_packet,
+        .case_name = "quic_packet_initial_token",
+        .rule = "RFC 9000 §17.2.2: only an Initial packet carries a token, so as a Handshake packet the same octets have a Length of 3 and leave three octets behind it",
+        .edit = .{ .set = .{ .offset = 0, .value = 0xe0 } },
+        .rejection = error.FixedBitClear,
+    },
 };
 
 comptime {
