@@ -16,6 +16,7 @@ pub const chunk_check = @import("chunk_check.zig");
 pub const connection_invariants = @import("connection_invariants.zig");
 pub const connection_stream = @import("connection_stream.zig");
 pub const connection_check = @import("connection_check.zig");
+pub const tls_check = @import("tls_check.zig");
 const run_main = @import("run_main.zig");
 
 pub const main = run_main.main;
@@ -27,5 +28,6 @@ test {
     _ = connection_invariants;
     _ = connection_stream;
     _ = connection_check;
+    _ = tls_check;
     _ = run_main;
 }

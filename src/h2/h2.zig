@@ -27,6 +27,7 @@ pub const field_block = @import("field_block.zig");
 pub const FieldBlock = field_block.FieldBlock;
 pub const message = @import("message/message.zig");
 pub const connection = @import("connection/connection.zig");
+pub const connection_tls = @import("connection/connection_tls.zig");
 pub const Connection = connection.Connection;
 pub const Event = connection.Event;
 

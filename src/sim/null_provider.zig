@@ -237,6 +237,11 @@ fn write_record(output: []u8, content: ContentType, body: []const u8) error{NoSp
     return total;
 }
 
+/// Writes one application-data record around `body`, for a check that builds a stream by hand.
+pub fn write_application_record(output: []u8, body: []const u8) error{NoSpaceLeft}!usize {
+    return write_record(output, .application_data, body);
+}
+
 /// What a record holds, in the terms colibri's vtable reports (RFC 8446 §5.1, §4).
 fn classify(content: ContentType, body: []const u8) tls.Content {
     return switch (content) {

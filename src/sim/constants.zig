@@ -140,3 +140,23 @@ pub const record_legacy_version_octet: u8 = 0x03;
 /// The octets a real AEAD adds to every record (RFC 8446 §5.2). The null provider writes as many
 /// zeros, so a record occupies what one would occupy on the wire.
 pub const record_tag_len: u32 = 16;
+
+/// The largest h2 byte stream the TLS check wraps in records: a preface, a SETTINGS frame and one
+/// request. It is fixed, because what the check varies is where the records cut it.
+pub const tls_check_stream_len_max: u32 = 512;
+
+/// Where the TLS check's connection writes what it owes, which the check drops.
+pub const tls_check_output_len_max: u32 = 1024;
+
+/// The plaintext one `decrypt` call writes, which is one record's body.
+pub const tls_check_plaintext_len_max: u32 = tls_check_stream_len_max;
+
+/// Records one seed may cut the stream into, which bounds the check's loop (non-negotiable 4).
+pub const tls_check_records_max: u32 = 64;
+
+/// The events one run may record, which is one per frame the connection accepted.
+pub const tls_check_events_max: u32 = 32;
+
+/// The octets a record adds around its body: the header RFC 8446 §5.1 defines, whose last field is
+/// the two-octet length, and the tag §5.2 sizes.
+pub const record_overhead_len: u32 = record_length_offset + @sizeOf(u16) + record_tag_len;

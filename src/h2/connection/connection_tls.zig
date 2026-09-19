@@ -395,3 +395,18 @@ test "application data reaches the caller's buffer, and a cleartext connection h
     try testing.expectEqual(error.NoProvider, encrypt(&connection.test_connection, "reply", &output));
     try testing.expectEqual(error.NoProvider, close_notify(&connection.test_connection, &output));
 }
+
+test "RFC 8446 §5.1: a record that is not whole consumes nothing, whatever the provider reports" {
+    Fake.init_table();
+    // This provider reports octets consumed alongside `incomplete`, which is a contradiction. The
+    // caller must be told nothing was taken, or it would drop the start of the record it is
+    // still waiting for.
+    var state: Fake = .{ .content = .incomplete, .body = "partial" };
+    connection.test_connection.init(.client);
+    try attach(&connection.test_connection, state.provider());
+    var plaintext: [32]u8 = undefined;
+    const opened = try decrypt(&connection.test_connection, "half a record", &plaintext, 0);
+    try testing.expectEqual(0, opened.consumed);
+    try testing.expectEqual(0, opened.plaintext_len);
+    try testing.expect(!opened.end_of_data);
+}
