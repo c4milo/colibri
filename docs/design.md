@@ -61,6 +61,7 @@ core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
 core, wire, sim, h2 <- sim_run
+core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2         <- testing, testing_client
 ```
@@ -79,6 +80,7 @@ core, h2         <- testing, testing_client
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4 | — |
+| `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
@@ -95,6 +97,9 @@ The architecture depends on three of these edges and forbids one.
   which is what keeps the harness from knowing anything the caller would not. A check drives a
   protocol module through the harness, so the one module that imports both is `sim_run`, rooted at
   `src/sim/run.zig`, and `sim` never imports it back ([decision 37](decisions.md#the-simulator)).
+  The QUIC checks have a root of their own, `sim_run_quic` at `src/sim/run_quic.zig`, because
+  `sim_run` imports `h2`: a QUIC check placed there would run with an HTTP module in its graph,
+  and the first edge of this list is proved by a build that has none.
 - **`wire` is shared by both families and holds two different integer codecs.**
   [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why the split is *field
   compression against framing* and not h2 against h3.
@@ -137,8 +142,8 @@ layer". The full list is [decision 8](decisions.md#what-the-caller-supplies); th
 |---|---|---|
 | handshake bytes | record-framed, over TCP | unframed messages, per encryption level |
 | application protection | `encrypt_record` / `decrypt_record` | absent — colibri protects packets itself |
-| secrets | never exposed | `on_secret(level, direction, secret, aead_id, kdf_hash)` |
-| key derivation | provider-internal | `hkdf_expand_label` exposed as a primitive |
+| secrets | never exposed | never exposed to colibri: the provider hands them to the suite ([decision 48](decisions.md#what-the-caller-supplies)) |
+| key derivation | provider-internal | provider-internal |
 | transport parameters | absent | `set_transport_params` / `peer_transport_params` |
 | ALPN | `negotiated_alpn` | `negotiated_alpn` |
 | alerts | `take_alert` | `take_alert`, mapped to `0x0100 + AlertDescription` |
@@ -158,24 +163,34 @@ the client when `HANDSHAKE_DONE` arrives.
 
 ### 4.4 The crypto suite
 
-`aead_seal`, `aead_open`, `header_protection_mask(hp_key, sample) -> [5]u8`, `hkdf_extract`,
-`hkdf_expand_label`. QUIC only; h2 needs none of it, because the provider does the record layer.
+QUIC only; h2 needs none of it, because the provider does the record layer. The suite holds every
+key of a connection and colibri holds none ([decision 48](decisions.md#what-the-caller-supplies)),
+so its members are whole-packet operations at an encryption level (RFC 9001 §4.1.4):
 
-Header protection is a mask function rather than a block cipher because the two algorithms are not
-the same primitive: RFC 9001 §5.4.3 makes it AES in Electronic Codebook mode under a 128- or
-256-bit key, and §5.4.4 makes it the raw ChaCha20 function over a 4-octet counter and a 12-octet
-nonce taken from the sample, encrypting five zero octets. A vtable exposing a single ECB block
-could not protect a ChaCha20 connection at all.
+| Member | What it does | RFC 9001 |
+|---|---|---|
+| `install_initial_keys(role, dcid)` | derives the Initial keys from the client's first Destination Connection ID, and again after a Retry | §5.2 |
+| `keys_available(level, direction)` | whether colibri may seal or open at the level | §4.1.4 |
+| `seal(level, packet_number, header, payload)` | protects the payload, then masks byte 0 and the packet number | §5.3, §5.4 |
+| `open(level, packet, packet_number_offset, largest)` | removes both protections and recovers the packet number, in one call | §5.3, §5.4, §9.5 |
+| `retry_tag_valid`, `retry_tag_write` | the Retry Integrity Tag, checked by a client and written by a server | §5.8 |
+| `update_keys`, `key_phase`, `discard_previous_keys` | the key update, which colibri times and the suite performs | §6 |
+| `discard_keys(level)` | forgets a level's keys when colibri says the level is over | §4.9 |
 
-AES-128-GCM, AES-128-ECB and HKDF-SHA256 are mandatory members whatever suite TLS negotiates,
-because RFC 9001 fixes three things to AES: Initial packet protection (§5, §5.2), AES-based header
-protection, which is what is used before a suite is selected (§5.4.1, §5.4.3), and the Retry
-integrity tag (§5.8). The suite must additionally carry the AEAD and header-protection algorithm TLS
-goes on to negotiate (§5.3, §5.4.1). A suite missing one of the three mandatory members is refused
-when the endpoint is constructed
-([invariant 25](invariants.md#inv-25--a-suite-without-aes-is-refused-at-init)), never at the first
-packet. [decision 9](decisions.md#what-the-caller-supplies) is why this is a separate vtable and
-what it buys.
+colibri frames the packet and the suite protects it. For `seal` colibri writes the header with the
+packet number encoded (RFC 9000 §17.1), the Key Phase bit from `key_phase`, and enough payload for
+the sample of §5.4.2. After `open` colibri reads byte 0 for the Reserved Bits and the packet number
+length (RFC 9000 §17.2). `open` reports which keys opened a 1-RTT packet, the previous, the
+current or the next, and that is how colibri learns the peer has updated (§6.2).
+
+RFC 9001 fixes three things to AES whatever suite TLS negotiates: Initial packet protection (§5,
+§5.2), the header protection used before a suite is selected (§5.4.1, §5.4.3), and the Retry
+integrity tag (§5.8). A suite must carry those and whatever TLS goes on to negotiate (§5.3,
+§5.4.1). colibri cannot see what a suite carries, so a suite that refuses `install_initial_keys`
+is a configuration error
+([invariant 25](invariants.md#inv-25--a-suite-that-cannot-protect-initial-packets-is-a-configuration-error)),
+never a peer's fault. [Decision 9](decisions.md#what-the-caller-supplies) is why this is a second
+vtable, and decision 48 is why its members are these.
 
 ## 5. What is shared, and what only looks shared
 
@@ -995,14 +1010,52 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   third import, an import of the version 1 constants, and the maximum's name — and each fails
   the build.
 
-  **Still owed for the step, and one ruling it waits on.** The Initial key schedule, packet
-  protection, header protection and the Retry tag, with RFC 9001 Appendix A's sample packets in
-  the corpus. [Decision 9](decisions.md#what-the-caller-supplies) has colibri do that work over
-  the five primitives of `crypto.Suite`. chapulin's design has since ruled the opposite from its
-  side: it holds every key and seals and opens every packet, and its `quic.h` offers
-  `ch_quic_seal` and `ch_quic_open` and no primitive. Both cannot stand, and decision 9 is the
-  owner's to reverse or keep, so no crypto vtable is written yet. Nothing above depends on the
-  answer.
+  **The crypto vtable, 2026-09-19.** The owner ruled the same day
+  ([decision 48](decisions.md#what-the-caller-supplies)): the suite holds every key and protects
+  every packet, and colibri holds none. So this step no longer builds the Initial key schedule,
+  packet protection, header protection or the Retry tag, which its first sentence still lists as
+  it was planned. It builds what calls them. `src/crypto/suite.zig` is the vtable: ten members,
+  each about a whole packet at an encryption level, and none that takes or returns a key. A test
+  holds the member names to the decision's list
+  ([invariant 23](invariants.md#inv-23--colibri-holds-no-secret)). The `Suite` wrapper asserts
+  colibri's half of the contract: a packet number inside its range, a Packet Number field of 1 to
+  4 octets, and the four octets RFC 9001 §5.4.2 needs before the sample. Recovering a packet
+  number (RFC 9000 Appendix A.3) moved to `src/crypto/packet_number.zig`, because §9.5 makes it
+  the suite's step; `quic` keeps Appendix A.2, and its tests encode with one module and decode
+  with the other.
+
+  `src/sim/null_suite.zig` fills the vtable with no cryptography
+  ([issue 4](https://github.com/c4milo/colibri/issues/4)). It is size-faithful, as §10 requires:
+  header, payload and a 16-octet tag, with byte 0 and the Packet Number field masked from a
+  16-octet sample four octets past the field. It models keys as names, because colibri's
+  connection logic will be checked against it. A level has keys, never had them, or had them
+  discarded. The Initial keys follow the role and the connection ID. A key update moves both
+  directions, keeps the previous read keys until colibri drops them, and changes the tag's name
+  while it leaves the mask's alone, which is how a header protection key survives an update
+  (RFC 9001 §6.1). Both limits of §6.6 exist at numbers a test sets.
+
+  `src/sim/packet_check.zig` is the check that the two halves fit. Each seed draws connection
+  IDs, a number of key updates and up to three packets in RFC 9000 §12.2's order. One endpoint
+  writes each header, picks the Packet Number field's length from what the peer acknowledged,
+  and seals into one datagram. The other reads the datagram packet by packet, opens each, and
+  must get back the number, the header and the payload with nothing left over. Then one bit of
+  the datagram is changed and at least one packet must fail to open, judged by the suite alone.
+  256 seeds, 512 packets, 128,870 octets, every field length drawn, digest `0xf0818926` in Debug
+  and in `-Drelease`, on macOS 25.6 arm64. The check's module imports `sim` and `quic` and no
+  HTTP module, so it is also the first build that holds
+  [decision 5](decisions.md#scope-and-shape)'s boundary; step 8 inherits that root. It has no
+  command line until step 8, and its test pins the digest.
+
+  `zig build test` passes 705 of 705. Mutations: 30 applied over the null suite, its keys, and
+  three places where framing and protection must agree (the Length counting the tag, the
+  reported offset of the Packet Number field, the field's length). All 30 **CAUGHT**; the three
+  cross-module ones are caught by the packet check and by `quic`'s own tests.
+
+  **Still owed for the step.** RFC 9001 Appendix A's sample packet protection, byte for byte.
+  Under decision 48 those vectors check a provider through the vtable, so they need chapulin's
+  `ch_quic_*` calls, which fail closed today, and they will run from `src/testing/` and not from
+  the corpus, whose cases are 64 octets at most. The headers of those samples are already
+  checked, octet for octet, above.
 
 - **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and ECN
   marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays
@@ -1096,8 +1149,9 @@ Be exact about what the null crypto suite buys, because the obvious claim is wro
 what makes a seed replay: AES-GCM and ChaCha20-Poly1305 are pure functions of key, nonce and
 plaintext, so a real suite replays just as deterministically. What it buys is a harness with no
 crypto dependency and no cipher time. It must therefore be **size-faithful rather than an identity
-function** — appending a 16-octet tag and returning a 5-octet mask exactly as a real suite would —
-because RFC 9001 §5.3's expansion feeds §5.4.2's sample offset, the packet's Length varint, RFC
+function** — appending a 16-octet tag, and masking byte 0 and the packet number from a 16-octet
+sample, exactly as a real suite would — because RFC 9001 §5.3's expansion feeds §5.4.2's sample
+offset, the packet's Length varint, RFC
 9000 §14.1's 1200-octet minimum and the anti-amplification count of
 [invariant 18](invariants.md#inv-18--the-anti-amplification-limit-holds). A suite that shortened
 packets would simulate a protocol QUIC does not have.
@@ -1151,9 +1205,9 @@ figure beside it, which is indicative and carries no threshold: a hosted runner 
 1. **QUIC as a module or its own repository** ([decision 3](decisions.md#scope-and-shape)).
    Ruled 2026-09-16: a module with a mechanically enforced boundary, which step 0 built and proved.
 2. **The packet-protection vtable** ([decision 9](decisions.md#what-the-caller-supplies)). Ruled
-   2026-09-16: two vtables, `tls.Provider` and `crypto.Suite`. Splitting packet protection away from
-   the TLS provider is what lets h3 have AES without chapulin having AES, and step 7 builds against
-   it.
+   2026-09-16: two vtables, `tls.Provider` and `crypto.Suite`. Ruled again 2026-09-19
+   ([decision 48](decisions.md#what-the-caller-supplies)): the two vtables stay, the suite holds
+   every key, and its members seal and open whole packets. Step 7 builds against that.
 3. **The ask to chapulin** ([decision 10](decisions.md#what-the-caller-supplies)). Ruled 2026-09-16:
    chapulin provides all of colibri's crypto by filling both vtables, and `src/testing/` links it.
    The request is [docs/chapulin.md](chapulin.md), and sending it is the owner's.

@@ -97,9 +97,11 @@ and is re-argued, not edited.
    - *QUIC mode*, for h3: `set_transport_params`/`peer_transport_params` (the
      `quic_transport_parameters` extension, codepoint 0x39, RFC 9001 §8.2), `provide_handshake`
      and `write_handshake` per encryption level carrying unframed handshake-message bytes (§4.1.3),
-     `on_secret(level, direction, secret, aead_id, kdf_hash)` (§4.1.4), `hkdf_expand_label` as a
-     primitive (§5.1), `negotiated_alpn`, `handshake_complete`, and `take_alert` returning an
-     `AlertDescription` value rather than a record (§4.8).
+     `negotiated_alpn`, `handshake_complete`, and `take_alert` returning an `AlertDescription`
+     value rather than a record (§4.8). This mode used to carry `on_secret(level, direction,
+     secret, aead_id, kdf_hash)` (§4.1.4) and `hkdf_expand_label` as a primitive (§5.1) too.
+     Entry 48 removed both: the secrets of §4.1.4 go from the provider to the suite inside the
+     caller's code, and colibri never sees one.
 
    Both modes also carry `export_keying_material`, RFC 8446 §7.5's exporter, which is the one
    operation RFC 8446 gives a standard interface.
@@ -119,13 +121,17 @@ and is re-argued, not edited.
    The exporter is in the interface for both modes, and it has one limit: it derives only from
    `exporter_master_secret`, which exists after the server's Finished, whereas QUIC needs Initial,
    0-RTT, Handshake and 1-RTT secrets at four distinct points in time. That is why QUIC mode needs
-   new provider API rather than exporter calls, and it is what "no record layer" costs.
+   new provider API rather than exporter calls, and it is what "no record layer" costs. Since
+   entry 48 that API is between the provider and the suite, and is the caller's to write.
 
 9. **Packet protection is a *second* caller-supplied vtable, so the TLS provider never has to carry
-   AES.** Ruled by the owner on 2026-09-16. `crypto.Suite` supplies
+   AES.** Ruled by the owner on 2026-09-16, and amended on 2026-09-19 by entry 48, which keeps
+   the second vtable and replaces its members. As first ruled, `crypto.Suite` supplied
    `aead_seal`, `aead_open`, `header_protection_mask(hp_key, sample) -> [5]u8`, `hkdf_extract` and
-   `hkdf_expand_label`.
-   colibri drives it directly for QUIC packet protection; the TLS provider never sees it.
+   `hkdf_expand_label`, and colibri derived every key and drove those five directly. Entry 48
+   makes the members whole-packet operations and leaves every key with the suite. What follows is
+   the reasoning of the first ruling. Its account of what RFC 9001 fixes to AES still holds, and
+   is now what a suite must carry rather than what colibri must call.
 
    The header-protection member is a mask function and not a block cipher on purpose. RFC 9001
    §5.4.3 makes it AES in Electronic Codebook mode under a 128- or 256-bit key, and §5.4.4 makes
@@ -181,6 +187,9 @@ and is re-argued, not edited.
    TLS goes on to negotiate cannot be caught that early, because the suite is unknown until
    EncryptedExtensions is decrypted; that case returns the same configuration error class at the
    first Handshake packet, so the caller still sees a configuration error rather than a peer fault.
+   Since entry 48 colibri cannot see what a suite carries, so the rule is now about the one call
+   that shows it: a suite that refuses `install_initial_keys` is a configuration error
+   ([invariant 25](invariants.md#inv-25--a-suite-that-cannot-protect-initial-packets-is-a-configuration-error)).
 
 10. **chapulin provides all of colibri's crypto, through colibri's two vtables.** Ruled by the
     owner on 2026-09-16. chapulin fills both `tls.Provider` (entry 8) and `crypto.Suite` (entry
@@ -575,9 +584,9 @@ because a refused feature still imposes obligations on the wire.
       Two QUIC-specific optimizations are worth naming and are **not** colibri's to claim as the
       vtables stand: batching header protection across a datagram's packets into one pass, and
       precomputing the key schedule for the fixed Initial salt. Both are implemented behind
-      `crypto.Suite` (entry 9), so they belong to the caller. Taking them means widening the vtable
-      with a many-sample mask call and a precomputed extract handle, which is a decision nobody has
-      taken.
+      `crypto.Suite` (entries 9 and 48), so they belong to the caller. The second needs nothing
+      from colibri. The first means a `seal` that takes every packet of a datagram at once, which
+      is a decision nobody has taken.
     - **Match, at best:** the asymmetric crypto, which is a caller-supplied primitive and the same
       one every competitor calls; AEAD bulk throughput; HPACK on small field sections; and the
       syscalls, which are the caller's.
@@ -879,3 +888,50 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     one exists. Committing each report to a branch would keep the history past the 90 days an
     artifact lives, and it would give the workflow write access to the repository, which a job
     that runs on every push should not hold.
+
+48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
+    owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
+    caller-supplied vtable, and its members become whole-packet operations at one of the three
+    encryption levels colibri uses (RFC 9001 §4.1.4, less 0-RTT, which entry 20 rules out):
+    `install_initial_keys`, `keys_available`, `seal`, `open`, `retry_tag_valid`,
+    `retry_tag_write`, `update_keys`, `key_phase`, `discard_previous_keys` and `discard_keys`. No
+    member takes or returns a key, a secret or an IV. The secrets RFC 9001 §4.1.4 has TLS
+    produce go from the provider to the suite inside the caller's code, so entry 8's QUIC mode
+    loses `on_secret` and `hkdf_expand_label`.
+
+    `open` removes header protection, recovers the packet number and removes packet protection
+    in one call. RFC 9001 §9.5 requires the three applied together, with no timing or other side
+    channel between them, and only the code that holds the key can promise that. So the packet
+    number is an output of `open`, and colibri passes what RFC 9000 Appendix A.3 reads: the
+    largest packet number it has processed in that space. `seal` takes a packet colibri has
+    framed whole: the header with the packet number encoded, the Key Phase bit taken from
+    `key_phase`, and a payload long enough for the sample of §5.4.2.
+
+    What stays colibri's is every rule about *when*. It discards the Initial and Handshake keys
+    (§4.9), starts a key update only once the handshake is confirmed and the current phase has
+    been acknowledged (§6.1), answers a peer's update before it sends the acknowledgment (§6.2),
+    drops the previous receive keys about three PTOs later (§6.5), reads the Reserved Bits once
+    `open` returns (RFC 9000 §17.2), and sends KEY_UPDATE_ERROR and AEAD_LIMIT_REACHED, which a
+    suite reports as values and never as frames.
+
+    The ruling follows chapulin's, which its `docs/quic.md` records under "chapulin owns packet
+    protection at every level". Entry 10 has chapulin fill both vtables, and chapulin exports no
+    key: its `quic.h` offers `ch_quic_seal` and `ch_quic_open` and no primitive. Its reasons are
+    colibri's as well. §9.5's constant-time MUST lands in code with the tooling to prove it, and
+    colibri has none. No live traffic secret leaves the object that derived it. The six QUIC
+    labels are written once.
+
+    Cost. The null suite of design §10 must model keys, levels, phases and discards, because
+    colibri's connection logic will be checked against it. RFC 9001 Appendix A's sample packets
+    now check a provider through the vtable, so that half of step 7's check needs chapulin's
+    `ch_quic_*` calls, which fail closed today. A caller whose TLS stack hands out secrets
+    writes `seal` and `open` around its own AEAD, which is more work than five primitives were.
+    The interop runner's keylog (design §9) must come from the provider, because colibri has
+    nothing to log. Gain: colibri holds no secret in either mode
+    ([invariant 23](invariants.md#inv-23--colibri-holds-no-secret)).
+
+    Two alternatives lost. Entry 9's five primitives need the secrets out of the provider, which
+    chapulin refuses, and would put §9.5's obligation in a library with no way to check it. One
+    combined vtable lost again, for entry 9's reason and a new one: with protection apart from
+    the handshake, the QUIC simulator of step 8 runs over a null suite before any handshake
+    exists.

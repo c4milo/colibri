@@ -28,11 +28,12 @@ The architecture depends on every rule in this section.
    Every function that would block instead returns a value naming the I/O it needs. Do not
    make a syscall in this repository.
 2. **colibri owns no crypto.** Two caller-supplied vtables, `tls.Provider` and `crypto.Suite`, with
-   no production implementation in this tree (decisions 8 and 9): `src/sim/` will carry the null
+   no production implementation in this tree (decisions 8, 9 and 48): `src/sim/` will carry the null
    implementations, which are test-only and are never packaged; design §8 step 2 records that the
    null provider lands with step 5 and the null suite with step 7. chapulin fills both vtables for
    the checks, linked by `src/testing/` alone (decision 10). The library never links a TLS stack,
-   never holds a private key, and never chooses a cipher suite.
+   never holds a private key, a traffic secret or a packet protection key, and never chooses a
+   cipher suite.
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and
@@ -230,7 +231,9 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   `zig build test` runs it.
 - Simulator: `zig build sim -- --<check>-seed <hex>` runs one seed and prints its trace;
   `zig build sim -- --<check>-check [seeds]` runs the check over `[0, seeds)` and prints the census.
-  Every check is also a test inside its module, so `zig build test` runs them, silently.
+  Every check is also a test inside its module, so `zig build test` runs them, silently. The QUIC
+  checks have no command line until design §8 step 8: `zig build test-sim-run-quic` runs them,
+  in a module with no HTTP module in its graph (decision 5).
 - Conformance: `tools/h2spec.sh`, `tools/h3spec.sh`, `tools/interop.sh` — each starts the
   test-only endpoint of design §9 and runs the pinned suite version. `tools/h2_interop.sh [go]
   [nghttpd] [h2o]` runs the test-only h2 client (`zig build h2-client`) against other

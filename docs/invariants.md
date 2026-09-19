@@ -324,19 +324,26 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   and would let a third party close connections by spoofing traffic.
 - See [decisions 21](decisions.md#what-colibri-does-not-build).
 
-### INV-21 — the header-protection key is installed once per direction
+### INV-21 — a level is protected only while its keys are available
 
-- **Claim.** A header-protection key is written exactly once per direction per encryption level
-  and is never rewritten, including across a key update. Only `key` and `iv` rotate.
-- **Mechanism.** The field is written through a function that asserts it was previously unset.
-  RFC 9001 §5.4 and §6.1 both state the key does not change on update, so this is a property of
-  the protocol and not a caching choice.
-- **Check.** Runtime assertion in the setter (step 7); the RFC 9001 Appendix A vectors, which
-  prove the derivation but not this invariant — Appendix A carries keys, both Initials, Retry and
-  a ChaCha20 short-header packet, and no key-update vector; and the interop runner's `keyupdate`
-  case, which is the check that does prove it (step 9). Steps 7 and 9.
-- **Violation.** Re-deriving header protection under `"quic ku"` alongside `key` and `iv`, which
-  produces packets no peer can unprotect.
+- **Claim.** colibri calls `seal` and `open` at an encryption level only after the suite said that
+  level's keys are available in that direction, and never after colibri discarded them. Once a
+  level is discarded nothing is sent at it and nothing received at it is opened.
+- **Mechanism.** The connection holds one state per level and direction: none, available,
+  discarded. Both call sites assert it. RFC 9001 §4.9 says when the state moves to discarded: the
+  Initial keys when a client first sends a Handshake packet and when a server first processes
+  one (§4.9.1), the Handshake keys when the handshake is confirmed (§4.9.2).
+  [Decision 48](decisions.md#what-the-caller-supplies) leaves every key with the suite, so this
+  state is all colibri knows about one. The rule this entry used to hold, that the
+  header-protection key is installed once and survives a key update (RFC 9001 §5.4, §6.1), is
+  now the suite's to keep, and the null suite models it: a key update changes what its tag is
+  computed under and leaves its mask alone.
+- **Check.** Runtime assertions at the two call sites (step 9). The null suite answers
+  `KeysUnavailable` for a level it never installed or has discarded, and the QUIC simulator
+  treats that answer as a violation rather than a lost packet (steps 7 and 8). The interop
+  runner's `keyupdate` case is what shows a real suite keeps the header-protection key (step 9).
+- **Violation.** Acknowledging an Initial packet in the Initial space after the first Handshake
+  packet went out, which a peer that has discarded its Initial keys can never read.
 
 ### INV-22 — a version-independent parse reads only RFC 8999 fields
 
@@ -360,20 +367,24 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ## What the caller supplies
 
-### INV-23 — colibri holds no long-lived secret it was not handed
+### INV-23 — colibri holds no secret
 
-- **Claim.** colibri never derives a secret from a private key, never stores a private key, and
-  wipes every secret it was handed when the connection that used it ends.
-- **Mechanism.** The TLS provider owns the key schedule in record mode and returns per-level
-  secrets in QUIC mode (decision 8). What colibri stores is the derived packet-protection
-  material, which is wiped on close through one function.
-- **Check.** Runtime assertion that the wipe ran before a connection struct is returned to the
-  pool, plus a lint rule that no field named for a secret is copied outside its module. Steps 5
-  and 9 — the QUIC-mode per-level secrets and the packet-protection material derived from them do
-  not exist until step 7, and step 9's `resumption` case is where the boundary between
-  provider-held and colibri-held state must be written down.
-- **Violation.** Caching a resumption secret across connections "to make reconnects cheap", which
-  is also 0-RTT, which decision 20 rules out.
+- **Claim.** colibri never holds a private key, a traffic secret, a packet protection key or an
+  IV, in either mode, so it has nothing to wipe and nothing to leak.
+- **Mechanism.** Neither vtable has a member that takes or returns one. In record mode the
+  provider keeps the whole key schedule (decision 8). In QUIC mode the secrets of RFC 9001 §4.1.4
+  go from the provider to the suite inside the caller's code, and the suite seals and opens whole
+  packets ([decision 48](decisions.md#what-the-caller-supplies)). What colibri keeps from a
+  handshake is public on the wire or meant for the application: the ALPN name, the transport
+  parameters, the connection IDs.
+- **Check.** A test in `src/crypto/suite.zig` compares the vtable's member names with the ten
+  decision 48 lists, so a member added "to export a secret" fails until the list is changed on
+  purpose, beside the decision that forbids it. Step 7. Step 9's `resumption` case is where a
+  session ticket first appears, and it stays with the provider.
+- **Violation.** A vtable member that returns a traffic secret so colibri can write a key log.
+  The interop runner wants one (design §9), and it comes from the provider. Caching a resumption
+  secret across connections "to make reconnects cheap" is the same violation, and is also 0-RTT,
+  which decision 20 rules out.
 
 ### INV-24 — no assertion is reachable from peer input
 
@@ -387,21 +398,25 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** `assert(frame_len <= max_frame_size)` on a value read from the wire, which turns
   a conformance test into a crash.
 
-### INV-25 — a suite without AES is refused at init
+### INV-25 — a suite that cannot protect Initial packets is a configuration error
 
-- **Claim.** A caller that supplies a `crypto.Suite` lacking AES-128-GCM, AES-128-ECB or
-  HKDF-SHA256 is rejected when the QUIC endpoint is constructed, not when the first Initial packet
-  arrives.
-- **Mechanism.** The constructor checks the vtable's function pointers against the mandatory set
-  before anything else and returns a configuration error distinct from every protocol error. RFC
-  9001 §5 and §5.2 (Initial), §5.4.3 (AES header protection) and §5.8 (Retry) make those three
-  unconditional whatever suite TLS negotiates. The AEAD and header-protection algorithm TLS goes
-  on to negotiate (§5.3, §5.4.1) cannot be checked this early and fail at the first Handshake
-  packet with the same configuration error class.
-- **Check.** Runtime assertion in the constructor plus a unit test per missing member. Step 7.
-- **Violation.** A lazy check at first use, which reports a misconfiguration as a handshake
-  failure that looks like an attack.
-- See [decisions 9](decisions.md#what-the-caller-supplies).
+- **Claim.** A suite that refuses `install_initial_keys` ends the connection with a configuration
+  error the caller sees, distinct from every protocol error, and nothing is sent to the peer. A
+  client learns it when the connection is constructed; a server learns it at the first Initial
+  packet, which is the first moment it has the Destination Connection ID the keys derive from
+  (RFC 9001 §5.2).
+- **Mechanism.** RFC 9001 fixes Initial packets (§5, §5.2), the header protection used before a
+  suite is selected (§5.4.1, §5.4.3) and the Retry tag (§5.8) to AES whatever TLS negotiates, so a
+  suite without AES cannot start a connection at all.
+  [Decision 48](decisions.md#what-the-caller-supplies) leaves colibri unable to see what a suite
+  carries, so the one call that shows it is the check. A suite that lacks the AEAD or
+  header-protection algorithm TLS goes on to negotiate (§5.3, §5.4.1) fails the same way at the
+  first Handshake packet, with the same error class.
+- **Check.** A unit test per refusal, with a suite that refuses, once the connection exists
+  (step 9). The error set of `install_initial_keys` carries the refusal from step 7.
+- **Violation.** Reporting the refusal as a handshake failure, which sends the peer a
+  CONNECTION_CLOSE for the caller's own misconfiguration and looks like an attack in the log.
+- See [decisions 9 and 48](decisions.md#what-the-caller-supplies).
 
 ### INV-26 — `quic` imports no HTTP module
 

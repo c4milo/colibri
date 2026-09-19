@@ -12,12 +12,15 @@ item is needed, and which of chapulin's recorded decisions each item reverses.
 ## How colibri would use chapulin
 
 colibri defines two caller-supplied vtables and implements neither in its library
-([decisions 8 and 9](decisions.md#what-the-caller-supplies)):
+([decisions 8, 9 and 48](decisions.md#what-the-caller-supplies)):
 
 - `tls.Provider` runs the TLS 1.3 handshake. Its record mode serves h2, and its QUIC mode serves
   h3.
-- `crypto.Suite` protects QUIC packets through `aead_seal`, `aead_open`, `header_protection_mask`,
-  `hkdf_extract` and `hkdf_expand_label`.
+- `crypto.Suite` holds every key of a QUIC connection and protects every packet: it installs the
+  Initial keys, seals and opens whole packets at an encryption level, checks and writes the Retry
+  tag, performs the key update, and discards a level's keys when colibri says so. colibri holds
+  no key. This is the split chapulin's `docs/quic.md` ruled, "chapulin owns packet protection at
+  every level", and colibri's decision 48 adopts it.
 
 chapulin would fill both. colibri's library source never imports chapulin, so the packaged library
 links no TLS stack. `src/testing/` links chapulin, because every check from design §8 step 5 onward
@@ -94,9 +97,10 @@ Design §8 steps 9, 10, 12 and 13 wait for these six.
 1. **Handshake bytes per encryption level, with no record layer** (RFC 9001 §4.1.3). QUIC carries
    handshake messages in CRYPTO frames, so the provider takes and returns unframed handshake bytes
    tagged with their encryption level.
-2. **Per-level secrets returned** (RFC 9001 §4.1.4). When an encryption level becomes
-   available, the provider returns that level's secret, AEAD and KDF, and colibri derives the
-   packet and header protection keys from them.
+2. **Per-level keys that never leave** (RFC 9001 §4.1.4). When an encryption level becomes
+   available, chapulin keeps that level's secrets and says the level is ready; colibri asks it to
+   seal and open packets at the level. The first form of this request asked for the secrets
+   themselves, and [decision 48](decisions.md#what-the-caller-supplies) withdrew that.
 3. **The `quic_transport_parameters` extension, codepoint 0x39** (RFC 9001 §8.2). colibri
    supplies the extension's bytes and reads the peer's; the provider carries them in the handshake.
 4. **ALPN** (RFC 9001 §8.1), which QUIC requires of clients as well as servers.
@@ -107,20 +111,31 @@ Design §8 steps 9, 10, 12 and 13 wait for these six.
 
 ### For `crypto.Suite`
 
-Design §8 step 7's vectors wait for these five, and every QUIC connection needs them.
+Design §8 step 7's vectors wait for these, and every QUIC connection needs them. The first form
+of this request asked for five primitives: AES-128-GCM, one AES-128-ECB block, raw ChaCha20,
+ChaCha20-Poly1305 and HKDF-SHA256. chapulin has since built them and ruled that none is exported,
+and [decision 48](decisions.md#what-the-caller-supplies) follows it. What colibri asks for now is
+the API over them, which `quic.h` already declares.
 
-1. **AES-128-GCM**, for Initial packets (RFC 9001 §5) and the Retry integrity tag (RFC 9001
-   §5.8).
-2. **A single AES-128-ECB block**, for AES-based header protection (RFC 9001 §5.4.3).
-3. **Raw ChaCha20**, for ChaCha20-based header protection (RFC 9001 §5.4.4).
-4. **ChaCha20-Poly1305**, for Handshake and 1-RTT packets when TLS negotiates
-   `TLS_CHACHA20_POLY1305_SHA256` (RFC 9001 §5.3).
-5. **HKDF-SHA256**: HKDF-Extract and HKDF-Expand-Label, as the TLS 1.3 key schedule uses them
-   (RFC 8446 §7.1). The Initial secrets use SHA-256 whatever suite TLS negotiates (RFC 9001 §5.2).
+1. **The fifteen `ch_quic_*` calls, working.** Each carries `CH_QUIC_STUB` and fails closed today.
+   colibri's suite maps onto them one for one: `install_initial_keys` onto
+   `ch_quic_initial_keys`, `seal` and `open` onto `ch_quic_seal` and `ch_quic_open`,
+   `retry_tag_valid` onto `ch_quic_retry_ok`, `update_keys`, `key_phase` and
+   `discard_previous_keys` onto `ch_quic_key_update`, `ch_quic_key_phase` and
+   `ch_quic_drop_previous_keys`, and `discard_keys` onto `ch_quic_discard`.
+2. **A server role in the QUIC mode.** `ch_quic_init` is a client's. colibri's h3 server, the
+   server half of the interop endpoint and `secnetperf`'s peer need the other side: the server's
+   Initial keys, which RFC 9001 §5.2 derives from the same connection ID under the other label,
+   and the server's handshake.
+3. **Writing the Retry Integrity Tag** (RFC 9001 §5.8). `ch_quic_retry_ok` checks one, which is
+   the client's half. A server that sends a Retry packet must compute it.
+4. **A key log** for the interop runner (design §9), written by chapulin, because colibri holds
+   nothing to log.
 
-The first two are not optional. RFC 9001 fixes Initial packets (§5), the header protection used
-before a suite is selected (§5.4.1) and the Retry tag (§5.8) to AES whatever suite TLS negotiates,
-so no QUIC endpoint works without them ([decision 9](decisions.md#what-the-caller-supplies)).
+RFC 9001 fixes Initial packets (§5), the header protection used before a suite is selected
+(§5.4.1) and the Retry tag (§5.8) to AES whatever suite TLS negotiates, so no QUIC endpoint works
+without AES ([decision 9](decisions.md#what-the-caller-supplies)). chapulin's `AES` build axis
+answers that.
 
 ## What the request reverses in chapulin
 
