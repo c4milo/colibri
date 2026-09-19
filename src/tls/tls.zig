@@ -16,6 +16,7 @@ pub const provider = @import("provider.zig");
 pub const Provider = provider.Provider;
 pub const VTable = provider.VTable;
 pub const Content = provider.Content;
+pub const Negotiated = provider.Negotiated;
 
 test {
     std.testing.refAllDecls(@This());

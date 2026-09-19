@@ -773,3 +773,37 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     the connection. The §10.5 rate limit colibri does hold, `rst_stream_rate_max`, bounds the
     RST_STREAM frames colibri sends and does not cover this. The ruling is "for now": a limit
     remains available if a peer is ever seen to abuse it.
+
+43. **The record-mode vtable carries `negotiated_parameters`, an eleventh member.** Ruled by the
+    owner on 2026-09-18, amending entry 8. The member returns the version and cipher suite
+    codepoints the handshake selected, or null before it has them. RFC 9113 §9.2 puts a MUST on
+    implementations of HTTP/2 to use TLS 1.2 or higher, and colibri is the implementation that
+    sentence addresses; §9.2.2 lets an endpoint answer a suite Appendix A prohibits with
+    INADEQUATE_SECURITY, and it puts a MUST NOT on generating that error for any suite that is not
+    prohibited, which needs the exact codepoint rather than a summary. Entry 8's ten members supply
+    neither number.
+
+    The alternative lost is enforcing none of §9.2 and recording that compliance is the
+    deployment's, which §9.2's own closing sentence would support. It was rejected because the
+    version floor is a MUST addressed to implementations. Reading two codepoints is not a crypto
+    operation: colibri chooses no suite and holds no key, so non-negotiable 2 is untouched.
+
+    §9.2.1 and §9.2.2 are TLS 1.2 rules alone. §9.2 says so: deployments that negotiate TLS 1.3
+    are subject to §9.2.3 instead. A check reads the version first and skips the whole set on
+    1.3, where §9.2.3's one rule is that a post-handshake CertificateRequest is a connection error
+    of PROTOCOL_ERROR, which `decrypt_record`'s `Content` already carries.
+
+44. **The provider is an optional field on `h2.Connection`.** Ruled by the owner on 2026-09-18.
+    A connection with no provider is the cleartext prior-knowledge endpoint step 4 built and
+    h2spec checks, so `init` keeps working unchanged and the simulator's cleartext check keeps the
+    census it committed. A connection with one runs h2 over TLS.
+
+    The alternative lost is a second h2 type above `Connection` holding the provider and the record
+    buffers. It would keep `Connection` free of TLS, at the cost of a second entry point for every
+    caller and for both endpoints of design §9. The documents settled that h2 calls the vtable
+    (entry 8, design §3 and §4) and left the type open; this entry closes it.
+
+    One consequence is recorded here so it is not rediscovered: an ALPN mismatch cannot go through
+    `Connection.fail`. That queues a GOAWAY, and RFC 9113 §3.2 sends the connection preface only
+    after TLS completes, so there is no HTTP/2 connection to send one on. RFC 7301 §3.2 makes it
+    the provider's fatal `no_application_protocol` alert, value 120.

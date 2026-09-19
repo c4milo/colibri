@@ -126,6 +126,15 @@ pub const Opened = struct {
     content: Content,
 };
 
+/// What the handshake selected (RFC 8446 §4.2.1, Appendix B.1 and B.4). RFC 9113 §9.2 puts rules
+/// on both, and no other member reports them (decision 43).
+pub const Negotiated = struct {
+    /// The version codepoint: 0x0304 for TLS 1.3, 0x0303 for TLS 1.2 (RFC 8446 Appendix B.1).
+    version: u16,
+    /// The cipher suite codepoint (RFC 8446 Appendix B.4).
+    cipher_suite: u16,
+};
+
 /// Whether the peer is asked to update its own keys in turn (RFC 8446 §4.6.3). The values are
 /// the RFC's.
 pub const KeyUpdateRequest = enum(u8) {
@@ -161,6 +170,12 @@ pub const VTable = struct {
     /// Whether the handshake has completed. RFC 8446 Appendix E.5 requires that an application be
     /// able to tell.
     handshake_complete: *const fn (context: *const anyopaque) bool,
+
+    /// The version and cipher suite the handshake selected, or null before it has them. RFC 9113
+    /// §9.2 puts a MUST on an HTTP/2 implementation to use TLS 1.2 or higher, and §9.2.2 lets an
+    /// endpoint refuse a suite Appendix A prohibits, so colibri needs both codepoints
+    /// (decision 43).
+    negotiated_parameters: *const fn (context: *const anyopaque) ?Negotiated,
 
     /// The alert the provider raised or received, which the call clears, so a second call returns
     /// null. The optional is not a style choice: `close_notify` is description 0 and is the
