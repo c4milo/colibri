@@ -867,6 +867,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   [decision 34](decisions.md#performance) and it lands before any QUIC code, so the h2 half has a
   regression floor while the larger half is built. *Small.*
 
+  **Check passed, 2026-09-18.** `src/sim/cost_check.zig` holds the cost of one request in three
+  shapes, and `zig build test` fails when any number moves. What it counts is what a caller sees
+  from outside — calls to `receive` and `write_pending`, the octets each carried, and the crossings
+  of the provider vtable — because the library counts nothing itself: §11's rules forbid a
+  statistic that costs a branch on the per-frame path. Allocations are not counted;
+  [decision 35](decisions.md#memory) makes them zero.
+
+  | Scenario | receive | write_pending | octets in | octets out | provider calls |
+  |---|---|---|---|---|---|
+  | server, cleartext | 4 | 3 | 58 | 58 | 0 |
+  | client, cleartext | 3 | 3 | 19 | 100 | 0 |
+  | server, over the null provider | 4 | 3 | 58 | 58 | 2 |
+
+  Two of these are worth reading rather than filing. A request and its response cross colibri's
+  boundary seven times at a server, which is the bulk-crossing rule of §11 holding: one call reads
+  a frame, one call writes every frame owed. And TLS adds two crossings and no octets, because the
+  provider frames what colibri already produced whole.
+
+  `tools/lint/magic_numbers.zig` excludes this file, as it excludes the corpus tables of
+  `src/golden/`. These are measurements, not limits, and naming each one would put the number in
+  two places.
+
+  Four mutations, every one **CAUGHT**: a server advertising one fewer setting, a response carrying
+  an extra field line, `write_pending` writing the preface in a call of its own, and a request
+  omitting `:authority`.
+
 - **Step 7 — QUIC packet formats and the crypto vtable.** The RFC 8999 invariant reader as its own
   file with an empty import set, the version-1 reader above it, long and short headers, packet
   number encoding and decoding, the Initial key schedule, packet protection, header protection,

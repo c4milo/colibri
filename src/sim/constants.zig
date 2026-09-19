@@ -160,3 +160,8 @@ pub const tls_check_events_max: u32 = 32;
 /// The octets a record adds around its body: the header RFC 8446 §5.1 defines, whose last field is
 /// the two-octet length, and the tag §5.2 sizes.
 pub const record_overhead_len: u32 = record_length_offset + @sizeOf(u16) + record_tag_len;
+
+/// The buffers the counted-cost check drives one request through. They are generous on purpose:
+/// what the check measures is how many times the caller crosses colibri's boundary and how many
+/// octets cross with it, not what a small buffer forces.
+pub const cost_check_buffer_len: u32 = 4096;
