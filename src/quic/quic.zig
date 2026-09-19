@@ -7,8 +7,10 @@ pub const wire = @import("wire");
 pub const crypto = @import("crypto");
 pub const tls = @import("tls");
 pub const constants = @import("constants.zig");
+pub const packet = @import("packet/packet.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
+    _ = packet;
 }
