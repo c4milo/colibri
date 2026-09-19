@@ -11,6 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");
+const constants = @import("../constants.zig");
 const connection = @import("connection.zig");
 
 const Connection = connection.Connection;
@@ -76,6 +77,117 @@ fn admits_cipher_suite(suite: u16) bool {
     return false;
 }
 
+/// Why a record did not open or did not go out. `ConnectionFailed` is an HTTP/2 connection error
+/// whose GOAWAY is queued (§5.4.1); the rest end the transport with no HTTP/2 frame, because a
+/// connection whose TLS has failed can carry none.
+pub const RecordError = error{
+    /// RFC 9113 §9.2.3 was broken, or another HTTP/2 rule this file checks. `failure` holds the
+    /// code and the GOAWAY is queued.
+    ConnectionFailed,
+    /// The provider refused the record. RFC 8446 §6 forbids data in either direction afterwards.
+    TlsFailed,
+    /// The plaintext buffer cannot hold the record's fragment (RFC 8446 §5.1), or the output
+    /// cannot hold one record (§5.2). Nothing moved.
+    NoSpaceLeft,
+    /// A protected record arrived or was asked for before the keys exist (RFC 8446 §7.1).
+    HandshakeIncomplete,
+    /// No provider is attached: this is a cleartext connection and its octets need no record.
+    NoProvider,
+};
+
+/// What `decrypt` took from the peer's octets.
+pub const Decrypted = struct {
+    /// Octets of the input the record occupied, header and tag included. 0 means no whole record
+    /// was there.
+    consumed: usize,
+    /// Octets of plaintext written, which are h2's byte stream and are fed to `receive`.
+    plaintext_len: usize,
+    /// RFC 8446 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
+    /// sends afterwards is read.
+    end_of_data: bool,
+};
+
+/// Opens one record the peer sent and applies the rules RFC 9113 places on what it holds. The
+/// plaintext buffer is the caller's, and what lands in it is fed to `receive` (design §4.1).
+pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: u64) RecordError!Decrypted {
+    _ = now_ns;
+    // RFC 9113 §3.3: a prior-knowledge cleartext connection runs h2 directly over TCP, so its
+    // octets pass through no record layer at all.
+    const provider = target.provider orelse return error.NoProvider;
+    // The provider writes into the caller's buffer and reads the caller's input; the two are
+    // never the same storage.
+    assert(input.ptr != plaintext.ptr);
+    const opened = provider.vtable.decrypt_record(provider.context, input, plaintext) catch |failure| {
+        return switch (failure) {
+            error.TlsFailed => error.TlsFailed,
+            error.NoSpaceLeft => error.NoSpaceLeft,
+            error.HandshakeIncomplete => error.HandshakeIncomplete,
+        };
+    };
+    assert(opened.consumed <= input.len and opened.plaintext_len <= plaintext.len);
+    return switch (opened.content) {
+        // RFC 8446 §5.1: a record that is not whole yet is not an error; the caller reads more.
+        .incomplete => .{ .consumed = 0, .plaintext_len = 0, .end_of_data = false },
+        .application_data => .{
+            .consumed = opened.consumed,
+            .plaintext_len = opened.plaintext_len,
+            .end_of_data = false,
+        },
+        // RFC 9113 §9.2.3: a NewSessionTicket and a KeyUpdate are permitted after the handshake,
+        // and h2 does nothing with either. RFC 8446 §4.6.3 makes the answering KeyUpdate the
+        // provider's, which `handshake_write` carries.
+        .new_session_ticket, .key_update => .{
+            .consumed = opened.consumed,
+            .plaintext_len = 0,
+            .end_of_data = false,
+        },
+        // RFC 9113 §9.2.3: HTTP/2 clients MUST treat a post-handshake CertificateRequest as a
+        // connection error of type PROTOCOL_ERROR.
+        .certificate_request => return target.fail(constants.error_protocol_error),
+        .alert => try on_alert(target, provider, opened.consumed),
+    };
+}
+
+/// What an alert record means to the connection (RFC 8446 §6).
+fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) RecordError!Decrypted {
+    _ = target;
+    // RFC 8446 §6: an alert record carries a description, so a provider that classified this
+    // record as an alert and then reports none has broken its own contract.
+    const report = provider.vtable.take_alert(provider.context) orelse return error.TlsFailed;
+    // RFC 8446 §6.1: close_notify tells the recipient that the sender will not send any more
+    // messages, which design §8 step 5 makes the end of the h2 byte stream.
+    if (tls.alert.is_orderly_close(report)) {
+        return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = true };
+    }
+    // RFC 8446 §6.2: every other description is an error alert, after which §6 forbids sending or
+    // receiving any further data.
+    return error.TlsFailed;
+}
+
+/// Protects what `write_pending` produced, as one or more records (RFC 8446 §5.2). Both buffers
+/// are the caller's.
+pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8) RecordError!tls.provider.Sealed {
+    // RFC 9113 §3.3: a cleartext connection writes its frames straight to the transport.
+    const provider = target.provider orelse return error.NoProvider;
+    assert(plaintext.ptr != output.ptr);
+    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output) catch |failure| {
+        return switch (failure) {
+            error.TlsFailed, error.KeyExhausted => error.TlsFailed,
+            error.NoSpaceLeft => error.NoSpaceLeft,
+            error.HandshakeIncomplete => error.HandshakeIncomplete,
+        };
+    };
+    assert(sealed.consumed <= plaintext.len and sealed.written <= output.len);
+    return sealed;
+}
+
+/// Writes the `close_notify` RFC 8446 §6.1 requires before the write side closes.
+pub fn close_notify(target: *Connection, output: []u8) RecordError!usize {
+    // RFC 9113 §3.3: a cleartext connection has no TLS to close.
+    const provider = target.provider orelse return error.NoProvider;
+    return provider.vtable.send_close_notify(provider.context, output) catch error.NoSpaceLeft;
+}
+
 const testing = std.testing;
 
 /// A provider the tests drive, which performs no cryptography and answers what the test sets.
@@ -87,6 +199,12 @@ const Fake = struct {
         .version = tls.constants.version_tls_1_3,
         .cipher_suite = tls.constants.cipher_suite_aes_128_gcm_sha256,
     },
+    /// What the next `decrypt_record` reports. Test-only.
+    content: tls.Content = .application_data,
+    /// What the next `take_alert` reports, or null. Test-only.
+    alert_held: ?tls.AlertReport = null,
+    /// The plaintext the next `decrypt_record` writes. Test-only.
+    body: []const u8 = "",
 
     fn alpn(context: *const anyopaque) ?[]const u8 {
         const self: *const Fake = @ptrCast(@alignCast(context));
@@ -105,12 +223,45 @@ const Fake = struct {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
 
+    fn open(context: *anyopaque, input: []const u8, plaintext: []u8) tls.provider.OpenError!tls.provider.Opened {
+        const self: *Fake = @ptrCast(@alignCast(context));
+        if (self.body.len > plaintext.len) return error.NoSpaceLeft;
+        @memcpy(plaintext[0..self.body.len], self.body);
+        // The plaintext length is reported whatever the content is, so a test can see that
+        // colibri, and not this provider, is what keeps a non-application record out of h2.
+        return .{ .consumed = input.len, .plaintext_len = self.body.len, .content = self.content };
+    }
+
+    fn seal(context: *anyopaque, plaintext: []const u8, output: []u8) tls.provider.SealError!tls.provider.Sealed {
+        _ = context;
+        if (output.len < plaintext.len) return error.NoSpaceLeft;
+        @memcpy(output[0..plaintext.len], plaintext);
+        return .{ .consumed = plaintext.len, .written = plaintext.len };
+    }
+
+    fn alert_of(context: *anyopaque) ?tls.AlertReport {
+        const self: *Fake = @ptrCast(@alignCast(context));
+        defer self.alert_held = null;
+        return self.alert_held;
+    }
+
+    fn close(context: *anyopaque, output: []u8) tls.provider.CloseError!usize {
+        _ = context;
+        if (output.len == 0) return error.NoSpaceLeft;
+        output[0] = 0;
+        return 1;
+    }
+
     var table: tls.VTable = undefined;
 
     fn init_table() void {
         table.negotiated_alpn = alpn;
         table.handshake_complete = done;
         table.negotiated_parameters = parameters_of;
+        table.decrypt_record = open;
+        table.encrypt_record = seal;
+        table.take_alert = alert_of;
+        table.send_close_notify = close;
     }
 };
 
@@ -168,4 +319,79 @@ test "a cleartext connection holds no provider, and attach stores one before any
     try attach(&connection.test_connection, state.provider());
     try testing.expect(connection.test_connection.provider != null);
     try testing.expect(connection.test_connection.provider.?.speaks_h2());
+}
+
+test "§9.2.3: a post-handshake CertificateRequest is a connection error of PROTOCOL_ERROR" {
+    Fake.init_table();
+    var state: Fake = .{ .content = .certificate_request };
+    connection.test_connection.init(.client);
+    try attach(&connection.test_connection, state.provider());
+    var plaintext: [16]u8 = undefined;
+    try testing.expectEqual(
+        error.ConnectionFailed,
+        decrypt(&connection.test_connection, "record", &plaintext, 0),
+    );
+    try testing.expectEqual(constants.error_protocol_error, connection.test_connection.failure.?);
+}
+
+test "§9.2.3: a NewSessionTicket and a KeyUpdate are consumed and yield no plaintext" {
+    Fake.init_table();
+    var plaintext: [16]u8 = undefined;
+    for ([_]tls.Content{ .new_session_ticket, .key_update }) |content| {
+        var state: Fake = .{ .content = content, .body = "ignored" };
+        connection.test_connection.init(.client);
+        try attach(&connection.test_connection, state.provider());
+        const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+        try testing.expectEqual(0, opened.plaintext_len);
+        try testing.expect(!opened.end_of_data);
+        try testing.expect(!connection.test_connection.has_failed());
+    }
+}
+
+test "RFC 8446 §6.1: a peer close_notify is the end of data, and an error alert ends the transport" {
+    Fake.init_table();
+    var plaintext: [16]u8 = undefined;
+    var state: Fake = .{
+        .content = .alert,
+        .alert_held = .{ .description = .close_notify, .origin = .peer },
+    };
+    connection.test_connection.init(.client);
+    try attach(&connection.test_connection, state.provider());
+    const closed = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+    try testing.expect(closed.end_of_data);
+    try testing.expectEqual(0, closed.plaintext_len);
+    // RFC 8446 §6.1 makes this an orderly close, so no HTTP/2 connection error is raised.
+    try testing.expect(!connection.test_connection.has_failed());
+
+    // RFC 8446 §6.2: every other description is an error alert.
+    state = .{ .content = .alert, .alert_held = .{ .description = .bad_record_mac, .origin = .local } };
+    connection.test_connection.init(.client);
+    try attach(&connection.test_connection, state.provider());
+    try testing.expectEqual(
+        error.TlsFailed,
+        decrypt(&connection.test_connection, "record", &plaintext, 0),
+    );
+}
+
+test "application data reaches the caller's buffer, and a cleartext connection has no record path" {
+    Fake.init_table();
+    var state: Fake = .{ .body = "frame octets" };
+    connection.test_connection.init(.client);
+    try attach(&connection.test_connection, state.provider());
+    var plaintext: [32]u8 = undefined;
+    const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+    try testing.expectEqualStrings("frame octets", plaintext[0..opened.plaintext_len]);
+    var output: [32]u8 = undefined;
+    const sealed = try encrypt(&connection.test_connection, "reply", &output);
+    try testing.expectEqual(5, sealed.written);
+    try testing.expectEqual(1, try close_notify(&connection.test_connection, &output));
+
+    // RFC 9113 §3.3: a prior-knowledge cleartext connection has no records at all.
+    connection.test_connection.init(.server);
+    try testing.expectEqual(
+        error.NoProvider,
+        decrypt(&connection.test_connection, "record", &plaintext, 0),
+    );
+    try testing.expectEqual(error.NoProvider, encrypt(&connection.test_connection, "reply", &output));
+    try testing.expectEqual(error.NoProvider, close_notify(&connection.test_connection, &output));
 }
