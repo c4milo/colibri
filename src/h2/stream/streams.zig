@@ -67,9 +67,22 @@ pub const Stream = struct {
     data_received_len: u64 = 0,
     /// The value of `Streams.sequence` when the stream closed. The lowest is the oldest.
     closed_at: u64 = 0,
-    /// Whether a field section has arrived on the stream, which makes the next one a trailer
-    /// section (RFC 9113 §8.1). This table only stores it.
-    section_received: bool = false,
+    /// The field sections that have arrived on the stream, which decides what the next one is
+    /// (RFC 9113 §8.1). This table only stores it.
+    sections_received: SectionsReceived = .none,
+};
+
+/// The field sections that have arrived on one stream, in the order RFC 9113 §8.1 allows. A
+/// response carries zero or more interim sections before its final one, so the section after an
+/// interim response is still the response; the section after the final one is a trailer section.
+pub const SectionsReceived = enum {
+    /// No field section has arrived.
+    none,
+    /// One or more interim responses have arrived and the final response has not (RFC 9113 §8.1).
+    /// Only a client reaches this: a request has no interim form (§8.3.1).
+    interim,
+    /// The request at a server, or the final response at a client, has arrived (RFC 9113 §8.1).
+    final,
 };
 
 /// The slot pool the table keeps its records in: `concurrent_streams_max` slots, the

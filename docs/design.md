@@ -762,6 +762,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   highest identifier the peer opened lag without ever decreasing, which invariant 13 does not
   forbid and `zig build test-h2` catches on h2spec's `http2/5.1.1/2` case.
 
+  **The client send path, 2026-09-18.** Step 4's check proved the server. The stream table was
+  written for both roles at the time, but `open_local` was never called from connection code, so a
+  client could parse a response and had no way to ask for one. `connection/connection_request.zig`
+  adds `write_request`: it refuses a request §8.3.1 or §8.5 would make malformed before anything
+  changes, then opens the stream, encodes the section with the pseudo-header fields before the
+  regular field lines (§8.3), and cuts it into HEADERS and CONTINUATION. The order is the point:
+  §5.1.1 forbids reusing an identifier, so a request refused for its own contents costs no stream.
+
+  Two receive-side rules came with it, both on the client path that nothing could reach before. A
+  client now reads any number of interim responses before the final one (§8.1), which the
+  `sections_received` marker on the stream record decides; until now the second field section on a
+  stream was always a trailer section, so a response after a 1xx was refused as malformed. And an
+  interim response no longer sets the content-length §8.1.1 compares the DATA octets against.
+
+  `zig build test` passes 598 tests on Zig 0.16.0, macOS 26.6, arm64, the lint scores 1,354
+  functions with a highest score of 13 against the limit of 15, and the simulator check prints the
+  census the step recorded, unchanged: `crc32=0xe8f7c0b4`. What this does not have is a conformance
+  suite: h2spec connects to a server, so no suite drives a colibri client, and §9 lists no client
+  endpoint. Interop in the client direction is step 5's check, which waits on a TLS server.
+
+  Thirteen mutations were applied over the new checks, each run against `zig build test-h2` and
+  reverted. Every one was **CAUGHT**.
+
+  | Mutation | Caught by |
+  |---|---|
+  | an interim response is marked final | test: "an interim response is not a trailer section, and the final response follows it" |
+  | any second field section is trailers | same test |
+  | an interim response sets the content-length | test: "an interim response does not set the content-length the DATA is compared with" |
+  | the request is validated after the stream opens | test: "each request opens the next odd identifier, and a refused one opens none" |
+  | a CONNECT request may carry `:path` | test: "a CONNECT request carries :authority alone" |
+  | an uppercase field name is sent | test: "an uppercase name and a connection-specific line are refused" |
+  | TE carries any value | same test |
+  | an empty `:path` is sent | test: "a request without :scheme or :path, or with an empty one, is refused" |
+  | `:authority` is left out of the block | test: "the block carries the pseudo-header fields, then the regular field lines" |
+  | `:path` is written before `:method` | same test |
+  | the regular field lines are left out | same test |
+  | CONNECT writes a `:scheme` anyway | test: "a CONNECT block carries :method and :authority alone" |
+  | no stream opens after a GOAWAY the peer sent | test: "no stream opens after a GOAWAY the peer sent" |
+
+  **Still not built.** Neither role sends a trailer section. A server may send an interim response
+  by calling `write_response` twice, and nothing stops it setting END_STREAM on one, which §8.1
+  forbids.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

@@ -32,6 +32,7 @@ const streams_table = @import("../stream/streams.zig");
 const field_block = @import("../field_block.zig");
 const connection_receive = @import("connection_receive.zig");
 const connection_send = @import("connection_send.zig");
+const connection_request = @import("connection_request.zig");
 const reply = @import("connection_reply.zig");
 
 const Role = @import("../role.zig").Role;
@@ -47,6 +48,15 @@ pub const SendError = connection_send.Error;
 
 /// What `write_data` sent and wrote (`connection_send.zig`).
 pub const DataWritten = connection_send.DataWritten;
+
+/// Why a request the caller asked for did not go out (`connection_request.zig`).
+pub const RequestError = connection_request.Error;
+
+/// The pseudo-header fields of a request a client sends (`connection_request.zig`).
+pub const Request_ = connection_request.Request;
+
+/// What `write_request` opened and wrote (`connection_request.zig`).
+pub const Sent = connection_request.Sent;
 
 /// A request the peer sent, at a server: its pseudo-header fields, and the field section it came
 /// from, which `field_section` returns until the next call (RFC 9113 §8.3.1).
@@ -211,6 +221,18 @@ pub const Connection = struct {
     }
 
     /// Writes as much of `payload` as the windows and the room allow: see `connection_send.zig`.
+    /// Opens a stream and writes `request` on it as HEADERS and the CONTINUATION frames its field
+    /// section needs (RFC 9113 §8.1, §8.3.1). A client's call.
+    pub fn write_request(
+        connection: *Connection,
+        output: []u8,
+        request: connection_request.Request,
+        fields: []const hpack.Field,
+        end_stream: bool,
+    ) connection_request.Error!connection_request.Sent {
+        return connection_request.write_request(connection, output, request, fields, end_stream);
+    }
+
     pub fn write_data(
         connection: *Connection,
         output: []u8,
@@ -364,6 +386,34 @@ pub fn start_server() !void {
     // The acknowledgment of that SETTINGS frame is written, so the queues start empty.
     _ = test_connection.write_pending(&test_output, 0);
     try testing.expect(!test_connection.has_pending());
+}
+
+/// Starts a client that has written its preface and read the server's, with nothing else read.
+/// Test-only.
+pub fn start_client() !void {
+    test_connection.init(.client);
+    _ = test_connection.write_pending(&test_output, 0);
+    try testing.expectEqual(Event.settings_applied, (try feed(empty_settings)).?);
+    _ = test_connection.write_pending(&test_output, 0);
+    try testing.expect(!test_connection.has_pending());
+}
+
+/// Encodes the field section of a response carrying `status`, as a peer would. Test-only.
+pub fn response_block(buffer: []u8, status: []const u8) ![]const u8 {
+    test_encoder.init(constants.header_table_size_initial, .never);
+    var writer = Writer.init(buffer);
+    try test_encoder.begin_block(&writer);
+    try test_encoder.write_field(&writer, ":status", status, .without_indexing);
+    return writer.written();
+}
+
+/// Feeds a HEADERS frame carrying a response with `status` on `stream_id`. Test-only.
+pub fn feed_response(stream_id: u32, status: []const u8, end_stream: bool) !?Event {
+    var block: [constants.frame_size_max]u8 = undefined;
+    const fragment = try response_block(&block, status);
+    const flags = constants.flag_end_headers | @as(u8, if (end_stream) constants.flag_end_stream else 0);
+    const bytes = try frame_bytes(&test_input, constants.frame_type_headers, flags, stream_id, fragment);
+    return feed(bytes);
 }
 
 /// Feeds a HEADERS frame carrying a GET request for `path` on `stream_id`. Test-only.

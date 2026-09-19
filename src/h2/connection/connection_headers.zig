@@ -14,10 +14,11 @@
 //! CONTINUATION frames that follow logically part of that frame, and §4.3 lets nothing come
 //! between them.
 //!
-//! A section that arrives whole is validated where it is read (decision 15): the first one on a
-//! stream is a request at a server or a response at a client (§8.3), and a second one is a trailer
-//! section, which §8.1 requires to end the stream. A message §8 refuses is malformed, which
-//! §8.1.1 makes a stream error of PROTOCOL_ERROR, never a connection error.
+//! A section that arrives whole is validated where it is read (decision 15): a request at a
+//! server or a response at a client (§8.3), and the section after the final one is a trailer
+//! section, which §8.1 requires to end the stream. A client reads every section before the final
+//! response as an interim response, because §8.1 admits any number of them. A message §8 refuses
+//! is malformed, which §8.1.1 makes a stream error of PROTOCOL_ERROR, never a connection error.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -151,20 +152,23 @@ fn finish(target: *Connection, done: ?field_block.Done, now_ns: u64) Error!?Even
     // between then and now removes a record: only an open drops one, and §4.3 admits no frame in
     // the middle of a field block.
     const record = target.streams.lookup(block.stream_id).live;
-    if (record.section_received) return validate_trailers(target, block, record, now_ns);
-    record.section_received = true;
+    // RFC 9113 §8.1: a trailer section is the one that follows the final field section. An interim
+    // response is not the final one, so the section after it is still the response.
+    if (record.sections_received == .final) return validate_trailers(target, block, record, now_ns);
     return switch (target.role) {
         .server => validate_request(target, block, record, now_ns),
         .client => validate_response(target, block, record, now_ns),
     };
 }
 
-/// Validates the first section on a stream at a server (RFC 9113 §8.3.1).
+/// Validates the request section at a server, which is the only one §8.3.1 defines (RFC 9113 §8.3.1).
 fn validate_request(target: *Connection, block: field_block.Done, record: *Stream, now_ns: u64) Error!?Event {
     const request = message.validate_request(target.field_section()) catch {
         return try refuse_message(target, block.stream_id, now_ns);
     };
     record.content_length = request.content_length;
+    // RFC 9113 §8.3.1: a request has no interim form, so its section is the final one.
+    record.sections_received = .final;
     return .{ .request = .{
         .stream_id = block.stream_id,
         .request = request,
@@ -172,12 +176,19 @@ fn validate_request(target: *Connection, block: field_block.Done, record: *Strea
     } };
 }
 
-/// Validates the first section on a stream at a client (RFC 9113 §8.3.2).
+/// Validates a section at a client, which is an interim response or the final one until the final
+/// one has arrived (RFC 9113 §8.1, §8.3.2).
 fn validate_response(target: *Connection, block: field_block.Done, record: *Stream, now_ns: u64) Error!?Event {
     const response = message.validate_response(target.field_section(), block.end_stream) catch {
         return try refuse_message(target, block.stream_id, now_ns);
     };
-    record.content_length = response.content_length;
+    // RFC 9113 §8.1: zero or more interim responses may precede the final one, and only the final
+    // one makes the next section a trailer section.
+    const interim = response.status.is_interim();
+    record.sections_received = if (interim) .interim else .final;
+    // RFC 9113 §8.1.1: the content-length belongs to the message the final response begins, so an
+    // interim response never sets the count the DATA octets are compared with.
+    if (!interim) record.content_length = response.content_length;
     return .{ .response = .{
         .stream_id = block.stream_id,
         .response = response,

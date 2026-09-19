@@ -148,7 +148,7 @@ fn encode_response(target: *Connection, status: u16, fields: []const hpack.Field
 
 /// Cuts `block` into a HEADERS frame and the CONTINUATION frames it needs, each at most the peer's
 /// SETTINGS_MAX_FRAME_SIZE (RFC 9113 §4.2, §6.10).
-fn write_block(target: *Connection, output: []u8, stream_id: u32, block: []const u8, end_stream: bool) Error!usize {
+pub fn write_block(target: *Connection, output: []u8, stream_id: u32, block: []const u8, end_stream: bool) Error!usize {
     var writer = Writer.init(output);
     var offset: usize = 0;
     const limit = target.peer.max_frame_size;
