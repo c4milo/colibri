@@ -23,7 +23,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const h2_session = @import("h2_session.zig");
 
 const Io = std.Io;

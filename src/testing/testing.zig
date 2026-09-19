@@ -8,9 +8,9 @@
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
-pub const h2_session = @import("h2_session.zig");
+pub const h2_session = @import("h2/h2_session.zig");
 pub const Session = h2_session.Session;
-pub const h2_server = @import("h2_server.zig");
+pub const h2_server = @import("h2/h2_server.zig");
 
 /// The entry point of `zig build h2-server`, which is this module's executable form.
 pub const main = h2_server.main;
