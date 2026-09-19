@@ -140,7 +140,7 @@ fi
   echo "## Throughput, indicative"
   echo
   echo "From a machine that pins no core and fixes no governor, so it shows a large regression"
-  echo "and proves nothing about a small one (docs/decisions.md entries 33 and 46)."
+  echo "and proves nothing about a small one (docs/decisions.md entries 33 and 47)."
   echo
   echo "${throughput_lines}" | fenced
   cat "${scratch}/failures"

@@ -16,6 +16,7 @@ env:
   ZIG_SHA256: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
   H2SPEC_VERSION: 2.6.0
   H2SPEC_SHA256: 157ee0de702e01ad40e752dbf074b366027e550c8e7504f9450da2809e279318
+  ZIG_CACHE_MEGABYTES_MAX: 2048
 jobs:
   checks:
     runs-on: ubuntu-24.04
@@ -26,24 +27,78 @@ jobs:
         with:
           go-version: stable
           cache: false
+      # What a run fetches or builds and the next run can reuse. Each key names what the content
+      # depends on, so a changed input misses the cache and the step below it does the work.
+      - name: Restore the tools
+        id: tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/zig
+            ~/bin
+          key: tools-${{ runner.os }}-zig-${{ env.ZIG_SHA256 }}-h2spec-${{ env.H2SPEC_SHA256 }}
       - name: Install Zig
+        if: steps.tools.outputs.cache-hit != 'true'
         run: |
           curl -sSfL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
           echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
           mkdir -p "${HOME}/zig" && tar -xJf zig.tar.xz -C "${HOME}/zig" --strip-components=1
-          echo "${HOME}/zig" >>"${GITHUB_PATH}"
           rm zig.tar.xz
       - name: Install h2spec
+        if: steps.tools.outputs.cache-hit != 'true'
         run: |
           curl -sSfL -o h2spec.tar.gz "https://github.com/summerwind/h2spec/releases/download/v${H2SPEC_VERSION}/h2spec_linux_amd64.tar.gz"
           echo "${H2SPEC_SHA256}  h2spec.tar.gz" | sha256sum -c -
           mkdir -p "${HOME}/bin" && tar -xzf h2spec.tar.gz -C "${HOME}/bin" h2spec
-          echo "${HOME}/bin" >>"${GITHUB_PATH}"
           rm h2spec.tar.gz
+      - name: Put the tools on the path
+        run: |
+          echo "${HOME}/zig" >>"${GITHUB_PATH}"
+          echo "${HOME}/bin" >>"${GITHUB_PATH}"
       - name: Install h2load
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends nghttp2-client
+      # Zig's caches are addressed by content, so a restored entry is reused only when its inputs
+      # are the same octets. A cache entry cannot be overwritten, so each commit saves its own and
+      # a run restores the newest one.
+      - name: Restore the Zig caches
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/zig
+            .zig-cache
+            zig-pkg
+          key: zig-${{ runner.os }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-${{ github.sha }}
+          restore-keys: |
+            zig-${{ runner.os }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-
+      - name: Restore the Go build cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cache/go-build
+          key: go-${{ runner.os }}-${{ hashFiles('tools/h2_interop/go_server.go') }}
+      - name: Restore the image of the nghttpd and h2o peers
+        id: peers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/peers.tar
+          key: peers-${{ runner.os }}-${{ hashFiles('tools/h2_interop/Dockerfile', 'tools/h2_interop/h2o.conf') }}
+      - name: Load the image
+        if: steps.peers.outputs.cache-hit == 'true'
+        run: docker load -i "${HOME}/peers.tar"
       - name: Run every check
         run: tools/ci.sh ci-report.md
+      - name: Save the image, and keep the Zig cache from growing without bound
+        if: always()
+        run: |
+          if [ "${{ steps.peers.outputs.cache-hit }}" != "true" ]; then
+            image="$(docker images --format '{{.Repository}}:{{.Tag}}' colibri-h2-interop | head -1)"
+            [ -z "${image}" ] || docker save -o "${HOME}/peers.tar" "${image}"
+          fi
+          # Nothing evicts an entry from .zig-cache, and every restore adds to it. Past the limit
+          # the next run starts from an empty one, which costs that run its compile time.
+          megabytes="$(du -sm .zig-cache 2>/dev/null | cut -f1)"
+          if [ "${megabytes:-0}" -gt "${ZIG_CACHE_MEGABYTES_MAX}" ]; then
+            rm -rf .zig-cache
+          fi
       - name: Publish the report
         if: always()
         run: cat ci-report.md >>"${GITHUB_STEP_SUMMARY}"

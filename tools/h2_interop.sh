@@ -14,7 +14,9 @@ set -euo pipefail
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly client="${repository_root}/zig-out/bin/h2-client"
 readonly peer_directory="${repository_root}/tools/h2_interop"
-readonly image="colibri-h2-interop"
+# The image is tagged with a checksum of what it is built from, so a run builds it only when one
+# of those files changed, and CI can keep it between runs under the same name.
+readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" | shasum -a 256 | cut -c1-16)"
 readonly go_port=18461
 readonly nghttpd_port=18462
 readonly h2o_port=18463
@@ -95,7 +97,7 @@ run_go() {
 }
 
 start_container() {
-  container="colibri-h2-interop-$1"
+  container="colibri-h2-interop-peer-$1"
   docker rm -f "${container}" >/dev/null 2>&1 || true
   docker run -d --rm --name "${container}" -p "127.0.0.1:$2:8080" "${image}" "${@:3}" >/dev/null
   wait_for_port "$2"
@@ -143,7 +145,8 @@ for peer in "${peers[@]}"; do
       ;;
     nghttpd | h2o)
       command -v docker >/dev/null 2>&1 || fail "docker is not installed"
-      docker build -q -t "${image}" "${peer_directory}" >/dev/null
+      docker image inspect "${image}" >/dev/null 2>&1 ||
+        docker build -q -t "${image}" "${peer_directory}" >/dev/null
       "run_${peer}"
       ;;
     *) fail "unknown peer: ${peer}" ;;
