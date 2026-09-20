@@ -235,3 +235,37 @@ pub const record_overhead_len: u32 = record_length_offset + @sizeOf(u16) + recor
 /// what the check measures is how many times the caller crosses colibri's boundary and how many
 /// octets cross with it, not what a small buffer forces.
 pub const cost_check_buffer_len: u32 = 4096;
+
+/// The null `tls.QuicVTable` of design §8 step 9e (`null_quic_provider.zig`).
+///
+/// RFC 9846 §4 frames a handshake message as a one-octet HandshakeType, a uint24 length and the
+/// body. The null QUIC provider frames its made-up messages the same way, so a message cut across
+/// CRYPTO frames is put back together the way a real one is.
+pub const null_quic_message_type_len: u32 = 1;
+pub const null_quic_message_length_len: u32 = 3;
+pub const null_quic_message_header_len: u32 =
+    null_quic_message_type_len + null_quic_message_length_len;
+
+/// Octets of one `quic_transport_parameters` body an endpoint holds, and it holds two: its own
+/// and the peer's (RFC 9001 §8.2). RFC 9000 §18 gives the body no maximum, so the null provider
+/// states its own, as the vtable's `NoSpaceLeft` says a provider must.
+pub const null_quic_params_len_max: u32 = 512;
+
+/// Octets one encryption level holds of handshake messages that have not been read yet. RFC 9001
+/// §4.1.3: "TLS is responsible for buffering handshake bytes that have arrived in order." It holds
+/// the longest flight one level carries: EncryptedExtensions with the parameters, and the Finished
+/// after it.
+pub const null_quic_pending_len_max: u32 = 1024;
+
+/// Steps in the longest role script of `null_quic_provider.zig`, which bounds the loop that reads
+/// a flight (CLAUDE.md non-negotiable 4).
+pub const null_quic_steps_max: u32 = 5;
+
+comptime {
+    assert(null_quic_message_header_len ==
+        null_quic_message_type_len + null_quic_message_length_len);
+    // One level holds the longest message the provider writes and the Finished that follows it.
+    assert(null_quic_pending_len_max >=
+        null_quic_params_len_max + 2 * null_quic_message_header_len);
+    assert(null_quic_steps_max > 0);
+}

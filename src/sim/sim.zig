@@ -18,6 +18,8 @@ pub const network = @import("network.zig");
 pub const Network = network.Network;
 pub const null_suite = @import("null_suite.zig");
 pub const NullSuite = null_suite.NullSuite;
+pub const null_quic_provider = @import("null_quic_provider.zig");
+pub const NullQuicProvider = null_quic_provider.NullQuicProvider;
 pub const Random = random.Random;
 pub const Clock = clock.Clock;
 pub const Trace = trace.Trace;
@@ -33,4 +35,5 @@ test {
     _ = network;
     _ = null_suite;
     _ = @import("null_suite_keys.zig");
+    _ = null_quic_provider;
 }
