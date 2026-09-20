@@ -111,6 +111,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "testing", .module = graph.testing },
         .{ .name = "testing-client", .module = graph.testing_client },
         .{ .name = "testing-tls", .module = graph.testing_tls },
+        .{ .name = "testing-tls-server", .module = graph.testing_tls_server },
     };
     var golden_tests: ?*std.Build.Step = null;
     for (unit_test_modules) |entry| {
@@ -148,6 +149,7 @@ pub fn build(b: *std.Build) void {
     add_h2_server_step(b, graph.testing);
     add_h2_client_step(b, graph.testing_client);
     add_tls_handshake_step(b, graph.testing_tls);
+    add_tls_accept_step(b, graph.testing_tls_server);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
 
@@ -292,6 +294,19 @@ fn add_tls_handshake_step(b: *std.Build, testing_tls: *std.Build.Module) void {
     const run = b.addRunArtifact(check);
     if (b.args) |args| run.addArgs(args);
     const step = b.step("tls-handshake", "Run one TLS handshake against a peer: -- <port> <spki> <host>");
+    step.dependOn(&run.step);
+    b.installArtifact(check);
+}
+
+/// `zig build tls-accept -- <port> <identity-prefix>`: one TLS 1.3 handshake as the server
+/// against a client that is not colibri's, then one record each way, which is the second half of
+/// design §8 step 5's check. It needs a chapulin checkout built `ROLE=server` and a peer that
+/// connects, so it is never part of `zig build test`.
+fn add_tls_accept_step(b: *std.Build, testing_tls_server: *std.Build.Module) void {
+    const check = b.addExecutable(.{ .name = "tls-accept", .root_module = testing_tls_server });
+    const run = b.addRunArtifact(check);
+    if (b.args) |args| run.addArgs(args);
+    const step = b.step("tls-accept", "Accept one TLS handshake from a peer: -- <port> <identity-prefix>");
     step.dependOn(&run.step);
     b.installArtifact(check);
 }

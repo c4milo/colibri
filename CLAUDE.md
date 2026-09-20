@@ -256,7 +256,14 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   `TRUST=webpki` is not a preference: chapulin compiles its ALPN fields out for `TRUST=raw` and
   `TRUST=ca`, and without ALPN no client can negotiate h2 (RFC 9113 §3.1), so colibri refuses
   such a build at compile time. Without the options the TLS endpoints compile to nothing, so a
-  clone with no chapulin still builds and still runs every other check.
+  clone with no chapulin still builds and still runs every other check. Copy each role's object
+  out before building the other: `make clean` removes the one already written.
+- TLS checks: `tools/tls_handshake.sh <checkout> [port]` runs one handshake with colibri as the
+  client against a Go server, and `tools/tls_accept.sh <checkout> [port]` one with colibri as the
+  server against a Go client, which also moves a record each way and ends on the client's
+  `close_notify`. Both need a Go toolchain and both roles built. `tools/ci.sh` runs them when it
+  finds a checkout carrying both objects, at `$CHAPULIN` or `../chapulin`, and says so when it
+  does not.
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the

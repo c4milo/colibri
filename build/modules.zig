@@ -61,6 +61,7 @@ pub const Modules = struct {
     /// directory as `testing` and the same imports, with a `main` of its own.
     testing_client: *std.Build.Module,
     testing_tls: *std.Build.Module,
+    testing_tls_server: *std.Build.Module,
 };
 
 pub fn add(
@@ -176,6 +177,15 @@ pub fn add(
     testing_tls.link_libc = true;
     link_chapulin(b, testing_tls, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI" });
 
+    // The other half of step 5's check, and a fourth root for the same reason as the third: one
+    // `main` per executable, and one role per chapulin object (decision 10). This one accepts.
+    const testing_tls_server = create(b, "src/testing/tls_accept.zig", target, optimize);
+    testing_tls_server.addImport("core", core);
+    testing_tls_server.addImport("h2", h2);
+    testing_tls_server.addImport("tls", tls);
+    testing_tls_server.link_libc = true;
+    link_chapulin(b, testing_tls_server, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER" });
+
     return .{
         .core = core,
         .wire = wire,
@@ -194,6 +204,7 @@ pub fn add(
         .testing = testing,
         .testing_client = testing_client,
         .testing_tls = testing_tls,
+        .testing_tls_server = testing_tls_server,
     };
 }
 

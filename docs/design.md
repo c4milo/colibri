@@ -923,10 +923,48 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   what the library defect above allowed; with the defect fixed no frame sequence produces it, and
   the check became an assertion. A second run of all sixteen that remain: all **CAUGHT**.
 
-  **Still owed for the step.** A TLS 1.3 provider that takes octets in and returns octets, in both
-  roles, with certificate signing at the server ([decisions 10 and 46](decisions.md)); `h2spec -t
-  -k`; the same interop over TLS; and the server direction against curl, nghttp and Go's client,
-  which cleartext could run today and nobody has yet. RFC 9113 Appendix A's prohibited suites are
+  **Both directions of the handshake, live, 2026-09-20.** chapulin's TLS 1.3 client and its
+  server each fill `tls.Provider`, from `src/testing/` alone ([decision 10](decisions.md)); the
+  packaged library still links no TLS stack and holds no key.
+
+  The adapter has two phases, which is what lets a socket-owning TLS stack fill a vtable that owns
+  no I/O. During the handshake chapulin's `send` and `recv` callbacks drive the socket; afterwards
+  they serve the buffers colibri passes to `encrypt_record` and `decrypt_record`, and no
+  descriptor is touched again. `chapulin_record.zig` is that second phase, written once for both
+  roles because `ch_read`, `ch_write` and `ch_close` name no side: each role holds a `Held` whose
+  address is the provider's context, and `chapulin_client.zig` and `chapulin_server.zig` are the
+  two handshakes above it.
+
+  Two runs on macOS 25.6 arm64 against Go 1.27.1, with chapulin built `RAND=drbg TRUST=webpki` and
+  `RAND=drbg ROLE=server`:
+
+  - `tools/tls_handshake.sh ../chapulin` printed `tls-handshake: complete alpn=h2 version=0x0304
+    suite=0x1303 buf_len=20480`.
+  - `tools/tls_accept.sh ../chapulin` printed `tls-accept: complete alpn=h2 version=0x0304
+    suite=0x1303` and `tls-accept: records ok, peer closed cleanly`. Go's client reported the same
+    three values, that the server echoed the record it sent, and that its `close_notify` was
+    accepted.
+
+  The server check moves a record each way rather than stopping at the handshake, so it is the
+  first run of the record phase over a real session. The server also reports the suite rather than
+  deriving it: chapulin declares `session.suite` under `CH_ROLE_SERVER` alone, so the client still
+  reports the one suite its build offers.
+
+  Writing the server found a defect in the client. `decrypt_record` classified a peer's clean close
+  as an alert and `take_alert` then answered none, which `connection_tls.on_alert` documents as a
+  provider breaking its contract and turns into `error.TlsFailed`. Every orderly `close_notify`
+  would have read as a failure, which an h2 server meets on every connection it serves. The record
+  phase now records the report and `take_alert` hands it over once. Mutations: two applied, both
+  **CAUGHT** — dropping the recorded report, and reporting the record as application data.
+
+  `zig build test` passes 972 of 972 with both roles linked, and 954 with 18 skipped when no
+  checkout is given.
+
+  **Still owed for the step.** `h2spec -t -k`; the same interop over TLS; and the server
+  direction against curl, nghttp and Go's client, which cleartext could run today and nobody has
+  yet. The provider itself is no longer owed: both roles are filled and both are proved live
+  above. What stands between here and `h2spec -t -k` is [decision 46](decisions.md) — chapulin's
+  handshake blocks, and the h2 server's rule is that `poll` is the only call that waits. RFC 9113 Appendix A's prohibited suites are
   not checked and will not be: decision 45 records why.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per

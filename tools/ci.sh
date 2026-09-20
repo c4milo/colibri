@@ -16,6 +16,10 @@ readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly report="${1:-${repository_root}/ci-report.md}"
 readonly scratch="$(mktemp -d)"
 readonly h2load_port=18470
+# The two TLS checks of design §8 step 5 need a chapulin checkout built for both roles, which a
+# hosted runner does not have. They run for a person and are stated as skipped otherwise, which
+# is what CLAUDE.md asks of a check CI cannot run.
+readonly chapulin="${CHAPULIN:-${repository_root}/../chapulin}"
 readonly h2load_runs=5
 readonly h2load_requests=200000
 readonly h2load_clients=32
@@ -106,6 +110,14 @@ section "h2spec" tools/h2spec.sh
 h2spec_lines="$(grep -E "^h2spec.sh: [0-9]+ passed" "${scratch}/last.log")"
 section "Interop, client direction" tools/h2_interop.sh
 interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|every exchange)|^h2-client:" "${scratch}/last.log")"
+if [ -f "${chapulin}/bin/chapulin-client.o" ] && [ -f "${chapulin}/bin/chapulin-server.o" ]; then
+  section "TLS handshake, colibri as client" tools/tls_handshake.sh "${chapulin}"
+  tls_lines="$(grep -E "^tls-handshake:" "${scratch}/last.log")"
+  section "TLS handshake, colibri as server" tools/tls_accept.sh "${chapulin}"
+  tls_lines="${tls_lines}"$'\n'"$(grep -E "^tls-accept: complete|^tls-accept: records|^tls_client:" "${scratch}/last.log")"
+else
+  tls_lines="No chapulin checkout with both role objects at ${chapulin}, so this run made no TLS handshake."
+fi
 if command -v h2load >/dev/null 2>&1; then
   section "Throughput, indicative" throughput
   throughput_lines="$(tail -2 "${scratch}/last.log")"
@@ -146,6 +158,13 @@ fi
   echo "## Conformance and interop"
   echo
   { echo "${h2spec_lines}"; echo "${interop_lines}"; } | fenced
+  echo
+  echo "## TLS, both directions"
+  echo
+  echo "Design §8 step 5's two checks: colibri's chapulin-backed client against a Go server, and"
+  echo "colibri's chapulin-backed server against a Go client (docs/decisions.md entry 10)."
+  echo
+  echo "${tls_lines}" | fenced
   echo
   echo "## Throughput, indicative"
   echo

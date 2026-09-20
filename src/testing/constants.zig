@@ -147,3 +147,18 @@ comptime {
 /// server presenting two RSA-2048 certificates completes at exactly it, and one octet less is
 /// refused as a configuration error rather than a capacity one.
 pub const tls_receive_len: usize = 20 * 1024;
+
+/// The largest DER the TLS checks read from one file: a certificate, a Subject Name or a
+/// SubjectPublicKeyInfo. An RSA-4096 certificate runs to about 1,400 octets and an RSA-4096 SPKI
+/// to about 550, so this holds anything the peers of design §8 step 5 mint.
+pub const tls_der_len_max: usize = 2048;
+
+/// The octets one TLS check moves over its socket in a single pass: one record at most, which
+/// RFC 9846 §5.1 caps at 2^14 of plaintext plus its header and tag.
+pub const tls_record_buffer_len: usize = 18 * 1024;
+
+comptime {
+    assert(tls_receive_len > tls_record_buffer_len);
+    assert(tls_record_buffer_len > 1 << 14);
+    assert(tls_der_len_max > 0);
+}

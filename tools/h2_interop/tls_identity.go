@@ -6,7 +6,7 @@
 // ecdsa_secp256r1_sha256 one, which srv_cfg.h describes as a 32-byte big-endian private scalar
 // and a 64-byte uncompressed public point, with the end-entity certificate first in the chain.
 //
-// Five files, all raw DER or raw octets, never PEM, because chapulin reads bytes and parses no
+// Six files, all raw DER or raw octets, never PEM, because chapulin reads bytes and parses no
 // container:
 //
 //	<prefix>.leaf.der   the end-entity certificate
