@@ -93,7 +93,7 @@ pub const ConnectionId = struct {
 pub const stateless_reset_token_len: usize = 16;
 
 /// RFC 9000 §18.2's defaults for the parameters whose absent value is not zero.
-pub const default_max_udp_payload_size: u64 = 65527;
+pub const default_max_udp_payload_size: u64 = constants.datagram_len_max;
 pub const default_ack_delay_exponent: u64 = 3;
 pub const default_max_ack_delay_ms: u64 = 25;
 pub const default_active_connection_id_limit: u64 = 2;

@@ -190,6 +190,30 @@ pub const anti_amplification_factor: u64 = 3;
 /// PATH_CHALLENGE reaches it, unless §8's limit forbids, so the path's MTU is tested too.
 pub const datagram_len_min: u64 = 1200;
 
+/// RFC 9000 §18.2: the default for `max_udp_payload_size` "is the maximum permitted UDP payload
+/// of 65527", which is the largest datagram anything can hand colibri or ask it to write.
+pub const datagram_len_max: u64 = 65527;
+
+/// The most packets one datagram can hold (RFC 9000 §12.2), which is what bounds the loop that
+/// walks them. It over-counts on purpose: the divisor is only the Packet Number field, the
+/// payload RFC 9001 §5.4.2 requires beside it and the authentication tag, leaving out every
+/// header octet a real packet also carries. A datagram holds a handful in practice.
+pub const coalesced_packets_max: usize = @intCast(datagram_len_max / (protected_len_min + aead_tag_len));
+
+/// The most frames one packet can hold, which bounds the walk over a payload. RFC 9000 §19.1
+/// makes PADDING one octet, and no frame is shorter, so a payload holds at most its own length
+/// in frames. The reader takes a run of PADDING as one frame, so this over-counts too.
+pub const frames_per_packet_max: usize = @intCast(datagram_len_max);
+
+comptime {
+    // RFC 9000 §14.1's floor is below §18.2's ceiling, or no datagram size would be legal.
+    assert(datagram_len_min < datagram_len_max);
+    // A packet that consumed nothing would not end the walk, so the divisor must be above zero.
+    assert(protected_len_min + aead_tag_len > 0);
+    assert(coalesced_packets_max > 0);
+    assert(frames_per_packet_max > 0);
+}
+
 /// Octets of out-of-order CRYPTO data colibri buffers per encryption level. RFC 9000 §7.5:
 /// "Implementations MUST support buffering at least 4096 bytes of data received in out-of-order
 /// CRYPTO frames." It is the RFC's floor and not a choice of colibri's: in-order data is handed

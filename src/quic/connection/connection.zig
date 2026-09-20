@@ -96,10 +96,18 @@ pub const Connection = struct {
     local_parameters: Parameters,
     /// The peer's, once the handshake carried them, and null until then.
     peer_parameters: ?Parameters,
+    /// RFC 9001 §4.1.1's completed state, which is the provider's to report and the connection's
+    /// to remember: nothing here holds a provider, so `connection_crypto` writes it. §5.7 forbids
+    /// opening a 1-RTT packet before it, whatever keys the suite has.
+    handshake_complete: bool,
     /// RFC 9001 §4.1.2: a server confirms the handshake when it completes and a client when it
     /// receives a HANDSHAKE_DONE frame. It is not what `handshake_complete` answers, and RFC 9002
     /// §6.2.1 and RFC 9001 §4.9.3 both turn on the difference.
     handshake_confirmed: bool,
+    /// The lowest packet number processed under the current key phase, or null before any
+    /// (RFC 9001 §6.5). It is what tells a delayed packet of the previous phase from the first of
+    /// the next, because the two carry the same Key Phase bit. The application level alone.
+    current_phase_lowest: ?u64,
 
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
@@ -113,7 +121,9 @@ pub const Connection = struct {
         connection.role = options.role;
         connection.local_parameters = parameters;
         connection.peer_parameters = null;
+        connection.handshake_complete = false;
         connection.handshake_confirmed = false;
+        connection.current_phase_lowest = null;
         init_spaces(connection);
         connection.crypto_streams.init();
         init_streams(connection, parameters);
@@ -217,4 +227,5 @@ test {
     _ = @import("connection_crypto.zig");
     _ = @import("connection_identity.zig");
     _ = @import("connection_keys.zig");
+    _ = @import("connection_receive.zig");
 }
