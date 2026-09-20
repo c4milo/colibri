@@ -131,6 +131,21 @@ pub const Receiver = struct {
         };
     }
 
+    /// A receiver that admits nothing. RFC 9000 §18.2 says of the stream data limits that a
+    /// parameter "absent or zero" means the peer may send none, which `init` cannot express: a
+    /// window of zero would leave nothing for decision 49 to grow and its assertion refuses one.
+    /// This is that state named, so a legal zero limit needs no weakening of the assertion.
+    pub fn none() Receiver {
+        return .{
+            .limit = 0,
+            .used = 0,
+            .consumed = 0,
+            .window = 0,
+            .window_max = 0,
+            .credited_at_ns = null,
+        };
+    }
+
     /// Takes a peer's use of the limit: an offset one past its data for §4.1, or a count for
     /// §4.6. It is a high-water mark, so a retransmission that reaches less far is no error.
     pub fn use(receiver: *Receiver, reached: u64, failure: Error) Error!void {

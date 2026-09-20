@@ -25,6 +25,7 @@ const frame_module = @import("../frame/frame.zig");
 const space_module = @import("../space/space.zig");
 const connection_module = @import("connection.zig");
 const connection_crypto = @import("connection_crypto.zig");
+const stream_frames = @import("connection_stream_frames.zig");
 
 const Level = core.Level;
 const Reader = core.Reader;
@@ -48,6 +49,8 @@ pub const Error = error{
     HandshakeDoneFromClient,
     /// The handshake failed, and `connection_crypto.Error` says how.
     Crypto,
+    /// A frame naming a stream broke a rule, and `connection_stream_frames.Error` says which.
+    Stream,
 };
 
 /// The code a CONNECTION_CLOSE carries for `failure` (RFC 9000 §20.1). `Crypto` is not among
@@ -64,8 +67,10 @@ pub fn connection_error_code(failure: Error) u64 {
         // RFC 9000 §12.4: "An endpoint MUST treat the receipt of a frame of unknown type as a
         // connection error of type FRAME_ENCODING_ERROR", which §19's own refusals share.
         error.FrameEncoding => error_code.frame_encoding_error,
-        // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR.
-        error.Crypto => error_code.internal_error,
+        // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR. A stream
+        // frame's own code is `connection_stream_frames.connection_error_code`'s, which the
+        // caller reads instead, because §20.1 gives each of its rules a code of its own.
+        error.Crypto, error.Stream => error_code.internal_error,
     };
 }
 
@@ -138,8 +143,13 @@ fn apply(connection: *Connection, level: Level, frame: Frame, now_ns: u64, repor
         // RFC 9000 §19.12: DATA_BLOCKED says the peer wants to send and cannot. It is a signal
         // for tuning and obliges nothing, so colibri records nothing from it.
         .data_blocked => {},
-        // Everything left names a stream, a connection ID or a path. Those land with the pieces
-        // design §8 step 9e still owes, and until then a peer that sends one is not answered.
+        // RFC 9000 §19.4 to §19.14: the frames that name a stream, which need the stream table
+        // and both levels of flow control, so they live in their own file.
+        .stream, .reset_stream, .stop_sending, .max_stream_data, .max_streams, .stream_data_blocked, .streams_blocked => stream_frames.apply(connection, frame) catch
+            return Error.Stream,
+        // RFC 9000 §19.7, §19.15 to §19.18: NEW_TOKEN, the connection ID frames and the path
+        // frames. They land with the pieces design §8 step 9e still owes, and until then a peer
+        // that sends one is not answered.
         else => {},
     }
 }
