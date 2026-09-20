@@ -33,6 +33,12 @@ pub const version_negotiation: u32 = 0;
 /// Octets of one Version or Supported Version field (RFC 8999 §5.1, §6).
 pub const version_len: usize = @sizeOf(u32);
 
+/// Octets of the first octet of any packet, which carries the Header Form bit (RFC 8999 §5).
+pub const first_octet_len: usize = 1;
+
+/// Octets of the length that precedes a connection ID in a long header (RFC 8999 §5.1).
+pub const connection_id_length_len: usize = 1;
+
 pub const Form = enum { long, short };
 
 /// Why a read stopped. A datagram is hostile input, so every one is a value and none asserts.
@@ -175,7 +181,20 @@ pub fn write_version_negotiation(
     try write_connection_id(&copy, received.scid);
     try write_connection_id(&copy, received.dcid);
     for (supported) |version| try copy.write_int(u32, version);
+    assert(copy.written().len - writer.written().len ==
+        version_negotiation_len(received, supported.len));
     writer.* = copy;
+}
+
+/// Octets `write_version_negotiation` writes when it answers `received` with `supported_count`
+/// versions (RFC 8999 §6). Both connection IDs are `received`'s, swapped, so their lengths are
+/// the ones that arrived and not any this endpoint's version would allow.
+pub fn version_negotiation_len(received: Long, supported_count: usize) usize {
+    assert(supported_count > 0);
+    return first_octet_len + version_len +
+        connection_id_length_len + received.scid.len +
+        connection_id_length_len + received.dcid.len +
+        supported_count * version_len;
 }
 
 /// One connection ID after its length octet (RFC 8999 §5.1).

@@ -41,6 +41,10 @@ pub const Reason = enum {
     closed_locally,
     /// The peer sent one (§10.2.2).
     closed_by_peer,
+    /// RFC 9000 §6.2: a client abandoned the connection attempt, because the server answered
+    /// with a Version Negotiation packet and colibri speaks one version. Nothing is sent: the
+    /// server kept no state to close, and the client holds no key to seal a CONNECTION_CLOSE.
+    abandoned,
 };
 
 /// What a caller may do now.
@@ -135,6 +139,16 @@ pub const Termination = struct {
         assert(termination.state == .active);
         termination.state = .closed;
         termination.reason = .idle;
+    }
+
+    /// RFC 9000 §6.2: "A client that supports only this version of QUIC MUST abandon the current
+    /// connection attempt if it receives a Version Negotiation packet." Like an idle timeout it
+    /// is silent, so there is no closing period to wait out.
+    pub fn on_abandoned(termination: *Termination) void {
+        assert(termination.state == .active);
+        termination.state = .closed;
+        termination.reason = .abandoned;
+        assert(termination.permission() == .send_nothing);
     }
 
     /// RFC 9000 §10.2, §10.2.1: this endpoint sent a CONNECTION_CLOSE frame and enters the
