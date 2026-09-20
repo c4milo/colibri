@@ -112,11 +112,20 @@ fn packet_len_of(connection: *Connection, planned: packet_build.Planned) usize {
     return planned.shape.header_len + planned.payload_len + planned.padding_len + constants.aead_tag_len;
 }
 
-/// RFC 9000 §18.2's `max_udp_payload_size`, which is what the peer said it can receive. Before
-/// the handshake carries it, §14.1's smallest allowed maximum datagram is all colibri may assume.
+/// What bounds a datagram besides the caller's buffer, in the order the file header names them.
+///
+/// RFC 9000 §18.2's `max_udp_payload_size` is what the peer said it can receive; before the
+/// handshake carries it, §14.1's smallest allowed maximum datagram is all colibri may assume.
+/// §8.1's anti-amplification limit bounds it too, and it is a bound and not an assertion: a
+/// server that has received nothing may send nothing, which is the ordinary state of every
+/// server at the start of a connection rather than a defect in colibri.
 fn datagram_ceiling(connection: *const Connection) usize {
-    const peer = connection.peer_parameters orelse return constants.datagram_len_min;
-    return @intCast(@min(peer.max_udp_payload_size, constants.datagram_len_max));
+    const by_peer: u64 = if (connection.peer_parameters) |peer|
+        @min(peer.max_udp_payload_size, constants.datagram_len_max)
+    else
+        constants.datagram_len_min;
+    // §21.1.1.1 exempts a client, whose allowance `Path` answers as unlimited (invariant 18).
+    return @intCast(@min(by_peer, connection.path.send_allowance()));
 }
 
 /// RFC 9000 §14.1's expansion, put on the datagram's last packet by decision 54.

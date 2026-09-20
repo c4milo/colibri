@@ -161,6 +161,10 @@ test "RFC 9000 §8, invariant 18: a server sends no more than three times what i
     // Nothing has arrived, so three times nothing is nothing and the server may not answer.
     provider_holder = .{ .owed = &flight, .owed_level = .initial };
     try testing.expectEqual(0, server.path.send_allowance());
+    // §8's limit bounds the datagram like the caller's buffer and the peer's maximum do. A
+    // server that has received nothing is the ordinary state of every server at the start of a
+    // connection, so there is nothing here to assert about: it simply has nothing to send.
+    try testing.expectEqual(null, try send_from(&server));
 
     // One datagram in gives it room for three out, and what it sends counts against that.
     server.path.on_datagram_received(constants.datagram_len_min);
