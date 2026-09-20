@@ -1013,3 +1013,57 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     loss marginally sooner, and it is what a reader following the prose alone would write. It was
     rejected because the appendix is the algorithm and because the error it makes when it is wrong
     is a spurious probe rather than a late one.
+
+51. **h2 and h3 share their message validation through `http`, and each names its own errors.**
+    Ruled by the owner on 2026-09-20, answering design §12 question 6.
+
+    RFC 9114 §4.1 to §4.3 restates most of RFC 9113 §8. The checks are the same: the
+    pseudo-header rules, the field name and value rules, the ban on connection-specific fields,
+    the CONNECT rules. What differs is the RFC section each check cites and the error a violation
+    carries — PROTOCOL_ERROR for h2 (§8.1.1), H3_MESSAGE_ERROR for h3 (§4.1.2).
+
+    So the shared rules move into `http` and return a reason. Each protocol maps that reason to
+    its own error. This finishes the split [decision 15](#correctness) already describes, rather
+    than changing it: `http` already holds the field-level checks, and `content_length` already
+    works this way.
+
+    A shared check in `http` cites both RFCs on the line that does the checking. Both state the
+    rule, so both citations are true, and CLAUDE.md non-negotiable 9 is satisfied.
+
+    Four rules stay per protocol, because they differ in what they accept:
+
+    - `:authority` against `Host`. RFC 9114 §4.3.1 has four MUSTs. RFC 9113 §8.3.1 has one
+      SHOULD that needs URI normalization, which colibri's h2 does not implement.
+    - A repeated pseudo-header name. RFC 9113 §8.3 states it for any pseudo-header. RFC 9114
+      states only that a request carries exactly one `:method`, `:scheme` and `:path`, and says
+      nothing about `:status`.
+    - An informational response with END_STREAM (RFC 9113 §8.1). h3 has no END_STREAM flag.
+    - `:protocol` from RFC 8441. It is defined for h2 alone. colibri's h2 does not implement
+      extended CONNECT today, so both protocols refuse it, but the rule would part if it did.
+
+    The alternatives lost. Duplicating the rules in `src/h3/message/` is what step 12's check
+    exists to refuse; the two copies would part the first time an erratum moved one. Having h3
+    call h2's code adds an `h3` to `h2` edge that design §3 does not have, and every check would
+    cite RFC 9113 while running for h3, which non-negotiable 9 forbids.
+
+52. **I/O stays outside colibri, and the test endpoints keep their own loops for now.** Ruled by
+    the owner on 2026-09-20.
+
+    colibri's library owns no socket, no descriptor and no loop. That is non-negotiable 1 and it
+    does not change. The application that integrates colibri brings its own loop, and colibri
+    never learns which one. Rotor is one such loop and so is anything else.
+
+    The only place the question was open is `src/testing/`, which owns sockets by design (§9).
+    The answer there is not yet, for one reason: Rotor carries no datagrams today. It has no
+    `recvfrom`, no `sendto` and no `SOCK_DGRAM`. colibri's TCP endpoints already pass h2spec and
+    interop, so replacing them buys nothing, and the endpoints that would gain are the UDP ones
+    of steps 9, 12 and 13, which Rotor cannot carry.
+
+    Waiting costs nothing. Every endpoint is already a pure session and a thin socket file, so a
+    later swap touches the thin file alone. colibri does not invest in the hand-written loops:
+    no threads, no batching, and no io_uring of its own.
+
+    Decide again at step 9e, whose interop endpoint is the first UDP code in the tree. Adopting
+    Rotor then would make it a third test-only dependency after chapulin and pepegrillo, which
+    CLAUDE.md's "Ask before" covers.
+

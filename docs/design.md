@@ -1053,7 +1053,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **Still owed for the step.** RFC 9001 Appendix A's sample packet protection, byte for byte.
   Under decision 48 those vectors check a provider through the vtable, so they need chapulin's
-  `ch_quic_*` calls, which fail closed today, and they will run from `src/testing/` and not from
+  `ch_quic_*` calls, which chapulin implemented on 2026-09-20, and they will run from
+  `src/testing/` and not from
   the corpus, whose cases are 64 octets at most. The headers of those samples are already
   checked, octet for octet, above.
 
@@ -1388,7 +1389,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 - **Step 9e — the handshake over CRYPTO frames, and the interop runner.** CRYPTO frame
   reassembly by offset, the handshake driven through `tls.Provider`'s QUIC mode, and the
   transport parameters of §7.4. **This is the only part of step 9 that waits on chapulin**: its
-  `ch_quic_*` calls all fail closed today. **Check:** step 9's, above. *Large.*
+  `ch_quic_*` calls were stubs until 2026-09-20, when chapulin implemented all fifteen; the
+  client role is on its `main` and the server role has no driver yet. **Check:** step 9's,
+  above. *Large.*
 
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
@@ -1639,6 +1642,12 @@ figure beside it, which is indicative and carries no threshold: a hosted runner 
    suite's semantics tests are re-run against h3, "which proves the `http` module is shared
    rather than duplicated". Writing h3's framing made the shape of that question concrete and it
    needs the owner before any h3 message code is written.
+
+   **Ruled 2026-09-20: share through `http`** ([decision 51](decisions.md)). The shared checks
+   move into `http` and return a reason; each protocol maps it to its own error. A shared check
+   cites both RFCs, because both state the rule. Four rules stay per protocol, because they
+   differ in what they accept: `:authority` against `Host`, a repeated pseudo-header name, an
+   informational response with END_STREAM, and `:protocol` from RFC 8441.
 
    RFC 9114 §4.1 to §4.3 restates most of RFC 9113 §8: the pseudo-header rules, the field name
    and value rules, the connection-specific field ban, the CONNECT rules. What differs is which
