@@ -229,6 +229,21 @@ pub const loss_time_threshold_denominator: u64 = 8;
 /// §6.1.1 recommends at 3.
 pub const loss_packet_threshold: u64 = 3;
 
+/// The congestion window of RFC 9002 §7.2, whose Appendix B.1 names each one.
+///
+/// `kInitialWindow`: ten maximum datagrams, held to the larger of 14,720 octets and two of them.
+/// §7.2 takes the figure from the analysis it cites, raised for UDP's smaller header.
+pub const congestion_window_initial_datagrams: u64 = 10;
+pub const congestion_window_initial_len_max: u64 = 14_720;
+
+/// `kMinimumWindow`: the smallest the window falls to on loss, on an increase in the peer's
+/// ECN-CE count, or on persistent congestion, which §7.2 recommends at two maximum datagrams.
+pub const congestion_window_minimum_datagrams: u64 = 2;
+
+/// `kLossReductionFactor`: what the window is scaled by on a congestion event, which §7
+/// recommends at one half.
+pub const congestion_loss_reduction_divisor: u64 = 2;
+
 /// `kPersistentCongestionThreshold`: how many Probe Timeouts a span of loss must cover before it
 /// counts as persistent congestion, which §7.6.1 recommends at 3.
 pub const persistent_congestion_threshold: u64 = 3;
