@@ -221,3 +221,41 @@ test "each failure carries the code RFC 9000 §20.1 gives it" {
     try testing.expectEqual(error_code.transport_parameter_error, connection_crypto.connection_error_code(error.ParametersRefused));
     try testing.expectEqual(error_code.internal_error, connection_crypto.connection_error_code(error.NoSpaceLeft));
 }
+
+/// A frame's Offset is a variable-length integer, so how wide it is depends on the number. These
+/// sizes make the receiving mark need two octets and the sending one need a single octet, which
+/// is what separates the two numbers when one is used for the other (RFC 9000 §16, §19.6).
+const wide_offset_len: usize = 4096;
+const narrow_output_len: usize = 100;
+/// 100 octets less a CRYPTO frame's type, its Offset of 0 and a two-octet Length.
+const exact_payload_len: usize = 96;
+const owed_octet: u8 = 0x7a;
+const received_octet: u8 = 0x2b;
+const wide_received: [wide_offset_len]u8 = @splat(received_octet);
+const exact_payload: [exact_payload_len]u8 = @splat(owed_octet);
+
+test "RFC 9000 §19.6: the room a frame leaves is measured from the offset it will write" {
+    // The asymmetric case: colibri has read a long flight from the peer at this level and sent
+    // nothing back on it yet. §19.6 gives each direction of a level its own flow, so the Offset
+    // this frame carries is the sending one and it is still 0, while the receiving mark is 4096.
+    fresh(.server);
+    const stream = test_connection.crypto_at(.handshake);
+    try stream.receive(0, &wide_received);
+    stream.consume(wide_offset_len);
+    try testing.expectEqual(wide_offset_len, stream.consumed_len());
+    try testing.expectEqual(0, stream.sent_len);
+
+    // The provider owes exactly what fits once the type, an Offset of 0 and the Length are paid
+    // for. Reserving room for the receiving mark instead would cost one octet more and refuse it.
+    var fake: Fake = .{ .owed = &exact_payload, .owed_level = .handshake };
+    var output: [narrow_output_len]u8 = undefined;
+    const written = try connection_crypto.write_crypto(
+        &test_connection,
+        fake.provider(),
+        .handshake,
+        &output,
+    );
+    try testing.expectEqual(narrow_output_len, written);
+    // And the Offset that went out is the sending flow's, which was 0, not 4096.
+    try testing.expectEqual(exact_payload_len, stream.sent_len);
+}

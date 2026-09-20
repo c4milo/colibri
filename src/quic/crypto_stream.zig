@@ -112,8 +112,9 @@ pub const CryptoStream = struct {
         assert(stream.readable().len == stream.contiguous);
     }
 
-    /// How many octets the handshake has read from this level, which is where the next frame
-    /// colibri sends on it begins.
+    /// How many octets the handshake has read out of the peer's flow at this level. It is the
+    /// receiving side's mark and has nothing to do with the Offset colibri writes, which is
+    /// `sent_len`: RFC 9000 §19.6 gives each direction of a level its own flow.
     pub fn consumed_len(stream: *const CryptoStream) u64 {
         return stream.base;
     }

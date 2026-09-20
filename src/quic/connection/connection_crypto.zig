@@ -106,8 +106,11 @@ pub fn write_crypto(
     output: []u8,
 ) Error!usize {
     assert(output.len > 0);
-    // The frame's own header costs octets, so the payload cannot have all of `output`.
-    const header_len = crypto_frame_header_len(connection.crypto_at(level).consumed_len(), output.len);
+    // The frame's own header costs octets, so the payload cannot have all of `output`. The
+    // Offset it reserves room for is the one `write_frame` will write: RFC 9000 §19.6 makes it
+    // how many octets colibri has sent at this level, which is a different number from how many
+    // it has read out of the peer's flow at the same level.
+    const header_len = crypto_frame_header_len(connection.crypto_at(level).sent_len, output.len);
     if (output.len <= header_len) return 0;
     var payload: [constants.crypto_buffer_len]u8 = undefined;
     const room = @min(output.len - header_len, payload.len);
