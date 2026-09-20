@@ -270,12 +270,19 @@ fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls.
     return .{ .consumed = plaintext.len, .written = client.io.records.written };
 }
 
-/// RFC 8446 §4.2.1 and Appendix B.4. A chapulin client offers exactly one suite, so its session
-/// carries no `suite` field to read: its own `session.h` says a client "offers exactly one of
-/// everything". So colibri names what the build it linked offers. An `AES=soft` build compiles
-/// the ChaCha20-Poly1305 code, and chapulin's `CH_SUITE_AES_GCM` needs `AES=hw`, so the suite is
-/// TLS_CHACHA20_POLY1305_SHA256. colibri admits it (decision 45) and names it from its own
-/// constants rather than reaching into a chapulin header the public API does not carry.
+/// RFC 8446 §4.2.1 and Appendix B.4: the version and the suite the handshake selected.
+///
+/// **colibri derives the suite rather than reading it, and that is a gap worth naming.** A
+/// chapulin client keeps no `suite` field: its `session.h` declares one only under
+/// `CH_ROLE_SERVER`, because a client "offers exactly one of everything". So colibri reports the
+/// one suite the linked build offers, which `handshake_message.c` writes as the single entry of
+/// its ClientHello.
+///
+/// Today that is TLS_CHACHA20_POLY1305_SHA256. It will not always be: RFC 8446 §9.1 makes
+/// TLS_AES_128_GCM_SHA256 mandatory to implement, chapulin does not offer it yet, and its
+/// `docs/aes_suite.md` scopes the work. When that lands, a client build may offer two suites and
+/// this function will report the wrong one until chapulin exposes what was selected. The run in
+/// `tools/tls_handshake.sh` prints the suite, so a change shows there first.
 fn negotiated_parameters(context: *const anyopaque) ?tls.Negotiated {
     const client: *const Client = @ptrCast(@alignCast(context));
     if (!handshake_complete(context)) return null;

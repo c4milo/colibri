@@ -8,6 +8,9 @@
 const std = @import("std");
 
 pub const chapulin = @import("tls/chapulin.zig");
+// The server adapter lives here and not in the client roots: `ch_srv_accept` and `ch_srv_check`
+// are exported by a `ROLE=server` object alone.
+pub const chapulin_server = @import("tls/chapulin_server.zig");
 pub const constants = @import("constants.zig");
 
 comptime {
@@ -30,6 +33,7 @@ pub const main = h2_server.main;
 test {
     std.testing.refAllDecls(@This());
     _ = chapulin;
+    _ = chapulin_server;
     _ = constants;
     _ = h2_session;
     _ = h2_server;
