@@ -26,6 +26,8 @@ pub const recovery_pacing = @import("recovery/recovery_pacing.zig");
 pub const recovery = @import("recovery/recovery.zig");
 pub const recovery_ack = @import("recovery/recovery_ack.zig");
 pub const stream = @import("stream/stream.zig");
+pub const transport_parameters = @import("transport_parameters.zig");
+pub const transport_parameters_read = @import("transport_parameters_read.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -49,4 +51,6 @@ test {
     _ = recovery;
     _ = recovery_ack;
     _ = stream;
+    _ = transport_parameters;
+    _ = transport_parameters_read;
 }

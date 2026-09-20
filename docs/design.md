@@ -1457,6 +1457,44 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   client role is on its `main` and the server role has no driver yet. **Check:** step 9's,
   above. *Large.*
 
+  **This step is about ten pieces, and only the last needs chapulin, 2026-09-20.** Steps 9a to 9d
+  built ten leaves and nothing joining them: no `Connection` exists in `src/quic/`, nothing
+  declares three `Space`s, and the simulator's QUIC checks drive modules one at a time. What 9e
+  owes is the assembly — a receive path, a frame dispatch loop, a datagram send path with §12.2's
+  coalescing and §14.1's padding, CRYPTO reassembly per level, the key-schedule timing calls of
+  RFC 9001 §4.9 and §6, Retry and version negotiation — plus three things that do not exist at
+  all: `tls.Provider`'s QUIC mode, the transport parameters, and a simulator connection check.
+  The test-only endpoint and `tools/interop.sh` are the only part that waits on chapulin.
+
+  `src/tls/tls.zig` said QUIC mode "lands with design §8 step 7". It did not: step 7 shipped the
+  packet formats and, after [decision 48](decisions.md#what-the-caller-supplies), a
+  `crypto.Suite` that protects packets and drives no handshake. The comment is corrected.
+
+  **The transport parameters are done, 2026-09-20.** `src/quic/transport_parameters.zig` holds
+  RFC 9000 §18.2's seventeen parameters, their defaults and the writer;
+  `transport_parameters_read.zig` holds the reader. Every value is stored inline, so a
+  `Parameters` is one struct the caller owns.
+
+  A default is not an absence, and four of §18.2's are not zero: `max_udp_payload_size` is 65527,
+  `ack_delay_exponent` is 3, `max_ack_delay` is 25 milliseconds and `active_connection_id_limit`
+  is 2. `Parameters.initial()` is what an empty extension means, the reader starts from it, and
+  the writer leaves out any value that equals its default — so two endpoints agreeing on
+  everything exchange no octets at all, which one test pins.
+
+  Two things are read past rather than kept. `preferred_address` is skipped by the length every
+  parameter carries, because [decision 21](decisions.md) refuses migration in both directions and
+  §9.6 makes using one a MAY. And a repeat of an identifier colibri does not know goes
+  undetected, although §7.4 forbids a repeat of any parameter: detecting it means holding every
+  identifier a peer chose to send, which is the trade the ACK range walk of §19.3.1 already
+  refuses, and §18.1 gives an unknown parameter no semantics to conflict with.
+
+  Mutations: nine applied, all **CAUGHT** — two defaults changed, the 1200 floor removed,
+  `max_ack_delay` admitting 2^14 itself, a repeat accepted, a client's server-only parameter
+  accepted, an integer carrying trailing octets, a connection ID past 20 octets, and an unknown
+  parameter refused instead of ignored. Writing them found a weak test of colibri's own: it
+  compared a parsed value against the same constant it came from, so the constants are now pinned
+  to the numbers §18.2 states. `zig build test` passes 996 of 996.
+
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
