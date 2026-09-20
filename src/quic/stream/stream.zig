@@ -11,17 +11,21 @@ const std = @import("std");
 pub const stream_id = @import("stream_id.zig");
 pub const stream_send = @import("stream_send.zig");
 pub const stream_recv = @import("stream_recv.zig");
+pub const stream_table = @import("stream_table.zig");
 
 pub const StreamId = stream_id.StreamId;
 pub const Initiator = stream_id.Initiator;
 pub const Directionality = stream_id.Directionality;
 pub const Sending = stream_send.Sending;
 pub const Receiving = stream_recv.Receiving;
+pub const Streams = stream_table.Streams;
+pub const Stream = stream_table.Stream;
 
 test {
     std.testing.refAllDecls(@This());
     _ = stream_id;
     _ = stream_send;
     _ = stream_recv;
+    _ = stream_table;
     _ = @import("stream_test.zig");
 }
