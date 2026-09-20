@@ -51,6 +51,19 @@ pub const delta_base_sign_flag: u8 = 0x80;
 /// RFC 9204 Appendix A: entries in the static table, numbered from 0 (§3.1).
 pub const static_table_entries: u64 = 99;
 
+/// The largest dynamic table colibri will hold, which is what it advertises as
+/// `SETTINGS_QPACK_MAX_TABLE_CAPACITY` (RFC 9204 §3.2.3) when it uses one. The RFC bounds it at
+/// nothing, so the bound is colibri's and the caller owns the storage (decision 35).
+pub const dynamic_table_capacity_max: u32 = 16_384;
+
+/// How many entries that many octets can hold. §3.2.1's smallest entry is 32 octets, so the
+/// count follows the capacity and is not a second limit to keep in step.
+pub const dynamic_table_entries_max: u32 = dynamic_table_capacity_max / @as(u32, @intCast(entry_overhead_len));
+
+/// RFC 9204 §3.2.1: the size of an entry is its name and value lengths plus 32, which is what
+/// makes the smallest possible entry 32 octets and bounds `MaxEntries` in §4.5.1.1.
+pub const entry_overhead_len: u64 = 32;
+
 /// The error codes of RFC 9204 §6, which HTTP/3 carries when QPACK cannot continue.
 pub const error_decompression_failed: u64 = 0x0200;
 pub const error_encoder_stream: u64 = 0x0201;
