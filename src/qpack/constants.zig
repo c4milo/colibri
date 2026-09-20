@@ -47,3 +47,11 @@ pub const value_prefix_bits: u4 = 8;
 pub const required_insert_count_prefix_bits: u4 = 8;
 pub const delta_base_prefix_bits: u4 = 7;
 pub const delta_base_sign_flag: u8 = 0x80;
+
+/// RFC 9204 Appendix A: entries in the static table, numbered from 0 (§3.1).
+pub const static_table_entries: u64 = 99;
+
+/// The error codes of RFC 9204 §6, which HTTP/3 carries when QPACK cannot continue.
+pub const error_decompression_failed: u64 = 0x0200;
+pub const error_encoder_stream: u64 = 0x0201;
+pub const error_decoder_stream: u64 = 0x0202;
