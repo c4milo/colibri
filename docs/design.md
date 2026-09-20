@@ -1340,6 +1340,51 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   like. **Check:** [invariants 18 to 20](invariants.md#quic) asserted in the step 8 simulator
   after every step. *Medium.*
 
+  **Done, 2026-09-19.** Three files, one per rule set.
+
+  `src/quic/connection_id.zig` holds the two sets, which are not symmetric: the peer's, which
+  this endpoint writes into a Destination Connection ID field, and its own, which it accepts
+  there. §5.1.2's ordering is the part that is easy to get wrong and is written out — the
+  connection IDs below a frame's Retire Prior To are retired **before** the one it carries is
+  added, because the other order can push the count past `active_connection_id_limit` for an
+  instant, which §5.1.1 makes a CONNECTION_ID_LIMIT_ERROR. §19.15's tolerance is there too: the
+  same frame twice is ordinary, and the same sequence number carrying a different connection ID
+  is a PROTOCOL_VIOLATION.
+
+  `src/quic/path.zig` holds §8's anti-amplification limit and §8.2's validation, which are one
+  mechanism from two sides: an unvalidated path may take three times what it gave
+  ([invariant 18](invariants.md#inv-18--the-anti-amplification-limit-holds)), and validating it
+  is what lifts that. Whether a path is validated and whether a probe is outstanding are
+  separate fields, and the reported state is derived from both.
+
+  `src/quic/stateless_reset.zig` splits §10.3 where the entropy falls. Detecting a reset is
+  colibri's, because §10.3.1 fixes when the comparison happens and against what — the tokens of
+  connection IDs this endpoint has used and not retired, never the others — and the comparison
+  reads every octet of every token, which §10.3.1 requires so the value cannot leak through
+  timing. Sending one is the caller's: §10.3 wants the octets before the token
+  indistinguishable from random and colibri draws no random number (invariant 5). What colibri
+  gives is the arithmetic, `permitted_len`, which holds both size rules at once — smaller than
+  the packet that triggered it (§10.3.3), so a loop dies out, and under three times it (§10.3),
+  so the answer cannot amplify.
+
+  Two defects surfaced while writing, both colibri's own. The repeat check for a
+  NEW_CONNECTION_ID swallowed §19.15's rule that a connection ID arriving below the current
+  Retire Prior To still owes a RETIRE_CONNECTION_ID; those are two questions and are now two
+  checks, with a bounded record so "unless it has already done so" survives the queue draining.
+  And path validation was modelled as one state, so challenging a path forced it out of
+  validated — which §8.2.1 permits at any time and §8.2.3 *requires* when the first datagram
+  was too small to test the MTU. A crashing test found it.
+
+  Mutations: 46 applied over the three, all **CAUGHT**. Five needed work first: three tests that
+  could not tell the mutant from the code — a retire mark with nothing active at it, a datagram
+  exactly at the amplification limit, and a sequence number at the top of what was issued — and
+  two more dead assignments, a cleared "already reported" mark and a cleared abandonment that
+  nothing reads while a probe is outstanding.
+
+  `zig build test` passes 809 of 809 and the lint is clean. What 9d still owes is its check,
+  which is the step 8 simulator asserting invariants 18 to 20 after every step; that needs a
+  connection to drive, so it lands with 9e.
+
 - **Step 9e — the handshake over CRYPTO frames, and the interop runner.** CRYPTO frame
   reassembly by offset, the handshake driven through `tls.Provider`'s QUIC mode, and the
   transport parameters of §7.4. **This is the only part of step 9 that waits on chapulin**: its
