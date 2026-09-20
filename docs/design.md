@@ -1533,11 +1533,52 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   nothing server-only, so reading them under the wrong role would have passed. It now carries a
   stateless reset token, which only a server may send.
 
-  **What 9e still owes.** The receive path (datagram to packets to frames), the send path with
-  §12.2's coalescing and §14.1's padding, the key-schedule timing of RFC 9001 §4.9 and §6, Retry
-  and version negotiation, the simulator connection check asserting invariants 17 to 21, and the
-  test-only endpoint with `tools/interop.sh`. Only the last waits on chapulin, whose QUIC server
-  has not yet exchanged a packet with any implementation.
+  **What 9e still owes, 2026-09-20.** Five agents mapped the remaining work against the vendored
+  RFCs and a sixth checked every claim they made against the tree. The list is longer than the six
+  items this paragraph used to hold, and it is ordered: each piece needs the ones above it.
+
+  1. **Connection identity.** `Options` carries a role, the parameters, the instant and one flag,
+     and `connection_id.Local` holds sequence numbers and no octets, so nothing can answer which
+     connection IDs the handshake used. A long header must write a Destination and a Source
+     Connection ID, RFC 9000 §12.2 requires every packet of one datagram to carry the same
+     Destination Connection ID, and §7.3 has the client check four of them against the peer's
+     transport parameters. Three pieces below need this and each mapped a different struct for it,
+     so it is settled once, here.
+  2. **The client's path, and a read-only duplicate query.** Both are corrections inside 9d's
+     files. The first is recorded below. The second is that `Space.receive` both suppresses
+     duplicates and records the packet, while §12.3 wants the suppression before the frames are
+     read and §13.1 wants the recording after, so one call cannot do both.
+  3. **Key-schedule state.** Invariant 21 asks for none, available or discarded per level and per
+     direction. `crypto.Suite.keys_available` is one answer that cannot tell a level never
+     installed from one colibri discarded, and RFC 9001 §5.7 forbids opening 1-RTT packets before
+     the handshake completes whatever the suite holds.
+  4. **A null `tls.QuicVTable`.** `src/sim/null_provider.zig` implements record mode only, so
+     nothing outside `quic`'s own tests can drive a QUIC handshake at all.
+  5. **The receive path** — one datagram walked into packets and frames (§12.2, §12.3, §12.4,
+     §12.5).
+  6. **The send path** — §12.2's coalescing and §14.1's padding, into a buffer the caller owns.
+  7. **Key-update timing** — RFC 9001 §6. Every rule in it needs a call site pieces 5 and 6 own.
+  8. **Version negotiation** — RFC 9000 §6 and §17.2.1, RFC 8999 §6. Separable from Retry and much
+     smaller, so it does not wait behind it.
+  9. **Retry**, with §7.3's validation. Its send half needs a copy of the handshake message
+     §17.2.5.3 makes a client repeat, which nothing keeps, and a ruling on who mints the token of
+     §8.1.1, which needs a key and a clock non-negotiables 2 and 3 refuse colibri.
+  10. **The simulator connection check** for invariants 17 to 21.
+  11. **The test-only endpoint and `tools/interop.sh`**, which is the only part that waits on
+      chapulin, whose QUIC server has not yet exchanged a packet with any implementation.
+
+  **Eight more things 9e owes that no piece above claims.** Sending a CONNECTION_CLOSE that carries
+  an error code, which nothing in the tree builds although every piece above produces connection
+  errors. Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
+  no queue holds. Driving the timers, which is one deadline out and one instant in (§4.2).
+  Scheduling the application level's frames. Generating a PATH_CHALLENGE and running §8.2's
+  validation. Sending a Stateless Reset (§10.3). Validating the ECN counts a peer reports
+  (§13.4.2). And golden corpus cases for the receive path's new refusals, with their entries in
+  `src/golden/mutations.zig`.
+
+  Two of the pieces above cannot be finished as the RFCs ask without a ruling: Retry's token needs
+  a key and a clock, and invariant 20's positive half needs an address on `sim.network`, whose
+  `Endpoint` is a client-or-server enum today, and a classifier for §9.1's probing frames.
 
   **`tls.Provider`'s QUIC mode is declared, 2026-09-20.** `src/tls/quic_provider.zig` is the
   eight members [decision 8](decisions.md#what-the-caller-supplies) names for this mode, with no
