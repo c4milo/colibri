@@ -36,6 +36,7 @@ const termination_module = @import("../termination.zig");
 const recovery_module = @import("../recovery/recovery.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const identity_module = @import("connection_identity.zig");
+const keys_module = @import("connection_keys.zig");
 
 const Level = core.Level;
 const Parameters = transport_parameters.Parameters;
@@ -88,6 +89,9 @@ pub const Connection = struct {
     /// The connection IDs RFC 9000 §7.3 authenticates, which are the handshake's and not the
     /// §5.1 set `local_ids` and `remote_ids` hold.
     identity: identity_module.Identity,
+    /// Which levels may be sealed and opened (RFC 9001 §4.9, invariant 21). It holds no key:
+    /// decision 48 leaves every one with the caller's `crypto.Suite`.
+    keys: keys_module.Keys,
     /// The parameters colibri sent (RFC 9000 §7.4).
     local_parameters: Parameters,
     /// The peer's, once the handshake carried them, and null until then.
@@ -100,6 +104,7 @@ pub const Connection = struct {
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
         connection.identity.init(options.identity);
+        connection.keys.init();
         var parameters = options.local_parameters;
         // RFC 9000 §7.3: the connection IDs the extension carries are the ones the headers
         // carried, so the connection writes all three rather than trusting them to agree.
@@ -211,4 +216,5 @@ test {
     _ = @import("connection_test.zig");
     _ = @import("connection_crypto.zig");
     _ = @import("connection_identity.zig");
+    _ = @import("connection_keys.zig");
 }

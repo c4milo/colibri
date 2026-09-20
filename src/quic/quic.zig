@@ -28,6 +28,7 @@ pub const recovery_ack = @import("recovery/recovery_ack.zig");
 pub const stream = @import("stream/stream.zig");
 pub const connection = @import("connection/connection.zig");
 pub const connection_identity = @import("connection/connection_identity.zig");
+pub const connection_keys = @import("connection/connection_keys.zig");
 pub const Connection = connection.Connection;
 pub const crypto_stream = @import("crypto_stream.zig");
 pub const transport_parameters = @import("transport_parameters.zig");
@@ -57,6 +58,7 @@ test {
     _ = stream;
     _ = connection;
     _ = connection_identity;
+    _ = connection_keys;
     _ = crypto_stream;
     _ = transport_parameters;
     _ = transport_parameters_read;
