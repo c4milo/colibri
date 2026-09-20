@@ -11,6 +11,8 @@ pub const packet = @import("packet/packet.zig");
 pub const frame = @import("frame/frame.zig");
 pub const space = @import("space/space.zig");
 pub const termination = @import("termination.zig");
+pub const error_code = @import("error_code.zig");
+pub const stream = @import("stream/stream.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -19,4 +21,6 @@ test {
     _ = frame;
     _ = space;
     _ = termination;
+    _ = error_code;
+    _ = stream;
 }

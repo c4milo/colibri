@@ -135,6 +135,18 @@ pub const close_answer_backoff: u64 = 2;
 /// Nanoseconds in a millisecond, which `max_idle_timeout` is advertised in (RFC 9000 §18.2).
 pub const nanoseconds_per_millisecond: u64 = 1_000 * nanoseconds_per_microsecond;
 
+/// The two low bits of a stream ID (RFC 9000 §2.1): the first names the initiator and the
+/// second the directionality, so each of the four types has its own space of identifiers.
+pub const stream_id_initiator_bit: u64 = 0x01;
+pub const stream_id_directionality_bit: u64 = 0x02;
+pub const stream_id_directionality_shift: u6 = 1;
+pub const stream_id_type_bits: u6 = 2;
+
+/// The largest stream ID, which is 62 bits (RFC 9000 §2.1), and the largest index within one
+/// type, which is what is left after the two bits above.
+pub const stream_id_max: u64 = wire.constants.varint_value_max;
+pub const stream_index_max: u64 = stream_id_max >> stream_id_type_bits;
+
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;
