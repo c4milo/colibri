@@ -26,6 +26,7 @@ const space_module = @import("../space/space.zig");
 const connection_module = @import("connection.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const stream_frames = @import("connection_stream_frames.zig");
+const path_frames = @import("connection_path_frames.zig");
 
 const Level = core.Level;
 const Reader = core.Reader;
@@ -51,6 +52,8 @@ pub const Error = error{
     Crypto,
     /// A frame naming a stream broke a rule, and `connection_stream_frames.Error` says which.
     Stream,
+    /// A frame about a connection ID or a path did, and `connection_path_frames.Error` says so.
+    Path,
 };
 
 /// The code a CONNECTION_CLOSE carries for `failure` (RFC 9000 §20.1). `Crypto` is not among
@@ -70,7 +73,7 @@ pub fn connection_error_code(failure: Error) u64 {
         // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR. A stream
         // frame's own code is `connection_stream_frames.connection_error_code`'s, which the
         // caller reads instead, because §20.1 gives each of its rules a code of its own.
-        error.Crypto, error.Stream => error_code.internal_error,
+        error.Crypto, error.Stream, error.Path => error_code.internal_error,
     };
 }
 
@@ -82,6 +85,8 @@ pub const Report = struct {
     frames: usize,
     /// The peer's CONNECTION_CLOSE, when it sent one (RFC 9000 §19.19).
     close: ?Close,
+    /// What the packet left for the send path to answer (RFC 9000 §8.2.2, §19.7).
+    owed: path_frames.Owed,
 };
 
 /// What a peer's CONNECTION_CLOSE said. The connection ends; the caller decides what to tell the
@@ -105,7 +110,7 @@ pub fn process(
     // frame", and a packet with none is a connection error.
     if (payload.len == 0) return Error.EmptyPayload;
     var reader = Reader.init(payload);
-    var report: Report = .{ .ack_eliciting = false, .frames = 0, .close = null };
+    var report: Report = .{ .ack_eliciting = false, .frames = 0, .close = null, .owed = .{} };
     // Bounded by the frames one packet can hold, which is its octets: §19.1 makes PADDING one
     // octet and no frame is shorter.
     while (report.frames < constants.frames_per_packet_max) {
@@ -148,9 +153,8 @@ fn apply(connection: *Connection, level: Level, frame: Frame, now_ns: u64, repor
         .stream, .reset_stream, .stop_sending, .max_stream_data, .max_streams, .stream_data_blocked, .streams_blocked => stream_frames.apply(connection, frame) catch
             return Error.Stream,
         // RFC 9000 §19.7, §19.15 to §19.18: NEW_TOKEN, the connection ID frames and the path
-        // frames. They land with the pieces design §8 step 9e still owes, and until then a peer
-        // that sends one is not answered.
-        else => {},
+        // frames, which act on what the connection holds once rather than on a stream.
+        else => path_frames.apply(connection, frame, &report.owed) catch return Error.Path,
     }
 }
 

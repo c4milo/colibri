@@ -32,6 +32,7 @@ pub const connection_keys = @import("connection/connection_keys.zig");
 pub const connection_receive = @import("connection/connection_receive.zig");
 pub const connection_frames = @import("connection/connection_frames.zig");
 pub const connection_stream_frames = @import("connection/connection_stream_frames.zig");
+pub const connection_path_frames = @import("connection/connection_path_frames.zig");
 pub const Connection = connection.Connection;
 pub const crypto_stream = @import("crypto_stream.zig");
 pub const transport_parameters = @import("transport_parameters.zig");
@@ -65,6 +66,7 @@ test {
     _ = connection_receive;
     _ = connection_frames;
     _ = connection_stream_frames;
+    _ = connection_path_frames;
     _ = crypto_stream;
     _ = transport_parameters;
     _ = transport_parameters_read;
