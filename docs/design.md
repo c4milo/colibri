@@ -1396,8 +1396,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `now()` sites are caller-supplied parameters on the five entry points of §4.2. **Check:** the
   simulator's loss, reorder and blackhole scenarios with a census per seed; the interop runner's
   `handshakeloss`, `transferloss`, `blackhole`, `longrtt` and `ecn` cases; and, because RFC 9002's
-  prose and its appendix pseudocode differ in two places, a written decision in this document's
-  §12 for each, with a test pinning the choice. *Large.*
+  prose and its appendix pseudocode disagree over the round trip variation, a written decision in
+  this document's §12, with a test pinning the choice. *Large.*
 
 - **Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
   zero and a static-only encoder is legal and useful; then the dynamic table with the encoder and
@@ -1532,6 +1532,12 @@ figure beside it, which is indicative and carries no threshold: a hosted runner 
    while its Appendix A.7 computes `rttvar` first against the old value. These produce different
    numbers on every sample. It is not a bug in the RFC; it is a place where an implementation must
    choose, and interop will show which choice the field made.
+
+   **Ruled 2026-09-20: Appendix A.7** ([decision 50](decisions.md#the-h2-connection)). §5.3's new
+   term is always exactly seven eighths of Appendix A.7's, so §5.3's variation settles an eighth
+   lower and its Probe Timeout with it. The appendix is the executable text and the more
+   conservative of the two; `src/quic/rtt.zig` implements it and its tests compute both orderings
+   and pin the factor.
 
    The PTO composition looked like a second disagreement and is not one, which is worth recording
    so nobody re-opens it: §6.2.1 sets `max_ack_delay` to 0 for the Initial and Handshake spaces,

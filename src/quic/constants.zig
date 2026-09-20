@@ -201,6 +201,39 @@ pub const stateless_reset_len_min: usize = stateless_reset_unpredictable_len_min
 /// cannot associate with a connection.
 pub const stateless_reset_amplification_factor: u64 = anti_amplification_factor;
 
+/// The round trip estimator and loss detection of RFC 9002, whose Appendix A.2 names each one.
+///
+/// `kInitialRtt`: the estimate before any sample, which §6.2.2 recommends at 333 milliseconds.
+/// The variation starts at half of it (§5.3).
+pub const rtt_initial_ns: u64 = 333 * nanoseconds_per_millisecond;
+pub const rtt_initial_variation_divisor: u64 = 2;
+
+/// The weights of RFC 9002 §5.3's moving averages, as divisors: the smoothed estimate keeps
+/// seven eighths of itself and the variation three quarters.
+pub const rtt_smoothed_weight: u64 = 8;
+pub const rtt_variation_weight: u64 = 4;
+
+/// RFC 9002 §6.2.1: the Probe Timeout carries four times the variation.
+pub const rtt_variation_factor: u64 = 4;
+
+/// `kGranularity`: the timer granularity, which §6.1.2 recommends at 1 millisecond. A timeout
+/// is never shorter, so a timer cannot expire the instant it is armed.
+pub const rtt_granularity_ns: u64 = nanoseconds_per_millisecond;
+
+/// `kTimeThreshold`: how far past an estimate a packet is declared lost by time, which §6.1.2
+/// recommends at nine eighths.
+pub const loss_time_threshold_numerator: u64 = 9;
+pub const loss_time_threshold_denominator: u64 = 8;
+
+/// `kPacketThreshold`: how many packets may arrive after one before it is declared lost, which
+/// §6.1.1 recommends at 3.
+pub const loss_packet_threshold: u64 = 3;
+
+/// RFC 9000 §18.2: `max_ack_delay` is the peer's, in milliseconds, assumed to be 25 when absent
+/// and invalid at 2^14 or above. It is held per connection and never as a limit of colibri's.
+pub const max_ack_delay_default_ns: u64 = 25 * nanoseconds_per_millisecond;
+pub const max_ack_delay_invalid_at: u64 = 1 << 14;
+
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;
