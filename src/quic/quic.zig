@@ -17,6 +17,7 @@ pub const connection_id = @import("connection_id.zig");
 pub const path = @import("path.zig");
 pub const stateless_reset = @import("stateless_reset.zig");
 pub const rtt = @import("rtt.zig");
+pub const recovery_sent = @import("recovery/recovery_sent.zig");
 pub const stream = @import("stream/stream.zig");
 
 test {
@@ -32,5 +33,6 @@ test {
     _ = path;
     _ = stateless_reset;
     _ = rtt;
+    _ = recovery_sent;
     _ = stream;
 }
