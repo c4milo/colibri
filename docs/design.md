@@ -1296,8 +1296,42 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   order, where a later frame reaching less far must not lower the mark §4.5's "below what
   arrived" check rests on.
 
-  **Still owed for 9c.** §4.1's flow control, §4.6's stream limits, and the table that holds
-  both halves of each stream against its identifier.
+  **Flow control and the table, 2026-09-19.** `src/quic/flow.zig` holds both levels of §4.1 and
+  the stream counts of §4.6, because all four counters a connection has are one shape: a limit
+  the peer advertises, a total spent against it, and §4.1's and §4.6's shared rule that a larger
+  limit replaces a smaller one while a smaller one is ignored. The receiving half is its own
+  type, because a peer that passes a limit is an error and not a wait — FLOW_CONTROL_ERROR for
+  data, STREAM_LIMIT_ERROR for streams — and because credit is measured from what the
+  application read rather than what arrived, which is what stops a stalled reader advertising
+  room it does not have.
+
+  The receive window grows ([decision 49](decisions.md#memory), ruled the same day). A window
+  that never grew would cap one stream at `window / round trip` whatever the path can carry, so
+  when credit goes out the receiver asks how long since it last sent some: inside two round
+  trips means the application drained it faster than the peer could learn of the room, and the
+  window doubles, to a cap. The instant and the round trip are parameters, because colibri reads
+  no clock and RFC 9002 computes the round trip in step 10; a caller with no estimate passes 0,
+  which grows nothing, so this works today and sharpens when step 10 lands. The cap is what
+  keeps [decision 35](decisions.md#memory)'s comptime worst case true. A stream count never
+  tunes: §4.6's limit counts streams rather than octets, and the table bounds it instead.
+
+  `src/quic/stream/stream_table.zig` holds the streams of a connection against their
+  identifiers, over the pool of [decision 14](decisions.md). Its per-class watermark is what
+  makes §3.2's rule cheap — before a stream is created every lower-numbered stream of its type
+  must be, so a frame naming the eleventh stream of a type creates the ten below it, and the
+  watermark says where to start. That rule is also why the advertised limit is capped at the
+  table: an advertised limit is a promise to hold that many streams at once, and a limit past
+  the table would be a promise it cannot keep. `core.Pool` gained `watermark_of` for it.
+
+  Writing the table found a defect in it. `open_peer` on a stream that already existed walked
+  past it and filled the table; it now takes an unopened identifier only, and the caller reads
+  `lookup` first, because a frame for an open stream names that stream and one for a closed
+  stream is judged by §3.3 against the frame's type — neither being that call's to decide.
+
+  Mutations: 31 applied over the flow control, the table and the pool's new accessor, all
+  **CAUGHT**.
+
+  **9c is done.** `zig build test` passes 790 of 790 and the lint is clean.
 
 - **Step 9d — connection IDs, path validation and anti-amplification.** NEW_CONNECTION_ID and
   RETIRE_CONNECTION_ID (RFC 9000 §5.1), PATH_CHALLENGE and PATH_RESPONSE (§8.2), the
