@@ -109,6 +109,14 @@ pub const Space = struct {
         return number;
     }
 
+    /// What a packet carrying `packet_number` would be, without recording it. RFC 9000 §12.3 has
+    /// the receive path ask this the moment a packet is unprotected, because a duplicate is
+    /// discarded rather than read; `receive` is called afterwards, once every frame has been
+    /// processed, which is what §13.1 requires before a packet may be acknowledged.
+    pub fn duplicate_verdict(space: *const Space, packet_number: u64) Verdict {
+        return space.received.verdict_for(packet_number);
+    }
+
     /// Records a packet this endpoint received and processed, and says whether it is new.
     /// `ack_eliciting` is whether any frame in it elicits an acknowledgment (RFC 9000 §13.2.1),
     /// and `ecn` is the codepoint its datagram carried (§13.4.1).

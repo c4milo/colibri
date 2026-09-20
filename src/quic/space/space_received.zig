@@ -74,8 +74,17 @@ pub const Received = struct {
         return received.ranges[received.len - 1].smallest;
     }
 
-    /// Records that `packet_number` was received, and says what it was.
-    pub fn receive(received: *Received, packet_number: u64) Verdict {
+    /// What `packet_number` would be, without recording it.
+    ///
+    /// The two halves are asked at different moments, which is why this is separate from
+    /// `receive`. RFC 9000 §12.3 wants the duplicate suppressed before the packet is processed —
+    /// "a receiver MUST discard a newly unprotected packet unless it is certain that it has not
+    /// processed another packet with the same packet number from the same packet number space" —
+    /// while §13.1 forbids recording it for acknowledgment until after: "A packet MUST NOT be
+    /// acknowledged until packet protection has been successfully removed and all frames
+    /// contained in the packet have been processed." Nothing between the two calls changes this
+    /// structure, so the answer holds.
+    pub fn verdict_for(received: *const Received, packet_number: u64) Verdict {
         assert(packet_number <= constants.packet_number_max);
         for (received.ranges[0..received.len]) |range| {
             // RFC 9000 §12.3: a number inside a range was processed before.
@@ -88,6 +97,13 @@ pub const Received = struct {
         if (received.floor()) |smallest| {
             if (packet_number < smallest and received.len == received.ranges.len) return .forgotten;
         }
+        return .new;
+    }
+
+    /// Records that `packet_number` was received, and says what it was.
+    pub fn receive(received: *Received, packet_number: u64) Verdict {
+        const verdict = received.verdict_for(packet_number);
+        if (verdict != .new) return verdict;
         received.insert(packet_number);
         return .new;
     }
@@ -267,4 +283,47 @@ test "the ranges are the fewest that describe what was received, in any order" {
     try receive_all(&.{ 6, 8, 7, 9 }, .new);
     try testing.expectEqualSlices(Range, &.{.{ .smallest = 6, .largest = 9 }}, ranges());
     try testing.expectEqual(Range{ .smallest = 6, .largest = 9 }, test_received.range_at(0));
+}
+
+test "RFC 9000 §12.3, §13.1: asking is not recording" {
+    test_received.reset();
+    // §12.3 asks before the frames are read, and asking must leave nothing behind: a packet the
+    // receive path then discards for another reason must not have been acknowledged.
+    try testing.expectEqual(Verdict.new, test_received.verdict_for(0));
+    try testing.expectEqual(Verdict.new, test_received.verdict_for(0));
+    try testing.expect(test_received.is_empty());
+    try testing.expectEqual(null, test_received.largest());
+
+    // §13.1 records it only once every frame in it has been processed.
+    try testing.expectEqual(Verdict.new, test_received.receive(0));
+    try testing.expectEqual(0, test_received.largest().?);
+    // And now the same number answers duplicate to both, because §12.3's certainty is there.
+    try testing.expectEqual(Verdict.duplicate, test_received.verdict_for(0));
+    try testing.expectEqual(Verdict.duplicate, test_received.receive(0));
+}
+
+test "RFC 9000 §12.3: the read-only answer is the one recording would have given" {
+    // The two must never disagree, because the receive path acts on the first and records with
+    // the second. This walks a run with gaps, a duplicate and a forgotten number through both.
+    test_received.reset();
+    const numbers = [_]u64{ 4, 5, 9, 4, 0, 7, 8, 6, 9 };
+    for (numbers) |number| {
+        const asked = test_received.verdict_for(number);
+        const recorded = test_received.receive(number);
+        try testing.expectEqual(asked, recorded);
+    }
+    // Overfilling the ranges drops the oldest (RFC 9000 §13.2.3), and a number below the floor
+    // is `forgotten` to both.
+    test_received.reset();
+    var number: u64 = 0;
+    // Bounded: two numbers per range, so every range is used and none can merge with the next.
+    // One past the limit is what makes §13.2.3 drop the smallest and lift the floor off zero.
+    const beyond_capacity = (constants.ack_ranges_max + 1) * 2;
+    while (number < beyond_capacity) : (number += 2) {
+        try testing.expectEqual(Verdict.new, test_received.receive(number));
+    }
+    const below = test_received.floor().?;
+    try testing.expect(below > 0);
+    try testing.expectEqual(Verdict.forgotten, test_received.verdict_for(below - 1));
+    try testing.expectEqual(Verdict.forgotten, test_received.receive(below - 1));
 }
