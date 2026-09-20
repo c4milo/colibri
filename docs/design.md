@@ -1542,11 +1542,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
      values, apart from the §5.1 set `connection_id.Local` holds. `destination` is derived from
      Figures 7 and 8 read in order, and `describe` writes the three parameters so the extension
      cannot disagree with the headers.
-  2. **The client's path, and a read-only duplicate query.** The path is done, `8f3152e`: the
-     limit is the server's (§8.1, §21.1.1.1) and a client was unable to send its first Initial.
-     **The duplicate query is still owed.** `Space.receive` both suppresses duplicates and records
-     the packet, while §12.3 wants the suppression before the frames are read and §13.1 wants the
-     recording after, so one call cannot do both.
+  2. ~~The client's path, and a read-only duplicate query.~~ **Done**, `8f3152e` and `52c71f1`.
+     The limit is the server's (§8.1, §21.1.1.1) and a client had been unable to send its first
+     Initial; `Space.duplicate_verdict` is the read-only half §12.3 needs.
   3. ~~Key-schedule state.~~ **Done, `b9ae985`.** `connection_keys.zig` holds invariant 21's
      none, available or discarded per level and direction, which `keys_available` cannot answer,
      and `can_open` asks the handshake as well because of §5.7. §4.9's triggers are there; §6's
@@ -1555,8 +1553,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
      pair through §4.1.5's Figure 5 to §4.1.1's completion, framing each message as RFC 9846 §4
      frames one. No check drives it through `connection_crypto.zig` yet: `sim` is given only
      `core`, `tls` and `crypto`, so that check belongs in the `sim_run_quic` module with piece 10.
-  5. **The receive path** — one datagram walked into packets and frames (§12.2, §12.3, §12.4,
-     §12.5).
+  5. ~~The receive path — one datagram walked into packets and frames.~~ **Done**, and recorded
+     below.
   6. **The send path** — §12.2's coalescing and §14.1's padding, into a buffer the caller owns.
   7. **Key-update timing** — RFC 9001 §6. Every rule in it needs a call site pieces 5 and 6 own.
   8. **Version negotiation** — RFC 9000 §6 and §17.2.1, RFC 8999 §6. Separable from Retry and much
@@ -1567,6 +1565,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   10. **The simulator connection check** for invariants 17 to 21.
   11. **The test-only endpoint and `tools/interop.sh`**, which is the only part that waits on
       chapulin, whose QUIC server has not yet exchanged a packet with any implementation.
+
+  **The receive path is done, 2026-09-20.** A datagram arrives from the caller and comes apart
+  into packets, then frames, then acts on the connection. Seven commits: the read-only duplicate
+  query (`52c71f1`), §12.4's permitted-frame table (`b64307d`), §12.2's coalescing walk
+  (`8befbd5`), the frame dispatch (`391da52`), the frames naming a stream (`3c0a31f`), the
+  connection ID and path frames (`37f2450`) and §19.16's in-use refusal (`a4f0881`).
+
+  The shape worth naming is where a rule stops being a discard and starts being a connection
+  error. Everything `connection_receive.zig` does is a discard, because until the AEAD tag matches
+  nothing in a packet is the peer's word for anything: §12.2 has the walk carry on past a packet
+  it could not read and RFC 9001 §5.5 forbids closing on one. Once the tag matches,
+  `connection_frames.zig` applies §12.4's refusals and every rule §19 states, each with its own
+  code.
+
+  Two rules pull against each other and the split between asking and recording is what settles
+  them. §12.3 wants a duplicate suppressed before the packet is processed and §13.1 forbids
+  recording it for acknowledgment until every frame has been. One call could not do both, so
+  `Space.duplicate_verdict` is the read-only half and `Space.receive` is what the caller records
+  with afterwards.
+
+  Two checks colibri makes that the RFC leaves optional, both for the reason design §8 step 9c
+  already gave — colibri answers an optional check it has the state for. §19.16's "MUST NOT refer
+  to the Destination Connection ID field of the packet in which the frame is contained" is a MAY
+  for the receiver, and `connection_id.Local` now keeps octets so it can answer; §5.1.1 makes the
+  identity's own Source Connection ID sequence number 0, which is what gives a packet a connection
+  ID to name from the first flight. And §4.5's final size rules are answered while a stream
+  exists, though not after it closes, because §4.5 says generating them "is not mandatory" exactly
+  when an endpoint would have to keep state for closed streams, and colibri keeps none.
+
+  One check is left unmade and says so in the code: §8.2.3's path MTU, because `Path.Challenge`
+  does not remember whether its datagram was expanded and only the send path can know. Passing
+  false leaves the second validation owed, where true would claim a test that never ran.
+
+  Mutations: 44 applied across the seven commits, 38 CAUGHT first time and one a no-op control
+  that correctly was not. Five gaps, every one in the tests rather than the code, and all of one
+  shape — a test that checked a length or a wrapper where the distinguishing thing was elsewhere.
+  A payload slice taken one octet early kept the right length. Three of §18.2's stream data
+  parameters were set to one value, so swapping two was invisible. A retransmission reaching the
+  same distance did not separate a high-water mark from a running total. A stream limit was read
+  through the error the dispatch flattens it to rather than its own. And no test had a client
+  process a Handshake packet, which is the trigger RFC 9001 §4.9.1 gives the other role.
+
+  `zig build test` passes and `zig build lint` and `zig fmt --check` are clean after each commit.
 
   **Eight more things 9e owes that no piece above claims.** Sending a CONNECTION_CLOSE that carries
   an error code, which nothing in the tree builds although every piece above produces connection
