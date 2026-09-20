@@ -214,6 +214,26 @@ comptime {
     assert(frames_per_packet_max > 0);
 }
 
+/// Octets of an Initial packet's Token field colibri will carry (RFC 9000 §17.2.2), and of a
+/// Retry token a client repeats (§17.2.5.3). Both RFCs bound the field only by the packet that
+/// carries it, so there is nothing to derive it from and
+/// [decision 54](../../docs/decisions.md) rules it: 256 holds the authenticated, address-bound,
+/// expiring token §8.1.1 describes, and the number is a judgement rather than a rule.
+pub const token_len_max: usize = 256;
+
+/// Octets of the longest packet header colibri writes (RFC 9000 §17.2): byte 0, the Version, both
+/// connection IDs with their length octets, an Initial's Token Length and Token, the Length field
+/// and the Packet Number field.
+pub const packet_header_len_max: usize = 1 + @sizeOf(u32) +
+    2 * (1 + connection_id_len_max) +
+    wire.constants.varint_len_max + token_len_max +
+    wire.constants.varint_len_max + packet_number_len_max;
+
+comptime {
+    // A header must fit the smallest datagram §14.1 allows, or no Initial could ever be written.
+    assert(packet_header_len_max < datagram_len_min);
+}
+
 /// Octets of out-of-order CRYPTO data colibri buffers per encryption level. RFC 9000 §7.5:
 /// "Implementations MUST support buffering at least 4096 bytes of data received in out-of-order
 /// CRYPTO frames." It is the RFC's floor and not a choice of colibri's: in-order data is handed
