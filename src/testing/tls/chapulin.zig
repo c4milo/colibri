@@ -11,7 +11,7 @@
 //! and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
 //!
 //! **The client must be built `TRUST=webpki`**, which the comptime block below enforces and
-//! explains. Nothing else here is a protocol rule: what a record means is RFC 8446's and
+//! explains. Nothing else here is a protocol rule: what a record means is RFC 9846's and
 //! chapulin's, and colibri's side of the boundary is `tls.Provider`.
 const std = @import("std");
 const build_options = @import("build_options");

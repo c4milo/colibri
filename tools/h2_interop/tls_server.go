@@ -26,7 +26,7 @@ import (
 	"time"
 )
 
-// The modulus size of both keys. RFC 8446 admits more, and chapulin's default RSA bound is 384
+// The modulus size of both keys. RFC 9846 admits more, and chapulin's default RSA bound is 384
 // octets, so 2048 bits stays inside it.
 const modulusBits = 2048
 

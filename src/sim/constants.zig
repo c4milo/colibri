@@ -198,16 +198,16 @@ test "a chunk and a trace record are never empty" {
     try std.testing.expect(trace_record_len_max >= 1);
 }
 
-/// The offsets inside the record header RFC 8446 §5.1 defines, for the null provider's framing.
+/// The offsets inside the record header RFC 9846 §5.1 defines, for the null provider's framing.
 pub const record_content_type_offset: u32 = 0;
 pub const record_version_offset: u32 = 1;
 pub const record_length_offset: u32 = 3;
 
-/// RFC 8446 §5.1: legacy_record_version is 0x0303 on every record a TLS 1.3 endpoint writes after
+/// RFC 9846 §5.1: legacy_record_version is 0x0303 on every record a TLS 1.3 endpoint writes after
 /// the first flight. Both octets are the same value.
 pub const record_legacy_version_octet: u8 = 0x03;
 
-/// The octets a real AEAD adds to every record (RFC 8446 §5.2). The null provider writes as many
+/// The octets a real AEAD adds to every record (RFC 9846 §5.2). The null provider writes as many
 /// zeros, so a record occupies what one would occupy on the wire.
 pub const record_tag_len: u32 = 16;
 
@@ -227,7 +227,7 @@ pub const tls_check_records_max: u32 = 64;
 /// The events one run may record, which is one per frame the connection accepted.
 pub const tls_check_events_max: u32 = 32;
 
-/// The octets a record adds around its body: the header RFC 8446 §5.1 defines, whose last field is
+/// The octets a record adds around its body: the header RFC 9846 §5.1 defines, whose last field is
 /// the two-octet length, and the tag §5.2 sizes.
 pub const record_overhead_len: u32 = record_length_offset + @sizeOf(u16) + record_tag_len;
 

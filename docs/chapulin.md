@@ -44,7 +44,7 @@ Verified against chapulin's tree on 2026-09-19:
   blocking I/O callbacks" the client uses.
 - Each connection has its own session, because `ch_connect` takes a `ch_tls` (`tls.h`), but the
   DRBG is global (`drbg.c`).
-- It has no exporter: nothing in the tree implements RFC 8446 §7.5.
+- It has no exporter: nothing in the tree implements RFC 9846 §7.5.
 - It offers ALPN at the client: a caller lists `cfg.alpn_protocols` and reads which name the server
   chose from `session.alpn_selected` (RFC 7301 §3.1). The server's half is declared in
   `srv_parser.h` and `srv_message.h`, and stubbed.
@@ -78,7 +78,7 @@ Design §8 step 5 waits for these five.
    name from the client's list, and one that shares no protocol ends the handshake with the fatal
    `no_application_protocol` alert, value 120 (RFC 7301 §3.2).
 2. **A server role, with constant-time signing.** The server signs CertificateVerify
-   (RFC 8446 §4.4.3) with a private key, and that path must not leak the key through timing.
+   (RFC 9846 §4.5.2) with a private key, and that path must not leak the key through timing.
 3. **A record mode that takes bytes in and returns bytes, in both roles, for the handshake and
    for the records after it.** colibri owns no I/O, so it cannot call through a callback that
    blocks, and [decision 46](decisions.md) holds its test endpoints to the same rule. This is the
@@ -88,7 +88,7 @@ Design §8 step 5 waits for these five.
    is before it is written.
 4. **Many sessions with no global state.** One process runs many connections at once, each with
    its own session.
-5. **The exporter** (RFC 8446 §7.5).
+5. **The exporter** (RFC 9846 §7.5).
 
 ### For h3: QUIC mode (RFC 9001)
 

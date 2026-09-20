@@ -9,7 +9,7 @@
 //! What differs is the configuration. A server proves an identity instead of judging one, so it
 //! carries a certificate chain and a signing key rather than trust anchors and a hostname, and
 //! `ch_srv_check` tests at boot that the build can sign with each provisioned key. A server also
-//! needs RFC 8446 §4.2.2's cookie key, without which it cannot mint a HelloRetryRequest.
+//! needs RFC 9846 §4.3.2's cookie key, without which it cannot mint a HelloRetryRequest.
 const std = @import("std");
 const tls = @import("tls");
 const chapulin = @import("chapulin.zig");
@@ -25,21 +25,21 @@ pub const Error = error{
     IdentityRefused,
     /// `ch_srv_accept` refused the configuration before reading a byte.
     ConfigRefused,
-    /// The handshake did not complete (RFC 8446 §6).
+    /// The handshake did not complete (RFC 9846 §6).
     HandshakeFailed,
 };
 
 /// How many certificates this server presents: the end-entity and the one root above it.
 const chain_len: usize = 2;
 
-/// RFC 8446 §4.2.2's cookie key, which `srv_cookie.h` fixes at 32 octets.
+/// RFC 9846 §4.3.2's cookie key, which `srv_cookie.h` fixes at 32 octets.
 pub const cookie_key_len: usize = 32;
 
 /// The signing identity a server provisions. `srv_cfg.h` fixes both lengths for the
 /// ecdsa_secp256r1_sha256 slot: a 32-octet big-endian private scalar, and a 64-octet
 /// uncompressed public point X||Y.
 pub const Identity = struct {
-    /// The end-entity certificate first, then the root that signed it (RFC 8446 §4.4.2).
+    /// The end-entity certificate first, then the root that signed it (RFC 9846 §4.5.1).
     leaf: []const u8,
     issuer: []const u8,
     private_scalar: []const u8,
@@ -48,7 +48,7 @@ pub const Identity = struct {
 
 pub const Options = struct {
     identity: Identity,
-    /// RFC 8446 §4.2.2: one key per deployment, so a second ClientHello that lands on another
+    /// RFC 9846 §4.3.2: one key per deployment, so a second ClientHello that lands on another
     /// session still verifies. chapulin refuses a configuration without it.
     cookie_key: []const u8,
     /// chapulin's receive buffer, which bounds the ClientHello it will accept.
@@ -60,7 +60,7 @@ pub const Options = struct {
 pub const Server = struct {
     session: c.ch_tls,
     config: c.ch_cfg,
-    /// The chain, end-entity first then the root that signed it (RFC 8446 §4.4.2).
+    /// The chain, end-entity first then the root that signed it (RFC 9846 §4.5.1).
     chain: [chain_len]c.ch_cert,
     /// The one protocol this server offers (RFC 9113 §3.1).
     alpn: [1]c.ch_alpn_protocol,

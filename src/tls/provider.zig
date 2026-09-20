@@ -24,12 +24,12 @@ const Alert = alert.Alert;
 const AlertReport = alert.AlertReport;
 
 /// Why a provider refused the peer's handshake octets. One error, because there is one recovery:
-/// RFC 8446 §6 forbids sending or receiving data after an error alert, so colibri closes.
+/// RFC 9846 §6 forbids sending or receiving data after an error alert, so colibri closes.
 pub const HandshakeReadError = error{TlsFailed};
 
 /// Why a provider did not write the handshake octets it owes.
 pub const HandshakeWriteError = error{
-    /// The provider gave up while producing its flight (RFC 8446 §6).
+    /// The provider gave up while producing its flight (RFC 9846 §6).
     TlsFailed,
     /// The output is shorter than `constants.record_write_len_min`. Nothing was written and no
     /// provider state moved.
@@ -39,47 +39,48 @@ pub const HandshakeWriteError = error{
 /// Why a provider did not protect a record.
 pub const SealError = error{
     TlsFailed,
-    /// The output cannot hold a header, one octet of plaintext and the tag (RFC 8446 §5.2).
+    /// The output cannot hold a header, one octet of plaintext and the tag (RFC 9846 §5.2).
     NoSpaceLeft,
-    /// There are no application traffic keys yet: RFC 8446 §7.1 derives them from the transcript
+    /// There are no application traffic keys yet: RFC 9846 §7.1 derives them from the transcript
     /// through the Finished. colibri asserts `handshake_complete` before it calls, so a provider
     /// answering this is failing closed on a defect of colibri's.
     HandshakeIncomplete,
-    /// RFC 8446 §5.5's usage limit for the AEAD is reached. The recovery is `initiate_key_update`
-    /// and a retry, which is why it is not `TlsFailed`.
+    /// RFC 9846 §5.5's usage limit for the AEAD is reached. §5.5 requires the provider to close
+    /// or update before this, so it is a backstop: the recovery is `initiate_key_update` and a
+    /// retry, which is why it is not `TlsFailed`.
     KeyExhausted,
 };
 
 /// Why a provider did not open a record.
 pub const OpenError = error{
-    /// RFC 8446 §5.2: the record failed to decrypt or its length is past what §5.1 permits. The
+    /// RFC 9846 §5.2: the record failed to decrypt or its length is past what §5.1 permits. The
     /// provider has raised the alert and `take_alert` names it.
     TlsFailed,
-    /// The plaintext buffer cannot hold the record's fragment (RFC 8446 §5.1).
+    /// The plaintext buffer cannot hold the record's fragment (RFC 9846 §5.1).
     NoSpaceLeft,
-    /// A protected record arrived before the keys that open it exist (RFC 8446 §7.1).
+    /// A protected record arrived before the keys that open it exist (RFC 9846 §7.1).
     HandshakeIncomplete,
 };
 
-/// Why a provider did not write a `close_notify` (RFC 8446 §6.1).
+/// Why a provider did not write a `close_notify` (RFC 9846 §6.1).
 pub const CloseError = error{NoSpaceLeft};
 
-/// Why a provider did not update its keys (RFC 8446 §4.6.3).
+/// Why a provider did not update its keys (RFC 9846 §4.7.3).
 pub const KeyUpdateError = error{
     TlsFailed,
     NoSpaceLeft,
-    /// RFC 8446 §4.6.3 permits KeyUpdate only after the sender's Finished.
+    /// RFC 9846 §4.7.3 permits KeyUpdate only after the sender's Finished.
     HandshakeIncomplete,
     /// The provider does not offer key updates.
     Unsupported,
 };
 
-/// Why a provider did not export keying material (RFC 8446 §7.5).
+/// Why a provider did not export keying material (RFC 9846 §7.5).
 pub const ExportError = error{
     /// The exporter derives from `exporter_master_secret`, which exists after the server's
-    /// Finished (RFC 8446 §7.5).
+    /// Finished (RFC 9846 §7.5).
     HandshakeIncomplete,
-    /// RFC 8446 §7.5 standardises the interface without obliging a stack to offer it, and every
+    /// RFC 9846 §7.5 standardises the interface without obliging a stack to offer it, and every
     /// member of this vtable is mandatory, so a provider without an exporter answers this.
     Unsupported,
     /// The output is longer than one HKDF-Expand produces, 255 hash lengths (RFC 5869 §2.3). The
@@ -90,7 +91,7 @@ pub const ExportError = error{
 /// What `encrypt_record` protected and wrote.
 pub const Sealed = struct {
     /// Octets of the plaintext that went into records, at most
-    /// `constants.record_plaintext_len_max` per record (RFC 8446 §5.1).
+    /// `constants.record_plaintext_len_max` per record (RFC 9846 §5.1).
     consumed: usize,
     /// Octets of the output the records occupy.
     written: usize,
@@ -105,13 +106,13 @@ pub const Content = enum {
     application_data,
     /// RFC 9113 §9.2.3 permits it after the handshake, and h2 does nothing with it.
     new_session_ticket,
-    /// RFC 9113 §9.2.3 permits it. RFC 8446 §4.6.3 may require an answering KeyUpdate, which
+    /// RFC 9113 §9.2.3 permits it. RFC 9846 §4.7.3 may require an answering KeyUpdate, which
     /// `handshake_write` carries.
     key_update,
     /// RFC 9113 §9.2.3: an HTTP/2 client MUST treat a post-handshake CertificateRequest as a
     /// connection error of type PROTOCOL_ERROR.
     certificate_request,
-    /// `take_alert` names it. RFC 8446 §6 forbids data after an error alert.
+    /// `take_alert` names it. RFC 9846 §6 forbids data after an error alert.
     alert,
 };
 
@@ -126,16 +127,16 @@ pub const Opened = struct {
     content: Content,
 };
 
-/// What the handshake selected (RFC 8446 §4.2.1, Appendix B.1 and B.4). RFC 9113 §9.2 puts rules
+/// What the handshake selected (RFC 9846 §4.3.1, Appendix B.1 and B.4). RFC 9113 §9.2 puts rules
 /// on both, and no other member reports them (decision 43).
 pub const Negotiated = struct {
-    /// The version codepoint: 0x0304 for TLS 1.3, 0x0303 for TLS 1.2 (RFC 8446 Appendix B.1).
+    /// The version codepoint: 0x0304 for TLS 1.3, 0x0303 for TLS 1.2 (RFC 9846 Appendix B.1).
     version: u16,
-    /// The cipher suite codepoint (RFC 8446 Appendix B.4).
+    /// The cipher suite codepoint (RFC 9846 Appendix B.4).
     cipher_suite: u16,
 };
 
-/// Whether the peer is asked to update its own keys in turn (RFC 8446 §4.6.3). The values are
+/// Whether the peer is asked to update its own keys in turn (RFC 9846 §4.7.3). The values are
 /// the RFC's.
 pub const KeyUpdateRequest = enum(u8) {
     update_not_requested = 0,
@@ -149,11 +150,11 @@ pub const VTable = struct {
     handshake_read: *const fn (context: *anyopaque, input: []const u8, now_ns: u64) HandshakeReadError!usize,
 
     /// Writes the handshake octets the provider owes and returns how many. 0 means it owes
-    /// nothing. RFC 8446 §4.6.3 makes a peer's `update_requested` owe a KeyUpdate, so colibri
+    /// nothing. RFC 9846 §4.7.3 makes a peer's `update_requested` owe a KeyUpdate, so colibri
     /// calls this for the life of the connection and not only until the handshake completes.
     handshake_write: *const fn (context: *anyopaque, output: []u8, now_ns: u64) HandshakeWriteError!usize,
 
-    /// Protects the plaintext as one or more records (RFC 8446 §5.2). Returning what it consumed
+    /// Protects the plaintext as one or more records (RFC 9846 §5.2). Returning what it consumed
     /// as well as what it wrote lets colibri hand over a whole pass of output at once, which is
     /// one crossing of the boundary per pass rather than one per record.
     encrypt_record: *const fn (context: *anyopaque, plaintext: []const u8, output: []u8) SealError!Sealed,
@@ -167,7 +168,7 @@ pub const VTable = struct {
     /// provider has decrypted that message, not an error.
     negotiated_alpn: *const fn (context: *const anyopaque) ?[]const u8,
 
-    /// Whether the handshake has completed. RFC 8446 Appendix E.5 requires that an application be
+    /// Whether the handshake has completed. RFC 9846 Appendix E.5 requires that an application be
     /// able to tell.
     handshake_complete: *const fn (context: *const anyopaque) bool,
 
@@ -183,17 +184,18 @@ pub const VTable = struct {
     /// close as no alert at all.
     take_alert: *const fn (context: *anyopaque) ?AlertReport,
 
-    /// Writes the `close_notify` RFC 8446 §6.1 requires before closing the write side, and
+    /// Writes the `close_notify` RFC 9846 §6.1 requires before closing the write side, and
     /// returns how many octets. A second call returns 0, which is unambiguous because a short
     /// buffer is an error and not a count.
     send_close_notify: *const fn (context: *anyopaque, output: []u8) CloseError!usize,
 
-    /// Writes a KeyUpdate and switches the sending keys (RFC 8446 §4.6.3). colibri never starts
-    /// one on its own: RFC 8446 §5.5 leaves the usage limits to the implementation and only the
-    /// provider counts records, so a counter here would put a branch on the per-record path.
+    /// Writes a KeyUpdate and switches the sending keys (RFC 9846 §4.7.3). colibri never starts
+    /// one on its own: RFC 9846 §5.5 puts the MUST on the sender to close or update before the
+    /// AEAD limit, and only the provider counts records, so a counter here would put a branch on
+    /// the per-record path.
     initiate_key_update: *const fn (context: *anyopaque, request: KeyUpdateRequest, output: []u8) KeyUpdateError!usize,
 
-    /// RFC 8446 §7.5's exporter. The output's length is the RFC's `key_length`, so there is no
+    /// RFC 9846 §7.5's exporter. The output's length is the RFC's `key_length`, so there is no
     /// separate length parameter. The context value is optional because §7.5 keeps RFC 5705's
     /// interface, which distinguishes no context from an empty one.
     export_keying_material: *const fn (
@@ -220,7 +222,7 @@ pub const Provider = struct {
         return std.mem.eql(u8, selected, &constants.alpn_h2);
     }
 
-    /// Whether the handshake has completed (RFC 8446 Appendix E.5).
+    /// Whether the handshake has completed (RFC 9846 Appendix E.5).
     pub fn is_complete(provider: Provider) bool {
         return provider.vtable.handshake_complete(provider.context);
     }

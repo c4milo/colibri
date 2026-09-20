@@ -154,10 +154,10 @@ Two facts constrain the ALPN half and are easy to get wrong. In TLS 1.3 the sele
 is sent in EncryptedExtensions, not ServerHello, so it is only readable after the provider has
 decrypted EE — colibri must not assume it knows the ALPN earlier. And `"h2"` is the two octets
 `0x68 0x32` (RFC 9113 §3.1) while `"h3"` is `0x68 0x33` (RFC 9114 §11.1); no overlap is a fatal
-`no_application_protocol` alert, value 120 (RFC 8446 §6, RFC 7301 §3.2), which RFC 9001 §8.1
+`no_application_protocol` alert, value 120 (RFC 9846 §6, RFC 7301 §3.2), which RFC 9001 §8.1
 extends by requiring QUIC *clients* to use it too.
 
-One state colibri owns and no provider will supply: **handshake confirmed**. RFC 8446 has no such
+One state colibri owns and no provider will supply: **handshake confirmed**. RFC 9846 has no such
 concept; it is defined only in RFC 9001 §4.1.2 — at the server when the handshake completes, at
 the client when `HANDSHAKE_DONE` arrives.
 
@@ -863,12 +863,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   but "h2" (§3.1, §3.3), or whose version and suite colibri does not admit — TLS 1.3 and three
   suites, by [decision 45](decisions.md). `decrypt` applies §9.2.3: a post-handshake
   CertificateRequest is a connection error of PROTOCOL_ERROR, a NewSessionTicket and a KeyUpdate
-  reach h2 as nothing, a peer `close_notify` is the end of data (RFC 8446 §6.1) and every other
+  reach h2 as nothing, a peer `close_notify` is the end of data (RFC 9846 §6.1) and every other
   alert ends the transport. Both buffers stay the caller's, so a connection carries no record
   storage.
 
   `src/sim/null_provider.zig` fills the vtable with no cryptography, framing records at the sizes
-  RFC 8446 §5.1 and §5.2 give them. `src/sim/tls_check.zig` drives one connection over it three
+  RFC 9846 §5.1 and §5.2 give them. `src/sim/tls_check.zig` drives one connection over it three
   ways per seed: one record holding the whole stream, records cut where the seed says, and those
   records delivered in the pieces a socket read leaves behind. The events must be identical, which
   is what says a frame spanning records and a record holding several frames change nothing.

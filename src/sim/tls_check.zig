@@ -2,7 +2,7 @@
 //! provider, with the records cut at places the seed draws.
 //!
 //! What it proves is the property step 2 proved for raw octets, now for records: where a record
-//! ends changes nothing a connection decides. RFC 8446 §5.1 sizes records and RFC 9113 §4.1 sizes
+//! ends changes nothing a connection decides. RFC 9846 §5.1 sizes records and RFC 9113 §4.1 sizes
 //! frames, and neither divides the other, so one frame may span records and one record may hold
 //! several frames. A run that cuts the same stream into different records must accept the same
 //! frames, report the same events and end the same way.
@@ -174,7 +174,7 @@ fn run_once(storage: *Storage, cuts: u64, chunked: bool, seed: u64) Violation!vo
 }
 
 /// Opens every whole record the pending octets hold, feeding what each yields to the connection.
-/// RFC 8446 §5.1: a record that is not whole yet is not an error, and the caller reads more.
+/// RFC 9846 §5.1: a record that is not whole yet is not an error, and the caller reads more.
 fn open_records(storage: *Storage, pending_len_in: usize, held_len_in: usize) Violation!struct { usize, usize } {
     var pending_len = pending_len_in;
     var held_len = held_len_in;
@@ -237,7 +237,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         // against.
         try run_once(storage, 0, false, seed);
         const whole: Events = storage.events;
-        // RFC 8446 §5.1 and RFC 9113 §4.1: neither length divides the other, so where a record
+        // RFC 9846 §5.1 and RFC 9113 §4.1: neither length divides the other, so where a record
         // ends must change nothing the connection decides, and neither must where a read ends.
         try run_once(storage, 1, false, seed);
         if (!std.mem.eql(u8, whole.written(), storage.events.written())) {

@@ -104,7 +104,7 @@ test "the vtable colibri gets answers every member" {
     try testing.expectEqual(null, held.vtable.negotiated_alpn(held.context));
     try testing.expectEqual(null, held.vtable.negotiated_parameters(held.context));
 
-    // RFC 8446 §4.6.3 and §4.6.1: chapulin answers a peer's KeyUpdate and NewSessionTicket
+    // RFC 9846 §4.7.3 and §4.7.1: chapulin answers a peer's KeyUpdate and NewSessionTicket
     // inside `ch_read`, so colibri owes no handshake octets and consumes none.
     try testing.expectEqual(0, try held.vtable.handshake_write(held.context, &room, 0));
     try testing.expectEqual(0, try held.vtable.handshake_read(held.context, &room, 0));

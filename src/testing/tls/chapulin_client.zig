@@ -32,7 +32,7 @@ pub const Error = error{
     /// chapulin refused the configuration before sending anything, which is a defect in how
     /// colibri built it rather than anything the peer did.
     ConfigRefused,
-    /// The handshake did not complete (RFC 8446 §6). chapulin has raised its own alert.
+    /// The handshake did not complete (RFC 9846 §6). chapulin has raised its own alert.
     HandshakeFailed,
 };
 
@@ -84,7 +84,7 @@ pub const Client = struct {
     /// The one protocol colibri offers. RFC 9113 §3.1: "h2" identifies HTTP/2 over TLS.
     alpn: [1]c.ch_alpn_protocol,
     io: Io,
-    /// Whether `close_notify` has gone out, so a second call writes nothing (RFC 8446 §6.1).
+    /// Whether `close_notify` has gone out, so a second call writes nothing (RFC 9846 §6.1).
     closed: bool,
     /// What chapulin last answered. It is one of its `CH_E*` codes, which `reason` names.
     code: c_int,
@@ -223,7 +223,7 @@ pub fn recv(io: ?*anyopaque, out: [*c]u8, len: usize) callconv(.c) c_int {
     }
 }
 
-/// Opens one record into `plaintext` (RFC 8446 §5.2), and says what it held.
+/// Opens one record into `plaintext` (RFC 9846 §5.2), and says what it held.
 ///
 /// chapulin's `ch_read` handles NewSessionTicket and KeyUpdate itself and returns only
 /// application data, so a record holding one of those produces no plaintext and `ch_read` reads
@@ -247,7 +247,7 @@ fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) tls.p
         .plaintext_len = @intCast(read),
         .content = .application_data,
     };
-    // RFC 8446 §6.1: chapulin answers 0 for a clean peer close, which is a `close_notify`.
+    // RFC 9846 §6.1: chapulin answers 0 for a clean peer close, which is a `close_notify`.
     if (read == 0) return .{ .consumed = records.taken, .plaintext_len = 0, .content = .alert };
     if (records.ran_dry and records.taken == input.len and input.len > 0) {
         return .{ .consumed = records.taken, .plaintext_len = 0, .content = .new_session_ticket };
@@ -257,7 +257,7 @@ fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) tls.p
     return tls.provider.OpenError.TlsFailed;
 }
 
-/// Protects `plaintext` as one or more records (RFC 8446 §5.2).
+/// Protects `plaintext` as one or more records (RFC 9846 §5.2).
 fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls.provider.SealError!tls.provider.Sealed {
     const client: *Client = @ptrCast(@alignCast(context));
     client.io = .{ .records = .{ .output = output } };
@@ -270,7 +270,7 @@ fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls.
     return .{ .consumed = plaintext.len, .written = client.io.records.written };
 }
 
-/// RFC 8446 §4.2.1 and Appendix B.4: the version and the suite the handshake selected.
+/// RFC 9846 §4.3.1 and Appendix B.4: the version and the suite the handshake selected.
 ///
 /// **colibri derives the suite rather than reading it, and that is a gap worth naming.** A
 /// chapulin client keeps no `suite` field: its `session.h` declares one only under
@@ -278,7 +278,7 @@ fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls.
 /// one suite the linked build offers, which `handshake_message.c` writes as the single entry of
 /// its ClientHello.
 ///
-/// Today that is TLS_CHACHA20_POLY1305_SHA256. It will not always be: RFC 8446 §9.1 makes
+/// Today that is TLS_CHACHA20_POLY1305_SHA256. It will not always be: RFC 9846 §9.1 makes
 /// TLS_AES_128_GCM_SHA256 mandatory to implement, chapulin does not offer it yet, and its
 /// `docs/aes_suite.md` scopes the work. When that lands, a client build may offer two suites and
 /// this function will report the wrong one until chapulin exposes what was selected. The run in
@@ -293,18 +293,18 @@ fn negotiated_parameters(context: *const anyopaque) ?tls.Negotiated {
     };
 }
 
-/// RFC 8446 Appendix E.5: an application must be able to tell. chapulin reaches its established
+/// RFC 9846 Appendix E.5: an application must be able to tell. chapulin reaches its established
 /// state only when `ch_connect` returned success, which is when this file leaves phase 1.
 fn handshake_complete(context: *const anyopaque) bool {
     const client: *const Client = @ptrCast(@alignCast(context));
     return client.io == .records;
 }
 
-/// RFC 8446 Appendix B.1: the TLS 1.3 codepoint. chapulin speaks 1.3 and nothing else, so a
+/// RFC 9846 Appendix B.1: the TLS 1.3 codepoint. chapulin speaks 1.3 and nothing else, so a
 /// completed handshake negotiated it.
 pub const tls_1_3: u16 = 0x0304;
 
-/// RFC 8446 §4.6.3 and §4.6.1: after the handshake, a peer's KeyUpdate and NewSessionTicket ride
+/// RFC 9846 §4.7.3 and §4.7.1: after the handshake, a peer's KeyUpdate and NewSessionTicket ride
 /// records, and chapulin answers both inside `ch_read`. So colibri owes no handshake octets here
 /// and consumes none: both members answer 0 for the life of the connection.
 fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls.provider.HandshakeReadError!usize {
@@ -325,7 +325,7 @@ fn take_alert(context: *anyopaque) ?tls.AlertReport {
     return null;
 }
 
-/// RFC 8446 §6.1's `close_notify`. `ch_close` sends it through the same `send` callback, which
+/// RFC 9846 §6.1's `close_notify`. `ch_close` sends it through the same `send` callback, which
 /// in phase 2 writes into colibri's output, and then wipes the key material.
 fn send_close_notify(context: *anyopaque, output: []u8) tls.provider.CloseError!usize {
     const client: *Client = @ptrCast(@alignCast(context));
@@ -347,7 +347,7 @@ fn initiate_key_update(
     return tls.provider.KeyUpdateError.Unsupported;
 }
 
-/// RFC 8446 §7.5 standardises the exporter without obliging a stack to offer it, and chapulin's
+/// RFC 9846 §7.5 standardises the exporter without obliging a stack to offer it, and chapulin's
 /// four public record-mode calls do not. h2 needs none of it.
 fn export_keying_material(
     context: *anyopaque,

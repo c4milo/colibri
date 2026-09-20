@@ -2,7 +2,7 @@
 //! test-only, lives in `src/sim/` and is never packaged: colibri's library carries no
 //! implementation of either vtable and never will (CLAUDE.md non-negotiable 2).
 //!
-//! What it is for is the shape, not the secrecy. It frames records exactly as RFC 8446 §5.1 sizes
+//! What it is for is the shape, not the secrecy. It frames records exactly as RFC 9846 §5.1 sizes
 //! them — a five-octet header, the body, and a tag of the length an AEAD would add — so record
 //! boundaries fall in different places from h2 frame boundaries and a check sees colibri reassemble
 //! across them. The body is copied, not protected.
@@ -16,14 +16,14 @@ const assert = std.debug.assert;
 const tls = @import("tls");
 const constants = @import("constants.zig");
 
-/// RFC 8446 §5.1: the ContentType of a record.
+/// RFC 9846 §5.1: the ContentType of a record.
 pub const ContentType = enum(u8) {
     alert = 21,
     handshake = 22,
     application_data = 23,
 };
 
-/// RFC 8446 §4: the HandshakeType of the messages a check scripts after the handshake.
+/// RFC 9846 §4: the HandshakeType of the messages a check scripts after the handshake.
 pub const HandshakeType = enum(u8) {
     new_session_ticket = 4,
     certificate_request = 13,
@@ -44,9 +44,9 @@ pub const NullProvider = struct {
         .version = tls.constants.version_tls_1_3,
         .cipher_suite = tls.constants.cipher_suite_aes_128_gcm_sha256,
     },
-    /// The alert held for the next `take_alert`, which the call clears (RFC 8446 §6).
+    /// The alert held for the next `take_alert`, which the call clears (RFC 9846 §6).
     alert_held: ?tls.AlertReport = null,
-    /// Whether `send_close_notify` has already written its record (RFC 8446 §6.1).
+    /// Whether `send_close_notify` has already written its record (RFC 9846 §6.1).
     close_sent: bool = false,
 
     /// The vtable, filled once and shared. Every connection in a run uses the same one, which is
@@ -105,7 +105,7 @@ pub const NullProvider = struct {
 
     fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls.provider.SealError!tls.provider.Sealed {
         _ = context;
-        // RFC 8446 §5.1: one record carries at most 2^14 octets of plaintext.
+        // RFC 9846 §5.1: one record carries at most 2^14 octets of plaintext.
         const body_len = @min(plaintext.len, tls.constants.record_plaintext_len_max);
         const written = write_record(output, .application_data, plaintext[0..body_len]) catch
             return error.NoSpaceLeft;
@@ -152,7 +152,7 @@ pub const NullProvider = struct {
 
     fn send_close_notify(context: *anyopaque, output: []u8) tls.provider.CloseError!usize {
         const self = of(context);
-        // RFC 8446 §6.1: each party sends it before closing its write side, and once is enough.
+        // RFC 9846 §6.1: each party sends it before closing its write side, and once is enough.
         if (self.close_sent) return 0;
         const written = write_record(output, .alert, &.{@intFromEnum(tls.Alert.close_notify)}) catch
             return error.NoSpaceLeft;
@@ -166,7 +166,7 @@ pub const NullProvider = struct {
         output: []u8,
     ) tls.provider.KeyUpdateError!usize {
         _ = context;
-        // RFC 8446 §4.6.3: the KeyUpdate message carries the request as its one octet.
+        // RFC 9846 §4.7.3: the KeyUpdate message carries the request as its one octet.
         const body = [_]u8{ @intFromEnum(HandshakeType.key_update), @intFromEnum(request) };
         return write_record(output, .handshake, &body) catch error.NoSpaceLeft;
     }
@@ -187,7 +187,7 @@ pub const NullProvider = struct {
     }
 };
 
-/// The ContentType, the legacy version and the length (RFC 8446 §5.1).
+/// The ContentType, the legacy version and the length (RFC 9846 §5.1).
 const header_len: usize = tls.constants.record_header_len;
 
 /// What `read_record` found.
@@ -197,7 +197,7 @@ const Record = struct {
     total_len: usize,
 };
 
-/// The ContentType an octet names, or null when RFC 8446 §5.1 gives it none.
+/// The ContentType an octet names, or null when RFC 9846 §5.1 gives it none.
 fn content_type_of(octet: u8) ?ContentType {
     return switch (octet) {
         @intFromEnum(ContentType.alert) => .alert,
@@ -211,7 +211,7 @@ fn content_type_of(octet: u8) ?ContentType {
 fn read_record(input: []const u8) ?Record {
     if (input.len < header_len) return null;
     const content = content_type_of(input[constants.record_content_type_offset]) orelse return null;
-    // RFC 8446 §5.1: the length is the two octets after the version, in network byte order.
+    // RFC 9846 §5.1: the length is the two octets after the version, in network byte order.
     const high: usize = input[constants.record_length_offset];
     const low: usize = input[constants.record_length_offset + 1];
     const declared: usize = (high << @bitSizeOf(u8)) | low;
@@ -221,13 +221,13 @@ fn read_record(input: []const u8) ?Record {
     return .{ .content = content, .body_len = declared - constants.record_tag_len, .total_len = total };
 }
 
-/// Writes one record: the header RFC 8446 §5.1 sizes, the body, and the tag an AEAD would add.
+/// Writes one record: the header RFC 9846 §5.1 sizes, the body, and the tag an AEAD would add.
 fn write_record(output: []u8, content: ContentType, body: []const u8) error{NoSpaceLeft}!usize {
     const declared = body.len + constants.record_tag_len;
     const total = header_len + declared;
     if (output.len < total or declared > tls.constants.record_ciphertext_len_max) return error.NoSpaceLeft;
     output[constants.record_content_type_offset] = @intFromEnum(content);
-    // RFC 8446 §5.1: legacy_record_version is 0x0303 on every record after the first flight.
+    // RFC 9846 §5.1: legacy_record_version is 0x0303 on every record after the first flight.
     output[constants.record_version_offset] = constants.record_legacy_version_octet;
     output[constants.record_version_offset + 1] = constants.record_legacy_version_octet;
     output[constants.record_length_offset] = @intCast(declared >> @bitSizeOf(u8));
@@ -242,7 +242,7 @@ pub fn write_application_record(output: []u8, body: []const u8) error{NoSpaceLef
     return write_record(output, .application_data, body);
 }
 
-/// What a record holds, in the terms colibri's vtable reports (RFC 8446 §5.1, §4).
+/// What a record holds, in the terms colibri's vtable reports (RFC 9846 §5.1, §4).
 fn classify(content: ContentType, body: []const u8) tls.Content {
     return switch (content) {
         .application_data => .application_data,
@@ -251,7 +251,7 @@ fn classify(content: ContentType, body: []const u8) tls.Content {
     };
 }
 
-/// The handshake message a post-handshake record holds (RFC 8446 §4).
+/// The handshake message a post-handshake record holds (RFC 9846 §4).
 fn classify_handshake(body: []const u8) tls.Content {
     if (body.len == 0) return .new_session_ticket;
     // RFC 9113 §9.2.3 names the three a post-handshake record may hold, and CertificateRequest is
@@ -265,7 +265,7 @@ fn classify_handshake(body: []const u8) tls.Content {
 
 const testing = std.testing;
 
-test "a record carries the sizes RFC 8446 §5.1 gives it, and round-trips its body" {
+test "a record carries the sizes RFC 9846 §5.1 gives it, and round-trips its body" {
     NullProvider.install();
     var endpoint: NullProvider = .{};
     var output: [64]u8 = undefined;
@@ -339,7 +339,7 @@ test "§6.1: close_notify is written once and reports itself as the peer's alert
     var output: [64]u8 = undefined;
     const written = try view.vtable.send_close_notify(view.context, &output);
     try testing.expect(written > 0);
-    // RFC 8446 §6.1: sending it twice is not required, and the second call writes nothing.
+    // RFC 9846 §6.1: sending it twice is not required, and the second call writes nothing.
     try testing.expectEqual(0, try view.vtable.send_close_notify(view.context, &output));
     var plaintext: [64]u8 = undefined;
     const opened = try view.vtable.decrypt_record(view.context, output[0..written], &plaintext);
@@ -352,7 +352,7 @@ test "the exporter is the member a provider without one refuses" {
     var endpoint: NullProvider = .{};
     const view = endpoint.provider();
     var secret: [32]u8 = undefined;
-    // RFC 8446 §7.5 standardises the interface without obliging a stack to offer it.
+    // RFC 9846 §7.5 standardises the interface without obliging a stack to offer it.
     try testing.expectEqual(
         error.Unsupported,
         view.vtable.export_keying_material(view.context, "label", null, &secret),

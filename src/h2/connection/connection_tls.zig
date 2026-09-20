@@ -19,7 +19,7 @@ const Connection = connection.Connection;
 /// Why h2 does not run on this TLS connection. None of them is an HTTP/2 error: no HTTP/2
 /// connection exists yet, so the caller closes the transport and the provider sends the alert.
 pub const AttachError = error{
-    /// `attach` was called before the handshake finished (RFC 8446 Appendix E.5).
+    /// `attach` was called before the handshake finished (RFC 9846 Appendix E.5).
     HandshakeIncomplete,
     /// The handshake selected something other than "h2", or selected nothing. RFC 9113 §3.3:
     /// HTTP/2 connections over TLS MUST use protocol negotiation, and §3.1 makes the identifier
@@ -48,7 +48,7 @@ pub fn attach(target: *Connection, provider: tls.Provider) AttachError!void {
 /// The rules themselves, separated from the storing so a test and a caller can ask the question
 /// without a connection.
 pub fn check(provider: tls.Provider) AttachError!void {
-    // RFC 8446 Appendix E.5: the application must be able to tell whether the handshake completed,
+    // RFC 9846 Appendix E.5: the application must be able to tell whether the handshake completed,
     // and nothing below is decided until it has.
     if (!provider.is_complete()) return error.HandshakeIncomplete;
     // RFC 9113 §3.3: HTTP/2 connections over TLS MUST use protocol negotiation, and §3.1 names the
@@ -63,13 +63,13 @@ pub fn check(provider: tls.Provider) AttachError!void {
     // (decision 45). Admitting less than the floor permits is the endpoint's choice; §7 names
     // INADEQUATE_SECURITY for a transport that does not meet the requirements of §9.2.
     if (negotiated.version != tls.constants.version_tls_1_3) return error.TlsVersionRefused;
-    // RFC 8446 Appendix B.4: the suite is a codepoint, and colibri admits the three of §9.1
+    // RFC 9846 Appendix B.4: the suite is a codepoint, and colibri admits the three of §9.1
     // (decision 45). Refusing here needs no part of RFC 9113 Appendix A, whose prohibited suites
     // are TLS 1.2's and are listed by name with no codepoint.
     if (!admits_cipher_suite(negotiated.cipher_suite)) return error.CipherSuiteRefused;
 }
 
-/// True when the suite is one colibri admits (RFC 8446 Appendix B.4, decision 45).
+/// True when the suite is one colibri admits (RFC 9846 Appendix B.4, decision 45).
 fn admits_cipher_suite(suite: u16) bool {
     for (tls.constants.cipher_suites_admitted) |admitted| {
         if (suite == admitted) return true;
@@ -84,12 +84,12 @@ pub const RecordError = error{
     /// RFC 9113 §9.2.3 was broken, or another HTTP/2 rule this file checks. `failure` holds the
     /// code and the GOAWAY is queued.
     ConnectionFailed,
-    /// The provider refused the record. RFC 8446 §6 forbids data in either direction afterwards.
+    /// The provider refused the record. RFC 9846 §6 forbids data in either direction afterwards.
     TlsFailed,
-    /// The plaintext buffer cannot hold the record's fragment (RFC 8446 §5.1), or the output
+    /// The plaintext buffer cannot hold the record's fragment (RFC 9846 §5.1), or the output
     /// cannot hold one record (§5.2). Nothing moved.
     NoSpaceLeft,
-    /// A protected record arrived or was asked for before the keys exist (RFC 8446 §7.1).
+    /// A protected record arrived or was asked for before the keys exist (RFC 9846 §7.1).
     HandshakeIncomplete,
     /// No provider is attached: this is a cleartext connection and its octets need no record.
     NoProvider,
@@ -102,7 +102,7 @@ pub const Decrypted = struct {
     consumed: usize,
     /// Octets of plaintext written, which are h2's byte stream and are fed to `receive`.
     plaintext_len: usize,
-    /// RFC 8446 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
+    /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
     /// sends afterwards is read.
     end_of_data: bool,
 };
@@ -126,7 +126,7 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
     };
     assert(opened.consumed <= input.len and opened.plaintext_len <= plaintext.len);
     return switch (opened.content) {
-        // RFC 8446 §5.1: a record that is not whole yet is not an error; the caller reads more.
+        // RFC 9846 §5.1: a record that is not whole yet is not an error; the caller reads more.
         .incomplete => .{ .consumed = 0, .plaintext_len = 0, .end_of_data = false },
         .application_data => .{
             .consumed = opened.consumed,
@@ -134,7 +134,7 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
             .end_of_data = false,
         },
         // RFC 9113 §9.2.3: a NewSessionTicket and a KeyUpdate are permitted after the handshake,
-        // and h2 does nothing with either. RFC 8446 §4.6.3 makes the answering KeyUpdate the
+        // and h2 does nothing with either. RFC 9846 §4.7.3 makes the answering KeyUpdate the
         // provider's, which `handshake_write` carries.
         .new_session_ticket, .key_update => .{
             .consumed = opened.consumed,
@@ -148,23 +148,23 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
     };
 }
 
-/// What an alert record means to the connection (RFC 8446 §6).
+/// What an alert record means to the connection (RFC 9846 §6).
 fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) RecordError!Decrypted {
     _ = target;
-    // RFC 8446 §6: an alert record carries a description, so a provider that classified this
+    // RFC 9846 §6: an alert record carries a description, so a provider that classified this
     // record as an alert and then reports none has broken its own contract.
     const report = provider.vtable.take_alert(provider.context) orelse return error.TlsFailed;
-    // RFC 8446 §6.1: close_notify tells the recipient that the sender will not send any more
+    // RFC 9846 §6.1: close_notify tells the recipient that the sender will not send any more
     // messages, which design §8 step 5 makes the end of the h2 byte stream.
     if (tls.alert.is_orderly_close(report)) {
         return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = true };
     }
-    // RFC 8446 §6.2: every other description is an error alert, after which §6 forbids sending or
+    // RFC 9846 §6.2: every other description is an error alert, after which §6 forbids sending or
     // receiving any further data.
     return error.TlsFailed;
 }
 
-/// Protects what `write_pending` produced, as one or more records (RFC 8446 §5.2). Both buffers
+/// Protects what `write_pending` produced, as one or more records (RFC 9846 §5.2). Both buffers
 /// are the caller's.
 pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8) RecordError!tls.provider.Sealed {
     // RFC 9113 §3.3: a cleartext connection writes its frames straight to the transport.
@@ -181,7 +181,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8) RecordE
     return sealed;
 }
 
-/// Writes the `close_notify` RFC 8446 §6.1 requires before the write side closes.
+/// Writes the `close_notify` RFC 9846 §6.1 requires before the write side closes.
 pub fn close_notify(target: *Connection, output: []u8) RecordError!usize {
     // RFC 9113 §3.3: a cleartext connection has no TLS to close.
     const provider = target.provider orelse return error.NoProvider;
@@ -270,7 +270,7 @@ test "§3.3 and §9.2: h2 runs only on a complete handshake that chose h2 at TLS
     var state: Fake = .{};
     try check(state.provider());
 
-    // RFC 8446 Appendix E.5: nothing is decided before the handshake completes.
+    // RFC 9846 Appendix E.5: nothing is decided before the handshake completes.
     state = .{ .complete = false };
     try testing.expectEqual(error.HandshakeIncomplete, check(state.provider()));
 
@@ -290,16 +290,16 @@ test "§3.3 and §9.2: h2 runs only on a complete handshake that chose h2 at TLS
     try testing.expectEqual(error.ParametersUnknown, check(state.provider()));
 }
 
-test "decision 45: the three suites of RFC 8446 §9.1 are admitted and nothing else is" {
+test "decision 45: the three suites of RFC 9846 §9.1 are admitted and nothing else is" {
     Fake.init_table();
     var state: Fake = .{};
-    // RFC 8446 Appendix B.4: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and
+    // RFC 9846 Appendix B.4: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and
     // TLS_CHACHA20_POLY1305_SHA256.
     for (tls.constants.cipher_suites_admitted) |suite| {
         state = .{ .parameters = .{ .version = tls.constants.version_tls_1_3, .cipher_suite = suite } };
         try check(state.provider());
     }
-    // RFC 9001 §5.3 excludes TLS_AES_128_CCM_8_SHA256 by name, and RFC 8446 §9.1 makes neither
+    // RFC 9001 §5.3 excludes TLS_AES_128_CCM_8_SHA256 by name, and RFC 9846 §9.1 makes neither
     // CCM suite a MUST or a SHOULD.
     for ([_]u16{
         tls.constants.cipher_suite_aes_128_ccm_sha256,
@@ -348,7 +348,7 @@ test "§9.2.3: a NewSessionTicket and a KeyUpdate are consumed and yield no plai
     }
 }
 
-test "RFC 8446 §6.1: a peer close_notify is the end of data, and an error alert ends the transport" {
+test "RFC 9846 §6.1: a peer close_notify is the end of data, and an error alert ends the transport" {
     Fake.init_table();
     var plaintext: [16]u8 = undefined;
     var state: Fake = .{
@@ -360,10 +360,10 @@ test "RFC 8446 §6.1: a peer close_notify is the end of data, and an error alert
     const closed = try decrypt(&connection.test_connection, "record", &plaintext, 0);
     try testing.expect(closed.end_of_data);
     try testing.expectEqual(0, closed.plaintext_len);
-    // RFC 8446 §6.1 makes this an orderly close, so no HTTP/2 connection error is raised.
+    // RFC 9846 §6.1 makes this an orderly close, so no HTTP/2 connection error is raised.
     try testing.expect(!connection.test_connection.has_failed());
 
-    // RFC 8446 §6.2: every other description is an error alert.
+    // RFC 9846 §6.2: every other description is an error alert.
     state = .{ .content = .alert, .alert_held = .{ .description = .bad_record_mac, .origin = .local } };
     connection.test_connection.init(.client);
     try attach(&connection.test_connection, state.provider());
@@ -396,7 +396,7 @@ test "application data reaches the caller's buffer, and a cleartext connection h
     try testing.expectEqual(error.NoProvider, close_notify(&connection.test_connection, &output));
 }
 
-test "RFC 8446 §5.1: a record that is not whole consumes nothing, whatever the provider reports" {
+test "RFC 9846 §5.1: a record that is not whole consumes nothing, whatever the provider reports" {
     Fake.init_table();
     // This provider reports octets consumed alongside `incomplete`, which is a contradiction. The
     // caller must be told nothing was taken, or it would drop the start of the record it is
