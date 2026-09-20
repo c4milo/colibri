@@ -147,6 +147,12 @@ pub const stream_id_type_bits: u6 = 2;
 pub const stream_id_max: u64 = wire.constants.varint_value_max;
 pub const stream_index_max: u64 = stream_id_max >> stream_id_type_bits;
 
+/// When a receiver advertises more flow control credit (RFC 9000 §4.2, which leaves the timing
+/// to the implementation): once the peer has used this fraction of the window, so that a round
+/// trip of silence would leave it blocked. A larger fraction sends fewer frames and risks the
+/// peer stalling; a smaller one spends frames on credit the peer has not asked for.
+pub const flow_credit_fraction: u64 = 2;
+
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;

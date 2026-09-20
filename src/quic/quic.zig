@@ -12,6 +12,7 @@ pub const frame = @import("frame/frame.zig");
 pub const space = @import("space/space.zig");
 pub const termination = @import("termination.zig");
 pub const error_code = @import("error_code.zig");
+pub const flow = @import("flow.zig");
 pub const stream = @import("stream/stream.zig");
 
 test {
@@ -22,5 +23,6 @@ test {
     _ = space;
     _ = termination;
     _ = error_code;
+    _ = flow;
     _ = stream;
 }
