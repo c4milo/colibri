@@ -172,6 +172,14 @@ pub fn Pool(
             assert(!pool.is_above_watermark(id));
         }
 
+        /// The highest identifier ever opened in `class`, or null when it has opened none. A
+        /// caller that must create every identifier below one, as RFC 9000 §3.2 requires of QUIC
+        /// streams, reads this to know where to start.
+        pub fn watermark_of(pool: *const Self, class: u32) ?u64 {
+            assert(class < class_count);
+            return pool.watermark[class];
+        }
+
         /// The slot holding the live entry with `id`, or null when none is live.
         fn slot_of(pool: *const Self, id: u64) ?u32 {
             assert(pool.count <= capacity);
@@ -469,4 +477,23 @@ test "the pool holds its storage inline, with no pointer" {
     try testing.expectEqual(test_capacity, pool.entries.len);
     try testing.expectEqual(test_capacity, pool.live.len);
     try testing.expectEqual(test_class_count, pool.watermark.len);
+}
+
+test "the watermark of a class is the highest identifier it ever opened" {
+    const Entry = struct { id: u64 };
+    const two_classes = struct {
+        fn class_of(id: u64) u32 {
+            return @intCast(id & 1);
+        }
+    };
+    var pool: Pool(Entry, 4, 2, two_classes.class_of) = undefined;
+    pool.init();
+    try std.testing.expectEqual(null, pool.watermark_of(0));
+    try std.testing.expectEqual(null, pool.watermark_of(1));
+    _ = try pool.open(2);
+    try std.testing.expectEqual(2, pool.watermark_of(0).?);
+    // The other class is untouched, and closing does not lower a watermark.
+    try std.testing.expectEqual(null, pool.watermark_of(1));
+    pool.close(2);
+    try std.testing.expectEqual(2, pool.watermark_of(0).?);
 }
