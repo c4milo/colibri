@@ -10,9 +10,13 @@ const std = @import("std");
 
 pub const packet_check = @import("packet_check.zig");
 pub const network_check = @import("network_check.zig");
+pub const recovery_check = @import("recovery_check.zig");
+pub const recovery_check_run = @import("recovery_check_run.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = packet_check;
     _ = network_check;
+    _ = recovery_check;
+    _ = recovery_check_run;
 }

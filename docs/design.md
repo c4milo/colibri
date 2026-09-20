@@ -1399,6 +1399,46 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   prose and its appendix pseudocode disagree over the round trip variation, a written decision in
   this document's §12, with a test pinning the choice. *Large.*
 
+  **Done, 2026-09-20, but for the interop cases.** Eight files. `src/quic/rtt.zig` is §5's
+  estimator and §6.2.1's Probe Timeout. `src/quic/recovery/recovery_sent.zig` is Appendix A.1.1's
+  `sent_packets`, one ring per space in packet number order, so a number is found by halving and
+  the acknowledged slots fall off either end. `recovery_loss.zig` is §6.1's two thresholds: both
+  rise with the packet number, so the lost packets are a run at the front, the walk stops at the
+  first survivor — which is also the instant §6.1.2 sets the timer for — and one range takes them
+  out. `recovery_congestion.zig` is §7's NewReno, `recovery_pacing.zig` §7.7's leaky bucket,
+  `recovery_timer.zig` Appendix A.8's one timer, and `recovery.zig` with `recovery_ack.zig` the
+  five entry points of §4.2.
+
+  Three things are worth naming. The octets in flight are the sum over the three tables and are
+  held in no second place, because Appendix B.2's `bytes_in_flight` and the tables would
+  otherwise be two records of one fact. Congestion avoidance counts octets rather than dividing:
+  Appendix B.5's expression grows the window by nothing once it passes the maximum datagram size
+  squared, under two megabytes on an ordinary path, and B.5 points at the alternative in the same
+  paragraph. And the §5.3-versus-Appendix-A.7 disagreement is settled in
+  [decision 50](decisions.md) and §12 question 4, with a test computing both orderings and
+  pinning the factor between them.
+
+  **Check:** `src/sim/recovery_check.zig` runs 256 seeds over four paths — quiet, one datagram in
+  ten dropped, a delay range wide enough to reorder, and a stretch where the path swallows
+  everything. The sender is the whole of `quic.recovery`; the receiver is `quic.space`, which
+  writes real ACK frames, so what the sender reads back is octets off the wire. It printed
+  `sent=16873 acked=11997 lost=4876 probes=1354 scenarios={ 60, 57, 75, 64 }
+  crc32=0xb78a83fe` in Debug and in ReleaseSafe on macOS arm64. Every packet is accounted for
+  exactly once — 11997 and 4876 sum to 16873 — no packet is both acknowledged and declared lost,
+  the run drains, and the window never falls under §7.2's minimum.
+
+  Writing the check found two defects in the check itself and neither in the library, which is
+  worth recording because both were rules the library already held. The first invariant written
+  was that the octets in flight never pass the congestion window; §7 bounds what a sender adds,
+  not what is already outstanding, and §7.5 exempts a probe from the window outright, so the
+  check now tests the send and not the state. The second was a digest taken over a struct's
+  bytes, padding included: padding is uninitialized memory, the two build modes disagreed about
+  it, and [invariant 5](invariants.md#quic) forbids reading it. Each field is now fed in on its
+  own, in network byte order.
+
+  **Still owed:** the interop runner's `handshakeloss`, `transferloss`, `blackhole`, `longrtt`
+  and `ecn` cases, which need a connection to drive and so wait on 9e.
+
 - **Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
   zero and a static-only encoder is legal and useful; then the dynamic table with the encoder and
   decoder streams, Known Received Count, Required Insert Count, Base, relative and post-base
@@ -1553,6 +1593,7 @@ figure beside it, which is indicative and carries no threshold: a hosted runner 
    control, **9d** connection IDs, path validation and anti-amplification, and **9e** the
    handshake over CRYPTO frames with the interop runner. Only 9e waits on chapulin, so four
    fifths of the largest step can be built without it.
+
 
 ## 13. Risks
 
