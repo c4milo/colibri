@@ -244,6 +244,12 @@ pub const congestion_window_minimum_datagrams: u64 = 2;
 /// recommends at one half.
 pub const congestion_loss_reduction_divisor: u64 = 2;
 
+/// RFC 9002 §7.7's `N`, as a fraction: the pacing rate is `N * congestion_window / smoothed_rtt`,
+/// and §7.7 asks for an `N` that is small but at least 1, giving 1.25 as its example. Above 1 the
+/// window is not left underused when the round trip moves.
+pub const pacing_rate_numerator: u64 = 5;
+pub const pacing_rate_denominator: u64 = 4;
+
 /// How far the Probe Timeout may back off. RFC 9002 §6.2.1 doubles the timeout on every
 /// consecutive probe and names no ceiling, so this one is colibri's: at sixteen doublings the
 /// timeout is already far past RFC 9000 §10.1's idle timeout, which ends the connection first.
