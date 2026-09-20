@@ -137,3 +137,8 @@ comptime {
     // The declared length is the body's, or a peer would wait for octets that never come.
     assert(response_content_length.len == 1 and response_content_length[0] - '0' == response_body.len);
 }
+
+/// chapulin's receive buffer in the TLS endpoints, whose size less record overhead it advertises
+/// to the peer as `record_size_limit`, so the peer can never overflow it. RFC 8446 §5.1 caps a
+/// record's fragment at 2^14, and one record of that size plus its expansion fits here.
+pub const tls_receive_len: usize = 20 * 1024;

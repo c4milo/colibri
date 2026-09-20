@@ -4,6 +4,7 @@
 const std = @import("std");
 
 pub const chapulin = @import("tls/chapulin.zig");
+pub const chapulin_client = @import("tls/chapulin_client.zig");
 pub const h2_client = @import("h2/h2_client.zig");
 
 pub const main = h2_client.main;
@@ -11,5 +12,6 @@ pub const main = h2_client.main;
 test {
     std.testing.refAllDecls(@This());
     _ = chapulin;
+    _ = chapulin_client;
     _ = h2_client;
 }
