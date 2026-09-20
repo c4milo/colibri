@@ -282,17 +282,25 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Re-sending a buffered packet verbatim after a loss, which reuses its number and
   breaks the AEAD nonce construction.
 
-### INV-18 — the anti-amplification limit holds
+### INV-18 — the anti-amplification limit holds, and it is the server's
 
-- **Claim.** Before a peer's address is validated, colibri never sends more than three times the
-  number of bytes it has received from that address.
+- **Claim.** As a server, before it has validated the client's address, colibri never sends more
+  than three times the number of bytes it has received from that address. As a client establishing
+  a connection, colibri is not limited: RFC 9000 §21.1.1.1 says the limit "does not apply to
+  clients when establishing a new connection", and §8.1 says why — the client chose the
+  Destination Connection ID the server's Initial keys derive from, so a packet it can read at all
+  came from the address it sent to. A path validated later by RFC 9000 §8.2.3 is unlimited in
+  either role.
 - **Mechanism.** Two counters per unvalidated path, checked before every datagram is returned to the
   caller (RFC 9000 §8). The check is on the datagram, not on the frame, because the limit counts
-  bytes on the wire.
+  bytes on the wire. `Path.init` takes how the path begins and the connection answers it from the
+  role, so the exemption is decided once rather than at each send.
 - **Check.** Runtime assertion before every send on an unvalidated path, plus a simulator
   invariant, plus the interop runner's `amplificationlimit` case. Step 9.
 - **Violation.** Counting QUIC frame bytes instead of whole datagram sizes, or counting after the
-  send rather than before.
+  send rather than before. Also applying the limit to a client, which leaves it unable to send its
+  first Initial at all: a fresh client has received nothing, so three times nothing is nothing, and
+  the assertion in `Path.on_datagram_sent` halts on the first datagram.
 
 ### INV-19 — flow-control limits are non-decreasing offsets, never credits
 

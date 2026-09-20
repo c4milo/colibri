@@ -6,12 +6,13 @@
 //! themselves are the caller's: colibri owns no socket (non-negotiable 1), so it never learns an
 //! address and never compares two.
 //!
-//! The two rules are one mechanism seen from two sides. Until a path is validated an endpoint
-//! must not send more than three times what it received there ([invariant
+//! The two rules are one mechanism seen from two sides. Until a path is validated a server must
+//! not send more than three times what it received there ([invariant
 //! 18](../../docs/invariants.md)), which is what stops a spoofed source address turning this
-//! endpoint into an amplifier; validating the path is what lifts the limit. §8.2.3 is explicit
-//! that a PATH_RESPONSE validates the path the PATH_CHALLENGE went out on, whichever path it
-//! came back over, so the two are not the same question.
+//! endpoint into an amplifier; validating the path is what lifts the limit. A client
+//! establishing a connection is exempt (§21.1.1.1), which is what `Start` names. §8.2.3 is
+//! explicit that a PATH_RESPONSE validates the path the PATH_CHALLENGE went out on, whichever
+//! path it came back over, so the two are not the same question.
 //!
 //! Every instant is a parameter and the challenge data is the caller's, because it must be
 //! unpredictable (§8.2.1) and colibri draws no random number (invariant 5).
@@ -32,6 +33,20 @@ pub const State = enum {
     validated,
     /// The last attempt was abandoned, which §8.2.4 makes the only way validation fails.
     abandoned,
+};
+
+/// Whether the peer is already known to be reachable when the path begins, which decides whether
+/// §8's limit applies to it at all.
+pub const Start = enum {
+    /// RFC 9000 §8.1: "Prior to validating the client address, servers MUST NOT send more than
+    /// three times as many bytes as the number of bytes they have received." A server is handed
+    /// an address it has no reason to believe, so its path begins here.
+    unvalidated,
+    /// RFC 9000 §21.1.1.1: "The anti-amplification limit does not apply to clients when
+    /// establishing a new connection." §8.1 says why a client is safe to exempt: it chose the
+    /// Destination Connection ID the server's Initial keys derive from, so any packet it can
+    /// read at all came from the address it sent to.
+    validated,
 };
 
 /// The PATH_CHALLENGE this endpoint is waiting on (RFC 9000 §8.2.1).
@@ -57,9 +72,9 @@ pub const Path = struct {
     sent: u64,
     challenge: ?Challenge,
 
-    pub fn init(path: *Path) void {
+    pub fn init(path: *Path, start: Start) void {
         path.* = .{
-            .validated = false,
+            .validated = start == .validated,
             .mtu_validated = false,
             .abandoned = false,
             .received = 0,
@@ -169,7 +184,7 @@ const test_timeout_ns = 300_000_000;
 const test_datagram = 100;
 
 test "§8: an unvalidated path takes three times what it gave, and no more" {
-    test_path.init();
+    test_path.init(.unvalidated);
     // Nothing received, so nothing may be sent: an endpoint cannot amplify from zero.
     try testing.expectEqual(0, test_path.send_allowance());
     try testing.expect(test_path.is_amplification_limited(1));
@@ -189,8 +204,18 @@ test "§8: an unvalidated path takes three times what it gave, and no more" {
     try testing.expectEqual(constants.anti_amplification_factor * test_datagram, test_path.send_allowance());
 }
 
+test "§21.1.1.1: a path that begins validated is unlimited from its first octet" {
+    // The client's case. It has received nothing, so an unvalidated path would permit nothing.
+    test_path.init(.validated);
+    try testing.expectEqual(0, test_path.received);
+    try testing.expectEqual(State.validated, test_path.state());
+    try testing.expect(!test_path.is_amplification_limited(std.math.maxInt(u32)));
+    // RFC 9000 §8.2.3 keeps the path MTU a separate question, which nothing here has settled.
+    try testing.expect(!test_path.mtu_validated);
+}
+
 test "§8: a validated path has no limit" {
-    test_path.init();
+    test_path.init(.unvalidated);
     test_path.on_datagram_received(test_datagram);
     test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
     // While the challenge is outstanding the limit still holds.
@@ -202,7 +227,7 @@ test "§8: a validated path has no limit" {
 }
 
 test "§8.2.3: only the data of the challenge that went out validates the path" {
-    test_path.init();
+    test_path.init(.unvalidated);
     // A response with nothing outstanding validates nothing.
     try testing.expect(!test_path.on_response(challenge_a, true));
     try testing.expectEqual(State.unvalidated, test_path.state());
@@ -216,7 +241,7 @@ test "§8.2.3: only the data of the challenge that went out validates the path" 
 }
 
 test "§8.2.3: a challenge in a small datagram validates the address and not the MTU" {
-    test_path.init();
+    test_path.init(.unvalidated);
     test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
     try testing.expect(test_path.on_response(challenge_a, false));
     try testing.expectEqual(State.validated, test_path.state());
@@ -228,7 +253,7 @@ test "§8.2.3: a challenge in a small datagram validates the address and not the
 }
 
 test "§8.2.4: a challenge is abandoned on its timer, which is the only way it fails" {
-    test_path.init();
+    test_path.init(.unvalidated);
     test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
     try testing.expect(!test_path.on_instant(test_timeout_ns - 1));
     try testing.expectEqual(State.challenging, test_path.state());
@@ -238,7 +263,7 @@ test "§8.2.4: a challenge is abandoned on its timer, which is the only way it f
     try testing.expect(!test_path.on_response(challenge_a, true));
     try testing.expectEqual(State.abandoned, test_path.state());
     // A path with nothing outstanding is not abandoned by time passing.
-    test_path.init();
+    test_path.init(.unvalidated);
     try testing.expect(!test_path.on_instant(std.math.maxInt(u32)));
     try testing.expectEqual(State.unvalidated, test_path.state());
     // Nor is a validated one.
@@ -249,7 +274,7 @@ test "§8.2.4: a challenge is abandoned on its timer, which is the only way it f
 }
 
 test "§8.2.1, §8.2.3: a validated path is challenged again and stays validated throughout" {
-    test_path.init();
+    test_path.init(.unvalidated);
     test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
     try testing.expect(test_path.on_response(challenge_a, false));
     try testing.expect(test_path.owes_mtu_validation());

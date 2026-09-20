@@ -119,3 +119,30 @@ test "a connection holds no key and no socket, which is what makes it the caller
     try testing.expect(@sizeOf(Connection) > 0);
     try testing.expect(constants.packet_number_spaces == core.levels_count);
 }
+
+test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not" {
+    // A client has received nothing and must still be able to send its first Initial, which
+    // §14.1 makes 1,200 octets. §21.1.1.1: the limit "does not apply to clients when
+    // establishing a new connection".
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    try testing.expectEqual(0, test_connection.path.received);
+    try testing.expect(!test_connection.path.is_amplification_limited(constants.datagram_len_min));
+
+    // A server has received nothing either, and §8.1 is exactly the rule that stops it answering:
+    // three times nothing is nothing.
+    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    try testing.expectEqual(0, test_connection.path.send_allowance());
+    try testing.expect(test_connection.path.is_amplification_limited(1));
+
+    // And the server's exemption arrives with the client's octets, not with its role.
+    test_connection.path.on_datagram_received(constants.datagram_len_min);
+    const allowance = constants.anti_amplification_factor * constants.datagram_len_min;
+    try testing.expectEqual(allowance, test_connection.path.send_allowance());
+}
+
+test "RFC 9000 §8.2.3: a client's exemption is not a validated path MTU" {
+    // §21.1.1.1 lifts §8's limit for a client; it says nothing about the path MTU, which §8.2.3
+    // makes a separate question that only an expanded PATH_CHALLENGE settles.
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    try testing.expect(!test_connection.path.mtu_validated);
+}

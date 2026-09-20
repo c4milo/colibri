@@ -133,7 +133,12 @@ pub const Connection = struct {
     fn init_paths(connection: *Connection, options: Options) void {
         connection.local_ids.init(options.zero_length_connection_id);
         connection.remote_ids.init(false);
-        connection.path.init();
+        // RFC 9000 §8.1: the anti-amplification limit is the server's, because a server is handed
+        // an address it cannot yet believe. §21.1.1.1 exempts a client establishing a connection.
+        connection.path.init(switch (options.role) {
+            .client => .validated,
+            .server => .unvalidated,
+        });
         connection.tokens.init();
         // RFC 9000 §10.1: an idle timeout of 0 disables it, and §18.2 makes 0 the default.
         const idle = options.local_parameters.max_idle_timeout_ms;
