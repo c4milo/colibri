@@ -104,6 +104,23 @@ pub const max_streams_max: u64 = 1 << 60;
 /// (RFC 9000 §19.8): the sum of a STREAM frame's offset and length may not exceed it.
 pub const stream_offset_max: u64 = wire.constants.varint_value_max;
 
+/// Ranges of received packet numbers one space remembers and reports (RFC 9000 §13.2.3): a
+/// receiver limits them to bound an ACK frame and to avoid resource exhaustion. Past this many
+/// the oldest is dropped, and a packet below what is left is discarded rather than processed,
+/// because §12.3's certainty is gone.
+pub const ack_ranges_max: usize = 32;
+
+/// The packet number spaces of RFC 9000 §12.3: Initial, Handshake and Application data. 0-RTT
+/// and 1-RTT share the last one, so the count is the encryption levels colibri uses.
+pub const packet_number_spaces = crypto.suite.levels_count;
+
+/// Ack-eliciting packets a receiver takes before it sends an ACK frame (RFC 9000 §13.2.2): a
+/// receiver SHOULD send one after at least two.
+pub const ack_eliciting_before_ack: u64 = 2;
+
+/// Nanoseconds in a microsecond, which the ACK Delay field is measured in (RFC 9000 §19.3).
+pub const nanoseconds_per_microsecond: u64 = 1_000;
+
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;

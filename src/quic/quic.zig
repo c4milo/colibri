@@ -9,10 +9,12 @@ pub const tls = @import("tls");
 pub const constants = @import("constants.zig");
 pub const packet = @import("packet/packet.zig");
 pub const frame = @import("frame/frame.zig");
+pub const space = @import("space/space.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
     _ = packet;
     _ = frame;
+    _ = space;
 }
