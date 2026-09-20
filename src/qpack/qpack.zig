@@ -11,6 +11,7 @@ pub const representation_write = @import("representation_write.zig");
 pub const encoder = @import("encoder.zig");
 pub const decoder = @import("decoder.zig");
 pub const dynamic_table = @import("dynamic_table.zig");
+pub const instruction = @import("instruction.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -21,4 +22,5 @@ test {
     _ = encoder;
     _ = decoder;
     _ = dynamic_table;
+    _ = instruction;
 }

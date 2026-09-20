@@ -64,6 +64,47 @@ pub const dynamic_table_entries_max: u32 = dynamic_table_capacity_max / @as(u32,
 /// makes the smallest possible entry 32 octets and bounds `MaxEntries` in §4.5.1.1.
 pub const entry_overhead_len: u64 = 32;
 
+/// RFC 9204 §4.3's encoder instructions, told apart by the high bits of the first octet.
+///
+/// §4.3.2, Insert with Name Reference: `1T` and a 6-bit name index.
+pub const insert_name_reference_pattern: u8 = 0x80;
+pub const insert_name_reference_mask: u8 = 0x80;
+pub const insert_name_reference_static_flag: u8 = 0x40;
+pub const insert_name_reference_prefix_bits: u4 = 6;
+
+/// §4.3.3, Insert with Literal Name: `01`, then the name as a 6-bit prefix string literal and
+/// the value as an 8-bit one.
+pub const insert_literal_pattern: u8 = 0x40;
+pub const insert_literal_mask: u8 = 0xc0;
+pub const insert_literal_name_prefix_bits: u4 = 6;
+
+/// §4.3.1, Set Dynamic Table Capacity: `001` and a 5-bit capacity.
+pub const set_capacity_pattern: u8 = 0x20;
+pub const set_capacity_mask: u8 = 0xe0;
+pub const set_capacity_prefix_bits: u4 = 5;
+
+/// §4.3.4, Duplicate: `000` and a 5-bit relative index.
+pub const duplicate_pattern: u8 = 0x00;
+pub const duplicate_mask: u8 = 0xe0;
+pub const duplicate_prefix_bits: u4 = 5;
+
+/// RFC 9204 §4.4's decoder instructions, told apart the same way.
+///
+/// §4.4.1, Section Acknowledgment: `1` and a 7-bit stream identifier.
+pub const section_acknowledgment_pattern: u8 = 0x80;
+pub const section_acknowledgment_mask: u8 = 0x80;
+pub const section_acknowledgment_prefix_bits: u4 = 7;
+
+/// §4.4.2, Stream Cancellation: `01` and a 6-bit stream identifier.
+pub const stream_cancellation_pattern: u8 = 0x40;
+pub const stream_cancellation_mask: u8 = 0xc0;
+pub const stream_cancellation_prefix_bits: u4 = 6;
+
+/// §4.4.3, Insert Count Increment: `00` and a 6-bit increment.
+pub const insert_count_increment_pattern: u8 = 0x00;
+pub const insert_count_increment_mask: u8 = 0xc0;
+pub const insert_count_increment_prefix_bits: u4 = 6;
+
 /// The error codes of RFC 9204 §6, which HTTP/3 carries when QPACK cannot continue.
 pub const error_decompression_failed: u64 = 0x0200;
 pub const error_encoder_stream: u64 = 0x0201;
