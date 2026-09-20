@@ -1133,17 +1133,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   identical — which is also why no field here exceeds one octet. Fields of two, three and four
   octets are drawn by step 7's packet check, which sets the distance directly.
 
-- **Step 9 — QUIC transport.** The handshake over CRYPTO frames, the three packet number spaces,
-  ACK generation and processing, streams with both state machines, offset-based flow control,
-  `MAX_STREAMS`, connection IDs, path validation, anti-amplification, idle timeout, the close and
-  drain states. `disable_active_migration` per [decision 21](decisions.md), which saves less than
-  it sounds like. **Check:** the step 8 simulator checking
+- **Step 9 — QUIC transport, cut into five.** The owner ruled on 2026-09-19 that this step is
+  five (§12 question 5), after the first part of it showed where the dependencies already cut.
+  Only the last waits on chapulin. **Check:** the step 8 simulator checking
   [invariants 17 to 21](invariants.md#quic) after every step; the QUIC Interop Runner's
   `handshake`, `transfer`, `retry`, `resumption`, `keyupdate`, `multiplexing`, `ipv6`,
   `amplificationlimit`, `rebind-port` and `rebind-addr` cases against the endpoint of §9, with
-  **exit 127** for everything not yet supported — `connectionmigration` and `zerortt` are permanent
-  127s by decisions 21 and 20. **This is the largest step of the two protocols and should be split
-  once its shape is real.** *Very large.*
+  **exit 127** for everything not yet supported — `connectionmigration` and `zerortt` are
+  permanent 127s by decisions 21 and 20. That check belongs to step 9e, because nothing before
+  it completes a connection.
+
+- **Step 9a — the frame layer.** Every frame type of RFC 9000 §19, read and written.
+  **Check:** each type round-trips, every rule §19 states as a FRAME_ENCODING_ERROR refuses the
+  frame it names, and a frame cut anywhere is a truncation that consumes nothing. *Small.*
 
   **The frame layer, 2026-09-19.** `src/quic/frame/` reads and writes all twenty frame types of
   RFC 9000 §19. It is the piece of this step that needs no key, no handshake and no connection
@@ -1182,6 +1184,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   number. Each turn of that loop reads two variable-length integers and each needs an octet, so
   the reader ends the loop whatever the bound says; the bound is there because non-negotiable 4
   asks for one a reader can see.
+
+- **Step 9b — packet number spaces, acknowledgments, and how a connection ends.** The three
+  spaces of RFC 9000 §12.3, duplicate suppression, ACK generation and processing (§13.1, §13.2),
+  the ECN counts (§13.4.1), the idle timeout (§10.1) and the closing and draining states
+  (§10.2). **Check:** an ACK frame written from a space reads back through step 9a as the ranges
+  the space holds, and both state machines are checked by enumerating every state and event
+  pair. *Medium.*
 
   **The packet number spaces, 2026-09-19.** `src/quic/space/` holds the three spaces of RFC 9000
   §12.3 — Initial, Handshake and Application data — each with its own numbers, its own record of
@@ -1259,10 +1268,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   instant-passing entry point on an active connection, and the check that a draining endpoint
   stays silent was masked, because the counter it reads stops moving once draining begins.
 
-  **Still owed for the step**, which is everything else it names: the handshake over CRYPTO
-  frames, streams and their two state machines, flow control, connection IDs, path validation
-  and anti-amplification. The handshake half waits on chapulin's `ch_quic_*` calls; the rest
-  does not.
+- **Step 9c — streams and flow control.** RFC 9000 §2.1's identifiers, §3.1's sending state
+  machine and §3.2's receiving one, §4.5's final size, §4.1's stream and connection flow
+  control, and §4.6's stream limits, with the blocked frames each produces. **Check:** every
+  state and event pair of both machines enumerated; a sender never exceeds either limit and a
+  receiver refuses a peer that does, with FLOW_CONTROL_ERROR and STREAM_LIMIT_ERROR where §4.1
+  and §4.6 name them. *Large.*
+
+  **The identifiers and both machines, 2026-09-19.** `src/quic/stream/` holds RFC 9000 §2.1's
+  identifier, with the two low bits read in one place, and the two state machines, which stay
+  separate because neither half can observe the other's states: a receiver never sees the
+  sender's "Ready", and a sender never sees when the application read the data. §4.5's final
+  size rules are enforced rather than reported, because they are about numbers this code holds:
+  a size that changes, a size below what already arrived, and data reaching past a known size
+  are all FINAL_SIZE_ERROR. §4.5 lets an endpoint skip those to spare itself state on closed
+  streams; colibri holds the state while the stream exists, so it answers.
+
+  `src/quic/error_code.zig` names RFC 9000 §20.1's transport error codes once, so no file in
+  `quic` writes one inline and the same rule closes with the same number everywhere.
+
+  Both machines are checked by enumerating every state and event pair, 30 and 36 of them, with
+  a check that each table holds each pair exactly once and that a terminal state is left by
+  nothing. Mutations: 26 applied, all **CAUGHT**. Three gaps, and two of them were dead code
+  rather than missing tests — a term in `is_receivable_by` that could never change the answer,
+  because the peer may always send on a bidirectional stream, and an offset recorded on reset
+  that nothing reads once a final size is known. The third was a real gap: data arriving out of
+  order, where a later frame reaching less far must not lower the mark §4.5's "below what
+  arrived" check rests on.
+
+  **Still owed for 9c.** §4.1's flow control, §4.6's stream limits, and the table that holds
+  both halves of each stream against its identifier.
+
+- **Step 9d — connection IDs, path validation and anti-amplification.** NEW_CONNECTION_ID and
+  RETIRE_CONNECTION_ID (RFC 9000 §5.1), PATH_CHALLENGE and PATH_RESPONSE (§8.2), the
+  anti-amplification limit of §8, and the Stateless Reset of §10.3.
+  `disable_active_migration` per [decision 21](decisions.md), which saves less than it sounds
+  like. **Check:** [invariants 18 to 20](invariants.md#quic) asserted in the step 8 simulator
+  after every step. *Medium.*
+
+- **Step 9e — the handshake over CRYPTO frames, and the interop runner.** CRYPTO frame
+  reassembly by offset, the handshake driven through `tls.Provider`'s QUIC mode, and the
+  transport parameters of §7.4. **This is the only part of step 9 that waits on chapulin**: its
+  `ch_quic_*` calls all fail closed today. **Check:** step 9's, above. *Large.*
+
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
@@ -1413,20 +1461,21 @@ figure beside it, which is indicative and carries no threshold: a hosted runner 
 5. **Whether step 9 stays one step.** It is estimated very large and almost certainly wants
    splitting once its shape is real. Splitting it before writing any of it would be guessing.
 
-   **A proposal, 2026-09-19, now that one piece of it exists.** The frame layer landed at about
-   1,070 lines with its tests and needed no key, no handshake and no connection state, which
-   suggests cutting step 9 where the dependencies already cut it: **9a** the frame layer, done;
-   **9b** the packet number spaces, ACK generation and processing, and the idle timeout and
-   closing states, which need frames and the step 8 network and nothing else; **9c** streams,
-   both state machines and flow control, which need 9b; **9d** connection IDs, path validation
-   and anti-amplification; **9e** the handshake over CRYPTO frames and the interop runner's
-   cases, which is the only part that waits on chapulin. The owner rules on whether to cut.
+   **Ruled 2026-09-19: cut into five.** The frame layer landed at about 1,070 lines with its
+   tests and needed no key, no handshake and no connection state, which showed where the
+   dependencies already cut. §8 now carries **9a** the frame layer, **9b** the packet number
+   spaces with acknowledgments and the states a connection ends in, **9c** streams and flow
+   control, **9d** connection IDs, path validation and anti-amplification, and **9e** the
+   handshake over CRYPTO frames with the interop runner. Only 9e waits on chapulin, so four
+   fifths of the largest step can be built without it.
 
 ## 13. Risks
 
 - **Step 9.** QUIC transport is the largest single body of work and every later
   step depends on it. The mitigation is that steps 0 to 6 deliver a complete, shippable h2 library
-  first, so a QUIC schedule overrun costs h3 and nothing else.
+  first, so a QUIC schedule overrun costs h3 and nothing else. It was cut into 9a to 9e on
+  2026-09-19 (§12 question 5), which makes the overrun visible part by part rather than at the
+  end, and leaves only 9e waiting on chapulin.
 - **The conformance suites are older than the RFCs they test.** h2spec is written against RFC 7540
   and 7541 and last released in 2020. A disagreement is checked against RFC 9113 before it is
   treated as colibri's bug, and the version is pinned so the answer does not move.
