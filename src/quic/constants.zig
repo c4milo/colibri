@@ -121,6 +121,20 @@ pub const ack_eliciting_before_ack: u64 = 2;
 /// Nanoseconds in a microsecond, which the ACK Delay field is measured in (RFC 9000 §19.3).
 pub const nanoseconds_per_microsecond: u64 = 1_000;
 
+/// Probe Timeouts the closing and draining states last, and the floor RFC 9000 §10.1 puts under
+/// the idle timeout: §10.2 says both states SHOULD persist for at least three times the current
+/// PTO, and §10.1 says the idle period MUST be at least that too, so several probes can be sent
+/// and lost before a connection is given up.
+pub const close_probe_timeouts: u64 = 3;
+
+/// How the answers of a closing endpoint thin out (RFC 9000 §10.2.1): each one waits for this
+/// many times as many received packets as the last, which is the "progressively increasing
+/// number of received packets" the section offers.
+pub const close_answer_backoff: u64 = 2;
+
+/// Nanoseconds in a millisecond, which `max_idle_timeout` is advertised in (RFC 9000 §18.2).
+pub const nanoseconds_per_millisecond: u64 = 1_000 * nanoseconds_per_microsecond;
+
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;

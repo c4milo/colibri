@@ -10,6 +10,7 @@ pub const constants = @import("constants.zig");
 pub const packet = @import("packet/packet.zig");
 pub const frame = @import("frame/frame.zig");
 pub const space = @import("space/space.zig");
+pub const termination = @import("termination.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -17,4 +18,5 @@ test {
     _ = packet;
     _ = frame;
     _ = space;
+    _ = termination;
 }
