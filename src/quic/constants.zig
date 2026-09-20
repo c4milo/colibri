@@ -190,6 +190,13 @@ pub const anti_amplification_factor: u64 = 3;
 /// PATH_CHALLENGE reaches it, unless §8's limit forbids, so the path's MTU is tested too.
 pub const datagram_len_min: u64 = 1200;
 
+/// Octets of out-of-order CRYPTO data colibri buffers per encryption level. RFC 9000 §7.5:
+/// "Implementations MUST support buffering at least 4096 bytes of data received in out-of-order
+/// CRYPTO frames." It is the RFC's floor and not a choice of colibri's: in-order data is handed
+/// to the handshake as it arrives and never sits here, so this bounds only what a gap holds.
+/// More than this is a connection error of CRYPTO_BUFFER_EXCEEDED, which §7.5 names for it.
+pub const crypto_buffer_len: usize = 4096;
+
 /// The smallest Stateless Reset (RFC 9000 §10.3): the 16-octet token, and five octets before it
 /// so the Unpredictable Bits field carries the 38 bits that make the datagram look like a valid
 /// short-header packet.

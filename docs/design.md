@@ -1488,6 +1488,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   identifier a peer chose to send, which is the trade the ACK range walk of §19.3.1 already
   refuses, and §18.1 gives an unknown parameter no semantics to conflict with.
 
+  **The CRYPTO streams are done, 2026-09-20.** `src/quic/crypto_stream.zig` is RFC 9000 §19.6's
+  one ordered flow of handshake octets per encryption level, reassembled from the frames that
+  carried them. `src/quic/stream/` could not serve: a CRYPTO stream has no identifier, no FIN, no
+  flow control and no final size, so none of §3.2's receiving states or §4.5's final-size rules
+  apply to it. What it has instead is §7.5's buffer limit, which is the only thing bounding what
+  a peer can make colibri hold, because "there is no flow control of CRYPTO frames".
+
+  The window is anchored at what the handshake has read: `buffer[0]` is the octet at `base`,
+  `contiguous` counts the octets from there with no gap, `readable` is the run the handshake may
+  take now and `consume` slides the window. Data past the window is a connection error of
+  CRYPTO_BUFFER_EXCEEDED, which §7.5 names for exactly it. The window is `crypto_buffer_len`,
+  4096, which is the RFC's floor rather than a choice of colibri's — in-order data is handed over
+  as it arrives and never sits here, so the number bounds only what a gap holds. Which octets are
+  present is a bit each, not a byte: a byte would cost eight times the window per level.
+
+  Mutations: eight applied, all **CAUGHT** — the window's last octet refused, the bound removed,
+  the in-order run never extending, `consume` losing what was buffered above it, `consume` moving
+  the marks and not the octets, a frame straddling the base written at the wrong offset, every
+  level answering as one, and `consume` not advancing the base.
+
   Mutations: nine applied, all **CAUGHT** — two defaults changed, the 1200 floor removed,
   `max_ack_delay` admitting 2^14 itself, a repeat accepted, a client's server-only parameter
   accepted, an integer carrying trailing octets, a connection ID past 20 octets, and an unknown
