@@ -47,7 +47,7 @@ test "the configuration colibri builds is the one chapulin is given" {
     // The callbacks point at this file, and their state at the phase.
     try testing.expect(test_client.config.send != null);
     try testing.expect(test_client.config.recv != null);
-    try testing.expectEqual(Io.socket, std.meta.activeTag(test_client.io));
+    try testing.expectEqual(Io.socket, std.meta.activeTag(test_client.held.io));
 }
 
 test "the record phase serves colibri's buffers and never the socket" {
@@ -63,25 +63,25 @@ test "the record phase serves colibri's buffers and never the socket" {
     // Moving to phase 2 is what `handshake` does on success; the descriptor is never used again.
     var input = [_]u8{ 1, 2, 3, 4 };
     var output: [8]u8 = @splat(0);
-    test_client.io = .{ .records = .{ .input = &input, .output = &output } };
+    test_client.held.io = .{ .records = .{ .input = &input, .output = &output } };
     // `recv` hands chapulin the octets colibri passed, in order, and stops at the end of them.
     var taken: [4]u8 = @splat(0);
-    try testing.expectEqual(2, recv(@ptrCast(&test_client.io), &taken, 2));
+    try testing.expectEqual(2, recv(@ptrCast(&test_client.held.io), &taken, 2));
     try testing.expectEqualSlices(u8, &.{ 1, 2 }, taken[0..2]);
-    try testing.expectEqual(2, recv(@ptrCast(&test_client.io), &taken, 4));
+    try testing.expectEqual(2, recv(@ptrCast(&test_client.held.io), &taken, 4));
     try testing.expectEqualSlices(u8, &.{ 3, 4 }, taken[0..2]);
     // Past the end it fails rather than blocking, because no callback of chapulin's can say
     // "nothing yet" and colibri only ever passes a whole record.
-    try testing.expectEqual(-1, recv(@ptrCast(&test_client.io), &taken, 1));
+    try testing.expectEqual(-1, recv(@ptrCast(&test_client.held.io), &taken, 1));
     // `send` fills colibri's output and refuses to write part of a record into a short one.
     // `send` answers 0 for success, never a count: chapulin reads a positive value as failure.
     const sealed = [_]u8{ 9, 9, 9 };
-    try testing.expectEqual(0, send(@ptrCast(&test_client.io), &sealed, 3));
+    try testing.expectEqual(0, send(@ptrCast(&test_client.held.io), &sealed, 3));
     try testing.expectEqualSlices(u8, &.{ 9, 9, 9 }, output[0..3]);
-    try testing.expectEqual(3, test_client.io.records.written);
-    try testing.expectEqual(-1, send(@ptrCast(&test_client.io), &sealed, 6));
-    try testing.expectEqual(3, test_client.io.records.written);
-    try testing.expectEqual(3, test_client.io.records.written);
+    try testing.expectEqual(3, test_client.held.io.records.written);
+    try testing.expectEqual(-1, send(@ptrCast(&test_client.held.io), &sealed, 6));
+    try testing.expectEqual(3, test_client.held.io.records.written);
+    try testing.expectEqual(3, test_client.held.io.records.written);
 }
 
 test "the vtable colibri gets answers every member" {
@@ -132,8 +132,9 @@ test "once the handshake is done the session reports what it chose" {
     });
     // What `handshake` does on success. The live handshake is a separate check; this pins what
     // colibri reads afterwards.
-    test_client.io = .{ .records = .{} };
-    test_client.session.alpn_selected = 0;
+    test_client.held.io = .{ .records = .{} };
+    test_client.held.suite = chapulin_client.client_suite;
+    test_client.held.session.alpn_selected = 0;
     const held = test_client.provider();
     try testing.expect(held.vtable.handshake_complete(held.context));
     try testing.expectEqualStrings("h2", held.vtable.negotiated_alpn(held.context).?);
@@ -142,6 +143,41 @@ test "once the handshake is done the session reports what it chose" {
     try testing.expectEqual(tls_1_3, negotiated.version);
     try testing.expectEqual(tls.constants.cipher_suite_chacha20_poly1305_sha256, negotiated.cipher_suite);
     // A server that selected nothing leaves colibri with no protocol, which `attach_tls` refuses.
-    test_client.session.alpn_selected = c.CH_ALPN_NONE;
+    test_client.held.session.alpn_selected = c.CH_ALPN_NONE;
     try testing.expectEqual(null, held.vtable.negotiated_alpn(held.context));
+}
+
+test "a peer's close_notify is reported with its description, not as a failure" {
+    if (!chapulin.available) return error.SkipZigTest;
+    const anchors = [_]c.ch_trust_anchor{};
+    try test_client.init(.{
+        .anchors = &anchors,
+        .hostname = test_hostname,
+        .socket = 0,
+        .now_seconds = test_now_seconds,
+        .receive = &test_receive,
+    });
+    test_client.held.io = .{ .records = .{} };
+    // chapulin's `ch_read` answers 0 for a session the peer closed cleanly, which is the one
+    // description this adapter can name.
+    test_client.held.session.state = c.CH_ST_CLOSED;
+
+    const held = test_client.provider();
+    var record = [_]u8{ 0x17, 0x03, 0x03, 0x00, 0x11 };
+    var plaintext: [64]u8 = @splat(0);
+    const opened = try held.vtable.decrypt_record(held.context, &record, &plaintext);
+    // RFC 9846 §6.1: the record is an alert and carries no application data.
+    try testing.expectEqual(tls.Content.alert, opened.content);
+    try testing.expectEqual(0, opened.plaintext_len);
+
+    // colibri's `connection_tls.on_alert` treats a provider that classifies a record as an alert
+    // and then reports no description as having broken its contract, and closes with
+    // `error.TlsFailed`. Without a report here every orderly close would look like a failure.
+    const report = held.vtable.take_alert(held.context).?;
+    try testing.expectEqual(tls.Alert.close_notify, report.description);
+    try testing.expectEqual(tls.AlertReport.Origin.peer, report.origin);
+    // RFC 9846 §6.1 makes this the end of the peer's data, which is not an error.
+    try testing.expect(tls.alert.is_orderly_close(report));
+    // The call clears it, so a second reports none.
+    try testing.expectEqual(null, held.vtable.take_alert(held.context));
 }

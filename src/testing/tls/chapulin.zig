@@ -28,6 +28,10 @@ pub const c = if (available) @cImport({
     @cInclude("tls.h");
     // The entropy a `RAND=drbg` build packages, which the endpoint seeds before any handshake.
     @cInclude("drbg.h");
+    // The two calls a server adds, `ch_srv_accept` and `ch_srv_check`. It is included whatever
+    // the role, because chapulin guards the whole header with `#ifdef CH_ROLE_SERVER`: in a
+    // client build it expands to nothing and declares no symbol the linker would look for.
+    @cInclude("srv.h");
 }) else struct {};
 
 comptime {
