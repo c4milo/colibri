@@ -100,6 +100,13 @@ pub const default_active_connection_id_limit: u64 = 2;
 
 /// RFC 9000 §18.2's bounds, each stated as a value that is invalid.
 pub const max_udp_payload_size_min: u64 = constants.datagram_len_min;
+
+comptime {
+    // `constants.max_ack_delay_default_ns` spells RFC 9000 §18.2's same 25 milliseconds in the
+    // unit RFC 9002 counts in. Two spellings of one number, so they are held together here.
+    assert(default_max_ack_delay_ms * constants.nanoseconds_per_millisecond ==
+        constants.max_ack_delay_default_ns);
+}
 pub const ack_delay_exponent_max: u64 = 20;
 /// RFC 9000 §18.2 states this bound as a power of two, so the exponent is named rather than the
 /// product: "Values of 2^14 or greater are invalid."

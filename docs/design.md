@@ -1488,6 +1488,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   identifier a peer chose to send, which is the trade the ACK range walk of §19.3.1 already
   refuses, and §18.1 gives an unknown parameter no semantics to conflict with.
 
+  **The connection exists, 2026-09-20.** `src/quic/connection/connection.zig` is what joins the
+  ten pieces steps 9a to 9d built: three packet number spaces paired with three encryption
+  levels, the CRYPTO stream of each, the stream table, both levels of flow control, the
+  connection IDs each side holds, the path, the termination state and RFC 9002's recovery. Every
+  one was tested alone; what is new is that they belong to one connection and agree about it.
+
+  It holds no key, no socket and no provider — a test refuses a field whose name says otherwise,
+  because the keys are the caller's `crypto.Suite` (decision 48) and the handshake is the
+  caller's `tls.QuicProvider` (decision 8). It reads no clock: `init` takes the instant.
+
+  The shape worth naming is that a connection starts not knowing what its peer will accept. RFC
+  9000 §7.4 carries the peer's parameters in the handshake, so what colibri may spend against
+  begins at zero and `apply_peer_parameters` raises it. That is not a special case: §18.2 says a
+  stream limit that is "absent or zero" means the peer cannot open streams until a MAX_STREAMS
+  frame, which is the state a connection begins in. What colibri *grants* is its own parameters
+  and is in force from the first packet.
+
+  Mutations: seven applied, all **CAUGHT** — a level paired with the wrong space, colibri
+  spending its own grant instead of the peer's, the send window starting at colibri's own limit,
+  the peer's parameters not raising it, an idle timeout of zero arming the timer instead of
+  disabling it, every level answering one CRYPTO stream, and the idle timeout read as nanoseconds
+  rather than milliseconds.
+
+  **What 9e still owes.** The receive path (datagram to packets to frames), the send path with
+  §12.2's coalescing and §14.1's padding, the key-schedule timing of RFC 9001 §4.9 and §6, Retry
+  and version negotiation, the simulator connection check asserting invariants 17 to 21, and the
+  test-only endpoint with `tools/interop.sh`. Only the last waits on chapulin, whose QUIC server
+  has not yet exchanged a packet with any implementation.
+
   **`tls.Provider`'s QUIC mode is declared, 2026-09-20.** `src/tls/quic_provider.zig` is the
   eight members [decision 8](decisions.md#what-the-caller-supplies) names for this mode, with no
   implementation in the tree as non-negotiable 2 requires. A test holds the list to decision 8's
