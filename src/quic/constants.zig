@@ -172,6 +172,35 @@ pub const stream_directionalities: usize = 2;
 /// that many streams at once.
 pub const streams_per_connection_max: u32 = core.constants.streams_per_connection_max;
 
+/// Connection IDs from the peer this endpoint holds at once. It is what
+/// `active_connection_id_limit` advertises (RFC 9000 §18.2), which that parameter puts a floor
+/// of 2 under, and it bounds the table that holds them.
+pub const connection_ids_max: usize = 8;
+
+/// RFC 9000 §18.2: `active_connection_id_limit` MUST be at least 2, and a peer that sends less
+/// is a TRANSPORT_PARAMETER_ERROR. Absent, a value of 2 is assumed.
+pub const active_connection_id_limit_min: u64 = 2;
+
+/// RFC 9000 §8: before a peer's address is validated an endpoint must not send it more than
+/// this many times what it received from it, which is what stops a spoofed source address
+/// turning an endpoint into an amplifier (invariant 18).
+pub const anti_amplification_factor: u64 = 3;
+
+/// RFC 9000 §14.1, §8.2.1: the smallest allowed maximum datagram size. A datagram carrying a
+/// PATH_CHALLENGE reaches it, unless §8's limit forbids, so the path's MTU is tested too.
+pub const datagram_len_min: u64 = 1200;
+
+/// The smallest Stateless Reset (RFC 9000 §10.3): the 16-octet token, and five octets before it
+/// so the Unpredictable Bits field carries the 38 bits that make the datagram look like a valid
+/// short-header packet.
+pub const stateless_reset_unpredictable_len_min: usize = 5;
+pub const stateless_reset_len_min: usize = stateless_reset_unpredictable_len_min + stateless_reset_token_len;
+
+/// RFC 9000 §10.3.3: a Stateless Reset must be smaller than three times the packet that
+/// triggered it, which is §8's anti-amplification factor applied to a datagram this endpoint
+/// cannot associate with a connection.
+pub const stateless_reset_amplification_factor: u64 = anti_amplification_factor;
+
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
 pub const comptime_scan_branches_per_octet: u32 = 4;
@@ -182,6 +211,9 @@ pub const comptime_scan_branches_per_octet: u32 = 4;
 pub const length_field_lens = wire.constants.varint_lens;
 
 comptime {
+    // RFC 9000 §10.3: the resulting minimum size is 21 bytes.
+    assert(stateless_reset_len_min == 21);
+    assert(connection_ids_max >= active_connection_id_limit_min);
     assert(frame_stream_last - frame_stream_first == stream_flag_off | stream_flag_len | stream_flag_fin);
     assert(frame_ack_ecn == frame_ack | frame_low_bit);
     assert(connection_id_len_min > 0 and connection_id_len_min <= connection_id_len_max);

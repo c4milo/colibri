@@ -13,6 +13,9 @@ pub const space = @import("space/space.zig");
 pub const termination = @import("termination.zig");
 pub const error_code = @import("error_code.zig");
 pub const flow = @import("flow.zig");
+pub const connection_id = @import("connection_id.zig");
+pub const path = @import("path.zig");
+pub const stateless_reset = @import("stateless_reset.zig");
 pub const stream = @import("stream/stream.zig");
 
 test {
@@ -24,5 +27,8 @@ test {
     _ = termination;
     _ = error_code;
     _ = flow;
+    _ = connection_id;
+    _ = path;
+    _ = stateless_reset;
     _ = stream;
 }
