@@ -44,7 +44,14 @@ pub const alpn_protocol_name_len_max: u32 = 255;
 /// RFC 9113 §3.1: the "h2" protocol identifier, serialized as the two octets 0x68 and 0x32.
 pub const alpn_h2: [2]u8 = .{ 0x68, 0x32 };
 
+/// RFC 9114 §3.1: the "h3" protocol identifier, serialized as the two octets 0x68 and 0x33.
+/// RFC 9001 §8.1 makes ALPN mandatory in QUIC, so a connection carrying h3 always names it.
+pub const alpn_h3: [2]u8 = .{ 0x68, 0x33 };
+
 comptime {
+    // RFC 9113 §3.1 and RFC 9114 §3.1 spell the two tokens, which differ in their last octet.
+    assert(alpn_h2[0] == 'h' and alpn_h2[1] == '2');
+    assert(alpn_h3[0] == 'h' and alpn_h3[1] == '3');
     // RFC 9846 §5.2: the protected record is the plaintext, one content-type octet and the tag, so
     // it is longer than the plaintext it carries.
     assert(record_ciphertext_len_max > record_plaintext_len_max);

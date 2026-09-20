@@ -14,14 +14,19 @@ pub const Alert = alert.Alert;
 pub const AlertReport = alert.AlertReport;
 
 pub const provider = @import("provider.zig");
+pub const quic_provider = @import("quic_provider.zig");
 pub const Provider = provider.Provider;
 pub const VTable = provider.VTable;
 pub const Content = provider.Content;
 pub const Negotiated = provider.Negotiated;
+pub const QuicProvider = quic_provider.QuicProvider;
+pub const QuicVTable = quic_provider.VTable;
+pub const Level = quic_provider.Level;
 
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
     _ = alert;
     _ = provider;
+    _ = quic_provider;
 }

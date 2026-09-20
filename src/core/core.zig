@@ -16,6 +16,12 @@ pub const Writer = writer.Writer;
 pub const slots = @import("slots.zig");
 pub const Pool = slots.Pool;
 
+/// The encryption levels of RFC 9001 §4.1.4, which `crypto` and `tls` both speak and neither
+/// owns: design §3 makes them siblings with no edge between them.
+pub const encryption_level = @import("encryption_level.zig");
+pub const Level = encryption_level.Level;
+pub const levels_count = encryption_level.levels_count;
+
 /// The fuzz harness every decoder's tests share. Test-only.
 pub const fuzz = @import("fuzz.zig");
 
@@ -25,5 +31,6 @@ test {
     _ = reader;
     _ = writer;
     _ = slots;
+    _ = encryption_level;
     _ = fuzz;
 }

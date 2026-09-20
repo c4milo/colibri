@@ -1488,6 +1488,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   identifier a peer chose to send, which is the trade the ACK range walk of §19.3.1 already
   refuses, and §18.1 gives an unknown parameter no semantics to conflict with.
 
+  **`tls.Provider`'s QUIC mode is declared, 2026-09-20.** `src/tls/quic_provider.zig` is the
+  eight members [decision 8](decisions.md#what-the-caller-supplies) names for this mode, with no
+  implementation in the tree as non-negotiable 2 requires. A test holds the list to decision 8's
+  and to invariant 23's rule that no member moves a key, a secret or an IV — decision 48 removed
+  `on_secret` and `hkdf_expand_label`, so the secrets of RFC 9001 §4.1.4 go from the provider to
+  the suite inside the caller's code and colibri asks `crypto.Suite.keys_available` instead.
+
+  Three things are not in it, and each for a reason RFC 9001 states. There is no
+  `encrypt_record` or `decrypt_record`, because §3 says QUIC "takes over the responsibilities of
+  the TLS record layer" and `crypto.Suite` protects a packet instead. There is no
+  `send_close_notify`, because §4.8 closes a QUIC connection with a CONNECTION_CLOSE frame. And
+  `take_alert` answers an AlertDescription rather than a record, because §4.8 adds it to 0x0100
+  to make a CRYPTO_ERROR code and makes every alert fatal, so there is no level to report beside
+  it; `quic.error_code.crypto_error` already does that arithmetic.
+
+  The encryption level moved to `core`. `crypto.Suite` protects a packet at a level and this
+  vtable moves handshake octets at one, and design §3 makes `tls` and `crypto` siblings with no
+  edge between them, so the type they share is `core.Level` and `crypto.suite.Level` is an alias
+  of it. No module-graph edge was added: both already import `core`.
+
+  `tls.constants` gains `alpn_h3`, RFC 9114 §3.1's token, beside `alpn_h2`.
+
   **The CRYPTO streams are done, 2026-09-20.** `src/quic/crypto_stream.zig` is RFC 9000 §19.6's
   one ordered flow of handshake octets per encryption level, reassembled from the frames that
   carried them. `src/quic/stream/` could not serve: a CRYPTO stream has no identifier, no FIN, no

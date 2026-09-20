@@ -19,6 +19,7 @@
 //! reasons. Every member is mandatory, so colibri never compares a function pointer against null;
 //! a suite that cannot do something answers `error.Unsupported`.
 const std = @import("std");
+const core = @import("core");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 
@@ -35,14 +36,12 @@ pub const Role = enum {
 };
 
 /// The encryption levels colibri uses (RFC 9001 §4.1.4). 0-RTT is not one: decision 20.
-pub const Level = enum(u2) {
-    initial = 0,
-    handshake = 1,
-    /// 1-RTT, which the application's data and every key update use.
-    application = 2,
-};
-
-pub const levels_count = @typeInfo(Level).@"enum".fields.len;
+///
+/// The type is `core`'s, because `tls`'s QUIC mode moves handshake octets at a level too and
+/// design §3 makes `tls` and `crypto` siblings with no edge between them. These two are aliases,
+/// not copies: there is one `Level` in the tree.
+pub const Level = core.Level;
+pub const levels_count = core.levels_count;
 
 pub const Direction = enum(u1) { read = 0, write = 1 };
 
