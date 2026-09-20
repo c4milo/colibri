@@ -208,7 +208,8 @@ fn eliciting(number: u64) Record {
     };
 }
 
-/// A packet carrying only ACK and PADDING (RFC 9002 §2): neither ack-eliciting nor in flight.
+/// A packet carrying only ACK, and no PADDING (RFC 9002 §2): neither ack-eliciting nor in
+/// flight. PADDING alone would make it in flight, which is the other half of §2's definition.
 fn acknowledgment_only(number: u64) Record {
     var held = eliciting(number);
     held.ack_eliciting = false;

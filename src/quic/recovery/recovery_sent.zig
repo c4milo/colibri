@@ -42,10 +42,22 @@ pub const Record = struct {
     /// RFC 9002 §2: whether the packet carries a frame other than ACK, PADDING and
     /// CONNECTION_CLOSE, which is what obliges the peer to acknowledge it.
     ack_eliciting: bool,
-    /// RFC 9002 §2: whether it counts toward the bytes in flight, which every ack-eliciting
-    /// packet does and a packet carrying only ACK and PADDING does not.
+    /// RFC 9002 §2: "Packets are considered in flight when they are ack-eliciting or contain a
+    /// PADDING frame". Both halves matter to the sender: a packet carrying only ACK is not in
+    /// flight, and one padded to RFC 9000 §14.1's 1,200 octets is, whatever else it holds.
     in_flight: bool,
 };
+
+/// Whether a packet the sender just framed counts toward the bytes in flight. RFC 9002 §2:
+/// "Packets are considered in flight when they are ack-eliciting or contain a PADDING frame".
+///
+/// It is a function rather than a rule each caller restates, because the two halves come apart:
+/// RFC 9000 §14.1 makes a client pad every datagram carrying an Initial to 1,200 octets, so a
+/// padded acknowledgment is in flight while eliciting nothing, and reading only `ack_eliciting`
+/// would under-count the congestion window by the whole of that datagram.
+pub fn counts_in_flight(ack_eliciting: bool, carries_padding: bool) bool {
+    return ack_eliciting or carries_padding;
+}
 
 /// What `remove_range` took out, so a caller walking ACK ranges sums one struct per range rather
 /// than one per packet.
@@ -323,8 +335,9 @@ fn eliciting(number: u64) Record {
     };
 }
 
-/// A packet carrying only ACK and PADDING: RFC 9002 §2 has it neither ack-eliciting nor in
-/// flight, so it is remembered but counts toward nothing.
+/// A packet carrying only ACK, and no PADDING: RFC 9002 §2 has it neither ack-eliciting nor in
+/// flight, so it is remembered but counts toward nothing. Adding one PADDING frame would put it
+/// in flight without making it ack-eliciting, which is the case §14.1 forces on every sender.
 fn acknowledgment_only(number: u64) Record {
     return .{
         .number = number,
@@ -473,4 +486,15 @@ test "A.11: discarding a space gives up every record at once" {
     try testing.expectEqual(0, test_table.discard().count);
     try test_table.record(eliciting(3));
     try testing.expectEqual(3, test_table.oldest().?.number);
+}
+
+test "RFC 9002 §2: PADDING puts a packet in flight without eliciting an acknowledgment" {
+    // The ordinary packet: it elicits an acknowledgment, so it is in flight whatever else it holds.
+    try testing.expect(counts_in_flight(true, false));
+    try testing.expect(counts_in_flight(true, true));
+    // RFC 9000 §14.1's padded datagram. Nothing in it elicits an acknowledgment and it is still
+    // in flight, which is the half a sender reading only `ack_eliciting` would lose.
+    try testing.expect(counts_in_flight(false, true));
+    // A packet carrying only ACK is the one case that counts toward neither.
+    try testing.expect(!counts_in_flight(false, false));
 }
