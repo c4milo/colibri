@@ -20,6 +20,7 @@ pub const rtt = @import("rtt.zig");
 pub const recovery_sent = @import("recovery/recovery_sent.zig");
 pub const recovery_loss = @import("recovery/recovery_loss.zig");
 pub const recovery_congestion = @import("recovery/recovery_congestion.zig");
+pub const recovery_timer = @import("recovery/recovery_timer.zig");
 pub const stream = @import("stream/stream.zig");
 
 test {
@@ -38,5 +39,6 @@ test {
     _ = recovery_sent;
     _ = recovery_loss;
     _ = recovery_congestion;
+    _ = recovery_timer;
     _ = stream;
 }
