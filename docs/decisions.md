@@ -1160,3 +1160,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     authenticated, address-bound, expiring token §8.1.1 describes. It is a judgement and the
     constant says so: 128 risks refusing a Retry from a server that mints something larger, and
     512 buys headroom at the cost of a larger fixed header buffer on every connection.
+
+55. **The Retry token is the caller's to mint and to check, and the instant is a parameter.**
+    Ruled by the owner on 2026-09-20.
+
+    RFC 9000 §8.1.1 and §8.1.4 want a token that is authenticated, bound to the client's address
+    and expiring. Authenticating it needs a key, which non-negotiable 2 refuses colibri, and
+    expiring it needs the current instant, which non-negotiable 3 makes a parameter rather than
+    something read. So the token is the caller's: two members are added to `crypto.Suite`, one
+    that mints a token over an address the caller supplies and one that checks it, and both take
+    `now_ns` from colibri rather than reading a clock.
+
+    Taking the instant as a parameter is not a formality here. The deterministic simulator
+    supplies it (non-negotiable 5), so a token minted in a seeded run expires at a seeded instant
+    and one seed replays byte for byte. A token whose validity depended on a clock the suite read
+    would make every Retry check unreproducible, which is the one thing design §8's whole method
+    rests on.
+
+    The alternatives refused. colibri holding a key of its own is non-negotiable 2. A token that
+    is unauthenticated, which §8.1.4 warns lets an attacker replay one, would make Retry worse
+    than not offering it. And a plain parameter on the server's Retry entry point rather than a
+    vtable member was refused because the same key must mint and check across two connections,
+    which is state colibri does not hold (decision 35).

@@ -9,6 +9,8 @@ const core = @import("core");
 const constants = @import("../constants.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
+const path_module = @import("../path.zig");
+const stateless_reset = @import("../stateless_reset.zig");
 const identity_module = @import("connection_identity.zig");
 
 const testing = std.testing;
@@ -185,4 +187,26 @@ test "RFC 9000 §19.16: a zero-length connection ID reaches the set that refuses
         error.RetiredUnissued,
         test_connection.local_ids.retire(1, null),
     );
+}
+
+test "invariant 20: a connection holds one path and cannot name a second" {
+    // Decision 21 refuses migration, so a connection has one path for its life and a send has no
+    // other to choose. RFC 9000 §9's rules all turn on observing an address, which non-negotiable
+    // 1 leaves colibri unable to do, so this is what the invariant can actually rest on.
+    var paths: usize = 0;
+    inline for (@typeInfo(Connection).@"struct".fields) |field| {
+        if (field.type == path_module.Path) paths += 1;
+    }
+    try testing.expectEqual(1, paths);
+}
+
+test "invariant 20: nothing in quic writes a Stateless Reset" {
+    // RFC 9000 §9: "Generating a Stateless Reset or closing the connection would allow third
+    // parties in the network to cause connections to close by spoofing or otherwise manipulating
+    // observed traffic." colibri reads one (§10.3.1) and never produces one, so the module
+    // exposes no writer and this holds it to that.
+    inline for (@typeInfo(stateless_reset).@"struct".decls) |decl| {
+        try testing.expect(!std.mem.containsAtLeast(u8, decl.name, 1, "write"));
+        try testing.expect(!std.mem.containsAtLeast(u8, decl.name, 1, "build"));
+    }
 }

@@ -315,21 +315,33 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Treating `MAX_DATA` as an increment, which is the h2 habit and silently doubles
   every limit.
 
-### INV-20 — an unvalidated path is never used, and a refused migration is a silent drop
+### INV-20 — colibri holds one path, and refusing a migration emits nothing
 
-- **Claim.** colibri never sends non-probing frames to an address it has not validated, and when a
-  peer migrates in violation of `disable_active_migration`, colibri drops the datagram silently —
-  it never sends a Stateless Reset and never closes the connection.
-- **Mechanism.** The send path takes a path handle, and only a validated path handle admits
-  non-probing frames. The refusal path increments a counter and returns; there is no error value
-  it can produce, because RFC 9000 §9 permits only a silent drop or accepting the migration, and
-  closing is forbidden.
-- **Check.** Type system for the path handle; runtime assertion on the refusal path that no output
-  was produced; simulator invariant; the interop runner's `rebind-port` and `rebind-addr` cases,
-  which are the ones a refusing endpoint must still pass. `connectionmigration` is a case colibri
-  exits 127 on, by decision 21. Step 9.
+- **Claim.** A connection holds exactly one path for its life, so colibri never initiates a
+  migration and never sends anything on a path it did not already have. When a peer migrates,
+  colibri emits nothing in response to the migration itself: no Stateless Reset and no
+  CONNECTION_CLOSE. What it may send on the one path it holds is RFC 9000 §8's limit, which is
+  [invariant 18](#inv-18--the-anti-amplification-limit-holds-and-it-is-the-servers).
+- **Mechanism.** `Connection` holds one `Path` and no way to name a second, so a send has no
+  other path to choose. Nothing in `src/quic/` builds a Stateless Reset, which is what §9 forbids
+  as an answer: "Generating a Stateless Reset or closing the connection would allow third parties
+  in the network to cause connections to close by spoofing or otherwise manipulating observed
+  traffic."
+- **Check.** A test that `Connection` holds one path and that no function takes a second; a test
+  that nothing under `src/quic/` writes a Stateless Reset in answer to a received datagram; a
+  simulator invariant that a connection's output is always attributable to the one path it holds.
+  The interop runner's `rebind-port` and `rebind-addr` cases are what show a refusing endpoint
+  still works, and `connectionmigration` is a case colibri exits 127 on, by decision 21. Step 9.
 - **Violation.** A `MIGRATION_REFUSED`-shaped error code, which does not exist in RFC 9000 §20.1
   and would let a third party close connections by spoofing traffic.
+- **Why this is not about detecting a migration.** Every rule in RFC 9000 §9 turns on observing an
+  address: an endpoint acts "if it detects any change to a peer's address", a server waits until
+  it sees "a non-probing packet from that address", and a client discards packets "from an unknown
+  server address". Non-negotiable 1 gives colibri no socket, so it never learns an address and
+  never compares two, and it therefore cannot tell a migrated datagram from any other. Detecting
+  one, and dropping it, is the caller's. This entry used to claim colibri did that, and to name a
+  path handle the type system would check — a mechanism for choosing between several paths, which
+  decision 21 leaves colibri without.
 - See [decisions 21](decisions.md#what-colibri-does-not-build).
 
 ### INV-21 — a level is protected only while its keys are available
