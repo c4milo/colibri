@@ -159,6 +159,12 @@ pub const Connection = struct {
         // RFC 9000 §5.1: an endpoint's connection IDs share one length, so whether colibri's are
         // zero-length is what its own first Source Connection ID already said.
         connection.local_ids.init(connection.identity.local_len() == 0);
+        // RFC 9000 §5.1.1: "The initial connection ID issued by an endpoint is sent in the Source
+        // Connection ID field of the long packet header during the handshake. The sequence number
+        // of the initial connection ID is 0." So the identity's own is entry 0 of this set, and
+        // §19.16 can ask which connection ID a packet was addressed to from the first packet on.
+        const issued = connection.local_ids.issue(connection.identity.source().slice());
+        assert(issued != null and issued.? == 0);
         connection.remote_ids.init(false);
         // RFC 9000 §8.1: the anti-amplification limit is the server's, because a server is handed
         // an address it cannot yet believe. §21.1.1.1 exempts a client establishing a connection.

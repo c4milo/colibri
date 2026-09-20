@@ -198,13 +198,26 @@ pub const Remote = struct {
     }
 };
 
+/// One connection ID this endpoint issued, with the sequence number RFC 9000 §5.1.1 gives it.
+/// The octets are kept because §19.16 asks which connection ID a packet was addressed to, and
+/// only the octets on the wire can answer that.
+pub const Issued = struct {
+    sequence_number: u64,
+    len: u8,
+    octets: [constants.connection_id_len_max]u8,
+
+    pub fn value(issued: *const Issued) []const u8 {
+        return issued.octets[0..issued.len];
+    }
+};
+
 /// The connection IDs this endpoint issued, which it accepts packets to (RFC 9000 §5.1.1).
 pub const Local = struct {
     /// The sequence number of the next one issued. RFC 9000 §5.1.1: the first is 0 and each
     /// MUST increase by 1.
     next_sequence_number: u64,
-    /// Sequence numbers issued and not retired.
-    active_sequence_numbers: [constants.connection_ids_max]u64,
+    /// Those issued and not retired, with their octets.
+    active: [constants.connection_ids_max]Issued,
     len: usize,
     /// Whether this endpoint issued a zero-length connection ID, under which RFC 9000 §19.16
     /// makes a RETIRE_CONNECTION_ID frame impossible.
@@ -212,19 +225,38 @@ pub const Local = struct {
 
     pub fn init(local: *Local, zero_length: bool) void {
         local.next_sequence_number = 0;
-        local.active_sequence_numbers = @splat(0);
+        local.active = @splat(.{ .sequence_number = 0, .len = 0, .octets = @splat(0) });
         local.len = 0;
         local.zero_length = zero_length;
     }
 
-    /// Records one this endpoint issued, and returns its sequence number (RFC 9000 §5.1.1).
-    pub fn issue(local: *Local) ?u64 {
-        if (local.len == local.active_sequence_numbers.len) return null;
+    /// Records one this endpoint issued, and returns its sequence number (RFC 9000 §5.1.1). The
+    /// octets are the caller's: §5.1 wants a connection ID unpredictable and invariant 5 forbids
+    /// colibri a random number.
+    pub fn issue(local: *Local, octets: []const u8) ?u64 {
+        assert(octets.len <= constants.connection_id_len_max);
+        // RFC 9000 §5.1: a zero-length connection ID is issued once, by an endpoint that uses no
+        // connection ID at all, and it is never one a RETIRE_CONNECTION_ID can name (§19.16).
+        assert((octets.len == 0) == local.zero_length);
+        if (local.len == local.active.len) return null;
         const sequence_number = local.next_sequence_number;
-        local.active_sequence_numbers[local.len] = sequence_number;
+        var issued: Issued = .{ .sequence_number = sequence_number, .len = @intCast(octets.len), .octets = @splat(0) };
+        @memcpy(issued.octets[0..octets.len], octets);
+        local.active[local.len] = issued;
         local.len += 1;
         local.next_sequence_number = sequence_number + 1;
         return sequence_number;
+    }
+
+    /// The sequence number of the connection ID `octets` names, or null when this endpoint did
+    /// not issue it or has retired it. RFC 9000 §19.16 asks it of the Destination Connection ID
+    /// a packet carried, to refuse a frame retiring the very ID it arrived on.
+    pub fn sequence_number_of(local: *const Local, octets: []const u8) ?u64 {
+        // Bounded by the set, which §5.1.1 caps at the endpoint's active_connection_id_limit.
+        for (local.active[0..local.len]) |issued| {
+            if (std.mem.eql(u8, issued.value(), octets)) return issued.sequence_number;
+        }
+        return null;
     }
 
     /// Takes a RETIRE_CONNECTION_ID frame (RFC 9000 §19.16). `in_use` is the sequence number of
@@ -240,10 +272,10 @@ pub const Local = struct {
         // RFC 9000 §19.16: the frame must not name the Destination Connection ID of the packet
         // it arrived in.
         if (in_use != null and in_use.? == sequence_number) return error.RetiredUnissued;
-        for (local.active_sequence_numbers[0..local.len], 0..) |held, index| {
-            if (held != sequence_number) continue;
+        for (local.active[0..local.len], 0..) |held, index| {
+            if (held.sequence_number != sequence_number) continue;
             for (index + 1..local.len) |at| {
-                local.active_sequence_numbers[at - 1] = local.active_sequence_numbers[at];
+                local.active[at - 1] = local.active[at];
             }
             local.len -= 1;
             return;
@@ -260,6 +292,17 @@ const testing = std.testing;
 
 /// The sets the tests drive. Test-only.
 var test_remote: Remote = undefined;
+/// Connection IDs a test issues. RFC 9000 §5.1 wants them unpredictable and invariant 5 forbids
+/// colibri a random number, so a test states them.
+const issued_len: usize = 4;
+const issued_a_octet: u8 = 0xa1;
+const issued_b_octet: u8 = 0xb2;
+const issued_c_octet: u8 = 0xc3;
+const issued_a: [issued_len]u8 = @splat(issued_a_octet);
+const issued_b: [issued_len]u8 = @splat(issued_b_octet);
+const issued_c: [issued_len]u8 = @splat(issued_c_octet);
+const issued_each = [_][]const u8{ &issued_a, &issued_b, &issued_c };
+
 var test_local: Local = undefined;
 /// A limit a test measures against, at the floor RFC 9000 §18.2 puts under it. Test-only.
 const test_limit = constants.active_connection_id_limit_min;
@@ -352,15 +395,15 @@ test "§19.15: an endpoint with a zero-length connection ID takes no such frame"
 
 test "§5.1.1: this endpoint's own connection IDs start at 0 and rise by one" {
     test_local.init(false);
-    try testing.expectEqual(0, test_local.issue().?);
-    try testing.expectEqual(1, test_local.issue().?);
-    try testing.expectEqual(2, test_local.issue().?);
+    try testing.expectEqual(0, test_local.issue(&issued_a).?);
+    try testing.expectEqual(1, test_local.issue(&issued_b).?);
+    try testing.expectEqual(2, test_local.issue(&issued_c).?);
     try testing.expectEqual(3, test_local.active_len());
 }
 
 test "§19.16: a peer retires only what this endpoint issued, and not the one in use" {
     test_local.init(false);
-    for (0..3) |_| _ = test_local.issue().?;
+    for (0..3) |index| _ = test_local.issue(issued_each[index]).?;
     // RFC 9000 §19.16: a sequence number greater than any issued is a connection error, and
     // the last one issued is not greater than any.
     try testing.expectError(error.RetiredUnissued, test_local.retire(3, null));

@@ -105,6 +105,7 @@ pub fn process(
     level: Level,
     payload: []const u8,
     now_ns: u64,
+    addressed_to: ?u64,
 ) Error!Report {
     // RFC 9000 §12.4: "The payload of a packet that contains frames MUST contain at least one
     // frame", and a packet with none is a connection error.
@@ -121,7 +122,7 @@ pub fn process(
         if (!frame.permitted_at(level)) return Error.FrameNotPermitted;
         report.frames += 1;
         if (frame.is_ack_eliciting()) report.ack_eliciting = true;
-        try apply(connection, level, frame, now_ns, &report);
+        try apply(connection, level, frame, now_ns, addressed_to, &report);
     }
     // A payload that held only octets no frame could be read from would have failed above, so
     // reaching here with nothing read means the payload was frames of zero length, which §19.1
@@ -132,7 +133,7 @@ pub fn process(
 
 /// Acts on one frame. The arms are the frames that act on the connection; a frame naming a
 /// stream is `connection_stream_frames.zig`'s and reaches it through `stream_frame`.
-fn apply(connection: *Connection, level: Level, frame: Frame, now_ns: u64, report: *Report) Error!void {
+fn apply(connection: *Connection, level: Level, frame: Frame, now_ns: u64, addressed_to: ?u64, report: *Report) Error!void {
     switch (frame) {
         // RFC 9000 §19.1, §19.2: PADDING has no semantics and PING exists to elicit an
         // acknowledgment, which `is_ack_eliciting` already recorded.
@@ -154,7 +155,7 @@ fn apply(connection: *Connection, level: Level, frame: Frame, now_ns: u64, repor
             return Error.Stream,
         // RFC 9000 §19.7, §19.15 to §19.18: NEW_TOKEN, the connection ID frames and the path
         // frames, which act on what the connection holds once rather than on a stream.
-        else => path_frames.apply(connection, frame, &report.owed) catch return Error.Path,
+        else => path_frames.apply(connection, frame, addressed_to, &report.owed) catch return Error.Path,
     }
 }
 

@@ -13,6 +13,10 @@ const frames = @import("connection_frames.zig");
 const stream_frames = @import("connection_stream_frames.zig");
 
 const testing = std.testing;
+
+/// RFC 9000 §19.16's rule turns on which connection ID a packet was addressed to, and a case
+/// that is not about that rule says the packet named none this endpoint issued.
+const addressed_to_none: ?u64 = null;
 const Writer = core.Writer;
 const Frame = frame_module.Frame;
 const Connection = connection_module.Connection;
@@ -75,7 +79,7 @@ fn open_server() void {
 fn run(list: []const Frame) frames.Error!frames.Report {
     var writer = Writer.init(&payload);
     for (list) |held| frame_module.write(&writer, held) catch unreachable;
-    return frames.process(&test_connection, .application, writer.written(), test_now_ns);
+    return frames.process(&test_connection, .application, writer.written(), test_now_ns, addressed_to_none);
 }
 
 fn stream_frame(id: u64, offset: u64, len: usize, fin: bool) Frame {

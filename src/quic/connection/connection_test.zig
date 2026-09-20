@@ -179,9 +179,10 @@ test "RFC 9000 §19.16: a zero-length connection ID reaches the set that refuses
     );
 
     // An endpoint whose connection IDs have octets answers the frame on its merits instead.
+    // §5.1.1 makes its own Source Connection ID sequence number 0, so 1 is the unissued one.
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectError(
         error.RetiredUnissued,
-        test_connection.local_ids.retire(0, null),
+        test_connection.local_ids.retire(1, null),
     );
 }

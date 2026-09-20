@@ -14,6 +14,10 @@ const identity_module = @import("connection_identity.zig");
 const frames = @import("connection_frames.zig");
 
 const testing = std.testing;
+
+/// RFC 9000 §19.16's rule turns on which connection ID a packet was addressed to, and a case
+/// that is not about that rule says the packet named none this endpoint issued.
+const addressed_to_none: ?u64 = null;
 const Level = core.Level;
 const Writer = core.Writer;
 const Frame = frame_module.Frame;
@@ -55,7 +59,7 @@ fn frames_of(list: []const Frame) []const u8 {
 }
 
 fn run(level: Level, list: []const Frame) frames.Error!frames.Report {
-    return frames.process(&test_connection, level, frames_of(list), test_now_ns);
+    return frames.process(&test_connection, level, frames_of(list), test_now_ns, addressed_to_none);
 }
 
 /// A CONNECTION_CLOSE of each layer (RFC 9000 §19.19). The transport one carries a Frame Type
@@ -77,7 +81,7 @@ test "RFC 9000 §12.4: a packet with no frames is a connection error" {
     open_as(.client);
     // "An endpoint MUST treat receipt of a packet containing no frames as a connection error of
     // type PROTOCOL_VIOLATION."
-    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .initial, &.{}, test_now_ns));
+    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .initial, &.{}, test_now_ns, addressed_to_none));
     try testing.expectEqual(
         error_code.protocol_violation,
         frames.connection_error_code(frames.Error.EmptyPayload),
@@ -187,7 +191,7 @@ test "RFC 9000 §19: a frame that will not parse is a FRAME_ENCODING_ERROR" {
     const unknown = [_]u8{ 0x3f, 0x00 };
     try testing.expectError(
         frames.Error.FrameEncoding,
-        frames.process(&test_connection, .application, &unknown, test_now_ns),
+        frames.process(&test_connection, .application, &unknown, test_now_ns, addressed_to_none),
     );
     try testing.expectEqual(
         error_code.frame_encoding_error,

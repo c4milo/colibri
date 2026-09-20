@@ -13,6 +13,10 @@ const frames = @import("connection_frames.zig");
 const path_frames = @import("connection_path_frames.zig");
 
 const testing = std.testing;
+
+/// RFC 9000 §19.16's rule turns on which connection ID a packet was addressed to, and a case
+/// that is not about that rule says the packet named none this endpoint issued.
+const addressed_to_none: ?u64 = null;
 const Writer = core.Writer;
 const Frame = frame_module.Frame;
 const Connection = connection_module.Connection;
@@ -62,7 +66,7 @@ fn open_as(role: connection_module.Role) void {
 fn run(list: []const Frame) frames.Error!frames.Report {
     var writer = Writer.init(&payload);
     for (list) |held| frame_module.write(&writer, held) catch unreachable;
-    return frames.process(&test_connection, .application, writer.written(), test_now_ns);
+    return frames.process(&test_connection, .application, writer.written(), test_now_ns, addressed_to_none);
 }
 
 test "RFC 9000 §19.7: only a client may receive a NEW_TOKEN frame" {
@@ -134,16 +138,51 @@ test "RFC 9000 §19.15: a NEW_CONNECTION_ID joins the set colibri may address th
 
 test "RFC 9000 §19.16: a RETIRE_CONNECTION_ID naming an unissued number closes the connection" {
     open_as(.client);
-    // Nothing has been issued, so every sequence number is one this endpoint never sent.
+    // §5.1.1 gives the identity's own Source Connection ID sequence number 0, so 0 is issued
+    // and 1 is not: "a sequence number greater than any previously sent to the peer".
+    const unissued: u64 = 1;
     try testing.expectError(
         frames.Error.Path,
-        run(&.{.{ .retire_connection_id = .{ .sequence_number = 0 } }}),
+        run(&.{.{ .retire_connection_id = .{ .sequence_number = unissued } }}),
     );
-    // Once one is issued the same frame is taken.
+    // A second one issued makes the same frame legal.
     open_as(.client);
-    _ = test_connection.local_ids.issue().?;
-    _ = try run(&.{.{ .retire_connection_id = .{ .sequence_number = 0 } }});
-    try testing.expectEqual(0, test_connection.local_ids.active_len());
+    try testing.expectEqual(unissued, test_connection.local_ids.issue(&offered_id).?);
+    _ = try run(&.{.{ .retire_connection_id = .{ .sequence_number = unissued } }});
+    try testing.expectEqual(1, test_connection.local_ids.active_len());
+}
+
+test "RFC 9000 §19.16: a frame cannot retire the connection ID its own packet arrived on" {
+    open_as(.client);
+    const second = test_connection.local_ids.issue(&offered_id).?;
+    // §19.16: "The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
+    // the Destination Connection ID field of the packet in which the frame is contained."
+    // colibri takes the MAY and closes, which needs the packet to say what it was addressed to.
+    var writer = Writer.init(&payload);
+    frame_module.write(&writer, .{ .retire_connection_id = .{ .sequence_number = second } }) catch unreachable;
+    try testing.expectError(frames.Error.Path, frames.process(
+        &test_connection,
+        .application,
+        writer.written(),
+        test_now_ns,
+        second,
+    ));
+    // The same frame on a packet addressed to the other connection ID is legal, which is what
+    // makes the refusal about the packet and not about the number.
+    const first: u64 = 0;
+    _ = try frames.process(&test_connection, .application, writer.written(), test_now_ns, first);
+    try testing.expectEqual(1, test_connection.local_ids.active_len());
+}
+
+test "RFC 9000 §5.1.1: the identity's own Source Connection ID is sequence number 0" {
+    open_as(.client);
+    // "The initial connection ID issued by an endpoint is sent in the Source Connection ID field
+    // of the long packet header during the handshake. The sequence number of the initial
+    // connection ID is 0."
+    try testing.expectEqual(1, test_connection.local_ids.active_len());
+    try testing.expectEqual(0, test_connection.local_ids.sequence_number_of(&local_id).?);
+    // And a connection ID this endpoint never issued names no sequence number at all.
+    try testing.expectEqual(null, test_connection.local_ids.sequence_number_of(&offered_id));
 }
 
 fn new_connection_id(sequence_number: u64, retire_prior_to: u64) Frame {

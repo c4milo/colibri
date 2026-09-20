@@ -69,6 +69,10 @@ pub const Outcome = union(enum) {
 pub const Opened = struct {
     level: Level,
     packet_number: u64,
+    /// The sequence number of the connection ID this packet was addressed to (RFC 9000 §5.1.1),
+    /// or null when it names none this endpoint issued. §19.16 forbids a RETIRE_CONNECTION_ID
+    /// from naming it, which is the one rule that needs to know.
+    addressed_to: ?u64,
     /// The frames, which `crypto.Suite.open` left in place inside the datagram.
     payload: []const u8,
 };
@@ -147,7 +151,7 @@ fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Lo
         return advance(walk, long.packet_len, .other_connection);
     }
     const packet = rest[0..long.packet_len];
-    return open_at(walk, connection, suite, level, packet, long.packet_number_offset, long.packet_len);
+    return open_at(walk, connection, suite, level, packet, long.packet_number_offset, long.packet_len, long.dcid);
 }
 
 /// A 1-RTT packet, which RFC 9000 §17.3 makes the last of its datagram: a short header carries no
@@ -157,7 +161,7 @@ fn open_short(walk: *Walk, connection: *Connection, suite: Suite, short: header.
         return advance(walk, short.packet_len, .other_connection);
     }
     const packet = rest[0..short.packet_len];
-    return open_at(walk, connection, suite, .application, packet, short.packet_number_offset, short.packet_len);
+    return open_at(walk, connection, suite, .application, packet, short.packet_number_offset, short.packet_len, short.dcid);
 }
 
 /// Asks the suite to open one packet, having first asked whether the level may be read at all.
@@ -169,6 +173,7 @@ fn open_at(
     packet: []u8,
     packet_number_offset: usize,
     packet_len: usize,
+    destination: []const u8,
 ) Outcome {
     // RFC 9001 §4.9 and §5.7: a level colibri never installed, already discarded, or may not read
     // yet is not one to call `open` at. Invariant 21 is this check.
@@ -199,11 +204,16 @@ fn open_at(
     }
     walk.consumed += packet_len;
     const payload_start = packet_number_offset + opened.packet_number_len;
-    return .{ .opened = .{
-        .level = level,
-        .packet_number = opened.packet_number,
-        .payload = packet[payload_start..][0..opened.payload_len],
-    } };
+    return .{
+        .opened = .{
+            .level = level,
+            .packet_number = opened.packet_number,
+            // RFC 9000 §5.1.1 gives every connection ID this endpoint issued a sequence number, and
+            // the Destination Connection ID is how the packet named one of them.
+            .addressed_to = connection.local_ids.sequence_number_of(destination),
+            .payload = packet[payload_start..][0..opened.payload_len],
+        },
+    };
 }
 
 /// Steps past a packet that will not be processed, so §12.2's remaining packets still are.

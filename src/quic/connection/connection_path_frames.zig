@@ -54,11 +54,11 @@ pub const Owed = struct {
 };
 
 /// Acts on one frame about the connection's identity or its path.
-pub fn apply(connection: *Connection, frame: frame_module.Frame, owed: *Owed) Error!void {
+pub fn apply(connection: *Connection, frame: frame_module.Frame, addressed_to: ?u64, owed: *Owed) Error!void {
     switch (frame) {
         .new_token => |held| try take_new_token(connection, held.token, owed),
         .new_connection_id => |held| try take_new_connection_id(connection, held),
-        .retire_connection_id => |held| try take_retire(connection, held.sequence_number),
+        .retire_connection_id => |held| try take_retire(connection, held.sequence_number, addressed_to),
         // RFC 9000 §8.2.2: the response is the send path's to write, and it must carry these
         // exact octets, so they are what the connection remembers.
         .path_challenge => |held| owed.path_response = held.data.*,
@@ -92,13 +92,12 @@ fn take_new_connection_id(connection: *Connection, held: frame_control.NewConnec
 }
 
 /// RFC 9000 §19.16: the peer will no longer use one of the connection IDs colibri issued.
-fn take_retire(connection: *Connection, sequence_number: u64) Error!void {
-    // §19.16 also forbids the frame from naming the Destination Connection ID of the packet that
-    // carried it, and that check is not made here: answering it needs the sequence number of the
-    // connection ID the packet was addressed to, and `connection_id.Local` holds sequence numbers
-    // without the octets to match a Destination Connection ID against. Design §8 step 9e records
-    // it as owed. Everything else §19.16 states is checked.
-    const addressed_to: ?u64 = null;
+fn take_retire(connection: *Connection, sequence_number: u64, addressed_to: ?u64) Error!void {
+    // §19.16: "The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
+    // the Destination Connection ID field of the packet in which the frame is contained. The
+    // peer MAY treat this as a connection error of type PROTOCOL_VIOLATION." colibri takes the
+    // MAY, because it holds the octets that answer it (§5.1.1) and design §8 step 9c already
+    // settled that colibri answers an optional check it has the state for.
     connection.local_ids.retire(sequence_number, addressed_to) catch return Error.ConnectionId;
 }
 
