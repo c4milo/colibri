@@ -1145,6 +1145,50 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   127s by decisions 21 and 20. **This is the largest step of the two protocols and should be split
   once its shape is real.** *Very large.*
 
+  **The frame layer, 2026-09-19.** `src/quic/frame/` reads and writes all twenty frame types of
+  RFC 9000 §19. It is the piece of this step that needs no key, no handshake and no connection
+  state: a frame is read out of octets and written into them, and what it means is the
+  connection's business.
+
+  Three types carry their shape in the type itself, and each is decoded into a field so nothing
+  downstream reads a bit out of a number: a STREAM frame's OFF, LEN and FIN bits (§19.8), an ACK
+  frame's ECN bit (§19.3.2), and the directionality bit of MAX_STREAMS and STREAMS_BLOCKED
+  (§19.11, §19.14). A CONNECTION_CLOSE carries the frame type that caused it only when it speaks
+  for the transport (§19.19).
+
+  ACK ranges are walked, not expanded. A frame names the largest packet number acknowledged and
+  then descends through alternating gaps and runs, so expanding it into a set would cost storage
+  proportional to what a peer claims. `AckRanges` keeps the octets and yields one range at a
+  time, and the arithmetic is checked once when the frame is read: §19.3.1 makes a computed
+  packet number below zero a connection error, so a later walk cannot fail.
+
+  Every rule §19 states as a FRAME_ENCODING_ERROR is enforced and cited on the line that
+  enforces it: a range below zero (§19.3.1), a stream or crypto offset past 2^62-1 (§19.8,
+  §19.6), an empty NEW_TOKEN (§19.7), a stream limit above 2^60 (§19.11, §19.14), a connection
+  ID outside 1 to 20 octets and a Retire Prior To above its own Sequence Number (§19.15), and a
+  frame of unknown type (§12.4), which is refused rather than ignored because §12.4 admits no
+  extension frame this version does not define.
+
+  `zig build test` passes 734 of 734 and the lint is clean. Two of its rules caught real defects
+  while this landed. `peer-index` found the reader's octets being indexed directly, which
+  invariant 3 forbids; `core.Reader` now has `consumed_since(mark)`, so a parser that learns a
+  structure's length only by reading it still takes its slice from the reader. `rfc-citation`
+  found two refusals whose citation sat a line away from the check.
+
+  Mutations: 27 applied, 26 **CAUGHT** and one equivalent. Two gaps were real and both were in
+  the tests: three frame types were missing from the round-trip table, so nothing cut a
+  CONNECTION_CLOSE short, and nothing checked that a frame too large for the buffer writes
+  nothing at all. The equivalent one replaces the bound on the ACK range walk with a huge
+  number. Each turn of that loop reads two variable-length integers and each needs an octet, so
+  the reader ends the loop whatever the bound says; the bound is there because non-negotiable 4
+  asks for one a reader can see.
+
+  **Still owed for the step**, which is everything else it names: the handshake over CRYPTO
+  frames, the three packet number spaces, ACK generation and processing, streams and their two
+  state machines, flow control, connection IDs, path validation, anti-amplification, the idle
+  timeout and the closing states. The handshake half waits on chapulin's `ch_quic_*` calls; the
+  rest does not.
+
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
   `now()` sites are caller-supplied parameters on the five entry points of §4.2. **Check:** the
@@ -1293,6 +1337,15 @@ figure beside it, which is indicative and carries no threshold: a hosted runner 
    two texts agree.
 5. **Whether step 9 stays one step.** It is estimated very large and almost certainly wants
    splitting once its shape is real. Splitting it before writing any of it would be guessing.
+
+   **A proposal, 2026-09-19, now that one piece of it exists.** The frame layer landed at about
+   1,070 lines with its tests and needed no key, no handshake and no connection state, which
+   suggests cutting step 9 where the dependencies already cut it: **9a** the frame layer, done;
+   **9b** the packet number spaces, ACK generation and processing, and the idle timeout and
+   closing states, which need frames and the step 8 network and nothing else; **9c** streams,
+   both state machines and flow control, which need 9b; **9d** connection IDs, path validation
+   and anti-amplification; **9e** the handshake over CRYPTO frames and the interop runner's
+   cases, which is the only part that waits on chapulin. The owner rules on whether to cut.
 
 ## 13. Risks
 
