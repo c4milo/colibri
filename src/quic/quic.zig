@@ -8,9 +8,11 @@ pub const crypto = @import("crypto");
 pub const tls = @import("tls");
 pub const constants = @import("constants.zig");
 pub const packet = @import("packet/packet.zig");
+pub const frame = @import("frame/frame.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
     _ = packet;
+    _ = frame;
 }
