@@ -42,6 +42,14 @@ pub const Reader = struct {
         return self.bytes[0..self.offset];
     }
 
+    /// The octets consumed since the cursor stood at `mark`. A parser that must hand back a
+    /// structure whose length it learns only by reading it takes `offset` first and this after,
+    /// so the slice still comes from the reader and invariant 3 holds.
+    pub fn consumed_since(self: *const Reader, mark: usize) []const u8 {
+        assert(mark <= self.offset and self.offset <= self.bytes.len);
+        return self.bytes[mark..self.offset];
+    }
+
     /// The next octet, without consuming it.
     pub fn peek_byte(self: *const Reader) Error!u8 {
         if (self.remaining_len() == 0) return error.Truncated;
@@ -120,4 +128,15 @@ test "an empty slice reads as truncated and takes zero octets" {
     var reader = Reader.init(&.{});
     try testing.expectError(error.Truncated, reader.peek_byte());
     try testing.expectEqualSlices(u8, &.{}, try reader.take(0));
+}
+
+test "the octets consumed since a mark are the ones read after it" {
+    var reader = Reader.init("abcdef");
+    _ = try reader.take(2);
+    const mark = reader.offset;
+    _ = try reader.take(3);
+    try std.testing.expectEqualStrings("cde", reader.consumed_since(mark));
+    // A mark at the cursor names no octets, and one at the start names everything consumed.
+    try std.testing.expectEqual(0, reader.consumed_since(reader.offset).len);
+    try std.testing.expectEqualStrings(reader.consumed(), reader.consumed_since(0));
 }
