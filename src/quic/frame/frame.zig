@@ -23,6 +23,7 @@ const wire = @import("wire");
 const constants = @import("../constants.zig");
 
 const Reader = core.Reader;
+const Level = core.Level;
 const Writer = core.Writer;
 
 pub const frame_ack = @import("frame_ack.zig");
@@ -109,6 +110,30 @@ pub const Frame = union(enum) {
     path_response: struct { data: *const [constants.path_challenge_len]u8 },
     connection_close: frame_control.ConnectionClose,
     handshake_done,
+
+    /// Whether this frame may appear in a packet at `level` (RFC 9000 §12.4's Table 3, narrowed
+    /// by §12.5). A frame that may not is a connection error of PROTOCOL_VIOLATION: §12.4 says
+    /// "an endpoint MUST treat receipt of a frame in a packet type that is not permitted as a
+    /// connection error of type PROTOCOL_VIOLATION".
+    ///
+    /// Table 3's Pkts column has four letters and colibri has three levels, because
+    /// [decision 20](../../../docs/decisions.md) refuses 0-RTT. What is left is a short rule:
+    /// §12.5 says "all other frame types MUST only be sent in the application data packet number
+    /// space", so the Initial and Handshake levels admit five frames and the application level
+    /// admits every one.
+    pub fn permitted_at(frame: Frame, level: Level) bool {
+        if (level == .application) return true;
+        return switch (frame) {
+            // Table 3 marks these IH01 and IH_1, so each is admitted at both handshake levels.
+            .padding, .ping, .ack, .crypto => true,
+            // §12.5: "CONNECTION_CLOSE frames signaling errors at the QUIC layer (type 0x1c) MAY
+            // appear in any packet number space. CONNECTION_CLOSE frames signaling application
+            // errors (type 0x1d) MUST only appear in the application data packet number space."
+            // Table 3's "ih" is the same rule, which is why this reads the layer and not the type.
+            .connection_close => |close| close.layer == .transport,
+            else => false,
+        };
+    }
 
     /// Whether a packet carrying this frame is ack-eliciting (RFC 9000 §2 of [QUIC-RECOVERY],
     /// RFC 9000 §13.2.1). Everything but ACK, PADDING and CONNECTION_CLOSE elicits one.

@@ -410,3 +410,69 @@ test "§19: a frame that does not fit the buffer writes nothing at all" {
         }
     }
 }
+
+test "RFC 9000 §12.4 Table 3: the handshake levels admit five frames and no others" {
+    // Table 3's Pkts column, read for the three levels decision 20 leaves. PADDING and PING are
+    // IH01, ACK and CRYPTO are IH_1, and CONNECTION_CLOSE of type 0x1c is "ih".
+    const admitted = [_]frame.Frame{
+        .{ .padding = .{ .len = 1 } },
+        .ping,
+        ack_frame(null),
+        .{ .crypto = .{ .offset = 0, .data = &.{} } },
+        transport_close,
+    };
+    for (admitted) |held| {
+        try testing.expect(held.permitted_at(.initial));
+        try testing.expect(held.permitted_at(.handshake));
+    }
+
+    // Everything else is the application level's. §12.5: "all other frame types MUST only be
+    // sent in the application data packet number space."
+    const refused = [_]frame.Frame{
+        application_close,
+        .handshake_done,
+        .{ .new_token = .{ .token = &.{} } },
+        .{ .max_data = .{ .maximum = 0 } },
+        .{ .reset_stream = .{ .stream_id = 0, .error_code = 0, .final_size = 0 } },
+        .{ .stop_sending = .{ .stream_id = 0, .error_code = 0 } },
+        .{ .max_stream_data = .{ .stream_id = 0, .maximum = 0 } },
+        .{ .max_streams = .{ .directionality = .bidirectional, .maximum = 0 } },
+        .{ .data_blocked = .{ .limit = 0 } },
+        .{ .stream_data_blocked = .{ .stream_id = 0, .limit = 0 } },
+        .{ .streams_blocked = .{ .directionality = .bidirectional, .limit = 0 } },
+        .{ .retire_connection_id = .{ .sequence_number = 0 } },
+        .{ .path_challenge = .{ .data = &path_data } },
+        .{ .path_response = .{ .data = &path_data } },
+    };
+    for (refused) |held| {
+        try testing.expect(!held.permitted_at(.initial));
+        try testing.expect(!held.permitted_at(.handshake));
+    }
+
+    // "Note that all frames can appear in 1-RTT packets."
+    for (admitted) |held| try testing.expect(held.permitted_at(.application));
+    for (refused) |held| try testing.expect(held.permitted_at(.application));
+}
+
+test "RFC 9000 §12.5: a CONNECTION_CLOSE is admitted by its layer, not its frame type" {
+    // The two share a name and differ by one bit, and only the transport one may appear below
+    // the application level. Reading the type rather than the layer would admit both.
+    try testing.expect(transport_close.permitted_at(.initial));
+    try testing.expect(!application_close.permitted_at(.initial));
+    try testing.expect(!application_close.permitted_at(.handshake));
+}
+
+/// A CONNECTION_CLOSE of each layer (RFC 9000 §19.19). The codes are not what these tests read;
+/// §12.5 turns on the layer alone.
+const transport_close: frame.Frame = .{ .connection_close = .{
+    .layer = .transport,
+    .error_code = 0,
+    .frame_type = null,
+    .reason = &.{},
+} };
+const application_close: frame.Frame = .{ .connection_close = .{
+    .layer = .application,
+    .error_code = 0,
+    .frame_type = null,
+    .reason = &.{},
+} };
