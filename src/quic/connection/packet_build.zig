@@ -28,6 +28,7 @@ const header_write = @import("../packet/packet_header_write.zig");
 const packet_number = @import("../packet/packet_number.zig");
 const connection_module = @import("connection.zig");
 const connection_crypto = @import("connection_crypto.zig");
+const connection_close = @import("connection_close.zig");
 const keys_module = @import("connection_keys.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 
@@ -89,6 +90,9 @@ pub const Planned = struct {
     /// Octets of PADDING added to reach RFC 9000 §14.1's size, which RFC 9002 §2 makes the packet
     /// count in flight whether or not anything in it elicits an acknowledgment.
     padding_len: usize = 0,
+    /// Whether this packet carries a CONNECTION_CLOSE frame (RFC 9000 §10.2.3), which is what
+    /// puts the connection into §10.2.1's closing state once the datagram goes out.
+    carries_close: bool = false,
 };
 
 /// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
@@ -126,6 +130,7 @@ pub fn plan(
         .payload_len = framed.len,
         .ack_eliciting = framed.ack_eliciting,
         .shape = shape,
+        .carries_close = framed.carries_close,
     };
 }
 
@@ -191,6 +196,7 @@ fn fixed_header_len(connection: *Connection, level: Level, packet_number_len: u8
 const Framed = struct {
     len: usize,
     ack_eliciting: bool,
+    carries_close: bool = false,
 };
 
 /// Writes the frames this packet carries. The set is small on purpose: an ACK when the space owes
@@ -206,6 +212,15 @@ fn frame_payload(
     now_ns: u64,
 ) Error!Framed {
     const budget = @min(room, payload.len);
+    // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a packet
+    // containing a CONNECTION_CLOSE frame", so once one is owed it is the only frame written.
+    // Nothing else would be read: §10.2.2 puts the peer into the draining state on reading it.
+    if (connection_close.owes(connection)) {
+        const close_len = connection_close.write(connection, level, payload[0..budget]);
+        // §13.2.1, Table 3's N marking: a CONNECTION_CLOSE elicits no acknowledgment, because
+        // there is no longer a connection to acknowledge it on.
+        return .{ .len = close_len, .ack_eliciting = false, .carries_close = close_len > 0 };
+    }
     var writer = Writer.init(payload[0..budget]);
     // RFC 9000 §13.2.1: an ACK goes first because it is the frame a space owes soonest, and
     // §13.2 makes acknowledging cheap enough that it is never worth holding back.

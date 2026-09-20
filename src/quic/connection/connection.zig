@@ -35,6 +35,7 @@ const stateless_reset = @import("../stateless_reset.zig");
 const termination_module = @import("../termination.zig");
 const recovery_module = @import("../recovery/recovery.zig");
 const transport_parameters = @import("../transport_parameters.zig");
+const frame_control = @import("../frame/frame_control.zig");
 const identity_module = @import("connection_identity.zig");
 const keys_module = @import("connection_keys.zig");
 
@@ -104,6 +105,11 @@ pub const Connection = struct {
     /// receives a HANDSHAKE_DONE frame. It is not what `handshake_complete` answers, and RFC 9002
     /// §6.2.1 and RFC 9001 §4.9.3 both turn on the difference.
     handshake_confirmed: bool,
+    /// The CONNECTION_CLOSE this endpoint owes its peer (RFC 9000 §10.2), or null while it owes
+    /// none. §10.2.1 keeps "only enough information to generate a packet containing a
+    /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
+    /// caller's octets, which the caller keeps alive until the closing period ends.
+    pending_close: ?frame_control.ConnectionClose,
     /// The lowest packet number processed under the current key phase, or null before any
     /// (RFC 9001 §6.5). It is what tells a delayed packet of the previous phase from the first of
     /// the next, because the two carry the same Key Phase bit. The application level alone.
@@ -124,6 +130,7 @@ pub const Connection = struct {
         connection.handshake_complete = false;
         connection.handshake_confirmed = false;
         connection.current_phase_lowest = null;
+        connection.pending_close = null;
         init_spaces(connection);
         connection.crypto_streams.init();
         init_streams(connection, parameters);

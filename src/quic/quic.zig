@@ -36,6 +36,7 @@ pub const connection_path_frames = @import("connection/connection_path_frames.zi
 pub const packet_build = @import("connection/packet_build.zig");
 pub const connection_send = @import("connection/connection_send.zig");
 pub const connection_version = @import("connection/connection_version.zig");
+pub const connection_close = @import("connection/connection_close.zig");
 pub const Connection = connection.Connection;
 pub const crypto_stream = @import("crypto_stream.zig");
 pub const transport_parameters = @import("transport_parameters.zig");
@@ -72,6 +73,7 @@ test {
     _ = connection_path_frames;
     _ = packet_build;
     _ = connection_version;
+    _ = connection_close;
     _ = connection_send;
     _ = crypto_stream;
     _ = transport_parameters;

@@ -23,6 +23,7 @@ const constants = @import("../constants.zig");
 const frame_module = @import("../frame/frame.zig");
 const connection_module = @import("connection.zig");
 const packet_build = @import("packet_build.zig");
+const connection_close = @import("connection_close.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 
 const Level = core.Level;
@@ -79,6 +80,9 @@ pub fn send(
     output: []u8,
     now_ns: u64,
 ) Error!?Sent {
+    // RFC 9000 §10.2.2: "an endpoint in the draining state MUST NOT send any packets", and the
+    // same answer covers a connection whose closing period has ended (§10.2).
+    if (connection.termination.permission() == .send_nothing) return null;
     const ceiling = @min(output.len, datagram_ceiling(connection));
     if (ceiling < constants.packet_header_len_max) return null;
     var plans: [core.levels_count]packet_build.Planned = undefined;
@@ -103,7 +107,24 @@ pub fn send(
     }
     if (count == 0) return null;
     expand_last(connection, plans[0..count], planned_len, ceiling);
-    return try seal_all(connection, suite, scratch, plans[0..count], output);
+    const sent = try seal_all(connection, suite, scratch, plans[0..count], output);
+    note_close_sent(connection, plans[0..count], now_ns);
+    return sent;
+}
+
+/// RFC 9000 §10.2: "After sending a CONNECTION_CLOSE frame, an endpoint immediately enters the
+/// closing state." The datagram exists by the time this runs, so the state follows the packet
+/// rather than the intention to send one.
+fn note_close_sent(connection: *Connection, plans: []const packet_build.Planned, now_ns: u64) void {
+    var carried = false;
+    for (plans) |planned| carried = carried or planned.carries_close;
+    if (!carried) return;
+    // §10.2: the closing period is three times the Probe Timeout, which `take_close` sizes the
+    // draining period with too. The `true` asks for the one that includes the peer's
+    // max_ack_delay: §10.2 asks for "at least" three PTOs, so the longer answer is the safe one
+    // when a close goes out before the application level is in use.
+    const probe_timeout_ns = connection.recovery.rtt.probe_timeout_ns(true);
+    connection.termination.on_close_sent(now_ns, probe_timeout_ns);
 }
 
 /// Octets a planned packet will occupy once sealed: its header, its payload and the tag.
