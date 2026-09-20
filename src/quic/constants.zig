@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const wire = @import("wire");
+const core = @import("core");
 const crypto = @import("crypto");
 
 /// QUIC version 1 (RFC 9000 §15).
@@ -152,6 +153,24 @@ pub const stream_index_max: u64 = stream_id_max >> stream_id_type_bits;
 /// trip of silence would leave it blocked. A larger fraction sends fewer frames and risks the
 /// peer stalling; a smaller one spends frames on credit the peer has not asked for.
 pub const flow_credit_fraction: u64 = 2;
+
+/// How the receive window grows (decision 49). A receiver that credits again within this many
+/// round trips was draining faster than the peer could learn of the room, so the window and not
+/// the path is the limit, and it is multiplied by the factor below. Two round trips is what
+/// Chromium's QUIC, quiche and TCP's receive buffer auto-tuning all settle on: one for the
+/// credit to reach the peer and one for the data to come back.
+pub const flow_tune_round_trips: u64 = 2;
+pub const flow_window_growth: u64 = 2;
+
+/// The four stream types of RFC 9000 §2.1 Table 1, which are the pool's classes, and the two
+/// directionalities, which have separate limits under §4.6.
+pub const stream_types: u32 = 4;
+pub const stream_directionalities: usize = 2;
+
+/// Streams one connection holds at once. It bounds the table, and so bounds what this endpoint
+/// advertises under §4.6: §3.2's implicit creation makes an advertised limit a promise to hold
+/// that many streams at once.
+pub const streams_per_connection_max: u32 = core.constants.streams_per_connection_max;
 
 /// Branches the compiler may take per octet of source and of needle while a comptime check scans
 /// a source file for a name (`packet/packet_header.zig`, invariant 22).
