@@ -3,11 +3,13 @@
 //! because an executable has one `main` and `testing.zig` gives its to the server.
 const std = @import("std");
 
+pub const chapulin = @import("tls/chapulin.zig");
 pub const h2_client = @import("h2/h2_client.zig");
 
 pub const main = h2_client.main;
 
 test {
     std.testing.refAllDecls(@This());
+    _ = chapulin;
     _ = h2_client;
 }

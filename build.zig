@@ -58,7 +58,19 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 
-    const graph = modules.add(b, target, optimize);
+    // Decision 10: `src/testing/` is the only directory that links chapulin, and colibri vendors
+    // none of its C (CLAUDE.md "Ask before"). The option names a chapulin checkout whose
+    // `bin/chapulin-client.o` and `bin/chapulin-server.o` have already been built; without it the
+    // TLS endpoints are not built and every other check still runs, so a fresh clone needs no
+    // chapulin.
+    // The two roles are two builds and either can be present without the other, so each endpoint
+    // names its own. Both usually point at one checkout: colibri reads the headers from it and
+    // links `bin/chapulin-client.o` or `bin/chapulin-server.o` from it.
+    const chapulin: modules.Chapulin = .{
+        .client = b.option([]const u8, "chapulin-client", "A chapulin checkout built ROLE=client (decision 10)"),
+        .server = b.option([]const u8, "chapulin-server", "A chapulin checkout built ROLE=server (decision 10)"),
+    };
+    const graph = modules.add(b, target, optimize, chapulin);
 
     // Everything below is colibri's own build: the tests, the checks and the tools. A project that
     // depends on colibri stops here, before the tools request pepegrillo.

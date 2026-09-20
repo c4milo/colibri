@@ -66,6 +66,7 @@ pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    chapulin: Chapulin,
 ) Modules {
     const core = create(b, "src/core/core.zig", target, optimize);
 
@@ -142,6 +143,9 @@ pub fn add(
     const testing = create(b, "src/testing/testing.zig", target, optimize);
     testing.addImport("core", core);
     testing.addImport("h2", h2);
+    // Step 5's TLS half: the endpoint fills `tls.Provider` from chapulin, so it needs the vtable
+    // the library declares. The library still links no TLS stack; this module is not in it.
+    testing.addImport("tls", tls);
     // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's. The library links
     // no C at all; this module is excluded from it, and decision 10 links chapulin here too.
     testing.link_libc = true;
@@ -149,8 +153,15 @@ pub fn add(
     const testing_client = create(b, "src/testing/client.zig", target, optimize);
     testing_client.addImport("core", core);
     testing_client.addImport("h2", h2);
+    testing_client.addImport("tls", tls);
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;
+
+    // Decision 10, and the reason the two objects are separate: a chapulin build carries one role,
+    // and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
+    // The server endpoint links the `ROLE=server` object and the client endpoint the client one.
+    link_chapulin(b, testing, chapulin.server, "chapulin-server.o");
+    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o");
 
     return .{
         .core = core,
@@ -183,4 +194,30 @@ fn create(
         .target = target,
         .optimize = optimize,
     });
+}
+
+/// The chapulin checkout each role's endpoint links, named apart because the two roles are two
+/// builds and either can be present without the other (decision 10).
+pub const Chapulin = struct {
+    client: ?[]const u8 = null,
+    server: ?[]const u8 = null,
+};
+
+/// Links one chapulin object into a `src/testing/` module and tells its source whether it is
+/// there (decision 10). colibri vendors none of chapulin's C: the checkout is the caller's, built
+/// by the two `make` lines CLAUDE.md's Commands section names, and the headers are read from it in
+/// place. With no checkout the module still compiles, with `chapulin` false, and the TLS
+/// endpoints compile to nothing.
+fn link_chapulin(
+    b: *std.Build,
+    module: *std.Build.Module,
+    checkout: ?[]const u8,
+    object: []const u8,
+) void {
+    const options = b.addOptions();
+    options.addOption(bool, "chapulin", checkout != null);
+    module.addImport("build_options", options.createModule());
+    const path = checkout orelse return;
+    module.addIncludePath(.{ .cwd_relative = path });
+    module.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ path, "bin", object }) });
 }

@@ -7,6 +7,7 @@
 //! h2load (design §8 step 4).
 const std = @import("std");
 
+pub const chapulin = @import("tls/chapulin.zig");
 pub const constants = @import("constants.zig");
 pub const h2_session = @import("h2/h2_session.zig");
 pub const Session = h2_session.Session;
@@ -19,6 +20,7 @@ pub const main = h2_server.main;
 
 test {
     std.testing.refAllDecls(@This());
+    _ = chapulin;
     _ = constants;
     _ = h2_session;
     _ = h2_server;

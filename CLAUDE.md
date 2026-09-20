@@ -246,6 +246,12 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
+- TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin
+  into `src/testing/` and nowhere else (decision 10). colibri vendors none of its C: build the
+  checkout yourself with `make RAND=drbg lib && cp bin/chapulin.o bin/chapulin-client.o` and
+  `make RAND=drbg ROLE=server lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri reads
+  the headers from it in place. Without the options the TLS endpoints compile to nothing, so a
+  clone with no chapulin still builds and still runs every other check.
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
