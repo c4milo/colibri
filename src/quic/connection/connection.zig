@@ -35,6 +35,7 @@ const stateless_reset = @import("../stateless_reset.zig");
 const termination_module = @import("../termination.zig");
 const recovery_module = @import("../recovery/recovery.zig");
 const transport_parameters = @import("../transport_parameters.zig");
+const identity_module = @import("connection_identity.zig");
 
 const Level = core.Level;
 const Parameters = transport_parameters.Parameters;
@@ -52,8 +53,10 @@ pub const Options = struct {
     local_parameters: Parameters,
     /// The instant the connection begins, from which the idle timeout runs (RFC 9000 §10.1).
     now_ns: u64,
-    /// Whether colibri's own connection IDs are zero-length (RFC 9000 §5.1).
-    zero_length_connection_id: bool = false,
+    /// The connection IDs the handshake uses (RFC 9000 §7.3). colibri chooses none of them:
+    /// §5.1 wants them unpredictable and invariant 5 forbids colibri a random number, so a
+    /// client's are the caller's and a server's come off the first Initial it accepted.
+    identity: identity_module.Options,
 };
 
 pub const Connection = struct {
@@ -82,6 +85,9 @@ pub const Connection = struct {
     termination: termination_module.Termination,
     /// RFC 9002's loss recovery and congestion control.
     recovery: recovery_module.Recovery,
+    /// The connection IDs RFC 9000 §7.3 authenticates, which are the handshake's and not the
+    /// §5.1 set `local_ids` and `remote_ids` hold.
+    identity: identity_module.Identity,
     /// The parameters colibri sent (RFC 9000 §7.4).
     local_parameters: Parameters,
     /// The peer's, once the handshake carried them, and null until then.
@@ -93,7 +99,11 @@ pub const Connection = struct {
 
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
-        const parameters = options.local_parameters;
+        connection.identity.init(options.identity);
+        var parameters = options.local_parameters;
+        // RFC 9000 §7.3: the connection IDs the extension carries are the ones the headers
+        // carried, so the connection writes all three rather than trusting them to agree.
+        identity_module.describe(&connection.identity, &parameters, options.role);
         assert(parameters.valid());
         connection.role = options.role;
         connection.local_parameters = parameters;
@@ -131,7 +141,9 @@ pub const Connection = struct {
     }
 
     fn init_paths(connection: *Connection, options: Options) void {
-        connection.local_ids.init(options.zero_length_connection_id);
+        // RFC 9000 §5.1: an endpoint's connection IDs share one length, so whether colibri's are
+        // zero-length is what its own first Source Connection ID already said.
+        connection.local_ids.init(connection.identity.local_len() == 0);
         connection.remote_ids.init(false);
         // RFC 9000 §8.1: the anti-amplification limit is the server's, because a server is handed
         // an address it cannot yet believe. §21.1.1.1 exempts a client establishing a connection.
@@ -198,4 +210,5 @@ comptime {
 test {
     _ = @import("connection_test.zig");
     _ = @import("connection_crypto.zig");
+    _ = @import("connection_identity.zig");
 }

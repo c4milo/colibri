@@ -9,6 +9,7 @@ const core = @import("core");
 const constants = @import("../constants.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
+const identity_module = @import("connection_identity.zig");
 
 const testing = std.testing;
 const Level = core.Level;
@@ -29,6 +30,18 @@ const test_max_streams_bidi: u64 = 8;
 const test_max_streams_uni: u64 = 3;
 const test_idle_timeout_ms: u64 = 30_000;
 
+/// RFC 9000 §7.3's C1 and S1 as fixed octets: §5.1 wants a connection ID unpredictable and
+/// invariant 5 forbids colibri a random number, so a test states them rather than drawing them.
+const local_id_octet: u8 = 0xc1;
+const original_id_octet: u8 = 0x51;
+const test_id_len: usize = 8;
+const local_id: [test_id_len]u8 = @splat(local_id_octet);
+const original_id: [test_id_len]u8 = @splat(original_id_octet);
+const test_identity: identity_module.Options = .{
+    .local_initial_source = &local_id,
+    .original_destination = &original_id,
+};
+
 fn local_parameters() Parameters {
     var parameters = Parameters.initial();
     parameters.initial_max_data = test_max_data;
@@ -39,7 +52,7 @@ fn local_parameters() Parameters {
 }
 
 test "a connection begins having heard nothing from its peer" {
-    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectEqual(.client, test_connection.role);
     // RFC 9000 §7.4: the peer's parameters arrive during the handshake, so there are none yet.
     try testing.expectEqual(null, test_connection.peer_parameters);
@@ -48,7 +61,7 @@ test "a connection begins having heard nothing from its peer" {
 }
 
 test "RFC 9000 §12.3 and RFC 9001 Table 1: one packet number space per encryption level" {
-    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     const levels = [_]Level{ .initial, .handshake, .application };
     const kinds = [_]@TypeOf(test_connection.space_at(.initial).kind){ .initial, .handshake, .application };
     for (levels, kinds) |level, kind| {
@@ -60,7 +73,7 @@ test "RFC 9000 §12.3 and RFC 9001 Table 1: one packet number space per encrypti
 }
 
 test "RFC 9000 §19.6: each level carries its own CRYPTO stream" {
-    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try test_connection.crypto_at(.initial).receive(0, "client hello");
     try testing.expectEqualStrings("client hello", test_connection.crypto_at(.initial).readable());
     // The other two are untouched, because §19.6 makes each level a separate flow.
@@ -69,7 +82,7 @@ test "RFC 9000 §19.6: each level carries its own CRYPTO stream" {
 }
 
 test "RFC 9000 §18.2: what colibri may spend starts at zero and the peer's parameters raise it" {
-    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     // Before the peer speaks, colibri may send no data and open no stream: §18.2 says a limit
     // that is absent or zero means the peer cannot open streams until a MAX_STREAMS frame.
     try testing.expectEqual(0, test_connection.send_flow.available());
@@ -90,17 +103,17 @@ test "RFC 9000 §18.2: what colibri may spend starts at zero and the peer's para
 test "RFC 9000 §10.1: an idle timeout of zero disables it, and any other value arms it" {
     var without = local_parameters();
     without.max_idle_timeout_ms = 0;
-    test_connection.init(.{ .role = .server, .local_parameters = without, .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .server, .local_parameters = without, .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectEqual(null, test_connection.termination.idle_timeout_ns);
 
-    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     // §18.2 states the parameter in milliseconds and colibri counts in nanoseconds.
     const expected = test_idle_timeout_ms * constants.nanoseconds_per_millisecond;
     try testing.expectEqual(expected, test_connection.termination.idle_timeout_ns.?);
 }
 
 test "RFC 9001 §4.1.2: confirmed is a state of its own, reached after complete" {
-    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expect(!test_connection.handshake_confirmed);
     test_connection.confirm_handshake();
     try testing.expect(test_connection.handshake_confirmed);
@@ -124,13 +137,13 @@ test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not
     // A client has received nothing and must still be able to send its first Initial, which
     // §14.1 makes 1,200 octets. §21.1.1.1: the limit "does not apply to clients when
     // establishing a new connection".
-    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectEqual(0, test_connection.path.received);
     try testing.expect(!test_connection.path.is_amplification_limited(constants.datagram_len_min));
 
     // A server has received nothing either, and §8.1 is exactly the rule that stops it answering:
     // three times nothing is nothing.
-    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expectEqual(0, test_connection.path.send_allowance());
     try testing.expect(test_connection.path.is_amplification_limited(1));
 
@@ -143,6 +156,32 @@ test "RFC 9000 §8.1, §21.1.1.1: a client may send at once and a server may not
 test "RFC 9000 §8.2.3: a client's exemption is not a validated path MTU" {
     // §21.1.1.1 lifts §8's limit for a client; it says nothing about the path MTU, which §8.2.3
     // makes a separate question that only an expanded PATH_CHALLENGE settles.
-    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns });
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expect(!test_connection.path.mtu_validated);
+}
+
+test "RFC 9000 §19.16: a zero-length connection ID reaches the set that refuses a retirement" {
+    // §5.1 lets an endpoint use a zero-length connection ID, and its own first Source Connection
+    // ID is what says so. The connection must carry that answer through to `local_ids`, because
+    // §19.16 makes a RETIRE_CONNECTION_ID frame a connection error for such an endpoint and
+    // nothing else on the connection knows.
+    const none: [0]u8 = @splat(0);
+    test_connection.init(.{
+        .role = .client,
+        .local_parameters = local_parameters(),
+        .now_ns = test_now_ns,
+        .identity = .{ .local_initial_source = &none, .original_destination = &original_id },
+    });
+    try testing.expectEqual(0, test_connection.identity.local_len());
+    try testing.expectError(
+        error.ZeroLengthConnectionId,
+        test_connection.local_ids.retire(0, null),
+    );
+
+    // An endpoint whose connection IDs have octets answers the frame on its merits instead.
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
+    try testing.expectError(
+        error.RetiredUnissued,
+        test_connection.local_ids.retire(0, null),
+    );
 }

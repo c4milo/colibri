@@ -6,6 +6,7 @@ const tls = @import("tls");
 const error_code = @import("../error_code.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
+const identity_module = @import("connection_identity.zig");
 const connection_crypto = @import("connection_crypto.zig");
 
 const testing = std.testing;
@@ -15,6 +16,18 @@ const Parameters = transport_parameters.Parameters;
 
 var test_connection: Connection = undefined;
 const test_now_ns: u64 = 1_000_000;
+
+/// RFC 9000 §7.3's C1 and S1 as fixed octets: §5.1 wants a connection ID unpredictable and
+/// invariant 5 forbids colibri a random number, so a test states them rather than drawing them.
+const local_id_octet: u8 = 0xc1;
+const original_id_octet: u8 = 0x51;
+const test_id_len: usize = 8;
+const local_id: [test_id_len]u8 = @splat(local_id_octet);
+const original_id: [test_id_len]u8 = @splat(original_id_octet);
+const test_identity: identity_module.Options = .{
+    .local_initial_source = &local_id,
+    .original_destination = &original_id,
+};
 /// Octets a test writes a CRYPTO frame into. Larger than any payload below.
 const test_output_len: usize = 512;
 var test_output: [test_output_len]u8 = undefined;
@@ -102,7 +115,7 @@ const Fake = struct {
 fn fresh(role: connection_module.Role) void {
     var parameters = Parameters.initial();
     parameters.initial_max_data = test_local_max_data;
-    test_connection.init(.{ .role = role, .local_parameters = parameters, .now_ns = test_now_ns });
+    test_connection.init(.{ .role = role, .local_parameters = parameters, .now_ns = test_now_ns, .identity = test_identity });
 }
 
 test "RFC 9001 §4.1.3: a CRYPTO frame's octets reach the provider at their own level" {
