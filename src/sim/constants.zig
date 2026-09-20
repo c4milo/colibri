@@ -134,6 +134,51 @@ pub const packet_check_packet_number_base_max: u64 = 1 << 61;
 /// keys of a later phase are drawn.
 pub const packet_check_key_updates_max: u64 = 3;
 
+/// The datagram network of design §8 step 8 (`network.zig`).
+///
+/// A schedule's drop, duplicate and congestion-marking rates are counts out of this, so a rate is
+/// written as a plain fraction and no floating-point value enters a run (invariant 5).
+pub const schedule_denominator: u32 = 1000;
+
+/// Octets of the largest datagram the network carries. It is past RFC 9000 §14.1's smallest
+/// allowed maximum of 1,200 octets, which every datagram carrying an Initial packet must reach.
+pub const network_datagram_len_max: u32 = 1500;
+
+/// Datagrams the network holds at once. A send with no slot left is a harness defect, not a
+/// network event, so the number is far above what one run puts in flight.
+pub const network_in_flight_max: u32 = 64;
+
+/// The delay one datagram takes when a schedule names none, in nanoseconds: 5 to 45 milliseconds,
+/// a spread wide enough that a datagram sent later arrives first.
+pub const network_delay_min_ns: u64 = 5_000_000;
+pub const network_delay_max_ns: u64 = 45_000_000;
+
+/// The network check of design §8 step 8 (`network_check.zig`).
+///
+/// Packets one seed sends, the interval between them, and the longest payload. The interval is a
+/// fraction of the delay range above, so several datagrams are in flight at once and they
+/// overtake each other.
+pub const network_check_turns: u32 = 64;
+pub const network_check_turn_ns: u64 = 2_000_000;
+pub const network_check_payload_len_max: u32 = 256;
+
+/// Octets of a payload that carry the packet number the sender put in the header, so the peer
+/// compares what it recovered against what was sent rather than against what is plausible.
+pub const network_check_number_len: u32 = @sizeOf(u64);
+
+/// The highest rate a seed's schedule draws for each event, out of `schedule_denominator`: one
+/// datagram in ten dropped or duplicated at most, and one in four marked.
+pub const network_check_drop_max: u64 = 100;
+pub const network_check_duplicate_max: u64 = 100;
+pub const network_check_mark_max: u64 = 250;
+
+/// One in this many packets is sent with an ECT codepoint, which is what a node may mark.
+pub const network_check_one_in: u64 = 2;
+
+/// The draw that picks a packet's encryption level: one part Initial, one part Handshake, and the
+/// rest 1-RTT, as a connection past its handshake sends.
+pub const network_check_level_weights: u64 = 8;
+
 comptime {
     assert(trace_version > 0);
     assert(chunk_len_max > 0);
