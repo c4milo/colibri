@@ -15,8 +15,10 @@
 const std = @import("std");
 
 const rfc7541_path = "docs/rfcs/rfc7541.txt";
+const rfc9204_path = "docs/rfcs/rfc9204.txt";
 const huffman_table_path = "src/wire/huffman_table.zig";
 const static_table_path = "src/hpack/static_table.zig";
+const qpack_static_table_path = "src/qpack/static_table.zig";
 const golden_directory = "src/golden";
 
 pub const Steps = struct {
@@ -31,6 +33,7 @@ pub const Steps = struct {
 pub fn add(b: *std.Build, steps: Steps) void {
     add_huffman_table(b, steps);
     add_static_table(b, steps);
+    add_qpack_static_table(b, steps);
     add_golden(b, steps);
 }
 
@@ -68,6 +71,7 @@ fn add_static_table(b: *std.Build, steps: Steps) void {
 
     const write = b.addRunArtifact(tool);
     write.addArg("--write");
+    write.addArg("hpack");
     write.addFileArg(b.path(rfc7541_path));
     write.addArg(b.pathFromRoot(static_table_path));
     write.has_side_effects = true;
@@ -79,11 +83,39 @@ fn add_static_table(b: *std.Build, steps: Steps) void {
 
     const check = b.addRunArtifact(tool);
     check.addArg("--check");
+    check.addArg("hpack");
     check.addFileArg(b.path(rfc7541_path));
     check.addFileArg(b.path(static_table_path));
     steps.test_step.dependOn(&check.step);
 
     add_tool_tests(b, steps, tool.root_module, "static_table");
+}
+
+/// The same generator over RFC 9204 Appendix A (design §8 step 11).
+fn add_qpack_static_table(b: *std.Build, steps: Steps) void {
+    const tool = b.addExecutable(.{
+        .name = "qpack_static_table",
+        .root_module = host_module(b, "tools/static_table.zig"),
+    });
+
+    const write = b.addRunArtifact(tool);
+    write.addArg("--write");
+    write.addArg("qpack");
+    write.addFileArg(b.path(rfc9204_path));
+    write.addArg(b.pathFromRoot(qpack_static_table_path));
+    write.has_side_effects = true;
+    const write_step = b.step(
+        "qpack-static-table",
+        "Rewrite " ++ qpack_static_table_path ++ " from RFC 9204 Appendix A",
+    );
+    write_step.dependOn(&write.step);
+
+    const check = b.addRunArtifact(tool);
+    check.addArg("--check");
+    check.addArg("qpack");
+    check.addFileArg(b.path(rfc9204_path));
+    check.addFileArg(b.path(qpack_static_table_path));
+    steps.test_step.dependOn(&check.step);
 }
 
 fn add_golden(b: *std.Build, steps: Steps) void {

@@ -224,8 +224,10 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
 - Generated tables: `zig build huffman-table` regenerates `src/wire/huffman_table.zig` from RFC
-  7541 Appendix B and `zig build static-table` regenerates `src/hpack/static_table.zig` from its
-  Appendix A; `zig build test` fails when a committed table differs from what the RFC yields.
+  7541 Appendix B, `zig build static-table` regenerates `src/hpack/static_table.zig` from its
+  Appendix A, and `zig build qpack-static-table` regenerates `src/qpack/static_table.zig` from
+  RFC 9204 Appendix A; `zig build test` fails when a committed table differs from what its RFC
+  yields.
 - Vectors: `zig build hpack-vectors` decodes every story of the vendored
   `src/hpack/hpack-test-case/` and round-trips `raw-data/` through the encoder (decision 38);
   `zig build test` runs it.
