@@ -13,6 +13,11 @@ cd docs/rfcs && shasum -a 256 -c SHA256SUMS
 
 RFC 7540 is deliberately absent. RFC 9113 obsoletes it, and colibri never reads or cites it.
 
+RFC 8446 is absent for the same reason. RFC 9846, the July 2026 revision of TLS 1.3, obsoletes
+it. The wire format and the version codepoint are unchanged, but the sections are renumbered and
+some requirements are tightened, so a section number copied from RFC 8446 may name a different
+rule or none at all.
+
 ## HTTP
 
 | RFC | Title | What colibri uses it for |
@@ -39,7 +44,7 @@ RFC 7540 is deliberately absent. RFC 9113 obsoletes it, and colibri never reads 
 
 | RFC | Title | What colibri uses it for |
 |---|---|---|
-| [8446](rfc8446.txt) | The Transport Layer Security (TLS) Protocol Version 1.3 | The semantics of the TLS provider (decision 8) |
+| [9846](rfc9846.txt) | The Transport Layer Security (TLS) Protocol Version 1.3 | The semantics of the TLS provider (decision 8); obsoletes RFC 8446 |
 | [7301](rfc7301.txt) | Transport Layer Security (TLS) Application-Layer Protocol Negotiation Extension | Negotiating `h2` and `h3`; the ask to chapulin (decision 10) |
 
 ## Extensions colibri declines
