@@ -964,7 +964,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   direction against curl, nghttp and Go's client, which cleartext could run today and nobody has
   yet. The provider itself is no longer owed: both roles are filled and both are proved live
   above. What stands between here and `h2spec -t -k` is [decision 46](decisions.md) — chapulin's
-  handshake blocks, and the h2 server's rule is that `poll` is the only call that waits. RFC 9113 Appendix A's prohibited suites are
+  handshake blocks, and the h2 server's rule is that `poll` is the only call that waits.
+
+  **Ruled by the owner on 2026-09-20: wait for chapulin.** A serial TLS endpoint and a thread for
+  each handshake were both offered and both lost; decision 46 stands unamended. What colibri waits
+  on is named: a server handshake whose `send` and `recv` callbacks can report "nothing yet"
+  instead of failing, so `h2_server.zig` can drive it from inside its one `poll` call.
+  <https://github.com/c4milo/colibri/issues/20> tracks it, and chapulin has the request. RFC 9113 Appendix A's prohibited suites are
   not checked and will not be: decision 45 records why.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
