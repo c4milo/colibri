@@ -13,6 +13,7 @@ pub const decoder = @import("decoder.zig");
 pub const dynamic_table = @import("dynamic_table.zig");
 pub const instruction = @import("instruction.zig");
 pub const insert_count = @import("insert_count.zig");
+pub const encoder_state = @import("encoder_state.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -25,4 +26,5 @@ test {
     _ = dynamic_table;
     _ = instruction;
     _ = insert_count;
+    _ = encoder_state;
 }

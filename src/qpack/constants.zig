@@ -105,6 +105,12 @@ pub const insert_count_increment_pattern: u8 = 0x00;
 pub const insert_count_increment_mask: u8 = 0xc0;
 pub const insert_count_increment_prefix_bits: u4 = 6;
 
+/// How many field sections with dynamic table references may be outstanding at once, across
+/// every stream. RFC 9204 bounds this at nothing — §2.1.1 only requires an encoder to track
+/// them — so the bound is colibri's, and an encoder that reaches it falls back to a
+/// representation that references nothing rather than losing track of one.
+pub const outstanding_sections_max: usize = 64;
+
 /// The error codes of RFC 9204 §6, which HTTP/3 carries when QPACK cannot continue.
 pub const error_decompression_failed: u64 = 0x0200;
 pub const error_encoder_stream: u64 = 0x0201;
