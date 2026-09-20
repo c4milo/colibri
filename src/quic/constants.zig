@@ -229,6 +229,10 @@ pub const loss_time_threshold_denominator: u64 = 8;
 /// §6.1.1 recommends at 3.
 pub const loss_packet_threshold: u64 = 3;
 
+/// `kPersistentCongestionThreshold`: how many Probe Timeouts a span of loss must cover before it
+/// counts as persistent congestion, which §7.6.1 recommends at 3.
+pub const persistent_congestion_threshold: u64 = 3;
+
 /// RFC 9000 §18.2: `max_ack_delay` is the peer's, in milliseconds, assumed to be 25 when absent
 /// and invalid at 2^14 or above. It is held per connection and never as a limit of colibri's.
 pub const max_ack_delay_default_ns: u64 = 25 * nanoseconds_per_millisecond;

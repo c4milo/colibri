@@ -30,6 +30,10 @@ pub const Sample = struct {
     /// RFC 9002 §5.3: until the handshake is confirmed the peer's `max_ack_delay` is not
     /// applied, because a delay larger than it is expected then and is not repeating.
     handshake_confirmed: bool,
+    /// The instant the acknowledgment was processed, which is the instant `rtt_ns` was measured
+    /// from. RFC 9002 Appendix A.3 keeps it as `first_rtt_sample` for the first sample alone,
+    /// because §7.6.2 counts a packet toward persistent congestion only if it was sent after it.
+    taken_at_ns: u64,
 };
 
 pub const Rtt = struct {
@@ -41,8 +45,9 @@ pub const Rtt = struct {
     /// RFC 9002 §5.3: the exponentially weighted moving average, and the mean variation of it.
     smoothed_ns: u64,
     variation_ns: u64,
-    /// Whether a sample has arrived since the estimator was initialized or reset.
-    has_sample: bool,
+    /// RFC 9002 Appendix A.3's `first_rtt_sample`: when the first sample since the estimator was
+    /// initialized or reset arrived, or null when none has.
+    first_sample_at_ns: ?u64,
     /// The peer's `max_ack_delay` (RFC 9000 §18.2), in nanoseconds. It is the peer's advertised
     /// value and not a limit of colibri's, so it arrives with the transport parameters; absent,
     /// §18.2 assumes 25 milliseconds, which `init` uses until the caller knows better.
@@ -56,7 +61,7 @@ pub const Rtt = struct {
             .min_ns = 0,
             .smoothed_ns = constants.rtt_initial_ns,
             .variation_ns = constants.rtt_initial_ns / constants.rtt_initial_variation_divisor,
-            .has_sample = false,
+            .first_sample_at_ns = null,
             .peer_max_ack_delay_ns = constants.max_ack_delay_default_ns,
         };
     }
@@ -68,6 +73,11 @@ pub const Rtt = struct {
         const advertised_ns = rtt.peer_max_ack_delay_ns;
         rtt.init();
         rtt.peer_max_ack_delay_ns = advertised_ns;
+    }
+
+    /// Whether any sample has arrived since the estimator was initialized or reset.
+    pub fn has_sample(rtt: *const Rtt) bool {
+        return rtt.first_sample_at_ns != null;
     }
 
     /// Takes the peer's `max_ack_delay` from its transport parameters (RFC 9000 §18.2), in
@@ -83,11 +93,11 @@ pub const Rtt = struct {
         rtt.latest_ns = sample.rtt_ns;
         // RFC 9002 §5.3: on the first sample after initialization the estimator is reset to it,
         // so no part of the initial value survives into a measured path.
-        if (!rtt.has_sample) {
+        if (rtt.first_sample_at_ns == null) {
+            rtt.first_sample_at_ns = sample.taken_at_ns;
             rtt.min_ns = sample.rtt_ns;
             rtt.smoothed_ns = sample.rtt_ns;
             rtt.variation_ns = sample.rtt_ns / constants.rtt_initial_variation_divisor;
-            rtt.has_sample = true;
             return;
         }
         // RFC 9002 §5.2: min_rtt ignores acknowledgment delay, so it takes the sample as it came.
@@ -131,6 +141,13 @@ pub const Rtt = struct {
         return @max(period_ns, constants.rtt_granularity_ns);
     }
 
+    /// RFC 9002 §7.6.1: how long every packet over a span must be lost before the span counts as
+    /// persistent congestion. It is the Probe Timeout times a threshold, and §7.6.1 states that
+    /// unlike §6.2's timeout this one carries `max_ack_delay` whatever space the losses are in.
+    pub fn persistent_congestion_ns(rtt: *const Rtt) u64 {
+        return rtt.probe_timeout_ns(true) *| constants.persistent_congestion_threshold;
+    }
+
     /// The instant past which a packet is lost by the time threshold of RFC 9002 §6.1.2: nine
     /// eighths of the larger of the latest and smoothed estimates, never below the granularity.
     pub fn loss_delay_ns(rtt: *const Rtt) u64 {
@@ -159,22 +176,30 @@ const millisecond = constants.nanoseconds_per_millisecond;
 
 /// A sample with no reported delay, which is what an Initial packet's acknowledgment gives.
 fn plain(rtt_ns: u64) Sample {
-    return .{ .rtt_ns = rtt_ns, .ack_delay_ns = 0, .handshake_confirmed = false };
+    return .{
+        .rtt_ns = rtt_ns,
+        .ack_delay_ns = 0,
+        .handshake_confirmed = false,
+        .taken_at_ns = test_taken_at_ns,
+    };
 }
+
+/// The instant every test sample was measured at. Test-only.
+const test_taken_at_ns: u64 = constants.rtt_initial_ns;
 
 test "§5.3: the first sample replaces the initial estimate entirely" {
     test_rtt.init();
     // Before any sample the estimator holds §6.2.2's recommended initial round trip.
     try testing.expectEqual(constants.rtt_initial_ns, test_rtt.smoothed_ns);
     try testing.expectEqual(constants.rtt_initial_ns / 2, test_rtt.variation_ns);
-    try testing.expect(!test_rtt.has_sample);
+    try testing.expect(!test_rtt.has_sample());
     // The first sample is taken whole: no part of 333 ms survives into a measured path.
     test_rtt.update(plain(40 * millisecond));
     try testing.expectEqual(40 * millisecond, test_rtt.latest_ns);
     try testing.expectEqual(40 * millisecond, test_rtt.min_ns);
     try testing.expectEqual(40 * millisecond, test_rtt.smoothed_ns);
     try testing.expectEqual(20 * millisecond, test_rtt.variation_ns);
-    try testing.expect(test_rtt.has_sample);
+    try testing.expect(test_rtt.has_sample());
 }
 
 test "§5.3: a later sample moves the estimate an eighth and the variation a quarter" {
@@ -222,6 +247,7 @@ test "§5.3: the reported delay is subtracted only where it may be" {
         .rtt_ns = 100 * millisecond,
         .ack_delay_ns = 60 * millisecond,
         .handshake_confirmed = false,
+        .taken_at_ns = test_taken_at_ns,
     });
     try testing.expectEqual(31 * millisecond + 250_000, test_rtt.smoothed_ns);
     // After it is confirmed the same report is clamped to the peer's 25 ms, so the adjusted
@@ -232,6 +258,7 @@ test "§5.3: the reported delay is subtracted only where it may be" {
         .rtt_ns = 100 * millisecond,
         .ack_delay_ns = 60 * millisecond,
         .handshake_confirmed = true,
+        .taken_at_ns = test_taken_at_ns,
     });
     try testing.expectEqual(35 * millisecond + 625_000, test_rtt.smoothed_ns);
 }
@@ -245,6 +272,7 @@ test "§5.3: subtracting the delay may not take the sample below min_rtt" {
         .rtt_ns = 110 * millisecond,
         .ack_delay_ns = 90 * millisecond,
         .handshake_confirmed = false,
+        .taken_at_ns = test_taken_at_ns,
     });
     try testing.expectEqual(101 * millisecond + 250_000, test_rtt.smoothed_ns);
     // Exactly at min_rtt the subtraction stands: 110 - 10 = 100.
@@ -254,6 +282,7 @@ test "§5.3: subtracting the delay may not take the sample below min_rtt" {
         .rtt_ns = 110 * millisecond,
         .ack_delay_ns = 10 * millisecond,
         .handshake_confirmed = false,
+        .taken_at_ns = test_taken_at_ns,
     });
     try testing.expectEqual(100 * millisecond, test_rtt.smoothed_ns);
 }
@@ -267,6 +296,7 @@ test "§5.2: min_rtt is of the sample as it came, and only ever falls" {
         .rtt_ns = 120 * millisecond,
         .ack_delay_ns = 40 * millisecond,
         .handshake_confirmed = false,
+        .taken_at_ns = test_taken_at_ns,
     });
     try testing.expectEqual(100 * millisecond, test_rtt.min_ns);
     test_rtt.update(plain(70 * millisecond));
@@ -317,7 +347,8 @@ test "§9.4: a reset forgets the path and keeps what the peer advertised" {
     try testing.expectEqual(340 * millisecond, test_rtt.probe_timeout_ns(true));
     // RFC 9000 §9.4: migrating to a new path discards what was measured on the old one.
     test_rtt.reset();
-    try testing.expect(!test_rtt.has_sample);
+    try testing.expect(!test_rtt.has_sample());
+    try testing.expectEqual(null, test_rtt.first_sample_at_ns);
     try testing.expectEqual(constants.rtt_initial_ns, test_rtt.smoothed_ns);
     try testing.expectEqual(0, test_rtt.min_ns);
     // What the peer advertised is not a property of the path, so it survives the reset.
