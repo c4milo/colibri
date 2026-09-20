@@ -16,6 +16,12 @@ pub const frame_max_push_id: u64 = 0x0d;
 /// receipt is a connection error. They are the HTTP/2 types whose function QUIC itself performs.
 pub const frame_reserved_http2 = [_]u64{ 0x02, 0x06, 0x08, 0x09 };
 
+/// The unidirectional stream types of RFC 9114 §6.2, and QPACK's two from RFC 9204 §4.2.
+pub const stream_control: u64 = 0x00;
+pub const stream_push: u64 = 0x01;
+pub const stream_qpack_encoder: u64 = 0x02;
+pub const stream_qpack_decoder: u64 = 0x03;
+
 /// RFC 9114 §6.2.3 and §7.2.8: stream types and frame types of the form `0x1f * N + 0x21` are
 /// reserved to exercise the rule that an unknown type is ignored. One expression covers both,
 /// because the two sections define the same form over separate spaces.
@@ -66,5 +72,6 @@ test "§6.2.3 and §7.2.8: the reserved types are 0x1f * N + 0x21 and nothing el
     // No frame or stream type this document defines is reserved, so the two spaces do not clash.
     try testing.expect(!is_reserved(frame_data));
     try testing.expect(!is_reserved(frame_max_push_id));
+    try testing.expect(!is_reserved(stream_qpack_decoder));
     for (frame_reserved_http2) |held| try testing.expect(!is_reserved(held));
 }

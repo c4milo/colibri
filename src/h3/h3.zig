@@ -9,10 +9,12 @@ pub const quic = @import("quic");
 pub const constants = @import("constants.zig");
 pub const frame = @import("frame.zig");
 pub const frame_write = @import("frame_write.zig");
+pub const stream = @import("stream.zig");
 
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
     _ = frame;
     _ = frame_write;
+    _ = stream;
 }
