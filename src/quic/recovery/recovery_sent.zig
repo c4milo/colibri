@@ -87,6 +87,9 @@ pub const Counts = struct {
     /// How many of those slots are live, and the octets of the live ones that are in flight.
     count: usize,
     in_flight_len: u64,
+    /// How many of the live ones are ack-eliciting, which RFC 9002 Appendix A.8 asks of every
+    /// space before it arms a Probe Timeout for it.
+    ack_eliciting_count: usize,
 };
 
 /// A table of at most `capacity` outstanding packets. One space's, never shared: RFC 9000 §12.3
@@ -106,7 +109,7 @@ pub fn Sent(comptime capacity: usize) type {
 
         pub fn init(table: *Table) void {
             table.live = @splat(false);
-            table.counts = .{ .head = 0, .span = 0, .count = 0, .in_flight_len = 0 };
+            table.counts = .{ .head = 0, .span = 0, .count = 0, .in_flight_len = 0, .ack_eliciting_count = 0 };
         }
 
         /// How many packets are outstanding, and their octets counting the ones in flight alone
@@ -117,6 +120,11 @@ pub fn Sent(comptime capacity: usize) type {
 
         pub fn in_flight_len(table: *const Table) u64 {
             return table.counts.in_flight_len;
+        }
+
+        /// How many outstanding packets the peer must acknowledge (RFC 9002 Appendix A.8).
+        pub fn ack_eliciting_count(table: *const Table) usize {
+            return table.counts.ack_eliciting_count;
         }
 
         /// Remembers a packet this endpoint has just sent (RFC 9002 Appendix A.5).
@@ -190,6 +198,7 @@ fn append(records: []Record, live: []bool, counts: *Counts, sent: Record) Error!
     counts.span += 1;
     counts.count += 1;
     if (sent.in_flight) counts.in_flight_len += sent.sent_len;
+    if (sent.ack_eliciting) counts.ack_eliciting_count += 1;
 }
 
 fn take_range(records: []Record, live: []bool, counts: *Counts, smallest: u64, largest: u64) Removed {
@@ -215,6 +224,7 @@ fn take_all(records: []Record, live: []bool, counts: *Counts) Removed {
     }
     compact(records.len, live, counts);
     assert(counts.count == 0 and counts.span == 0 and counts.in_flight_len == 0);
+    assert(counts.ack_eliciting_count == 0);
     return removed;
 }
 
@@ -235,7 +245,11 @@ fn take(records: []const Record, live: []bool, counts: *Counts, at: usize, remov
     // The records are taken in ascending order, so the last one taken is the largest.
     removed.largest = held.number;
     removed.largest_sent_at_ns = held.sent_at_ns;
-    if (held.ack_eliciting) removed.any_ack_eliciting = true;
+    if (held.ack_eliciting) {
+        assert(counts.ack_eliciting_count > 0);
+        counts.ack_eliciting_count -= 1;
+        removed.any_ack_eliciting = true;
+    }
 }
 
 /// Returns the dead slots at either end of the span for reuse. A dead slot between two live ones
@@ -338,6 +352,7 @@ test "A.1.1: records are held in send order and the table fills" {
     for (0..test_capacity) |number| try test_table.record(eliciting(number));
     try testing.expectEqual(test_capacity, test_table.count());
     try testing.expectEqual(test_capacity * test_len, test_table.in_flight_len());
+    try testing.expectEqual(test_capacity, test_table.ack_eliciting_count());
     try testing.expectEqual(0, test_table.oldest().?.number);
     var numbers: [test_capacity]u64 = undefined;
     try testing.expectEqualSlices(u64, &.{ 0, 1, 2, 3 }, held_numbers(&numbers));
@@ -353,6 +368,8 @@ test "§7.2: a packet not in flight is remembered and counts toward nothing" {
     try test_table.record(acknowledgment_only(1));
     try testing.expectEqual(2, test_table.count());
     try testing.expectEqual(test_len, test_table.in_flight_len());
+    // RFC 9002 Appendix A.8 arms a probe only where the peer owes an acknowledgment.
+    try testing.expectEqual(1, test_table.ack_eliciting_count());
     // What leaves reports only the octets that were in flight, and only an ack-eliciting packet
     // sets the flag RFC 9002 Appendix A.7 requires before a round trip sample may be taken.
     const removed = test_table.remove_range(1, 1);
@@ -450,6 +467,7 @@ test "A.11: discarding a space gives up every record at once" {
     try testing.expectEqual(2, removed.largest);
     try testing.expect(removed.any_ack_eliciting);
     try testing.expectEqual(0, test_table.count());
+    try testing.expectEqual(0, test_table.ack_eliciting_count());
     try testing.expectEqual(null, test_table.oldest());
     // The table is usable again, and discarding an empty one reports nothing.
     try testing.expectEqual(0, test_table.discard().count);

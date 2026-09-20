@@ -22,6 +22,8 @@ pub const recovery_loss = @import("recovery/recovery_loss.zig");
 pub const recovery_congestion = @import("recovery/recovery_congestion.zig");
 pub const recovery_timer = @import("recovery/recovery_timer.zig");
 pub const recovery_pacing = @import("recovery/recovery_pacing.zig");
+pub const recovery = @import("recovery/recovery.zig");
+pub const recovery_ack = @import("recovery/recovery_ack.zig");
 pub const stream = @import("stream/stream.zig");
 
 test {
@@ -42,5 +44,7 @@ test {
     _ = recovery_congestion;
     _ = recovery_timer;
     _ = recovery_pacing;
+    _ = recovery;
+    _ = recovery_ack;
     _ = stream;
 }

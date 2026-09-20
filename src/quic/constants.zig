@@ -244,6 +244,18 @@ pub const congestion_window_minimum_datagrams: u64 = 2;
 /// recommends at one half.
 pub const congestion_loss_reduction_divisor: u64 = 2;
 
+/// How many packets one packet number space may hold outstanding, which bounds the table of
+/// RFC 9002 Appendix A.1.1. The RFC bounds `sent_packets` at nothing, so this bound is colibri's
+/// and a sender that reaches it waits for an acknowledgment rather than sending past it. It also
+/// caps the congestion window in practice: 256 packets at RFC 9000 §14.1's smallest datagram is
+/// a window of about 300 kilobytes. The Initial and Handshake spaces never come near it, and
+/// giving them a smaller table of their own is a change design §11 would have to measure first.
+pub const sent_packets_max: usize = 256;
+
+/// RFC 9002 Appendix A.9: a Probe Timeout sends one or two ack-eliciting packets, and two is
+/// what recovers a tail of exactly one lost packet in one round trip rather than two.
+pub const probe_packets: u8 = 2;
+
 /// RFC 9002 §7.7's `N`, as a fraction: the pacing rate is `N * congestion_window / smoothed_rtt`,
 /// and §7.7 asks for an `N` that is small but at least 1, giving 1.25 as its example. Above 1 the
 /// window is not left underused when the round trip moves.
