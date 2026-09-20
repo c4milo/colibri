@@ -1183,11 +1183,54 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the reader ends the loop whatever the bound says; the bound is there because non-negotiable 4
   asks for one a reader can see.
 
+  **The packet number spaces, 2026-09-19.** `src/quic/space/` holds the three spaces of RFC 9000
+  §12.3 — Initial, Handshake and Application data — each with its own numbers, its own record of
+  what it received, its own ECN counts and its own acknowledgment state. Sharing nothing is the
+  point: §12.3 gives the spaces cryptographic separation, and a number means nothing outside the
+  one it was used in.
+
+  One structure does two jobs, because both ask which numbers have been processed. §12.3 has a
+  receiver discard a packet unless it is certain it has not processed that number before, and
+  §19.3.1's ACK ranges are exactly the runs such a record holds. `Received` keeps them
+  descending and merges a number that closes a gap, so the ranges are always the fewest that
+  describe what arrived, in any order it arrived in.
+
+  Its storage is fixed, which §13.2.3 asks for, and the cost is stated rather than hidden. Past
+  the limit the oldest range is dropped — §13.2.3's own remedy — and below what is left §12.3's
+  certainty is gone, so a packet there is discarded. A number one below the floor is refused
+  too, though it would merely extend the lowest range: the range that held it could have been
+  dropped before its neighbour arrived, and extending downward would then take a number this
+  endpoint had already processed. That refuses some packets a larger record would accept; it
+  never accepts one twice.
+
+  `Space` writes the ACK frame from that record (§19.3), with the ACK Delay measured from the
+  instant the largest number arrived and shifted by the endpoint's `ack_delay_exponent` (§19.3,
+  §13.2.5, §18.2), and the three ECN counts when the endpoint reports them (§13.4.1, §19.3.2).
+  It owes an ACK after two ack-eliciting packets (§13.2.2), and at once when one arrives out of
+  order or marked ECN-CE (§13.2.1). `on_ack` reads what a peer's frame said: §13.1 makes an
+  acknowledgment for a packet never sent a connection error of PROTOCOL_VIOLATION, and §13.2
+  makes acknowledgments irrevocable, so the largest never moves backward. What it does not do is
+  loss recovery — nothing here remembers what was sent, so nothing here can call a packet lost;
+  RFC 9002 is step 10's, and the report exists for that step to act on.
+
+  Every ACK frame the tests write is read back through the frame layer, so the writer and the
+  reader agree about §19.3.1's arithmetic rather than each agreeing with itself.
+
+  `zig build test` passes 750 of 750 and the lint is clean. Mutations: 32 applied, 31 **CAUGHT**.
+  The one that was not removed a guard against a space that owes an acknowledgment while having
+  received nothing, which no reachable state produces: both counters move only on a packet the
+  space processed. It is now an assertion stating that invariant rather than a branch defending
+  against it, so a later change that empties a space without clearing them fails at the
+  assertion instead of writing an ACK frame with no ranges. Removing the assertion is not caught
+  either, and cannot be: no input violates it, which is what makes it an invariant.
+
+  A test of mine was wrong before the code was. It expected a number just below the remembered
+  floor to be accepted, and the reasoning in the paragraph above is why it must not be.
+
   **Still owed for the step**, which is everything else it names: the handshake over CRYPTO
-  frames, the three packet number spaces, ACK generation and processing, streams and their two
-  state machines, flow control, connection IDs, path validation, anti-amplification, the idle
-  timeout and the closing states. The handshake half waits on chapulin's `ch_quic_*` calls; the
-  rest does not.
+  frames, streams and their two state machines, flow control, connection IDs, path validation,
+  anti-amplification, the idle timeout and the closing states. The handshake half waits on
+  chapulin's `ch_quic_*` calls; the rest does not.
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
