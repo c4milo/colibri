@@ -83,24 +83,50 @@ pub const AlertReport = struct {
     pub const Origin = enum { peer, local };
 };
 
-/// True when the alert ends the connection in the orderly way RFC 9846 §6.1 describes, rather
-/// than as an error.
-pub fn is_orderly_close(report: AlertReport) bool {
-    // RFC 9846 §6.1: close_notify tells the recipient that the sender will not send any more
-    // messages; every other description is an error alert (§6.2).
-    return report.description == .close_notify;
+/// What an alert means to the connection that received it (RFC 9846 §6).
+///
+/// Three answers and not two, because RFC 9846 §6.1 gives `user_canceled` a meaning that is
+/// neither an error nor the end of the peer's data. RFC 8446 left that unclear and the revision
+/// tightened it, which is one of the changes RFC 9846 §1.2 lists.
+pub const Verdict = enum {
+    /// The peer's data has not ended and nothing is in error, so the reader carries on.
+    keep_reading,
+    /// The sender will send no more messages, so its data has ended (RFC 9846 §6.1).
+    end_of_data,
+    /// An error alert, after which RFC 9846 §6 forbids data in either direction (§6.2).
+    fatal,
+};
+
+/// What `report` means to the connection that received it.
+pub fn verdict(report: AlertReport) Verdict {
+    return switch (report.description) {
+        // RFC 9846 §6.1: close_notify tells the recipient that the sender will not send any more
+        // messages, which design §8 step 5 makes the end of the h2 byte stream.
+        .close_notify => .end_of_data,
+        // RFC 9846 §6.1: user_canceled "MUST be followed by a close_notify", and "Receiving
+        // implementations SHOULD continue to read data" after it. So the peer's data ends at that
+        // close_notify and not here, and this alert is neither an error nor an ending.
+        .user_canceled => .keep_reading,
+        // RFC 9846 §6.2: every other description is an error alert.
+        else => .fatal,
+    };
 }
 
-test "close_notify is the one orderly description, and an unknown value is still an alert" {
+test "each description gets the one verdict RFC 9846 §6 gives it" {
     const testing = std.testing;
-    try testing.expect(is_orderly_close(.{ .description = .close_notify, .origin = .peer }));
-    try testing.expect(!is_orderly_close(.{ .description = .bad_record_mac, .origin = .local }));
+    // RFC 9846 §6.1: close_notify ends the peer's data.
+    try testing.expectEqual(Verdict.end_of_data, verdict(.{ .description = .close_notify, .origin = .peer }));
+    // RFC 9846 §6.1: user_canceled is followed by a close_notify, so the reader waits for it.
+    // It is neither an ending nor an error, which is the whole reason this answer is three-way.
+    try testing.expectEqual(Verdict.keep_reading, verdict(.{ .description = .user_canceled, .origin = .peer }));
+    // RFC 9846 §6.2: every other description is an error alert.
+    try testing.expectEqual(Verdict.fatal, verdict(.{ .description = .bad_record_mac, .origin = .local }));
     // RFC 7301 §3.2: the ALPN alert is 120.
     try testing.expectEqual(120, @intFromEnum(Alert.no_application_protocol));
     // RFC 9846 §6.2: general_error is 117, and it is an error alert like any other.
     try testing.expectEqual(117, @intFromEnum(Alert.general_error));
-    try testing.expect(!is_orderly_close(.{ .description = .general_error, .origin = .peer }));
+    try testing.expectEqual(Verdict.fatal, verdict(.{ .description = .general_error, .origin = .peer }));
     // RFC 9846 §6: an endpoint that receives an unknown description treats it as an error.
     const unknown: Alert = @enumFromInt(200);
-    try testing.expect(!is_orderly_close(.{ .description = unknown, .origin = .peer }));
+    try testing.expectEqual(Verdict.fatal, verdict(.{ .description = unknown, .origin = .peer }));
 }

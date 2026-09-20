@@ -177,7 +177,7 @@ test "a peer's close_notify is reported with its description, not as a failure" 
     try testing.expectEqual(tls.Alert.close_notify, report.description);
     try testing.expectEqual(tls.AlertReport.Origin.peer, report.origin);
     // RFC 9846 §6.1 makes this the end of the peer's data, which is not an error.
-    try testing.expect(tls.alert.is_orderly_close(report));
+    try testing.expect(tls.alert.verdict(report) == .end_of_data);
     // The call clears it, so a second reports none.
     try testing.expectEqual(null, held.vtable.take_alert(held.context));
 }

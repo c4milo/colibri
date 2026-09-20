@@ -960,6 +960,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `zig build test` passes 972 of 972 with both roles linked, and 954 with 18 skipped when no
   checkout is given.
 
+  **`user_canceled`, and the bound that makes it safe, 2026-09-20.** RFC 9846 §6.1 tightened what
+  RFC 8446 left unclear: the alert "MUST be followed by a `close_notify`" and a receiver "SHOULD
+  continue to read data" after it. colibri answered `error.TlsFailed`, so it closed a connection
+  the RFC says to keep reading. `tls.alert.verdict` now answers three ways — `keep_reading`,
+  `end_of_data`, `fatal` — because the alert is neither an ending nor an error.
+
+  Continuing to read is, on its own, an invitation: a peer that sends nothing but `user_canceled`
+  gets a reader that never returns. The chapulin session raised it, having hit the same thing and
+  bounded it with a cap of 32 on records carrying no application data. colibri had no such bound
+  and three dataless outcomes already — a NewSessionTicket, a KeyUpdate and a partial record — so
+  the exposure predated this alert. `connection_tls.zig` now counts records in a row that carry
+  none, resets the count on any record that carries some, and fails past
+  `records_without_data_max`, which the owner set at 32 on 2026-09-20 to match
+  `continuation_count_max`. One past it is ENHANCE_YOUR_CALM (RFC 9113 §10.5).
+
+  Mutations: five applied, all **CAUGHT** — `user_canceled` fatal again, `user_canceled` as the
+  end of data, the bound removed, the reset removed, and the bound off by one.
+  `zig build test` passes 976 of 976, `h2spec` still prints 144 passed, and both simulator
+  checksums are where they were.
+
   **Still owed for the step.** `h2spec -t -k`; the same interop over TLS; and the server
   direction against curl, nghttp and Go's client, which cleartext could run today and nobody has
   yet. The provider itself is no longer owed: both roles are filled and both are proved live

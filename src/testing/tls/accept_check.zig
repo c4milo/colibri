@@ -187,8 +187,12 @@ fn await_close(socket: std.c.fd_t) !void {
         std.debug.print("tls-accept: the alert carried no description\n", .{});
         std.process.exit(exit_failed);
     };
-    if (!tls.alert.is_orderly_close(report_held)) {
-        std.debug.print("tls-accept: the peer closed with an error alert\n", .{});
+    // RFC 9846 §6.1: only close_notify ends the peer's data. A user_canceled would mean the peer
+    // owes a close_notify still, which this run does not wait for.
+    if (tls.alert.verdict(report_held) != .end_of_data) {
+        std.debug.print("tls-accept: the peer closed with {s}, not close_notify\n", .{
+            @tagName(report_held.description),
+        });
         std.process.exit(exit_failed);
     }
 }

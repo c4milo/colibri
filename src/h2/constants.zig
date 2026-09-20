@@ -182,6 +182,14 @@ pub const frame_size_max: u32 = max_frame_size_initial;
 /// bound invariant 14 names; one past it is a connection error of ENHANCE_YOUR_CALM (§10.5).
 pub const continuation_count_max: u32 = 32;
 
+/// Most records in a row that may carry no application data. A NewSessionTicket, a KeyUpdate and
+/// a `user_canceled` alert each yield none and each is legitimate (RFC 9113 §9.2.3, RFC 9846
+/// §4.7.1, §4.7.3, §6.1), and RFC 9846 §6.1 obliges a receiver to keep reading past a
+/// `user_canceled` rather than close. So the peer chooses how much work colibri does for nothing,
+/// and one past this bound is a connection error of ENHANCE_YOUR_CALM (RFC 9113 §10.5). It
+/// matches `continuation_count_max`, which bounds the same kind of peer-chosen run.
+pub const records_without_data_max: u32 = 32;
+
 /// The longest representation of one field line the decoder accepts, in encoded octets. RFC 7541
 /// §7.4 asks for limits on integers and on string literals, and colibri's are
 /// `wire.constants.integer_len_max` and hpack's `name_len_max` and `value_len_max`, in decoded

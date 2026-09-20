@@ -173,6 +173,9 @@ pub const Connection = struct {
     /// The TLS provider this connection runs over, or null for the cleartext prior-knowledge
     /// endpoint of §3.3 (decision 44, `connection_tls.zig`).
     provider: ?tls.Provider,
+    /// Records in a row that carried no application data, counted by `connection_tls.zig`. A
+    /// peer chooses how many it sends, so the run is bounded (`records_without_data_max`).
+    records_without_data: u32,
     /// RST_STREAM frames colibri has sent since `rst_stream_period_start_ns` (§10.5).
     rst_stream_sent: u32,
     /// The instant the current RST_STREAM rate period began.
@@ -202,6 +205,7 @@ pub const Connection = struct {
         connection.block_discarded = false;
         connection.send_block = @splat(0);
         connection.provider = null;
+        connection.records_without_data = 0;
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
         assert(!connection.has_failed());
