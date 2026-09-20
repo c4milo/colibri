@@ -1535,25 +1535,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **What 9e still owes, 2026-09-20.** Five agents mapped the remaining work against the vendored
   RFCs and a sixth checked every claim they made against the tree. The list is longer than the six
-  items this paragraph used to hold, and it is ordered: each piece needs the ones above it.
+  items this paragraph used to hold, and it is ordered: each piece needs the ones above it. The
+  four prerequisites are done and struck through; the entries below say what each one printed.
 
-  1. **Connection identity.** `Options` carries a role, the parameters, the instant and one flag,
-     and `connection_id.Local` holds sequence numbers and no octets, so nothing can answer which
-     connection IDs the handshake used. A long header must write a Destination and a Source
-     Connection ID, RFC 9000 §12.2 requires every packet of one datagram to carry the same
-     Destination Connection ID, and §7.3 has the client check four of them against the peer's
-     transport parameters. Three pieces below need this and each mapped a different struct for it,
-     so it is settled once, here.
-  2. **The client's path, and a read-only duplicate query.** Both are corrections inside 9d's
-     files. The first is recorded below. The second is that `Space.receive` both suppresses
-     duplicates and records the packet, while §12.3 wants the suppression before the frames are
-     read and §13.1 wants the recording after, so one call cannot do both.
-  3. **Key-schedule state.** Invariant 21 asks for none, available or discarded per level and per
-     direction. `crypto.Suite.keys_available` is one answer that cannot tell a level never
-     installed from one colibri discarded, and RFC 9001 §5.7 forbids opening 1-RTT packets before
-     the handshake completes whatever the suite holds.
-  4. **A null `tls.QuicVTable`.** `src/sim/null_provider.zig` implements record mode only, so
-     nothing outside `quic`'s own tests can drive a QUIC handshake at all.
+  1. ~~Connection identity.~~ **Done, `da116dd`.** `connection_identity.zig` holds §7.3's five
+     values, apart from the §5.1 set `connection_id.Local` holds. `destination` is derived from
+     Figures 7 and 8 read in order, and `describe` writes the three parameters so the extension
+     cannot disagree with the headers.
+  2. **The client's path, and a read-only duplicate query.** The path is done, `8f3152e`: the
+     limit is the server's (§8.1, §21.1.1.1) and a client was unable to send its first Initial.
+     **The duplicate query is still owed.** `Space.receive` both suppresses duplicates and records
+     the packet, while §12.3 wants the suppression before the frames are read and §13.1 wants the
+     recording after, so one call cannot do both.
+  3. ~~Key-schedule state.~~ **Done, `b9ae985`.** `connection_keys.zig` holds invariant 21's
+     none, available or discarded per level and direction, which `keys_available` cannot answer,
+     and `can_open` asks the handshake as well because of §5.7. §4.9's triggers are there; §6's
+     key update is piece 7.
+  4. ~~A null `tls.QuicVTable`.~~ **Done, `cc93d7a`.** `src/sim/null_quic_provider.zig` carries a
+     pair through §4.1.5's Figure 5 to §4.1.1's completion, framing each message as RFC 9846 §4
+     frames one. No check drives it through `connection_crypto.zig` yet: `sim` is given only
+     `core`, `tls` and `crypto`, so that check belongs in the `sim_run_quic` module with piece 10.
   5. **The receive path** — one datagram walked into packets and frames (§12.2, §12.3, §12.4,
      §12.5).
   6. **The send path** — §12.2's coalescing and §14.1's padding, into a buffer the caller owns.
@@ -1575,6 +1576,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   validation. Sending a Stateless Reset (§10.3). Validating the ECN counts a peer reports
   (§13.4.2). And golden corpus cases for the receive path's new refusals, with their entries in
   `src/golden/mutations.zig`.
+
+  **Three defects the mapping found in committed code, 2026-09-20.** A client could not send its
+  first Initial: `Path.init` left every path unvalidated, so its allowance was three times nothing
+  and `on_datagram_sent`'s assertion would have halted on the first datagram. Invariant 18 stated
+  the claim for both roles and now names the server (`8f3152e`). `Record.in_flight` was documented
+  against ack-eliciting alone, while RFC 9002 §2 counts a PADDING frame too, which is the datagram
+  RFC 9000 §14.1 makes a client pad; `counts_in_flight` states it once (`e99d93d`). And
+  `write_crypto` sized a CRYPTO frame's Offset from `consumed_len`, the receiving mark, while
+  `write_frame` writes `sent_len`; the writer is bounds-checked so nothing overran, but a frame
+  that fit was refused on an asymmetric flight (`9c37af2`).
+
+  `zig build test` passes and `zig build lint` and `zig fmt --check` are clean after each of the
+  seven commits. Mutations: four on the path, three on the in-flight rule, seven on the identity,
+  seven on the key schedule, two on the offset and seventeen on the null provider. Three were
+  NOT CAUGHT first time and each was a missing test — a zero-length connection ID never reaching
+  the set §19.16 refuses a retirement for, no client ever processing a Handshake packet, and a
+  server treating a poll of `write_handshake` as the start of its handshake.
 
   Two of the pieces above cannot be finished as the RFCs ask without a ruling: Retry's token needs
   a key and a clock, and invariant 20's positive half needs an address on `sim.network`, whose
