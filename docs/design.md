@@ -1639,14 +1639,50 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test` passes and `zig build lint` and `zig fmt --check` are clean after each commit.
 
-  **Eight more things 9e owes that no piece above claims.** Sending a CONNECTION_CLOSE that carries
-  an error code, which nothing in the tree builds although every piece above produces connection
-  errors. Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
+  **Seven more things 9e owes that no piece above claims.** ~~Sending a CONNECTION_CLOSE that
+  carries an error code~~ is done, `368344e`, and recorded below.
+  Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
   no queue holds. Driving the timers, which is one deadline out and one instant in (§4.2).
   Scheduling the application level's frames. Generating a PATH_CHALLENGE and running §8.2's
   validation. Sending a Stateless Reset (§10.3). Validating the ECN counts a peer reports
   (§13.4.2). And golden corpus cases for the receive path's new refusals, with their entries in
   `src/golden/mutations.zig`.
+
+  **The CONNECTION_CLOSE writer is done, 2026-09-20**, `368344e`. Reading the peer's frame was
+  already `connection_frames.zig`'s; `connection_close.zig` is the other half, and every piece
+  above had been naming connection errors that nothing could send.
+
+  RFC 9000 §10.2.3 is the whole of it, and its rule is about keys rather than about closing.
+  §10.2.3 states the goal — "the goal is to ensure that the peer will process the frame" — and
+  before the handshake is confirmed neither endpoint knows for certain which keys the other
+  holds. So the frame goes out at every level that can seal one, §12.2 coalesces those into a
+  single datagram, and the peer reads whichever copy it can open. A test pins the reason: a
+  client that has not completed its handshake cannot open the 1-RTT copy at all (RFC 9001 §5.7),
+  and it is the Initial and Handshake copies that reach it.
+
+  §12.5 confines a type 0x1d frame to the application packet number space, so `frame_for` writes
+  §10.2.3's replacement below it: type 0x1c, APPLICATION_ERROR, and the Reason Phrase cleared,
+  because §10.2.3 says otherwise "information about the application state might be revealed".
+  The Reason Phrase is the caller's octets and colibri copies none of them (decision 35); a
+  reason that will not fit the packet is dropped rather than the frame, which §19.19 allows by
+  making the field able to be zero length.
+
+  Two rules turned out to be owned already and one was not. §10.2.1's rate limit is
+  `Termination.permission`, which answers a closing endpoint on a doubling count of received
+  packets. §10.2.1's "limit the cumulative size of packets it sends to an unvalidated address to
+  three times the size of packets it receives" is §8's limit, which `Path` already holds — and
+  checking it here is what exposed the defect below. §10.2.2's MAY, a single close before
+  entering the draining state, is declined: `on_close_received` enters draining at once.
+
+  21 mutations, 21 CAUGHT, three of them only after a test was written.
+
+  **A fourth defect, found while building the close writer**, `64c13a2`. `connection_send`
+  asserted RFC 9000 §8.1's anti-amplification limit after sealing instead of bounding the
+  datagram by it: `datagram_ceiling` never read `Path.send_allowance`, so a server that had
+  received nothing halted rather than answering that it had nothing to send. That is the
+  ordinary state of every server at the start of a connection, not colibri's own defect, and
+  the file header already said the limit was checked before the datagram was returned. No test
+  had ever sent from a server with a zero allowance.
 
   **Three defects the mapping found in committed code, 2026-09-20.** A client could not send its
   first Initial: `Path.init` left every path unvalidated, so its allowance was three times nothing
