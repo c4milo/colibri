@@ -1,65 +1,55 @@
 //! The chapulin calls `src/testing/` links, and nothing else in the tree may
 //! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 5's TLS half.
 //!
-//! colibri vendors none of chapulin's C. `-Dchapulin=<checkout>` names a checkout the caller has
-//! already built, the headers are read from it in place, and the object is linked as it stands.
-//! Without the option `available` is false, every declaration below compiles to nothing, and the
-//! TLS endpoints are absent — so a fresh clone with no chapulin still builds and still runs every
-//! other check.
+//! colibri vendors none of chapulin's C. `-Dchapulin-client=<checkout>` and
+//! `-Dchapulin-server=<checkout>` name checkouts the caller has already built; the headers are
+//! read from them in place, so every declaration here is chapulin's own and none is copied.
+//! Without the options `available` is false, everything below compiles to nothing, and the TLS
+//! endpoints are absent — a clone with no chapulin still builds and still runs every other check.
 //!
-//! **One role per object, which is why there are two.** A chapulin build carries one role and both
-//! roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both. The server
-//! endpoint links the `ROLE=server` object and the client endpoint the client one, and the calls
-//! each role alone exports are declared apart below.
+//! **One role per object, which is why there are two options.** A chapulin build carries one role
+//! and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
 //!
-//! Nothing here is a protocol rule. What these calls do with a record is RFC 8446's and
-//! chapulin's; colibri's side of the boundary is `tls.Provider`, which the adapter fills.
+//! **The client must be built `TRUST=webpki`**, which the comptime block below enforces and
+//! explains. Nothing else here is a protocol rule: what a record means is RFC 8446's and
+//! chapulin's, and colibri's side of the boundary is `tls.Provider`.
 const std = @import("std");
 const build_options = @import("build_options");
 
-/// Whether `-Dchapulin=<checkout>` was given. Every entry point below is guarded on it, so a build
-/// without a checkout never references a symbol the linker would have to find.
+/// Whether a checkout was given. Every declaration below is guarded on it, so a build without one
+/// never references a symbol the linker would have to find.
 pub const available: bool = build_options.chapulin;
 
-/// chapulin's session, whose size and layout are its own. colibri never reads a field: the struct
-/// is storage the caller places, which is what decision 35 requires of every buffer here too.
-/// `ch_tls_len` is taken from the header at build time rather than written down, so a chapulin
-/// that grows its session does not silently overflow this.
-pub const Session = if (available) @import("chapulin_session.zig").Session else struct {};
+/// chapulin's own declarations, read from its headers rather than copied into colibri. A struct
+/// chapulin grows grows here with it, and a signature it changes stops this build rather than
+/// passing the wrong octets.
+pub const c = if (available) @cImport({
+    // `tls.h` brings `cfg.h` with it, which is where the config and the ALPN fields live.
+    @cInclude("tls.h");
+    // The entropy a `RAND=drbg` build packages, which the endpoint seeds before any handshake.
+    @cInclude("drbg.h");
+}) else struct {};
 
-/// RFC 8446 §6: what a chapulin call answers. 0 is success and every negative value is one of
-/// chapulin's `CH_E*` codes, which the adapter maps to `tls.Provider`'s errors.
-pub const ok: c_int = 0;
+comptime {
+    if (available) check_alpn();
+}
 
-/// The seed a `RAND=drbg` build takes, which `drbg.h` fixes at 32 octets.
+/// RFC 9113 §3.1 selects h2 over TLS by ALPN, and colibri's `attach_tls` refuses a handshake that
+/// selected anything but "h2". chapulin compiles its ALPN fields out unless the build defines
+/// `CH_TRUST_WEBPKI`, `CH_TRANSPORT_QUIC` or `CH_ROLE_SERVER` (its `cfg.h`), so a `TRUST=raw` or
+/// `TRUST=ca` client offers no ALPN extension at all and can never negotiate h2. Saying so here
+/// costs one compile error; leaving it unsaid costs a handshake that completes and then refuses
+/// every connection for a reason nothing names.
+fn check_alpn() void {
+    if (!@hasField(c.ch_cfg, "alpn_protocols")) {
+        @compileError("this chapulin was built without ALPN, so it cannot negotiate h2 " ++
+            "(RFC 9113 §3.1). Rebuild the checkout with TRUST=webpki; chapulin's cfg.h " ++
+            "compiles the alpn_protocols field out for TRUST=raw and TRUST=ca.");
+    }
+}
+
+/// The seed a `RAND=drbg` build takes, which chapulin's `drbg.h` fixes at 32 octets.
 pub const seed_len: usize = 32;
-
-/// Seeds chapulin's DRBG, which a `RAND=drbg` build requires before any handshake. The endpoints
-/// draw the seed from the operating system, which `src/testing/` may do and the library may not
-/// (invariant 5 is scoped to the protocol path).
-pub extern fn ch_drbg_seed(seed: *const [seed_len]u8) void;
-
-/// Reads plaintext from an established session (chapulin `tls.h`). Negative is an error.
-pub extern fn ch_read(session: *anyopaque, out: [*]u8, len: usize) c_int;
-
-/// Writes plaintext to an established session. Negative is an error.
-pub extern fn ch_write(session: *anyopaque, plaintext: [*]const u8, len: usize) c_int;
-
-/// Ends a session, sending `close_notify` (RFC 8446 §6.1).
-pub extern fn ch_close(session: *anyopaque) void;
-
-/// The client role's handshake, which a `ROLE=client` object alone exports.
-pub const client = struct {
-    pub extern fn ch_connect(session: *anyopaque, config: *const anyopaque) c_int;
-};
-
-/// The server role's, which a `ROLE=server` object alone exports.
-pub const server = struct {
-    pub extern fn ch_srv_accept(session: *anyopaque, config: *const anyopaque) c_int;
-    /// Refuses a configuration before a byte is sent, which is where a server without a
-    /// provisioned identity fails.
-    pub extern fn ch_srv_check(config: *const anyopaque) c_int;
-};
 
 /// chapulin routes every failed assertion here, and `ch_assert.h` leaves the handler to the
 /// image: its failure domain is the caller's. colibri's panics, naming the condition and the
@@ -84,5 +74,17 @@ test "the checkout the build was given is the one that is linked" {
     // With one, calling into it proves the object linked and that colibri's declaration and
     // chapulin's definition agree well enough to run. A seed of zeros is a seed.
     const seed: [seed_len]u8 = @splat(0);
-    ch_drbg_seed(&seed);
+    c.ch_drbg_seed(&seed);
+}
+
+test "the chapulin that is linked can negotiate h2" {
+    if (!available) return error.SkipZigTest;
+    // `check_alpn` has already refused a build without the field. This states the same
+    // requirement where a reader of the tests will meet it, and pins the two names colibri
+    // writes into the config.
+    try testing.expect(@hasField(c.ch_cfg, "alpn_protocols"));
+    try testing.expect(@hasField(c.ch_cfg, "alpn_count"));
+    // RFC 7301 §3.1: "h2" is two octets, and chapulin's cap must admit it.
+    try testing.expect(c.CH_ALPN_NAME_MAX >= "h2".len);
+    try testing.expect(c.CH_ALPN_MAX >= 1);
 }

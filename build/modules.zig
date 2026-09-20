@@ -160,8 +160,8 @@ pub fn add(
     // Decision 10, and the reason the two objects are separate: a chapulin build carries one role,
     // and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
     // The server endpoint links the `ROLE=server` object and the client endpoint the client one.
-    link_chapulin(b, testing, chapulin.server, "chapulin-server.o");
-    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o");
+    link_chapulin(b, testing, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER" });
+    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI" });
 
     return .{
         .core = core,
@@ -213,6 +213,7 @@ fn link_chapulin(
     module: *std.Build.Module,
     checkout: ?[]const u8,
     object: []const u8,
+    defines: []const []const u8,
 ) void {
     const options = b.addOptions();
     options.addOption(bool, "chapulin", checkout != null);
@@ -220,4 +221,10 @@ fn link_chapulin(
     const path = checkout orelse return;
     module.addIncludePath(.{ .cwd_relative = path });
     module.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ path, "bin", object }) });
+    // chapulin's headers are compiled by the same axes that compiled its object, and they refuse
+    // to parse without them. colibri names the variant it needs rather than accepting any: the
+    // entropy pattern, and for the client the trust mode that compiles ALPN in at all
+    // (chapulin's cfg.h). A checkout built another way fails here or at `check_alpn`, which is
+    // the point — CLAUDE.md's Commands section names the two `make` lines that match.
+    for (defines) |define| module.addCMacro(define, "1");
 }
