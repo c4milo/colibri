@@ -101,6 +101,15 @@ pub const Space = struct {
 
     /// Takes the next number to send (RFC 9000 §12.3). A number is never reused, so this is the
     /// one place it advances.
+    /// The number the next packet of this space would take, without spending it. A packet that
+    /// turns out to carry nothing must leave no hole (invariant 17), so a builder asks first and
+    /// spends only once the packet exists.
+    pub fn peek_number(space: *const Space) SendError!u64 {
+        // RFC 9000 §12.3: at 2^62-1 the sender closes the connection and sends nothing further.
+        if (space.next_packet_number > constants.packet_number_max) return error.PacketNumbersExhausted;
+        return space.next_packet_number;
+    }
+
     pub fn next_number(space: *Space) SendError!u64 {
         // RFC 9000 §12.3: at 2^62-1 the sender closes the connection and sends nothing further.
         if (space.next_packet_number > constants.packet_number_max) return error.PacketNumbersExhausted;

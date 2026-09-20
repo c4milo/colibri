@@ -29,6 +29,7 @@ const packet_number = @import("../packet/packet_number.zig");
 const connection_module = @import("connection.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const keys_module = @import("connection_keys.zig");
+const recovery_sent = @import("../recovery/recovery_sent.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
@@ -75,8 +76,62 @@ pub const Built = struct {
     in_flight: bool,
 };
 
-/// Builds one packet at `level` into the front of `output`. Null when there is nothing to send
-/// there, which is the ordinary answer for two of the three levels most of the time.
+/// One packet framed but not yet protected. RFC 9000 §14.1's expansion has to be decided before
+/// `seal`, because the AEAD covers the payload and nothing may be appended after: so a datagram
+/// that must reach 1,200 octets plans its packets first, learns which is last, and seals then.
+pub const Planned = struct {
+    level: Level,
+    number: u64,
+    truncated: packet_number.Truncated,
+    payload_len: usize,
+    ack_eliciting: bool,
+    shape: Shape,
+    /// Octets of PADDING added to reach RFC 9000 §14.1's size, which RFC 9002 §2 makes the packet
+    /// count in flight whether or not anything in it elicits an acknowledgment.
+    padding_len: usize = 0,
+};
+
+/// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
+/// which is the ordinary answer for two of the three levels most of the time.
+pub fn plan(
+    connection: *Connection,
+    provider: tls.QuicProvider,
+    level: Level,
+    payload: []u8,
+    room: usize,
+    now_ns: u64,
+) Error!?Planned {
+    // RFC 9001 §4.9 and invariant 21: a level colibri never installed or already discarded is not
+    // one to seal at, and §4.9.1 makes sending an Initial after the discard a rule broken.
+    if (!keys_module.can_seal(connection, level)) return null;
+    const space = connection.space_at(level);
+    // RFC 9000 §17.1, Appendix A.2: the width is measured against the largest acknowledged in
+    // this space and no other. It is settled before framing because it sizes the header.
+    const number = space.peek_number() catch return Error.PacketNumbersExhausted;
+    const truncated = packet_number.encode(number, space.largest_acknowledged) catch
+        return Error.PacketNumbersExhausted;
+
+    const shape = try shape_of(connection, level, truncated.len, room);
+    const framed = try frame_payload(connection, provider, space, level, payload, shape.room, now_ns);
+    if (framed.len == 0) return null;
+    // The number is spent only once the packet exists, so a level with nothing to send leaves
+    // no hole in its space (invariant 17).
+    _ = space.next_number() catch unreachable;
+    return .{
+        .level = level,
+        .number = number,
+        // RFC 9001 §5.4.2, decision 54: the packet number and payload must reach four octets so
+        // header protection has a sample, and a short packet widens the number to get there.
+        .truncated = widen_for_sample(number, truncated, framed.len),
+        .payload_len = framed.len,
+        .ack_eliciting = framed.ack_eliciting,
+        .shape = shape,
+    };
+}
+
+/// Builds one packet at `level` into the front of `output`, planning and sealing in one step.
+/// A caller assembling a datagram plans every packet first, because RFC 9000 §14.1's expansion
+/// is not a thing that can be added after `seal`.
 pub fn build(
     connection: *Connection,
     suite: crypto.Suite,
@@ -86,37 +141,18 @@ pub fn build(
     output: []u8,
     now_ns: u64,
 ) Error!?Built {
-    // RFC 9001 §4.9 and invariant 21: a level colibri never installed or already discarded is not
-    // one to seal at, and §4.9.1 makes sending an Initial after the discard a rule broken.
-    if (!keys_module.can_seal(connection, level)) return null;
-    const space = connection.space_at(level);
-    // RFC 9000 §17.1, Appendix A.2: the width is measured against the largest acknowledged in
-    // this space and no other. It is settled before framing because it sizes the header.
-    const number = space.next_number() catch return Error.PacketNumbersExhausted;
-    var truncated = packet_number.encode(number, space.largest_acknowledged) catch
-        return Error.PacketNumbersExhausted;
-
-    const shape = try shape_of(connection, level, truncated.len, output.len);
-    const framed = try frame_payload(connection, provider, space, level, scratch, shape.room, now_ns);
-    if (framed.len == 0) return null;
-
-    // RFC 9001 §5.4.2, decision 54: the packet number and payload must reach four octets so
-    // header protection has a sample, and a short packet widens the number to get there.
-    truncated = widen_for_sample(number, truncated, framed.len);
-    return try seal_packet(connection, suite, .{
-        .level = level,
-        .number = number,
-        .truncated = truncated,
-        .payload = scratch.payload[0..framed.len],
-        .ack_eliciting = framed.ack_eliciting,
-        .shape = shape,
-    }, scratch, output);
+    const budget = @min(output.len, @TypeOf(scratch.*).payload_len_max);
+    const planned = try plan(connection, provider, level, &scratch.payload, output.len, now_ns) orelse return null;
+    _ = budget;
+    return try seal_planned(connection, suite, planned, &scratch.header, &scratch.payload, output);
 }
 
 /// What the header costs before its payload, and what that leaves for frames.
-const Shape = struct {
+pub const Shape = struct {
     /// Octets the Length field is written in, fixed before the payload exists (RFC 9000 §16).
     length_len: u8,
+    /// Octets of the header, which is everything before the payload (RFC 9000 §17.2, §17.3).
+    header_len: usize,
     /// Octets of frames this packet may carry.
     room: usize,
 };
@@ -133,7 +169,7 @@ fn shape_of(connection: *Connection, level: Level, packet_number_len: u8, output
     const length_len = if (level == .application) 0 else wire.varint.encoded_len_minimal(largest_length);
     const header = fixed + length_len;
     if (output_len <= header + constants.aead_tag_len) return Error.NoSpaceLeft;
-    return .{ .length_len = length_len, .room = output_len - header - constants.aead_tag_len };
+    return .{ .length_len = length_len, .header_len = header, .room = output_len - header - constants.aead_tag_len };
 }
 
 /// The header's octets other than its Length field (RFC 9000 §17.2, §17.3).
@@ -165,12 +201,12 @@ fn frame_payload(
     provider: tls.QuicProvider,
     space: anytype,
     level: Level,
-    scratch: anytype,
+    payload: []u8,
     room: usize,
     now_ns: u64,
 ) Error!Framed {
-    const budget = @min(room, @TypeOf(scratch.*).payload_len_max);
-    var writer = Writer.init(scratch.payload[0..budget]);
+    const budget = @min(room, payload.len);
+    var writer = Writer.init(payload[0..budget]);
     // RFC 9000 §13.2.1: an ACK goes first because it is the frame a space owes soonest, and
     // §13.2 makes acknowledging cheap enough that it is never worth holding back.
     if (space.owes_ack()) {
@@ -178,7 +214,7 @@ fn frame_payload(
     }
     const written_ack = writer.written().len;
     // RFC 9001 §4.1.3: the handshake's octets, which `connection_crypto` puts in CRYPTO frames.
-    const crypto_len = connection_crypto.write_crypto(connection, provider, level, scratch.payload[written_ack..budget]) catch
+    const crypto_len = connection_crypto.write_crypto(connection, provider, level, payload[written_ack..budget]) catch
         return Error.Crypto;
     return .{
         .len = written_ack + crypto_len,
@@ -223,21 +259,31 @@ const Pending = struct {
     shape: Shape,
 };
 
-/// Writes the header and asks the suite to protect the packet (RFC 9001 §5.3, §5.4).
-fn seal_packet(
+/// Writes the header and asks the suite to protect a planned packet (RFC 9001 §5.3, §5.4).
+/// `padding_len` octets of PADDING were added to `payload` by the caller before this.
+pub fn seal_planned(
     connection: *Connection,
     suite: crypto.Suite,
-    pending: Pending,
-    scratch: anytype,
+    planned: Planned,
+    header_scratch: []u8,
+    payload: []const u8,
     output: []u8,
 ) Error!Built {
-    var header = Writer.init(&scratch.header);
+    const payload_len = planned.payload_len + planned.padding_len;
+    const pending: Pending = .{
+        .level = planned.level,
+        .number = planned.number,
+        .truncated = planned.truncated,
+        .payload = payload[0..payload_len],
+        .ack_eliciting = planned.ack_eliciting,
+        .shape = planned.shape,
+    };
+    var header = Writer.init(header_scratch);
     write_header(connection, &header, pending) catch return Error.NoSpaceLeft;
-    const header_octets = header.written();
     const written = suite.seal(.{
         .level = pending.level,
         .packet_number = pending.number,
-        .header = header_octets,
+        .header = header.written(),
         .packet_number_len = pending.truncated.len,
         .payload = pending.payload,
     }, output) catch return Error.NoSpaceLeft;
@@ -246,9 +292,9 @@ fn seal_packet(
         .packet_number = pending.number,
         .len = written,
         .ack_eliciting = pending.ack_eliciting,
-        // RFC 9002 §2, stated once in `recovery_sent`. Nothing here writes PADDING (decision 54),
-        // so a packet is in flight exactly when it elicits an acknowledgment.
-        .in_flight = @import("../recovery/recovery_sent.zig").counts_in_flight(pending.ack_eliciting, false),
+        // RFC 9002 §2, stated once in `recovery_sent`: a packet is in flight when it elicits an
+        // acknowledgment or carries PADDING, and §14.1's expansion is what adds the second.
+        .in_flight = recovery_sent.counts_in_flight(pending.ack_eliciting, planned.padding_len > 0),
     };
 }
 

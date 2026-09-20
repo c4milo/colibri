@@ -48,12 +48,12 @@ const handshake_octets: [handshake_len]u8 = @splat(handshake_octet);
 /// A `crypto.Suite` whose protection is the identity. `seal` copies the header and the payload
 /// and writes a tag of zeros; `open` takes them back apart. It holds no key, which is the point:
 /// what the round trip checks is colibri's framing, not anyone's cryptography.
-const RoundTrip = struct {
-    fn init(held: *RoundTrip) void {
+pub const RoundTrip = struct {
+    pub fn init(held: *RoundTrip) void {
         held.* = .{};
     }
 
-    fn suite(held: *RoundTrip) crypto.Suite {
+    pub fn suite(held: *RoundTrip) crypto.Suite {
         return .{ .context = held, .vtable = &vtable };
     }
 
@@ -138,11 +138,11 @@ fn unreachable_discard(_: *anyopaque, _: Level) void {
 }
 
 /// A provider that owes `owed` octets at `owed_level` and nothing anywhere else.
-const Fake = struct {
+pub const Fake = struct {
     owed: []const u8 = "",
     owed_level: Level = .initial,
 
-    fn provider(self: *Fake) tls.QuicProvider {
+    pub fn provider(self: *Fake) tls.QuicProvider {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
     fn set_params(_: *anyopaque, _: []const u8) tls.quic_provider.TransportParamsError!void {}
@@ -358,7 +358,7 @@ test "RFC 9000 §17.2: a long flight fills the datagram exactly and never past i
 }
 
 /// Longer than the smallest allowed maximum datagram, so one packet cannot hold it.
-const long_flight: [constants.datagram_len_min]u8 = @splat(handshake_octet);
+pub const long_flight: [constants.datagram_len_min]u8 = @splat(handshake_octet);
 
 /// Storage for the small-scratch case, which is what shows the comptime parameter binds.
 const small_payload_len: usize = 16;
