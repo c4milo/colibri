@@ -194,3 +194,32 @@ test "§12.3: the three spaces share nothing" {
     try testing.expectEqual(space_module.EcnCounts{}, application.ecn);
     try testing.expectEqual(1, initial.ecn.ecn_ce);
 }
+
+test "RFC 9000 §13.2.1: an Initial or Handshake packet owes an acknowledgment at once" {
+    // "An endpoint MUST acknowledge all ack-eliciting Initial and Handshake packets
+    // immediately." One in-order packet is enough, where §13.2.2's count would wait for a
+    // second and hold the handshake up.
+    for ([_]space_module.Kind{ .initial, .handshake }) |kind| {
+        test_space.init(kind);
+        _ = test_space.receive(0, millisecond_ns, true, .not_ect);
+        try testing.expect(test_space.owes_ack());
+    }
+
+    // The application space is the one §13.2.1 gives max_ack_delay to spend, so §13.2.2's two
+    // ack-eliciting packets are what make an acknowledgment owed there.
+    test_space.init(.application);
+    _ = test_space.receive(0, millisecond_ns, true, .not_ect);
+    try testing.expect(!test_space.owes_ack());
+    _ = test_space.receive(1, millisecond_ns, true, .not_ect);
+    try testing.expect(test_space.owes_ack());
+}
+
+test "RFC 9000 §13.2.1: a packet that elicits nothing owes nothing, in any space" {
+    // "An endpoint MUST NOT send a non-ack-eliciting packet in response to a non-ack-eliciting
+    // packet", so an Initial carrying only ACK and PADDING makes no acknowledgment owed either.
+    for ([_]space_module.Kind{ .initial, .handshake, .application }) |kind| {
+        test_space.init(kind);
+        _ = test_space.receive(0, millisecond_ns, false, .not_ect);
+        try testing.expect(!test_space.owes_ack());
+    }
+}

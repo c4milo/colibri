@@ -132,8 +132,13 @@ pub const Space = struct {
         }
         if (!ack_eliciting) return verdict;
         space.ack_eliciting_since_ack += 1;
-        // RFC 9000 §13.2.1: an ack-eliciting packet that arrives out of order, or one marked
-        // ECN-CE, is acknowledged without delay.
+        // RFC 9000 §13.2.1: "An endpoint MUST acknowledge all ack-eliciting Initial and Handshake
+        // packets immediately." The handshake has no max_ack_delay to spend — §18.2 applies that
+        // parameter to the application space alone — so one such packet owes an ACK at once,
+        // where §13.2.2's count of two would hold the handshake up waiting for a second.
+        if (space.kind != .application) space.ack_immediately = true;
+        // §13.2.1: an ack-eliciting packet that arrives out of order, or one marked ECN-CE, is
+        // acknowledged without delay whichever space it arrived in.
         const out_of_order = was_largest != null and packet_number != was_largest.? + 1;
         if (out_of_order or ecn == .ecn_ce) space.ack_immediately = true;
         return verdict;
