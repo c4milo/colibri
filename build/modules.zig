@@ -60,6 +60,7 @@ pub const Modules = struct {
     /// The test-only h2 client of design §9, rooted at `src/testing/client.zig`: the same
     /// directory as `testing` and the same imports, with a `main` of its own.
     testing_client: *std.Build.Module,
+    testing_tls: *std.Build.Module,
 };
 
 pub fn add(
@@ -163,6 +164,18 @@ pub fn add(
     link_chapulin(b, testing, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER" });
     link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI" });
 
+    // Design §8 step 5's check runs one handshake against a server that is not colibri's. It is
+    // a third root because an executable has one `main`, and the other two are the h2 server's
+    // and the h2 client's.
+    const testing_tls = create(b, "src/testing/tls_handshake.zig", target, optimize);
+    testing_tls.addImport("core", core);
+    //  sizes its buffers against h2's frame limits, and every root
+    // that reads it needs the module those limits come from.
+    testing_tls.addImport("h2", h2);
+    testing_tls.addImport("tls", tls);
+    testing_tls.link_libc = true;
+    link_chapulin(b, testing_tls, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI" });
+
     return .{
         .core = core,
         .wire = wire,
@@ -180,6 +193,7 @@ pub fn add(
         .golden = golden,
         .testing = testing,
         .testing_client = testing_client,
+        .testing_tls = testing_tls,
     };
 }
 

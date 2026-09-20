@@ -139,6 +139,11 @@ comptime {
 }
 
 /// chapulin's receive buffer in the TLS endpoints, whose size less record overhead it advertises
-/// to the peer as `record_size_limit`, so the peer can never overflow it. RFC 8446 §5.1 caps a
-/// record's fragment at 2^14, and one record of that size plus its expansion fits here.
+/// to the peer as `record_size_limit`, so the peer can never overflow it.
+///
+/// It is above chapulin's own floor, which a `TRUST=webpki` build computes as
+/// `4 * (3072 + 5) + 8 + 22`, or 12,338 octets: four certificates of 3,072. Measured on
+/// 2026-09-20 with `tools/tls_handshake.sh`, that floor is what binds, not the flight — a Go
+/// server presenting two RSA-2048 certificates completes at exactly it, and one octet less is
+/// refused as a configuration error rather than a capacity one.
 pub const tls_receive_len: usize = 20 * 1024;

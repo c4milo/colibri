@@ -45,11 +45,21 @@ pub const Options = struct {
     hostname: []const u8,
     /// The connected socket. It stays the caller's: this file never opens or closes one.
     socket: posix.socket_t,
+    /// chapulin's receive buffer. Its size less record overhead is advertised to the peer as
+    /// `record_size_limit`, so the peer can never overflow it. The caller owns it, like every
+    /// buffer colibri touches (decision 35), and `tools/tls_handshake.sh` varies it to measure
+    /// the smallest a real server's flight fits in.
+    receive: []u8,
+    /// The instant, in seconds since 1970-01-01T00:00:00Z. A webpki chain is valid only at a
+    /// time, and chapulin compares every certificate against this one with no skew. It is a
+    /// parameter because no file under `src/` may read a clock (non-negotiable 3), this one
+    /// included: the caller reads it and passes it in.
+    now_seconds: u64,
 };
 
 /// Where chapulin's callbacks read and write. The phase moves once, when the handshake ends, and
 /// never moves back.
-const Io = union(enum) {
+pub const Io = union(enum) {
     /// Phase 1: the socket the caller connected.
     socket: posix.socket_t,
     /// Phase 2: the slices colibri passed into `encrypt_record` or `decrypt_record`.
@@ -73,12 +83,11 @@ pub const Client = struct {
     config: c.ch_cfg,
     /// The one protocol colibri offers. RFC 9113 §3.1: "h2" identifies HTTP/2 over TLS.
     alpn: [1]c.ch_alpn_protocol,
-    /// chapulin's receive buffer, whose size less record overhead it advertises as the peer's
-    /// `record_size_limit`, so the peer can never overflow it.
-    receive: [constants.tls_receive_len]u8,
     io: Io,
     /// Whether `close_notify` has gone out, so a second call writes nothing (RFC 8446 §6.1).
     closed: bool,
+    /// What chapulin last answered. It is one of its `CH_E*` codes, which `reason` names.
+    code: c_int,
 
     /// Builds the configuration and checks it, without sending anything.
     pub fn init(client: *Client, options: Options) Error!void {
@@ -86,15 +95,15 @@ pub const Client = struct {
         // chapulin reads every field it declares.
         client.session = std.mem.zeroes(c.ch_tls);
         client.config = std.mem.zeroes(c.ch_cfg);
-        client.receive = @splat(0);
         client.io = .{ .socket = options.socket };
         client.closed = false;
+        client.code = ok;
         // RFC 9113 §3.1: h2 over TLS is selected by ALPN, and colibri offers that and nothing
         // else, so a server that will not speak h2 fails the handshake rather than the request.
         client.alpn[0] = .{ .name = alpn_h2.ptr, .name_len = alpn_h2.len };
         client.config = .{
-            .buf = &client.receive,
-            .buf_len = client.receive.len,
+            .buf = options.receive.ptr,
+            .buf_len = options.receive.len,
             .send = send,
             .recv = recv,
             .io = @ptrCast(&client.io),
@@ -104,12 +113,14 @@ pub const Client = struct {
             .hostname_len = options.hostname.len,
             .alpn_protocols = &client.alpn,
             .alpn_count = client.alpn.len,
+            .now_seconds = options.now_seconds,
         };
     }
 
     /// Runs the handshake to completion (phase 1). It blocks, so one connection at a time.
     pub fn handshake(client: *Client) Error!void {
-        if (c.ch_connect(&client.session, &client.config) != ok) return Error.HandshakeFailed;
+        client.code = c.ch_connect(&client.session, &client.config);
+        if (client.code != ok) return Error.HandshakeFailed;
         // Phase 2 from here: nothing below this line touches the descriptor again.
         client.io = .{ .records = .{} };
     }
@@ -131,42 +142,68 @@ pub const Client = struct {
     }
 };
 
-/// RFC 9113 §3.1's identifier, which is the two octets 0x68 0x32.
-const alpn_h2 = "h2";
+/// Names the code chapulin last answered, for a run to print.
+pub fn reason(code: c_int) []const u8 {
+    return switch (code) {
+        ok => "ok",
+        c.CH_EIO => "CH_EIO: the transport failed or closed",
+        c.CH_EPROTO => "CH_EPROTO: the peer broke the protocol",
+        c.CH_EAUTH => "CH_EAUTH: authentication failed",
+        c.CH_ECAP => "CH_ECAP: the buffer is too small for the peer's message",
+        c.CH_ECLOSED => "CH_ECLOSED: the peer sent close_notify",
+        c.CH_EINVAL => "CH_EINVAL: the configuration or the call is invalid",
+        else => "unknown",
+    };
+}
 
-/// chapulin answers 0 for success and a negative `CH_E*` for everything else.
+/// RFC 9113 §3.1's identifier, which is the two octets 0x68 0x32.
+pub const alpn_h2 = "h2";
+
+/// chapulin answers 0 for success and a negative `CH_E*` for everything else. The `send`
+/// callback shares the convention; `recv` does not, and returns a count.
 const ok: c_int = 0;
+const failed: c_int = -1;
 
 /// chapulin's `send`: in phase 1 the socket, in phase 2 colibri's output buffer.
-fn send(io: ?*anyopaque, octets: [*c]const u8, len: usize) callconv(.c) c_int {
+///
+/// It moves every octet and answers 0. chapulin's `cfg.h` is explicit that anything else, "including
+/// a positive byte count, is failure", so this must not report what it wrote.
+pub fn send(io: ?*anyopaque, octets: [*c]const u8, len: usize) callconv(.c) c_int {
     const state: *Io = @ptrCast(@alignCast(io.?));
     switch (state.*) {
         .socket => |descriptor| {
             // Blocking, with no MSG_DONTWAIT: chapulin's callbacks cannot report "nothing yet",
-            // so the handshake waits here rather than answering short (decision 46).
-            const wrote = std.c.send(descriptor, octets, len, 0);
-            if (wrote <= 0) return -1;
-            return @intCast(wrote);
+            // so the handshake waits here rather than answering short (decision 46). A blocking
+            // send may still move fewer octets than asked, so this loops until all are gone.
+            var sent: usize = 0;
+            // Bounded by `len`, and every pass moves at least one octet or returns.
+            while (sent < len) {
+                const wrote = std.c.send(descriptor, octets + sent, len - sent, 0);
+                if (wrote <= 0) return failed;
+                sent += @intCast(wrote);
+            }
+            return ok;
         },
         .records => |*records| {
             const room = records.output.len - records.written;
             // A short output is colibri's to widen, and chapulin cannot be told to wait, so this
             // fails the call rather than writing part of a record.
-            if (len > room) return -1;
+            if (len > room) return failed;
             @memcpy(records.output[records.written..][0..len], octets[0..len]);
             records.written += len;
-            return @intCast(len);
+            return ok;
         },
     }
 }
 
 /// chapulin's `recv`: in phase 1 the socket, in phase 2 the record colibri passed in.
-fn recv(io: ?*anyopaque, out: [*c]u8, len: usize) callconv(.c) c_int {
+pub fn recv(io: ?*anyopaque, out: [*c]u8, len: usize) callconv(.c) c_int {
     const state: *Io = @ptrCast(@alignCast(io.?));
     switch (state.*) {
         .socket => |descriptor| {
+            // `recv` is the other convention: 1 to n octets, or a negative for failure.
             const read = std.c.recv(descriptor, out, len, 0);
-            if (read <= 0) return -1;
+            if (read <= 0) return failed;
             return @intCast(read);
         },
         .records => |*records| {
@@ -177,65 +214,13 @@ fn recv(io: ?*anyopaque, out: [*c]u8, len: usize) callconv(.c) c_int {
             const take = @min(len, left);
             if (take == 0) {
                 records.ran_dry = true;
-                return -1;
+                return failed;
             }
             @memcpy(out[0..take], records.input[records.taken..][0..take]);
             records.taken += take;
             return @intCast(take);
         },
     }
-}
-
-const testing = std.testing;
-
-/// The client the tests drive, placed outside any stack frame: it carries chapulin's session and
-/// its receive buffer, which are larger than a stack frame should hold. Test-only.
-var test_client: Client = undefined;
-const test_hostname = "localhost";
-
-test "the configuration colibri builds is the one chapulin is given" {
-    if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{ .anchors = &anchors, .hostname = test_hostname, .socket = 0 });
-    // RFC 9113 §3.1: one protocol is offered, and it is "h2".
-    try testing.expectEqual(1, test_client.config.alpn_count);
-    try testing.expectEqual(alpn_h2.len, test_client.config.alpn_protocols[0].name_len);
-    try testing.expectEqualSlices(u8, "h2", test_client.config.alpn_protocols[0].name[0..2]);
-    // The receive buffer is colibri's storage, and chapulin advertises its size to the peer.
-    try testing.expectEqual(constants.tls_receive_len, test_client.config.buf_len);
-    try testing.expectEqual(@intFromPtr(&test_client.receive), @intFromPtr(test_client.config.buf));
-    // The hostname is the one the certificate must carry.
-    try testing.expectEqual(test_hostname.len, test_client.config.hostname_len);
-    // The callbacks point at this file, and their state at the phase.
-    try testing.expect(test_client.config.send != null);
-    try testing.expect(test_client.config.recv != null);
-    try testing.expectEqual(Io.socket, std.meta.activeTag(test_client.io));
-}
-
-test "the record phase serves colibri's buffers and never the socket" {
-    if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{ .anchors = &anchors, .hostname = test_hostname, .socket = 0 });
-    // Moving to phase 2 is what `handshake` does on success; the descriptor is never used again.
-    var input = [_]u8{ 1, 2, 3, 4 };
-    var output: [8]u8 = @splat(0);
-    test_client.io = .{ .records = .{ .input = &input, .output = &output } };
-    // `recv` hands chapulin the octets colibri passed, in order, and stops at the end of them.
-    var taken: [4]u8 = @splat(0);
-    try testing.expectEqual(2, recv(@ptrCast(&test_client.io), &taken, 2));
-    try testing.expectEqualSlices(u8, &.{ 1, 2 }, taken[0..2]);
-    try testing.expectEqual(2, recv(@ptrCast(&test_client.io), &taken, 4));
-    try testing.expectEqualSlices(u8, &.{ 3, 4 }, taken[0..2]);
-    // Past the end it fails rather than blocking, because no callback of chapulin's can say
-    // "nothing yet" and colibri only ever passes a whole record.
-    try testing.expectEqual(-1, recv(@ptrCast(&test_client.io), &taken, 1));
-    // `send` fills colibri's output and refuses to write part of a record into a short one.
-    const sealed = [_]u8{ 9, 9, 9 };
-    try testing.expectEqual(3, send(@ptrCast(&test_client.io), &sealed, 3));
-    try testing.expectEqualSlices(u8, &.{ 9, 9, 9 }, output[0..3]);
-    try testing.expectEqual(3, test_client.io.records.written);
-    try testing.expectEqual(-1, send(@ptrCast(&test_client.io), &sealed, 6));
-    try testing.expectEqual(3, test_client.io.records.written);
 }
 
 /// Opens one record into `plaintext` (RFC 8446 §5.2), and says what it held.
@@ -310,7 +295,7 @@ fn handshake_complete(context: *const anyopaque) bool {
 
 /// RFC 8446 Appendix B.1: the TLS 1.3 codepoint. chapulin speaks 1.3 and nothing else, so a
 /// completed handshake negotiated it.
-const tls_1_3: u16 = 0x0304;
+pub const tls_1_3: u16 = 0x0304;
 
 /// RFC 8446 §4.6.3 and §4.6.1: after the handshake, a peer's KeyUpdate and NewSessionTicket ride
 /// records, and chapulin answers both inside `ch_read`. So colibri owes no handshake octets here
@@ -389,52 +374,6 @@ pub const vtable: tls.VTable = .{
     .export_keying_material = export_keying_material,
 };
 
-test "the vtable colibri gets answers every member" {
-    if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{ .anchors = &anchors, .hostname = test_hostname, .socket = 0 });
-    const held = test_client.provider();
-    var room: [64]u8 = @splat(0);
-
-    // Before the handshake nothing is negotiated. RFC 7301 §3.1's selection arrives in
-    // EncryptedExtensions, and chapulin's CH_ALPN_NONE is 255, so a zeroed session must not
-    // read as having chosen the protocol at index 0.
-    try testing.expect(!held.vtable.handshake_complete(held.context));
-    try testing.expectEqual(null, held.vtable.negotiated_alpn(held.context));
-    try testing.expectEqual(null, held.vtable.negotiated_parameters(held.context));
-
-    // RFC 8446 §4.6.3 and §4.6.1: chapulin answers a peer's KeyUpdate and NewSessionTicket
-    // inside `ch_read`, so colibri owes no handshake octets and consumes none.
-    try testing.expectEqual(0, try held.vtable.handshake_write(held.context, &room, 0));
-    try testing.expectEqual(0, try held.vtable.handshake_read(held.context, &room, 0));
-
-    // A session that has not failed has no alert to report.
-    try testing.expectEqual(null, held.vtable.take_alert(held.context));
-
-    // Every member is mandatory (decision 8), so the two chapulin does not offer refuse rather
-    // than being absent.
-    const update = held.vtable.initiate_key_update(held.context, .update_not_requested, &room);
-    try testing.expectError(error.Unsupported, update);
-    const exported = held.vtable.export_keying_material(held.context, "colibri", null, &room);
-    try testing.expectError(error.Unsupported, exported);
-}
-
-test "once the handshake is done the session reports what it chose" {
-    if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{ .anchors = &anchors, .hostname = test_hostname, .socket = 0 });
-    // What `handshake` does on success. The live handshake is a separate check; this pins what
-    // colibri reads afterwards.
-    test_client.io = .{ .records = .{} };
-    test_client.session.alpn_selected = 0;
-    const held = test_client.provider();
-    try testing.expect(held.vtable.handshake_complete(held.context));
-    try testing.expectEqualStrings("h2", held.vtable.negotiated_alpn(held.context).?);
-    // RFC 9113 §9.2: colibri needs both codepoints, and admits this suite (decision 45).
-    const negotiated = held.vtable.negotiated_parameters(held.context).?;
-    try testing.expectEqual(tls_1_3, negotiated.version);
-    try testing.expectEqual(tls.constants.cipher_suite_chacha20_poly1305_sha256, negotiated.cipher_suite);
-    // A server that selected nothing leaves colibri with no protocol, which `attach_tls` refuses.
-    test_client.session.alpn_selected = c.CH_ALPN_NONE;
-    try testing.expectEqual(null, held.vtable.negotiated_alpn(held.context));
+test {
+    _ = @import("chapulin_client_test.zig");
 }
