@@ -10,6 +10,7 @@ pub const constants = @import("constants.zig");
 pub const frame = @import("frame.zig");
 pub const frame_write = @import("frame_write.zig");
 pub const stream = @import("stream.zig");
+pub const message = @import("message/message.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -17,4 +18,5 @@ test {
     _ = frame;
     _ = frame_write;
     _ = stream;
+    _ = message;
 }

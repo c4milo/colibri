@@ -1554,6 +1554,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the shared rules, each broken in `src/http/`: all **CAUGHT** by h2's own tests, which is what
   says the shared code is the code that runs.
 
+  **The message rules are done, 2026-09-20.** `src/h3/message/message.zig` is the second mapper
+  decision 51 asked for: it names h3's errors for the reasons `http` returns and holds almost no
+  rule of its own. Every malformed message is one stream error, H3_MESSAGE_ERROR (§4.1.2), which
+  `verdict` answers.
+
+  Three rules part from h2 here, and each is a place the split had to be right rather than
+  convenient. `message_authority.zig` holds RFC 9114 §4.3.1's rules binding `:authority` to
+  `Host`, which are four MUSTs where RFC 9113 §8.3.1 has one SHOULD; three are checked and the
+  fourth needs a registry of which schemes have a mandatory authority component, which colibri
+  has only for http and https. A repeated pseudo-header is refused whichever it is: §4.3.1 names
+  `:method`, `:scheme` and `:path`, and §4.1.2 makes an invalid value for any pseudo-header
+  malformed, so colibri takes the strict side. And a value starting or ending with SP or HTAB is
+  refused under RFC 9110 §5.5, because RFC 9114 states no rule of its own — which is exactly why
+  `http` reports that reason apart from the character rules.
+
+  Two of h2's rules are absent, for the reasons decision 51 gives: an informational response with
+  END_STREAM, which needs a flag h3 has no equivalent of, and `:protocol`.
+
+  Mutations: seven applied over h3's own rules, all **CAUGHT** — the missing authority, an empty
+  `:authority`, an empty `Host`, a case-insensitive comparison, the scheme test skipped, and the
+  two divergent reasons mapped to the wrong error. `zig build test` passes 986 of 986 and
+  `connection-check` still prints `crc32=0xe8f7c0b4`.
+
   **The framing and stream layers are done, 2026-09-20.** `src/h3/frame.zig` and
   `frame_write.zig` are §7's frames, §7's Table 1 saying which stream carries which, §7.2.4's
   settings, and §6.2.3 and §7.2.8's reserved types. `src/h3/stream.zig` is §6.2's unidirectional
