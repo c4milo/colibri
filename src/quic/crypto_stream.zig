@@ -41,12 +41,17 @@ pub const CryptoStream = struct {
     /// Which octets of `buffer` a frame has delivered. A bit rather than a byte each, because
     /// the byte would cost eight times the window per level and hold one answer.
     present: std.StaticBitSet(constants.crypto_buffer_len),
+    /// Octets colibri has sent on this level, which is the Offset the next CRYPTO frame it writes
+    /// carries (RFC 9000 §19.6). The two directions are separate flows at one level, so the
+    /// sending offset sits beside the receiving window rather than in a struct of its own.
+    sent_len: u64,
 
     /// A stream with nothing received. RFC 9000 §19.6: each level starts at an offset of 0.
     pub fn init(stream: *CryptoStream) void {
         stream.base = 0;
         stream.contiguous = 0;
         stream.present = .initEmpty();
+        stream.sent_len = 0;
         assert(stream.readable().len == 0);
     }
 

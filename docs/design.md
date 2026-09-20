@@ -1511,6 +1511,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   disabling it, every level answering one CRYPTO stream, and the idle timeout read as nanoseconds
   rather than milliseconds.
 
+  **The handshake over CRYPTO frames runs, 2026-09-20.** `connection_crypto.zig` is the wiring
+  step 9e is named for, and it owns none of the three things it joins: `crypto_stream` turns the
+  peer's frames into an in-order run per level, the caller's `tls.QuicProvider` consumes it and
+  produces what colibri owes back, and `quic.frame` writes that into CRYPTO frames. No key passes
+  through it — decision 48 sends the secrets from the provider to the suite inside the caller's
+  code.
+
+  The transport parameters are part of the handshake rather than something beside it: RFC 9001
+  §8.2 carries them in a TLS extension, so `take_peer_parameters` reads the peer's out of the
+  provider and gives them to the connection, which is what raises every limit colibri may spend
+  against. Its absence is only fatal once the handshake completes, because a client has not read
+  EncryptedExtensions before then; `require_peer_parameters` is where §8.2's MUST is applied.
+
+  Each failure carries the code RFC 9000 §20.1 gives it, and an alert is not among them: RFC 9001
+  §4.8 makes its code the description plus 0x0100, which `alert_error_code` computes.
+
+  Mutations: six applied, all **CAUGHT** — octets handed to the provider twice, every frame
+  claiming offset 0, the peer's parameters read under colibri's own role, and three failures
+  closing with the wrong code. Writing them found a weak test: the parameters it exchanged held
+  nothing server-only, so reading them under the wrong role would have passed. It now carries a
+  stateless reset token, which only a server may send.
+
   **What 9e still owes.** The receive path (datagram to packets to frames), the send path with
   §12.2's coalescing and §14.1's padding, the key-schedule timing of RFC 9001 §4.9 and §6, Retry
   and version negotiation, the simulator connection check asserting invariants 17 to 21, and the

@@ -192,4 +192,5 @@ comptime {
 
 test {
     _ = @import("connection_test.zig");
+    _ = @import("connection_crypto.zig");
 }
