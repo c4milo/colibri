@@ -232,8 +232,8 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
 - Simulator: `zig build sim -- --<check>-seed <hex>` runs one seed and prints its trace;
   `zig build sim -- --<check>-check [seeds]` runs the check over `[0, seeds)` and prints the census.
   Every check is also a test inside its module, so `zig build test` runs them, silently. The QUIC
-  checks have no command line until design §8 step 8: `zig build test-sim-run-quic` runs them,
-  in a module with no HTTP module in its graph (decision 5).
+  checks have no command line of their own: `zig build test-sim-run-quic` runs them, in a module
+  with no HTTP module in its graph (decision 5), and each one's census is pinned in its test.
 - Conformance: `tools/h2spec.sh`, `tools/h3spec.sh`, `tools/interop.sh` — each starts the
   test-only endpoint of design §9 and runs the pinned suite version. `tools/h2_interop.sh [go]
   [nghttpd] [h2o]` runs the test-only h2 client (`zig build h2-client`) against other
