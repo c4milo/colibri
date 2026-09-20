@@ -1524,6 +1524,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   suite's semantics tests re-run against h3, which proves the `http` module is
   shared rather than duplicated. *Medium.*
 
+  **The message rules h3 will need are in `http` already, 2026-09-20.** `http/message_lines.zig`
+  and `http/message_request.zig` hold every rule RFC 9113 §8 and RFC 9114 §4 both state, and
+  return a reason rather than a verdict; h2's two files in `src/h2/message/` are now the mappers
+  that name h2's errors for those reasons. h3's side of step 12 writes the second mapper and the
+  five rules [decision 51](decisions.md) keeps per protocol, and writes no rule twice. The move
+  changed nothing that runs: h2's tests moved with their files and pass unaltered, `h2spec` still
+  prints 144 passed, and `connection-check` still prints `crc32=0xe8f7c0b4`. Five mutations over
+  the shared rules, each broken in `src/http/`: all **CAUGHT** by h2's own tests, which is what
+  says the shared code is the code that runs.
+
   **The framing and stream layers are done, 2026-09-20.** `src/h3/frame.zig` and
   `frame_write.zig` are §7's frames, §7's Table 1 saying which stream carries which, §7.2.4's
   settings, and §6.2.3 and §7.2.8's reserved types. `src/h3/stream.zig` is §6.2's unidirectional

@@ -1,22 +1,21 @@
-//! Steps 1 and 2 of the check order message.zig states (invariant 7): the pseudo-header rules of
-//! RFC 9113 §8.3 and the field rules of §8.2, over the lines of a decoded field section. `walk`
-//! reads the section twice in arrival order and fills a `Seen` record, which message_request.zig
-//! and message.zig read for step 3.
+//! Steps 1 and 2 of the check order message.zig states (invariant 7), which are the line-level
+//! rules RFC 9113 §8 shares with RFC 9114 §4. The rules themselves live in
+//! `http.message_lines` ([decision 51](../../../docs/decisions.md)); this file names h2's errors
+//! for the reasons that module returns, which is [decision 15](../../../docs/decisions.md)'s
+//! split.
 //!
-//! The first pass applies §8.3 and the second applies §8.2. A pseudo-header that breaks §8.3 is
-//! therefore reported before a regular line that breaks §8.2, even when the regular line arrived
-//! first. Within a pass, the first line that breaks a rule names the error. Within a line, the
-//! rules run in the order message.zig lists them: step 1 checks position, then the trailer rule,
-//! then the definition, then the repeat; step 2 checks the name, then the value, then the
-//! connection-specific rule.
+//! Two of the mappings are the whole reason the split has a shape. RFC 9113 §8.2.1 states both
+//! the field-value character rule and the leading-or-trailing-whitespace rule, so h2 answers
+//! `FieldValueInvalid` to either; RFC 9114 states only the first, so `http` keeps them apart and
+//! h3 will map them differently. And RFC 9113 §8.3 forbids a repeat of any pseudo-header name,
+//! where RFC 9114 §4.3.1 requires exactly one `:method`, `:scheme` and `:path` and says nothing
+//! about `:authority` or `:status`, so h2 refuses every repeat here and h3 will not.
 //!
-//! Every error is one of message.zig's `Error`: a malformed message, which RFC 9113 §8.1.1 makes a
-//! stream error of type PROTOCOL_ERROR. Decision 19 rests on step 1. `:protocol` is a pseudo-header
-//! RFC 9113 does not define, so it is `PseudoHeaderUndefined`, which ends the stream, not
-//! the connection.
+//! Every error is one of message.zig's `Error`: a malformed message, which RFC 9113 §8.1.1 makes
+//! a stream error of type PROTOCOL_ERROR. Decision 19 rests on the first pass. `:protocol` is a
+//! pseudo-header RFC 9113 does not define, so it is `PseudoHeaderUndefined`, which ends the
+//! stream, not the connection.
 const std = @import("std");
-const assert = std.debug.assert;
-const core = @import("core");
 const http = @import("http");
 const message = @import("message.zig");
 
@@ -24,164 +23,35 @@ const Error = message.Error;
 const Field = http.field.Field;
 const FieldSection = http.FieldSection;
 
-/// Which message a section holds. The kind decides which pseudo-headers are defined (RFC 9113
-/// §8.3) and whether TE may appear (§8.2.2).
-pub const Kind = enum { request, response, trailers };
-
-/// The five pseudo-headers RFC 9113 defines (§8.3.1, §8.3.2).
-const Pseudo = enum { method, scheme, authority, path, status };
-
-/// One defined pseudo-header: its name as §8.3.1 or §8.3.2 spells it, and the kind it is defined
-/// for.
-const Definition = struct { name: []const u8, pseudo: Pseudo, kind: Kind };
-
-/// The five definitions, in the order §8.3.1 and §8.3.2 give them.
-pub const definitions = [_]Definition{
-    .{ .name = ":method", .pseudo = .method, .kind = .request },
-    .{ .name = ":scheme", .pseudo = .scheme, .kind = .request },
-    .{ .name = ":authority", .pseudo = .authority, .kind = .request },
-    .{ .name = ":path", .pseudo = .path, .kind = .request },
-    .{ .name = ":status", .pseudo = .status, .kind = .response },
-};
-
-/// The colon every pseudo-header name starts with (RFC 9113 §8.3).
-const pseudo_header_prefix = ":";
-
-/// What `walk` records. Every slice points into the section.
-pub const Seen = struct {
-    /// The `:method` value, or null when the section has none (RFC 9113 §8.3.1).
-    method: ?[]const u8 = null,
-    /// The `:scheme` value, or null (RFC 9113 §8.3.1).
-    scheme: ?[]const u8 = null,
-    /// The `:authority` value, or null (RFC 9113 §8.3.1).
-    authority: ?[]const u8 = null,
-    /// The `:path` value, or null (RFC 9113 §8.3.1).
-    path: ?[]const u8 = null,
-    /// The `:status` value, or null (RFC 9113 §8.3.2).
-    status: ?[]const u8 = null,
-    /// True once step 1 has read a regular line. No pseudo-header may follow one (RFC 9113 §8.3).
-    regular_seen: bool = false,
-
-    fn slot(seen: *Seen, pseudo: Pseudo) *?[]const u8 {
-        return switch (pseudo) {
-            .method => &seen.method,
-            .scheme => &seen.scheme,
-            .authority => &seen.authority,
-            .path => &seen.path,
-            .status => &seen.status,
-        };
-    }
-};
+/// The names the shared module owns, re-exported so the rest of h2 reads one name per thing.
+pub const Kind = http.message_lines.Kind;
+pub const Seen = http.message_lines.Seen;
+pub const definitions = http.message_lines.definitions;
+pub const is_pseudo_header = http.message_lines.is_pseudo_header;
 
 /// Checks every line of `section`, as a message of `kind`, against steps 1 and 2, and records
-/// what step 3 reads.
+/// what step 3 reads. Each reason `http` returns becomes the h2 error RFC 9113 §8 assigns it.
 pub fn walk(section: *const FieldSection, kind: Kind) Error!Seen {
-    assert(section.len() <= core.constants.field_count_max);
-    var seen: Seen = .{};
-    for (0..section.len()) |index| try check_pseudo_header(&seen, kind, section.get(@intCast(index)));
-    for (0..section.len()) |index| try check_line(kind, section.get(@intCast(index)));
-    const request_pseudo_seen = seen.method != null or seen.scheme != null or
-        seen.authority != null or seen.path != null;
-    assert(kind == .request or !request_pseudo_seen);
-    assert(kind == .response or seen.status == null);
-    return seen;
-}
-
-/// True for a name that starts with a colon, which RFC 9113 §8.3 makes a pseudo-header name.
-pub fn is_pseudo_header(name: []const u8) bool {
-    return std.mem.startsWith(u8, name, pseudo_header_prefix);
-}
-
-/// Step 1 for one line. A regular line only marks that one was seen. A pseudo-header must come
-/// before every regular line, be defined for `kind`, and not repeat; its value is recorded.
-fn check_pseudo_header(seen: *Seen, kind: Kind, line: Field) Error!void {
-    if (!is_pseudo_header(line.name)) {
-        seen.regular_seen = true;
-        return;
-    }
-    // RFC 9113 §8.3: all pseudo-header fields appear before all regular field lines.
-    if (seen.regular_seen) return error.PseudoHeaderAfterRegular;
-    // RFC 9113 §8.1: trailers must not include pseudo-header fields.
-    if (kind == .trailers) return error.PseudoHeaderInTrailers;
-    // RFC 9113 §8.3: an undefined pseudo-header, or one defined only for the other kind, is
-    // malformed.
-    const slot = slot_of(seen, kind, line.name) orelse return error.PseudoHeaderUndefined;
-    // RFC 9113 §8.3: the same pseudo-header field name must not appear more than once.
-    if (slot.* != null) return error.PseudoHeaderRepeated;
-    slot.* = line.value;
-    assert(slot.* != null and !seen.regular_seen);
-}
-
-/// The slot in `seen` for the pseudo-header `name` in a message of `kind`, or null when `kind`
-/// does not define it. The comparison is exact, because RFC 9113 §8.2 makes every name lowercase.
-fn slot_of(seen: *Seen, kind: Kind, name: []const u8) ?*?[]const u8 {
-    assert(kind != .trailers);
-    assert(is_pseudo_header(name));
-    for (definitions) |definition| {
-        // RFC 9113 §8.3: a pseudo-header field is valid only in the context it is defined for.
-        const defined = definition.kind == kind and std.mem.eql(u8, name, definition.name);
-        if (defined) return seen.slot(definition.pseudo);
-    }
-    return null;
-}
-
-/// Step 2 for one line. A pseudo-header's name was compared exactly in step 1, so only its value
-/// is read here.
-fn check_line(kind: Kind, line: Field) Error!void {
-    if (is_pseudo_header(line.name)) return check_value(line.value);
-    try check_name(line.name);
-    try check_value(line.value);
-    try check_connection_specific(kind, line);
-}
-
-/// A regular field name, against RFC 9113 §8.2.1.
-fn check_name(name: []const u8) Error!void {
-    assert(!is_pseudo_header(name));
-    assert(name.len <= core.constants.field_name_len_max);
-    for (name) |octet| {
-        // RFC 9113 §8.2.1: a field name must not contain 0x41-0x5a, the uppercase letters.
-        if (std.ascii.isUpper(octet)) return error.FieldNameInvalid;
-    }
-    http.field.validate_name(name) catch |reason| switch (reason) {
-        // RFC 9113 §8.2.1: no octet in 0x00-0x20 or 0x7f-0xff and no colon, and none of them is a
-        // tchar. Any other octet outside a token fails RFC 9110 §5.1, which §8.2.1 asks a
-        // recipient to check and to treat as malformed.
-        error.FieldNameNotToken => return error.FieldNameInvalid,
-        // RFC 9113 §8.2.1 asks for RFC 9110 §5.1's check, and a token holds at least one tchar.
-        error.FieldNameEmpty => return error.FieldNameInvalid,
-        // `FieldSection.append` holds every name to `field_name_len_max`, asserted above.
-        error.FieldNameTooLong => unreachable,
+    return http.message_lines.walk(section, kind) catch |reason| switch (reason) {
+        // RFC 9113 §8.3: all pseudo-header fields appear before all regular field lines.
+        error.PseudoHeaderAfterRegular => error.PseudoHeaderAfterRegular,
+        // RFC 9113 §8.1: trailers must not include pseudo-header fields.
+        error.PseudoHeaderInTrailers => error.PseudoHeaderInTrailers,
+        // RFC 9113 §8.3: an undefined pseudo-header, or one defined only for the other kind.
+        error.PseudoHeaderUndefined => error.PseudoHeaderUndefined,
+        // RFC 9113 §8.3: the same pseudo-header field name must not appear more than once, and
+        // §8.3 says it of any pseudo-header, so h2 refuses every repeat.
+        error.PseudoHeaderRepeated => error.PseudoHeaderRepeated,
+        // RFC 9113 §8.2.1: an invalid field name.
+        error.FieldNameInvalid => error.FieldNameInvalid,
+        // RFC 9113 §8.2.1 states the forbidden octets and the whitespace position in two MUSTs,
+        // and h2 answers one error to both.
+        error.FieldValueCharacter, error.FieldValueWhitespace => error.FieldValueInvalid,
+        // RFC 9113 §8.2.2: a connection-specific field, or TE outside a request.
+        error.ConnectionSpecificField => error.ConnectionSpecificField,
+        // RFC 9113 §8.2.2: TE with a member other than "trailers".
+        error.TeNotTrailers => error.TeNotTrailers,
     };
-}
-
-/// A field value on any line, against RFC 9113 §8.2.1.
-fn check_value(value: []const u8) Error!void {
-    assert(value.len <= core.constants.field_value_len_max);
-    http.field.validate_value(value) catch |reason| switch (reason) {
-        // RFC 9113 §8.2.1: a field value must not contain NUL, LF or CR at any position.
-        error.FieldValueNulCarriageReturnOrLineFeed => return error.FieldValueInvalid,
-        // RFC 9113 §8.2.1: a field value must not start or end with SP or HTAB.
-        error.FieldValueLeadingWhitespace => return error.FieldValueInvalid,
-        // RFC 9113 §8.2.1: a field value must not start or end with SP or HTAB.
-        error.FieldValueTrailingWhitespace => return error.FieldValueInvalid,
-        // RFC 9113 §8.2.1: a recipient checks a value against RFC 9110 §5.5, which admits no other
-        // control octet, and treats a violation as malformed.
-        error.FieldValueControl => return error.FieldValueInvalid,
-        // `FieldSection.append` holds every value to `field_value_len_max`, asserted above.
-        error.FieldValueTooLong => unreachable,
-    };
-}
-
-/// The connection-specific rule of RFC 9113 §8.2.2, with its one exception for TE.
-fn check_connection_specific(kind: Kind, line: Field) Error!void {
-    const which = http.connection_specific.classify(line.name) orelse return;
-    // RFC 9113 §8.2.2: a message containing a connection-specific field is malformed.
-    if (which != .te) return error.ConnectionSpecificField;
-    // RFC 9113 §8.2.2: TE is the one exception, and only in a request.
-    if (kind != .request) return error.ConnectionSpecificField;
-    // RFC 9113 §8.2.2: TE must not contain any value other than "trailers".
-    if (!http.connection_specific.te_is_trailers(line.value)) return error.TeNotTrailers;
-    assert(kind == .request and which == .te);
 }
 
 const testing = std.testing;
