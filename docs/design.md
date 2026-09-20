@@ -1227,10 +1227,42 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   A test of mine was wrong before the code was. It expected a number just below the remembered
   floor to be accepted, and the reasoning in the paragraph above is why it must not be.
 
+  **How a connection ends, 2026-09-19.** `src/quic/termination.zig` holds RFC 9000 §10's idle
+  timeout and its closing and draining states. The effective idle timeout is the smaller of the
+  two advertised values, or the sole non-zero one, and never below three Probe Timeouts (§10.1).
+  Receiving a packet restarts the timer; sending restarts it only when nothing ack-eliciting has
+  gone out since a packet last arrived, which is what stops an endpoint that only talks from
+  holding a dead connection open. A timeout closes silently, so nothing goes on the wire.
+
+  The two states differ in what may be sent. A closing endpoint answers an arriving packet with
+  a CONNECTION_CLOSE frame and nothing else, each answer waiting for twice as many packets as
+  the last, which is the rate limit §10.2.1 asks for. A draining endpoint sends nothing at all
+  (§10.2.2), and a closing one that hears a close moves to draining, which ends the endless
+  exchange of close frames that section warns about — keeping its own reason and the instant its
+  period began, because changing state is not a second close. Both periods last three Probe
+  Timeouts, which the caller supplies: §10.1 and §10.2 size themselves on it and RFC 9002
+  computes it in step 10.
+
+  **How the state machine is checked, and why by no tool.** The transitions are verified by
+  enumerating every one: four states by five events, each pair asserted, with a check that the
+  table holds each pair exactly once. For a finite machine that is the whole function rather
+  than a sample, so a model in a second language would restate the same twenty facts and add a
+  source of truth that can drift. The owner asked on 2026-09-19 whether Lean or TLA+ belonged
+  here; the answer recorded then was that neither earns its place at this size, that the same
+  enumeration covers step 9's stream machines (§3.1, §3.2), and that the case for TLA+ — not
+  Lean, which suits pure functions, as chapulin's use of it shows — arises only for properties
+  that quantify over interleavings of two endpoints, which the step 8 network check samples
+  rather than covers. Adding one is a new dependency and so the owner's call, to be made against
+  a specific property that resists both an enumeration and a simulator invariant.
+
+  Mutations: 22 applied, all **CAUGHT**. Two needed tests first: nothing called the
+  instant-passing entry point on an active connection, and the check that a draining endpoint
+  stays silent was masked, because the counter it reads stops moving once draining begins.
+
   **Still owed for the step**, which is everything else it names: the handshake over CRYPTO
-  frames, streams and their two state machines, flow control, connection IDs, path validation,
-  anti-amplification, the idle timeout and the closing states. The handshake half waits on
-  chapulin's `ch_quic_*` calls; the rest does not.
+  frames, streams and their two state machines, flow control, connection IDs, path validation
+  and anti-amplification. The handshake half waits on chapulin's `ch_quic_*` calls; the rest
+  does not.
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
