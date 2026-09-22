@@ -2,7 +2,8 @@
 
 Status: written 2026-09-16 and refreshed against chapulin's tree on 2026-09-22, at its commit
 `8a32aeb`. Twelve of the fifteen items below have since landed in chapulin; each one says so, and
-"What is left" names the three that have not. Not sent yet;
+"What is left" names what has not. The h2 blocking-handshake item landed while this refresh was
+being written, which is what [issue 20](https://github.com/c4milo/colibri/issues/20) turns on. Not sent yet;
 sending it is the owner's (https://github.com/c4milo/colibri/issues/5). colibri never edits chapulin's repository, and
 nothing here binds chapulin until chapulin's own decisions record it.
 
@@ -111,9 +112,10 @@ Design §8 step 5 waits for these five.
    sit under a `poll` loop. The server role is stubs, so the cheapest time to give it this shape
    is before it is written. **Landed for the handshake, open for the records after it**:
    `TRANSPORT=record` gives both roles bytes in and bytes out, and the server role was written
-   with that shape rather than retrofitted. `ch_read` and `ch_write` still call `cfg.recv` and
-   `cfg.send`, which return 1..n bytes or -1 and block, so colibri cannot drive application
-   records without a callback that has the bytes already. This is now the whole of the ask.
+   with that shape rather than retrofitted, so the handshake this item asked about no longer
+   blocks in either role. `ch_read` and `ch_write` still call `cfg.recv` and `cfg.send`, which a
+   caller satisfies by holding the bytes first — which colibri's adapter already does. See item 3
+   of "What is left" for why that is a note rather than a gap.
 4. **Many sessions with no global state.** One process runs many connections at once, each with
    its own session. **Landed**: `RAND=extern` packages no generator, so the DRBG's global is not
    in the object and each connection holds its own `ch_tls`.
@@ -180,19 +182,30 @@ answers that.
 
 ## What is left
 
-Three items. Two are absences with nothing in the tree behind them, and the third is a contract
-that has to change rather than code that has to be written.
+Two absences, and one contract note that is smaller than a gap.
 
 1. **The exporter** (RFC 9846 §7.5), for h2. chapulin derives the key schedule `keysched.h`
    already holds, so this is one more secret off it and one call to read it.
 2. **A key log**, for the interop runner. See the note on it above: it is the one ask that runs
    against chapulin's own rule that secrets stay inside, so it needs a decision there before it
    needs code.
-3. **Application records without a blocking callback.** `ch_read` and `ch_write` are the last
-   place colibri would have to supply a callback that cannot say "nothing yet". Two shapes would
-   close it: a result code `ch_read` treats as "call again, nothing consumed", or a bytes-in,
-   bytes-out pair for application data mirroring `ch_record_in` and `ch_record_out`. The second
-   matches what `TRANSPORT=record` already does for the handshake.
+3. **A caller that buffers no whole record has no way to say so.** `ch_read` and `ch_write` call
+   `cfg.recv` and `cfg.send`, which return 1..n bytes or -1, so a caller must hold the bytes
+   before it calls. colibri already does:
+   [issue 20](https://github.com/c4milo/colibri/issues/20) records that after the handshake "the
+   adapter's phase 2 is buffer in and buffer out — `ch_read` and `ch_write` touch no descriptor at
+   all". So this is a contract colibri meets, not a blocker. It stays on the list because a
+   result code meaning "call again, nothing consumed" would let a caller stop pre-buffering, and
+   because nothing in chapulin states that the contract is deliberate rather than incidental.
+
+**The handshake is no longer on this list, and that is new.** `ROLE=server` with
+`TRANSPORT=record` drives the server handshake with no callback at all: `ch_srv_record_in` takes
+the peer's bytes and pushes each record to `cfg.srv.on_record_out`. That is what option C of
+[issue 20](https://github.com/c4milo/colibri/issues/20) waited for — "a handshake whose callbacks
+can say 'nothing yet'" — and it arrived as no callbacks rather than as patient ones. That issue's
+recommendation of option A, a separate serial endpoint, was written against a chapulin where
+`ch_srv_accept` was the only server driver. Whether to adopt the new one instead of amending
+decision 46 is colibri's call and issue 20's to record.
 
 ## What the request reverses in chapulin
 
