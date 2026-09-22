@@ -1647,9 +1647,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   ~~Generating a PATH_CHALLENGE and running §8.2's validation~~ is done, `10aabc5`, and recorded
   below. ~~Validating the ECN counts a peer reports (§13.4.2)~~ is done, `ab178c3`, and recorded
   below. ~~Sending a Stateless Reset (§10.3)~~ is done, `9d902e1`, and recorded below.
-  Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
-  no queue holds. Scheduling the application level's frames. And golden corpus cases for the
-  receive path's new refusals, with their entries in `src/golden/mutations.zig`.
+  Retransmitting a lost packet's frames under a new number, which invariant 17 requires: §13.3's
+  first rule, the CRYPTO one, is done, `79d5dd9`, and recorded below; the rest of its table is
+  not. Scheduling the application level's frames. And golden corpus cases for the receive path's
+  new refusals, with their entries in `src/golden/mutations.zig`.
 
   **The CONNECTION_CLOSE writer is done, 2026-09-20**, `368344e`. Reading the peer's frame was
   already `connection_frames.zig`'s; `connection_close.zig` is the other half, and every piece
@@ -1955,6 +1956,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   12 mutations, 12 CAUGHT, two of them the invariant's own check once it had a canary to fail on.
 
   `zig build test`: 1240 passed, 18 skipped.
+
+  **Lost CRYPTO octets are sent again, 2026-09-22**, `79d5dd9`. RFC 9000 §13.3's first rule:
+  "Data sent in CRYPTO frames is retransmitted according to the rules in [QUIC-RECOVERY], until
+  all data has been acknowledged." Nothing did, so a lost handshake packet ended the attempt.
+
+  §13.3's shape is worth stating, because it is not the one the name suggests. "QUIC packets that
+  are determined to be lost are not retransmitted whole. The same applies to the frames" — the
+  *information* is sent again, by whoever holds it. So there is no queue of frames to replay:
+  each piece keeps what it owes and writes it afresh. The send window `fd97a12` added for a
+  Retry's repeat is the CRYPTO half of exactly that, and what was missing was the record of which
+  octets a packet carried.
+
+  A `recovery_sent.Record` carries that range now, and `connection_crypto.on_packets_lost` rewinds
+  the level's flow to the lowest lost offset. Nothing is tracked per packet, because §13.3 permits
+  sending more than was lost — "a receiver MUST accept packets containing an outdated frame" — so
+  the lowest rewind covers every higher one. A new packet number carries the repeat, which
+  invariant 17 requires and §17.2.5.3 says of a Retry for the same reason.
+
+  `Record` grew from 24 octets to 32. 256 of them sit in each of three spaces, so a test pins the
+  size: the next field added to it is measured rather than assumed. The range is two flat fields
+  rather than a struct, because a struct of a `u64` and a `u16` pads to sixteen octets and would
+  have cost 40.
+
+  `packet_build.zig` passed 500 lines, so its framing half became `packet_build_frames.zig`; that
+  made four files sharing the prefix, which moved them into `packet_build/`.
+
+  10 mutations, 8 CAUGHT. One survivor rewound to the last lost offset rather than the lowest,
+  which nothing separated until a case sent a flight across two packets; the other was an anchor
+  the split had moved.
+
+  What is left of §13.3 is its other rules: STREAM data, which needs the stream send buffers;
+  RESET_STREAM and STOP_SENDING, which are sent until a state is reached; the limit frames, which
+  carry the current value rather than the lost one; NEW_CONNECTION_ID, RETIRE_CONNECTION_ID and
+  NEW_TOKEN, which carry the same content again; and HANDSHAKE_DONE, which "MUST be retransmitted
+  until it is acknowledged".
+
+  `zig build test`: 1245 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
