@@ -1561,13 +1561,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   8. ~~Version negotiation.~~ **Done, `fc2a6ae`**, and recorded below. `connection_version.zig` holds §6's
      two connection-level decisions, above the packet `packet/invariant.zig` already read and
      wrote.
-  9. **Retry.** §7.3's validation and the client's half of §17.2.5.2 are **done**, `bb33948` and
-     `20e51c0`, and recorded below. Two pieces are left. The Initial that repeats the
-     cryptographic handshake message (§17.2.5.3) needs a copy of what colibri sent on the CRYPTO
-     stream, which nothing keeps: `CryptoStream` holds `sent_len` and no octets, so the storage
-     and its limit need a ruling, and the same storage is what retransmitting a lost CRYPTO frame
-     will need. The server's half needs the two `crypto.Suite` members decision 55 rules, which
-     extend the list decision 48 fixed and invariant 23 pins.
+  9. **Retry.** §7.3's validation and the client's whole half are **done**, `bb33948` to
+     `fd97a12`, and recorded below. What is left is the server's half: deciding to send a Retry,
+     minting the token and checking it on the Initial that returns it, which needs the two
+     `crypto.Suite` members decision 55 rules. They extend the list decision 48 fixed and
+     invariant 23 pins, so both documents move with them.
   10. **The simulator connection check** for invariants 17 to 21.
   11. **The test-only endpoint and `tools/interop.sh`**, which is the only part that waits on
       chapulin, whose QUIC server has not yet exchanged a packet with any implementation.
@@ -1754,6 +1752,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   room the header left. A packet built into an output the payload fills is the case that does.
 
   `zig build test`: 1190 passed, 18 skipped.
+
+  **Each CRYPTO stream keeps what it sent, 2026-09-21**, `fd97a12`. RFC 9000 §17.2.5.3: "A
+  client MUST use the same cryptographic handshake message it included in this packet." The
+  provider gives its octets up once — `write_handshake` is a drain — and `CryptoStream` held
+  `sent_len` and no octets, so the Initial that answers a Retry could not be written. The owner
+  ruled a per-level send window on 2026-09-21; `crypto_send_buffer_len` is its size, a judgement
+  set equal to the window §7.5 fixes for the other direction, and three of them sit in every
+  connection.
+
+  The window forgets only octets it has already framed, and only when it has no room left. A
+  flight that fits is therefore never forgotten, which is what makes a repeat possible; a longer
+  one carries on at the offset it reached rather than stalling, which a window anchored at zero
+  would have done. A Retry arriving after a flight was forgotten is discarded, because colibri
+  cannot repeat what it no longer holds.
+
+  The same window is what §13.3's retransmission will read, which is why it is per level and not
+  a copy of the client's first flight. When the sent-packet table records which frames a packet
+  carried, the window can be anchored at what the peer acknowledged instead of at what was framed.
+
+  8 mutations, 8 CAUGHT, two only after a test was written: one framed the provider's octets
+  without keeping them, which no case separated because none sent anything twice; and one forgot
+  a flight that fits as soon as the next packet asked for room, which no case separated because
+  none asked for room between framing and repeating.
+
+  `zig build test`: 1196 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
