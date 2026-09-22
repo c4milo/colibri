@@ -24,6 +24,8 @@ const error_code = @import("../error_code.zig");
 const frame_module = @import("../frame/frame.zig");
 const space_module = @import("../space/space.zig");
 const connection_module = @import("connection.zig");
+const receive = @import("connection_receive.zig");
+const key_update = @import("connection_key_update.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const stream_frames = @import("connection_stream_frames.zig");
 const path_frames = @import("connection_path_frames.zig");
@@ -48,6 +50,10 @@ pub const Error = error{
     AcknowledgedUnsentPacket,
     /// RFC 9000 §19.20: a client sent a HANDSHAKE_DONE frame, which only a server may send.
     HandshakeDoneFromClient,
+    /// RFC 9001 §6.2: an ACK carried in a packet protected with old keys named a packet this
+    /// endpoint protected with newer ones, so the peer acknowledged a key update without
+    /// answering it.
+    OldKeysAcknowledgeNew,
     /// The handshake failed, and `connection_crypto.Error` says how.
     Crypto,
     /// A frame naming a stream broke a rule, and `connection_stream_frames.Error` says which.
@@ -67,6 +73,8 @@ pub fn connection_error_code(failure: Error) u64 {
         error.HandshakeDoneFromClient => error_code.protocol_violation,
         // RFC 9000 §13.1: an acknowledgment of an unsent packet is a protocol violation.
         error.AcknowledgedUnsentPacket => error_code.protocol_violation,
+        // RFC 9001 §6.7: KEY_UPDATE_ERROR "is used to signal errors related to key updates".
+        error.OldKeysAcknowledgeNew => error_code.key_update_error,
         // RFC 9000 §12.4: "An endpoint MUST treat the receipt of a frame of unknown type as a
         // connection error of type FRAME_ENCODING_ERROR", which §19's own refusals share.
         error.FrameEncoding => error_code.frame_encoding_error,
@@ -100,17 +108,12 @@ pub const Close = struct {
 ///
 /// `payload` is the plaintext `crypto.Suite.open` left in place. Nothing here discards: the tag
 /// has matched, so a rule broken from this point is the peer's and closes the connection.
-pub fn process(
-    connection: *Connection,
-    level: Level,
-    payload: []const u8,
-    now_ns: u64,
-    addressed_to: ?u64,
-) Error!Report {
+pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64) Error!Report {
+    const level = opened.level;
     // RFC 9000 §12.4: "The payload of a packet that contains frames MUST contain at least one
     // frame", and a packet with none is a connection error.
-    if (payload.len == 0) return Error.EmptyPayload;
-    var reader = Reader.init(payload);
+    if (opened.payload.len == 0) return Error.EmptyPayload;
+    var reader = Reader.init(opened.payload);
     var report: Report = .{ .ack_eliciting = false, .frames = 0, .close = null, .owed = .{} };
     // Bounded by the frames one packet can hold, which is its octets: §19.1 makes PADDING one
     // octet and no frame is shorter.
@@ -122,7 +125,7 @@ pub fn process(
         if (!frame.permitted_at(level)) return Error.FrameNotPermitted;
         report.frames += 1;
         if (frame.is_ack_eliciting()) report.ack_eliciting = true;
-        try apply(connection, level, frame, now_ns, addressed_to, &report);
+        try apply(connection, opened, frame, now_ns, &report);
     }
     // A payload that held only octets no frame could be read from would have failed above, so
     // reaching here with nothing read means the payload was frames of zero length, which §19.1
@@ -133,13 +136,13 @@ pub fn process(
 
 /// Acts on one frame. The arms are the frames that act on the connection; a frame naming a
 /// stream is `connection_stream_frames.zig`'s and reaches it through `stream_frame`.
-fn apply(connection: *Connection, level: Level, frame: Frame, now_ns: u64, addressed_to: ?u64, report: *Report) Error!void {
+fn apply(connection: *Connection, opened: receive.Opened, frame: Frame, now_ns: u64, report: *Report) Error!void {
     switch (frame) {
         // RFC 9000 §19.1, §19.2: PADDING has no semantics and PING exists to elicit an
         // acknowledgment, which `is_ack_eliciting` already recorded.
         .padding, .ping => {},
-        .ack => |ack| try take_ack(connection, level, ack),
-        .crypto => |crypto| connection_crypto.receive_crypto(connection, level, crypto) catch
+        .ack => |ack| try take_ack(connection, opened, ack),
+        .crypto => |crypto| connection_crypto.receive_crypto(connection, opened.level, crypto) catch
             return Error.Crypto,
         .connection_close => |close| take_close(connection, close, now_ns, report),
         .handshake_done => try take_handshake_done(connection),
@@ -155,13 +158,19 @@ fn apply(connection: *Connection, level: Level, frame: Frame, now_ns: u64, addre
             return Error.Stream,
         // RFC 9000 §19.7, §19.15 to §19.18: NEW_TOKEN, the connection ID frames and the path
         // frames, which act on what the connection holds once rather than on a stream.
-        else => path_frames.apply(connection, frame, addressed_to, &report.owed) catch return Error.Path,
+        else => path_frames.apply(connection, frame, opened.addressed_to, &report.owed) catch return Error.Path,
     }
 }
 
 /// RFC 9000 §13.1 and §13.2: what a peer's ACK frame says about packets this endpoint sent.
-fn take_ack(connection: *Connection, level: Level, ack: frame_module.Ack) Error!void {
-    _ = connection.space_at(level).on_ack(ack) catch |failure| switch (failure) {
+fn take_ack(connection: *Connection, opened: receive.Opened, ack: frame_module.Ack) Error!void {
+    // RFC 9001 §6.2: "An endpoint that receives an acknowledgment that is carried in a packet
+    // protected with old keys where any acknowledged packet was protected with newer keys MAY
+    // treat that as a connection error of type KEY_UPDATE_ERROR."
+    if (key_update.acknowledges_newer_keys(connection, opened.key_set, ack.ranges.largest_acknowledged)) {
+        return Error.OldKeysAcknowledgeNew;
+    }
+    _ = connection.space_at(opened.level).on_ack(ack) catch |failure| switch (failure) {
         // RFC 9000 §13.1: "if a packet is acknowledged that was never sent, this is a connection
         // error of type PROTOCOL_VIOLATION."
         error.AcknowledgedUnsentPacket => return Error.AcknowledgedUnsentPacket,

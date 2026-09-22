@@ -14,11 +14,11 @@
 //! `Connection.current_phase_lowest`, because a delayed packet of the phase before carries the
 //! same Key Phase bit as the first of the phase after.
 //!
-//! **What is not here.** §6.5's discard of the previous read keys is a SHOULD measured in three
-//! Probe Timeouts, and nothing drives a timer yet. §6.6's AEAD limits are the suite's counts, and
-//! the send path does not act on them yet. §6.2's last paragraph — an acknowledgment carried in a
-//! packet protected with old keys that names a packet protected with newer ones — needs the ACK's
-//! contents beside the key set, which `connection_frames.process` is not told.
+//! **Where the rest of §6 lives.** §6.2's last paragraph needs an ACK frame's contents beside the
+//! key set, so `acknowledges_newer_keys` is the state and `connection_frames.take_ack` is the
+//! check. §6.5's discard of the previous read keys is a SHOULD measured in three Probe Timeouts,
+//! and nothing drives a timer yet. §6.6's AEAD limits are the suite's counts, and the send path
+//! does not act on them yet.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -141,6 +141,20 @@ fn answer_key_update(connection: *Connection, suite: Suite, packet_number: u64) 
 fn refuse_old_above_current(connection: *const Connection, packet_number: u64) Error!void {
     const lowest = connection.current_phase_lowest orelse return;
     if (packet_number > lowest) return Error.OldKeysAboveCurrentPhase;
+}
+
+/// Whether RFC 9001 §6.2's last rule refuses this acknowledgment: it arrived in a packet opened
+/// with the previous keys, and it names a packet this endpoint protected with the current ones.
+/// §6.2 says what that means — "a peer has received and acknowledged a packet that initiates a
+/// key update, but has not updated keys in response".
+///
+/// RFC 9000 §19.3 makes Largest Acknowledged a packet the frame acknowledges, and no number it
+/// names is above that one, so it alone answers §6.2's "any acknowledged packet".
+pub fn acknowledges_newer_keys(connection: *const Connection, key_set: KeySet, largest: u64) bool {
+    if (key_set != .previous) return false;
+    // RFC 9001 §6.1: every packet numbered from here up went out under the current key phase.
+    const lowest = connection.phase_lowest_sent orelse return false;
+    return largest >= lowest;
 }
 
 /// One packet this endpoint sealed (RFC 9001 §6.1, §6.2). The send path calls it once per packet,

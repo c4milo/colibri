@@ -5,6 +5,7 @@
 //! these cases pin is what the connection does with them and not how they are encoded.
 const std = @import("std");
 const core = @import("core");
+const crypto = @import("crypto");
 const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
 const frame_module = @import("../frame/frame.zig");
@@ -59,7 +60,7 @@ fn frames_of(list: []const Frame) []const u8 {
 }
 
 fn run(level: Level, list: []const Frame) frames.Error!frames.Report {
-    return frames.process(&test_connection, level, frames_of(list), test_now_ns, addressed_to_none);
+    return frames.process(&test_connection, .{ .level = level, .payload = frames_of(list) }, test_now_ns);
 }
 
 /// A CONNECTION_CLOSE of each layer (RFC 9000 §19.19). The transport one carries a Frame Type
@@ -81,7 +82,7 @@ test "RFC 9000 §12.4: a packet with no frames is a connection error" {
     open_as(.client);
     // "An endpoint MUST treat receipt of a packet containing no frames as a connection error of
     // type PROTOCOL_VIOLATION."
-    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .initial, &.{}, test_now_ns, addressed_to_none));
+    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .{ .level = .initial, .payload = &.{} }, test_now_ns));
     try testing.expectEqual(
         error_code.protocol_violation,
         frames.connection_error_code(frames.Error.EmptyPayload),
@@ -191,12 +192,67 @@ test "RFC 9000 §19: a frame that will not parse is a FRAME_ENCODING_ERROR" {
     const unknown = [_]u8{ 0x3f, 0x00 };
     try testing.expectError(
         frames.Error.FrameEncoding,
-        frames.process(&test_connection, .application, &unknown, test_now_ns, addressed_to_none),
+        frames.process(&test_connection, .{ .level = .application, .payload = &unknown }, test_now_ns),
     );
     try testing.expectEqual(
         error_code.frame_encoding_error,
         frames.connection_error_code(frames.Error.FrameEncoding),
     );
+}
+
+/// One 1-RTT packet's frames under a named key set (RFC 9001 §6.5), which §6.2's last rule reads.
+fn run_with(key_set: crypto.suite.KeySet, list: []const Frame) frames.Error!frames.Report {
+    return frames.process(
+        &test_connection,
+        .{ .level = .application, .payload = frames_of(list), .key_set = key_set },
+        test_now_ns,
+    );
+}
+
+/// Spends `count` packet numbers in `level`'s space, so an ACK naming one of them is not
+/// RFC 9000 §13.1's acknowledgment of a packet that was never sent.
+fn spend_numbers(level: Level, count: usize) void {
+    for (0..count) |_| _ = test_connection.space_at(level).next_number() catch unreachable;
+}
+
+test "RFC 9001 §6.2: an ACK under old keys naming a new-keys packet closes the connection" {
+    open_as(.client);
+    spend_numbers(.application, 5);
+    // RFC 9001 §6.1: packet 4 and every number above it went out under the current key phase.
+    test_connection.phase_lowest_sent = 4;
+
+    // An ACK naming only the phase before is what §6.5 keeps the old read keys for.
+    _ = try run_with(.previous, &.{.{ .ack = ack_of(3) }});
+    // One naming a packet of the current phase says the peer "received and acknowledged a packet
+    // that initiates a key update, but has not updated keys in response".
+    try testing.expectError(
+        frames.Error.OldKeysAcknowledgeNew,
+        run_with(.previous, &.{.{ .ack = ack_of(4) }}),
+    );
+    // RFC 9001 §6.7: KEY_UPDATE_ERROR is 0x0e.
+    try testing.expectEqual(
+        error_code.key_update_error,
+        frames.connection_error_code(frames.Error.OldKeysAcknowledgeNew),
+    );
+}
+
+test "RFC 9001 §6.2: the same ACK under keys that are not old is legal" {
+    open_as(.client);
+    spend_numbers(.application, 5);
+    test_connection.phase_lowest_sent = 4;
+    // §6.2's rule is about the keys the acknowledgment arrived under, so the same frame under the
+    // current keys is a peer that answered the update, and under the next it is one updating now.
+    _ = try run_with(.current, &.{.{ .ack = ack_of(4) }});
+    _ = try run_with(.next, &.{.{ .ack = ack_of(4) }});
+}
+
+test "RFC 9001 §6.2: an old-keys ACK is legal before the phase has sent anything" {
+    open_as(.client);
+    spend_numbers(.application, 5);
+    // Nothing has gone out under the current keys, so no packet the ACK names was protected with
+    // them and §6.2's rule cannot be met.
+    try testing.expectEqual(null, test_connection.phase_lowest_sent);
+    _ = try run_with(.previous, &.{.{ .ack = ack_of(4) }});
 }
 
 /// An ACK naming one packet and nothing else (RFC 9000 §19.3).

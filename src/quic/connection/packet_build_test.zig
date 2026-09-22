@@ -273,7 +273,7 @@ test "RFC 9000 §17.2: a packet built at Initial is read back as one" {
     try testing.expectEqual(0, opened.packet_number);
 
     // And the frames come back out, which is what proves the payload's offset.
-    const report = try frames.process(&peer_connection, .initial, opened.payload, test_now_ns, null);
+    const report = try frames.process(&peer_connection, opened, test_now_ns);
     try testing.expectEqual(1, report.frames);
     try testing.expect(report.ack_eliciting);
     try testing.expectEqualSlices(
@@ -328,7 +328,7 @@ test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
     // packet for §13.1 to admit the acknowledgment, so its space is advanced first.
     _ = try peer_connection.space_at(.initial).next_number();
     const opened = try walk_back(built);
-    const report = try frames.process(&peer_connection, .initial, opened.payload, test_now_ns, null);
+    const report = try frames.process(&peer_connection, opened, test_now_ns);
     try testing.expectEqual(1, report.frames);
     try testing.expect(!report.ack_eliciting);
     try testing.expectEqual(0, peer_connection.space_at(.initial).largest_acknowledged.?);
@@ -374,7 +374,7 @@ test "RFC 9000 §17.2: a long flight fills the datagram exactly and never past i
 
     // And it still reads back, which is what says the Length field matched the real payload.
     const opened = try walk_back(built);
-    const report = try frames.process(&peer_connection, .initial, opened.payload, test_now_ns, null);
+    const report = try frames.process(&peer_connection, opened, test_now_ns);
     try testing.expectEqual(1, report.frames);
     try testing.expect(report.ack_eliciting);
 }
@@ -403,7 +403,7 @@ test "RFC 9000 §17.3: a 1-RTT packet is built with a short header and read back
     const opened = try walk_back(built);
     try testing.expectEqual(Level.application, opened.level);
     try testing.expectEqual(0, opened.packet_number);
-    const report = try frames.process(&peer_connection, .application, opened.payload, test_now_ns, null);
+    const report = try frames.process(&peer_connection, opened, test_now_ns);
     try testing.expectEqual(1, report.frames);
     try testing.expectEqualSlices(
         u8,
@@ -433,7 +433,7 @@ test "decision 35: a smaller scratch bounds the packet, not the datagram" {
     // And what it carried still reads back, so the Length field matched the smaller payload.
     const opened = try walk_back(built);
     try testing.expectEqual(small_payload_len, opened.payload.len);
-    _ = try frames.process(&peer_connection, .initial, opened.payload, test_now_ns, null);
+    _ = try frames.process(&peer_connection, opened, test_now_ns);
     try testing.expectEqual(small_payload_len - 3, peer_connection.crypto_at(.initial).readable().len);
 }
 
@@ -454,5 +454,5 @@ test "RFC 9000 §17.3: a 1-RTT packet fills the datagram exactly, with no Length
 
     const opened = try walk_back(built);
     try testing.expectEqual(Level.application, opened.level);
-    _ = try frames.process(&peer_connection, .application, opened.payload, test_now_ns, null);
+    _ = try frames.process(&peer_connection, opened, test_now_ns);
 }

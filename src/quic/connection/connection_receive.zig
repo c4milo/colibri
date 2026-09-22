@@ -75,13 +75,16 @@ pub const Outcome = union(enum) {
 
 pub const Opened = struct {
     level: Level,
-    packet_number: u64,
+    /// The frames, which `crypto.Suite.open` left in place inside the datagram.
+    payload: []const u8,
+    packet_number: u64 = 0,
     /// The sequence number of the connection ID this packet was addressed to (RFC 9000 §5.1.1),
     /// or null when it names none this endpoint issued. §19.16 forbids a RETIRE_CONNECTION_ID
     /// from naming it, which is the one rule that needs to know.
-    addressed_to: ?u64,
-    /// The frames, which `crypto.Suite.open` left in place inside the datagram.
-    payload: []const u8,
+    addressed_to: ?u64 = null,
+    /// Which keys opened it (RFC 9001 §6.5). Outside the application level it is always
+    /// `current`, which `crypto.Suite.open` asserts; §6.2's last rule is what reads it.
+    key_set: crypto.suite.KeySet = .current,
 };
 
 /// Where the walk has got to in one datagram. The caller drives it, because the frame layer sits
@@ -222,11 +225,12 @@ fn open_at(
     return .{
         .opened = .{
             .level = level,
+            .payload = packet[payload_start..][0..opened.payload_len],
             .packet_number = opened.packet_number,
             // RFC 9000 §5.1.1 gives every connection ID this endpoint issued a sequence number, and
             // the Destination Connection ID is how the packet named one of them.
             .addressed_to = connection.local_ids.sequence_number_of(destination),
-            .payload = packet[payload_start..][0..opened.payload_len],
+            .key_set = opened.key_set,
         },
     };
 }

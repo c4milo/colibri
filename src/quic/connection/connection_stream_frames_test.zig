@@ -79,7 +79,7 @@ fn open_server() void {
 fn run(list: []const Frame) frames.Error!frames.Report {
     var writer = Writer.init(&payload);
     for (list) |held| frame_module.write(&writer, held) catch unreachable;
-    return frames.process(&test_connection, .application, writer.written(), test_now_ns, addressed_to_none);
+    return frames.process(&test_connection, .{ .level = .application, .payload = writer.written() }, test_now_ns);
 }
 
 fn stream_frame(id: u64, offset: u64, len: usize, fin: bool) Frame {

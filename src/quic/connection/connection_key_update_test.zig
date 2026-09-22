@@ -10,12 +10,14 @@ const core = @import("core");
 const crypto = @import("crypto");
 const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
+const frame_module = @import("../frame/frame.zig");
 const header_write = @import("../packet/packet_header_write.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
 const keys = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
 const receive = @import("connection_receive.zig");
+const frames = @import("connection_frames.zig");
 const packet_build = @import("packet_build.zig");
 const build_test = @import("packet_build_test.zig");
 
@@ -48,6 +50,12 @@ const test_payload: [protected_len]u8 = @splat(payload_octet);
 
 const datagram_len: usize = 256;
 var datagram: [datagram_len]u8 = undefined;
+
+/// Where `ack_payload` builds one packet's octets: an ACK frame and the octets `RoundTrip` reads
+/// as a tag.
+const ack_octets_len: usize = 32;
+var ack_octets: [ack_octets_len]u8 = undefined;
+const tag_octets: [constants.aead_tag_len]u8 = @splat(0);
 
 fn parameters() Parameters {
     var held = Parameters.initial();
@@ -84,6 +92,12 @@ fn acknowledge(number: u64) void {
 
 /// Walks one 1-RTT packet the peer wrote, under the key set `suite_holder.opens_with` names.
 fn walk_short(number: u8) !receive.Outcome {
+    return walk_payload(number, &test_payload);
+}
+
+/// The same, over octets a test chose. `body` ends with the octets `RoundTrip` treats as the
+/// tag, so the frames the frame layer reads are everything before them.
+fn walk_payload(number: u8, body: []const u8) !receive.Outcome {
     var writer = Writer.init(&datagram);
     try header_write.write_short(&writer, .{
         .dcid = &local_id,
@@ -92,10 +106,38 @@ fn walk_short(number: u8) !receive.Outcome {
         // rather than from the bit, so what this value is does not steer the test.
         .key_phase = false,
     });
-    try writer.write_bytes(&test_payload);
+    try writer.write_bytes(body);
     const len = writer.written().len;
     walk.init(.{ .octets = datagram[0..len], .now_ns = test_now_ns, .ecn = .not_ect });
     return (try receive.next(&walk, &test_connection, suite())).?;
+}
+
+/// One ACK frame naming `largest`, followed by the octets `RoundTrip` strips as a tag
+/// (RFC 9000 §19.3).
+fn ack_payload(largest: u64) []const u8 {
+    var writer = Writer.init(&ack_octets);
+    frame_module.write(&writer, .{ .ack = .{
+        .ranges = .{ .largest_acknowledged = largest, .first_range = 0, .octets = &.{}, .count = 0 },
+        .delay = 0,
+        .ecn = null,
+    } }) catch unreachable;
+    writer.write_bytes(&tag_octets) catch unreachable;
+    return writer.written();
+}
+
+test "RFC 9001 §6.2: the key set of the packet that opened reaches the frame layer" {
+    open_connection();
+    // RFC 9001 §6.1: packet 4 and every number above it went out under the current key phase.
+    key_update.on_packet_sent(&test_connection, .application, 4, false);
+    suite_holder.opens_with = .previous;
+
+    // §6.2: an acknowledgment carried under the old keys that names a packet protected with the
+    // newer ones. The receive path opened it; the frame layer is what refuses it.
+    const outcome = try walk_payload(6, ack_payload(4));
+    try testing.expectError(
+        frames.Error.OldKeysAcknowledgeNew,
+        frames.process(&test_connection, outcome.opened, test_now_ns),
+    );
 }
 
 test "RFC 9001 §6.1: a key update is refused before the handshake is confirmed" {

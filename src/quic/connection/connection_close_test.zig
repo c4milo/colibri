@@ -122,7 +122,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !Read {
             .discarded => continue,
         };
         seen.packets += 1;
-        const report = try frames.process(reader, opened.level, opened.payload, test_now_ns, null);
+        const report = try frames.process(reader, opened, test_now_ns);
         if (report.close) |close| {
             seen.closes += 1;
             seen.levels[@intFromEnum(opened.level)] = true;
