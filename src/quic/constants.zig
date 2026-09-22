@@ -264,6 +264,14 @@ comptime {
 /// More than this is a connection error of CRYPTO_BUFFER_EXCEEDED, which §7.5 names for it.
 pub const crypto_buffer_len: usize = 4096;
 
+/// Octets of its own handshake flow colibri keeps per encryption level, so a CRYPTO frame can be
+/// written again under a new packet number (RFC 9000 §13.3) and a client can repeat its first
+/// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it, so it is a judgement, made
+/// equal to the window §7.5 sets for the other direction: a flight that fits is never forgotten,
+/// and a longer one forgets the octets it has already framed rather than stalling. Three levels
+/// of it sit in every connection, which `Connection` pays for once.
+pub const crypto_send_buffer_len: usize = crypto_buffer_len;
+
 /// The smallest Stateless Reset (RFC 9000 §10.3): the 16-octet token, and five octets before it
 /// so the Unpredictable Bits field carries the 38 bits that make the datagram look like a valid
 /// short-header packet.

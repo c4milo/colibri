@@ -76,6 +76,9 @@ pub const Discarded = enum {
     /// §17.2.5.2: "Clients MUST discard Retry packets that have a Retry Integrity Tag that cannot
     /// be validated" (RFC 9001 §5.8).
     tag_invalid,
+    /// §17.2.5.3 has a client repeat the cryptographic handshake message it already sent, and its
+    /// first flight was longer than the send window colibri keeps, so those octets are gone.
+    flight_forgotten,
 };
 
 /// What the Retry changed.
@@ -107,6 +110,10 @@ pub fn receive(
     // §8.1.2: "This token MUST be repeated by the client in all Initial packets it sends for that
     // connection after it receives the Retry packet."
     connection.retry_token.take(retry.token);
+    // §17.2.5.3: the same cryptographic handshake message goes out again, in a new Initial with
+    // the new Destination Connection ID and the token. The packet number is not reset: §17.2.5.3
+    // forbids it, and nothing here touches the space.
+    connection.crypto_at(.initial).rewind();
     assert(connection.identity.retry_source != null);
     return .{ .taken = .{ .destination = retry.scid } };
 }
@@ -127,6 +134,10 @@ fn refuse(connection: *const Connection, retry: header.Retry) ?Discarded {
         return .source_is_destination;
     }
     if (retry.token.len > constants.token_len_max) return .token_too_long;
+    // §17.2.5.3: "A client MUST use the same cryptographic handshake message it included in this
+    // packet." That message is what the Initial level's send window still holds, so a first
+    // flight larger than the window is a Retry colibri cannot answer.
+    if (!connection.crypto_streams.at_const(.initial).can_rewind()) return .flight_forgotten;
     return null;
 }
 

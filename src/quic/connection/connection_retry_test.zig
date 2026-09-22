@@ -9,6 +9,7 @@ const std = @import("std");
 const core = @import("core");
 const crypto = @import("crypto");
 const constants = @import("../constants.zig");
+const frame_module = @import("../frame/frame.zig");
 const header = @import("../packet/packet_header.zig");
 const header_write = @import("../packet/packet_header_write.zig");
 const transport_parameters = @import("../transport_parameters.zig");
@@ -310,4 +311,65 @@ test "RFC 9000 §17.2.2: the Token Length and Token are counted when the header 
     try testing.expect(built.len <= output.len);
     const parsed = (try header.read(output[0..built.len], test_connection.identity.local_len())).long;
     try testing.expectEqualSlices(u8, &test_token, parsed.token);
+}
+
+/// The CRYPTO frame of a packet this file built, read back off the octets it wrote.
+fn crypto_frame_of(built: packet_build.Built) !frame_module.Frame {
+    const parsed = (try header.read(output[0..built.len], test_connection.identity.local_len())).long;
+    // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. `RoundTrip`
+    // applies no header protection, so they are readable here.
+    const number_len: usize = (output[0] & constants.packet_number_len_mask) + 1;
+    const payload = output[parsed.packet_number_offset + number_len .. built.len - constants.aead_tag_len];
+    var reader = core.Reader.init(payload);
+    return frame_module.read(&reader);
+}
+
+fn build_initial(suite_holder: *build_test.RoundTrip, provider_holder: *build_test.Fake) !packet_build.Built {
+    var scratch: packet_build.DefaultScratch = .{};
+    return (try packet_build.build(
+        &test_connection,
+        suite_holder.suite(),
+        provider_holder.provider(),
+        .initial,
+        &scratch,
+        &output,
+        test_now_ns,
+    )).?;
+}
+
+test "RFC 9000 §17.2.5.3: the Initial after a Retry repeats the handshake message" {
+    open_as(.client);
+    keys.on_keys_installed(&test_connection, .initial, .write);
+    var suite_holder: build_test.RoundTrip = undefined;
+    suite_holder.init();
+    var provider_holder: build_test.Fake = .{ .owed = &test_token, .owed_level = .initial };
+
+    const first = try build_initial(&suite_holder, &provider_holder);
+    const before = (try crypto_frame_of(first)).crypto;
+    try testing.expectEqual(0, before.offset);
+    var sent: [token_len]u8 = undefined;
+    @memcpy(&sent, before.data);
+    // The provider gave its octets up and owes nothing more, which is why colibri keeps them.
+    try testing.expectEqual(0, provider_holder.owed.len);
+
+    _ = receive(try retry_packet(&s2, &test_token));
+    const second = try build_initial(&suite_holder, &provider_holder);
+    const after = (try crypto_frame_of(second)).crypto;
+    // "A client MUST use the same cryptographic handshake message it included in this packet",
+    // and §19.6 starts each level's flow at offset 0, so the repeat starts there too.
+    try testing.expectEqual(0, after.offset);
+    try testing.expectEqualSlices(u8, &sent, after.data);
+    // §17.2.5.3: "A client MUST NOT reset the packet number for any packet number space after
+    // processing a Retry packet."
+    try testing.expect(second.packet_number > first.packet_number);
+}
+
+test "RFC 9000 §17.2.5.3: a Retry is discarded when the first flight was forgotten" {
+    open_as(.client);
+    // A flight longer than the send window forgets the octets it already framed, which
+    // `send_base` above zero is. colibri cannot repeat what it no longer holds.
+    test_connection.crypto_at(.initial).send_base = 1;
+    const outcome = receive(try retry_packet(&s2, &test_token));
+    try testing.expectEqual(retry.Discarded.flight_forgotten, outcome.discarded);
+    try testing.expectEqual(null, test_connection.identity.retry_source);
 }

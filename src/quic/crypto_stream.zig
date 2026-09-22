@@ -43,8 +43,16 @@ pub const CryptoStream = struct {
     present: std.StaticBitSet(constants.crypto_buffer_len),
     /// Octets colibri has sent on this level, which is the Offset the next CRYPTO frame it writes
     /// carries (RFC 9000 §19.6). The two directions are separate flows at one level, so the
-    /// sending offset sits beside the receiving window rather than in a struct of its own.
+    /// sending side sits beside the receiving window rather than in a struct of its own.
     sent_len: u64,
+    /// The stream offset of `send_buffer[0]`: octets below it were framed and then forgotten.
+    send_base: u64,
+    /// Octets the provider has produced at this level, as an offset in the same flow.
+    produced_len: u64,
+    /// What was produced and not yet forgotten. RFC 9000 §13.3 retransmits a lost frame's octets
+    /// under a new packet number, and §17.2.5.3 has a client repeat its first flight after a
+    /// Retry; both read this rather than asking the provider, which has given the octets up.
+    send_buffer: [constants.crypto_send_buffer_len]u8,
 
     /// A stream with nothing received. RFC 9000 §19.6: each level starts at an offset of 0.
     pub fn init(stream: *CryptoStream) void {
@@ -52,7 +60,69 @@ pub const CryptoStream = struct {
         stream.contiguous = 0;
         stream.present = .initEmpty();
         stream.sent_len = 0;
+        stream.send_base = 0;
+        stream.produced_len = 0;
         assert(stream.readable().len == 0);
+        assert(stream.unsent().len == 0);
+    }
+
+    /// Where the provider may write more of this level's flow. Empty when everything produced is
+    /// still waiting to be framed, which is the window doing its job.
+    pub fn send_room(stream: *CryptoStream) []u8 {
+        stream.forget_framed();
+        const held: usize = @intCast(stream.produced_len - stream.send_base);
+        return stream.send_buffer[held..];
+    }
+
+    /// Records that the provider wrote `len` octets into `send_room`.
+    pub fn produced(stream: *CryptoStream, len: usize) void {
+        assert(stream.produced_len + len - stream.send_base <= stream.send_buffer.len);
+        stream.produced_len += len;
+        assert(stream.produced_len >= stream.sent_len);
+    }
+
+    /// The octets the next CRYPTO frame carries: produced at this level and not yet framed.
+    pub fn unsent(stream: *const CryptoStream) []const u8 {
+        const from: usize = @intCast(stream.sent_len - stream.send_base);
+        const to: usize = @intCast(stream.produced_len - stream.send_base);
+        return stream.send_buffer[from..to];
+    }
+
+    /// Records that `len` octets of `unsent` went into a CRYPTO frame, which advances the Offset
+    /// the next one carries (RFC 9000 §19.6).
+    pub fn framed(stream: *CryptoStream, len: usize) void {
+        assert(len <= stream.unsent().len);
+        stream.sent_len += len;
+        assert(stream.sent_len <= stream.produced_len);
+    }
+
+    /// Whether this level's flow can be sent again from offset 0, which RFC 9000 §17.2.5.3 asks
+    /// of a client after a Retry: "A client MUST use the same cryptographic handshake message it
+    /// included in this packet." False when the window no longer reaches 0, which is a flight
+    /// larger than it.
+    pub fn can_rewind(stream: *const CryptoStream) bool {
+        return stream.send_base == 0;
+    }
+
+    /// Sends this level's flow again from the start (RFC 9000 §17.2.5.3). The octets are the ones
+    /// already produced, so the provider is not asked for them twice.
+    pub fn rewind(stream: *CryptoStream) void {
+        assert(stream.can_rewind());
+        stream.sent_len = 0;
+        assert(stream.unsent().len == stream.produced_len);
+    }
+
+    /// Forgets the octets already framed, and only when the window has no room left. RFC 9000
+    /// §13.3's retransmission and §17.2.5.3's repeat can reach only what the window still holds,
+    /// so this runs as late as it can and a flight that fits is never forgotten.
+    fn forget_framed(stream: *CryptoStream) void {
+        if (stream.produced_len - stream.send_base < stream.send_buffer.len) return;
+        const forget: usize = @intCast(stream.sent_len - stream.send_base);
+        if (forget == 0) return;
+        const kept: usize = @intCast(stream.produced_len - stream.sent_len);
+        std.mem.copyForwards(u8, stream.send_buffer[0..kept], stream.send_buffer[forget..][0..kept]);
+        stream.send_base = stream.sent_len;
+        assert(stream.unsent().len == kept);
     }
 
     /// Takes one CRYPTO frame's octets. Data already read is dropped, data that overlaps what is

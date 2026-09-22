@@ -113,18 +113,25 @@ pub fn write_crypto(
     output: []u8,
 ) Error!usize {
     assert(output.len > 0);
+    const stream = connection.crypto_at(level);
+    // The provider gives its octets up once, so they go into the level's own window before they
+    // go into a packet: RFC 9000 §13.3 retransmits them and §17.2.5.3 repeats them after a Retry.
+    const room = stream.send_room();
+    if (room.len > 0) {
+        const produced = provider.write_handshake(level, room) catch |failure|
+            return provider_failure(provider, failure);
+        stream.produced(produced);
+    }
+    const waiting = stream.unsent();
+    if (waiting.len == 0) return 0;
     // The frame's own header costs octets, so the payload cannot have all of `output`. The
     // Offset it reserves room for is the one `write_frame` will write: RFC 9000 §19.6 makes it
     // how many octets colibri has sent at this level, which is a different number from how many
     // it has read out of the peer's flow at the same level.
-    const header_len = crypto_frame_header_len(connection.crypto_at(level).sent_len, output.len);
+    const header_len = crypto_frame_header_len(stream.sent_len, output.len);
     if (output.len <= header_len) return 0;
-    var payload: [constants.crypto_buffer_len]u8 = undefined;
-    const room = @min(output.len - header_len, payload.len);
-    const written = provider.write_handshake(level, payload[0..room]) catch |failure|
-        return provider_failure(provider, failure);
-    if (written == 0) return 0;
-    return write_frame(connection, level, payload[0..written], output);
+    const len = @min(waiting.len, output.len - header_len);
+    return write_frame(connection, level, waiting[0..len], output);
 }
 
 /// Puts the octets in a CRYPTO frame at the level's current offset, and advances it.
@@ -135,7 +142,7 @@ fn write_frame(connection: *Connection, level: Level, payload: []const u8, outpu
     // many colibri has already sent on it.
     frame_stream.write_crypto(&writer, .{ .offset = stream.sent_len, .data = payload }) catch
         return Error.NoSpaceLeft;
-    stream.sent_len += payload.len;
+    stream.framed(payload.len);
     return writer.written().len;
 }
 
