@@ -426,3 +426,29 @@ test "RFC 9000 §13.3: the lowest lost offset is where the flow is sent again fr
     const again = (try send_from(&client)).?;
     try testing.expectEqual(0, again.packets[0].crypto_offset);
 }
+
+test "RFC 9000 §13.3: losing a packet of frames that need no repair asks for nothing" {
+    open_pair();
+    open_application(&client);
+    // An ACK, a PATH_RESPONSE and a PATH_CHALLENGE, which §13.3 answers three different ways and
+    // none of them by sending this packet's frames again.
+    const space = client.space_at(.application);
+    _ = space.receive(0, test_now_ns, true, .not_ect);
+    _ = space.receive(1, test_now_ns, true, .not_ect);
+    client.path.take_challenge(challenge_data);
+    client.path.owe_challenge(challenge_data);
+
+    const first = (try send_from(&client)).?;
+    try testing.expectEqual(0, first.packets[0].crypto_len);
+    // Nothing is owed once they have gone out, so nothing goes out again unprompted.
+    try testing.expectEqual(null, try send_from(&client));
+
+    // "ACK frames carry the most recent set of acknowledgments" — an old one is not resent.
+    // "Responses to path validation using PATH_RESPONSE frames are sent just once."
+    // "PATH_CHALLENGE frames include a different payload each time they are sent", which is the
+    // caller's to draw, so losing one asks colibri for nothing either.
+    const report = connection_crypto.on_packets_lost(&client, .application, &.{record_of(first, 0)});
+    try testing.expectEqual(0, report.packets);
+    try testing.expect(!report.forgotten);
+    try testing.expectEqual(null, try send_from(&client));
+}

@@ -88,6 +88,24 @@ pub const CloseLayer = enum { transport, application };
 
 /// One frame. The payload of a packet is a sequence of these, read until the octets run out
 /// (RFC 9000 §12.4).
+/// What RFC 9000 §13.3 asks of one frame's information when the packet carrying it is lost.
+pub const Repair = enum {
+    /// Nothing is owed. §13.3 gives four reasons for this, one per frame it applies to, and they
+    /// are not the same reason: PING and PADDING carry no information, an ACK is superseded by
+    /// the next one, a connection close is resent by §10 rather than by loss detection, and a
+    /// PATH_RESPONSE is "sent just once".
+    none,
+    /// The same octets go out again, in a new frame under a new packet number (invariant 17).
+    same_octets,
+    /// The current value goes out again, which may differ from the one that was lost. §13.3 asks
+    /// for care here: "the limit can increase frequently and cause an unnecessarily large number
+    /// of MAX_DATA frames to be sent".
+    current_value,
+    /// A frame of the same kind, carrying something new. Only PATH_CHALLENGE, which "include a
+    /// different payload each time".
+    fresh,
+};
+
 pub const Frame = union(enum) {
     /// RFC 9000 §19.1: one octet of 0x00, and a run of them is still one frame to the reader.
     padding: struct { len: usize },
@@ -137,6 +155,51 @@ pub const Frame = union(enum) {
 
     /// Whether a packet carrying this frame is ack-eliciting (RFC 9000 §2 of [QUIC-RECOVERY],
     /// RFC 9000 §13.2.1). Everything but ACK, PADDING and CONNECTION_CLOSE elicits one.
+    /// What RFC 9000 §13.3 asks of this frame when a packet carrying it is declared lost.
+    ///
+    /// §13.3 is not about frames: "QUIC packets that are determined to be lost are not
+    /// retransmitted whole. The same applies to the frames that are contained within lost
+    /// packets. Instead, the information that might be carried in frames is sent again in new
+    /// frames as needed." So this answers what the information wants, and the piece that owns it
+    /// is what acts. The switch has no `else`, so a frame type added to this union stops the
+    /// build until §13.3's rule for it is written down here.
+    pub fn repair(frame: Frame) Repair {
+        return switch (frame) {
+            // §13.3: "PING and PADDING frames contain no information, so lost PING or PADDING
+            // frames do not require repair."
+            .padding, .ping => .none,
+            // §13.3: "ACK frames carry the most recent set of acknowledgments", and "resending
+            // old ACK frames can cause the peer to generate an inflated RTT sample".
+            .ack => .none,
+            // §13.3: "Connection close signals ... are not sent again when packet loss is
+            // detected. Resending these signals is described in Section 10."
+            .connection_close => .none,
+            // §13.3: "Responses to path validation using PATH_RESPONSE frames are sent just
+            // once. The peer is expected to send more PATH_CHALLENGE frames as necessary."
+            .path_response => .none,
+            // §13.3: "PATH_CHALLENGE frames include a different payload each time they are
+            // sent", so what goes out again is a new frame and not this one.
+            .path_challenge => .fresh,
+            // §13.3: CRYPTO data "is retransmitted according to the rules in [QUIC-RECOVERY],
+            // until all data has been acknowledged", and STREAM data "in new STREAM frames".
+            .crypto, .stream => .same_octets,
+            // §13.3: a RESET_STREAM "is sent until acknowledged", and "the content of a
+            // RESET_STREAM frame MUST NOT change when it is sent again"; STOP_SENDING likewise.
+            .reset_stream, .stop_sending => .same_octets,
+            // §13.3: "New connection IDs are sent in NEW_CONNECTION_ID frames and retransmitted
+            // if the packet containing them is lost. Retransmissions of this frame carry the same
+            // sequence number value." RETIRE_CONNECTION_ID and NEW_TOKEN are retransmitted too.
+            .new_connection_id, .retire_connection_id, .new_token => .same_octets,
+            // §13.3: "The HANDSHAKE_DONE frame MUST be retransmitted until it is acknowledged."
+            .handshake_done => .same_octets,
+            // §13.3: each of these carries "the current" value or limit, so what goes out is what
+            // the limit is now and not what the lost frame said. §13.3 adds of the blocked
+            // frames that a new one is sent "only while the endpoint is blocked".
+            .max_data, .max_stream_data, .max_streams => .current_value,
+            .data_blocked, .stream_data_blocked, .streams_blocked => .current_value,
+        };
+    }
+
     pub fn is_ack_eliciting(frame: Frame) bool {
         return switch (frame) {
             .padding, .ack, .connection_close => false,
@@ -206,4 +269,5 @@ test {
     _ = frame_stream;
     _ = frame_control;
     _ = @import("frame_test.zig");
+    _ = @import("frame_repair_test.zig");
 }
