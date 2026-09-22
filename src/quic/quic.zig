@@ -30,6 +30,7 @@ pub const connection = @import("connection/connection.zig");
 pub const connection_identity = @import("connection/connection_identity.zig");
 pub const connection_keys = @import("connection/connection_keys.zig");
 pub const connection_key_update = @import("connection/connection_key_update.zig");
+pub const connection_retry = @import("connection/connection_retry.zig");
 pub const connection_receive = @import("connection/connection_receive.zig");
 pub const connection_frames = @import("connection/connection_frames.zig");
 pub const connection_stream_frames = @import("connection/connection_stream_frames.zig");
@@ -69,6 +70,7 @@ test {
     _ = connection_identity;
     _ = connection_keys;
     _ = connection_key_update;
+    _ = connection_retry;
     _ = connection_receive;
     _ = connection_frames;
     _ = connection_stream_frames;

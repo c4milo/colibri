@@ -234,6 +234,16 @@ comptime {
 /// expiring token §8.1.1 describes, and the number is a judgement rather than a rule.
 pub const token_len_max: usize = 256;
 
+/// Octets of a Retry packet colibri will act on (RFC 9000 §17.2.5), less its Integrity Tag: byte
+/// 0, the Version, both connection IDs with their length octets, and the Retry Token. It is
+/// derived from limits already ruled, not a limit of its own: a Retry carrying a longer token is
+/// one colibri could not repeat under §8.1.2, so it is discarded before this is needed.
+pub const retry_len_max: usize = 1 + @sizeOf(u32) + 2 * (1 + connection_id_len_max) + token_len_max;
+
+/// Octets of the Retry Pseudo-Packet of RFC 9001 §5.8: the Original Destination Connection ID
+/// with its length octet, then the Retry packet less its tag.
+pub const retry_pseudo_packet_len_max: usize = 1 + connection_id_len_max + retry_len_max;
+
 /// Octets of the longest packet header colibri writes (RFC 9000 §17.2): byte 0, the Version, both
 /// connection IDs with their length octets, an Initial's Token Length and Token, the Length field
 /// and the Packet Number field.

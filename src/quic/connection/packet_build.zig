@@ -211,9 +211,12 @@ fn fixed_header_len(connection: *Connection, level: Level, packet_number_len: u8
     const source = identity.source().len;
     // §17.2: byte 0, the Version, both connection IDs with their length octets, and the number.
     var len: usize = 1 + @sizeOf(u32) + 1 + destination + 1 + source + packet_number_len;
-    // §17.2.2: an Initial packet alone carries a Token Length and a Token. colibri sends no
-    // token yet, so the field is one octet holding zero (§16's shortest encoding of 0).
-    if (level == .initial) len += 1;
+    // §17.2.2: an Initial packet alone carries a Token Length and a Token, which §8.1.2 makes
+    // the Retry token once one has arrived and a zero-length field until then.
+    if (level == .initial) {
+        const token_len = connection.retry_token.len;
+        len += wire.varint.encoded_len_minimal(token_len) + token_len;
+    }
     return len;
 }
 
@@ -415,6 +418,10 @@ fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, p
         .type = if (pending.level == .initial) .initial else .handshake,
         .dcid = identity.destination().slice(),
         .scid = identity.source().slice(),
+        // RFC 9000 §8.1.2: the Retry token "MUST be repeated by the client in all Initial packets
+        // it sends for that connection after it receives the Retry packet". §17.2.2 gives the
+        // field to an Initial alone, and `write_long` asserts that.
+        .token = if (pending.level == .initial) connection.retry_token.slice() else &.{},
         .packet_number = pending.truncated,
         .protected_payload_len = pending.payload.len + constants.aead_tag_len,
         .length_len = pending.shape.length_len,

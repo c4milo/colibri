@@ -39,6 +39,7 @@ const frame_control = @import("../frame/frame_control.zig");
 const identity_module = @import("connection_identity.zig");
 const keys_module = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
+const retry_module = @import("connection_retry.zig");
 
 const Level = core.Level;
 const Parameters = transport_parameters.Parameters;
@@ -114,6 +115,9 @@ pub const Connection = struct {
     /// RFC 9001 §6's key phase, which is packet numbers and instants and no key at all. The
     /// application level alone: §6.1's Note says no other level's keys are ever updated.
     key_phase: key_update.Phase,
+    /// The Retry token this endpoint repeats in every Initial it sends (RFC 9000 §8.1.2), empty
+    /// until a Retry carried one.
+    retry_token: retry_module.Token,
 
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
@@ -130,6 +134,7 @@ pub const Connection = struct {
         connection.handshake_complete = false;
         connection.handshake_confirmed = false;
         connection.key_phase.init();
+        connection.retry_token.init();
         connection.pending_close = null;
         init_spaces(connection);
         connection.crypto_streams.init();
@@ -241,6 +246,7 @@ test {
     _ = @import("connection_identity.zig");
     _ = @import("connection_keys.zig");
     _ = @import("connection_key_update.zig");
+    _ = @import("connection_retry.zig");
     _ = @import("connection_receive.zig");
     _ = @import("connection_frames.zig");
     _ = @import("connection_stream_frames.zig");
