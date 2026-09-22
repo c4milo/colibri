@@ -55,6 +55,10 @@ const Challenge = struct {
     sent_ns: u64,
     /// How long the attempt is given before §8.2.4 abandons it.
     timeout_ns: u64,
+    /// RFC 9000 §8.2.1: whether the datagram this went out in reached the 1,200 octets the
+    /// section asks for. §8.2.3 reads it when the response arrives, because a challenge sent in
+    /// a smaller datagram validates the address and not the path MTU.
+    expanded: bool,
 };
 
 pub const Path = struct {
@@ -118,33 +122,45 @@ pub const Path = struct {
     }
 
     /// Records the PATH_CHALLENGE this endpoint sent (RFC 9000 §8.2.1). `data` must be
-    /// unpredictable, which is why the caller draws it. `timeout_ns` is what §8.2.4 recommends:
-    /// three times the larger of the current Probe Timeout and the new path's.
+    /// unpredictable, which is why the caller draws it. `datagram_len` is the length of the
+    /// datagram it went out in, because §8.2.1's expansion is about the datagram and not the
+    /// packet. `timeout_ns` is what §8.2.4 recommends: three times the larger of the current
+    /// Probe Timeout and the new path's.
     pub fn on_challenge_sent(
         path: *Path,
         data: [constants.path_challenge_len]u8,
+        datagram_len: usize,
         now_ns: u64,
         timeout_ns: u64,
     ) void {
         // RFC 9000 §8.2.1: path validation can be used at any time by either endpoint, so a
         // path already validated is challenged again — which §8.2.3 requires when the first
         // datagram was too small to test the MTU.
-        path.challenge = .{ .data = data, .sent_ns = now_ns, .timeout_ns = timeout_ns };
+        path.challenge = .{
+            .data = data,
+            .sent_ns = now_ns,
+            .timeout_ns = timeout_ns,
+            // §8.2.1: "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to
+            // at least the smallest allowed maximum datagram size of 1200 bytes." The caller
+            // says how long the datagram was and the comparison is colibri's, so the threshold
+            // is written once, here, and never at a call site.
+            .expanded = datagram_len >= constants.datagram_len_min,
+        };
     }
 
     /// Takes a PATH_RESPONSE. RFC 9000 §8.2.3: validation succeeds when the frame carries the
     /// data of a PATH_CHALLENGE sent before, and a response arriving on any path validates the
-    /// one its challenge went out on. `expanded` is whether that challenge's datagram reached
-    /// the 1,200 octets §8.2.1 asks for, which decides whether the MTU was validated too.
-    pub fn on_response(path: *Path, data: [constants.path_challenge_len]u8, expanded: bool) bool {
+    /// one its challenge went out on.
+    pub fn on_response(path: *Path, data: [constants.path_challenge_len]u8) bool {
         const outstanding = path.challenge orelse return false;
         if (!std.mem.eql(u8, &outstanding.data, &data)) return false;
         path.challenge = null;
         path.validated = true;
-        // RFC 9000 §8.2.3: a challenge sent in a datagram that was not expanded validates the
-        // address but not the path MTU, and another validation is owed for that. A later
-        // expanded one settles it, and an unexpanded one after does not unsettle it.
-        path.mtu_validated = path.mtu_validated or expanded;
+        // RFC 9000 §8.2.3: "If an endpoint sends a PATH_CHALLENGE frame in a datagram that is not
+        // expanded to at least 1200 bytes and if the response to it validates the peer address,
+        // the path is validated but not the path MTU." A later expanded challenge settles it, and
+        // an unexpanded one after does not unsettle it.
+        path.mtu_validated = path.mtu_validated or outstanding.expanded;
         return true;
     }
 
@@ -173,6 +189,11 @@ pub const Path = struct {
 };
 
 const testing = std.testing;
+
+/// RFC 9000 §8.2.1's expansion, as the two answers a datagram can give to it: one that reached
+/// "the smallest allowed maximum datagram size of 1200 bytes" and one that fell an octet short.
+const expanded_len: usize = constants.datagram_len_min;
+const small_len: usize = constants.datagram_len_min - 1;
 
 /// The path the tests drive, and what they measure against. Test-only.
 var test_path: Path = undefined;
@@ -217,10 +238,10 @@ test "§21.1.1.1: a path that begins validated is unlimited from its first octet
 test "§8: a validated path has no limit" {
     test_path.init(.unvalidated);
     test_path.on_datagram_received(test_datagram);
-    test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
+    test_path.on_challenge_sent(challenge_a, expanded_len, 0, test_timeout_ns);
     // While the challenge is outstanding the limit still holds.
     try testing.expect(test_path.is_amplification_limited(constants.datagram_len_min));
-    try testing.expect(test_path.on_response(challenge_a, true));
+    try testing.expect(test_path.on_response(challenge_a));
     try testing.expectEqual(State.validated, test_path.state());
     try testing.expect(!test_path.is_amplification_limited(std.math.maxInt(u32)));
     try testing.expect(!test_path.owes_mtu_validation());
@@ -229,58 +250,64 @@ test "§8: a validated path has no limit" {
 test "§8.2.3: only the data of the challenge that went out validates the path" {
     test_path.init(.unvalidated);
     // A response with nothing outstanding validates nothing.
-    try testing.expect(!test_path.on_response(challenge_a, true));
+    try testing.expect(!test_path.on_response(challenge_a));
     try testing.expectEqual(State.unvalidated, test_path.state());
-    test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
+    test_path.on_challenge_sent(challenge_a, expanded_len, 0, test_timeout_ns);
     // RFC 9000 §8.2.3: the frame must carry the data of a PATH_CHALLENGE sent before.
-    try testing.expect(!test_path.on_response(challenge_b, true));
+    try testing.expect(!test_path.on_response(challenge_b));
     try testing.expectEqual(State.challenging, test_path.state());
-    try testing.expect(test_path.on_response(challenge_a, true));
+    try testing.expect(test_path.on_response(challenge_a));
     // A second response changes nothing, because nothing is outstanding.
-    try testing.expect(!test_path.on_response(challenge_a, true));
+    try testing.expect(!test_path.on_response(challenge_a));
 }
 
 test "§8.2.3: a challenge in a small datagram validates the address and not the MTU" {
     test_path.init(.unvalidated);
-    test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
-    try testing.expect(test_path.on_response(challenge_a, false));
+    test_path.on_challenge_sent(challenge_a, small_len, 0, test_timeout_ns);
+    try testing.expect(test_path.on_response(challenge_a));
     try testing.expectEqual(State.validated, test_path.state());
     // RFC 9000 §8.2.3: the endpoint MUST initiate another validation with an expanded datagram.
     try testing.expect(test_path.owes_mtu_validation());
-    test_path.on_challenge_sent(challenge_b, 0, test_timeout_ns);
-    try testing.expect(test_path.on_response(challenge_b, true));
+    test_path.on_challenge_sent(challenge_b, expanded_len, 0, test_timeout_ns);
+    try testing.expect(test_path.on_response(challenge_b));
+    try testing.expect(!test_path.owes_mtu_validation());
+
+    // A small datagram afterwards does not unsettle what the expanded one showed: §8.2.3 asks
+    // for the path MTU to be verified once, not for every probe to verify it again.
+    test_path.on_challenge_sent(challenge_a, small_len, 0, test_timeout_ns);
+    try testing.expect(test_path.on_response(challenge_a));
     try testing.expect(!test_path.owes_mtu_validation());
 }
 
 test "§8.2.4: a challenge is abandoned on its timer, which is the only way it fails" {
     test_path.init(.unvalidated);
-    test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
+    test_path.on_challenge_sent(challenge_a, expanded_len, 0, test_timeout_ns);
     try testing.expect(!test_path.on_instant(test_timeout_ns - 1));
     try testing.expectEqual(State.challenging, test_path.state());
     try testing.expect(test_path.on_instant(test_timeout_ns));
     try testing.expectEqual(State.abandoned, test_path.state());
     // An abandoned path is not validated by a response that arrives afterwards.
-    try testing.expect(!test_path.on_response(challenge_a, true));
+    try testing.expect(!test_path.on_response(challenge_a));
     try testing.expectEqual(State.abandoned, test_path.state());
     // A path with nothing outstanding is not abandoned by time passing.
     test_path.init(.unvalidated);
     try testing.expect(!test_path.on_instant(std.math.maxInt(u32)));
     try testing.expectEqual(State.unvalidated, test_path.state());
     // Nor is a validated one.
-    test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
-    _ = test_path.on_response(challenge_a, true);
+    test_path.on_challenge_sent(challenge_a, expanded_len, 0, test_timeout_ns);
+    _ = test_path.on_response(challenge_a);
     try testing.expect(!test_path.on_instant(std.math.maxInt(u32)));
     try testing.expectEqual(State.validated, test_path.state());
 }
 
 test "§8.2.1, §8.2.3: a validated path is challenged again and stays validated throughout" {
     test_path.init(.unvalidated);
-    test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
-    try testing.expect(test_path.on_response(challenge_a, false));
+    test_path.on_challenge_sent(challenge_a, small_len, 0, test_timeout_ns);
+    try testing.expect(test_path.on_response(challenge_a));
     try testing.expect(test_path.owes_mtu_validation());
     // RFC 9000 §8.2.1: validation may be used at any time, so the second probe goes out while
     // the path is validated — and §8's limit stays lifted while it is outstanding.
-    test_path.on_challenge_sent(challenge_b, 0, test_timeout_ns);
+    test_path.on_challenge_sent(challenge_b, expanded_len, 0, test_timeout_ns);
     try testing.expectEqual(State.validated, test_path.state());
     try testing.expect(!test_path.is_amplification_limited(std.math.maxInt(u32)));
     // A second probe that is abandoned does not unvalidate what the first showed.
@@ -288,10 +315,10 @@ test "§8.2.1, §8.2.3: a validated path is challenged again and stays validated
     try testing.expectEqual(State.validated, test_path.state());
     try testing.expect(test_path.owes_mtu_validation());
     // An unexpanded response after an expanded one does not take the MTU back either.
-    test_path.on_challenge_sent(challenge_a, 0, test_timeout_ns);
-    try testing.expect(test_path.on_response(challenge_a, true));
-    test_path.on_challenge_sent(challenge_b, 0, test_timeout_ns);
-    try testing.expect(test_path.on_response(challenge_b, false));
+    test_path.on_challenge_sent(challenge_a, expanded_len, 0, test_timeout_ns);
+    try testing.expect(test_path.on_response(challenge_a));
+    test_path.on_challenge_sent(challenge_b, expanded_len, 0, test_timeout_ns);
+    try testing.expect(test_path.on_response(challenge_b));
     try testing.expect(!test_path.owes_mtu_validation());
 }
 

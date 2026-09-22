@@ -14,6 +14,10 @@ const path_frames = @import("connection_path_frames.zig");
 
 const testing = std.testing;
 
+/// RFC 9000 §8.2.1's expansion, as the two answers a datagram can give to it.
+const expanded_len: usize = constants.datagram_len_min;
+const small_len: usize = constants.datagram_len_min - 1;
+
 /// RFC 9000 §19.16's rule turns on which connection ID a packet was addressed to, and a case
 /// that is not about that rule says the packet named none this endpoint issued.
 const addressed_to_none: ?u64 = null;
@@ -102,18 +106,33 @@ test "RFC 9000 §8.2.3: a PATH_RESPONSE validates the path its challenge went ou
     open_as(.client);
     // A server's path begins unvalidated, which is the state §8 measures its limit against.
     test_connection.path.init(.unvalidated);
-    test_connection.path.on_challenge_sent(challenge_data, test_now_ns, test_now_ns);
+    // §8.2.1: the datagram reached "the smallest allowed maximum datagram size of 1200 bytes".
+    test_connection.path.on_challenge_sent(challenge_data, expanded_len, test_now_ns, test_now_ns);
     _ = try run(&.{.{ .path_response = .{ .data = &challenge_data } }});
     try testing.expectEqual(.validated, test_connection.path.state());
-    // §8.2.3: the address is validated and the path MTU is not, because nothing remembers
-    // whether the challenge's datagram was expanded.
+    // §8.2.3: an expanded datagram validates the path MTU along with the address, so no second
+    // validation is owed.
+    try testing.expect(test_connection.path.mtu_validated);
+    try testing.expect(!test_connection.path.owes_mtu_validation());
+}
+
+test "RFC 9000 §8.2.3: a PATH_RESPONSE to a small datagram leaves the path MTU unvalidated" {
+    open_as(.client);
+    test_connection.path.init(.unvalidated);
+    // One octet short of §8.2.1's expansion, which is what the anti-amplification limit forces.
+    test_connection.path.on_challenge_sent(challenge_data, small_len, test_now_ns, test_now_ns);
+    _ = try run(&.{.{ .path_response = .{ .data = &challenge_data } }});
+    // "the path is validated but not the path MTU ... the endpoint MUST initiate another path
+    // validation with an expanded datagram to verify that the path supports the required MTU."
+    try testing.expectEqual(.validated, test_connection.path.state());
     try testing.expect(!test_connection.path.mtu_validated);
+    try testing.expect(test_connection.path.owes_mtu_validation());
 }
 
 test "RFC 9000 §8.2.3: a PATH_RESPONSE carrying other octets validates nothing" {
     open_as(.client);
     test_connection.path.init(.unvalidated);
-    test_connection.path.on_challenge_sent(challenge_data, test_now_ns, test_now_ns);
+    test_connection.path.on_challenge_sent(challenge_data, expanded_len, test_now_ns, test_now_ns);
     // "Path validation succeeds when a PATH_RESPONSE frame is received that contains the data
     // that was sent in a previous PATH_CHALLENGE frame", and these are not those octets.
     _ = try run(&.{.{ .path_response = .{ .data = &other_challenge } }});

@@ -103,12 +103,9 @@ fn take_retire(connection: *Connection, sequence_number: u64, addressed_to: ?u64
 
 /// RFC 9000 §19.18: the peer echoed a PATH_CHALLENGE colibri sent, which §8.2.3 makes validation.
 fn take_path_response(connection: *Connection, data: [constants.path_challenge_len]u8) void {
-    // §8.2.3: whether the challenge's datagram was expanded decides whether the path MTU was
-    // validated too, and `Path.Challenge` does not remember it. False is the safe answer: it
-    // validates the address and leaves §8.2.3's second validation owed, where claiming true
-    // would skip an MTU check that never happened.
-    const challenge_was_expanded = false;
-    _ = connection.path.on_response(data, challenge_was_expanded);
+    // §8.2.3: whether the path MTU was validated too turns on the datagram the challenge went
+    // out in, which `Path` recorded when it was sent. Nothing is decided here.
+    _ = connection.path.on_response(data);
 }
 
 test {
