@@ -1844,6 +1844,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1214 passed, 18 skipped.
 
+  **A lone ack-eliciting packet is acknowledged, 2026-09-21**, `53205ae`. Found while wiring the
+  timers above, and a real defect rather than a missing piece. `Space.owes_ack` answered on
+  RFC 9000 §13.2.2's two ack-eliciting packets or on §13.2.1's immediate cases, and nothing knew
+  about the deadline under both: one in-order ack-eliciting 1-RTT packet set neither, so colibri
+  waited for a second that might never arrive and the peer's Probe Timeout fired instead. §13.2.1
+  calls max_ack_delay "an explicit contract".
+
+  The space records the instant the oldest packet it has not acknowledged arrived — the oldest,
+  because the promise is about every packet and the oldest is nearest to breaking it — and
+  `owes_ack` takes the instant. Only the application space arms a deadline: §13.2.1 has every
+  ack-eliciting Initial and Handshake packet acknowledged immediately, which `receive` already
+  records as `ack_immediately`, so those two are owed at once and want no timer.
+
+  The recovery check's census moved with it, which is recorded above rather than pinned over.
+
+  11 mutations, 8 CAUGHT first time. One guarded a path that could not be reached — a deadline
+  taken across three spaces where only one ever arms one — so the loop went. The other two were
+  tests that computed their expectation from the code they check: a deadline read back off the
+  connection rather than spelled as §18.2's 25 milliseconds, and no case that built a packet after
+  the delay rather than before it.
+
+  `zig build test`: 1219 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
@@ -1984,10 +2007,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   ten dropped, a delay range wide enough to reorder, and a stretch where the path swallows
   everything. The sender is the whole of `quic.recovery`; the receiver is `quic.space`, which
   writes real ACK frames, so what the sender reads back is octets off the wire. It printed
-  `sent=16873 acked=11997 lost=4876 probes=1354 scenarios={ 60, 57, 75, 64 }
-  crc32=0xb78a83fe` in Debug and in ReleaseSafe on macOS arm64. Every packet is accounted for
-  exactly once — 11997 and 4876 sum to 16873 — no packet is both acknowledged and declared lost,
+  `sent=16420 acked=11743 lost=4677 probes=746 scenarios={ 60, 57, 75, 64 }
+  crc32=0x2c3cc41a` in Debug and in ReleaseSafe on macOS arm64. Every packet is accounted for
+  exactly once — 11743 and 4677 sum to 16420 — no packet is both acknowledged and declared lost,
   the run drains, and the window never falls under §7.2's minimum.
+
+  Those numbers moved on 2026-09-21, `53205ae`, and the move is the point. The receiver had been
+  waiting for RFC 9000 §13.2.2's two ack-eliciting packets with no deadline under it, so a lone
+  packet went unacknowledged and the sender probed for it; with §13.2.1's max_ack_delay applied,
+  probes fall from 1354 to 746 over the same 256 seeds. The earlier figures were
+  `sent=16873 acked=11997 lost=4876 probes=1354 crc32=0xb78a83fe`.
 
   Writing the check found two defects in the check itself and neither in the library, which is
   worth recording because both were rules the library already held. The first invariant written
