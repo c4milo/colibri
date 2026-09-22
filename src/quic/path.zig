@@ -170,6 +170,12 @@ pub const Path = struct {
         return data;
     }
 
+    /// The instant RFC 9000 §8.2.4 abandons the outstanding attempt, or null while none is.
+    pub fn challenge_deadline_ns(path: *const Path) ?u64 {
+        const outstanding = path.challenge orelse return null;
+        return outstanding.sent_ns +| outstanding.timeout_ns;
+    }
+
     /// Abandons an attempt whose timer has run out (RFC 9000 §8.2.4), which is the only way
     /// path validation fails. Returns whether it was abandoned now.
     pub fn on_instant(path: *Path, now_ns: u64) bool {

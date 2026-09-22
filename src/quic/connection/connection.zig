@@ -247,6 +247,7 @@ test {
     _ = @import("connection_keys.zig");
     _ = @import("connection_key_update.zig");
     _ = @import("connection_retry.zig");
+    _ = @import("connection_timer.zig");
     _ = @import("connection_receive.zig");
     _ = @import("connection_frames.zig");
     _ = @import("connection_stream_frames.zig");

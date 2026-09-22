@@ -1,0 +1,111 @@
+//! When colibri next wants to be called, and what happens when that instant arrives.
+//!
+//! **colibri sets no timer.** Design §4.2: "colibri never sets a timer. It returns the instant at
+//! which it next wants to be called, and the caller arranges that." Five deadlines exist across a
+//! connection, each armed by the piece that owns it; what is here is the earliest of them, and
+//! the one call that fires whichever have come due.
+//!
+//! **Loss detection is reported, not run.** RFC 9002 Appendix A.9's `OnLossDetectionTimeout`
+//! needs storage for the packets it declares lost, which decision 35 leaves with the caller, so
+//! `on_instant` says the timer went off and `Recovery.on_timeout` stays the caller's to call.
+//! Everything else is state colibri already holds, so it acts.
+const std = @import("std");
+const assert = std.debug.assert;
+const crypto = @import("crypto");
+const connection_module = @import("connection.zig");
+const key_update = @import("connection_key_update.zig");
+
+const Connection = connection_module.Connection;
+const Suite = crypto.Suite;
+
+/// Which deadline is nearest. Each names the section that armed it.
+pub const Kind = enum {
+    /// RFC 9002 Appendix A.8: time threshold loss detection, or the Probe Timeout.
+    loss,
+    /// RFC 9000 §10.1: the idle timeout.
+    idle,
+    /// RFC 9000 §10.2: the end of the closing or draining period.
+    period,
+    /// RFC 9000 §8.2.4: the PATH_CHALLENGE this endpoint is waiting on.
+    path,
+    /// RFC 9001 §6.5: the read keys of the phase before this one.
+    previous_keys,
+};
+
+pub const Deadline = struct {
+    at_ns: u64,
+    kind: Kind,
+};
+
+/// The instant colibri next wants `on_instant`, or null when nothing is armed. `kind` is what
+/// made it the nearest, which a caller reads for a trace and nothing turns on.
+pub fn next(connection: *Connection, now_ns: u64) ?Deadline {
+    var earliest: ?Deadline = null;
+    // RFC 9002 Appendix A.8's `SetLossDetectionTimer` decides between a loss time and a probe,
+    // and answers null when neither is armed.
+    if (connection.recovery.next_timer(now_ns)) |timer| {
+        earliest = nearer(earliest, .{ .at_ns = timer.at_ns, .kind = .loss });
+    }
+    earliest = nearer(earliest, of(connection.termination.idle_deadline_ns(), .idle));
+    earliest = nearer(earliest, of(connection.termination.period_deadline_ns(), .period));
+    earliest = nearer(earliest, of(connection.path.challenge_deadline_ns(), .path));
+    earliest = nearer(earliest, of(key_update.previous_keys_deadline_ns(connection), .previous_keys));
+    return earliest;
+}
+
+/// What the instant set off. More than one can come due at once, so this is a set and not a
+/// choice: a connection idle past its timeout may also have a probe owed.
+pub const Fired = struct {
+    /// RFC 9002 Appendix A.9: the loss detection timer went off. The caller calls
+    /// `Recovery.on_timeout`, which needs storage for what it declares lost.
+    loss: bool = false,
+    /// RFC 9000 §10.1: the connection was idle past its effective timeout and is now closed,
+    /// silently — no CONNECTION_CLOSE goes out, because the peer has stopped listening too.
+    idle: bool = false,
+    /// RFC 9000 §10.2: the closing or draining period ended, so the caller discards the state.
+    period: bool = false,
+    /// RFC 9000 §8.2.4: the outstanding PATH_CHALLENGE was abandoned, which is the only way path
+    /// validation fails.
+    path: bool = false,
+    /// RFC 9001 §6.5: the read keys of the phase before were discarded.
+    previous_keys: bool = false,
+};
+
+/// Fires whichever deadlines `now_ns` has reached.
+pub fn on_instant(connection: *Connection, suite: Suite, now_ns: u64) Fired {
+    var fired: Fired = .{};
+    if (connection.recovery.next_timer(now_ns)) |timer| fired.loss = now_ns >= timer.at_ns;
+    // RFC 9000 §10.1 closes the connection silently, and §10.2's period belongs to a connection
+    // that closed deliberately, so the two cannot both be running.
+    if (connection.termination.is_idle_timed_out(now_ns)) {
+        connection.termination.on_idle_timeout();
+        fired.idle = true;
+    }
+    const state_before = connection.termination.state;
+    connection.termination.on_instant(now_ns);
+    fired.period = connection.termination.state != state_before;
+    fired.path = connection.path.on_instant(now_ns);
+    const keys_before = connection.key_phase.previous_held;
+    key_update.on_instant(connection, suite, now_ns);
+    fired.previous_keys = keys_before and !connection.key_phase.previous_held;
+    assert(!fired.idle or !fired.period);
+    return fired;
+}
+
+/// One optional instant as a deadline of `kind`.
+fn of(at_ns: ?u64, kind: Kind) ?Deadline {
+    const held = at_ns orelse return null;
+    return .{ .at_ns = held, .kind = kind };
+}
+
+/// The nearer of two deadlines, either of which may be absent. A tie keeps the one already held,
+/// so the order `next` asks in is what breaks it and the answer is the same every run.
+fn nearer(held: ?Deadline, other: ?Deadline) ?Deadline {
+    const candidate = other orelse return held;
+    const already = held orelse return candidate;
+    return if (candidate.at_ns < already.at_ns) candidate else already;
+}
+
+test {
+    _ = @import("connection_timer_test.zig");
+}

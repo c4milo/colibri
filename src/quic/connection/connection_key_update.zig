@@ -179,6 +179,16 @@ pub fn on_ack_processed(connection: *Connection, level: Level, now_ns: u64) void
     assert(connection.key_phase.confirmed_at_ns != null);
 }
 
+/// The instant RFC 9001 §6.5 has the previous read keys discarded, or null when none are held or
+/// nothing has arrived under the new ones yet.
+pub fn previous_keys_deadline_ns(connection: *const Connection) ?u64 {
+    const since_ns = connection.key_phase.previous_since_ns orelse return null;
+    // The instant is recorded only while the keys are held, and discarding them clears both, so
+    // one field answers: a phase with an instant here has keys left to discard.
+    assert(connection.key_phase.previous_held);
+    return since_ns +| three_probe_timeouts_ns(connection);
+}
+
 /// RFC 9001 §6.5: "An endpoint SHOULD retain old read keys for no more than three times the PTO
 /// after having received a packet protected using the new keys. After this period, old read keys
 /// and their corresponding secrets SHOULD be discarded."

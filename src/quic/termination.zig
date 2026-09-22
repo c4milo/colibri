@@ -133,6 +133,22 @@ pub const Termination = struct {
         return now_ns - termination.idle_since_ns >= timeout_ns;
     }
 
+    /// The instant RFC 9000 §10.1's idle timeout expires, or null when none is armed. It is the
+    /// deadline design §4.2 has colibri return and the caller honour, and `is_idle_timed_out`
+    /// is the same rule asked at an instant.
+    pub fn idle_deadline_ns(termination: *const Termination) ?u64 {
+        if (termination.state != .active) return null;
+        const timeout_ns = termination.idle_timeout_ns orelse return null;
+        return termination.idle_since_ns +| timeout_ns;
+    }
+
+    /// The instant RFC 9000 §10.2's closing or draining period ends, or null while neither runs.
+    pub fn period_deadline_ns(termination: *const Termination) ?u64 {
+        const waiting = termination.state == .closing or termination.state == .draining;
+        if (!waiting) return null;
+        return termination.closing_since_ns +| termination.closing_period_ns;
+    }
+
     /// RFC 9000 §10.1: the connection is silently closed and its state discarded. Nothing is
     /// sent, so there is no closing period to wait out.
     pub fn on_idle_timeout(termination: *Termination) void {
