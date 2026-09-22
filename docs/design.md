@@ -1556,7 +1556,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   5. ~~The receive path — one datagram walked into packets and frames.~~ **Done**, and recorded
      below.
   6. **The send path** — §12.2's coalescing and §14.1's padding, into a buffer the caller owns.
-  7. **Key-update timing** — RFC 9001 §6. Every rule in it needs a call site pieces 5 and 6 own.
+  7. ~~Key-update timing.~~ **Done, `4d0cc65`**, and recorded below. RFC 9001 §6's three
+     moments and its refusals, at the call sites pieces 5 and 6 own.
   8. ~~Version negotiation.~~ **Done, `fc2a6ae`**, and recorded below. `connection_version.zig` holds §6's
      two connection-level decisions, above the packet `packet/invariant.zig` already read and
      wrote.
@@ -1683,6 +1684,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   ordinary state of every server at the start of a connection, not colibri's own defect, and
   the file header already said the limit was checked before the datagram was returned. No test
   had ever sent from a server with a zero allowance.
+
+  **Key-update timing is done, 2026-09-21**, `4d0cc65`. `connection_key_update.zig` is RFC 9001
+  §6, which is timing and nothing else: colibri holds no key, so every rule in §6 is about when it
+  calls `crypto.Suite.update_keys` and when it refuses. Both call sites existed already and
+  neither used the answer — `packet_build.zig` wrote the Key Phase bit as a constant 0, and
+  nothing read the `key_set` that `crypto.Suite.open` reports.
+
+  §6.1 states its own recipe — "tracking the lowest packet number sent with each key phase and the
+  highest acknowledged packet number in the 1-RTT space" — so `Connection` gains
+  `phase_lowest_sent` beside the `current_phase_lowest` §6.5 already needed. The first update is
+  held to that rule as well as a subsequent one, because §6.1's recipe does not except it and a
+  phase nothing was sent in is one no peer can have acknowledged.
+
+  Two refusals are the peer's to trigger and both carry KEY_UPDATE_ERROR (§6.7): §6.2's second
+  update, before this endpoint acknowledged the first under the new keys, and §6.4's packet opened
+  with old keys above the lowest number the current keys opened. A third failure is not the
+  peer's — a suite that opens a packet with its next keys and then refuses to move to them — and
+  it closes with INTERNAL_ERROR, which RFC 9000 §11 gives an endpoint with no more specific code.
+
+  Three rules of §6 have no call site yet, and the file header names them: §6.5's discard of the
+  previous read keys, which is measured in three Probe Timeouts and waits on the timers; §6.6's
+  AEAD limits, which the send path does not act on; and §6.2's last paragraph, which needs the
+  ACK's contents beside the key set, and `connection_frames.process` is not told the key set.
+
+  20 mutations, 20 CAUGHT, one of them only after a test was written: a 1-RTT space the peer had
+  acknowledged nothing in read as acknowledged, because no case had sent a packet without also
+  recording an acknowledgment. `zig build test`: 1155 passed, 18 skipped.
 
   **Three defects the mapping found in committed code, 2026-09-20.** A client could not send its
   first Initial: `Path.init` left every path unvalidated, so its allowance was three times nothing
