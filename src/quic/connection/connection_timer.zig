@@ -11,7 +11,9 @@
 //! Everything else is state colibri already holds, so it acts.
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
 const crypto = @import("crypto");
+const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const key_update = @import("connection_key_update.zig");
 
@@ -30,6 +32,9 @@ pub const Kind = enum {
     path,
     /// RFC 9001 §6.5: the read keys of the phase before this one.
     previous_keys,
+    /// RFC 9000 §13.2.1: the max_ack_delay this endpoint advertised, measured from the oldest
+    /// ack-eliciting packet it has not acknowledged.
+    acknowledgment,
 };
 
 pub const Deadline = struct {
@@ -50,7 +55,16 @@ pub fn next(connection: *Connection, now_ns: u64) ?Deadline {
     earliest = nearer(earliest, of(connection.termination.period_deadline_ns(), .period));
     earliest = nearer(earliest, of(connection.path.challenge_deadline_ns(), .path));
     earliest = nearer(earliest, of(key_update.previous_keys_deadline_ns(connection), .previous_keys));
+    earliest = nearer(earliest, of(acknowledgment_deadline_ns(connection), .acknowledgment));
     return earliest;
+}
+
+/// The instant an ACK is owed by (RFC 9000 §13.2.1). The application space alone: §13.2.1 has
+/// every ack-eliciting Initial and Handshake packet acknowledged "immediately", which
+/// `Space.receive` records, so those two are owed at once and want no timer for it.
+fn acknowledgment_deadline_ns(connection: *const Connection) ?u64 {
+    const space = &connection.spaces[@intFromEnum(core.Level.application)];
+    return space.ack_deadline_ns(connection.max_ack_delay_ns());
 }
 
 /// What the instant set off. More than one can come due at once, so this is a set and not a

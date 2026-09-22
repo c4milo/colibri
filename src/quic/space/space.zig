@@ -85,6 +85,11 @@ pub const Space = struct {
     /// The instant the largest number received arrived, which the ACK Delay is measured from
     /// (RFC 9000 §13.2.5). Read only when something has been received.
     largest_received_at_ns: u64,
+    /// The instant the oldest ack-eliciting packet not yet acknowledged arrived, or null when
+    /// none is pending. RFC 9000 §13.2.1 measures max_ack_delay from it, and it is the oldest
+    /// rather than the newest because the promise is about every packet: the oldest is the one
+    /// nearest to breaking it.
+    ack_eliciting_since_at_ns: ?u64,
 
     pub fn init(space: *Space, kind: Kind) void {
         space.* = .{
@@ -96,6 +101,7 @@ pub const Space = struct {
             .ack_eliciting_since_ack = 0,
             .ack_immediately = false,
             .largest_received_at_ns = 0,
+            .ack_eliciting_since_at_ns = null,
         };
     }
 
@@ -140,6 +146,9 @@ pub const Space = struct {
             space.largest_received_at_ns = now_ns;
         }
         if (!ack_eliciting) return verdict;
+        // RFC 9000 §13.2.1's delay runs from the oldest packet still unacknowledged, so the
+        // instant is taken on the first since the last ACK and not on every one.
+        if (space.ack_eliciting_since_ack == 0) space.ack_eliciting_since_at_ns = now_ns;
         space.ack_eliciting_since_ack += 1;
         // RFC 9000 §13.2.1: "An endpoint MUST acknowledge all ack-eliciting Initial and Handshake
         // packets immediately." The handshake has no max_ack_delay to spend — §18.2 applies that
@@ -167,9 +176,20 @@ pub const Space = struct {
         }
     }
 
-    /// Whether an ACK frame is owed. RFC 9000 §13.2.2 has a receiver send one after at least two
-    /// ack-eliciting packets, and §13.2.1 makes some owed at once.
-    pub fn owes_ack(space: *const Space) bool {
+    /// Whether an ACK frame is owed at `now_ns`. RFC 9000 §13.2.2 has a receiver send one after
+    /// at least two ack-eliciting packets, §13.2.1 makes some owed at once, and §13.2.1 puts a
+    /// deadline under both: "ack-eliciting packets MUST be acknowledged at least once within the
+    /// maximum delay an endpoint communicated using the max_ack_delay transport parameter".
+    /// `max_ack_delay_ns` is what this endpoint advertised (§18.2).
+    pub fn owes_ack(space: *const Space, now_ns: u64, max_ack_delay_ns: u64) bool {
+        if (space.owes_ack_at_once()) return true;
+        const deadline_ns = space.ack_deadline_ns(max_ack_delay_ns) orelse return false;
+        return now_ns >= deadline_ns;
+    }
+
+    /// The half of §13.2.1 and §13.2.2 that needs no instant: a packet that must be acknowledged
+    /// without waiting, or enough of them to have earned one.
+    fn owes_ack_at_once(space: *const Space) bool {
         const owed = space.ack_immediately or
             space.ack_eliciting_since_ack >= constants.ack_eliciting_before_ack;
         // Nothing is owed before anything is received: both of those move only on a packet this
@@ -177,6 +197,17 @@ pub const Space = struct {
         // without clearing them fails here instead of writing an ACK frame with no ranges.
         assert(!owed or !space.received.is_empty());
         return owed;
+    }
+
+    /// The instant an ACK becomes owed by RFC 9000 §13.2.1's deadline, or null when nothing is
+    /// pending or one is owed already. A space with an ACK owed now needs no timer: the caller
+    /// writes it on its next pass.
+    pub fn ack_deadline_ns(space: *const Space, max_ack_delay_ns: u64) ?u64 {
+        if (space.owes_ack_at_once()) return null;
+        // §13.2.1: an Initial or Handshake packet is acknowledged immediately, which `receive`
+        // records as `ack_immediately`, so only the application space ever reaches here.
+        const since_ns = space.ack_eliciting_since_at_ns orelse return null;
+        return since_ns +| max_ack_delay_ns;
     }
 
     /// Writes an ACK frame for everything received in this space (RFC 9000 §19.3), all of it or
@@ -197,6 +228,7 @@ pub const Space = struct {
         // RFC 9000 §13.2.2: the count starts again once the frame is written.
         space.ack_eliciting_since_ack = 0;
         space.ack_immediately = false;
+        space.ack_eliciting_since_at_ns = null;
         return true;
     }
 

@@ -413,7 +413,7 @@ pub fn owe_ack(first: u64, second: u64) void {
     const space = test_connection.space_at(.application);
     _ = space.receive(first, test_now_ns, true, .not_ect);
     _ = space.receive(second, test_now_ns, true, .not_ect);
-    std.debug.assert(space.owes_ack());
+    std.debug.assert(space.owes_ack(test_now_ns, test_connection.max_ack_delay_ns()));
 }
 
 pub fn build_1rtt() !?packet_build.Built {

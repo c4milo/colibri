@@ -131,7 +131,9 @@ const Run = struct {
 
     /// The receiver writes an ACK frame where RFC 9000 §13.2.1 says one is owed.
     fn answer(run: *Run) Violation!void {
-        if (!run.storage.receiver.owes_ack()) return;
+        // RFC 9000 §18.2's default max_ack_delay, which is what an endpoint that advertised nothing
+    // promises: §13.2.1 makes it the deadline every ack-eliciting packet must be acknowledged by.
+    if (!run.storage.receiver.owes_ack(run.now_ns, quic.constants.max_ack_delay_default_ns)) return;
         var writer = Writer.init(&run.storage.datagram);
         writer.write_byte(kind_ack) catch return Violation.DatagramNotRead;
         const written = run.storage.receiver.write_ack(&writer, run.now_ns, ack_delay_exponent, true) catch

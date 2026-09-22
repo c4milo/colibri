@@ -219,6 +219,13 @@ pub const Connection = struct {
         return connection.crypto_streams.at(level);
     }
 
+    /// RFC 9000 §18.2: the maximum delay this endpoint advertised before it acknowledges an
+    /// ack-eliciting packet, in the unit RFC 9002 counts in. §13.2.1 calls it "an explicit
+    /// contract", so it is this endpoint's own parameter and never the peer's.
+    pub fn max_ack_delay_ns(connection: *const Connection) u64 {
+        return connection.local_parameters.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
+    }
+
     /// RFC 9001 §4.1.2's confirmed state, which a server reaches when the handshake completes and
     /// a client when a HANDSHAKE_DONE frame arrives.
     pub fn confirm_handshake(connection: *Connection) void {

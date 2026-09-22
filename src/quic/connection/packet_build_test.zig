@@ -23,14 +23,14 @@ const Level = core.Level;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-var test_connection: Connection = undefined;
+pub var test_connection: Connection = undefined;
 /// The endpoint that reads what `test_connection` built. A packet must be walked back by the
 /// other side: RFC 9000 §12.3 gives each endpoint its own record of what it received, and
 /// walking a packet into the space that sent it would see its own number as a duplicate.
-var peer_connection: Connection = undefined;
+pub var peer_connection: Connection = undefined;
 var scratch: packet_build.DefaultScratch = .{};
 var datagram: [constants.datagram_len_min]u8 = undefined;
-var fake: Fake = undefined;
+pub var fake: Fake = undefined;
 var round_trip: RoundTrip = undefined;
 
 const test_now_ns: u64 = 1_000_000;
@@ -249,7 +249,7 @@ fn parameters() Parameters {
     return held;
 }
 
-fn open_connection() void {
+pub fn open_connection() void {
     round_trip.init();
     fake = .{};
     open_one(&test_connection, .client);
@@ -272,7 +272,7 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
 }
 
 /// Walks one built packet back as the other endpoint would, and returns what it opened.
-fn walk_back(built: packet_build.Built) !receive.Opened {
+pub fn walk_back(built: packet_build.Built) !receive.Opened {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..built.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const outcome = (try receive.next(&walk, &peer_connection, round_trip.suite())).?;
@@ -282,7 +282,12 @@ fn walk_back(built: packet_build.Built) !receive.Opened {
     return outcome.opened;
 }
 
-fn build_at(level: Level) !?packet_build.Built {
+pub fn build_at(level: Level) !?packet_build.Built {
+    return build_at_instant(level, test_now_ns);
+}
+
+/// The same, at an instant a test chose, which RFC 9000 §13.2.1's acknowledgment delay turns on.
+pub fn build_at_instant(level: Level, now_ns: u64) !?packet_build.Built {
     return packet_build.build(
         &test_connection,
         round_trip.suite(),
@@ -290,7 +295,7 @@ fn build_at(level: Level) !?packet_build.Built {
         level,
         &scratch,
         &datagram,
-        test_now_ns,
+        now_ns,
     );
 }
 
@@ -347,27 +352,6 @@ test "RFC 9000 §12.3, invariant 17: each packet takes the next number of its sp
     fake = .{ .owed = &handshake_octets, .owed_level = .handshake };
     const other = (try build_at(.handshake)).?;
     try testing.expectEqual(0, other.packet_number);
-}
-
-test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
-    open_connection();
-    // One ack-eliciting Initial arrived, which §13.2.1 says must be acknowledged immediately.
-    _ = test_connection.space_at(.initial).receive(0, test_now_ns, true, .not_ect);
-    try testing.expect(test_connection.space_at(.initial).owes_ack());
-    const built = (try build_at(.initial)).?;
-    // Table 3 marks ACK with N, so a packet of only ACK frames is not ack-eliciting, and
-    // RFC 9002 §2 keeps it out of the bytes in flight.
-    try testing.expect(!built.ack_eliciting);
-    try testing.expect(!built.in_flight);
-
-    // It reads back as an ACK naming the packet that arrived. The peer must have sent that
-    // packet for §13.1 to admit the acknowledgment, so its space is advanced first.
-    _ = try peer_connection.space_at(.initial).next_number();
-    const opened = try walk_back(built);
-    const report = try frames.process(&peer_connection, opened, test_now_ns);
-    try testing.expectEqual(1, report.frames);
-    try testing.expect(!report.ack_eliciting);
-    try testing.expectEqual(0, peer_connection.space_at(.initial).largest_acknowledged.?);
 }
 
 test "RFC 9001 §5.4.2, decision 54: a short packet widens its number rather than padding" {
@@ -492,3 +476,4 @@ test "RFC 9000 §17.3: a 1-RTT packet fills the datagram exactly, with no Length
     try testing.expectEqual(Level.application, opened.level);
     _ = try frames.process(&peer_connection, opened, test_now_ns);
 }
+

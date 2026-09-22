@@ -14,6 +14,13 @@ const Space = space_module.Space;
 const Ecn = Space.Ecn;
 const testing = std.testing;
 
+/// RFC 9000 §18.2's default max_ack_delay, in the unit RFC 9002 counts in. §13.2.1 makes it the
+/// deadline every ack-eliciting packet must be acknowledged by.
+const test_max_ack_delay_ns: u64 = constants.max_ack_delay_default_ns;
+/// An instant inside that delay, so a case about §13.2.2's count is not answered by the deadline.
+const before_delay_milliseconds: u64 = 5;
+const before_delay_ns: u64 = before_delay_milliseconds * millisecond_ns;
+
 /// The space the tests drive, and where an ACK frame is written. Test-only.
 var test_space: Space = undefined;
 const ack_buffer_len = 512;
@@ -120,29 +127,29 @@ test "§13.4.1: the counts rise per codepoint, once per packet, and never for a 
 
 test "§13.2.1, §13.2.2: an ACK is owed after two, at once when out of order or marked" {
     test_space.init(.application);
-    try testing.expect(!test_space.owes_ack());
+    try testing.expect(!test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     _ = test_space.receive(0, 0, true, .not_ect);
     // One ack-eliciting packet in order is not yet two.
-    try testing.expect(!test_space.owes_ack());
+    try testing.expect(!test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     _ = test_space.receive(1, millisecond_ns, true, .not_ect);
-    try testing.expect(test_space.owes_ack());
+    try testing.expect(test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     // Writing the frame starts the count again.
     var writer = Writer.init(&buffer);
     _ = try test_space.write_ack(&writer, millisecond_ns, no_exponent, false);
-    try testing.expect(!test_space.owes_ack());
+    try testing.expect(!test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
 
     // RFC 9000 §13.2.1: a gap before an ack-eliciting packet is acknowledged without delay.
     _ = test_space.receive(5, 2 * millisecond_ns, true, .not_ect);
-    try testing.expect(test_space.owes_ack());
+    try testing.expect(test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     // And so is one marked ECN-CE, on its own.
     test_space.init(.application);
     _ = test_space.receive(0, 0, true, .ecn_ce);
-    try testing.expect(test_space.owes_ack());
+    try testing.expect(test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     // A packet that elicits nothing owes nothing, however many arrive.
     test_space.init(.application);
     _ = test_space.receive(0, 0, false, .not_ect);
     _ = test_space.receive(1, millisecond_ns, false, .not_ect);
-    try testing.expect(!test_space.owes_ack());
+    try testing.expect(!test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
 }
 
 test "§13.1: an acknowledgment for a packet never sent ends the connection" {
@@ -202,16 +209,16 @@ test "RFC 9000 §13.2.1: an Initial or Handshake packet owes an acknowledgment a
     for ([_]space_module.Kind{ .initial, .handshake }) |kind| {
         test_space.init(kind);
         _ = test_space.receive(0, millisecond_ns, true, .not_ect);
-        try testing.expect(test_space.owes_ack());
+        try testing.expect(test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     }
 
     // The application space is the one §13.2.1 gives max_ack_delay to spend, so §13.2.2's two
     // ack-eliciting packets are what make an acknowledgment owed there.
     test_space.init(.application);
     _ = test_space.receive(0, millisecond_ns, true, .not_ect);
-    try testing.expect(!test_space.owes_ack());
+    try testing.expect(!test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     _ = test_space.receive(1, millisecond_ns, true, .not_ect);
-    try testing.expect(test_space.owes_ack());
+    try testing.expect(test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
 }
 
 test "RFC 9000 §13.2.1: a packet that elicits nothing owes nothing, in any space" {
@@ -220,6 +227,51 @@ test "RFC 9000 §13.2.1: a packet that elicits nothing owes nothing, in any spac
     for ([_]space_module.Kind{ .initial, .handshake, .application }) |kind| {
         test_space.init(kind);
         _ = test_space.receive(0, millisecond_ns, false, .not_ect);
-        try testing.expect(!test_space.owes_ack());
+        try testing.expect(!test_space.owes_ack(before_delay_ns, test_max_ack_delay_ns));
     }
+}
+
+test "RFC 9000 §13.2.1: one ack-eliciting packet is acknowledged within max_ack_delay" {
+    test_space.init(.application);
+    _ = test_space.receive(0, millisecond_ns, true, .not_ect);
+    // §13.2.2's count of two has not been met, so §13.2.1's deadline is what makes one owed:
+    // "ack-eliciting packets MUST be acknowledged at least once within the maximum delay an
+    // endpoint communicated using the max_ack_delay transport parameter".
+    const deadline_ns = test_space.ack_deadline_ns(test_max_ack_delay_ns).?;
+    try testing.expectEqual(millisecond_ns + test_max_ack_delay_ns, deadline_ns);
+    try testing.expect(!test_space.owes_ack(deadline_ns - 1, test_max_ack_delay_ns));
+    try testing.expect(test_space.owes_ack(deadline_ns, test_max_ack_delay_ns));
+
+    // Writing the frame clears it, so nothing is owed by any instant afterwards.
+    var writer = Writer.init(&buffer);
+    _ = try test_space.write_ack(&writer, deadline_ns, no_exponent, false);
+    try testing.expectEqual(null, test_space.ack_deadline_ns(test_max_ack_delay_ns));
+    try testing.expect(!test_space.owes_ack(deadline_ns, test_max_ack_delay_ns));
+}
+
+test "RFC 9000 §13.2.1: the delay runs from the oldest packet not yet acknowledged" {
+    test_space.init(.application);
+    _ = test_space.receive(0, millisecond_ns, true, .not_ect);
+    // A later arrival does not push the deadline out: max_ack_delay is "an explicit contract"
+    // about every ack-eliciting packet, and the oldest is nearest to breaking it.
+    _ = test_space.receive(1, 9 * millisecond_ns, true, .not_ect);
+    try testing.expectEqual(millisecond_ns, test_space.ack_eliciting_since_at_ns.?);
+}
+
+test "RFC 9000 §13.2.1: a space with an acknowledgment owed already needs no deadline" {
+    // An Initial owes one at once, so a deadline would say "now" less clearly than `owes_ack`.
+    test_space.init(.initial);
+    _ = test_space.receive(0, millisecond_ns, true, .not_ect);
+    try testing.expectEqual(null, test_space.ack_deadline_ns(test_max_ack_delay_ns));
+
+    // So does an application space that has met §13.2.2's count.
+    test_space.init(.application);
+    _ = test_space.receive(0, millisecond_ns, true, .not_ect);
+    _ = test_space.receive(1, millisecond_ns, true, .not_ect);
+    try testing.expectEqual(null, test_space.ack_deadline_ns(test_max_ack_delay_ns));
+
+    // And a space that received nothing ack-eliciting has nothing to be late with.
+    test_space.init(.application);
+    _ = test_space.receive(0, millisecond_ns, false, .not_ect);
+    try testing.expectEqual(null, test_space.ack_deadline_ns(test_max_ack_delay_ns));
 }

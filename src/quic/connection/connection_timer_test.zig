@@ -23,6 +23,9 @@ const test_max_data: u64 = 1_048_576;
 /// RFC 9000 §18.2's max_idle_timeout, as a value a test can see arrive.
 const idle_timeout_ms: u64 = 30_000;
 const idle_timeout_ns: u64 = idle_timeout_ms * constants.nanoseconds_per_millisecond;
+/// RFC 9000 §18.2: "the default value is 25 milliseconds", which is what a connection that set
+/// nothing else promises.
+const default_max_ack_delay_ms: u64 = 25;
 /// A PATH_CHALLENGE timeout short enough to be the nearest deadline (RFC 9000 §8.2.4).
 const challenge_timeout_ns: u64 = 5_000_000;
 const challenge_octet: u8 = 0x9c;
@@ -191,4 +194,25 @@ test "design §4.2: more than one deadline can come due at one instant" {
     try testing.expect(fired.idle);
     try testing.expect(fired.path);
     try testing.expect(fired.previous_keys);
+}
+
+test "RFC 9000 §13.2.1: an unacknowledged ack-eliciting packet is a deadline of its own" {
+    open_connection(idle_timeout_ms);
+    // One in-order ack-eliciting 1-RTT packet: §13.2.2's count of two is not met, so what makes
+    // the acknowledgment owed is §13.2.1's "explicit contract" and nothing else.
+    _ = test_connection.space_at(.application).receive(0, test_now_ns, true, .not_ect);
+
+    const deadline = next().?;
+    try testing.expectEqual(timer.Kind.acknowledgment, deadline.kind);
+    // §18.2's default max_ack_delay, spelled here rather than read back off the connection, so a
+    // deadline computed in the wrong unit shows.
+    try testing.expectEqual(
+        test_now_ns + default_max_ack_delay_ms * constants.nanoseconds_per_millisecond,
+        deadline.at_ns,
+    );
+
+    // A second ack-eliciting packet meets §13.2.2's count, so one is owed now and wants no
+    // timer: the caller writes it on its next pass and the idle timeout is nearest again.
+    _ = test_connection.space_at(.application).receive(1, test_now_ns, true, .not_ect);
+    try testing.expectEqual(timer.Kind.idle, next().?.kind);
 }

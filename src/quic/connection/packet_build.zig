@@ -253,7 +253,7 @@ fn frame_payload(
     var writer = Writer.init(payload[0..budget]);
     // RFC 9000 §13.2.1: an ACK goes first because it is the frame a space owes soonest, and
     // §13.2 makes acknowledging cheap enough that it is never worth holding back.
-    if (space.owes_ack()) {
+    if (space.owes_ack(now_ns, connection.max_ack_delay_ns())) {
         _ = space.write_ack(&writer, now_ns, exponent_of(connection), report_ecn) catch {};
     }
     const written_ack = writer.written().len;
@@ -439,4 +439,5 @@ fn suite_key_phase(suite: crypto.Suite) bool {
 
 test {
     _ = @import("packet_build_test.zig");
+    _ = @import("packet_build_ack_test.zig");
 }
