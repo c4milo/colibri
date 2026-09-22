@@ -87,6 +87,13 @@ pub const ConnectionId = struct {
     pub fn slice(id: *const ConnectionId) []const u8 {
         return id.octets[0..id.len];
     }
+
+    /// Whether two connection IDs are the same value. RFC 9000 §7.3 compares what a transport
+    /// parameter carried against what a header carried, and §5.1 admits a zero-length one, so
+    /// the length is part of the comparison.
+    pub fn equal(id: *const ConnectionId, other: ConnectionId) bool {
+        return std.mem.eql(u8, id.slice(), other.slice());
+    }
 };
 
 /// RFC 9000 §18.2: a stateless reset token is "a sequence of 16 bytes".

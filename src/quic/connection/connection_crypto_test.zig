@@ -24,10 +24,22 @@ const original_id_octet: u8 = 0x51;
 const test_id_len: usize = 8;
 const local_id: [test_id_len]u8 = @splat(local_id_octet);
 const original_id: [test_id_len]u8 = @splat(original_id_octet);
+/// RFC 9000 §7.3's S3: the Source Connection ID the peer put in its own first Initial.
+const peer_id_octet: u8 = 0x53;
+const peer_id: [test_id_len]u8 = @splat(peer_id_octet);
 const test_identity: identity_module.Options = .{
     .local_initial_source = &local_id,
     .original_destination = &original_id,
 };
+
+/// Parameters that pass RFC 9000 §7.3, as a server's look to this client: its own first Source
+/// Connection ID, and the Destination Connection ID the client's first Initial carried.
+fn authentic_parameters() Parameters {
+    var peer = Parameters.initial();
+    peer.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
+    peer.original_destination_connection_id = transport_parameters.ConnectionId.of(&original_id);
+    return peer;
+}
 /// Octets a test writes a CRYPTO frame into. Larger than any payload below.
 const test_output_len: usize = 512;
 var test_output: [test_output_len]u8 = undefined;
@@ -166,7 +178,10 @@ test "RFC 9000 §19.6: what the provider owes becomes a frame at the level's own
 
 test "RFC 9001 §8.2: the peer's parameters arrive through the provider and raise the limits" {
     fresh(.client);
-    var peer = Parameters.initial();
+    // RFC 9000 §7.2: the client addresses what the server's first Initial carried, and §7.3 then
+    // holds the server's parameters to it.
+    test_connection.identity.on_peer_initial(&peer_id);
+    var peer = authentic_parameters();
     peer.initial_max_data = 4096;
     // A server-only parameter (RFC 9000 §18.2), so the read must be told the sender is the peer
     // and not colibri: reading it as a client's own would refuse this and the test would say so.
@@ -184,6 +199,31 @@ test "RFC 9001 §8.2: the peer's parameters arrive through the provider and rais
     try testing.expectEqualSlices(u8, &peer.stateless_reset_token.?, &test_connection.peer_parameters.?.stateless_reset_token.?);
     // RFC 9000 §7.4: a peer sends them once, so a second call is a no-op rather than a reapply.
     try testing.expect(try connection_crypto.take_peer_parameters(&test_connection, state.provider()));
+}
+
+test "RFC 9000 §7.3: parameters that do not match the headers close the connection" {
+    fresh(.client);
+    test_connection.identity.on_peer_initial(&peer_id);
+    var peer = authentic_parameters();
+    // The server claims a Source Connection ID its packets never carried.
+    peer.initial_source_connection_id = transport_parameters.ConnectionId.of(&local_id);
+    var body: [test_output_len]u8 = undefined;
+    var writer = core.Writer.init(&body);
+    try transport_parameters.write(&writer, &peer, .server);
+    var state: Fake = .{ .peer_body = writer.written() };
+
+    try testing.expectError(
+        error.ConnectionIdsUnauthenticated,
+        connection_crypto.take_peer_parameters(&test_connection, state.provider()),
+    );
+    // §7.3 names TRANSPORT_PARAMETER_ERROR, which RFC 9000 §20.1 numbers 0x08.
+    try testing.expectEqual(
+        error_code.transport_parameter_error,
+        connection_crypto.connection_error_code(error.ConnectionIdsUnauthenticated),
+    );
+    // The limits are untouched: the check runs before they are raised.
+    try testing.expectEqual(0, test_connection.send_flow.available());
+    try testing.expectEqual(null, test_connection.peer_parameters);
 }
 
 test "RFC 9001 §8.2: a handshake that carried no parameters is a connection error" {

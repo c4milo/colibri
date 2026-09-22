@@ -49,6 +49,9 @@ pub const Discarded = enum {
     /// RFC 9000 §12.2: "Receivers SHOULD ignore any subsequent packets with a different
     /// Destination Connection ID than the first packet in the datagram."
     other_connection,
+    /// RFC 9000 §7.2: a long header carrying a different Source Connection ID than the first one
+    /// this endpoint accepted from the peer.
+    other_source,
     /// RFC 9001 §4.9, §5.7: the level's keys are absent, discarded, or not yet permitted.
     no_keys,
     /// RFC 9001 §5.5: the AEAD tag did not match.
@@ -175,8 +178,32 @@ fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Lo
     if (!matches_first_destination(walk, long.dcid)) {
         return advance(walk, long.packet_len, .other_connection);
     }
+    // RFC 9000 §7.2: "Once a client has received a valid Initial packet from the server, it MUST
+    // discard any subsequent packet it receives on that connection with a different Source
+    // Connection ID", and of a server's peer: "if subsequent Initial packets include a different
+    // Source Connection ID, they MUST be discarded."
+    if (!matches_peer_source(connection, long.scid)) {
+        return advance(walk, long.packet_len, .other_source);
+    }
     const packet = rest[0..long.packet_len];
-    return open_at(walk, connection, suite, level, packet, long.packet_number_offset, long.packet_len, long.dcid);
+    const outcome = try open_at(walk, connection, suite, level, packet, long.packet_number_offset, long.packet_len, long.dcid);
+    // RFC 9000 §7.2: "After processing the first Initial packet, each endpoint sets the
+    // Destination Connection ID field in subsequent packets it sends to the value of the Source
+    // Connection ID field that it received." It is taken off a packet that opened, because until
+    // the AEAD tag matches nothing in a packet is the peer's word for anything.
+    switch (outcome) {
+        .opened => connection.identity.on_peer_initial(long.scid),
+        .discarded => {},
+    }
+    return outcome;
+}
+
+/// RFC 9000 §7.2: whether a long header's Source Connection ID is the one this endpoint already
+/// accepted from the peer. Before any has been accepted every value is admitted, which is the
+/// state both roles begin in.
+fn matches_peer_source(connection: *const Connection, scid: []const u8) bool {
+    const accepted = connection.identity.peer_initial_source orelse return true;
+    return std.mem.eql(u8, accepted.slice(), scid);
 }
 
 /// A 1-RTT packet, which RFC 9000 §17.3 makes the last of its datagram: a short header carries no

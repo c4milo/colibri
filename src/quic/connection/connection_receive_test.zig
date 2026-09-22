@@ -170,10 +170,15 @@ fn open_connection() void {
 /// Writes one long-header packet into `writer` and returns nothing: the payload is made up and
 /// the opener strips a tag off it.
 fn write_packet(writer: *Writer, long_type: anytype, dcid: []const u8, number: u8) !void {
+    try write_packet_from(writer, long_type, dcid, &peer_id, number);
+}
+
+/// The same, with the Source Connection ID a test chose, which RFC 9000 §7.2 turns on.
+fn write_packet_from(writer: *Writer, long_type: anytype, dcid: []const u8, scid: []const u8, number: u8) !void {
     try header_write.write_long(writer, .{
         .type = long_type,
         .dcid = dcid,
-        .scid = &peer_id,
+        .scid = scid,
         .packet_number = .{ .value = number, .len = 1 },
         .protected_payload_len = protected_len,
     });
@@ -364,4 +369,52 @@ test "RFC 9001 §6.6: a packet past the integrity limit ends the walk and the co
         error_code.aead_limit_reached,
         receive.connection_error_code(receive.Error.AeadLimitReached),
     );
+}
+
+test "RFC 9000 §7.2: the peer's Source Connection ID is taken off the first packet that opened" {
+    open_connection();
+    // A client has addressed what it chose until the server answers (§7.3's Figure 7).
+    try testing.expectEqual(null, test_connection.identity.peer_initial_source);
+    var writer = Writer.init(&datagram);
+    try write_packet(&writer, .initial, &local_id, 0);
+    start(writer.written().len);
+
+    _ = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    // "After processing the first Initial packet, each endpoint sets the Destination Connection ID
+    // field in subsequent packets it sends to the value of the Source Connection ID field that it
+    // received."
+    try testing.expectEqualSlices(u8, &peer_id, test_connection.identity.destination().slice());
+}
+
+test "RFC 9000 §7.2: a long header with another Source Connection ID is discarded" {
+    open_connection();
+    var writer = Writer.init(&datagram);
+    try write_packet(&writer, .initial, &local_id, 0);
+    try write_packet_from(&writer, .handshake, &local_id, &other_id, 1);
+    try write_packet(&writer, .handshake, &local_id, 2);
+    start(writer.written().len);
+
+    _ = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    // "if subsequent Initial packets include a different Source Connection ID, they MUST be
+    // discarded", and a client discards "any subsequent packet ... with a different Source
+    // Connection ID".
+    const dropped = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    try testing.expectEqual(receive.Discarded.other_source, dropped.discarded);
+    // §12.2: the walk carries on, so the packet after it is still processed.
+    const kept = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    try testing.expectEqual(2, kept.opened.packet_number);
+}
+
+test "RFC 9000 §7.2: a packet that did not open supplies no Source Connection ID" {
+    open_connection();
+    var writer = Writer.init(&datagram);
+    try write_packet(&writer, .initial, &local_id, 0);
+    start(writer.written().len);
+    // RFC 9001 §5.5: until the AEAD tag matches nothing in the packet is the peer's word for
+    // anything, and the Source Connection ID is in the packet.
+    opener.refuses = 0;
+
+    const dropped = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    try testing.expectEqual(receive.Discarded.would_not_open, dropped.discarded);
+    try testing.expectEqual(null, test_connection.identity.peer_initial_source);
 }

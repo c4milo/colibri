@@ -23,6 +23,7 @@ const frame_stream = @import("../frame/frame_stream.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const transport_parameters_read = @import("../transport_parameters_read.zig");
 const connection_module = @import("connection.zig");
+const identity_module = @import("connection_identity.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -46,6 +47,9 @@ pub const Error = error{
     /// RFC 9001 §8.2: "endpoints that receive ClientHello or EncryptedExtensions messages without
     /// the quic_transport_parameters extension MUST close the connection".
     ParametersMissing,
+    /// RFC 9000 §7.3: the peer's parameters do not authenticate the connection IDs its packets
+    /// carried, and `connection_identity.Error` says which of §7.3's rules it broke.
+    ConnectionIdsUnauthenticated,
     /// One handshake message is larger than the provider's storage, or the output cannot hold
     /// what it owes.
     NoSpaceLeft,
@@ -60,6 +64,9 @@ pub fn connection_error_code(failure: Error) u64 {
         error.CryptoBufferExceeded => error_code.crypto_buffer_exceeded,
         // RFC 9000 §7.4: a parameter with an invalid value, or a missing extension (§8.2).
         error.ParametersRefused, error.ParametersMissing => error_code.transport_parameter_error,
+        // RFC 9000 §7.3 names TRANSPORT_PARAMETER_ERROR for the absence of a connection ID
+        // parameter, and permits it for every other rule the section states.
+        error.ConnectionIdsUnauthenticated => error_code.transport_parameter_error,
         // RFC 9000 §12.5: octets at the wrong encryption level violate the protocol.
         error.WrongLevel => error_code.protocol_violation,
         // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR.
@@ -155,6 +162,11 @@ pub fn take_peer_parameters(connection: *Connection, provider: tls.QuicProvider)
     var reader = core.Reader.init(body);
     const peer = transport_parameters_read.read(&reader, connection.role.peer()) catch
         return Error.ParametersRefused;
+    // RFC 9000 §7.3: "Endpoints MUST validate that received transport parameters match received
+    // connection ID values." It runs before the limits are raised, so a peer that failed it never
+    // widens what colibri may spend.
+    identity_module.authenticate(&connection.identity, &peer, connection.role) catch
+        return Error.ConnectionIdsUnauthenticated;
     connection.apply_peer_parameters(peer);
     return true;
 }

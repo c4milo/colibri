@@ -106,6 +106,61 @@ pub const Identity = struct {
     }
 };
 
+/// Why RFC 9000 §7.3's authentication of the connection IDs failed. Each is one of the rules
+/// §7.3 states, and §7.3 gives every one of them TRANSPORT_PARAMETER_ERROR.
+pub const Error = error{
+    /// §7.3: the initial_source_connection_id parameter is absent, or a server sent no
+    /// original_destination_connection_id.
+    ConnectionIdMissing,
+    /// §7.3: the retry_source_connection_id parameter is absent after a Retry, or present when no
+    /// Retry was received.
+    RetrySourceUnexpected,
+    /// §7.3: a parameter does not match the connection ID the peer's packets carried.
+    ConnectionIdMismatch,
+};
+
+/// RFC 9000 §7.3: "Endpoints MUST validate that received transport parameters match received
+/// connection ID values." `peer` is what the peer sent and `role` is this endpoint's own, because
+/// which values are owed differs: §18.2 makes two of the three server-only.
+///
+/// The peer's Source Connection ID must already be known, which it is: the parameters ride in the
+/// handshake, so a packet of the peer's opened before they could arrive.
+pub fn authenticate(
+    identity: *const Identity,
+    peer: *const transport_parameters.Parameters,
+    role: Role,
+) Error!void {
+    // §7.3: "Each endpoint includes the value of the Source Connection ID field from the first
+    // Initial packet it sent in the initial_source_connection_id transport parameter", and its
+    // absence "from either endpoint" is a connection error.
+    const claimed = peer.initial_source_connection_id orelse return Error.ConnectionIdMissing;
+    const seen = identity.peer_initial_source orelse return Error.ConnectionIdMissing;
+    if (!claimed.equal(seen)) return Error.ConnectionIdMismatch;
+    // §18.2 makes the other two server-only, and the reader already refuses them from a client,
+    // so only a client has anything left to check.
+    if (role != .client) return;
+    // §7.3: the absence of original_destination_connection_id "from the server" is an error, and
+    // the value must match the Destination Connection ID this client put in its first Initial.
+    const original = peer.original_destination_connection_id orelse return Error.ConnectionIdMissing;
+    if (!original.equal(identity.original_destination)) return Error.ConnectionIdMismatch;
+    return authenticate_retry(identity, peer);
+}
+
+/// RFC 9000 §7.3's two rules about retry_source_connection_id, which turn on whether a Retry was
+/// received at all.
+fn authenticate_retry(identity: *const Identity, peer: *const transport_parameters.Parameters) Error!void {
+    const received = identity.retry_source orelse {
+        // §7.3: "presence of the retry_source_connection_id transport parameter when no Retry
+        // packet was received" is a connection error.
+        if (peer.retry_source_connection_id != null) return Error.RetrySourceUnexpected;
+        return;
+    };
+    // §7.3: "absence of the retry_source_connection_id transport parameter from the server after
+    // receiving a Retry packet" is a connection error.
+    const claimed = peer.retry_source_connection_id orelse return Error.RetrySourceUnexpected;
+    if (!claimed.equal(received)) return Error.ConnectionIdMismatch;
+}
+
 /// Writes this endpoint's connection IDs into the parameters it will send (RFC 9000 §7.3), so
 /// what goes out in the extension cannot disagree with what went out in the headers.
 pub fn describe(identity: *const Identity, parameters: *transport_parameters.Parameters, role: Role) void {
