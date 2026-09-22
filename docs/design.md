@@ -1644,10 +1644,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   carries an error code~~ is done, `368344e`, and recorded below. ~~Driving the timers, which is
   one deadline out and one instant in (§4.2)~~ is done, `18e9949`, and recorded below.
   ~~Generating a PATH_CHALLENGE and running §8.2's validation~~ is done, `10aabc5`, and recorded
+  below. ~~Validating the ECN counts a peer reports (§13.4.2)~~ is done, `ab178c3`, and recorded
   below. Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
   no queue holds. Scheduling the application level's frames. Sending a Stateless Reset (§10.3).
-  Validating the ECN counts a peer reports (§13.4.2). And golden corpus cases for the receive
-  path's new refusals, with their entries in `src/golden/mutations.zig`.
+  And golden corpus cases for the receive path's new refusals, with their entries in
+  `src/golden/mutations.zig`.
 
   **The CONNECTION_CLOSE writer is done, 2026-09-20**, `368344e`. Reading the peer's frame was
   already `connection_frames.zig`'s; `connection_close.zig` is the other half, and every piece
@@ -1897,6 +1898,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the lint result was read after the commit rather than before it.
 
   `zig build test`: 1224 passed, 18 skipped.
+
+  **The peer's ECN counts are validated, 2026-09-21**, `ab178c3`. RFC 9000 §13.4.2.1: "An
+  endpoint that receives an ACK frame with ECN counts therefore validates the counts before using
+  them." colibri used them. A rise in the reported ECN-CE count was a congestion event whatever
+  else the frame said, so a peer — or a network element rewriting the field — could halve the
+  congestion window by reporting counts for markings nobody applied.
+
+  colibri marks nothing: §13.4.2 has an endpoint set ECT(0) in the IP header, and the IP header is
+  the caller's (non-negotiable 1). So the caller says what it set, one `Record` at a time, and
+  `recovery_ecn.zig` judges what comes back against it. All four of §13.4.2.1's checks are there —
+  counts absent where a marked packet was acknowledged, a total above what was marked, an increase
+  smaller than the packets newly acknowledged, and the reordering rule that forbids failing on a
+  frame which did not raise the largest acknowledged. §13.4.2.2's answer is one flag, because
+  §13.4.2 validates "for each network path" and a connection holds one path here.
+
+  A frame that fails leaves nothing behind: its counts are exactly what stopped being believed, so
+  they are not recorded and no congestion event follows from them.
+
+  14 mutations, 10 CAUGHT. All four survivors were in the wiring rather than the checks, and one
+  of them was a defect the mutation found: `recovery_ack.take` merges a `Removed` per ACK range,
+  and the new per-codepoint counts were assigned rather than summed, so a two-range frame
+  under-counted what it had acknowledged. A case with two ranges pins it now.
+
+  `recovery_sent.zig` passed 500 lines with the codepoint on `Record`, so its tests moved to
+  `recovery_sent_test.zig`.
+
+  `zig build test`: 1236 passed, 18 skipped, and `zig build test-sim -Drelease` agrees.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
