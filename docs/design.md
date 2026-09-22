@@ -1561,11 +1561,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   8. ~~Version negotiation.~~ **Done, `fc2a6ae`**, and recorded below. `connection_version.zig` holds §6's
      two connection-level decisions, above the packet `packet/invariant.zig` already read and
      wrote.
-  9. **Retry.** §7.3's validation and the client's whole half are **done**, `bb33948` to
-     `fd97a12`, and recorded below. What is left is the server's half: deciding to send a Retry,
-     minting the token and checking it on the Initial that returns it, which needs the two
-     `crypto.Suite` members decision 55 rules. They extend the list decision 48 fixed and
-     invariant 23 pins, so both documents move with them.
+  9. ~~Retry, with §7.3's validation.~~ **Done**, `bb33948` to `89a4bfa`, and recorded below.
+     Both halves of §17.2.5, §8.1.2's token, and the connection IDs §7.3 authenticates.
   10. **The simulator connection check** for invariants 17 to 21.
   11. **The test-only endpoint and `tools/interop.sh`**, which is the only part that waits on
       chapulin, whose QUIC server has not yet exchanged a packet with any implementation.
@@ -1777,6 +1774,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   none asked for room between framing and repeating.
 
   `zig build test`: 1196 passed, 18 skipped.
+
+  **The server writes a Retry, 2026-09-21**, `89a4bfa`. Decision 55's two members land on
+  `crypto.Suite`, which makes twelve: RFC 9000 §8.1.4 wants an address validation token
+  authenticated and expiring, and non-negotiables 2 and 3 leave colibri neither a key nor a clock.
+  Decision 48's list and invariant 23 move with them, which is the procedure invariant 23 exists
+  to force.
+
+  `answer` holds nothing, because §8.1.2 says a Retry is how a server "defers the state and
+  processing costs of connection establishment". §17.2.5.1's "A server MUST NOT send more than one
+  Retry packet in response to a single UDP datagram" is then kept by the shape of the call — one
+  request in, at most one packet out — which is the same answer version negotiation gave to the
+  same rule. Everything it writes is the caller's: §5.1 wants a connection ID unpredictable and
+  invariant 5 forbids colibri a random number, and the client's address is opaque octets because
+  colibri owns no socket.
+
+  `verify_token` reads a later Initial's Token field as absent, validated or invalid, which are
+  the three things §8.1.2 has a server do next: send a Retry, continue, or close with
+  INVALID_TOKEN. The last is a verdict and not an error value, because §8.1.2 says the server "has
+  not established any state for the connection at this point and so does not enter the closing
+  period", so there is no connection to fail.
+
+  The strongest case is a round trip in one file: the server writes a Retry and the client half of
+  §17.2.5.2 reads it back and accepts it, which checks the pseudo-packet both sides build against
+  each other rather than against an expected byte string.
+
+  11 mutations, 10 CAUGHT. The survivor wrote a Retry carrying a zero-length token — the one thing
+  §17.2.5.2 has a client discard outright — which no suite in a test had produced.
+
+  `zig build test`: 1204 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
