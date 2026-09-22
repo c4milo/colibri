@@ -894,8 +894,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     caller-supplied vtable, and its members become whole-packet operations at one of the three
     encryption levels colibri uses (RFC 9001 §4.1.4, less 0-RTT, which entry 20 rules out):
     `install_initial_keys`, `keys_available`, `seal`, `open`, `retry_tag_valid`,
-    `retry_tag_write`, `update_keys`, `key_phase`, `discard_previous_keys` and `discard_keys`. No
-    member takes or returns a key, a secret or an IV. The secrets RFC 9001 §4.1.4 has TLS
+    `retry_tag_write`, `update_keys`, `key_phase`, `discard_previous_keys` and `discard_keys`.
+    Entry 55 adds `retry_token_write` and `retry_token_valid` for the same reason, which makes
+    twelve. No member takes or returns a key, a secret or an IV. The secrets RFC 9001 §4.1.4 has TLS
     produce go from the provider to the suite inside the caller's code, so entry 8's QUIC mode
     loses `on_secret` and `hkdf_expand_label`.
 

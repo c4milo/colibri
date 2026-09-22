@@ -91,6 +91,15 @@ pub const OpenError = error{
     IntegrityLimitReached,
 };
 
+/// Why a suite did not write an address validation token (RFC 9000 §8.1.1).
+pub const TokenError = error{
+    /// The suite mints no Retry token, so the endpoint over it sends no Retry. A suite written
+    /// for clients alone answers this, as `retry_tag_write` does.
+    Unsupported,
+    /// `output` is shorter than the token this suite writes.
+    NoSpaceLeft,
+};
+
 pub const RetryTagError = error{
     /// The suite does not compute the Retry Integrity Tag. A suite written for clients alone
     /// answers this, and a server over it sends no Retry packet.
@@ -183,6 +192,28 @@ pub const VTable = struct {
         tag: *[constants.retry_integrity_tag_len]u8,
     ) RetryTagError!void,
 
+    /// Writes an address validation token into `output` and returns its length (RFC 9000 §8.1.1,
+    /// §8.1.4). A server's call, before it sends a Retry. Decision 55 puts the token here: §8.1.4
+    /// wants it authenticated, which needs a key colibri may not hold, and "only accepted for a
+    /// short time", which needs an instant colibri may not read — so `now_ns` is passed in.
+    /// `address` is the client's, as opaque octets: colibri owns no socket and never reads them.
+    retry_token_write: *const fn (
+        context: *anyopaque,
+        address: []const u8,
+        now_ns: u64,
+        output: []u8,
+    ) TokenError!usize,
+
+    /// Whether `token` is one this suite wrote for `address` and has not expired (RFC 9000
+    /// §8.1.4). A server's call, on an Initial that returned a token. §8.1.1 has the suite tell
+    /// a Retry's token from a NEW_TOKEN frame's, because the suite is what constructed both.
+    retry_token_valid: *const fn (
+        context: *const anyopaque,
+        address: []const u8,
+        token: []const u8,
+        now_ns: u64,
+    ) bool,
+
     /// Moves to the next key phase, in both directions, and keeps the previous read keys
     /// (RFC 9001 §6.1, §6.2). colibri calls it to start a key update and to answer one.
     update_keys: *const fn (context: *anyopaque) UpdateError!void,
@@ -237,12 +268,12 @@ pub const Suite = struct {
 
 const testing = std.testing;
 
-test "invariant 23: the vtable's members are the ten decision 48 lists, and none returns a key" {
+test "invariant 23: the vtable's members are the twelve decisions 48 and 55 list, and none returns a key" {
     const expected = [_][]const u8{
-        "install_initial_keys", "keys_available",  "seal",
-        "open",                 "retry_tag_valid", "retry_tag_write",
-        "update_keys",          "key_phase",       "discard_previous_keys",
-        "discard_keys",
+        "install_initial_keys", "keys_available",     "seal",
+        "open",                 "retry_tag_valid",    "retry_tag_write",
+        "retry_token_write",    "retry_token_valid",  "update_keys",
+        "key_phase",            "discard_previous_keys", "discard_keys",
     };
     const fields = @typeInfo(VTable).@"struct".fields;
     try testing.expectEqual(expected.len, fields.len);

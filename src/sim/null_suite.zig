@@ -39,6 +39,7 @@ const Opening = crypto.suite.Opening;
 const Opened = crypto.suite.Opened;
 
 const null_suite_keys = @import("null_suite_keys.zig");
+const null_suite_retry = @import("null_suite_retry.zig");
 
 const tag_len = null_suite_keys.tag_len;
 const sample_len = null_suite_keys.sample_len;
@@ -68,6 +69,8 @@ pub const NullSuite = struct {
     refuses_initial_keys: bool = false,
     /// Makes `retry_tag_write` refuse, as a suite written for clients alone would.
     writes_retry_tag: bool = true,
+    /// Makes `retry_token_write` refuse, as a suite that offers no Retry would (decision 55).
+    mints_retry_token: bool = true,
 
     pub fn suite(self: *NullSuite) crypto.Suite {
         return .{ .context = @ptrCast(self), .vtable = &table };
@@ -123,19 +126,21 @@ const table: crypto.suite.VTable = .{
     .keys_available = keys_available,
     .seal = seal,
     .open = open,
-    .retry_tag_valid = retry_tag_valid,
-    .retry_tag_write = retry_tag_write,
+    .retry_tag_valid = null_suite_retry.tag_valid,
+    .retry_tag_write = null_suite_retry.tag_write,
+    .retry_token_write = null_suite_retry.token_write,
+    .retry_token_valid = null_suite_retry.token_valid,
     .update_keys = update_keys,
     .key_phase = key_phase,
     .discard_previous_keys = discard_previous_keys,
     .discard_keys = discard_keys,
 };
 
-fn from(context: *anyopaque) *NullSuite {
+pub fn from(context: *anyopaque) *NullSuite {
     return @ptrCast(@alignCast(context));
 }
 
-fn from_const(context: *const anyopaque) *const NullSuite {
+pub fn from_const(context: *const anyopaque) *const NullSuite {
     return @ptrCast(@alignCast(context));
 }
 
@@ -207,18 +212,6 @@ fn open(context: *anyopaque, opening: Opening) crypto.suite.OpenError!Opened {
         .payload_len = packet.len - tag_len - header_len,
         .key_set = key_set,
     };
-}
-
-fn retry_tag_valid(context: *const anyopaque, pseudo_packet: []const u8, tag: *const [tag_len]u8) bool {
-    _ = context;
-    var expected: [tag_len]u8 = undefined;
-    write_tag(&expected, constants.null_suite_retry_name, 0, pseudo_packet, pseudo_packet.len);
-    return std.mem.eql(u8, &expected, tag);
-}
-
-fn retry_tag_write(context: *const anyopaque, pseudo_packet: []const u8, tag: *[tag_len]u8) crypto.suite.RetryTagError!void {
-    if (!from_const(context).writes_retry_tag) return error.Unsupported;
-    write_tag(tag, constants.null_suite_retry_name, 0, pseudo_packet, pseudo_packet.len);
 }
 
 fn update_keys(context: *anyopaque) crypto.suite.UpdateError!void {

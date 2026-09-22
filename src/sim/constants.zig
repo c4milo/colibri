@@ -113,6 +113,16 @@ pub const connection_check_output_len_max: u32 = 1024;
 /// and the nonce of the real one for every connection, so the null one is a constant too.
 pub const null_suite_retry_name: u32 = 0x5e77_1e5d;
 
+/// How long a Retry token the null suite writes stays valid. RFC 9000 §8.1.4: "Servers SHOULD
+/// ensure that tokens sent in Retry packets are only accepted for a short time, as they are
+/// returned immediately by clients." One second is that short time here, measured against the
+/// instant colibri passes in and never against a clock (non-negotiable 3).
+pub const null_suite_retry_token_lifetime_ns: u64 = 1_000_000_000;
+
+/// Octets of a Retry token the null suite writes: a checksum of the client's address, which
+/// §8.1.4 has the token bind to, and the instant it expires at.
+pub const null_suite_retry_token_len: usize = @sizeOf(u32) + @sizeOf(u64);
+
 /// The packet check of design §8 step 7 (`packet_check.zig`). Most packets one datagram holds: an
 /// Initial, a Handshake and a 1-RTT packet, which is the order RFC 9000 §12.2 asks for.
 pub const packet_check_packets_max: u32 = 3;

@@ -156,6 +156,8 @@ pub const RoundTrip = struct {
         .open = open,
         .retry_tag_valid = unreachable_tag_valid,
         .retry_tag_write = unreachable_tag_write,
+        .retry_token_write = unreachable_token_write,
+        .retry_token_valid = unreachable_token_valid,
         .update_keys = update_keys,
         .key_phase = key_phase,
         .discard_previous_keys = discard_previous_keys,
@@ -174,6 +176,12 @@ fn unreachable_tag_valid(
     _: []const u8,
     _: *const [crypto.constants.retry_integrity_tag_len]u8,
 ) bool {
+    unreachable;
+}
+fn unreachable_token_write(_: *anyopaque, _: []const u8, _: u64, _: []u8) crypto.suite.TokenError!usize {
+    unreachable;
+}
+fn unreachable_token_valid(_: *const anyopaque, _: []const u8, _: []const u8, _: u64) bool {
     unreachable;
 }
 fn unreachable_tag_write(

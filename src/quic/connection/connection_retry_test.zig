@@ -9,6 +9,7 @@ const std = @import("std");
 const core = @import("core");
 const crypto = @import("crypto");
 const constants = @import("../constants.zig");
+const error_code = @import("../error_code.zig");
 const frame_module = @import("../frame/frame.zig");
 const header = @import("../packet/packet_header.zig");
 const header_write = @import("../packet/packet_header_write.zig");
@@ -26,11 +27,11 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-var test_connection: Connection = undefined;
-var checker: TagChecker = undefined;
-var pseudo: [constants.retry_pseudo_packet_len_max]u8 = undefined;
+pub var test_connection: Connection = undefined;
+pub var checker: TagChecker = undefined;
+pub var pseudo: [constants.retry_pseudo_packet_len_max]u8 = undefined;
 
-const test_now_ns: u64 = 1_000_000;
+pub const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
 
 /// RFC 9000 §7.3's Figure 8: C1 is the client's own, S1 the connection ID it first addressed and
@@ -40,9 +41,9 @@ const c1_octet: u8 = 0xc1;
 const s1_octet: u8 = 0x51;
 const s2_octet: u8 = 0x52;
 const id_len: usize = 8;
-const c1: [id_len]u8 = @splat(c1_octet);
-const s1: [id_len]u8 = @splat(s1_octet);
-const s2: [id_len]u8 = @splat(s2_octet);
+pub const c1: [id_len]u8 = @splat(c1_octet);
+pub const s1: [id_len]u8 = @splat(s1_octet);
+pub const s2: [id_len]u8 = @splat(s2_octet);
 
 /// The Retry Token of §17.2.5, as octets nothing reads the value of.
 const token_octet: u8 = 0x7c;
@@ -55,7 +56,7 @@ const unused_bits: u8 = 0x0f;
 const datagram_len: usize = 512;
 var datagram: [datagram_len]u8 = undefined;
 /// Where a built packet goes, apart from the Retry `datagram` holds.
-var output: [datagram_len]u8 = undefined;
+pub var output: [datagram_len]u8 = undefined;
 /// More handshake octets than a packet can hold, so what bounds a payload is the room the header
 /// left rather than what the provider owes.
 const filler_octet: u8 = 0x6d;
@@ -67,30 +68,69 @@ const filler: [datagram_len]u8 = @splat(filler_octet);
 var seen: [constants.retry_pseudo_packet_len_max]u8 = @splat(0);
 var seen_len: usize = 0;
 
-/// A `crypto.Suite` that answers RFC 9001 §5.8's question and nothing else.
-const TagChecker = struct {
-    /// What `retry_tag_valid` answers. Test-only.
-    valid: bool,
+/// How long a token this suite writes stays valid, which RFC 9000 §8.1.4 makes "a short time".
+pub const token_lifetime_ns: u64 = 1_000_000_000;
+/// Octets of that token: a checksum of the address it is bound to, and when it expires.
+pub const suite_token_len: usize = @sizeOf(u32) + @sizeOf(u64);
+const tag_len: usize = crypto.constants.retry_integrity_tag_len;
 
-    fn init(held: *TagChecker) void {
-        held.* = .{ .valid = true };
+/// A `crypto.Suite` that answers the Retry questions and nothing else. It holds no key: the tag
+/// and the token are checksums, which detect a changed octet and prove nothing else.
+pub const TagChecker = struct {
+    /// Makes `retry_tag_write` refuse, as a suite written for clients alone would. Test-only.
+    writes_tag: bool,
+    /// Makes `retry_token_write` refuse, as a suite that offers no Retry would. Test-only.
+    mints_token: bool,
+    /// Makes it answer a zero-length token, which RFC 9000 §17.2.5.2 has a client discard.
+    /// Test-only.
+    writes_empty_token: bool,
+
+    pub fn init(held: *TagChecker) void {
+        held.* = .{ .writes_tag = true, .mints_token = true, .writes_empty_token = false };
         seen_len = 0;
     }
 
-    fn suite(held: *TagChecker) crypto.Suite {
+    pub fn suite(held: *TagChecker) crypto.Suite {
         return .{ .context = held, .vtable = &vtable };
     }
 
-    fn tag_valid(
-        context: *const anyopaque,
-        pseudo_packet: []const u8,
-        tag: *const [crypto.constants.retry_integrity_tag_len]u8,
-    ) bool {
-        _ = tag;
-        const held: *const TagChecker = @ptrCast(@alignCast(context));
+    fn tag_valid(context: *const anyopaque, pseudo_packet: []const u8, tag: *const [tag_len]u8) bool {
+        _ = context;
         @memcpy(seen[0..pseudo_packet.len], pseudo_packet);
         seen_len = pseudo_packet.len;
-        return held.valid;
+        var expected: [tag_len]u8 = undefined;
+        write_tag(pseudo_packet, &expected);
+        return std.mem.eql(u8, &expected, tag);
+    }
+
+    fn tag_write(context: *const anyopaque, pseudo_packet: []const u8, tag: *[tag_len]u8) crypto.suite.RetryTagError!void {
+        const held: *const TagChecker = @ptrCast(@alignCast(context));
+        // RFC 9001 §5.8 gives the tag to the server that sends a Retry, so a suite written for
+        // clients alone answers this, as `retry_token_write` does.
+        if (!held.writes_tag) return error.Unsupported;
+        write_tag(pseudo_packet, tag);
+    }
+
+    fn token_write(context: *anyopaque, address: []const u8, now_ns: u64, out: []u8) crypto.suite.TokenError!usize {
+        const held: *TagChecker = @ptrCast(@alignCast(context));
+        // RFC 9000 §8.1.2: a server "can request address validation by sending a Retry packet",
+        // so a suite that mints no token is one whose server sends none.
+        if (!held.mints_token) return error.Unsupported;
+        if (held.writes_empty_token) return 0;
+        if (out.len < suite_token_len) return error.NoSpaceLeft;
+        write_token(address, now_ns, out[0..suite_token_len]);
+        return suite_token_len;
+    }
+
+    fn token_valid(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) bool {
+        _ = context;
+        if (token.len != suite_token_len) return false;
+        var expected: [suite_token_len]u8 = undefined;
+        write_token(address, now_ns, &expected);
+        // RFC 9000 §8.1.4 binds a token to an address, so the checksum must match. The instant it
+        // expires at is read back rather than recomputed.
+        if (!std.mem.eql(u8, token[0..@sizeOf(u32)], expected[0..@sizeOf(u32)])) return false;
+        return now_ns < std.mem.readInt(u64, token[@sizeOf(u32)..][0..@sizeOf(u64)], .big);
     }
 
     const vtable: crypto.suite.VTable = .{
@@ -99,7 +139,9 @@ const TagChecker = struct {
         .seal = unreachable_seal,
         .open = unreachable_open,
         .retry_tag_valid = tag_valid,
-        .retry_tag_write = unreachable_tag_write,
+        .retry_tag_write = tag_write,
+        .retry_token_write = token_write,
+        .retry_token_valid = token_valid,
         .update_keys = unreachable_update,
         .key_phase = unreachable_phase,
         .discard_previous_keys = unreachable_discard_previous,
@@ -107,8 +149,29 @@ const TagChecker = struct {
     };
 };
 
-/// Every member but `retry_tag_valid` is unreached: a call to one would mean a test drove
-/// something these cases do not cover.
+/// RFC 9001 §5.8's tag, as four checksums of the pseudo-packet. Network byte order, so one host's
+/// octets are every host's (invariant 5).
+fn write_tag(pseudo_packet: []const u8, tag: *[tag_len]u8) void {
+    const words = tag_len / @sizeOf(u32);
+    for (0..words) |index| {
+        var crc = std.hash.Crc32.init();
+        crc.update(&.{@intCast(index)});
+        crc.update(pseudo_packet);
+        const word = std.mem.nativeToBig(u32, crc.final());
+        @memcpy(tag[index * @sizeOf(u32) ..][0..@sizeOf(u32)], std.mem.asBytes(&word));
+    }
+}
+
+/// RFC 9000 §8.1.4's token, as a checksum of the address and the instant it expires at.
+fn write_token(address: []const u8, now_ns: u64, out: *[suite_token_len]u8) void {
+    const name = std.mem.nativeToBig(u32, std.hash.Crc32.hash(address));
+    @memcpy(out[0..@sizeOf(u32)], std.mem.asBytes(&name));
+    const expires = std.mem.nativeToBig(u64, now_ns +| token_lifetime_ns);
+    @memcpy(out[@sizeOf(u32)..], std.mem.asBytes(&expires));
+}
+
+/// Every member the Retry cases do not ask for is unreached: a call to one would mean a test
+/// drove something they do not cover.
 fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
     unreachable;
 }
@@ -119,13 +182,6 @@ fn unreachable_seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suit
     unreachable;
 }
 fn unreachable_open(_: *anyopaque, _: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
-    unreachable;
-}
-fn unreachable_tag_write(
-    _: *const anyopaque,
-    _: []const u8,
-    _: *[crypto.constants.retry_integrity_tag_len]u8,
-) crypto.suite.RetryTagError!void {
     unreachable;
 }
 fn unreachable_update(_: *anyopaque) crypto.suite.UpdateError!void {
@@ -149,7 +205,7 @@ fn parameters() Parameters {
 
 /// A client that has sent its first Initial to S1 and heard nothing back, which is the state
 /// RFC 9000 §17.2.5.2 has a Retry arrive in.
-fn open_as(role: connection_module.Role) void {
+pub fn open_as(role: connection_module.Role) void {
     checker.init();
     test_connection.init(.{
         .role = role,
@@ -159,8 +215,8 @@ fn open_as(role: connection_module.Role) void {
     });
 }
 
-/// Builds one Retry packet and reads it back, which is how a caller reaches `receive`.
-fn retry_packet(scid: []const u8, token: []const u8) !header.Retry {
+/// Builds one Retry packet into `datagram` and returns its length.
+fn write_retry_into(scid: []const u8, token: []const u8) !usize {
     var writer = Writer.init(&datagram);
     try header_write.write_retry(&writer, .{
         .unused_bits = unused_bits,
@@ -168,12 +224,27 @@ fn retry_packet(scid: []const u8, token: []const u8) !header.Retry {
         .scid = scid,
         .token = token,
     });
-    // RFC 9000 §17.2.5: the packet ends with a 16-octet Retry Integrity Tag. This suite does not
-    // read its value, so any octets stand for one.
-    const tag: [crypto.constants.retry_integrity_tag_len]u8 = @splat(0);
+    // RFC 9001 §5.8: the tag covers the Retry Pseudo-Packet, which is S1 and the packet so far.
+    var pseudo_writer = Writer.init(&pseudo);
+    try header_write.write_retry_pseudo_packet(&pseudo_writer, &s1, writer.written());
+    var tag: [tag_len]u8 = undefined;
+    write_tag(pseudo_writer.written(), &tag);
     try writer.write_bytes(&tag);
-    const parsed = try header.read(writer.written(), test_connection.identity.local_len());
-    return parsed.retry;
+    return writer.written().len;
+}
+
+/// The same, read back, which is how a caller reaches `receive`.
+fn retry_packet(scid: []const u8, token: []const u8) !header.Retry {
+    const len = try write_retry_into(scid, token);
+    return (try header.read(datagram[0..len], test_connection.identity.local_len())).retry;
+}
+
+/// One whose tag was changed after it was written, which is what a forged or corrupted Retry
+/// looks like to the endpoint that receives it.
+fn retry_packet_bad_tag(scid: []const u8, token: []const u8) !header.Retry {
+    const len = try write_retry_into(scid, token);
+    datagram[len - 1] ^= 1;
+    return (try header.read(datagram[0..len], test_connection.identity.local_len())).retry;
 }
 
 fn receive(packet: header.Retry) retry.Outcome {
@@ -211,8 +282,7 @@ test "RFC 9001 §5.8: the tag covers the first Destination Connection ID and the
 
 test "RFC 9000 §17.2.5.2: a Retry whose Integrity Tag does not validate changes nothing" {
     open_as(.client);
-    checker.valid = false;
-    const outcome = receive(try retry_packet(&s2, &test_token));
+    const outcome = receive(try retry_packet_bad_tag(&s2, &test_token));
     try testing.expectEqual(retry.Discarded.tag_invalid, outcome.discarded);
     try testing.expectEqual(null, test_connection.identity.retry_source);
     try testing.expectEqual(0, test_connection.retry_token.slice().len);

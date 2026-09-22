@@ -397,9 +397,11 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   packets ([decision 48](decisions.md#what-the-caller-supplies)). What colibri keeps from a
   handshake is public on the wire or meant for the application: the ALPN name, the transport
   parameters, the connection IDs.
-- **Check.** A test in `src/crypto/suite.zig` compares the vtable's member names with the ten
-  decision 48 lists, so a member added "to export a secret" fails until the list is changed on
-  purpose, beside the decision that forbids it. Step 7. Step 9's `resumption` case is where a
+- **Check.** A test in `src/crypto/suite.zig` compares the vtable's member names with the twelve
+  decisions 48 and 55 list, so a member added "to export a secret" fails until the list is changed
+  on purpose, beside the decision that forbids it. Decision 55's two are the precedent for how
+  that is done: an address validation token needs a key and an expiry, so it went to the suite
+  and the list moved with it. Step 7. Step 9's `resumption` case is where a
   session ticket first appears, and it stays with the provider.
 - **Violation.** A vtable member that returns a traffic secret so colibri can write a key log.
   The interop runner wants one (design §9), and it comes from the provider. Caching a resumption
