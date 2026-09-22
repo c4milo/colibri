@@ -1647,9 +1647,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   ~~Generating a PATH_CHALLENGE and running §8.2's validation~~ is done, `10aabc5`, and recorded
   below. ~~Validating the ECN counts a peer reports (§13.4.2)~~ is done, `ab178c3`, and recorded
   below. ~~Sending a Stateless Reset (§10.3)~~ is done, `9d902e1`, and recorded below.
-  Retransmitting a lost packet's frames under a new number, which invariant 17 requires: §13.3's
-  first rule, the CRYPTO one, is done, `79d5dd9`, and recorded below; the rest of its table is
-  not. Scheduling the application level's frames. And golden corpus cases for the receive path's
+  ~~Retransmitting a lost packet's frames under a new number~~ is done for every frame colibri
+  sends, `79d5dd9` and `a15af0f`, and recorded below; §13.3's other rules land with the senders
+  they belong to. Scheduling the application level's frames. And golden corpus cases for the receive path's
   new refusals, with their entries in `src/golden/mutations.zig`.
 
   **The CONNECTION_CLOSE writer is done, 2026-09-20**, `368344e`. Reading the peer's frame was
@@ -1993,6 +1993,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   until it is acknowledged".
 
   `zig build test`: 1245 passed, 18 skipped.
+
+  **§13.3's table is in the frame it belongs to, 2026-09-22**, `a15af0f`. `Frame.repair` answers
+  what a lost packet owes for each frame type, one arm per sentence of §13.3, beside
+  `permitted_at` and `is_ack_eliciting` because it is the same kind of fact about a frame. The
+  switch has no `else`, so a frame type added to the union stops the build until its rule is
+  written down.
+
+  That closes the retransmission piece for what colibri can send, which is five frames: CRYPTO,
+  ACK, PATH_RESPONSE, PATH_CHALLENGE and CONNECTION_CLOSE. The CRYPTO one sends its octets again;
+  the other four need no repair, and §13.3 gives a different reason for each — PING and PADDING
+  "contain no information", an ACK is superseded by the next, a connection close is resent by §10
+  rather than by loss detection, and a PATH_RESPONSE is "sent just once". Four of those were true
+  by colibri having built nothing, which is the state mutation testing exists to find, so a case
+  sends all four in one packet and loses it.
+
+  What is left of §13.3 belongs to senders that do not exist: STREAM data, RESET_STREAM,
+  STOP_SENDING, the limit and blocked frames, the connection ID frames, NEW_TOKEN and
+  HANDSHAKE_DONE. Each lands with the piece that sends it rather than with a queue of its own,
+  which is what §13.3 asks for: "the information that might be carried in frames is sent again in
+  new frames as needed". The exhaustive switch is what will stop a sender landing without its rule.
+
+  7 mutations, 7 CAUGHT, one per classification the table could have got wrong.
+
+  `zig build test`: 1247 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
