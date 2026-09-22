@@ -1561,9 +1561,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   8. ~~Version negotiation.~~ **Done, `fc2a6ae`**, and recorded below. `connection_version.zig` holds §6's
      two connection-level decisions, above the packet `packet/invariant.zig` already read and
      wrote.
-  9. **Retry**, with §7.3's validation. Its send half needs a copy of the handshake message
-     §17.2.5.3 makes a client repeat, which nothing keeps, and a ruling on who mints the token of
-     §8.1.1, which needs a key and a clock non-negotiables 2 and 3 refuse colibri.
+  9. **Retry.** §7.3's validation and the client's half of §17.2.5.2 are **done**, `bb33948` and
+     `20e51c0`, and recorded below. Two pieces are left. The Initial that repeats the
+     cryptographic handshake message (§17.2.5.3) needs a copy of what colibri sent on the CRYPTO
+     stream, which nothing keeps: `CryptoStream` holds `sent_len` and no octets, so the storage
+     and its limit need a ruling, and the same storage is what retransmitting a lost CRYPTO frame
+     will need. The server's half needs the two `crypto.Suite` members decision 55 rules, which
+     extend the list decision 48 fixed and invariant 23 pins.
   10. **The simulator connection check** for invariants 17 to 21.
   11. **The test-only endpoint and `tools/interop.sh`**, which is the only part that waits on
       chapulin, whose QUIC server has not yet exchanged a packet with any implementation.
@@ -1707,6 +1711,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   mutations, 20 CAUGHT, one of them only after a test was written: a 1-RTT space the peer had
   acknowledged nothing in read as acknowledged, because no case had sent a packet without also
   recording an acknowledgment. `zig build test`: 1155 passed, 18 skipped.
+
+  **The handshake's connection IDs are authenticated, 2026-09-21**, `bb33948`. RFC 9000 §7.3
+  says "Endpoints MUST validate that received transport parameters match received connection ID
+  values", and nothing did: `connection_identity.zig` held §7.3's five values and wrote its own
+  into the parameters colibri sends, and the peer's arrived unchecked.
+
+  §7.2's half was missing too, and it is what makes §7.3's possible. `Identity.on_peer_initial`
+  had no caller outside a test, so a client never addressed the Source Connection ID the server's
+  Initial carried and there was nothing to hold the peer's parameter to. It is now taken off the
+  first long-header packet that opened — never off one that did not, because until the AEAD tag
+  matches nothing in a packet is the peer's word for anything — and a later long header carrying a
+  different Source Connection ID is discarded, which §7.2 requires of both roles.
+
+  `authenticate` runs before the peer's limits are raised, so parameters that fail §7.3 never
+  widen what colibri may spend. Every failure carries TRANSPORT_PARAMETER_ERROR: §7.3 mandates it
+  for the absent parameters and permits it for the rest, so one code answers the whole section.
+
+  17 mutations, 16 CAUGHT. The survivor compared connection IDs by prefix, which no case
+  separated because every pair a test used was the same length; §7.3's "If a zero-length
+  connection ID is selected, the corresponding transport parameter is included with a zero-length
+  value" is the case that does, and it is now a test.
+
+  **A client acts on a Retry, 2026-09-21**, `20e51c0`. `packet/packet_header.zig` could read a
+  Retry packet and nothing decided what to do with one. `connection_retry.zig` is that decision:
+  RFC 9000 §17.2.5.2's refusals, the Retry Integrity Tag checked over the pseudo-packet RFC 9001
+  §5.8 defines, and what a Retry that survives changes.
+
+  Nothing in a Retry is protected, which §17.2.5 says in as many words, so every rule is a discard
+  and none is a connection error. Two of the refusals are §7.2's work from the commit above:
+  "After the client has received and processed an Initial or Retry packet from the server, it MUST
+  discard any subsequent Retry packets" is `retry_source` and `peer_initial_source` being null.
+
+  colibri installs no key. RFC 9001 §5.2 changes the Initial keys with the Destination Connection
+  ID, so `Taken` reports the Retry's Source Connection ID and the caller installs over it, exactly
+  as it installed the first set — the shape decision 48 already had. A token longer than decision
+  54's `token_len_max` is discarded, because §8.1.2 has the client repeat the token in every later
+  Initial and one it cannot hold is one it cannot answer.
+
+  12 mutations, 11 CAUGHT. The survivor sized an Initial's header without its Token field, which
+  no case separated because what bounded every payload was what the provider owed rather than the
+  room the header left. A packet built into an output the payload fills is the case that does.
+
+  `zig build test`: 1190 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
