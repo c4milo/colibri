@@ -1595,9 +1595,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   exists, though not after it closes, because §4.5 says generating them "is not mandatory" exactly
   when an endpoint would have to keep state for closed streams, and colibri keeps none.
 
-  One check is left unmade and says so in the code: §8.2.3's path MTU, because `Path.Challenge`
-  does not remember whether its datagram was expanded and only the send path can know. Passing
-  false leaves the second validation owed, where true would claim a test that never ran.
+  One check was left unmade there and is now made: §8.2.3's path MTU. `take_path_response` passed
+  a hard-coded false, so the second validation was owed after every probe. `Path.Challenge`
+  remembers instead, and `on_challenge_sent` takes the datagram's length rather than a flag, so
+  §8.2.1's 1,200 octets are compared in one place. Recorded below, `4aafd03`.
 
   **Version negotiation is done, 2026-09-20.** RFC 8999 §6 defines the packet for every version
   of QUIC and `packet/invariant.zig` already read and wrote it. What `connection_version.zig`
@@ -1803,6 +1804,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   §17.2.5.2 has a client discard outright — which no suite in a test had produced.
 
   `zig build test`: 1204 passed, 18 skipped.
+
+  **§8.2.3's path MTU is recorded where it is known, 2026-09-21**, `4aafd03`. The receive path
+  had no way to answer RFC 9000 §8.2.3's question — "If an endpoint sends a PATH_CHALLENGE frame
+  in a datagram that is not expanded to at least 1200 bytes and if the response to it validates
+  the peer address, the path is validated but not the path MTU" — because the fact belongs to the
+  datagram that went out and nothing kept it. So `take_path_response` passed false, which was safe
+  and always wrong: every probe left a second validation owed.
+
+  `Path.Challenge` keeps it now. `on_challenge_sent` takes the datagram's length rather than a
+  flag, so §8.2.1's "at least the smallest allowed maximum datagram size of 1200 bytes" is
+  compared once, in `path.zig`, instead of at every call site that might get it wrong;
+  `on_response` loses the parameter it could have been lied to through.
+
+  7 mutations, 6 CAUGHT. The survivor let an unexpanded probe unsettle an MTU an earlier probe had
+  validated, which no case had sent in that order — §8.2.3 asks for the MTU to be verified once,
+  not for every probe to verify it again.
+
+  `zig build test`: 1205 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
