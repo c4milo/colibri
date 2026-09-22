@@ -72,6 +72,17 @@ fn send_spaced(kind: Kind, count: u64) !void {
     try send(kind, 0, count, test_start_ns, test_round_trip_ns);
 }
 
+/// Sends `count` packets the caller marked ECT(0) (RFC 9000 §13.4), which is what makes the
+/// peer's ECT(0) count believable under §13.4.2.1. Test-only.
+fn send_marked(kind: Kind, first: u64, count: u64, from_ns: u64) !void {
+    for (0..count) |step| {
+        const at_ns = from_ns + step * test_round_trip_ns;
+        var record = eliciting(first + step, at_ns);
+        record.ecn = .ect_0;
+        try test_recovery.on_packet_sent(kind, record, at_ns);
+    }
+}
+
 test "A.5: a sent packet is outstanding, counted and paced" {
     test_recovery.init(test_datagram_len);
     const window = test_recovery.congestion.window;
@@ -131,13 +142,14 @@ test "§5.1: a repeated acknowledgment measures nothing" {
     _ = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 0), .full, at_ns + 2, &test_lost);
     try testing.expectEqual(1, test_recovery.largest_acknowledged[@intFromEnum(Kind.application)]);
     // RFC 9002 Appendix A.7 returns where nothing was newly acknowledged, so a repeat carrying a
-    // higher ECN-CE count is not a congestion event either: the frame says nothing new.
+    // higher ECN-CE count is not a congestion event either: the frame says nothing new. RFC 9000
+    // §13.4.2.1 would not judge it anyway, because it does not raise the largest acknowledged.
     const window = test_recovery.congestion.window;
     var marked = ack_of(0, 1);
     marked.ecn = .{ .ect_0 = 2, .ect_1 = 0, .ecn_ce = 9 };
     _ = recovery_ack.on_ack_received(&test_recovery, .application, marked, .full, at_ns + 3, &test_lost);
     try testing.expectEqual(window, test_recovery.congestion.window);
-    try testing.expectEqual(0, test_recovery.ecn_ce_counts[@intFromEnum(Kind.application)]);
+    try testing.expectEqual(0, test_recovery.ecn[@intFromEnum(Kind.application)].reported.ecn_ce);
 }
 
 test "§5.1: a sample needs the largest named and an ack-eliciting packet" {
@@ -184,7 +196,9 @@ test "A.7: an acknowledgment that reveals loss halves the window" {
 
 test "B.7: a rise in the peer's ECN-CE count is a congestion event" {
     test_recovery.init(test_datagram_len);
-    try send_spaced(.application, 2);
+    // RFC 9000 §13.4.2.1 measures the peer's counts against what this endpoint marked, so the
+    // packets go out ECT(0) and the counts that come back are ones it could have produced.
+    try send_marked(.application, 0, 2, test_start_ns);
     const window = test_recovery.congestion.window;
     const at_ns = test_start_ns + test_round_trip_ns * 2;
     var marked = ack_of(0, 1);
@@ -193,9 +207,9 @@ test "B.7: a rise in the peer's ECN-CE count is a congestion event" {
     // RFC 9002 Appendix B.7: the path reported congestion without dropping anything, and the
     // window halves for it just as it would for loss.
     try testing.expectEqual(window / 2, test_recovery.congestion.window);
-    try testing.expectEqual(1, test_recovery.ecn_ce_counts[@intFromEnum(Kind.application)]);
+    try testing.expectEqual(1, test_recovery.ecn[@intFromEnum(Kind.application)].reported.ecn_ce);
     // A count that has not risen is not a second event.
-    try send(.application, 2, 2, at_ns, test_round_trip_ns);
+    try send_marked(.application, 2, 2, at_ns);
     const halved = test_recovery.congestion.window;
     var repeated = ack_of(2, 3);
     repeated.ecn = .{ .ect_0 = 4, .ect_1 = 0, .ecn_ce = 1 };
@@ -356,4 +370,70 @@ test "A.7: the backoff starts again only once the peer has validated the address
     test_recovery.timer.peer_completed_address_validation = true;
     _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(1, 1), .full, at_ns + 1, &test_lost);
     try testing.expectEqual(0, test_recovery.timer.pto_count);
+}
+
+test "RFC 9000 §13.4.2.2: validation failing disables ECN and takes no counts" {
+    test_recovery.init(test_datagram_len);
+    try send_marked(.application, 0, 2, test_start_ns);
+    try testing.expect(test_recovery.ecn_permitted());
+    const at_ns = test_start_ns + test_round_trip_ns * 2;
+    const window = test_recovery.congestion.window;
+
+    // §13.4.2.1: a count for ECT(1), "an ECT codepoint that it never applied".
+    var forged = ack_of(0, 1);
+    forged.ecn = .{ .ect_0 = 2, .ect_1 = 1, .ecn_ce = 0 };
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, forged, .full, at_ns, &test_lost);
+    // §13.4.2.2: "If validation fails, then the endpoint MUST disable ECN."
+    try testing.expect(!test_recovery.ecn_permitted());
+    // §13.4.2.1 validates "before using them", so a frame that failed leaves nothing behind and
+    // RFC 9002 Appendix B.7's congestion event does not follow from counts nobody believed.
+    try testing.expectEqual(0, test_recovery.ecn[@intFromEnum(Kind.application)].reported.ect_0);
+    try testing.expect(test_recovery.congestion.window >= window);
+}
+
+test "RFC 9000 §13.4.2.1: an increase smaller than the packets acknowledged fails" {
+    test_recovery.init(test_datagram_len);
+    try send_marked(.application, 0, 2, test_start_ns);
+    const at_ns = test_start_ns + test_round_trip_ns * 2;
+
+    // Two packets marked ECT(0) are newly acknowledged and the counts rose by one, which is
+    // "the sum of the increase in ECT(0) and ECN-CE counts ... less than the number of newly
+    // acknowledged packets that were originally sent with an ECT(0) marking".
+    var short = ack_of(0, 1);
+    short.ecn = .{ .ect_0 = 1, .ect_1 = 0, .ecn_ce = 0 };
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_lost);
+    try testing.expect(!test_recovery.ecn_permitted());
+}
+
+/// RFC 9000 §19.3.1 encodes each range after the first as a gap and a length, where
+/// `largest = previous_smallest - gap - 2`. These two octets name one more range at zero.
+const two_range_gap: u8 = 1;
+const two_range_len: u8 = 0;
+const two_range_octets = [_]u8{ two_range_gap, two_range_len };
+
+/// An ACK naming `largest` on its own and zero on its own, in two ranges. Test-only.
+fn ack_of_two(largest: u64) recovery_ack.Ack {
+    return .{
+        .ranges = .{
+            .largest_acknowledged = largest,
+            .first_range = 0,
+            .octets = &two_range_octets,
+            .count = 1,
+        },
+        .delay_ns = 0,
+        .ecn = null,
+    };
+}
+
+test "RFC 9000 §13.4.2.1: the markings are counted over the frame, not over one range" {
+    test_recovery.init(test_datagram_len);
+    try send_marked(.application, 0, 4, test_start_ns);
+    const at_ns = test_start_ns + test_round_trip_ns * 4;
+
+    // Two ranges, each naming one packet marked ECT(0), so the frame newly acknowledges two of
+    // them. A count that rose by one is less than that, which §13.4.2.1 fails.
+    var short = ack_of_two(3);
+    short.ecn = .{ .ect_0 = 1, .ect_1 = 0, .ecn_ce = 0 };
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_lost);
+    try testing.expect(!test_recovery.ecn_permitted());
 }

@@ -23,6 +23,7 @@ const recovery_loss = @import("recovery_loss.zig");
 const recovery_pacing = @import("recovery_pacing.zig");
 const recovery_sent = @import("recovery_sent.zig");
 const recovery_timer = @import("recovery_timer.zig");
+const recovery_ecn = @import("recovery_ecn.zig");
 
 const Congestion = recovery_congestion.Congestion;
 const Kind = space.Kind;
@@ -60,9 +61,14 @@ pub const Recovery = struct {
     /// RFC 9002 Appendix A.3's `largest_acked_packet[space]`, or null where the peer has
     /// acknowledged nothing in that space yet.
     largest_acknowledged: [constants.packet_number_spaces]?u64,
-    /// RFC 9002 Appendix B.2's `ecn_ce_counters[space]`: the highest ECN-CE count the peer has
-    /// reported in that space, so an increase can be seen.
-    ecn_ce_counts: [constants.packet_number_spaces]u64,
+    /// RFC 9000 §13.4.2.1's counts, per packet number space: what the peer last reported and what
+    /// this endpoint sent under each ECT codepoint. RFC 9002 Appendix B.2's `ecn_ce_counters` is
+    /// `reported.ecn_ce`.
+    ecn: [constants.packet_number_spaces]recovery_ecn.State,
+    /// RFC 9000 §13.4.2.2: false once validation failed, after which this endpoint "stops setting
+    /// the ECT codepoint in IP packets that it sends". §13.4.2 validates "for each network path",
+    /// and a connection holds one path here, so one answer covers the three spaces.
+    ecn_enabled: bool,
 
     pub fn init(recovery: *Recovery, max_datagram_len: u64) void {
         recovery.rtt.init();
@@ -71,7 +77,8 @@ pub const Recovery = struct {
         recovery.timer = .{ .spaces = @splat(.{}) };
         for (&recovery.tables) |*table| table.init();
         recovery.largest_acknowledged = @splat(null);
-        recovery.ecn_ce_counts = @splat(0);
+        for (&recovery.ecn) |*state| state.init();
+        recovery.ecn_enabled = true;
     }
 
     pub fn table_of(recovery: *Recovery, kind: Kind) *Table {
@@ -102,9 +109,17 @@ pub const Recovery = struct {
         return @min(recovery.congestion.available_len(recovery.in_flight_len()), recovery.pacer.credit_len);
     }
 
+    /// RFC 9000 §13.4.2.2: whether this endpoint may still set an ECT codepoint. The caller
+    /// writes the IP header, so it asks before it marks.
+    pub fn ecn_permitted(recovery: *const Recovery) bool {
+        return recovery.ecn_enabled;
+    }
+
     /// RFC 9002 Appendix A.5's `OnPacketSent`.
     pub fn on_packet_sent(recovery: *Recovery, kind: Kind, sent: Record, now_ns: u64) Error!void {
         try recovery.table_of(kind).record(sent);
+        // RFC 9000 §13.4.2.1 compares what the peer reports against what this endpoint marked.
+        recovery.ecn[@intFromEnum(kind)].on_packet_sent(sent.ecn);
         if (!sent.in_flight) return;
         const held = &recovery.timer.spaces[@intFromEnum(kind)];
         if (sent.ack_eliciting) held.last_ack_eliciting_sent_at_ns = now_ns;

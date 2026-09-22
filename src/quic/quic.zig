@@ -25,6 +25,7 @@ pub const recovery_timer = @import("recovery/recovery_timer.zig");
 pub const recovery_pacing = @import("recovery/recovery_pacing.zig");
 pub const recovery = @import("recovery/recovery.zig");
 pub const recovery_ack = @import("recovery/recovery_ack.zig");
+pub const recovery_ecn = @import("recovery/recovery_ecn.zig");
 pub const stream = @import("stream/stream.zig");
 pub const connection = @import("connection/connection.zig");
 pub const connection_identity = @import("connection/connection_identity.zig");
@@ -66,6 +67,7 @@ test {
     _ = recovery_pacing;
     _ = recovery;
     _ = recovery_ack;
+    _ = recovery_ecn;
     _ = stream;
     _ = connection;
     _ = connection_identity;

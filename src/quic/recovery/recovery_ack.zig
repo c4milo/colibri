@@ -17,6 +17,7 @@ const recovery = @import("recovery.zig");
 const recovery_congestion = @import("recovery_congestion.zig");
 const recovery_loss = @import("recovery_loss.zig");
 const recovery_sent = @import("recovery_sent.zig");
+const recovery_ecn = @import("recovery_ecn.zig");
 
 const Kind = space.Kind;
 const Record = recovery_sent.Record;
@@ -55,7 +56,9 @@ pub fn on_ack_received(
 ) Outcome {
     const at = @intFromEnum(kind);
     // RFC 9002 Appendix A.7: the largest acknowledged only ever rises, because an older ACK can
-    // arrive after a newer one.
+    // arrive after a newer one. Whether it rose is what RFC 9000 §13.4.2.1 judges an ECN count by.
+    const largest_is_new = held.largest_acknowledged[at] == null or
+        ack.ranges.largest_acknowledged > held.largest_acknowledged[at].?;
     held.largest_acknowledged[at] = if (held.largest_acknowledged[at]) |already|
         @max(already, ack.ranges.largest_acknowledged)
     else
@@ -72,7 +75,7 @@ pub fn on_ack_received(
     if (removed.count == 0) return outcome;
 
     outcome.rtt_sampled = sample(held, ack, removed, now_ns);
-    if (ack.ecn) |counts| process_ecn(held, kind, counts, removed, now_ns);
+    process_ecn(held, kind, ack, removed, largest_is_new, now_ns);
     outcome.lost = held.detect(kind, now_ns, lost);
     grow(held, removed, used);
 
@@ -93,6 +96,9 @@ fn take(held: *Recovery, kind: Kind, ack: Ack) recovery_sent.Removed {
         const removed = held.table_of(kind).remove_range(range.smallest, range.largest);
         total.count += removed.count;
         total.in_flight_len += removed.in_flight_len;
+        // RFC 9000 §13.4.2.1 counts over the whole frame, not over one range of it.
+        total.ect_0 += removed.ect_0;
+        total.ect_1 += removed.ect_1;
         if (removed.any_ack_eliciting) total.any_ack_eliciting = true;
         const largest = removed.largest orelse continue;
         if (total.largest == null or largest > total.largest.?) {
@@ -120,18 +126,37 @@ fn sample(held: *Recovery, ack: Ack, removed: recovery_sent.Removed, now_ns: u64
     return true;
 }
 
-/// RFC 9002 Appendix B.7's `ProcessECN`: a rise in the peer's ECN-CE count is a congestion event,
-/// which is the path reporting congestion without having had to drop anything.
+/// RFC 9000 §13.4.2.1's validation, then RFC 9002 Appendix B.7's `ProcessECN`: a rise in the
+/// peer's ECN-CE count is a congestion event, which is the path reporting congestion without
+/// having had to drop anything. The counts are judged before they are used, because §13.4.2.1
+/// says "An endpoint that receives an ACK frame with ECN counts therefore validates the counts
+/// before using them."
 fn process_ecn(
     held: *Recovery,
     kind: Kind,
-    counts: frame_ack.EcnCounts,
+    ack: Ack,
     removed: recovery_sent.Removed,
+    largest_is_new: bool,
     now_ns: u64,
 ) void {
     const at = @intFromEnum(kind);
-    if (counts.ecn_ce <= held.ecn_ce_counts[at]) return;
-    held.ecn_ce_counts[at] = counts.ecn_ce;
+    const state = &held.ecn[at];
+    switch (recovery_ecn.validate(state, ack.ecn, removed, largest_is_new)) {
+        // §13.4.2.2: "If validation fails, then the endpoint MUST disable ECN." The counts that
+        // failed are not taken: they are what the endpoint stopped believing.
+        .failed => {
+            held.ecn_enabled = false;
+            return;
+        },
+        // §13.4.2.1: a frame that did not raise the largest acknowledged is not judged, and its
+        // counts are older than what is already held.
+        .not_judged => return,
+        .passed => {},
+    }
+    const counts = ack.ecn orelse return;
+    const rose = counts.ecn_ce > state.reported.ecn_ce;
+    state.accept(counts);
+    if (!rose) return;
     held.congestion.on_congestion_event(removed.largest_sent_at_ns, now_ns);
 }
 
