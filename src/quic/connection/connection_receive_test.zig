@@ -187,7 +187,7 @@ test "RFC 9000 §12.2: two packets coalesced in one datagram are both processed"
     try write_packet(&writer, .handshake, &local_id, 1);
     start(writer.written().len);
 
-    const first = receive.next(&walk, &test_connection, opener.suite()).?;
+    const first = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(Level.initial, first.opened.level);
     try testing.expectEqual(0, first.opened.packet_number);
     try testing.expectEqual(payload_len, first.opened.payload.len);
@@ -197,13 +197,13 @@ test "RFC 9000 §12.2: two packets coalesced in one datagram are both processed"
     // early shows here rather than in the length, which would still be right.
     for (first.opened.payload) |octet| try testing.expectEqual(payload_octet, octet);
 
-    const second = receive.next(&walk, &test_connection, opener.suite()).?;
+    const second = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(Level.handshake, second.opened.level);
     try testing.expectEqual(1, second.opened.packet_number);
 
     // "Every QUIC packet that is coalesced into a single UDP datagram is separate and complete",
     // so the datagram is spent once both have been taken.
-    try testing.expectEqual(null, receive.next(&walk, &test_connection, opener.suite()));
+    try testing.expectEqual(null, try receive.next(&walk, &test_connection, opener.suite()));
     try testing.expectEqual(2, opener.opened);
 }
 
@@ -217,10 +217,10 @@ test "RFC 9000 §12.2: a packet that will not open does not stop the ones after 
     // later processing and MUST attempt to process the remaining packets." colibri discards.
     opener.refuses = 0;
 
-    const first = receive.next(&walk, &test_connection, opener.suite()).?;
+    const first = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.would_not_open, first.discarded);
     // The Length field is what said where the refused packet ended, so the next one is found.
-    const second = receive.next(&walk, &test_connection, opener.suite()).?;
+    const second = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(Level.handshake, second.opened.level);
     try testing.expectEqual(1, second.opened.packet_number);
 }
@@ -235,11 +235,11 @@ test "RFC 9000 §12.2: a later packet with another Destination Connection ID is 
     try write_packet(&writer, .handshake, &local_id, 2);
     start(writer.written().len);
 
-    _ = receive.next(&walk, &test_connection, opener.suite()).?;
-    const ignored = receive.next(&walk, &test_connection, opener.suite()).?;
+    _ = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    const ignored = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.other_connection, ignored.discarded);
     // It was stepped over rather than ending the walk, so the third packet still arrives.
-    const third = receive.next(&walk, &test_connection, opener.suite()).?;
+    const third = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(2, third.opened.packet_number);
     // And the ignored one never reached the suite.
     try testing.expectEqual(2, opener.opened);
@@ -252,11 +252,11 @@ test "RFC 9000 §12.3: a packet number already processed is discarded, not read 
     try write_packet(&writer, .initial, &local_id, 0);
     start(writer.written().len);
 
-    _ = receive.next(&walk, &test_connection, opener.suite()).?;
+    _ = (try receive.next(&walk, &test_connection, opener.suite())).?;
     // The walk asks the space; nothing has recorded the number yet, because §13.1 waits for the
     // frames. So the test records it the way the frame layer will.
     _ = test_connection.space_at(.initial).receive(0, test_now_ns, true, .not_ect);
-    const repeat = receive.next(&walk, &test_connection, opener.suite()).?;
+    const repeat = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.already_processed, repeat.discarded);
 }
 
@@ -272,11 +272,11 @@ test "RFC 9001 §4.9, §5.7: a level colibri cannot read is a discard and not an
     start(writer.written().len);
     test_connection.keys.mark_discarded(.initial);
 
-    const dropped = receive.next(&walk, &test_connection, opener.suite()).?;
+    const dropped = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.no_keys, dropped.discarded);
     try testing.expectEqual(0, opener.opened);
     // The Handshake packet behind it is still read, which is what §12.2 requires.
-    const kept = receive.next(&walk, &test_connection, opener.suite()).?;
+    const kept = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(Level.handshake, kept.opened.level);
 }
 
@@ -294,7 +294,7 @@ test "RFC 9001 §5.7: a 1-RTT packet before the handshake completes is not opene
 
     // "Endpoints in either role MUST NOT decrypt 1-RTT packets from their peer prior to
     // completing the handshake", even though the keys are installed.
-    const dropped = receive.next(&walk, &test_connection, opener.suite()).?;
+    const dropped = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.no_keys, dropped.discarded);
     try testing.expectEqual(0, opener.opened);
 }
@@ -311,12 +311,12 @@ test "RFC 9000 §17.3: a short header is the last packet of its datagram" {
     try writer.write_bytes(&test_payload);
     start(writer.written().len);
 
-    _ = receive.next(&walk, &test_connection, opener.suite()).?;
-    const last = receive.next(&walk, &test_connection, opener.suite()).?;
+    _ = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    const last = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(Level.application, last.opened.level);
     try testing.expectEqual(9, last.opened.packet_number);
     // A short header carries no Length, so its packet runs to the end and nothing follows it.
-    try testing.expectEqual(null, receive.next(&walk, &test_connection, opener.suite()));
+    try testing.expectEqual(null, try receive.next(&walk, &test_connection, opener.suite()));
 }
 
 test "RFC 9000 §12.2: a header that will not parse ends the walk" {
@@ -329,8 +329,8 @@ test "RFC 9000 §12.2: a header that will not parse ends the walk" {
     datagram[good] = 0x80;
     start(good + 1);
 
-    _ = receive.next(&walk, &test_connection, opener.suite()).?;
-    const stopped = receive.next(&walk, &test_connection, opener.suite()).?;
+    _ = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    const stopped = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.unreadable_header, stopped.discarded);
-    try testing.expectEqual(null, receive.next(&walk, &test_connection, opener.suite()));
+    try testing.expectEqual(null, try receive.next(&walk, &test_connection, opener.suite()));
 }

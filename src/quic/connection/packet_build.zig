@@ -30,6 +30,7 @@ const connection_module = @import("connection.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const connection_close = @import("connection_close.zig");
 const keys_module = @import("connection_keys.zig");
+const key_update = @import("connection_key_update.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 
 const Level = core.Level;
@@ -93,6 +94,9 @@ pub const Planned = struct {
     /// Whether this packet carries a CONNECTION_CLOSE frame (RFC 9000 §10.2.3), which is what
     /// puts the connection into §10.2.1's closing state once the datagram goes out.
     carries_close: bool = false,
+    /// Whether this packet carries an ACK frame (RFC 9000 §19.3). RFC 9001 §6.2 completes a key
+    /// update on the first packet under the new keys that acknowledges the one that started it.
+    carries_ack: bool = false,
 };
 
 /// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
@@ -131,6 +135,7 @@ pub fn plan(
         .ack_eliciting = framed.ack_eliciting,
         .shape = shape,
         .carries_close = framed.carries_close,
+        .carries_ack = framed.carries_ack,
     };
 }
 
@@ -197,6 +202,7 @@ const Framed = struct {
     len: usize,
     ack_eliciting: bool,
     carries_close: bool = false,
+    carries_ack: bool = false,
 };
 
 /// Writes the frames this packet carries. The set is small on purpose: an ACK when the space owes
@@ -235,6 +241,7 @@ fn frame_payload(
         .len = written_ack + crypto_len,
         // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing and a CRYPTO frame does.
         .ack_eliciting = crypto_len > 0,
+        .carries_ack = written_ack > 0,
     };
 }
 
@@ -294,7 +301,7 @@ pub fn seal_planned(
         .shape = planned.shape,
     };
     var header = Writer.init(header_scratch);
-    write_header(connection, &header, pending) catch return Error.NoSpaceLeft;
+    write_header(connection, suite, &header, pending) catch return Error.NoSpaceLeft;
     const written = suite.seal(.{
         .level = pending.level,
         .packet_number = pending.number,
@@ -302,6 +309,9 @@ pub fn seal_planned(
         .packet_number_len = pending.truncated.len,
         .payload = pending.payload,
     }, output) catch return Error.NoSpaceLeft;
+    // RFC 9001 §6.1, §6.2: the packet exists now, so what it does to the key phase is recorded
+    // here and never on a packet the suite refused to protect.
+    key_update.on_packet_sent(connection, pending.level, pending.number, planned.carries_ack);
     return .{
         .level = pending.level,
         .packet_number = pending.number,
@@ -315,7 +325,7 @@ pub fn seal_planned(
 
 /// RFC 9000 §17.2 and §17.3: the header through the Packet Number field, unprotected, which
 /// RFC 9001 §5.3 makes the AEAD's associated data.
-fn write_header(connection: *Connection, writer: *Writer, pending: Pending) core.writer.Error!void {
+fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, pending: Pending) core.writer.Error!void {
     const identity = &connection.identity;
     if (pending.level == .application) {
         return header_write.write_short(writer, .{
@@ -323,7 +333,7 @@ fn write_header(connection: *Connection, writer: *Writer, pending: Pending) core
             .packet_number = pending.truncated,
             // RFC 9001 §6: the bit is the suite's answer about its current write keys, read at
             // the moment the header is written and never stored by colibri.
-            .key_phase = suite_key_phase(connection),
+            .key_phase = suite_key_phase(suite),
         });
     }
     return header_write.write_long(writer, .{
@@ -337,12 +347,12 @@ fn write_header(connection: *Connection, writer: *Writer, pending: Pending) core
 }
 
 /// The Key Phase bit, which only a 1-RTT packet carries (RFC 9000 §17.3.1, RFC 9001 §6).
-fn suite_key_phase(connection: *Connection) bool {
-    _ = connection;
-    // RFC 9001 §6: "The Key Phase bit is initially set to 0 for the first set of 1-RTT packets."
-    // Reading the suite's answer lands with the key update of design §8 step 9e's piece 7, which
-    // is what makes the bit ever change; until then no key update happens and 0 is correct.
-    return false;
+///
+/// RFC 9001 §6: "The Key Phase bit indicates which packet protection keys are used to protect the
+/// packet", and the keys are the suite's. colibri never stores the answer: `crypto.Suite` moves
+/// both directions in one call (§6.1), so a copy here could disagree with what `seal` then uses.
+fn suite_key_phase(suite: crypto.Suite) bool {
+    return suite.vtable.key_phase(suite.context);
 }
 
 test {

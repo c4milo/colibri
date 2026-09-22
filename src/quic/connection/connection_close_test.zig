@@ -116,7 +116,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !Read {
     var seen: Read = .{ .packets = 0, .closes = 0 };
     // Bounded by what one datagram can hold (RFC 9000 §12.2).
     while (seen.packets < constants.coalesced_packets_max) {
-        const outcome = receive.next(&walk, reader, suite_holder.suite()) orelse break;
+        const outcome = try receive.next(&walk, reader, suite_holder.suite()) orelse break;
         const opened = switch (outcome) {
             .opened => |one| one,
             .discarded => continue,

@@ -1,0 +1,293 @@
+//! The tests of `connection_key_update.zig`: RFC 9001 §6's timing, driven both directly and
+//! through the two call sites that reach it — `connection_receive.zig` on the way in and
+//! `packet_build.zig` on the way out.
+//!
+//! `quic` cannot import `sim` (design §3), so the suite is `packet_build_test.zig`'s `RoundTrip`,
+//! which protects nothing and reports the key set a test asks it for. What is checked here is
+//! when colibri calls `update_keys` and when it refuses, which is all §6 leaves to colibri.
+const std = @import("std");
+const core = @import("core");
+const crypto = @import("crypto");
+const constants = @import("../constants.zig");
+const error_code = @import("../error_code.zig");
+const header_write = @import("../packet/packet_header_write.zig");
+const transport_parameters = @import("../transport_parameters.zig");
+const connection_module = @import("connection.zig");
+const keys = @import("connection_keys.zig");
+const key_update = @import("connection_key_update.zig");
+const receive = @import("connection_receive.zig");
+const packet_build = @import("packet_build.zig");
+const build_test = @import("packet_build_test.zig");
+
+const testing = std.testing;
+const Level = core.Level;
+const Writer = core.Writer;
+const Connection = connection_module.Connection;
+const Parameters = transport_parameters.Parameters;
+
+var test_connection: Connection = undefined;
+var suite_holder: build_test.RoundTrip = undefined;
+var provider_holder: build_test.Fake = undefined;
+var scratch: packet_build.DefaultScratch = .{};
+var walk: receive.Walk = undefined;
+
+const test_now_ns: u64 = 1_000_000;
+const test_max_data: u64 = 1_048_576;
+const id_len: usize = 4;
+const local_octet: u8 = 0xc1;
+const peer_octet: u8 = 0x51;
+const local_id: [id_len]u8 = @splat(local_octet);
+const peer_id: [id_len]u8 = @splat(peer_octet);
+
+/// One octet of made-up payload, repeated. Nothing reads its value.
+const payload_octet: u8 = 0x33;
+/// Long enough that the octets after the Packet Number field hold a tag and a payload.
+const payload_len: usize = 8;
+const protected_len: usize = payload_len + constants.aead_tag_len;
+const test_payload: [protected_len]u8 = @splat(payload_octet);
+
+const datagram_len: usize = 256;
+var datagram: [datagram_len]u8 = undefined;
+
+fn parameters() Parameters {
+    var held = Parameters.initial();
+    held.initial_max_data = test_max_data;
+    return held;
+}
+
+/// A connection with the 1-RTT keys installed both ways and the handshake complete, which is the
+/// state RFC 9001 §6 begins in: §5.7 forbids opening a 1-RTT packet before it.
+fn open_connection() void {
+    suite_holder.init();
+    provider_holder = .{};
+    test_connection.init(.{
+        .role = .client,
+        .local_parameters = parameters(),
+        .now_ns = test_now_ns,
+        .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
+    });
+    keys.on_keys_installed(&test_connection, .application, .read);
+    keys.on_keys_installed(&test_connection, .application, .write);
+    test_connection.handshake_complete = true;
+    test_connection.handshake_confirmed = true;
+}
+
+fn suite() crypto.Suite {
+    return suite_holder.suite();
+}
+
+/// Says the peer acknowledged every 1-RTT packet up to `number`, which is what RFC 9001 §6.1
+/// compares the lowest number sent in the current phase against.
+fn acknowledge(number: u64) void {
+    test_connection.space_at(.application).largest_acknowledged = number;
+}
+
+/// Walks one 1-RTT packet the peer wrote, under the key set `suite_holder.opens_with` names.
+fn walk_short(number: u8) !receive.Outcome {
+    var writer = Writer.init(&datagram);
+    try header_write.write_short(&writer, .{
+        .dcid = &local_id,
+        .packet_number = .{ .value = number, .len = 1 },
+        // RFC 9001 §6: the bit the peer wrote. `RoundTrip` reads the key set from its own field
+        // rather than from the bit, so what this value is does not steer the test.
+        .key_phase = false,
+    });
+    try writer.write_bytes(&test_payload);
+    const len = writer.written().len;
+    walk.init(.{ .octets = datagram[0..len], .now_ns = test_now_ns, .ecn = .not_ect });
+    return (try receive.next(&walk, &test_connection, suite())).?;
+}
+
+test "RFC 9001 §6.1: a key update is refused before the handshake is confirmed" {
+    open_connection();
+    test_connection.handshake_confirmed = false;
+    key_update.on_packet_sent(&test_connection, .application, 0, false);
+    acknowledge(0);
+    try testing.expectError(error.HandshakeNotConfirmed, key_update.initiate(&test_connection, suite()));
+    try testing.expectEqual(0, suite_holder.updates);
+}
+
+test "RFC 9001 §6.1: a key update waits for an acknowledgment of the current phase" {
+    open_connection();
+    // Nothing has gone out in this phase, so nothing in it can have been acknowledged.
+    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
+
+    key_update.on_packet_sent(&test_connection, .application, 7, false);
+    try testing.expectEqual(7, test_connection.phase_lowest_sent.?);
+    // A packet has gone out, and the peer has acknowledged nothing in the 1-RTT space at all.
+    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
+
+    // An acknowledgment below the lowest number of this phase names a packet of the phase before.
+    acknowledge(6);
+    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
+
+    acknowledge(7);
+    try key_update.initiate(&test_connection, suite());
+    try testing.expectEqual(1, suite_holder.updates);
+    // RFC 9001 §6.1: the new phase has sent nothing and received nothing yet.
+    try testing.expectEqual(null, test_connection.phase_lowest_sent);
+    try testing.expectEqual(null, test_connection.current_phase_lowest);
+    try testing.expect(!test_connection.pending_phase_ack);
+}
+
+test "RFC 9001 §6.1: a suite that offers no key update refuses one" {
+    open_connection();
+    suite_holder.refuses_update = true;
+    key_update.on_packet_sent(&test_connection, .application, 3, false);
+    acknowledge(3);
+    try testing.expectError(error.Unsupported, key_update.initiate(&test_connection, suite()));
+    try testing.expectEqual(0, suite_holder.updates);
+}
+
+test "RFC 9001 §6.1: only a 1-RTT packet moves what the phase counts" {
+    open_connection();
+    key_update.on_packet_sent(&test_connection, .initial, 2, true);
+    key_update.on_packet_sent(&test_connection, .handshake, 3, true);
+    try testing.expectEqual(null, test_connection.phase_lowest_sent);
+    key_update.on_packet_sent(&test_connection, .application, 9, false);
+    key_update.on_packet_sent(&test_connection, .application, 10, false);
+    // The lowest sent in the phase, not the latest.
+    try testing.expectEqual(9, test_connection.phase_lowest_sent.?);
+}
+
+test "RFC 9001 §6.2: a packet under the next keys moves this endpoint's keys too" {
+    open_connection();
+    suite_holder.opens_with = .next;
+    const outcome = try walk_short(4);
+    try testing.expectEqual(Level.application, outcome.opened.level);
+    try testing.expectEqual(1, suite_holder.updates);
+    // §6.2: the packet that initiated the update is the first of the new phase.
+    try testing.expectEqual(4, test_connection.current_phase_lowest.?);
+    try testing.expect(test_connection.pending_phase_ack);
+    // §6.1: the new phase has sent nothing, so §6.1 refuses an update of colibri's own.
+    try testing.expectEqual(null, test_connection.phase_lowest_sent);
+}
+
+test "RFC 9001 §6.2: a second update before the answer is acknowledged closes the connection" {
+    open_connection();
+    suite_holder.opens_with = .next;
+    _ = try walk_short(4);
+    // The peer updated again without waiting for an acknowledgment under the first update's keys.
+    try testing.expectError(error.ConsecutiveKeyUpdate, walk_short(5));
+    try testing.expectEqual(1, suite_holder.updates);
+    // RFC 9001 §6.7: KEY_UPDATE_ERROR is 0x0e.
+    try testing.expectEqual(
+        error_code.key_update_error,
+        receive.connection_error_code(error.ConsecutiveKeyUpdate),
+    );
+}
+
+test "RFC 9001 §6.2: an acknowledgment under the new keys completes the update" {
+    open_connection();
+    suite_holder.opens_with = .next;
+    _ = try walk_short(4);
+    // A 1-RTT packet carrying no ACK does not complete it: §6.2 asks for the acknowledgment.
+    key_update.on_packet_sent(&test_connection, .application, 8, false);
+    try testing.expect(test_connection.pending_phase_ack);
+    key_update.on_packet_sent(&test_connection, .application, 9, true);
+    try testing.expect(!test_connection.pending_phase_ack);
+
+    // The next update is now the peer awaiting confirmation properly, and is answered.
+    _ = try walk_short(10);
+    try testing.expectEqual(2, suite_holder.updates);
+}
+
+test "RFC 9001 §6.2: a suite that will not move to its next keys ends the connection" {
+    open_connection();
+    suite_holder.opens_with = .next;
+    suite_holder.refuses_update = true;
+    try testing.expectError(error.SuiteRefusedUpdate, walk_short(4));
+    // RFC 9000 §11: no code names this, so it is INTERNAL_ERROR and not KEY_UPDATE_ERROR.
+    try testing.expectEqual(
+        error_code.internal_error,
+        receive.connection_error_code(error.SuiteRefusedUpdate),
+    );
+}
+
+test "RFC 9001 §6.4: old keys above the current phase's lowest close the connection" {
+    open_connection();
+    suite_holder.opens_with = .current;
+    _ = try walk_short(5);
+    try testing.expectEqual(5, test_connection.current_phase_lowest.?);
+
+    suite_holder.opens_with = .previous;
+    // Below the lowest of the current phase, this is the delayed packet §6.5 keeps old keys for.
+    _ = try walk_short(3);
+    // Above it, a lower-numbered packet used newer keys, which §6.4 makes a KEY_UPDATE_ERROR.
+    try testing.expectError(error.OldKeysAboveCurrentPhase, walk_short(7));
+    try testing.expectEqual(
+        error_code.key_update_error,
+        receive.connection_error_code(error.OldKeysAboveCurrentPhase),
+    );
+}
+
+test "RFC 9001 §6.4: old keys before any current-phase packet close nothing" {
+    open_connection();
+    suite_holder.opens_with = .previous;
+    // Nothing has opened under the current keys, so no lower-numbered packet used newer ones.
+    const outcome = try walk_short(9);
+    try testing.expectEqual(9, outcome.opened.packet_number);
+    try testing.expectEqual(null, test_connection.current_phase_lowest);
+}
+
+test "RFC 9001 §6.5: the current phase's lowest is the lowest, not the first to arrive" {
+    open_connection();
+    suite_holder.opens_with = .current;
+    _ = try walk_short(7);
+    _ = try walk_short(4);
+    try testing.expectEqual(4, test_connection.current_phase_lowest.?);
+    _ = try walk_short(9);
+    try testing.expectEqual(4, test_connection.current_phase_lowest.?);
+}
+
+test "RFC 9001 §6: a 1-RTT packet carries the Key Phase bit the suite answers" {
+    open_connection();
+    owe_ack(0, 1);
+    const first = (try build_1rtt()).?;
+    try testing.expect(!key_phase_of(datagram[0..first.len]));
+
+    // RFC 9001 §6.1: "The endpoint toggles the value of the Key Phase bit and uses the updated
+    // key and IV to protect all subsequent packets."
+    try suite_holder.suite().vtable.update_keys(&suite_holder);
+    owe_ack(2, 3);
+    const second = (try build_1rtt()).?;
+    try testing.expect(key_phase_of(datagram[0..second.len]));
+}
+
+test "RFC 9001 §6.1, §6.2: the send path reports what it sealed" {
+    open_connection();
+    test_connection.pending_phase_ack = true;
+    owe_ack(0, 1);
+
+    const built = (try build_1rtt()).?;
+    // The packet carried an ACK, so §6.2's answer is complete and §6.1 has a lowest number.
+    try testing.expect(!test_connection.pending_phase_ack);
+    try testing.expectEqual(built.packet_number, test_connection.phase_lowest_sent.?);
+}
+
+/// RFC 9000 §13.2.2: a receiver owes an ACK after two ack-eliciting packets, which is what makes
+/// the next 1-RTT packet this endpoint builds carry one.
+fn owe_ack(first: u64, second: u64) void {
+    const space = test_connection.space_at(.application);
+    _ = space.receive(first, test_now_ns, true, .not_ect);
+    _ = space.receive(second, test_now_ns, true, .not_ect);
+    std.debug.assert(space.owes_ack());
+}
+
+fn build_1rtt() !?packet_build.Built {
+    return packet_build.build(
+        &test_connection,
+        suite(),
+        provider_holder.provider(),
+        .application,
+        &scratch,
+        &datagram,
+        test_now_ns,
+    );
+}
+
+/// RFC 9000 §17.3.1: the Key Phase bit of a short header, which RFC 9001 §5.4 protects and this
+/// suite leaves in the clear.
+fn key_phase_of(packet: []const u8) bool {
+    return packet[0] & constants.key_phase_bit != 0;
+}

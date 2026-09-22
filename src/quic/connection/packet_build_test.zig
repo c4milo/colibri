@@ -49,6 +49,16 @@ const handshake_octets: [handshake_len]u8 = @splat(handshake_octet);
 /// and writes a tag of zeros; `open` takes them back apart. It holds no key, which is the point:
 /// what the round trip checks is colibri's framing, not anyone's cryptography.
 pub const RoundTrip = struct {
+    /// RFC 9001 §6: the Key Phase bit this suite writes, which `update_keys` toggles.
+    phase: bool = false,
+    /// How many times `update_keys` was called, which a key update test reads.
+    updates: usize = 0,
+    /// Makes `update_keys` refuse, as a suite that offers no key update would.
+    refuses_update: bool = false,
+    /// Which key set `open` reports at the application level (RFC 9001 §6.5). A test sets it to
+    /// drive §6.2's answer and §6.4's refusal; a real suite decides it from the Key Phase bit.
+    opens_with: crypto.suite.KeySet = .current,
+
     pub fn init(held: *RoundTrip) void {
         held.* = .{};
     }
@@ -69,7 +79,7 @@ pub const RoundTrip = struct {
     }
 
     fn open(context: *anyopaque, opening: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
-        _ = context;
+        const held: *RoundTrip = @ptrCast(@alignCast(context));
         // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. A real
         // suite reads them after removing header protection (RFC 9001 §5.4); this one has none.
         const number_len: u8 = (opening.packet[0] & constants.packet_number_len_mask) + 1;
@@ -86,8 +96,26 @@ pub const RoundTrip = struct {
             .packet_number = number,
             .packet_number_len = number_len,
             .payload_len = protected - number_len - constants.aead_tag_len,
-            .key_set = .current,
+            // RFC 9001 §6.5: only a 1-RTT packet has a phase to be read under, which
+            // `crypto.Suite.open` asserts.
+            .key_set = if (opening.level == .application) held.opens_with else .current,
         };
+    }
+
+    /// RFC 9001 §6.1: "The endpoint toggles the value of the Key Phase bit and uses the updated
+    /// key and IV to protect all subsequent packets." Both directions move, as §6.1 requires.
+    fn update_keys(context: *anyopaque) crypto.suite.UpdateError!void {
+        const held: *RoundTrip = @ptrCast(@alignCast(context));
+        // RFC 9001 §6: "an endpoint MAY initiate a key update", so a suite that offers none is
+        // legal and `crypto.suite.UpdateError.Unsupported` is how it says so.
+        if (held.refuses_update) return error.Unsupported;
+        held.phase = !held.phase;
+        held.updates += 1;
+    }
+
+    fn key_phase(context: *const anyopaque) bool {
+        const held: *const RoundTrip = @ptrCast(@alignCast(context));
+        return held.phase;
     }
 
     const vtable: crypto.suite.VTable = .{
@@ -97,8 +125,8 @@ pub const RoundTrip = struct {
         .open = open,
         .retry_tag_valid = unreachable_tag_valid,
         .retry_tag_write = unreachable_tag_write,
-        .update_keys = unreachable_update,
-        .key_phase = unreachable_phase,
+        .update_keys = update_keys,
+        .key_phase = key_phase,
         .discard_previous_keys = unreachable_discard_previous,
         .discard_keys = unreachable_discard,
     };
@@ -122,12 +150,6 @@ fn unreachable_tag_write(
     _: []const u8,
     _: *[crypto.constants.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {
-    unreachable;
-}
-fn unreachable_update(_: *anyopaque) crypto.suite.UpdateError!void {
-    unreachable;
-}
-fn unreachable_phase(_: *const anyopaque) bool {
     unreachable;
 }
 fn unreachable_discard_previous(_: *anyopaque) void {
@@ -214,13 +236,13 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
 }
 
 /// Walks one built packet back as the other endpoint would, and returns what it opened.
-fn walk_back(built: packet_build.Built) receive.Opened {
+fn walk_back(built: packet_build.Built) !receive.Opened {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..built.len], .now_ns = test_now_ns, .ecn = .not_ect });
-    const outcome = receive.next(&walk, &peer_connection, round_trip.suite()).?;
+    const outcome = (try receive.next(&walk, &peer_connection, round_trip.suite())).?;
     // RFC 9000 §12.2: the Length field says where the packet ends, so a datagram holding one
     // packet is spent after it.
-    std.debug.assert(receive.next(&walk, &peer_connection, round_trip.suite()) == null);
+    std.debug.assert(try receive.next(&walk, &peer_connection, round_trip.suite()) == null);
     return outcome.opened;
 }
 
@@ -246,7 +268,7 @@ test "RFC 9000 §17.2: a packet built at Initial is read back as one" {
     try testing.expect(built.in_flight);
 
     // The round trip. Every field of the header is checked by the walk that has to read it.
-    const opened = walk_back(built);
+    const opened = try walk_back(built);
     try testing.expectEqual(Level.initial, opened.level);
     try testing.expectEqual(0, opened.packet_number);
 
@@ -305,7 +327,7 @@ test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
     // It reads back as an ACK naming the packet that arrived. The peer must have sent that
     // packet for §13.1 to admit the acknowledgment, so its space is advanced first.
     _ = try peer_connection.space_at(.initial).next_number();
-    const opened = walk_back(built);
+    const opened = try walk_back(built);
     const report = try frames.process(&peer_connection, .initial, opened.payload, test_now_ns, null);
     try testing.expectEqual(1, report.frames);
     try testing.expect(!report.ack_eliciting);
@@ -351,7 +373,7 @@ test "RFC 9000 §17.2: a long flight fills the datagram exactly and never past i
     try testing.expectEqual(datagram.len, built.len);
 
     // And it still reads back, which is what says the Length field matched the real payload.
-    const opened = walk_back(built);
+    const opened = try walk_back(built);
     const report = try frames.process(&peer_connection, .initial, opened.payload, test_now_ns, null);
     try testing.expectEqual(1, report.frames);
     try testing.expect(report.ack_eliciting);
@@ -378,7 +400,7 @@ test "RFC 9000 §17.3: a 1-RTT packet is built with a short header and read back
     const built = (try build_at(.application)).?;
     try testing.expectEqual(0, built.packet_number);
 
-    const opened = walk_back(built);
+    const opened = try walk_back(built);
     try testing.expectEqual(Level.application, opened.level);
     try testing.expectEqual(0, opened.packet_number);
     const report = try frames.process(&peer_connection, .application, opened.payload, test_now_ns, null);
@@ -409,7 +431,7 @@ test "decision 35: a smaller scratch bounds the packet, not the datagram" {
     try testing.expect(header_and_tag > constants.aead_tag_len);
 
     // And what it carried still reads back, so the Length field matched the smaller payload.
-    const opened = walk_back(built);
+    const opened = try walk_back(built);
     try testing.expectEqual(small_payload_len, opened.payload.len);
     _ = try frames.process(&peer_connection, .initial, opened.payload, test_now_ns, null);
     try testing.expectEqual(small_payload_len - 3, peer_connection.crypto_at(.initial).readable().len);
@@ -430,7 +452,7 @@ test "RFC 9000 §17.3: a 1-RTT packet fills the datagram exactly, with no Length
     const built = (try build_at(.application)).?;
     try testing.expectEqual(datagram.len, built.len);
 
-    const opened = walk_back(built);
+    const opened = try walk_back(built);
     try testing.expectEqual(Level.application, opened.level);
     _ = try frames.process(&peer_connection, .application, opened.payload, test_now_ns, null);
 }

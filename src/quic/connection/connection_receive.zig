@@ -22,6 +22,7 @@ const constants = @import("../constants.zig");
 const header = @import("../packet/packet_header.zig");
 const connection_module = @import("connection.zig");
 const keys_module = @import("connection_keys.zig");
+const key_update = @import("connection_key_update.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -57,6 +58,12 @@ pub const Discarded = enum {
     /// and none may be followed by another packet (§12.2).
     not_for_this_walk,
 };
+
+/// Why a packet that opened ended the connection. Everything before the AEAD tag matches is a
+/// discard, so the only rules reached here are RFC 9001 §6's, which `connection_key_update.zig`
+/// applies. `connection_error_code` says which code the CONNECTION_CLOSE carries.
+pub const Error = key_update.Error;
+pub const connection_error_code = key_update.connection_error_code;
 
 /// What one packet of the datagram turned into.
 pub const Outcome = union(enum) {
@@ -111,7 +118,7 @@ pub const Walk = struct {
 /// Every return advances `walk` past the packet it describes, or ends the walk, so a caller that
 /// loops until null terminates: RFC 9000 §12.2's Length is what says where a long-header packet
 /// ends, and every other form is the last in its datagram.
-pub fn next(walk: *Walk, connection: *Connection, suite: Suite) ?Outcome {
+pub fn next(walk: *Walk, connection: *Connection, suite: Suite) Error!?Outcome {
     if (walk.finished()) return null;
     walk.packets += 1;
     const rest = walk.datagram.octets[walk.consumed..];
@@ -122,8 +129,8 @@ pub fn next(walk: *Walk, connection: *Connection, suite: Suite) ?Outcome {
         return .{ .discarded = .unreadable_header };
     };
     return switch (parsed) {
-        .long => |long| open_long(walk, connection, suite, long, rest),
-        .short => |short| open_short(walk, connection, suite, short, rest),
+        .long => |long| try open_long(walk, connection, suite, long, rest),
+        .short => |short| try open_short(walk, connection, suite, short, rest),
         // §12.2: a Retry, a Version Negotiation and a packet of another version carry no Length
         // and cannot be followed by another packet, so the walk ends whatever the caller does
         // with them.
@@ -137,7 +144,7 @@ fn end_walk(walk: *Walk) Outcome {
 }
 
 /// An Initial or Handshake packet, which RFC 9001 Table 1 pairs with its encryption level.
-fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Long, rest: []u8) Outcome {
+fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Long, rest: []u8) Error!Outcome {
     const level: Level = switch (long.type) {
         .initial => .initial,
         .handshake => .handshake,
@@ -156,7 +163,7 @@ fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Lo
 
 /// A 1-RTT packet, which RFC 9000 §17.3 makes the last of its datagram: a short header carries no
 /// Length, so `packet_len` is the whole remainder.
-fn open_short(walk: *Walk, connection: *Connection, suite: Suite, short: header.Short, rest: []u8) Outcome {
+fn open_short(walk: *Walk, connection: *Connection, suite: Suite, short: header.Short, rest: []u8) Error!Outcome {
     if (!matches_first_destination(walk, short.dcid)) {
         return advance(walk, short.packet_len, .other_connection);
     }
@@ -174,7 +181,7 @@ fn open_at(
     packet_number_offset: usize,
     packet_len: usize,
     destination: []const u8,
-) Outcome {
+) Error!Outcome {
     // RFC 9001 §4.9 and §5.7: a level colibri never installed, already discarded, or may not read
     // yet is not one to call `open` at. Invariant 21 is this check.
     if (!keys_module.can_open(connection, level, connection.handshake_complete)) {
@@ -197,6 +204,14 @@ fn open_at(
         // authenticate, so it is dropped and the walk goes on to the next.
         return advance(walk, packet_len, .would_not_open);
     };
+    // RFC 9001 §6.1's Note: "Keys of packets other than the 1-RTT packets are never updated", so
+    // the key phase is the application level's alone. It sits before §12.3's duplicate check
+    // because §6.4 refuses a packet whose protection was removed, which has happened by here, and
+    // because answering an update moves the phase, so a second copy of the packet that started
+    // one opens under the current keys rather than the next.
+    if (level == .application) {
+        try key_update.on_packet_opened(connection, suite, opened.packet_number, opened.key_set);
+    }
     // RFC 9000 §12.3: the duplicate check happens after protection is removed and before the
     // frames are processed, which is why the space is asked rather than told here.
     if (space.duplicate_verdict(opened.packet_number) != .new) {

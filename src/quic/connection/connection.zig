@@ -114,6 +114,14 @@ pub const Connection = struct {
     /// (RFC 9001 §6.5). It is what tells a delayed packet of the previous phase from the first of
     /// the next, because the two carry the same Key Phase bit. The application level alone.
     current_phase_lowest: ?u64,
+    /// The lowest packet number sent under the current key phase, or null before any
+    /// (RFC 9001 §6.1). Against the largest number the peer acknowledged in the 1-RTT space it
+    /// is what says whether another key update may be initiated. The application level alone.
+    phase_lowest_sent: ?u64,
+    /// Whether this endpoint answered a key update and has not yet sent a 1-RTT packet carrying
+    /// an acknowledgment under the new keys (RFC 9001 §6.2). A second update while it is true is
+    /// the peer updating twice without awaiting confirmation.
+    pending_phase_ack: bool,
 
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
@@ -130,6 +138,8 @@ pub const Connection = struct {
         connection.handshake_complete = false;
         connection.handshake_confirmed = false;
         connection.current_phase_lowest = null;
+        connection.phase_lowest_sent = null;
+        connection.pending_phase_ack = false;
         connection.pending_close = null;
         init_spaces(connection);
         connection.crypto_streams.init();
@@ -240,6 +250,7 @@ test {
     _ = @import("connection_crypto.zig");
     _ = @import("connection_identity.zig");
     _ = @import("connection_keys.zig");
+    _ = @import("connection_key_update.zig");
     _ = @import("connection_receive.zig");
     _ = @import("connection_frames.zig");
     _ = @import("connection_stream_frames.zig");
