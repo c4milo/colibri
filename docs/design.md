@@ -1641,13 +1641,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `zig build test` passes and `zig build lint` and `zig fmt --check` are clean after each commit.
 
   **Seven more things 9e owes that no piece above claims.** ~~Sending a CONNECTION_CLOSE that
-  carries an error code~~ is done, `368344e`, and recorded below.
+  carries an error code~~ is done, `368344e`, and recorded below. ~~Driving the timers, which is
+  one deadline out and one instant in (§4.2)~~ is done, `18e9949`, and recorded below.
   Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
-  no queue holds. Driving the timers, which is one deadline out and one instant in (§4.2).
-  Scheduling the application level's frames. Generating a PATH_CHALLENGE and running §8.2's
-  validation. Sending a Stateless Reset (§10.3). Validating the ECN counts a peer reports
-  (§13.4.2). And golden corpus cases for the receive path's new refusals, with their entries in
-  `src/golden/mutations.zig`.
+  no queue holds. Scheduling the application level's frames. Generating a PATH_CHALLENGE and
+  running §8.2's validation. Sending a Stateless Reset (§10.3). Validating the ECN counts a peer
+  reports (§13.4.2). And golden corpus cases for the receive path's new refusals, with their
+  entries in `src/golden/mutations.zig`.
 
   **The CONNECTION_CLOSE writer is done, 2026-09-20**, `368344e`. Reading the peer's frame was
   already `connection_frames.zig`'s; `connection_close.zig` is the other half, and every piece
@@ -1822,6 +1822,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   not for every probe to verify it again.
 
   `zig build test`: 1205 passed, 18 skipped.
+
+  **The timers are driven, 2026-09-21**, `18e9949`. Five deadlines were armed across a
+  connection — RFC 9002 Appendix A.8's loss timer, RFC 9000 §10.1's idle timeout, §10.2's closing
+  period, §8.2.4's PATH_CHALLENGE and RFC 9001 §6.5's previous read keys — and nothing put them
+  together, so a caller had to ask each piece and take the smallest itself.
+
+  `connection_timer.zig` is one question and one answer. colibri still sets no timer, which is
+  design §4.2: "It returns the instant at which it next wants to be called, and the caller
+  arranges that." `Fired` is a set rather than a choice, because more than one deadline can come
+  due at one instant.
+
+  Loss detection is reported and not run. RFC 9002 Appendix A.9's `OnLossDetectionTimeout` needs
+  storage for the packets it declares lost, which decision 35 leaves with the caller, so the timer
+  is reported and `Recovery.on_timeout` stays the caller's to call. Everything else is state
+  colibri already holds, so it acts on it.
+
+  15 mutations, 14 CAUGHT. The survivor guarded a state the key phase cannot reach — read keys
+  discarded while the instant that times them is still recorded — so the guard went and an
+  assertion says why one field answers.
+
+  `zig build test`: 1214 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
