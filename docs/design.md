@@ -1643,11 +1643,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **Seven more things 9e owes that no piece above claims.** ~~Sending a CONNECTION_CLOSE that
   carries an error code~~ is done, `368344e`, and recorded below. ~~Driving the timers, which is
   one deadline out and one instant in (§4.2)~~ is done, `18e9949`, and recorded below.
-  Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
-  no queue holds. Scheduling the application level's frames. Generating a PATH_CHALLENGE and
-  running §8.2's validation. Sending a Stateless Reset (§10.3). Validating the ECN counts a peer
-  reports (§13.4.2). And golden corpus cases for the receive path's new refusals, with their
-  entries in `src/golden/mutations.zig`.
+  ~~Generating a PATH_CHALLENGE and running §8.2's validation~~ is done, `10aabc5`, and recorded
+  below. Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
+  no queue holds. Scheduling the application level's frames. Sending a Stateless Reset (§10.3).
+  Validating the ECN counts a peer reports (§13.4.2). And golden corpus cases for the receive
+  path's new refusals, with their entries in `src/golden/mutations.zig`.
 
   **The CONNECTION_CLOSE writer is done, 2026-09-20**, `368344e`. Reading the peer's frame was
   already `connection_frames.zig`'s; `connection_close.zig` is the other half, and every piece
@@ -1866,6 +1866,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the delay rather than before it.
 
   `zig build test`: 1219 passed, 18 skipped.
+
+  **The path frames are sent, 2026-09-21**, `10aabc5`. `Path` had run RFC 9000 §8.2's validation
+  since step 9c and nothing wrote a frame: `on_challenge_sent` had no caller, and the PATH_RESPONSE
+  a peer's challenge earned was reported to the caller in `Report.owed` rather than sent. The
+  connection remembers both now — sixteen octets each — and the send path writes them into the
+  next 1-RTT packet, which is where §12.5's Table 3 permits them.
+
+  §8.2.1 and §8.2.2 both expand the datagram that carries one to §14.1's 1,200 octets, and both
+  except the anti-amplification limit. Neither needs a check for that exception: `datagram_ceiling`
+  already bounds every datagram by §8's allowance, so a server that may not send 1,200 octets sends
+  fewer and §8.2.3's second validation is exactly what the short datagram leaves owed. The two
+  rules meet in one place rather than arguing at two.
+
+  §8.2.4's timer is "three times the larger of the current PTO or the PTO for the new path (using
+  kInitialRtt)", which is why `Rtt` gained `new_path_probe_timeout_ns`. It keeps the peer's
+  max_ack_delay, because RFC 9002 §5.3 resets the estimator on migration and leaves that alone: it
+  is a property of the peer and not of the path.
+
+  What stays the caller's is the unpredictable data §8.2.1 requires, because invariant 5 forbids
+  colibri a random number, and the decision to probe at all. `Path.owe_challenge` is the whole of
+  the entry point.
+
+  15 mutations, 13 CAUGHT. Both survivors were tests that could not tell two values apart: one
+  never read whether the packet elicited an acknowledgment, which Table 3 says it does; and one
+  gave the connection a round trip equal to kInitialRtt, so §8.2.4's "larger" chose between two
+  equal numbers and choosing wrongly looked the same.
+
+  A follow-up, `605a9c9`, named a literal the magic-numbers rule refuses. It was pushed broken:
+  the lint result was read after the commit rather than before it.
+
+  `zig build test`: 1224 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
