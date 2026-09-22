@@ -169,7 +169,7 @@ test "RFC 9001 §6.1: a key update waits for an acknowledgment of the current ph
     try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
 
     key_update.on_packet_sent(&test_connection, .application, 7, false);
-    try testing.expectEqual(7, test_connection.phase_lowest_sent.?);
+    try testing.expectEqual(7, test_connection.key_phase.lowest_sent.?);
     // A packet has gone out, and the peer has acknowledged nothing in the 1-RTT space at all.
     try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
 
@@ -181,9 +181,9 @@ test "RFC 9001 §6.1: a key update waits for an acknowledgment of the current ph
     try key_update.initiate(&test_connection, suite());
     try testing.expectEqual(1, suite_holder.updates);
     // RFC 9001 §6.1: the new phase has sent nothing and received nothing yet.
-    try testing.expectEqual(null, test_connection.phase_lowest_sent);
-    try testing.expectEqual(null, test_connection.current_phase_lowest);
-    try testing.expect(!test_connection.pending_phase_ack);
+    try testing.expectEqual(null, test_connection.key_phase.lowest_sent);
+    try testing.expectEqual(null, test_connection.key_phase.current_lowest);
+    try testing.expect(!test_connection.key_phase.pending_ack);
 }
 
 test "RFC 9001 §6.1: a suite that offers no key update refuses one" {
@@ -199,11 +199,11 @@ test "RFC 9001 §6.1: only a 1-RTT packet moves what the phase counts" {
     open_connection();
     key_update.on_packet_sent(&test_connection, .initial, 2, true);
     key_update.on_packet_sent(&test_connection, .handshake, 3, true);
-    try testing.expectEqual(null, test_connection.phase_lowest_sent);
+    try testing.expectEqual(null, test_connection.key_phase.lowest_sent);
     key_update.on_packet_sent(&test_connection, .application, 9, false);
     key_update.on_packet_sent(&test_connection, .application, 10, false);
     // The lowest sent in the phase, not the latest.
-    try testing.expectEqual(9, test_connection.phase_lowest_sent.?);
+    try testing.expectEqual(9, test_connection.key_phase.lowest_sent.?);
 }
 
 test "RFC 9001 §6.2: a packet under the next keys moves this endpoint's keys too" {
@@ -213,10 +213,10 @@ test "RFC 9001 §6.2: a packet under the next keys moves this endpoint's keys to
     try testing.expectEqual(Level.application, outcome.opened.level);
     try testing.expectEqual(1, suite_holder.updates);
     // §6.2: the packet that initiated the update is the first of the new phase.
-    try testing.expectEqual(4, test_connection.current_phase_lowest.?);
-    try testing.expect(test_connection.pending_phase_ack);
+    try testing.expectEqual(4, test_connection.key_phase.current_lowest.?);
+    try testing.expect(test_connection.key_phase.pending_ack);
     // §6.1: the new phase has sent nothing, so §6.1 refuses an update of colibri's own.
-    try testing.expectEqual(null, test_connection.phase_lowest_sent);
+    try testing.expectEqual(null, test_connection.key_phase.lowest_sent);
 }
 
 test "RFC 9001 §6.2: a second update before the answer is acknowledged closes the connection" {
@@ -239,9 +239,9 @@ test "RFC 9001 §6.2: an acknowledgment under the new keys completes the update"
     _ = try walk_short(4);
     // A 1-RTT packet carrying no ACK does not complete it: §6.2 asks for the acknowledgment.
     key_update.on_packet_sent(&test_connection, .application, 8, false);
-    try testing.expect(test_connection.pending_phase_ack);
+    try testing.expect(test_connection.key_phase.pending_ack);
     key_update.on_packet_sent(&test_connection, .application, 9, true);
-    try testing.expect(!test_connection.pending_phase_ack);
+    try testing.expect(!test_connection.key_phase.pending_ack);
 
     // The next update is now the peer awaiting confirmation properly, and is answered.
     _ = try walk_short(10);
@@ -264,7 +264,7 @@ test "RFC 9001 §6.4: old keys above the current phase's lowest close the connec
     open_connection();
     suite_holder.opens_with = .current;
     _ = try walk_short(5);
-    try testing.expectEqual(5, test_connection.current_phase_lowest.?);
+    try testing.expectEqual(5, test_connection.key_phase.current_lowest.?);
 
     suite_holder.opens_with = .previous;
     // Below the lowest of the current phase, this is the delayed packet §6.5 keeps old keys for.
@@ -283,7 +283,7 @@ test "RFC 9001 §6.4: old keys before any current-phase packet close nothing" {
     // Nothing has opened under the current keys, so no lower-numbered packet used newer ones.
     const outcome = try walk_short(9);
     try testing.expectEqual(9, outcome.opened.packet_number);
-    try testing.expectEqual(null, test_connection.current_phase_lowest);
+    try testing.expectEqual(null, test_connection.key_phase.current_lowest);
 }
 
 test "RFC 9001 §6.5: the current phase's lowest is the lowest, not the first to arrive" {
@@ -291,9 +291,9 @@ test "RFC 9001 §6.5: the current phase's lowest is the lowest, not the first to
     suite_holder.opens_with = .current;
     _ = try walk_short(7);
     _ = try walk_short(4);
-    try testing.expectEqual(4, test_connection.current_phase_lowest.?);
+    try testing.expectEqual(4, test_connection.key_phase.current_lowest.?);
     _ = try walk_short(9);
-    try testing.expectEqual(4, test_connection.current_phase_lowest.?);
+    try testing.expectEqual(4, test_connection.key_phase.current_lowest.?);
 }
 
 test "RFC 9001 §6: a 1-RTT packet carries the Key Phase bit the suite answers" {
@@ -312,13 +312,13 @@ test "RFC 9001 §6: a 1-RTT packet carries the Key Phase bit the suite answers" 
 
 test "RFC 9001 §6.1, §6.2: the send path reports what it sealed" {
     open_connection();
-    test_connection.pending_phase_ack = true;
+    test_connection.key_phase.pending_ack = true;
     owe_ack(0, 1);
 
     const built = (try build_1rtt()).?;
     // The packet carried an ACK, so §6.2's answer is complete and §6.1 has a lowest number.
-    try testing.expect(!test_connection.pending_phase_ack);
-    try testing.expectEqual(built.packet_number, test_connection.phase_lowest_sent.?);
+    try testing.expect(!test_connection.key_phase.pending_ack);
+    try testing.expectEqual(built.packet_number, test_connection.key_phase.lowest_sent.?);
 }
 
 /// RFC 9000 §13.2.2: a receiver owes an ACK after two ack-eliciting packets, which is what makes

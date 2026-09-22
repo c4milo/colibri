@@ -219,7 +219,7 @@ test "RFC 9001 §6.2: an ACK under old keys naming a new-keys packet closes the 
     open_as(.client);
     spend_numbers(.application, 5);
     // RFC 9001 §6.1: packet 4 and every number above it went out under the current key phase.
-    test_connection.phase_lowest_sent = 4;
+    test_connection.key_phase.lowest_sent = 4;
 
     // An ACK naming only the phase before is what §6.5 keeps the old read keys for.
     _ = try run_with(.previous, &.{.{ .ack = ack_of(3) }});
@@ -239,7 +239,7 @@ test "RFC 9001 §6.2: an ACK under old keys naming a new-keys packet closes the 
 test "RFC 9001 §6.2: the same ACK under keys that are not old is legal" {
     open_as(.client);
     spend_numbers(.application, 5);
-    test_connection.phase_lowest_sent = 4;
+    test_connection.key_phase.lowest_sent = 4;
     // §6.2's rule is about the keys the acknowledgment arrived under, so the same frame under the
     // current keys is a peer that answered the update, and under the next it is one updating now.
     _ = try run_with(.current, &.{.{ .ack = ack_of(4) }});
@@ -251,7 +251,7 @@ test "RFC 9001 §6.2: an old-keys ACK is legal before the phase has sent anythin
     spend_numbers(.application, 5);
     // Nothing has gone out under the current keys, so no packet the ACK names was protected with
     // them and §6.2's rule cannot be met.
-    try testing.expectEqual(null, test_connection.phase_lowest_sent);
+    try testing.expectEqual(null, test_connection.key_phase.lowest_sent);
     _ = try run_with(.previous, &.{.{ .ack = ack_of(4) }});
 }
 

@@ -31,6 +31,28 @@ const KeySet = crypto.suite.KeySet;
 const Suite = crypto.Suite;
 const Connection = connection_module.Connection;
 
+/// What RFC 9001 §6 has a connection remember about its key phase. colibri holds no key
+/// (decision 48), so all of it is packet numbers and instants; the keys themselves, and which
+/// phase they are in, are the suite's.
+pub const Phase = struct {
+    /// The lowest packet number processed under the current key phase, or null before any
+    /// (§6.5). It is what tells a delayed packet of the previous phase from the first of the
+    /// next, because the two carry the same Key Phase bit.
+    current_lowest: ?u64,
+    /// The lowest packet number sent under the current key phase, or null before any (§6.1).
+    /// Against the largest number the peer acknowledged in the 1-RTT space it is what says
+    /// whether another key update may be initiated.
+    lowest_sent: ?u64,
+    /// Whether this endpoint answered a key update and has not yet sent a 1-RTT packet carrying
+    /// an acknowledgment under the new keys (§6.2). A second update while it is true is the peer
+    /// updating twice without awaiting confirmation.
+    pending_ack: bool,
+
+    pub fn init(phase: *Phase) void {
+        phase.* = .{ .current_lowest = null, .lowest_sent = null, .pending_ack = false };
+    }
+};
+
 /// Why RFC 9001 §6.1 does not permit a key update now. None of these is the peer's doing and none
 /// closes the connection: the endpoint asked too early and asks again later.
 pub const InitiateError = error{
@@ -80,15 +102,15 @@ pub fn initiate(connection: *Connection, suite: Suite) InitiateError!void {
     // §6.1: "The endpoint that initiates a key update also updates the keys that it uses for
     // receiving packets", so nothing has been processed under the new read keys either.
     enter_next_phase(connection, null, false);
-    assert(connection.phase_lowest_sent == null);
-    assert(!connection.pending_phase_ack);
+    assert(connection.key_phase.lowest_sent == null);
+    assert(!connection.key_phase.pending_ack);
 }
 
 /// RFC 9001 §6.1: "This can be implemented by tracking the lowest packet number sent with each
 /// key phase and the highest acknowledged packet number in the 1-RTT space: once the latter is
 /// higher than or equal to the former, another key update can be initiated."
 fn current_phase_acknowledged(connection: *Connection) bool {
-    const lowest = connection.phase_lowest_sent orelse return false;
+    const lowest = connection.key_phase.lowest_sent orelse return false;
     const acknowledged = connection.space_at(.application).largest_acknowledged orelse return false;
     return acknowledged >= lowest;
 }
@@ -113,10 +135,10 @@ pub fn on_packet_opened(
 /// current key phase uses the previous packet protection keys", so what the suite is given is the
 /// lowest number that opened under the current keys and not the first one to arrive.
 fn note_current_phase(connection: *Connection, packet_number: u64) void {
-    const lowest = connection.current_phase_lowest orelse std.math.maxInt(u64);
-    connection.current_phase_lowest = @min(lowest, packet_number);
-    assert(connection.current_phase_lowest != null);
-    assert(connection.current_phase_lowest.? <= packet_number);
+    const lowest = connection.key_phase.current_lowest orelse std.math.maxInt(u64);
+    connection.key_phase.current_lowest = @min(lowest, packet_number);
+    assert(connection.key_phase.current_lowest != null);
+    assert(connection.key_phase.current_lowest.? <= packet_number);
 }
 
 /// RFC 9001 §6.2: "If a packet is successfully processed using the next key and IV, then the peer
@@ -128,18 +150,18 @@ fn answer_key_update(connection: *Connection, suite: Suite, packet_number: u64) 
     // RFC 9001 §6.2: an update detected before this endpoint has "sent any packets with updated
     // keys containing an acknowledgment for the packet that initiated the key update ... indicates
     // that its peer has updated keys twice without awaiting confirmation".
-    if (connection.pending_phase_ack) return Error.ConsecutiveKeyUpdate;
+    if (connection.key_phase.pending_ack) return Error.ConsecutiveKeyUpdate;
     suite.vtable.update_keys(suite.context) catch return Error.SuiteRefusedUpdate;
     enter_next_phase(connection, packet_number, true);
-    assert(connection.pending_phase_ack);
-    assert(connection.current_phase_lowest.? == packet_number);
+    assert(connection.key_phase.pending_ack);
+    assert(connection.key_phase.current_lowest.? == packet_number);
 }
 
 /// RFC 9001 §6.4: "An endpoint that successfully removes protection with old keys when newer keys
 /// were used for packets with lower packet numbers MUST treat this as a connection error of type
 /// KEY_UPDATE_ERROR." The lowest number processed under the current keys is that comparison.
 fn refuse_old_above_current(connection: *const Connection, packet_number: u64) Error!void {
-    const lowest = connection.current_phase_lowest orelse return;
+    const lowest = connection.key_phase.current_lowest orelse return;
     if (packet_number > lowest) return Error.OldKeysAboveCurrentPhase;
 }
 
@@ -153,7 +175,7 @@ fn refuse_old_above_current(connection: *const Connection, packet_number: u64) E
 pub fn acknowledges_newer_keys(connection: *const Connection, key_set: KeySet, largest: u64) bool {
     if (key_set != .previous) return false;
     // RFC 9001 §6.1: every packet numbered from here up went out under the current key phase.
-    const lowest = connection.phase_lowest_sent orelse return false;
+    const lowest = connection.key_phase.lowest_sent orelse return false;
     return largest >= lowest;
 }
 
@@ -164,20 +186,20 @@ pub fn on_packet_sent(connection: *Connection, level: Level, packet_number: u64,
     if (level != .application) return;
     // RFC 9001 §6.1: the lowest packet number sent with the current key phase, which is the first
     // one sent since the phase changed.
-    if (connection.phase_lowest_sent == null) connection.phase_lowest_sent = packet_number;
+    if (connection.key_phase.lowest_sent == null) connection.key_phase.lowest_sent = packet_number;
     // RFC 9001 §6.2: "By acknowledging the packet that triggered the key update in a packet
     // protected with the updated keys, the endpoint signals that the key update is complete."
-    if (carries_ack) connection.pending_phase_ack = false;
-    assert(connection.phase_lowest_sent != null);
-    assert(connection.phase_lowest_sent.? <= packet_number);
+    if (carries_ack) connection.key_phase.pending_ack = false;
+    assert(connection.key_phase.lowest_sent != null);
+    assert(connection.key_phase.lowest_sent.? <= packet_number);
 }
 
 /// The three fields a phase change moves, in one place so they cannot disagree.
 fn enter_next_phase(connection: *Connection, current_phase_lowest: ?u64, pending_phase_ack: bool) void {
-    connection.current_phase_lowest = current_phase_lowest;
+    connection.key_phase.current_lowest = current_phase_lowest;
     // RFC 9001 §6.1: the count starts again, because no packet has gone out under the new keys.
-    connection.phase_lowest_sent = null;
-    connection.pending_phase_ack = pending_phase_ack;
+    connection.key_phase.lowest_sent = null;
+    connection.key_phase.pending_ack = pending_phase_ack;
 }
 
 test {

@@ -38,6 +38,7 @@ const transport_parameters = @import("../transport_parameters.zig");
 const frame_control = @import("../frame/frame_control.zig");
 const identity_module = @import("connection_identity.zig");
 const keys_module = @import("connection_keys.zig");
+const key_update = @import("connection_key_update.zig");
 
 const Level = core.Level;
 const Parameters = transport_parameters.Parameters;
@@ -110,18 +111,9 @@ pub const Connection = struct {
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
     /// caller's octets, which the caller keeps alive until the closing period ends.
     pending_close: ?frame_control.ConnectionClose,
-    /// The lowest packet number processed under the current key phase, or null before any
-    /// (RFC 9001 §6.5). It is what tells a delayed packet of the previous phase from the first of
-    /// the next, because the two carry the same Key Phase bit. The application level alone.
-    current_phase_lowest: ?u64,
-    /// The lowest packet number sent under the current key phase, or null before any
-    /// (RFC 9001 §6.1). Against the largest number the peer acknowledged in the 1-RTT space it
-    /// is what says whether another key update may be initiated. The application level alone.
-    phase_lowest_sent: ?u64,
-    /// Whether this endpoint answered a key update and has not yet sent a 1-RTT packet carrying
-    /// an acknowledgment under the new keys (RFC 9001 §6.2). A second update while it is true is
-    /// the peer updating twice without awaiting confirmation.
-    pending_phase_ack: bool,
+    /// RFC 9001 §6's key phase, which is packet numbers and instants and no key at all. The
+    /// application level alone: §6.1's Note says no other level's keys are ever updated.
+    key_phase: key_update.Phase,
 
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
@@ -137,9 +129,7 @@ pub const Connection = struct {
         connection.peer_parameters = null;
         connection.handshake_complete = false;
         connection.handshake_confirmed = false;
-        connection.current_phase_lowest = null;
-        connection.phase_lowest_sent = null;
-        connection.pending_phase_ack = false;
+        connection.key_phase.init();
         connection.pending_close = null;
         init_spaces(connection);
         connection.crypto_streams.init();

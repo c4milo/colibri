@@ -216,7 +216,7 @@ fn open_at(
         // RFC 9001 §6.5: at the application level a delayed packet of the previous key phase
         // carries the same Key Phase bit as the first of the next, and this is what tells them
         // apart. It is null at the handshake levels, which have no key update.
-        .current_phase_lowest = if (level == .application) connection.current_phase_lowest else null,
+        .current_phase_lowest = if (level == .application) connection.key_phase.current_lowest else null,
     }) catch |failure| switch (failure) {
         // RFC 9001 §6.6: past the integrity limit "the endpoint MUST immediately close the
         // connection with a connection error of type AEAD_LIMIT_REACHED and not process any more
