@@ -288,8 +288,10 @@ test "RFC 9000 §8.2.1: a datagram the anti-amplification limit bounds is not ex
     try testing.expect(server.path.owes_mtu_validation());
 }
 
-/// A round trip well under RFC 9002's kInitialRtt of 333 milliseconds.
-const short_sample_ns: u64 = 10 * constants.nanoseconds_per_millisecond;
+/// A round trip well under RFC 9002's kInitialRtt of 333 milliseconds, so the current Probe
+/// Timeout is the smaller of the two §8.2.4 compares.
+const short_sample_milliseconds: u64 = 10;
+const short_sample_ns: u64 = short_sample_milliseconds * constants.nanoseconds_per_millisecond;
 
 /// Three times this is under §14.1's smallest allowed maximum datagram, so §8's limit bites.
 const small_receipt_len: u64 = 200;
