@@ -1400,7 +1400,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
 - **Step 9d — connection IDs, path validation and anti-amplification.** NEW_CONNECTION_ID and
   RETIRE_CONNECTION_ID (RFC 9000 §5.1), PATH_CHALLENGE and PATH_RESPONSE (§8.2), the
-  anti-amplification limit of §8, and the Stateless Reset of §10.3.
+  anti-amplification limit of §8, and the Stateless Reset of §10.3 — its §10.3.1 half here, with
+  §10.3's writer landing later, `9d902e1`.
   `disable_active_migration` per [decision 21](decisions.md), which saves less than it sounds
   like. **Check:** [invariants 18 to 20](invariants.md#quic) asserted in the step 8 simulator
   after every step. *Medium.*
@@ -1645,10 +1646,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   one deadline out and one instant in (§4.2)~~ is done, `18e9949`, and recorded below.
   ~~Generating a PATH_CHALLENGE and running §8.2's validation~~ is done, `10aabc5`, and recorded
   below. ~~Validating the ECN counts a peer reports (§13.4.2)~~ is done, `ab178c3`, and recorded
-  below. Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
-  no queue holds. Scheduling the application level's frames. Sending a Stateless Reset (§10.3).
-  And golden corpus cases for the receive path's new refusals, with their entries in
-  `src/golden/mutations.zig`.
+  below. ~~Sending a Stateless Reset (§10.3)~~ is done, `9d902e1`, and recorded below.
+  Retransmitting a lost packet's frames under a new number, which invariant 17 requires and
+  no queue holds. Scheduling the application level's frames. And golden corpus cases for the
+  receive path's new refusals, with their entries in `src/golden/mutations.zig`.
 
   **The CONNECTION_CLOSE writer is done, 2026-09-20**, `368344e`. Reading the peer's frame was
   already `connection_frames.zig`'s; `connection_close.zig` is the other half, and every piece
@@ -1925,6 +1926,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `recovery_sent_test.zig`.
 
   `zig build test`: 1236 passed, 18 skipped, and `zig build test-sim -Drelease` agrees.
+
+  **A Stateless Reset can be written, 2026-09-22**, `9d902e1`. colibri could read one and not
+  write one, which made RFC 9000 §10.3's datagram the only wire format in the tree it can take
+  apart and not assemble. The owner asked for it on 2026-09-22, for failing fast where a peer
+  would otherwise wait out an idle timeout, and ruled the invariant change it needed.
+
+  Every part that needs a secret stays the caller's, and each for a rule of its own: §10.3's
+  unpredictable octets because invariant 5 forbids colibri a random number, §10.3.2's token
+  because it comes from a static key and non-negotiable 2 keeps keys out of this tree, and the
+  decision to send because §10.3 answers a datagram no connection could be found for and
+  non-negotiable 1 leaves the socket with the caller. `write` lays out Figure 10 around them,
+  which is the division a Retry packet already had.
+
+  **Invariant 20 was what had to move, and it came out stronger.** It had said nothing in
+  `src/quic/` may build a Stateless Reset, because RFC 9000 §9 forbids answering a peer's
+  migration with one: a third party could then close connections by spoofing traffic. That rule is
+  about a connection, and §10.3's answer is to a datagram that belongs to none, so the invariant
+  now names the shape rather than the absence: `write` takes no `Connection`, and a function that
+  cannot see one cannot be reached from the path that refuses a migration.
+
+  The old check was a test that no declaration of `stateless_reset` is named `write` or `build`.
+  Replacing it exposed that the new one was vacuous — no function took a `Connection`, so
+  weakening the assertion changed nothing and the test could not fail. It now runs the rule
+  against a canary shaped the way §9 forbids, which is what `build/lint.zig` does for the lint
+  rules, so the passing line is evidence.
+
+  12 mutations, 12 CAUGHT, two of them the invariant's own check once it had a canary to fail on.
+
+  `zig build test`: 1240 passed, 18 skipped.
 
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
