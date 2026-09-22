@@ -23,17 +23,18 @@ const core = @import("core");
 const crypto = @import("crypto");
 const tls = @import("tls");
 const wire = @import("wire");
-const constants = @import("../constants.zig");
-const frame_module = @import("../frame/frame.zig");
-const header_write = @import("../packet/packet_header_write.zig");
-const packet_number = @import("../packet/packet_number.zig");
-const connection_module = @import("connection.zig");
-const connection_crypto = @import("connection_crypto.zig");
-const connection_close = @import("connection_close.zig");
-const error_code = @import("../error_code.zig");
-const keys_module = @import("connection_keys.zig");
-const key_update = @import("connection_key_update.zig");
-const recovery_sent = @import("../recovery/recovery_sent.zig");
+const constants = @import("../../constants.zig");
+const frame_module = @import("../../frame/frame.zig");
+const header_write = @import("../../packet/packet_header_write.zig");
+const packet_number = @import("../../packet/packet_number.zig");
+const connection_module = @import("../connection.zig");
+const connection_crypto = @import("../connection_crypto.zig");
+const connection_close = @import("../connection_close.zig");
+const error_code = @import("../../error_code.zig");
+const keys_module = @import("../connection_keys.zig");
+const key_update = @import("../connection_key_update.zig");
+const recovery_sent = @import("../../recovery/recovery_sent.zig");
+const packet_build_frames = @import("packet_build_frames.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
@@ -97,6 +98,10 @@ pub const Built = struct {
     ack_eliciting: bool,
     /// RFC 9002 §2, via `recovery_sent.counts_in_flight`.
     in_flight: bool,
+    /// RFC 9000 §13.3: the CRYPTO octets this packet carried, which the caller puts in the
+    /// `recovery_sent.Record` it keeps, so a loss can say which octets to send again.
+    crypto_offset: u64 = 0,
+    crypto_len: u16 = 0,
 };
 
 /// One packet framed but not yet protected. RFC 9000 §14.1's expansion has to be decided before
@@ -125,6 +130,10 @@ pub const Planned = struct {
     /// Whether this packet carries a PATH_RESPONSE (RFC 9000 §8.2.2), which §8.2.2 expands the
     /// datagram for just as §8.2.1 does for a challenge.
     carries_path_response: bool = false,
+    /// RFC 9000 §13.3: where this packet's CRYPTO octets sit in the level's flow, which the
+    /// caller records so a lost packet can say which octets to send again.
+    crypto_offset: u64 = 0,
+    crypto_len: u16 = 0,
 };
 
 /// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
@@ -148,7 +157,7 @@ pub fn plan(
         return Error.PacketNumbersExhausted;
 
     const shape = try shape_of(connection, level, truncated.len, room);
-    const framed = try frame_payload(connection, provider, space, level, payload, shape.room, now_ns);
+    const framed = try packet_build_frames.write(connection, provider, space, level, payload, shape.room, now_ns);
     if (framed.len == 0) return null;
     // The number is spent only once the packet exists, so a level with nothing to send leaves
     // no hole in its space (invariant 17).
@@ -166,6 +175,8 @@ pub fn plan(
         .carries_ack = framed.carries_ack,
         .path_challenge = framed.path_challenge,
         .carries_path_response = framed.carries_path_response,
+        .crypto_offset = framed.crypto_offset,
+        .crypto_len = framed.crypto_len,
     };
 }
 
@@ -230,102 +241,6 @@ fn fixed_header_len(connection: *Connection, level: Level, packet_number_len: u8
     return len;
 }
 
-/// What went into the payload.
-const Framed = struct {
-    len: usize,
-    ack_eliciting: bool,
-    carries_close: bool = false,
-    carries_ack: bool = false,
-    path_challenge: ?[constants.path_challenge_len]u8 = null,
-    carries_path_response: bool = false,
-};
-
-/// Writes the frames this packet carries. The set is small on purpose: an ACK when the space owes
-/// one (RFC 9000 §13.2.1) and whatever handshake octets the provider owes at this level
-/// (RFC 9001 §4.1.3). Every other frame is written by the piece that owns it.
-fn frame_payload(
-    connection: *Connection,
-    provider: tls.QuicProvider,
-    space: anytype,
-    level: Level,
-    payload: []u8,
-    room: usize,
-    now_ns: u64,
-) Error!Framed {
-    const budget = @min(room, payload.len);
-    // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a packet
-    // containing a CONNECTION_CLOSE frame", so once one is owed it is the only frame written.
-    // Nothing else would be read: §10.2.2 puts the peer into the draining state on reading it.
-    if (connection_close.owes(connection)) {
-        const close_len = connection_close.write(connection, level, payload[0..budget]);
-        // §13.2.1, Table 3's N marking: a CONNECTION_CLOSE elicits no acknowledgment, because
-        // there is no longer a connection to acknowledge it on.
-        return .{ .len = close_len, .ack_eliciting = false, .carries_close = close_len > 0 };
-    }
-    var writer = Writer.init(payload[0..budget]);
-    // RFC 9000 §13.2.1: an ACK goes first because it is the frame a space owes soonest, and
-    // §13.2 makes acknowledging cheap enough that it is never worth holding back.
-    if (space.owes_ack(now_ns, connection.max_ack_delay_ns())) {
-        _ = space.write_ack(&writer, now_ns, exponent_of(connection), report_ecn) catch {};
-    }
-    const written_ack = writer.written().len;
-    // RFC 9000 §8.2: the path frames go next. §8.2.2 says an endpoint "MUST NOT delay
-    // transmission of a packet containing a PATH_RESPONSE frame unless constrained by congestion
-    // control", so they are written before the handshake's octets compete for the room.
-    const path = write_path_frames(connection, level, &writer);
-    const written_path = writer.written().len;
-    // RFC 9001 §4.1.3: the handshake's octets, which `connection_crypto` puts in CRYPTO frames.
-    const crypto_len = connection_crypto.write_crypto(connection, provider, level, payload[written_path..budget]) catch
-        return Error.Crypto;
-    return .{
-        .len = written_path + crypto_len,
-        // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing and a CRYPTO frame does.
-        // Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
-        .ack_eliciting = crypto_len > 0 or path.carries_path_response or path.path_challenge != null,
-        .carries_ack = written_ack > 0,
-        .path_challenge = path.path_challenge,
-        .carries_path_response = path.carries_path_response,
-    };
-}
-
-/// What the path frames amount to in one packet.
-const PathFrames = struct {
-    path_challenge: ?[constants.path_challenge_len]u8 = null,
-    carries_path_response: bool = false,
-};
-
-/// Writes the PATH_RESPONSE this endpoint owes and the PATH_CHALLENGE it means to send, when
-/// there is room for each (RFC 9000 §8.2.1, §8.2.2). A frame that does not fit is left owed, so
-/// the next packet carries it.
-///
-/// §12.5's Table 3 permits neither below the application level, so nothing is written there.
-fn write_path_frames(connection: *Connection, level: Level, writer: *Writer) PathFrames {
-    if (level != .application) return .{};
-    var held: PathFrames = .{};
-    if (connection.path.response_owed) |data| {
-        frame_module.write(writer, .{ .path_response = .{ .data = &data } }) catch return held;
-        _ = connection.path.take_response_owed();
-        held.carries_path_response = true;
-    }
-    if (connection.path.challenge_owed) |data| {
-        // §8.2.1: "an endpoint SHOULD NOT send multiple PATH_CHALLENGE frames in a single
-        // packet", and colibri holds one, so one is what goes out.
-        frame_module.write(writer, .{ .path_challenge = .{ .data = &data } }) catch return held;
-        _ = connection.path.take_challenge_owed();
-        held.path_challenge = data;
-    }
-    return held;
-}
-
-/// RFC 9000 §18.2: the exponent this endpoint advertised, which its own parameters hold.
-fn exponent_of(connection: *const Connection) u6 {
-    return @intCast(connection.local_parameters.ack_delay_exponent);
-}
-
-/// RFC 9000 §13.4.1 leaves reporting ECN counts to an endpoint that can read the codepoints.
-/// colibri owns no socket (non-negotiable 1), so it reports none until a caller says it can.
-const report_ecn = false;
-
 /// RFC 9001 §5.4.2: "the combined lengths of the encoded packet number and protected payload is
 /// at least 4 bytes longer than the sample". Decision 54 reaches that by widening the number.
 ///
@@ -384,6 +299,8 @@ pub fn seal_planned(
         // RFC 9002 §2, stated once in `recovery_sent`: a packet is in flight when it elicits an
         // acknowledgment or carries PADDING, and §14.1's expansion is what adds the second.
         .in_flight = recovery_sent.counts_in_flight(pending.ack_eliciting, planned.padding_len > 0),
+        .crypto_offset = planned.crypto_offset,
+        .crypto_len = planned.crypto_len,
     };
 }
 

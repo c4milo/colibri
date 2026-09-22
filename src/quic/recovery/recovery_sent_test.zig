@@ -193,3 +193,10 @@ test "RFC 9002 §2: PADDING puts a packet in flight without eliciting an acknowl
     // A packet carrying only ACK is the one case that counts toward neither.
     try testing.expect(!counts_in_flight(false, false));
 }
+
+test "RFC 9002 Appendix A.1.1: a record stays small, because 256 of them sit in every space" {
+    // `sent_packets_max` is 256 and RFC 9000 §12.3 gives a connection three spaces, so every
+    // octet here is paid for 768 times. The number is pinned so a field added without measuring
+    // shows up as a failing test rather than as memory nobody looked at.
+    try testing.expectEqual(32, @sizeOf(Record));
+}

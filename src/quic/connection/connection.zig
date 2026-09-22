@@ -259,6 +259,6 @@ test {
     _ = @import("connection_frames.zig");
     _ = @import("connection_stream_frames.zig");
     _ = @import("connection_path_frames.zig");
-    _ = @import("packet_build.zig");
+    _ = @import("packet_build/packet_build.zig");
     _ = @import("connection_send.zig");
 }

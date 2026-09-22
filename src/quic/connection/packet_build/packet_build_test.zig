@@ -5,15 +5,15 @@ const std = @import("std");
 const core = @import("core");
 const crypto = @import("crypto");
 const tls = @import("tls");
-const constants = @import("../constants.zig");
-const transport_parameters = @import("../transport_parameters.zig");
-const connection_module = @import("connection.zig");
-const identity_module = @import("connection_identity.zig");
-const keys = @import("connection_keys.zig");
-const receive = @import("connection_receive.zig");
-const frames = @import("connection_frames.zig");
+const constants = @import("../../constants.zig");
+const transport_parameters = @import("../../transport_parameters.zig");
+const connection_module = @import("../connection.zig");
+const identity_module = @import("../connection_identity.zig");
+const keys = @import("../connection_keys.zig");
+const receive = @import("../connection_receive.zig");
+const frames = @import("../connection_frames.zig");
 const packet_build = @import("packet_build.zig");
-const packet_number = @import("../packet/packet_number.zig");
+const packet_number = @import("../../packet/packet_number.zig");
 
 const testing = std.testing;
 

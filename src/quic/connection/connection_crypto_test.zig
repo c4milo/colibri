@@ -159,21 +159,27 @@ test "RFC 9000 §19.6: what the provider owes becomes a frame at the level's own
     fresh(.client);
     var state: Fake = .{ .owed = "CH", .owed_level = .initial };
     const first = try connection_crypto.write_crypto(&test_connection, state.provider(), .initial, &test_output);
-    try testing.expect(first > 0);
+    try testing.expect(first.len > 0);
+    // RFC 9000 §13.3: the payload's place in the flow, which a lost packet sends again from.
+    try testing.expectEqual(0, first.offset);
+    try testing.expectEqual(2, first.payload_len);
     // The frame is readable as the one colibri wrote, at offset 0.
-    var reader = core.Reader.init(test_output[0..first]);
+    var reader = core.Reader.init(test_output[0..first.len]);
     const read = try @import("../frame/frame.zig").read(&reader);
     try testing.expectEqual(0, read.crypto.offset);
     try testing.expectEqualStrings("CH", read.crypto.data);
     // The next frame continues where that one ended, which is what §19.6's Offset means.
     state.owed = "FIN";
     const second = try connection_crypto.write_crypto(&test_connection, state.provider(), .initial, &test_output);
-    var next = core.Reader.init(test_output[0..second]);
+    try testing.expectEqual(2, second.offset);
+    var next = core.Reader.init(test_output[0..second.len]);
     const after = try @import("../frame/frame.zig").read(&next);
     try testing.expectEqual(2, after.crypto.offset);
     try testing.expectEqualStrings("FIN", after.crypto.data);
     // A level the provider owes nothing at writes no frame.
-    try testing.expectEqual(0, try connection_crypto.write_crypto(&test_connection, state.provider(), .handshake, &test_output));
+    const none = try connection_crypto.write_crypto(&test_connection, state.provider(), .handshake, &test_output);
+    try testing.expectEqual(0, none.len);
+    try testing.expectEqual(0, none.payload_len);
 }
 
 test "RFC 9001 §8.2: the peer's parameters arrive through the provider and raise the limits" {
@@ -295,7 +301,7 @@ test "RFC 9000 §19.6: the room a frame leaves is measured from the offset it wi
         .handshake,
         &output,
     );
-    try testing.expectEqual(narrow_output_len, written);
+    try testing.expectEqual(narrow_output_len, written.len);
     // And the Offset that went out is the sending flow's, which was 0, not 4096.
     try testing.expectEqual(exact_payload_len, stream.sent_len);
 }

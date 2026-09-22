@@ -104,6 +104,24 @@ pub const CryptoStream = struct {
         return stream.send_base == 0;
     }
 
+    /// RFC 9000 §13.3: "Data sent in CRYPTO frames is retransmitted according to the rules in
+    /// [QUIC-RECOVERY], until all data has been acknowledged." A packet that carried octets from
+    /// `offset` was declared lost, so the flow is framed again from there.
+    ///
+    /// Answers false when the window no longer reaches that far, which is a flight longer than it
+    /// whose early octets were forgotten. §13.3 has no answer for that and the caller ends the
+    /// connection; a handshake that fits the window never meets it.
+    pub fn on_lost(stream: *CryptoStream, offset: u64) bool {
+        if (offset < stream.send_base) return false;
+        // Octets already being sent again from a lower offset cover this one. §13.3 permits
+        // sending more than was lost — "a receiver MUST accept packets containing an outdated
+        // frame" — so the lowest rewind wins and nothing is tracked per packet.
+        if (offset < stream.sent_len) stream.sent_len = offset;
+        assert(stream.sent_len >= stream.send_base);
+        assert(stream.sent_len <= stream.produced_len);
+        return true;
+    }
+
     /// Sends this level's flow again from the start (RFC 9000 §17.2.5.3). The octets are the ones
     /// already produced, so the provider is not asked for them twice.
     pub fn rewind(stream: *CryptoStream) void {

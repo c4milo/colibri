@@ -5,9 +5,9 @@
 //! and read the frames back with the same walk; split off that file for length.
 const std = @import("std");
 const core = @import("core");
-const frames = @import("connection_frames.zig");
-const keys = @import("connection_keys.zig");
-const connection_module = @import("connection.zig");
+const frames = @import("../connection_frames.zig");
+const keys = @import("../connection_keys.zig");
+const connection_module = @import("../connection.zig");
 const fixture = @import("packet_build_test.zig");
 
 const testing = std.testing;

@@ -23,10 +23,12 @@ const frame_stream = @import("../frame/frame_stream.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const transport_parameters_read = @import("../transport_parameters_read.zig");
 const connection_module = @import("connection.zig");
+const recovery_sent = @import("../recovery/recovery_sent.zig");
 const identity_module = @import("connection_identity.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
+const Record = recovery_sent.Record;
 const Writer = core.Writer;
 
 /// Why the handshake failed. Each one is a QUIC connection error, and `connection_error_code`
@@ -106,12 +108,23 @@ pub fn provide_handshake(connection: *Connection, provider: tls.QuicProvider) Er
 
 /// Writes the handshake octets the provider owes at `level` into `output` as a CRYPTO frame, and
 /// returns how many octets of `output` the frame occupies. 0 means the provider owes none there.
+/// What one CRYPTO frame took, which the send path reports so RFC 9000 §13.3 can send the same
+/// octets again if the packet carrying them is lost.
+pub const Written = struct {
+    /// Octets of `output` the frame occupies, its own header included.
+    len: usize = 0,
+    /// Where its payload sits in the level's flow (RFC 9000 §19.6).
+    offset: u64 = 0,
+    /// Octets of that payload, which one packet bounds.
+    payload_len: u16 = 0,
+};
+
 pub fn write_crypto(
     connection: *Connection,
     provider: tls.QuicProvider,
     level: Level,
     output: []u8,
-) Error!usize {
+) Error!Written {
     assert(output.len > 0);
     const stream = connection.crypto_at(level);
     // The provider gives its octets up once, so they go into the level's own window before they
@@ -123,15 +136,48 @@ pub fn write_crypto(
         stream.produced(produced);
     }
     const waiting = stream.unsent();
-    if (waiting.len == 0) return 0;
+    if (waiting.len == 0) return .{};
     // The frame's own header costs octets, so the payload cannot have all of `output`. The
     // Offset it reserves room for is the one `write_frame` will write: RFC 9000 §19.6 makes it
     // how many octets colibri has sent at this level, which is a different number from how many
     // it has read out of the peer's flow at the same level.
     const header_len = crypto_frame_header_len(stream.sent_len, output.len);
-    if (output.len <= header_len) return 0;
+    if (output.len <= header_len) return .{};
     const len = @min(waiting.len, output.len - header_len);
-    return write_frame(connection, level, waiting[0..len], output);
+    const offset = stream.sent_len;
+    return .{
+        .len = try write_frame(connection, level, waiting[0..len], output),
+        .offset = offset,
+        .payload_len = @intCast(len),
+    };
+}
+
+/// What a lost flight amounted to (RFC 9000 §13.3).
+pub const Lost = struct {
+    /// How many of the lost packets carried CRYPTO octets, which is what will be framed again.
+    packets: usize = 0,
+    /// Whether any of them sat below the level's send window, so its octets are gone. §13.3 has
+    /// no answer for that: the handshake cannot go on, and the caller ends the connection.
+    forgotten: bool = false,
+};
+
+/// RFC 9000 §13.3's first rule over what RFC 9002's loss detection declared lost: "Data sent in
+/// CRYPTO frames is retransmitted according to the rules in [QUIC-RECOVERY], until all data has
+/// been acknowledged." The records are the caller's storage (decision 35), so they arrive as a
+/// slice rather than being reached for.
+///
+/// §13.3 also says "Data in CRYPTO frames for Initial and Handshake packets is discarded when
+/// keys for the corresponding packet number space are discarded", which is `Recovery.discard_space`
+/// dropping the records before they can be reported here.
+pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Record) Lost {
+    var held: Lost = .{};
+    // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
+    for (lost) |record| {
+        if (record.crypto_len == 0) continue;
+        held.packets += 1;
+        if (!connection.crypto_at(level).on_lost(record.crypto_offset)) held.forgotten = true;
+    }
+    return held;
 }
 
 /// Puts the octets in a CRYPTO frame at the level's current offset, and advances it.

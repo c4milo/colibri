@@ -18,8 +18,8 @@ const connection_module = @import("connection.zig");
 const identity_module = @import("connection_identity.zig");
 const keys = @import("connection_keys.zig");
 const retry = @import("connection_retry.zig");
-const packet_build = @import("packet_build.zig");
-const build_test = @import("packet_build_test.zig");
+const packet_build = @import("packet_build/packet_build.zig");
+const build_test = @import("packet_build/packet_build_test.zig");
 
 const testing = std.testing;
 const Level = core.Level;

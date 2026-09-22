@@ -6,7 +6,7 @@
 const std = @import("std");
 const error_code = @import("../error_code.zig");
 const keys = @import("connection_keys.zig");
-const packet_build = @import("packet_build.zig");
+const packet_build = @import("packet_build/packet_build.zig");
 const fixture = @import("connection_key_update_test.zig");
 
 const testing = std.testing;

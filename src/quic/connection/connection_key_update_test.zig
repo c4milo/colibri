@@ -18,8 +18,8 @@ const keys = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
 const receive = @import("connection_receive.zig");
 const frames = @import("connection_frames.zig");
-const packet_build = @import("packet_build.zig");
-const build_test = @import("packet_build_test.zig");
+const packet_build = @import("packet_build/packet_build.zig");
+const build_test = @import("packet_build/packet_build_test.zig");
 
 const testing = std.testing;
 const Level = core.Level;

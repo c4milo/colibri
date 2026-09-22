@@ -9,7 +9,7 @@ const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
 const key_update = @import("connection_key_update.zig");
 const timer = @import("connection_timer.zig");
-const build_test = @import("packet_build_test.zig");
+const build_test = @import("packet_build/packet_build_test.zig");
 
 const testing = std.testing;
 const Connection = connection_module.Connection;

@@ -55,6 +55,16 @@ pub const Record = struct {
     /// no socket, so the IP header is the caller's and this is what the caller set; §13.4.2.1
     /// validates the peer's counts against it.
     ecn: Ecn = .not_ect,
+    /// Where this packet's CRYPTO octets sat in its level's flow (RFC 9000 §19.6), and how many
+    /// there were. RFC 9000 §13.3: "Data sent in CRYPTO frames is retransmitted ... until all
+    /// data has been acknowledged", so a lost packet must be able to say which octets to send
+    /// again. A length of zero means it carried none, which is every packet after the handshake.
+    ///
+    /// The two sit here rather than in a struct of their own because a struct of `u64` and `u16`
+    /// pads to sixteen octets, and 256 records in each of three spaces pay for every one of them.
+    crypto_offset: u64 = 0,
+    /// Octets, which one packet bounds, so 16 bits carry it (RFC 9000 §14.1, §18.2).
+    crypto_len: u16 = 0,
 };
 
 /// Whether a packet the sender just framed counts toward the bytes in flight. RFC 9002 §2:

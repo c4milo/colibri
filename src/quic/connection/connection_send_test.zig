@@ -14,12 +14,15 @@ const keys = @import("connection_keys.zig");
 const receive = @import("connection_receive.zig");
 const frames = @import("connection_frames.zig");
 const send = @import("connection_send.zig");
-const build_test = @import("packet_build_test.zig");
+const connection_crypto = @import("connection_crypto.zig");
+const recovery_sent = @import("../recovery/recovery_sent.zig");
+const build_test = @import("packet_build/packet_build_test.zig");
 
 const testing = std.testing;
 const Level = core.Level;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
+const Record = recovery_sent.Record;
 
 var client: Connection = undefined;
 var server: Connection = undefined;
@@ -330,4 +333,96 @@ test "RFC 9000 §8.2.4: the timer is three times the larger of the two Probe Tim
         test_now_ns + constants.path_probe_timeouts * larger_ns,
         client.path.challenge_deadline_ns().?,
     );
+}
+
+/// The record the caller keeps for a packet the send path reported (RFC 9002 Appendix A.1.1),
+/// built from what `Sent` said about it.
+fn record_of(sent: send.Sent, at: usize) Record {
+    const packet = sent.packets[at];
+    return .{
+        .number = packet.packet_number,
+        .sent_at_ns = test_now_ns,
+        .sent_len = @intCast(sent.len),
+        .ack_eliciting = packet.ack_eliciting,
+        .in_flight = packet.in_flight,
+        .crypto_offset = packet.crypto_offset,
+        .crypto_len = packet.crypto_len,
+    };
+}
+
+test "RFC 9000 §13.3: CRYPTO octets from a lost packet are sent again under a new number" {
+    open_pair();
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    const first = (try send_from(&client)).?;
+    try testing.expectEqual(0, first.packets[0].packet_number);
+    try testing.expectEqual(0, first.packets[0].crypto_offset);
+    try testing.expectEqual(flight_len, first.packets[0].crypto_len);
+    // The provider gave its octets up, so there is nothing new to send until something is lost.
+    try testing.expectEqual(null, try send_from(&client));
+
+    // RFC 9002's loss detection declared that packet lost, and the record is the caller's.
+    const lost = [_]Record{record_of(first, 0)};
+    const report = connection_crypto.on_packets_lost(&client, .initial, &lost);
+    try testing.expectEqual(1, report.packets);
+    try testing.expect(!report.forgotten);
+
+    // §13.3: "the information that might be carried in frames is sent again in new frames as
+    // needed", and invariant 17 gives that new packet a number of its own.
+    const again = (try send_from(&client)).?;
+    try testing.expect(again.packets[0].packet_number > first.packets[0].packet_number);
+    // §19.6: the Offset is where the octets sit in the flow, so the repeat starts where they did.
+    try testing.expectEqual(0, again.packets[0].crypto_offset);
+    try testing.expectEqual(flight_len, again.packets[0].crypto_len);
+
+    // The peer reads the flight off the second datagram, having never seen the first.
+    _ = try walk_back(&server, again);
+    try testing.expectEqualSlices(u8, &flight, server.crypto_at(.initial).readable());
+}
+
+test "RFC 9000 §13.3: a lost packet that carried no CRYPTO asks for nothing" {
+    open_pair();
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    const first = (try send_from(&client)).?;
+
+    // "PING and PADDING frames contain no information, so lost PING or PADDING frames do not
+    // require repair", and neither does a packet that carried only an acknowledgment.
+    var quiet = record_of(first, 0);
+    quiet.crypto_offset = 0;
+    quiet.crypto_len = 0;
+    const report = connection_crypto.on_packets_lost(&client, .initial, &.{quiet});
+    try testing.expectEqual(0, report.packets);
+    try testing.expectEqual(null, try send_from(&client));
+}
+
+test "RFC 9000 §13.3: octets the window forgot cannot be sent again" {
+    open_pair();
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    const first = (try send_from(&client)).?;
+    // A flight longer than the send window forgets what it has already framed, which `send_base`
+    // above the lost offset is. §13.3 has no answer for that.
+    client.crypto_at(.initial).send_base = 1;
+
+    const report = connection_crypto.on_packets_lost(&client, .initial, &.{record_of(first, 0)});
+    try testing.expectEqual(1, report.packets);
+    try testing.expect(report.forgotten);
+}
+
+test "RFC 9000 §13.3: the lowest lost offset is where the flow is sent again from" {
+    open_pair();
+    // A flight no single packet holds, so two of them carry it and each has its own offset.
+    provider_holder = .{ .owed = &long_flight, .owed_level = .initial };
+    const first = (try send_from(&client)).?;
+    const second = (try send_from(&client)).?;
+    try testing.expectEqual(0, first.packets[0].crypto_offset);
+    try testing.expect(second.packets[0].crypto_offset > 0);
+
+    // Both declared lost, the higher offset last, which is the order an ACK's ranges walk in.
+    const lost = [_]Record{ record_of(first, 0), record_of(second, 0) };
+    const report = connection_crypto.on_packets_lost(&client, .initial, &lost);
+    try testing.expectEqual(2, report.packets);
+
+    // §13.3 sends the information again, and the lowest lost offset is where that starts:
+    // rewinding to the last record's offset instead would leave the first packet's octets unsent.
+    const again = (try send_from(&client)).?;
+    try testing.expectEqual(0, again.packets[0].crypto_offset);
 }
