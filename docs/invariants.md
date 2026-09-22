@@ -323,13 +323,16 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   CONNECTION_CLOSE. What it may send on the one path it holds is RFC 9000 §8's limit, which is
   [invariant 18](#inv-18--the-anti-amplification-limit-holds-and-it-is-the-servers).
 - **Mechanism.** `Connection` holds one `Path` and no way to name a second, so a send has no
-  other path to choose. Nothing in `src/quic/` builds a Stateless Reset, which is what §9 forbids
-  as an answer: "Generating a Stateless Reset or closing the connection would allow third parties
-  in the network to cause connections to close by spoofing or otherwise manipulating observed
-  traffic."
+  other path to choose. No Stateless Reset can be reached from a connection, which is what §9
+  forbids as an answer: "Generating a Stateless Reset or closing the connection would allow third
+  parties in the network to cause connections to close by spoofing or otherwise manipulating
+  observed traffic." `stateless_reset.write` exists, because RFC 9000 §10.3 answers a datagram no
+  connection could be found for, and it takes no `Connection` — a migration is something that
+  happens to a connection, so a function that cannot see one cannot be called from there. The
+  shape is what holds the rule, not the absence of the capability.
 - **Check.** A test that `Connection` holds one path and that no function takes a second; a test
-  that nothing under `src/quic/` writes a Stateless Reset in answer to a received datagram; a
-  simulator invariant that a connection's output is always attributable to the one path it holds.
+  that no function in `src/quic/stateless_reset.zig` takes a `Connection`; a simulator invariant
+  that a connection's output is always attributable to the one path it holds.
   The interop runner's `rebind-port` and `rebind-addr` cases are what show a refusing endpoint
   still works, and `connectionmigration` is a case colibri exits 127 on, by decision 21. Step 9.
 - **Violation.** A `MIGRATION_REFUSED`-shaped error code, which does not exist in RFC 9000 §20.1

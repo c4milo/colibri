@@ -24,6 +24,10 @@ pub const packet_number_range_factor: u64 = crypto.constants.packet_number_range
 
 /// Byte 0 of a version 1 packet (RFC 9000 §17.2, §17.3.1).
 pub const fixed_bit: u8 = 0x40;
+
+/// RFC 8999 §5.1's Header Form bit: 1 for a long header and 0 for a short one. It is an
+/// invariant across QUIC versions, which is why RFC 9000 §10.3's Figure 10 can fix it.
+pub const header_form_bit: u8 = 0x80;
 /// The Long Packet Type, and how far it sits from bit 0 (RFC 9000 §17.2, Table 5).
 pub const long_packet_type_mask: u8 = 0x30;
 pub const long_packet_type_shift: u3 = 4;

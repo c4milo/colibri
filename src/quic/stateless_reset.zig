@@ -8,10 +8,21 @@
 //! **Detecting one is colibri's.** §10.3.1 states when the comparison must happen and against
 //! what, and both are rules rather than choices, so `Tokens` holds them.
 //!
-//! **Sending one is the caller's.** §10.3 requires the octets before the token to be
-//! indistinguishable from random, and colibri draws no random number (invariant 5). What
-//! colibri supplies is the shape: `permitted_len` gives the sizes §10.3.3 admits, which is the
-//! part that is arithmetic rather than entropy.
+//! **Sending one is split, and every part that needs a secret is the caller's.** §10.3 requires
+//! the octets before the token to be indistinguishable from random, and colibri draws no random
+//! number (invariant 5). §10.3.2 derives the token from a static key over the connection ID, and
+//! colibri holds no key (non-negotiable 2). The datagram that provokes one is by definition one
+//! no connection could be found for, and colibri owns no socket to find that out with
+//! (non-negotiable 1). So the caller decides to send, supplies the entropy and the token, and
+//! `write` lays out the octets — the same division a Retry packet has, where colibri writes the
+//! packet around a token it did not mint.
+//!
+//! **`write` takes no `Connection`, and that is load-bearing.** RFC 9000 §9 forbids answering a
+//! peer's apparent migration with a Stateless Reset, because a third party could then close
+//! connections by spoofing traffic. A migration is something that happens to a connection, and a
+//! function that cannot see one cannot be reached from there, so
+//! [invariant 20](../../docs/invariants.md) holds by the shape of this file rather than by what
+//! its declarations are called.
 //!
 //! The comparison runs in constant time, which §10.3.1 requires: one that stopped at the first
 //! differing octet would leak the token through timing. Writing it here does not break
@@ -102,6 +113,56 @@ pub const PermittedLen = struct {
     /// of the two for every packet, and both are stated because each rule stands alone.
     max: usize,
 };
+
+/// Why no Stateless Reset was written.
+pub const Refused = enum {
+    /// RFC 9000 §10.3.3: every Stateless Reset "is smaller than the packet that triggered it", so
+    /// a datagram at or under §10.3's 21-octet minimum leaves no room for one. This is what ends
+    /// the loop §10.3.3 describes: "in the event of a loop, this results in packets eventually
+    /// being too small to trigger a response".
+    triggered_by_too_small,
+    /// The caller offered fewer unpredictable octets than §10.3's shape needs, or `output` cannot
+    /// hold the shortest Stateless Reset.
+    too_short,
+};
+
+pub const Answer = union(enum) {
+    /// Octets of `output` the datagram occupies. A Stateless Reset "uses an entire UDP datagram",
+    /// so this is the whole of what the caller sends.
+    written: usize,
+    refused: Refused,
+};
+
+/// Lays out one Stateless Reset in the front of `output` (RFC 9000 §10.3's Figure 10).
+///
+/// `triggered_by_len` is the datagram that provoked it, which §10.3.3 bounds the answer by.
+/// `unpredictable` is the octets the caller drew — §10.3 wants them "indistinguishable from
+/// random" and invariant 5 forbids colibri a random number — and how many are offered is what
+/// chooses the size within the bounds §10.3.3 admits. `token` is the one §10.3.2 derives from a
+/// static key colibri does not hold.
+pub fn write(triggered_by_len: usize, unpredictable: []const u8, token: Token, output: []u8) Answer {
+    const permitted = permitted_len(triggered_by_len) orelse
+        return .{ .refused = .triggered_by_too_small };
+    const offered = unpredictable.len +| constants.stateless_reset_token_len;
+    const len = @min(permitted.max, @min(output.len, offered));
+    if (len < permitted.min) return .{ .refused = .too_short };
+    const bits_len = len - constants.stateless_reset_token_len;
+    @memcpy(output[0..bits_len], unpredictable[0..bits_len]);
+    // §10.3's Figure 10: "Fixed Bits (2) = 1". Those two are RFC 8999 §5.1's Header Form and
+    // RFC 9000 §17.2's Fixed Bit, so a Stateless Reset "will appear to be a packet with a short
+    // header" to every entity but its intended recipient.
+    output[0] = (output[0] & ~header_bits) | constants.fixed_bit;
+    // §10.3: "The last 16 bytes of the datagram contain a stateless reset token."
+    @memcpy(output[bits_len..len], &token);
+    assert(output[0] & header_bits == constants.fixed_bit);
+    // §10.3.3 and §10.3 again, as the two bounds `permitted_len` computed.
+    assert(len < triggered_by_len);
+    return .{ .written = len };
+}
+
+/// The two bits RFC 9000 §10.3's Figure 10 fixes, which every other bit of byte 0 is the
+/// caller's.
+const header_bits: u8 = constants.header_form_bit | constants.fixed_bit;
 
 pub fn permitted_len(triggered_by_len: usize) ?PermittedLen {
     const min = constants.stateless_reset_len_min;
@@ -206,4 +267,79 @@ test "§10.3.3: a Stateless Reset is smaller than what triggered it" {
     // One octet above it admits exactly the smallest.
     const tightest = permitted_len(constants.stateless_reset_len_min + 1).?;
     try testing.expectEqual(tightest.min, tightest.max);
+}
+
+/// Octets a caller drew for the bits RFC 9000 §10.3 wants indistinguishable from random. Fixed
+/// here, because invariant 5 forbids colibri a random number and a test states what it uses.
+const bits_octet: u8 = 0xa5;
+/// More octets than any case below asks for, so what bounds an answer is the rule under test.
+const bits_len_plenty: usize = 64;
+const bits_plenty: [bits_len_plenty]u8 = @splat(bits_octet);
+var reset_output: [bits_len_plenty]u8 = undefined;
+/// A datagram long enough that §10.3.3 admits an answer of every length these cases ask for.
+const triggering_len: usize = 60;
+
+test "§10.3: a Stateless Reset is a short header, unpredictable bits and the token" {
+    const answer = write(triggering_len, &bits_plenty, token_a, &reset_output);
+    const len = answer.written;
+    // §10.3.3: "smaller than the packet that triggered it", and §10.3 keeps it under three times
+    // that packet; the first bound is the tighter one for every packet.
+    try testing.expectEqual(triggering_len - 1, len);
+    // Figure 10's "Fixed Bits (2) = 1": Header Form 0 and Fixed Bit 1, so it reads as a 1-RTT
+    // packet to anything but its recipient.
+    try testing.expectEqual(constants.fixed_bit, reset_output[0] & header_bits);
+    // The remainder of byte 0 is the caller's octets, untouched.
+    try testing.expectEqual(bits_octet & ~header_bits, reset_output[0] & ~header_bits);
+    // §10.3: "The last 16 bytes of the datagram contain a stateless reset token."
+    try testing.expectEqualSlices(u8, &token_a, reset_output[len - token_a.len ..][0..token_a.len]);
+    // Everything between byte 0 and the token is what the caller drew.
+    for (reset_output[1 .. len - token_a.len]) |octet| try testing.expectEqual(bits_octet, octet);
+    // §10.3.1 reads it back as one: a datagram ending in a held token.
+    test_tokens.init();
+    test_tokens.use(token_a);
+    try testing.expect(test_tokens.matches(reset_output[0..len]));
+}
+
+test "§10.3.3: the answer is bounded by what triggered it, and by what the caller offered" {
+    // "An endpoint MUST ensure that every Stateless Reset that it sends is smaller than the
+    // packet that triggered it", so a datagram at the minimum leaves no room for one and the
+    // loop ends there.
+    try testing.expectEqual(
+        Refused.triggered_by_too_small,
+        write(constants.stateless_reset_len_min, &bits_plenty, token_a, &reset_output).refused,
+    );
+    // One octet above it admits exactly the shortest Stateless Reset.
+    const tightest = write(constants.stateless_reset_len_min + 1, &bits_plenty, token_a, &reset_output);
+    try testing.expectEqual(constants.stateless_reset_len_min, tightest.written);
+
+    // How many unpredictable octets the caller offered is what chooses the size under that bound.
+    const offered_len: usize = 8;
+    const shorter = write(triggering_len, bits_plenty[0..offered_len], token_a, &reset_output);
+    try testing.expectEqual(offered_len + constants.stateless_reset_token_len, shorter.written);
+}
+
+test "§10.3: a Stateless Reset that will not fit is not written" {
+    // Fewer unpredictable octets than §10.3's shape needs. "the Unpredictable Bits field needs to
+    // include at least 38 bits of data (or 5 bytes, less the two fixed bits)."
+    const bits_short = bits_plenty[0 .. constants.stateless_reset_unpredictable_len_min - 1];
+    try testing.expectEqual(
+        Refused.too_short,
+        write(triggering_len, bits_short, token_a, &reset_output).refused,
+    );
+    // And an output that cannot hold the shortest one.
+    var small: [constants.stateless_reset_len_min - 1]u8 = undefined;
+    try testing.expectEqual(
+        Refused.too_short,
+        write(triggering_len, &bits_plenty, token_a, &small).refused,
+    );
+}
+
+test "§10.3: a Stateless Reset answering a short packet is one octet shorter than it" {
+    // "An endpoint that sends a Stateless Reset in response to a packet that is 43 bytes or
+    // shorter SHOULD send a Stateless Reset that is one byte shorter than the packet it responds
+    // to." §10.3.3's MUST is the same bound, so meeting it meets this.
+    // RFC 9000 §10.3's "43 bytes or shorter".
+    const short_trigger: usize = 40;
+    const answer = write(short_trigger, &bits_plenty, token_a, &reset_output);
+    try testing.expectEqual(short_trigger - 1, answer.written);
 }

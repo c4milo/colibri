@@ -200,13 +200,37 @@ test "invariant 20: a connection holds one path and cannot name a second" {
     try testing.expectEqual(1, paths);
 }
 
-test "invariant 20: nothing in quic writes a Stateless Reset" {
+/// Invariant 20's rule, as a predicate so a canary can be held to the same one: no function in
+/// `namespace` may take a `Connection`.
+fn takes_no_connection(comptime namespace: type) bool {
+    inline for (@typeInfo(namespace).@"struct".decls) |decl| {
+        const held = @field(namespace, decl.name);
+        const info = @typeInfo(@TypeOf(held));
+        if (info != .@"fn") continue;
+        inline for (info.@"fn".params) |param| {
+            const kind = param.type orelse continue;
+            if (kind == *Connection or kind == *const Connection) return false;
+        }
+    }
+    return true;
+}
+
+/// A namespace shaped the way RFC 9000 §9 forbids, which is what proves the rule above can fail.
+const ConnectionReset = struct {
+    pub fn write(connection: *Connection) void {
+        _ = connection;
+    }
+};
+
+test "invariant 20: a Stateless Reset cannot be sent from a connection" {
     // RFC 9000 §9: "Generating a Stateless Reset or closing the connection would allow third
     // parties in the network to cause connections to close by spoofing or otherwise manipulating
-    // observed traffic." colibri reads one (§10.3.1) and never produces one, so the module
-    // exposes no writer and this holds it to that.
-    inline for (@typeInfo(stateless_reset).@"struct".decls) |decl| {
-        try testing.expect(!std.mem.containsAtLeast(u8, decl.name, 1, "write"));
-        try testing.expect(!std.mem.containsAtLeast(u8, decl.name, 1, "build"));
-    }
+    // observed traffic." A migration is something that happens to a connection, and RFC 9000
+    // §10.3's answer goes to a datagram no connection could be found for, so the rule holds by
+    // shape: nothing in `stateless_reset` can see a `Connection`, so nothing there can be reached
+    // from the path that refuses a migration.
+    try testing.expect(takes_no_connection(stateless_reset));
+    // The canary, which `build/lint.zig` does for the lint rules: a namespace shaped the way §9
+    // forbids fails the same rule, so the line above is evidence rather than a tautology.
+    try testing.expect(!takes_no_connection(ConnectionReset));
 }
