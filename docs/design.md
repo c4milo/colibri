@@ -1556,8 +1556,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   5. ~~The receive path — one datagram walked into packets and frames.~~ **Done**, and recorded
      below.
   6. **The send path** — §12.2's coalescing and §14.1's padding, into a buffer the caller owns.
-  7. ~~Key-update timing.~~ **Done, `4d0cc65`**, and recorded below. RFC 9001 §6's three
-     moments and its refusals, at the call sites pieces 5 and 6 own.
+  7. ~~Key-update timing.~~ **Done**, `4d0cc65` and `871d034..ac522a2`, and recorded below. All
+     of RFC 9001 §6, at the call sites pieces 5 and 6 own.
   8. ~~Version negotiation.~~ **Done, `fc2a6ae`**, and recorded below. `connection_version.zig` holds §6's
      two connection-level decisions, above the packet `packet/invariant.zig` already read and
      wrote.
@@ -1703,14 +1703,48 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   peer's — a suite that opens a packet with its next keys and then refuses to move to them — and
   it closes with INTERNAL_ERROR, which RFC 9000 §11 gives an endpoint with no more specific code.
 
-  Three rules of §6 have no call site yet, and the file header names them: §6.5's discard of the
-  previous read keys, which is measured in three Probe Timeouts and waits on the timers; §6.6's
-  AEAD limits, which the send path does not act on; and §6.2's last paragraph, which needs the
-  ACK's contents beside the key set, and `connection_frames.process` is not told the key set.
-
-  20 mutations, 20 CAUGHT, one of them only after a test was written: a 1-RTT space the peer had
+  Three rules of §6 were left without a call site and each has one now, recorded below. 20
+  mutations, 20 CAUGHT, one of them only after a test was written: a 1-RTT space the peer had
   acknowledged nothing in read as acknowledged, because no case had sent a packet without also
   recording an acknowledgment. `zig build test`: 1155 passed, 18 skipped.
+
+  **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
+
+  §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
+  this endpoint protected with the newer ones. It needs the ACK's contents beside the key set the
+  packet opened under, and the frame layer was told neither, so `connection_frames.process` now
+  takes the `receive.Opened` the receive path already built — which carries both and replaces
+  three of its parameters. RFC 9000 §19.3 makes Largest Acknowledged a packet the frame
+  acknowledges and no number it names is above that one, so that field alone answers §6.2's "any
+  acknowledged packet".
+
+  §6.6's two limits are the suite's counts, so each arrives as a refusal, and colibri had been
+  throwing both away: a seal refusal became "the packet does not fit" and a failed open became
+  §5.5's discard. §6.6 wants the opposite of each. On the confidentiality limit the send path
+  initiates §6.1's key update and seals again, and closes with AEAD_LIMIT_REACHED only when no
+  update is possible — below the application level that is always, because §6.1's Note updates no
+  other level's keys. On the integrity limit the walk stops, because §6.6 says to "not process any
+  more packets". `packet_build.connection_error_code` answers null for a space out of packet
+  numbers: RFC 9000 §12.3 ends that connection with no CONNECTION_CLOSE at all.
+
+  §6.5's two waits are both three Probe Timeouts and neither had a clock. The old read keys go
+  three PTOs after a packet arrived under the new ones, and a key update this endpoint starts
+  waits three PTOs from the acknowledgment that confirmed the current phase. §6.6's update skips
+  the second wait, which is why there are two entry points: a SHOULD about packets a peer might
+  discard does not hold up a MUST about what the AEAD is still safe to protect. `on_instant` is
+  public so the timer piece can drive it; until then the receive path calls it on every 1-RTT
+  packet that opens, which is when colibri is told an instant at all.
+
+  The three loose fields `Connection` held for §6 became `key_update.Phase`, the way
+  `connection_keys.Keys` holds invariant 21's, because §6.5's timing needed three more.
+
+  Mutations: 31 applied across the three, 27 CAUGHT first time. The four gaps were all in the
+  tests. Two were rules only reachable when §6.1 would have permitted an update, and the cases
+  had set up a connection where it would not. One was the wire itself — reporting every packet as
+  the current key set — which nothing caught until a test walked a packet and then read its
+  frames. And one was a deadline the test computed from the same constant the code reads, so
+  changing the constant moved both; a comptime assert pins the three to what §6.5 says instead.
+  `zig build test`: 1170 passed, 18 skipped.
 
   **Three defects the mapping found in committed code, 2026-09-20.** A client could not send its
   first Initial: `Path.init` left every path unvalidated, so its allowance was three times nothing
