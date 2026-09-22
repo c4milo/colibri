@@ -41,6 +41,11 @@ const peer_octet: u8 = 0x51;
 const local_id: [id_len]u8 = @splat(local_octet);
 const peer_id: [id_len]u8 = @splat(peer_octet);
 
+/// Handshake octets a provider owes, which is what gives a packet below the application level
+/// something to carry.
+const crypto_octet: u8 = 0x6d;
+const crypto_octets: [payload_len]u8 = @splat(crypto_octet);
+
 /// One octet of made-up payload, repeated. Nothing reads its value.
 const payload_octet: u8 = 0x33;
 /// Long enough that the octets after the Packet Number field hold a tag and a payload.
@@ -82,6 +87,15 @@ fn open_connection() void {
 
 fn suite() crypto.Suite {
     return suite_holder.suite();
+}
+
+/// Sends one 1-RTT packet number and has the peer acknowledge it, which is the state RFC 9001
+/// §6.1 requires before another key update may be initiated.
+fn send_and_acknowledge() void {
+    const space = test_connection.space_at(.application);
+    const number = space.next_number() catch unreachable;
+    key_update.on_packet_sent(&test_connection, .application, number, false);
+    space.largest_acknowledged = number;
 }
 
 /// Says the peer acknowledged every 1-RTT packet up to `number`, which is what RFC 9001 §6.1
@@ -317,15 +331,80 @@ fn owe_ack(first: u64, second: u64) void {
 }
 
 fn build_1rtt() !?packet_build.Built {
+    return build_at(.application);
+}
+
+fn build_at(level: Level) !?packet_build.Built {
     return packet_build.build(
         &test_connection,
         suite(),
         provider_holder.provider(),
-        .application,
+        level,
         &scratch,
         &datagram,
         test_now_ns,
     );
+}
+
+test "RFC 9001 §6.6: the confidentiality limit is met with a key update, not a close" {
+    open_connection();
+    owe_ack(0, 1);
+    // §6.1 permits an update: the handshake is confirmed and the peer acknowledged this phase.
+    send_and_acknowledge();
+    // RFC 9001 §6.6: these keys will protect nothing more.
+    suite_holder.seals_left = 0;
+    suite_holder.seals_per_key = 1;
+
+    const built = (try build_1rtt()).?;
+    try testing.expectEqual(1, suite_holder.updates);
+    // §6.1: the packet went out under the new phase, so it carries the toggled bit.
+    try testing.expect(key_phase_of(datagram[0..built.len]));
+}
+
+test "RFC 9001 §6.6: a limit no key update can free ends the connection" {
+    open_connection();
+    owe_ack(0, 1);
+    // §6.1 refuses: no packet of this phase has been acknowledged, so no update is possible.
+    suite_holder.seals_left = 0;
+    try testing.expectError(error.AeadLimitReached, build_1rtt());
+    try testing.expectEqual(0, suite_holder.updates);
+    // §6.6: "the endpoint MUST stop using those keys", so the packet is not offered to them a
+    // second time once §6.1 has refused the update that would have replaced them.
+    try testing.expectEqual(1, suite_holder.seal_attempts);
+    // RFC 9001 §6.6 names AEAD_LIMIT_REACHED, which RFC 9000 §20.1 numbers 0x0f.
+    try testing.expectEqual(
+        error_code.aead_limit_reached,
+        packet_build.connection_error_code(error.AeadLimitReached).?,
+    );
+}
+
+test "RFC 9001 §6.6: keys that refuse again after an update end the connection" {
+    open_connection();
+    owe_ack(0, 1);
+    send_and_acknowledge();
+    // The update installs a set that is already at its own limit.
+    suite_holder.seals_left = 0;
+    suite_holder.seals_per_key = 0;
+    try testing.expectError(error.AeadLimitReached, build_1rtt());
+    try testing.expectEqual(1, suite_holder.updates);
+}
+
+test "RFC 9001 §6.6: below the application level no key update can free the keys" {
+    open_connection();
+    keys.on_keys_installed(&test_connection, .initial, .write);
+    provider_holder = .{ .owed = &crypto_octets, .owed_level = .initial };
+    // §6.1 would permit an update, so what stops one here is the level and nothing else.
+    send_and_acknowledge();
+    suite_holder.seals_left = 0;
+    // §6.1's Note: "Keys of packets other than the 1-RTT packets are never updated."
+    try testing.expectError(error.AeadLimitReached, build_at(.initial));
+    try testing.expectEqual(0, suite_holder.updates);
+}
+
+test "RFC 9000 §12.3: a space out of packet numbers closes with no frame" {
+    // "the sender MUST close the connection without sending a CONNECTION_CLOSE frame or any
+    // further packets", so there is no code to carry.
+    try testing.expectEqual(null, packet_build.connection_error_code(error.PacketNumbersExhausted));
 }
 
 /// RFC 9000 §17.3.1: the Key Phase bit of a short header, which RFC 9001 §5.4 protects and this

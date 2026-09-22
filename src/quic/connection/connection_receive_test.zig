@@ -8,6 +8,7 @@ const std = @import("std");
 const core = @import("core");
 const crypto = @import("crypto");
 const constants = @import("../constants.zig");
+const error_code = @import("../error_code.zig");
 const header_write = @import("../packet/packet_header_write.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
@@ -55,10 +56,13 @@ var datagram: [datagram_len]u8 = undefined;
 const Opener = struct {
     /// Packet numbers this opener refuses, modelling RFC 9001 §5.5's failure. Test-only.
     refuses: ?u64,
+    /// Makes every packet answer RFC 9001 §6.6's integrity limit, which a real suite reaches
+    /// after counting more failures than the AEAD permits.
+    reached_integrity_limit: bool,
     opened: usize,
 
     fn init(held: *Opener) void {
-        held.* = .{ .refuses = null, .opened = 0 };
+        held.* = .{ .refuses = null, .reached_integrity_limit = false, .opened = 0 };
     }
 
     fn suite(held: *Opener) crypto.Suite {
@@ -67,6 +71,9 @@ const Opener = struct {
 
     fn open(context: *anyopaque, opening: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
         const held: *Opener = @ptrCast(@alignCast(context));
+        // RFC 9001 §6.6: the integrity limit is counted "across all keys" over the connection's
+        // lifetime, so it is reached whatever this packet holds.
+        if (held.reached_integrity_limit) return error.IntegrityLimitReached;
         const protected = opening.packet.len - opening.packet_number_offset;
         // RFC 9001 §5.5: a packet too short to hold a Packet Number field and an authentication
         // tag cannot be authenticated, and an endpoint discards it rather than failing.
@@ -333,4 +340,28 @@ test "RFC 9000 §12.2: a header that will not parse ends the walk" {
     const stopped = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.unreadable_header, stopped.discarded);
     try testing.expectEqual(null, try receive.next(&walk, &test_connection, opener.suite()));
+}
+
+test "RFC 9001 §6.6: a packet past the integrity limit ends the walk and the connection" {
+    open_connection();
+    var writer = Writer.init(&datagram);
+    try write_packet(&writer, .initial, &local_id, 0);
+    try write_packet(&writer, .handshake, &local_id, 1);
+    start(writer.written().len);
+    opener.reached_integrity_limit = true;
+
+    // "the endpoint MUST immediately close the connection with a connection error of type
+    // AEAD_LIMIT_REACHED and not process any more packets", which is what separates this failure
+    // to open from §5.5's, where the walk carries on to the next packet.
+    try testing.expectError(
+        receive.Error.AeadLimitReached,
+        receive.next(&walk, &test_connection, opener.suite()),
+    );
+    try testing.expectEqual(0, opener.opened);
+    try testing.expect(!walk.finished());
+    // RFC 9000 §20.1 numbers AEAD_LIMIT_REACHED 0x0f.
+    try testing.expectEqual(
+        error_code.aead_limit_reached,
+        receive.connection_error_code(receive.Error.AeadLimitReached),
+    );
 }

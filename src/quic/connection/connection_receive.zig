@@ -20,6 +20,7 @@ const core = @import("core");
 const crypto = @import("crypto");
 const constants = @import("../constants.zig");
 const header = @import("../packet/packet_header.zig");
+const error_code = @import("../error_code.zig");
 const connection_module = @import("connection.zig");
 const keys_module = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
@@ -59,11 +60,25 @@ pub const Discarded = enum {
     not_for_this_walk,
 };
 
-/// Why a packet that opened ended the connection. Everything before the AEAD tag matches is a
-/// discard, so the only rules reached here are RFC 9001 §6's, which `connection_key_update.zig`
-/// applies. `connection_error_code` says which code the CONNECTION_CLOSE carries.
-pub const Error = key_update.Error;
-pub const connection_error_code = key_update.connection_error_code;
+/// Why this walk ended the connection. RFC 9001 §5.5 makes a packet that will not open a discard
+/// rather than an error, so the rules reached here are §6's: the key update ones a packet that
+/// opened can break, and §6.6's integrity limit, which is the one failure to open that is not a
+/// discard.
+pub const Error = key_update.Error || error{
+    /// RFC 9001 §6.6: more packets have failed authentication than the AEAD's integrity limit
+    /// permits, counted "across all keys" over the connection's lifetime.
+    AeadLimitReached,
+};
+
+/// The code a CONNECTION_CLOSE carries for `failure` (RFC 9000 §20.1).
+pub fn connection_error_code(failure: Error) u64 {
+    return switch (failure) {
+        // RFC 9001 §6.6: "the endpoint MUST immediately close the connection with a connection
+        // error of type AEAD_LIMIT_REACHED and not process any more packets."
+        error.AeadLimitReached => error_code.aead_limit_reached,
+        else => |key_failure| key_update.connection_error_code(key_failure),
+    };
+}
 
 /// What one packet of the datagram turned into.
 pub const Outcome = union(enum) {
@@ -202,10 +217,14 @@ fn open_at(
         // carries the same Key Phase bit as the first of the next, and this is what tells them
         // apart. It is null at the handshake levels, which have no key update.
         .current_phase_lowest = if (level == .application) connection.current_phase_lowest else null,
-    }) catch {
+    }) catch |failure| switch (failure) {
+        // RFC 9001 §6.6: past the integrity limit "the endpoint MUST immediately close the
+        // connection with a connection error of type AEAD_LIMIT_REACHED and not process any more
+        // packets", so this one ends the walk rather than advancing past the packet.
+        error.IntegrityLimitReached => return Error.AeadLimitReached,
         // RFC 9001 §5.5: "an endpoint MUST NOT fail the connection" over a packet that did not
         // authenticate, so it is dropped and the walk goes on to the next.
-        return advance(walk, packet_len, .would_not_open);
+        else => return advance(walk, packet_len, .would_not_open),
     };
     // RFC 9001 §6.1's Note: "Keys of packets other than the 1-RTT packets are never updated", so
     // the key phase is the application level's alone. It sits before §12.3's duplicate check

@@ -58,6 +58,16 @@ pub const RoundTrip = struct {
     /// Which key set `open` reports at the application level (RFC 9001 §6.5). A test sets it to
     /// drive §6.2's answer and §6.4's refusal; a real suite decides it from the Key Phase bit.
     opens_with: crypto.suite.KeySet = .current,
+    /// RFC 9001 §6.6: packets these keys may still protect, or null for no limit.
+    seals_left: ?usize = null,
+    /// What a key update restores `seals_left` to, because §6.1 installs a new set of keys and
+    /// §6.6 counts each set on its own.
+    seals_per_key: ?usize = null,
+    /// Makes `open` answer §6.6's integrity limit, which a test reaches with no forged packet.
+    reached_integrity_limit: bool = false,
+    /// How many times `seal` was entered, refusals included. RFC 9001 §6.6 has an endpoint
+    /// "stop using those keys", so a test reads this to see that it did.
+    seal_attempts: usize = 0,
 
     pub fn init(held: *RoundTrip) void {
         held.* = .{};
@@ -68,7 +78,14 @@ pub const RoundTrip = struct {
     }
 
     fn seal(context: *anyopaque, sealing: crypto.suite.Sealing, output: []u8) crypto.suite.SealError!usize {
-        _ = context;
+        const held: *RoundTrip = @ptrCast(@alignCast(context));
+        held.seal_attempts += 1;
+        if (held.seals_left) |left| {
+            // RFC 9001 §6.6: past the confidentiality limit "the endpoint MUST stop using those
+            // keys", which is a refusal to protect anything more under them.
+            if (left == 0) return error.ConfidentialityLimitReached;
+            held.seals_left = left - 1;
+        }
         const total = sealing.header.len + sealing.payload.len + constants.aead_tag_len;
         // RFC 9001 §5.3: a real suite would refuse here too, because the tag has nowhere to go.
         if (total > output.len) return error.NoSpaceLeft;
@@ -80,6 +97,9 @@ pub const RoundTrip = struct {
 
     fn open(context: *anyopaque, opening: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
         const held: *RoundTrip = @ptrCast(@alignCast(context));
+        // RFC 9001 §6.6: the integrity limit counts failures "across all keys" over a connection
+        // and is reached whatever this packet holds.
+        if (held.reached_integrity_limit) return error.IntegrityLimitReached;
         // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. A real
         // suite reads them after removing header protection (RFC 9001 §5.4); this one has none.
         const number_len: u8 = (opening.packet[0] & constants.packet_number_len_mask) + 1;
@@ -111,6 +131,8 @@ pub const RoundTrip = struct {
         if (held.refuses_update) return error.Unsupported;
         held.phase = !held.phase;
         held.updates += 1;
+        // RFC 9001 §6.6 counts each set of keys on its own, so the new set starts over.
+        held.seals_left = held.seals_per_key;
     }
 
     fn key_phase(context: *const anyopaque) bool {

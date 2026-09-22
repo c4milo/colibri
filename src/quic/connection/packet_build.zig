@@ -29,6 +29,7 @@ const packet_number = @import("../packet/packet_number.zig");
 const connection_module = @import("connection.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const connection_close = @import("connection_close.zig");
+const error_code = @import("../error_code.zig");
 const keys_module = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
@@ -64,7 +65,26 @@ pub const Error = error{
     PacketNumbersExhausted,
     /// The handshake failed while its octets were being written.
     Crypto,
+    /// RFC 9001 §6.6: the keys have protected as many packets as the AEAD's confidentiality limit
+    /// permits and no key update could free them, so the connection stops.
+    AeadLimitReached,
 };
+
+/// The code a CONNECTION_CLOSE carries for `failure`, or null when no frame goes out.
+pub fn connection_error_code(failure: Error) ?u64 {
+    return switch (failure) {
+        // RFC 9001 §6.6: "It is RECOMMENDED that endpoints immediately close the connection with
+        // a connection error of type AEAD_LIMIT_REACHED before reaching a state where key updates
+        // are not possible."
+        error.AeadLimitReached => error_code.aead_limit_reached,
+        // RFC 9000 §12.3: "If the packet number for sending reaches 2^62-1, the sender MUST close
+        // the connection without sending a CONNECTION_CLOSE frame or any further packets."
+        error.PacketNumbersExhausted => null,
+        // Neither of these is a connection error: the caller offered a slice too small for a
+        // packet, and a failed handshake carries `connection_crypto`'s own code.
+        error.NoSpaceLeft, error.Crypto => null,
+    };
+}
 
 /// What was built, which is what the caller tells RFC 9002's recovery.
 pub const Built = struct {
@@ -300,15 +320,7 @@ pub fn seal_planned(
         .ack_eliciting = planned.ack_eliciting,
         .shape = planned.shape,
     };
-    var header = Writer.init(header_scratch);
-    write_header(connection, suite, &header, pending) catch return Error.NoSpaceLeft;
-    const written = suite.seal(.{
-        .level = pending.level,
-        .packet_number = pending.number,
-        .header = header.written(),
-        .packet_number_len = pending.truncated.len,
-        .payload = pending.payload,
-    }, output) catch return Error.NoSpaceLeft;
+    const written = try seal_pending(connection, suite, pending, header_scratch, output);
     // RFC 9001 §6.1, §6.2: the packet exists now, so what it does to the key phase is recorded
     // here and never on a packet the suite refused to protect.
     key_update.on_packet_sent(connection, pending.level, pending.number, planned.carries_ack);
@@ -321,6 +333,69 @@ pub fn seal_planned(
         // acknowledgment or carries PADDING, and §14.1's expansion is what adds the second.
         .in_flight = recovery_sent.counts_in_flight(pending.ack_eliciting, planned.padding_len > 0),
     };
+}
+
+/// Writes the header and protects the packet, once, or after one key update.
+///
+/// RFC 9001 §6.6: "Endpoints MUST initiate a key update before sending more protected packets
+/// than the confidentiality limit for the selected AEAD permits. If a key update is not possible
+/// or integrity limits are reached, the endpoint MUST stop using the connection". colibri counts
+/// nothing — the suite holds the keys and the counts — so the limit arrives as a refusal to seal,
+/// and the update that §6.6 asks for is made before any further packet goes out.
+fn seal_pending(
+    connection: *Connection,
+    suite: crypto.Suite,
+    pending: Pending,
+    header_scratch: []u8,
+    output: []u8,
+) Error!usize {
+    return write_and_seal(connection, suite, pending, header_scratch, output) catch |failure| switch (failure) {
+        error.ConfidentialityLimitReached => update_and_seal(connection, suite, pending, header_scratch, output),
+        else => Error.NoSpaceLeft,
+    };
+}
+
+/// The second attempt, under the keys a key update installed (RFC 9001 §6.6).
+fn update_and_seal(
+    connection: *Connection,
+    suite: crypto.Suite,
+    pending: Pending,
+    header_scratch: []u8,
+    output: []u8,
+) Error!usize {
+    // RFC 9001 §6.1's Note: "Keys of packets other than the 1-RTT packets are never updated", so
+    // at any other level a key update frees nothing and §6.6's connection error is all that is
+    // left.
+    if (pending.level != .application) return Error.AeadLimitReached;
+    // §6.6: "If a key update is not possible ... the endpoint MUST stop using the connection."
+    // §6.1 is what says whether one is possible now.
+    key_update.initiate(connection, suite) catch return Error.AeadLimitReached;
+    // §6.1 toggled the Key Phase bit, so the header is written again rather than reused.
+    return write_and_seal(connection, suite, pending, header_scratch, output) catch |failure| switch (failure) {
+        // The new keys refusing as well is a key update that did not help, which §6.6 ends on.
+        error.ConfidentialityLimitReached => Error.AeadLimitReached,
+        else => Error.NoSpaceLeft,
+    };
+}
+
+/// One attempt: the header, then the suite (RFC 9001 §5.3). `SealError.KeysUnavailable` is
+/// colibri's own defect by invariant 21, and reaches the caller as a packet that would not fit.
+fn write_and_seal(
+    connection: *Connection,
+    suite: crypto.Suite,
+    pending: Pending,
+    header_scratch: []u8,
+    output: []u8,
+) (core.writer.Error || crypto.suite.SealError)!usize {
+    var header = Writer.init(header_scratch);
+    try write_header(connection, suite, &header, pending);
+    return suite.seal(.{
+        .level = pending.level,
+        .packet_number = pending.number,
+        .header = header.written(),
+        .packet_number_len = pending.truncated.len,
+        .payload = pending.payload,
+    }, output);
 }
 
 /// RFC 9000 §17.2 and §17.3: the header through the Packet Number field, unprotected, which
