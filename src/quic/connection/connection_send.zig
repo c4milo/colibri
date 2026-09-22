@@ -13,7 +13,12 @@
 //!
 //! **It tells recovery nothing on its own.** RFC 9002's loss recovery is the caller's to drive,
 //! so `Sent` reports every packet and the caller records them. That keeps the instant a
-//! parameter and leaves the timers to the piece design §8 step 9e still owes.
+//! parameter, and `connection_timer.zig` is where the deadlines it produces are read.
+//!
+//! **Two more rules expand a datagram.** RFC 9000 §8.2.1 and §8.2.2 ask for 1,200 octets around a
+//! PATH_CHALLENGE and a PATH_RESPONSE, and both except the anti-amplification limit — which
+//! `datagram_ceiling` has already bounded the datagram by, so the padding stops there on its own
+//! and §8.2.3's second validation is what the short datagram leaves owed.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -109,7 +114,27 @@ pub fn send(
     expand_last(connection, plans[0..count], planned_len, ceiling);
     const sent = try seal_all(connection, suite, scratch, plans[0..count], output);
     note_close_sent(connection, plans[0..count], now_ns);
+    note_challenge_sent(connection, plans[0..count], sent.len, now_ns);
     return sent;
+}
+
+/// RFC 9000 §8.2.1: the datagram exists now, so its length is what says whether the path MTU is
+/// being validated along with the address, and §8.2.4's timer starts from here.
+fn note_challenge_sent(connection: *Connection, plans: []const packet_build.Planned, len: usize, now_ns: u64) void {
+    for (plans) |planned| {
+        const data = planned.path_challenge orelse continue;
+        connection.path.on_challenge_sent(data, len, now_ns, challenge_timeout_ns(connection));
+        return;
+    }
+}
+
+/// RFC 9000 §8.2.4: "A value of three times the larger of the current PTO or the PTO for the new
+/// path (using kInitialRtt, as defined in [QUIC-RECOVERY]) is RECOMMENDED", because "the new path
+/// could have a longer round-trip time than the original".
+fn challenge_timeout_ns(connection: *const Connection) u64 {
+    const rtt = &connection.recovery.rtt;
+    const larger_ns = @max(rtt.probe_timeout_ns(true), rtt.new_path_probe_timeout_ns());
+    return constants.path_probe_timeouts *| larger_ns;
 }
 
 /// RFC 9000 §10.2: "After sending a CONNECTION_CLOSE frame, an endpoint immediately enters the
@@ -171,6 +196,13 @@ fn room_for_padding(last: *const packet_build.Planned, ceiling: usize, planned_l
 /// payload of all UDP datagrams carrying Initial packets ... Similarly, a server MUST expand the
 /// payload of all UDP datagrams carrying ack-eliciting Initial packets."
 fn owes_expansion(connection: *const Connection, plans: []const packet_build.Planned) bool {
+    // RFC 9000 §8.2.1: "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to
+    // at least the smallest allowed maximum datagram size of 1200 bytes", and §8.2.2 says the
+    // same of a PATH_RESPONSE. Both exceptions are §8's limit, which `datagram_ceiling` has
+    // already bounded this datagram by, so the padding stops there on its own.
+    for (plans) |planned| {
+        if (planned.path_challenge != null or planned.carries_path_response) return true;
+    }
     for (plans) |planned| {
         if (planned.level != .initial) continue;
         if (connection.role == .client) return true;

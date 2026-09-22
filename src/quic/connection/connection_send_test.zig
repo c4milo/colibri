@@ -210,3 +210,122 @@ test "RFC 9000 §18.2: the peer's max_udp_payload_size bounds the datagram" {
     const after = (try send_from(&client)).?;
     try testing.expectEqual(larger, after.len);
 }
+
+/// The unpredictable octets RFC 9000 §8.2.1 asks for, as a fixed value: §5.1 wants them drawn by
+/// the caller and invariant 5 forbids colibri a random number, so a test states them.
+const challenge_octet: u8 = 0x9c;
+const challenge_data: [constants.path_challenge_len]u8 = @splat(challenge_octet);
+
+/// Gives `connection` the application level, which RFC 9000 §12.5's Table 3 confines the path
+/// frames to.
+fn open_application(connection: *Connection) void {
+    keys.on_keys_installed(connection, .application, .read);
+    keys.on_keys_installed(connection, .application, .write);
+    connection.handshake_complete = true;
+}
+
+test "RFC 9000 §8.2.1: a PATH_CHALLENGE goes out in an expanded datagram and is recorded" {
+    open_pair();
+    open_application(&client);
+    client.path.owe_challenge(challenge_data);
+
+    const sent = (try send_from(&client)).?;
+    // "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to at least the
+    // smallest allowed maximum datagram size of 1200 bytes."
+    try testing.expectEqual(constants.datagram_len_min, sent.len);
+    // §8.2.1 asks once: the frame is not owed again until the caller asks again.
+    try testing.expectEqual(null, client.path.challenge_owed);
+    // §8.2.1's attempt is outstanding now, which §8.2.4's timer is armed against. The client's
+    // path already reads as validated (§21.1.1.1 exempts it), so what shows is the attempt.
+    try testing.expect(client.path.challenge_deadline_ns() != null);
+    // RFC 9000 §12.4's Table 3 marks PADDING, ACK and CONNECTION_CLOSE with N and nothing else,
+    // so a PATH_CHALLENGE elicits an acknowledgment and RFC 9002 §2 counts the packet in flight.
+    try testing.expect(sent.packets[0].ack_eliciting);
+    try testing.expect(sent.packets[0].in_flight);
+
+    // The datagram reached 1,200 octets, so §8.2.3's response will validate the path MTU too.
+    open_application(&server);
+    _ = try walk_back(&server, sent);
+    try testing.expectEqualSlices(u8, &challenge_data, &server.path.response_owed.?);
+    try testing.expect(client.path.on_response(challenge_data));
+    try testing.expect(!client.path.owes_mtu_validation());
+}
+
+test "RFC 9000 §8.2.2: a PATH_RESPONSE goes out in an expanded datagram" {
+    open_pair();
+    open_application(&client);
+    // "On receiving a PATH_CHALLENGE frame, an endpoint MUST respond by echoing the data
+    // contained in the PATH_CHALLENGE frame in a PATH_RESPONSE frame."
+    client.path.take_challenge(challenge_data);
+
+    const sent = (try send_from(&client)).?;
+    // §8.2.2: "An endpoint MUST expand datagrams that contain a PATH_RESPONSE frame to at least
+    // the smallest allowed maximum datagram size of 1200 bytes."
+    try testing.expectEqual(constants.datagram_len_min, sent.len);
+    // §8.2.2: "An endpoint MUST NOT send more than one PATH_RESPONSE frame in response to one
+    // PATH_CHALLENGE frame", so nothing is owed afterwards and nothing more goes out.
+    try testing.expectEqual(null, client.path.response_owed);
+    try testing.expectEqual(null, try send_from(&client));
+}
+
+test "RFC 9000 §8.2.1: a datagram the anti-amplification limit bounds is not expanded" {
+    open_pair();
+    open_application(&server);
+    // §8.1's limit is the server's: it may send three times what it received, which here is less
+    // than §14.1's 1,200 octets.
+    server.path.init(.unvalidated);
+    server.path.on_datagram_received(small_receipt_len);
+    server.path.take_challenge(challenge_data);
+    server.path.owe_challenge(challenge_data);
+
+    const sent = (try send_from(&server)).?;
+    // §8.2.1: the expansion applies "unless the anti-amplification limit for the path does not
+    // permit sending a datagram of this size", which is what stopped it here.
+    try testing.expect(sent.len < constants.datagram_len_min);
+    // §8.2.3: "the path is validated but not the path MTU. ... the endpoint MUST initiate another
+    // path validation with an expanded datagram."
+    try testing.expect(server.path.on_response(challenge_data));
+    try testing.expect(server.path.owes_mtu_validation());
+}
+
+/// A round trip well under RFC 9002's kInitialRtt of 333 milliseconds.
+const short_sample_ns: u64 = 10 * constants.nanoseconds_per_millisecond;
+
+/// Three times this is under §14.1's smallest allowed maximum datagram, so §8's limit bites.
+const small_receipt_len: u64 = 200;
+
+test "RFC 9000 §12.5: neither path frame goes out below the application level" {
+    open_pair();
+    // The application level is not open, so Table 3 permits neither frame anywhere available.
+    client.path.take_challenge(challenge_data);
+    client.path.owe_challenge(challenge_data);
+    try testing.expectEqual(null, try send_from(&client));
+    try testing.expectEqualSlices(u8, &challenge_data, &client.path.response_owed.?);
+    try testing.expectEqualSlices(u8, &challenge_data, &client.path.challenge_owed.?);
+}
+
+test "RFC 9000 §8.2.4: the timer is three times the larger of the two Probe Timeouts" {
+    open_pair();
+    open_application(&client);
+    // A round trip shorter than kInitialRtt, so the current Probe Timeout is the smaller of the
+    // two and §8.2.4's "larger" is what picks the other: "the new path could have a longer
+    // round-trip time than the original".
+    client.recovery.rtt.update(.{
+        .rtt_ns = short_sample_ns,
+        .ack_delay_ns = 0,
+        .handshake_confirmed = true,
+        .taken_at_ns = test_now_ns,
+    });
+    try testing.expect(client.recovery.rtt.probe_timeout_ns(true) < client.recovery.rtt.new_path_probe_timeout_ns());
+    client.path.owe_challenge(challenge_data);
+    _ = (try send_from(&client)).?;
+
+    // "A value of three times the larger of the current PTO or the PTO for the new path (using
+    // kInitialRtt ...) is RECOMMENDED."
+    const rtt = &client.recovery.rtt;
+    const larger_ns = @max(rtt.probe_timeout_ns(true), rtt.new_path_probe_timeout_ns());
+    try testing.expectEqual(
+        test_now_ns + constants.path_probe_timeouts * larger_ns,
+        client.path.challenge_deadline_ns().?,
+    );
+}

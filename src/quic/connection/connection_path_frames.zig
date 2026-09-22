@@ -42,11 +42,6 @@ pub fn connection_error_code(failure: Error) u64 {
 
 /// What one of these frames left for the send path to answer.
 pub const Owed = struct {
-    /// RFC 9000 §8.2.2: "On receiving a PATH_CHALLENGE frame, an endpoint MUST respond by echoing
-    /// the data contained in the PATH_CHALLENGE frame in a PATH_RESPONSE frame." Null when none
-    /// is owed. Only the last is kept: a peer that challenges twice before colibri answers gets
-    /// one response, and §8.2.1 lets it challenge again.
-    path_response: ?[constants.path_challenge_len]u8 = null,
     /// RFC 9000 §19.7: the token a server gave, which a client MAY use on a future connection.
     /// It points into the packet, so a caller that wants it copies it before reading on; colibri
     /// has no state outside one connection and so cannot hold it (decision 35).
@@ -61,7 +56,7 @@ pub fn apply(connection: *Connection, frame: frame_module.Frame, addressed_to: ?
         .retire_connection_id => |held| try take_retire(connection, held.sequence_number, addressed_to),
         // RFC 9000 §8.2.2: the response is the send path's to write, and it must carry these
         // exact octets, so they are what the connection remembers.
-        .path_challenge => |held| owed.path_response = held.data.*,
+        .path_challenge => |held| connection.path.take_challenge(held.data.*),
         .path_response => |held| take_path_response(connection, held.data.*),
         else => {},
     }

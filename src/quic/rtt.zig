@@ -132,6 +132,17 @@ pub const Rtt = struct {
     /// The Probe Timeout of RFC 9002 §6.2.1: the estimate, four times its variation, and the
     /// delay a receiver may add. `include_max_ack_delay` is false for the Initial and Handshake
     /// spaces, where §6.2.1 sets that term to 0 because a peer does not delay those on purpose.
+    /// RFC 9000 §8.2.4's "PTO for the new path (using kInitialRtt, as defined in
+    /// [QUIC-RECOVERY])", which path validation compares against the current one. What the peer
+    /// advertised is kept, because RFC 9002 §5.3 resets the estimator on migration and leaves
+    /// max_ack_delay alone: it is a property of the peer and not of the path.
+    pub fn new_path_probe_timeout_ns(rtt: *const Rtt) u64 {
+        var fresh: Rtt = undefined;
+        fresh.init();
+        fresh.peer_max_ack_delay_ns = rtt.peer_max_ack_delay_ns;
+        return fresh.probe_timeout_ns(true);
+    }
+
     pub fn probe_timeout_ns(rtt: *const Rtt, include_max_ack_delay: bool) u64 {
         const variation_ns = @max(constants.rtt_variation_factor *| rtt.variation_ns, constants.rtt_granularity_ns);
         const delay_ns = if (include_max_ack_delay) rtt.peer_max_ack_delay_ns else 0;

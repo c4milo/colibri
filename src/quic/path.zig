@@ -68,6 +68,14 @@ pub const Path = struct {
     /// RFC 9000 §8.2.3: whether the datagram that validated it was large enough to test the
     /// path MTU as well as the address.
     mtu_validated: bool,
+    /// RFC 9000 §8.2.2: the PATH_CHALLENGE data this endpoint must echo, or null when it owes
+    /// none. Only the last is kept: a peer that challenges twice before colibri answers gets one
+    /// response, and §8.2.1 lets it challenge again to evoke another.
+    response_owed: ?[constants.path_challenge_len]u8,
+    /// RFC 9000 §8.2.1: the PATH_CHALLENGE this endpoint means to send, or null when it means to
+    /// send none. The data is the caller's: §8.2.1 wants it unpredictable and invariant 5 forbids
+    /// colibri a random number.
+    challenge_owed: ?[constants.path_challenge_len]u8,
     /// Whether the last attempt ran out of time (§8.2.4). It is read only while no probe is
     /// outstanding, so a new one needs no clearing: the probe itself is what `state` reports.
     abandoned: bool,
@@ -84,7 +92,40 @@ pub const Path = struct {
             .received = 0,
             .sent = 0,
             .challenge = null,
+            .response_owed = null,
+            .challenge_owed = null,
         };
+    }
+
+    /// RFC 9000 §8.2.2: "On receiving a PATH_CHALLENGE frame, an endpoint MUST respond by echoing
+    /// the data contained in the PATH_CHALLENGE frame in a PATH_RESPONSE frame." The octets are
+    /// kept rather than the packet they arrived in, and the send path writes them.
+    pub fn take_challenge(path: *Path, data: [constants.path_challenge_len]u8) void {
+        path.response_owed = data;
+    }
+
+    /// Asks for a PATH_CHALLENGE to go out (RFC 9000 §8.2.1). `data` must be unpredictable, which
+    /// is why the caller draws it: §8.2.1 says "The endpoint MUST use unpredictable data in every
+    /// PATH_CHALLENGE frame so that it can associate the peer's response with the corresponding
+    /// PATH_CHALLENGE", and invariant 5 forbids colibri a random number.
+    pub fn owe_challenge(path: *Path, data: [constants.path_challenge_len]u8) void {
+        path.challenge_owed = data;
+    }
+
+    /// Takes the PATH_RESPONSE this endpoint owes, leaving none. §8.2.2: "An endpoint MUST NOT
+    /// send more than one PATH_RESPONSE frame in response to one PATH_CHALLENGE frame."
+    pub fn take_response_owed(path: *Path) ?[constants.path_challenge_len]u8 {
+        const owed = path.response_owed orelse return null;
+        path.response_owed = null;
+        return owed;
+    }
+
+    /// Takes the PATH_CHALLENGE this endpoint means to send, leaving none. §8.2.1 lets an
+    /// endpoint send more to guard against loss, which is another call to `owe_challenge`.
+    pub fn take_challenge_owed(path: *Path) ?[constants.path_challenge_len]u8 {
+        const owed = path.challenge_owed orelse return null;
+        path.challenge_owed = null;
+        return owed;
     }
 
     /// What a caller reports about the path.

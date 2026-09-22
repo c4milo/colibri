@@ -92,14 +92,19 @@ test "RFC 9000 §19.7: only a client may receive a NEW_TOKEN frame" {
 
 test "RFC 9000 §8.2.2: a PATH_CHALLENGE leaves a response owed" {
     open_as(.client);
-    const report = try run(&.{.{ .path_challenge = .{ .data = &challenge_data } }});
+    _ = try run(&.{.{ .path_challenge = .{ .data = &challenge_data } }});
     // "An endpoint MUST respond by echoing the data contained in the PATH_CHALLENGE frame in a
     // PATH_RESPONSE frame", so the exact octets are what the connection remembers.
-    try testing.expectEqualSlices(u8, &challenge_data, &report.owed.path_response.?);
+    try testing.expectEqualSlices(u8, &challenge_data, &test_connection.path.response_owed.?);
 
-    // A packet with no challenge in it leaves nothing owed, so a caller cannot answer twice.
-    const quiet = try run(&.{.ping});
-    try testing.expectEqual(null, quiet.owed.path_response);
+    // "An endpoint MUST NOT send more than one PATH_RESPONSE frame in response to one
+    // PATH_CHALLENGE frame", so taking it leaves none.
+    try testing.expectEqualSlices(u8, &challenge_data, &test_connection.path.take_response_owed().?);
+    try testing.expectEqual(null, test_connection.path.take_response_owed());
+
+    // A packet with no challenge in it leaves nothing owed either.
+    _ = try run(&.{.ping});
+    try testing.expectEqual(null, test_connection.path.response_owed);
 }
 
 test "RFC 9000 §8.2.3: a PATH_RESPONSE validates the path its challenge went out on" {

@@ -135,6 +135,12 @@ pub const close_probe_timeouts: u64 = 3;
 /// received".
 pub const key_update_probe_timeouts: u64 = 3;
 
+/// Probe Timeouts RFC 9000 §8.2.4 gives a path validation before it is abandoned: "A value of
+/// three times the larger of the current PTO or the PTO for the new path ... is RECOMMENDED",
+/// which "allows for multiple PTOs to expire prior to failing path validation, so that loss of a
+/// single PATH_CHALLENGE or PATH_RESPONSE frame does not cause path validation failure".
+pub const path_probe_timeouts: u64 = 3;
+
 comptime {
     // Both of §6.5's sentences say "three times the PTO", so the number is the RFC's and not a
     // knob: a change here is a change to what the specification asks for.

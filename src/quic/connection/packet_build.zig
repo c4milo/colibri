@@ -24,6 +24,7 @@ const crypto = @import("crypto");
 const tls = @import("tls");
 const wire = @import("wire");
 const constants = @import("../constants.zig");
+const frame_module = @import("../frame/frame.zig");
 const header_write = @import("../packet/packet_header_write.zig");
 const packet_number = @import("../packet/packet_number.zig");
 const connection_module = @import("connection.zig");
@@ -117,6 +118,13 @@ pub const Planned = struct {
     /// Whether this packet carries an ACK frame (RFC 9000 §19.3). RFC 9001 §6.2 completes a key
     /// update on the first packet under the new keys that acknowledges the one that started it.
     carries_ack: bool = false,
+    /// The PATH_CHALLENGE this packet carries, or null when it carries none (RFC 9000 §8.2.1).
+    /// The datagram's length decides whether the path MTU is validated, so the octets travel this
+    /// far and `Path.on_challenge_sent` takes them once the datagram exists.
+    path_challenge: ?[constants.path_challenge_len]u8 = null,
+    /// Whether this packet carries a PATH_RESPONSE (RFC 9000 §8.2.2), which §8.2.2 expands the
+    /// datagram for just as §8.2.1 does for a challenge.
+    carries_path_response: bool = false,
 };
 
 /// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
@@ -156,6 +164,8 @@ pub fn plan(
         .shape = shape,
         .carries_close = framed.carries_close,
         .carries_ack = framed.carries_ack,
+        .path_challenge = framed.path_challenge,
+        .carries_path_response = framed.carries_path_response,
     };
 }
 
@@ -226,6 +236,8 @@ const Framed = struct {
     ack_eliciting: bool,
     carries_close: bool = false,
     carries_ack: bool = false,
+    path_challenge: ?[constants.path_challenge_len]u8 = null,
+    carries_path_response: bool = false,
 };
 
 /// Writes the frames this packet carries. The set is small on purpose: an ACK when the space owes
@@ -257,15 +269,52 @@ fn frame_payload(
         _ = space.write_ack(&writer, now_ns, exponent_of(connection), report_ecn) catch {};
     }
     const written_ack = writer.written().len;
+    // RFC 9000 §8.2: the path frames go next. §8.2.2 says an endpoint "MUST NOT delay
+    // transmission of a packet containing a PATH_RESPONSE frame unless constrained by congestion
+    // control", so they are written before the handshake's octets compete for the room.
+    const path = write_path_frames(connection, level, &writer);
+    const written_path = writer.written().len;
     // RFC 9001 §4.1.3: the handshake's octets, which `connection_crypto` puts in CRYPTO frames.
-    const crypto_len = connection_crypto.write_crypto(connection, provider, level, payload[written_ack..budget]) catch
+    const crypto_len = connection_crypto.write_crypto(connection, provider, level, payload[written_path..budget]) catch
         return Error.Crypto;
     return .{
-        .len = written_ack + crypto_len,
+        .len = written_path + crypto_len,
         // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing and a CRYPTO frame does.
-        .ack_eliciting = crypto_len > 0,
+        // Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
+        .ack_eliciting = crypto_len > 0 or path.carries_path_response or path.path_challenge != null,
         .carries_ack = written_ack > 0,
+        .path_challenge = path.path_challenge,
+        .carries_path_response = path.carries_path_response,
     };
+}
+
+/// What the path frames amount to in one packet.
+const PathFrames = struct {
+    path_challenge: ?[constants.path_challenge_len]u8 = null,
+    carries_path_response: bool = false,
+};
+
+/// Writes the PATH_RESPONSE this endpoint owes and the PATH_CHALLENGE it means to send, when
+/// there is room for each (RFC 9000 §8.2.1, §8.2.2). A frame that does not fit is left owed, so
+/// the next packet carries it.
+///
+/// §12.5's Table 3 permits neither below the application level, so nothing is written there.
+fn write_path_frames(connection: *Connection, level: Level, writer: *Writer) PathFrames {
+    if (level != .application) return .{};
+    var held: PathFrames = .{};
+    if (connection.path.response_owed) |data| {
+        frame_module.write(writer, .{ .path_response = .{ .data = &data } }) catch return held;
+        _ = connection.path.take_response_owed();
+        held.carries_path_response = true;
+    }
+    if (connection.path.challenge_owed) |data| {
+        // §8.2.1: "an endpoint SHOULD NOT send multiple PATH_CHALLENGE frames in a single
+        // packet", and colibri holds one, so one is what goes out.
+        frame_module.write(writer, .{ .path_challenge = .{ .data = &data } }) catch return held;
+        _ = connection.path.take_challenge_owed();
+        held.path_challenge = data;
+    }
+    return held;
 }
 
 /// RFC 9000 §18.2: the exponent this endpoint advertised, which its own parameters hold.
