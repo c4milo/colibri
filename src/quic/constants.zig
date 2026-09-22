@@ -128,6 +128,19 @@ pub const nanoseconds_per_microsecond: u64 = 1_000;
 /// and lost before a connection is given up.
 pub const close_probe_timeouts: u64 = 3;
 
+/// Probe Timeouts RFC 9001 §6.5 measures both of its key update waits in: an endpoint "SHOULD
+/// retain old read keys for no more than three times the PTO after having received a packet
+/// protected using the new keys", and "SHOULD wait three times the PTO before initiating a key
+/// update after receiving an acknowledgment that confirms that the previous key update was
+/// received".
+pub const key_update_probe_timeouts: u64 = 3;
+
+comptime {
+    // Both of §6.5's sentences say "three times the PTO", so the number is the RFC's and not a
+    // knob: a change here is a change to what the specification asks for.
+    assert(key_update_probe_timeouts == 3);
+}
+
 /// How the answers of a closing endpoint thin out (RFC 9000 §10.2.1): each one waits for this
 /// many times as many received packets as the last, which is the "progressively increasing
 /// number of received packets" the section offers.

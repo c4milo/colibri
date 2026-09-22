@@ -368,8 +368,8 @@ fn update_and_seal(
     // left.
     if (pending.level != .application) return Error.AeadLimitReached;
     // §6.6: "If a key update is not possible ... the endpoint MUST stop using the connection."
-    // §6.1 is what says whether one is possible now.
-    key_update.initiate(connection, suite) catch return Error.AeadLimitReached;
+    // §6.1 is what says whether one is possible now, and §6.5's wait does not hold up a MUST.
+    key_update.initiate_at_aead_limit(connection, suite) catch return Error.AeadLimitReached;
     // §6.1 toggled the Key Phase bit, so the header is written again rather than reused.
     return write_and_seal(connection, suite, pending, header_scratch, output) catch |failure| switch (failure) {
         // The new keys refusing as well is a key update that did not help, which §6.6 ends on.

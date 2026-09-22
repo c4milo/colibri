@@ -68,6 +68,9 @@ pub const RoundTrip = struct {
     /// How many times `seal` was entered, refusals included. RFC 9001 §6.6 has an endpoint
     /// "stop using those keys", so a test reads this to see that it did.
     seal_attempts: usize = 0,
+    /// How many times colibri told this suite to forget the read keys of the phase before
+    /// (RFC 9001 §6.5), which is what times that discard.
+    previous_discards: usize = 0,
 
     pub fn init(held: *RoundTrip) void {
         held.* = .{};
@@ -135,6 +138,12 @@ pub const RoundTrip = struct {
         held.seals_left = held.seals_per_key;
     }
 
+    /// RFC 9001 §6.5: "old read keys and their corresponding secrets SHOULD be discarded."
+    fn discard_previous_keys(context: *anyopaque) void {
+        const held: *RoundTrip = @ptrCast(@alignCast(context));
+        held.previous_discards += 1;
+    }
+
     fn key_phase(context: *const anyopaque) bool {
         const held: *const RoundTrip = @ptrCast(@alignCast(context));
         return held.phase;
@@ -149,7 +158,7 @@ pub const RoundTrip = struct {
         .retry_tag_write = unreachable_tag_write,
         .update_keys = update_keys,
         .key_phase = key_phase,
-        .discard_previous_keys = unreachable_discard_previous,
+        .discard_previous_keys = discard_previous_keys,
         .discard_keys = unreachable_discard,
     };
 };
@@ -172,9 +181,6 @@ fn unreachable_tag_write(
     _: []const u8,
     _: *[crypto.constants.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {
-    unreachable;
-}
-fn unreachable_discard_previous(_: *anyopaque) void {
     unreachable;
 }
 fn unreachable_discard(_: *anyopaque, _: Level) void {

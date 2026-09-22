@@ -141,7 +141,7 @@ fn apply(connection: *Connection, opened: receive.Opened, frame: Frame, now_ns: 
         // RFC 9000 §19.1, §19.2: PADDING has no semantics and PING exists to elicit an
         // acknowledgment, which `is_ack_eliciting` already recorded.
         .padding, .ping => {},
-        .ack => |ack| try take_ack(connection, opened, ack),
+        .ack => |ack| try take_ack(connection, opened, ack, now_ns),
         .crypto => |crypto| connection_crypto.receive_crypto(connection, opened.level, crypto) catch
             return Error.Crypto,
         .connection_close => |close| take_close(connection, close, now_ns, report),
@@ -163,7 +163,7 @@ fn apply(connection: *Connection, opened: receive.Opened, frame: Frame, now_ns: 
 }
 
 /// RFC 9000 §13.1 and §13.2: what a peer's ACK frame says about packets this endpoint sent.
-fn take_ack(connection: *Connection, opened: receive.Opened, ack: frame_module.Ack) Error!void {
+fn take_ack(connection: *Connection, opened: receive.Opened, ack: frame_module.Ack, now_ns: u64) Error!void {
     // RFC 9001 §6.2: "An endpoint that receives an acknowledgment that is carried in a packet
     // protected with old keys where any acknowledged packet was protected with newer keys MAY
     // treat that as a connection error of type KEY_UPDATE_ERROR."
@@ -175,6 +175,9 @@ fn take_ack(connection: *Connection, opened: receive.Opened, ack: frame_module.A
         // error of type PROTOCOL_VIOLATION."
         error.AcknowledgedUnsentPacket => return Error.AcknowledgedUnsentPacket,
     };
+    // RFC 9001 §6.5 waits three Probe Timeouts from "an acknowledgment that confirms that the
+    // previous key update was received", which is this frame when it names the current phase.
+    key_update.on_ack_processed(connection, opened.level, now_ns);
 }
 
 /// RFC 9000 §10.2.2: an endpoint that receives a CONNECTION_CLOSE enters the draining state and

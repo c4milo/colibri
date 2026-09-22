@@ -236,6 +236,21 @@ test "RFC 9001 §6.2: an ACK under old keys naming a new-keys packet closes the 
     );
 }
 
+test "RFC 9001 §6.5: an ACK that confirms the current phase starts the wait for the next" {
+    open_as(.client);
+    spend_numbers(.application, 5);
+    // RFC 9001 §6.1: packet 4 and every number above it went out under the current key phase.
+    test_connection.key_phase.lowest_sent = 4;
+
+    // An ACK naming only the phase before confirms nothing about this one.
+    _ = try run_with(.current, &.{.{ .ack = ack_of(3) }});
+    try testing.expectEqual(null, test_connection.key_phase.confirmed_at_ns);
+
+    // §6.5's "acknowledgment that confirms that the previous key update was received".
+    _ = try run_with(.current, &.{.{ .ack = ack_of(4) }});
+    try testing.expectEqual(test_now_ns, test_connection.key_phase.confirmed_at_ns.?);
+}
+
 test "RFC 9001 §6.2: the same ACK under keys that are not old is legal" {
     open_as(.client);
     spend_numbers(.application, 5);

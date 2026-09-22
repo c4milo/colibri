@@ -232,7 +232,13 @@ fn open_at(
     // because answering an update moves the phase, so a second copy of the packet that started
     // one opens under the current keys rather than the next.
     if (level == .application) {
-        try key_update.on_packet_opened(connection, suite, opened.packet_number, opened.key_set);
+        try key_update.on_packet_opened(
+            connection,
+            suite,
+            opened.packet_number,
+            opened.key_set,
+            walk.datagram.now_ns,
+        );
     }
     // RFC 9000 §12.3: the duplicate check happens after protection is removed and before the
     // frames are processed, which is why the space is asked rather than told here.

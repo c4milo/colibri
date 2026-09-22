@@ -27,9 +27,9 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-var test_connection: Connection = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
+pub var test_connection: Connection = undefined;
+pub var suite_holder: build_test.RoundTrip = undefined;
+pub var provider_holder: build_test.Fake = undefined;
 var scratch: packet_build.DefaultScratch = .{};
 var walk: receive.Walk = undefined;
 
@@ -44,7 +44,7 @@ const peer_id: [id_len]u8 = @splat(peer_octet);
 /// Handshake octets a provider owes, which is what gives a packet below the application level
 /// something to carry.
 const crypto_octet: u8 = 0x6d;
-const crypto_octets: [payload_len]u8 = @splat(crypto_octet);
+pub const crypto_octets: [payload_len]u8 = @splat(crypto_octet);
 
 /// One octet of made-up payload, repeated. Nothing reads its value.
 const payload_octet: u8 = 0x33;
@@ -54,7 +54,7 @@ const protected_len: usize = payload_len + constants.aead_tag_len;
 const test_payload: [protected_len]u8 = @splat(payload_octet);
 
 const datagram_len: usize = 256;
-var datagram: [datagram_len]u8 = undefined;
+pub var datagram: [datagram_len]u8 = undefined;
 
 /// Where `ack_payload` builds one packet's octets: an ACK frame and the octets `RoundTrip` reads
 /// as a tag.
@@ -70,7 +70,7 @@ fn parameters() Parameters {
 
 /// A connection with the 1-RTT keys installed both ways and the handshake complete, which is the
 /// state RFC 9001 §6 begins in: §5.7 forbids opening a 1-RTT packet before it.
-fn open_connection() void {
+pub fn open_connection() void {
     suite_holder.init();
     provider_holder = .{};
     test_connection.init(.{
@@ -91,11 +91,24 @@ fn suite() crypto.Suite {
 
 /// Sends one 1-RTT packet number and has the peer acknowledge it, which is the state RFC 9001
 /// §6.1 requires before another key update may be initiated.
-fn send_and_acknowledge() void {
+pub fn send_and_acknowledge() void {
     const space = test_connection.space_at(.application);
     const number = space.next_number() catch unreachable;
     key_update.on_packet_sent(&test_connection, .application, number, false);
     space.largest_acknowledged = number;
+    key_update.on_ack_processed(&test_connection, .application, test_now_ns);
+}
+
+/// RFC 9001 §6.5's period: three Probe Timeouts, which this connection's RTT answers.
+fn three_probe_timeouts_ns() u64 {
+    return constants.key_update_probe_timeouts * test_connection.recovery.rtt.probe_timeout_ns(true);
+}
+
+/// Has an acknowledgment confirm the current phase now, and answers the instant RFC 9001 §6.5's
+/// wait ends at.
+fn settled_ns() u64 {
+    key_update.on_ack_processed(&test_connection, .application, test_now_ns);
+    return test_now_ns + three_probe_timeouts_ns();
 }
 
 /// Says the peer acknowledged every 1-RTT packet up to `number`, which is what RFC 9001 §6.1
@@ -106,12 +119,12 @@ fn acknowledge(number: u64) void {
 
 /// Walks one 1-RTT packet the peer wrote, under the key set `suite_holder.opens_with` names.
 fn walk_short(number: u8) !receive.Outcome {
-    return walk_payload(number, &test_payload);
+    return walk_payload(number, &test_payload, test_now_ns);
 }
 
 /// The same, over octets a test chose. `body` ends with the octets `RoundTrip` treats as the
 /// tag, so the frames the frame layer reads are everything before them.
-fn walk_payload(number: u8, body: []const u8) !receive.Outcome {
+fn walk_payload(number: u8, body: []const u8, now_ns: u64) !receive.Outcome {
     var writer = Writer.init(&datagram);
     try header_write.write_short(&writer, .{
         .dcid = &local_id,
@@ -122,7 +135,7 @@ fn walk_payload(number: u8, body: []const u8) !receive.Outcome {
     });
     try writer.write_bytes(body);
     const len = writer.written().len;
-    walk.init(.{ .octets = datagram[0..len], .now_ns = test_now_ns, .ecn = .not_ect });
+    walk.init(.{ .octets = datagram[0..len], .now_ns = now_ns, .ecn = .not_ect });
     return (try receive.next(&walk, &test_connection, suite())).?;
 }
 
@@ -147,7 +160,7 @@ test "RFC 9001 §6.2: the key set of the packet that opened reaches the frame la
 
     // §6.2: an acknowledgment carried under the old keys that names a packet protected with the
     // newer ones. The receive path opened it; the frame layer is what refuses it.
-    const outcome = try walk_payload(6, ack_payload(4));
+    const outcome = try walk_payload(6, ack_payload(4), test_now_ns);
     try testing.expectError(
         frames.Error.OldKeysAcknowledgeNew,
         frames.process(&test_connection, outcome.opened, test_now_ns),
@@ -159,26 +172,29 @@ test "RFC 9001 §6.1: a key update is refused before the handshake is confirmed"
     test_connection.handshake_confirmed = false;
     key_update.on_packet_sent(&test_connection, .application, 0, false);
     acknowledge(0);
-    try testing.expectError(error.HandshakeNotConfirmed, key_update.initiate(&test_connection, suite()));
+    try testing.expectError(error.HandshakeNotConfirmed, key_update.initiate(&test_connection, suite(), settled_ns()));
     try testing.expectEqual(0, suite_holder.updates);
 }
 
 test "RFC 9001 §6.1: a key update waits for an acknowledgment of the current phase" {
     open_connection();
     // Nothing has gone out in this phase, so nothing in it can have been acknowledged.
-    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
+    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite(), test_now_ns));
 
     key_update.on_packet_sent(&test_connection, .application, 7, false);
     try testing.expectEqual(7, test_connection.key_phase.lowest_sent.?);
     // A packet has gone out, and the peer has acknowledged nothing in the 1-RTT space at all.
-    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
+    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite(), test_now_ns));
 
     // An acknowledgment below the lowest number of this phase names a packet of the phase before.
     acknowledge(6);
-    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite()));
+    try testing.expectError(error.PhaseNotAcknowledged, key_update.initiate(&test_connection, suite(), test_now_ns));
 
+    // §6.1 is satisfied now, and what still holds the update up is §6.5's own wait.
     acknowledge(7);
-    try key_update.initiate(&test_connection, suite());
+    try testing.expectError(error.PhaseNotSettled, key_update.initiate(&test_connection, suite(), test_now_ns));
+
+    try key_update.initiate(&test_connection, suite(), settled_ns());
     try testing.expectEqual(1, suite_holder.updates);
     // RFC 9001 §6.1: the new phase has sent nothing and received nothing yet.
     try testing.expectEqual(null, test_connection.key_phase.lowest_sent);
@@ -191,7 +207,7 @@ test "RFC 9001 §6.1: a suite that offers no key update refuses one" {
     suite_holder.refuses_update = true;
     key_update.on_packet_sent(&test_connection, .application, 3, false);
     acknowledge(3);
-    try testing.expectError(error.Unsupported, key_update.initiate(&test_connection, suite()));
+    try testing.expectError(error.Unsupported, key_update.initiate(&test_connection, suite(), settled_ns()));
     try testing.expectEqual(0, suite_holder.updates);
 }
 
@@ -296,6 +312,76 @@ test "RFC 9001 §6.5: the current phase's lowest is the lowest, not the first to
     try testing.expectEqual(4, test_connection.key_phase.current_lowest.?);
 }
 
+test "RFC 9001 §6.5: the old read keys go three Probe Timeouts after a packet under the new" {
+    open_connection();
+    suite_holder.opens_with = .next;
+    // §6.2: this packet is itself protected with the new keys, so §6.5's period starts here.
+    _ = try walk_short(4);
+    try testing.expect(test_connection.key_phase.previous_held);
+    try testing.expectEqual(test_now_ns, test_connection.key_phase.previous_since_ns.?);
+
+    const due_ns = test_now_ns + three_probe_timeouts_ns();
+    key_update.on_instant(&test_connection, suite(), due_ns - 1);
+    try testing.expectEqual(0, suite_holder.previous_discards);
+
+    // "After this period, old read keys and their corresponding secrets SHOULD be discarded."
+    key_update.on_instant(&test_connection, suite(), due_ns);
+    try testing.expectEqual(1, suite_holder.previous_discards);
+    try testing.expect(!test_connection.key_phase.previous_held);
+
+    // The suite is told once: `discard_previous_keys` is the caller's state to change.
+    key_update.on_instant(&test_connection, suite(), due_ns + 1);
+    try testing.expectEqual(1, suite_holder.previous_discards);
+}
+
+test "RFC 9001 §6.5: a phase this endpoint started times its old keys from the first packet" {
+    open_connection();
+    send_and_acknowledge();
+    try key_update.initiate(&test_connection, suite(), settled_ns());
+    // §6.1 updated the read keys too, so the phase before's are held and nothing has arrived
+    // under the new ones.
+    try testing.expect(test_connection.key_phase.previous_held);
+    try testing.expectEqual(null, test_connection.key_phase.previous_since_ns);
+
+    // However long passes, §6.5's period has not started.
+    key_update.on_instant(&test_connection, suite(), test_now_ns + three_probe_timeouts_ns() * 2);
+    try testing.expectEqual(0, suite_holder.previous_discards);
+
+    const arrived_ns = test_now_ns + three_probe_timeouts_ns() * 3;
+    _ = try walk_payload(9, &test_payload, arrived_ns);
+    try testing.expectEqual(arrived_ns, test_connection.key_phase.previous_since_ns.?);
+    key_update.on_instant(&test_connection, suite(), arrived_ns + three_probe_timeouts_ns());
+    try testing.expectEqual(1, suite_holder.previous_discards);
+}
+
+test "RFC 9001 §6.5: a key update waits three Probe Timeouts after the phase was acknowledged" {
+    open_connection();
+    send_and_acknowledge();
+    // The acknowledgment arrived at `test_now_ns`, and §6.5 waits from there.
+    try testing.expectEqual(test_now_ns, test_connection.key_phase.confirmed_at_ns.?);
+    const due_ns = test_now_ns + three_probe_timeouts_ns();
+    try testing.expectError(error.PhaseNotSettled, key_update.initiate(&test_connection, suite(), due_ns - 1));
+
+    try key_update.initiate(&test_connection, suite(), due_ns);
+    try testing.expectEqual(1, suite_holder.updates);
+    // §6.5: the new phase has not been acknowledged, so its own wait has not begun.
+    try testing.expectEqual(null, test_connection.key_phase.confirmed_at_ns);
+}
+
+test "RFC 9001 §6.5: the wait runs from the first acknowledgment of the phase, not the latest" {
+    open_connection();
+    send_and_acknowledge();
+    // A later acknowledgment of the same phase does not push the wait out.
+    key_update.on_ack_processed(&test_connection, .application, test_now_ns * 2);
+    try testing.expectEqual(test_now_ns, test_connection.key_phase.confirmed_at_ns.?);
+    // And no level but the application has a phase to confirm (§6.1's Note).
+    open_connection();
+    key_update.on_packet_sent(&test_connection, .application, 0, false);
+    acknowledge(0);
+    key_update.on_ack_processed(&test_connection, .initial, test_now_ns);
+    try testing.expectEqual(null, test_connection.key_phase.confirmed_at_ns);
+}
+
 test "RFC 9001 §6: a 1-RTT packet carries the Key Phase bit the suite answers" {
     open_connection();
     owe_ack(0, 1);
@@ -323,18 +409,18 @@ test "RFC 9001 §6.1, §6.2: the send path reports what it sealed" {
 
 /// RFC 9000 §13.2.2: a receiver owes an ACK after two ack-eliciting packets, which is what makes
 /// the next 1-RTT packet this endpoint builds carry one.
-fn owe_ack(first: u64, second: u64) void {
+pub fn owe_ack(first: u64, second: u64) void {
     const space = test_connection.space_at(.application);
     _ = space.receive(first, test_now_ns, true, .not_ect);
     _ = space.receive(second, test_now_ns, true, .not_ect);
     std.debug.assert(space.owes_ack());
 }
 
-fn build_1rtt() !?packet_build.Built {
+pub fn build_1rtt() !?packet_build.Built {
     return build_at(.application);
 }
 
-fn build_at(level: Level) !?packet_build.Built {
+pub fn build_at(level: Level) !?packet_build.Built {
     return packet_build.build(
         &test_connection,
         suite(),
@@ -346,69 +432,8 @@ fn build_at(level: Level) !?packet_build.Built {
     );
 }
 
-test "RFC 9001 §6.6: the confidentiality limit is met with a key update, not a close" {
-    open_connection();
-    owe_ack(0, 1);
-    // §6.1 permits an update: the handshake is confirmed and the peer acknowledged this phase.
-    send_and_acknowledge();
-    // RFC 9001 §6.6: these keys will protect nothing more.
-    suite_holder.seals_left = 0;
-    suite_holder.seals_per_key = 1;
-
-    const built = (try build_1rtt()).?;
-    try testing.expectEqual(1, suite_holder.updates);
-    // §6.1: the packet went out under the new phase, so it carries the toggled bit.
-    try testing.expect(key_phase_of(datagram[0..built.len]));
-}
-
-test "RFC 9001 §6.6: a limit no key update can free ends the connection" {
-    open_connection();
-    owe_ack(0, 1);
-    // §6.1 refuses: no packet of this phase has been acknowledged, so no update is possible.
-    suite_holder.seals_left = 0;
-    try testing.expectError(error.AeadLimitReached, build_1rtt());
-    try testing.expectEqual(0, suite_holder.updates);
-    // §6.6: "the endpoint MUST stop using those keys", so the packet is not offered to them a
-    // second time once §6.1 has refused the update that would have replaced them.
-    try testing.expectEqual(1, suite_holder.seal_attempts);
-    // RFC 9001 §6.6 names AEAD_LIMIT_REACHED, which RFC 9000 §20.1 numbers 0x0f.
-    try testing.expectEqual(
-        error_code.aead_limit_reached,
-        packet_build.connection_error_code(error.AeadLimitReached).?,
-    );
-}
-
-test "RFC 9001 §6.6: keys that refuse again after an update end the connection" {
-    open_connection();
-    owe_ack(0, 1);
-    send_and_acknowledge();
-    // The update installs a set that is already at its own limit.
-    suite_holder.seals_left = 0;
-    suite_holder.seals_per_key = 0;
-    try testing.expectError(error.AeadLimitReached, build_1rtt());
-    try testing.expectEqual(1, suite_holder.updates);
-}
-
-test "RFC 9001 §6.6: below the application level no key update can free the keys" {
-    open_connection();
-    keys.on_keys_installed(&test_connection, .initial, .write);
-    provider_holder = .{ .owed = &crypto_octets, .owed_level = .initial };
-    // §6.1 would permit an update, so what stops one here is the level and nothing else.
-    send_and_acknowledge();
-    suite_holder.seals_left = 0;
-    // §6.1's Note: "Keys of packets other than the 1-RTT packets are never updated."
-    try testing.expectError(error.AeadLimitReached, build_at(.initial));
-    try testing.expectEqual(0, suite_holder.updates);
-}
-
-test "RFC 9000 §12.3: a space out of packet numbers closes with no frame" {
-    // "the sender MUST close the connection without sending a CONNECTION_CLOSE frame or any
-    // further packets", so there is no code to carry.
-    try testing.expectEqual(null, packet_build.connection_error_code(error.PacketNumbersExhausted));
-}
-
 /// RFC 9000 §17.3.1: the Key Phase bit of a short header, which RFC 9001 §5.4 protects and this
 /// suite leaves in the clear.
-fn key_phase_of(packet: []const u8) bool {
+pub fn key_phase_of(packet: []const u8) bool {
     return packet[0] & constants.key_phase_bit != 0;
 }

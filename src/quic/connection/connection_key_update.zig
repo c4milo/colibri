@@ -16,12 +16,13 @@
 //!
 //! **Where the rest of §6 lives.** §6.2's last paragraph needs an ACK frame's contents beside the
 //! key set, so `acknowledges_newer_keys` is the state and `connection_frames.take_ack` is the
-//! check. §6.5's discard of the previous read keys is a SHOULD measured in three Probe Timeouts,
-//! and nothing drives a timer yet. §6.6's AEAD limits are the suite's counts, and the send path
-//! does not act on them yet.
+//! check. §6.6's limits are counted by the suite, so they arrive as a refusal to seal or to open:
+//! `packet_build` answers the first with `initiate_at_aead_limit` and `connection_receive` ends
+//! the walk on the second.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
+const constants = @import("../constants.zig");
 const crypto = @import("crypto");
 const error_code = @import("../error_code.zig");
 const connection_module = @import("connection.zig");
@@ -47,10 +48,33 @@ pub const Phase = struct {
     /// an acknowledgment under the new keys (§6.2). A second update while it is true is the peer
     /// updating twice without awaiting confirmation.
     pending_ack: bool,
+    /// Whether the suite still holds the read keys of the phase before (§6.5). False before the
+    /// first key update, and false again once colibri told the suite to forget them.
+    previous_held: bool,
+    /// The instant a packet protected with the current phase's keys was received, or null before
+    /// one was. §6.5 measures the retention of the old read keys from it.
+    previous_since_ns: ?u64,
+    /// The instant an acknowledgment first confirmed the current phase, or null before one did.
+    /// §6.5 measures its wait before the next key update from it.
+    confirmed_at_ns: ?u64,
 
     pub fn init(phase: *Phase) void {
-        phase.* = .{ .current_lowest = null, .lowest_sent = null, .pending_ack = false };
+        phase.* = .{
+            .current_lowest = null,
+            .lowest_sent = null,
+            .pending_ack = false,
+            .previous_held = false,
+            .previous_since_ns = null,
+            .confirmed_at_ns = null,
+        };
     }
+};
+
+/// The packet that started a key update this endpoint answered (RFC 9001 §6.2), or null when
+/// this endpoint initiated one itself (§6.1).
+const Answered = struct {
+    packet_number: u64,
+    received_at_ns: u64,
 };
 
 /// Why RFC 9001 §6.1 does not permit a key update now. None of these is the peer's doing and none
@@ -60,6 +84,9 @@ pub const InitiateError = error{
     HandshakeNotConfirmed,
     /// RFC 9001 §6.1: no packet sent under the current key phase has been acknowledged.
     PhaseNotAcknowledged,
+    /// RFC 9001 §6.5: the acknowledgment that confirmed the current phase is less than three
+    /// Probe Timeouts old, so the peer may still be unable to read a packet under new keys.
+    PhaseNotSettled,
 } || crypto.suite.UpdateError;
 
 /// Why a packet that opened ended the connection. `connection_error_code` says which code the
@@ -89,21 +116,84 @@ pub fn connection_error_code(failure: Error) u64 {
 
 /// Starts a key update (RFC 9001 §6.1). The application decides when; this answers whether §6.1
 /// permits it, and when it does it tells the suite to move both directions to the next phase.
-pub fn initiate(connection: *Connection, suite: Suite) InitiateError!void {
-    // RFC 9001 §6.1: "An endpoint MUST NOT initiate a key update prior to having confirmed the
-    // handshake (Section 4.1.2)."
+pub fn initiate(connection: *Connection, suite: Suite, now_ns: u64) InitiateError!void {
+    // §6.1's two rules are MUSTs and are asked first; §6.5's wait sits over the top of them.
+    try permitted(connection);
+    // RFC 9001 §6.5: "Endpoints SHOULD wait three times the PTO before initiating a key update
+    // after receiving an acknowledgment that confirms that the previous key update was received."
+    if (!settled(connection, now_ns)) return InitiateError.PhaseNotSettled;
+    return move_phase(connection, suite);
+}
+
+/// The key update RFC 9001 §6.6 demands when the keys will protect nothing more. It skips §6.5's
+/// wait and nothing else: §6.5's wait is a SHOULD about packets the peer might discard, where
+/// §6.6's update is a MUST about what the AEAD is still safe to protect.
+pub fn initiate_at_aead_limit(connection: *Connection, suite: Suite) InitiateError!void {
+    try permitted(connection);
+    return move_phase(connection, suite);
+}
+
+/// RFC 9001 §6.1's two refusals, which every key update this endpoint starts is held to.
+fn permitted(connection: *Connection) InitiateError!void {
+    // §6.1: "An endpoint MUST NOT initiate a key update prior to having confirmed the handshake
+    // (Section 4.1.2)."
     if (!connection.handshake_confirmed) return InitiateError.HandshakeNotConfirmed;
-    // RFC 9001 §6.1: "An endpoint MUST NOT initiate a subsequent key update unless it has
-    // received an acknowledgment for a packet that was sent protected with keys from the current
-    // key phase." The first update is held to it too, because §6.1's own recipe does not except
-    // it and a phase nothing was sent in is one no peer can have acknowledged.
+    // §6.1: "An endpoint MUST NOT initiate a subsequent key update unless it has received an
+    // acknowledgment for a packet that was sent protected with keys from the current key phase."
+    // The first update is held to it too, because §6.1's own recipe does not except it and a
+    // phase nothing was sent in is one no peer can have acknowledged.
     if (!current_phase_acknowledged(connection)) return InitiateError.PhaseNotAcknowledged;
+}
+
+/// Tells the suite to move both directions to the next phase (RFC 9001 §6.1).
+fn move_phase(connection: *Connection, suite: Suite) InitiateError!void {
     try suite.vtable.update_keys(suite.context);
     // §6.1: "The endpoint that initiates a key update also updates the keys that it uses for
     // receiving packets", so nothing has been processed under the new read keys either.
-    enter_next_phase(connection, null, false);
+    enter_next_phase(&connection.key_phase, null);
     assert(connection.key_phase.lowest_sent == null);
     assert(!connection.key_phase.pending_ack);
+}
+
+/// Whether RFC 9001 §6.5's wait since the current phase was acknowledged has passed.
+fn settled(connection: *const Connection, now_ns: u64) bool {
+    const confirmed_at_ns = connection.key_phase.confirmed_at_ns orelse return false;
+    return now_ns >= confirmed_at_ns +| three_probe_timeouts_ns(connection);
+}
+
+/// The period RFC 9001 §6.5 measures both of its waits in. The `true` includes the peer's
+/// max_ack_delay (RFC 9002 §6.2.1), which applies to the application level, and §6.1's Note
+/// leaves every other level's keys unupdated anyway.
+fn three_probe_timeouts_ns(connection: *const Connection) u64 {
+    return constants.key_update_probe_timeouts *| connection.recovery.rtt.probe_timeout_ns(true);
+}
+
+/// RFC 9001 §6.5's "acknowledgment that confirms that the previous key update was received",
+/// which is the first acknowledgment of a packet sent under the current key phase (§6.1). The
+/// frame layer calls it once a peer's ACK has been taken.
+pub fn on_ack_processed(connection: *Connection, level: Level, now_ns: u64) void {
+    if (level != .application) return;
+    if (connection.key_phase.confirmed_at_ns != null) return;
+    if (!current_phase_acknowledged(connection)) return;
+    connection.key_phase.confirmed_at_ns = now_ns;
+    assert(connection.key_phase.confirmed_at_ns != null);
+}
+
+/// RFC 9001 §6.5: "An endpoint SHOULD retain old read keys for no more than three times the PTO
+/// after having received a packet protected using the new keys. After this period, old read keys
+/// and their corresponding secrets SHOULD be discarded."
+///
+/// It is public because a caller driving timers may reach the instant before a packet does; the
+/// receive path calls it on every 1-RTT packet that opens, which is when colibri hears a clock.
+pub fn on_instant(connection: *Connection, suite: Suite, now_ns: u64) void {
+    const phase = &connection.key_phase;
+    if (!phase.previous_held) return;
+    const since_ns = phase.previous_since_ns orelse return;
+    if (now_ns < since_ns +| three_probe_timeouts_ns(connection)) return;
+    suite.vtable.discard_previous_keys(suite.context);
+    phase.previous_held = false;
+    phase.previous_since_ns = null;
+    assert(!phase.previous_held);
 }
 
 /// RFC 9001 §6.1: "This can be implemented by tracking the lowest packet number sent with each
@@ -123,22 +213,30 @@ pub fn on_packet_opened(
     suite: Suite,
     packet_number: u64,
     key_set: KeySet,
+    now_ns: u64,
 ) Error!void {
     switch (key_set) {
-        .current => note_current_phase(connection, packet_number),
-        .next => try answer_key_update(connection, suite, packet_number),
+        .current => note_current_phase(connection, packet_number, now_ns),
+        .next => try answer_key_update(connection, suite, packet_number, now_ns),
         .previous => try refuse_old_above_current(connection, packet_number),
     }
+    // RFC 9001 §6.5 times the old read keys from a packet arriving under the new ones, and a
+    // packet arriving is when colibri is told an instant at all.
+    on_instant(connection, suite, now_ns);
 }
 
 /// RFC 9001 §6.5: "A recovered packet number that is lower than any packet number from the
 /// current key phase uses the previous packet protection keys", so what the suite is given is the
 /// lowest number that opened under the current keys and not the first one to arrive.
-fn note_current_phase(connection: *Connection, packet_number: u64) void {
-    const lowest = connection.key_phase.current_lowest orelse std.math.maxInt(u64);
-    connection.key_phase.current_lowest = @min(lowest, packet_number);
-    assert(connection.key_phase.current_lowest != null);
-    assert(connection.key_phase.current_lowest.? <= packet_number);
+fn note_current_phase(connection: *Connection, packet_number: u64, now_ns: u64) void {
+    const phase = &connection.key_phase;
+    const lowest = phase.current_lowest orelse std.math.maxInt(u64);
+    phase.current_lowest = @min(lowest, packet_number);
+    // RFC 9001 §6.5 retains the old read keys from "having received a packet protected using the
+    // new keys", which for a phase this endpoint initiated is the first one to arrive under it.
+    if (phase.previous_held and phase.previous_since_ns == null) phase.previous_since_ns = now_ns;
+    assert(phase.current_lowest != null);
+    assert(phase.current_lowest.? <= packet_number);
 }
 
 /// RFC 9001 §6.2: "If a packet is successfully processed using the next key and IV, then the peer
@@ -146,13 +244,15 @@ fn note_current_phase(connection: *Connection, packet_number: u64) void {
 /// phase in response". Updating before the receive path returns is what holds §6.2's "Sending
 /// keys MUST be updated before sending an acknowledgment for the packet that was received with
 /// updated keys", whatever the send path writes next.
-fn answer_key_update(connection: *Connection, suite: Suite, packet_number: u64) Error!void {
+fn answer_key_update(connection: *Connection, suite: Suite, packet_number: u64, now_ns: u64) Error!void {
     // RFC 9001 §6.2: an update detected before this endpoint has "sent any packets with updated
     // keys containing an acknowledgment for the packet that initiated the key update ... indicates
     // that its peer has updated keys twice without awaiting confirmation".
     if (connection.key_phase.pending_ack) return Error.ConsecutiveKeyUpdate;
     suite.vtable.update_keys(suite.context) catch return Error.SuiteRefusedUpdate;
-    enter_next_phase(connection, packet_number, true);
+    // §6.5: this packet is itself protected with the new keys, so it starts the retention of the
+    // old read keys.
+    enter_next_phase(&connection.key_phase, .{ .packet_number = packet_number, .received_at_ns = now_ns });
     assert(connection.key_phase.pending_ack);
     assert(connection.key_phase.current_lowest.? == packet_number);
 }
@@ -194,14 +294,24 @@ pub fn on_packet_sent(connection: *Connection, level: Level, packet_number: u64,
     assert(connection.key_phase.lowest_sent.? <= packet_number);
 }
 
-/// The three fields a phase change moves, in one place so they cannot disagree.
-fn enter_next_phase(connection: *Connection, current_phase_lowest: ?u64, pending_phase_ack: bool) void {
-    connection.key_phase.current_lowest = current_phase_lowest;
+/// Every field a phase change moves, in one place so they cannot disagree. `answered` is the
+/// peer's packet that started this update, or null when this endpoint started it.
+fn enter_next_phase(phase: *Phase, answered: ?Answered) void {
+    phase.current_lowest = if (answered) |held| held.packet_number else null;
     // RFC 9001 §6.1: the count starts again, because no packet has gone out under the new keys.
-    connection.key_phase.lowest_sent = null;
-    connection.key_phase.pending_ack = pending_phase_ack;
+    phase.lowest_sent = null;
+    // RFC 9001 §6.2: only an update this endpoint answered owes an acknowledgment under the new
+    // keys; one it started is the peer's to answer.
+    phase.pending_ack = answered != null;
+    // RFC 9001 §6.1: "An endpoint MUST retain old keys until it has successfully unprotected a
+    // packet sent using the new keys", and §6.5 says how much longer than that.
+    phase.previous_held = true;
+    phase.previous_since_ns = if (answered) |held| held.received_at_ns else null;
+    // §6.5: nothing has acknowledged the new phase yet.
+    phase.confirmed_at_ns = null;
 }
 
 test {
     _ = @import("connection_key_update_test.zig");
+    _ = @import("connection_key_update_limit_test.zig");
 }
