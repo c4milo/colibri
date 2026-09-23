@@ -81,6 +81,9 @@ pub const Fault = enum {
     /// The client's history already holds the number of its first Initial, so its first datagram
     /// repeats one, which the read of invariant 17 on every datagram must report.
     number_reused,
+    /// The client supplies its stream's first octet changed, which the server's read must report
+    /// (decision 61).
+    wrong_octet,
 };
 
 /// The storage one run needs, placed outside any stack frame (decision 35).
@@ -174,6 +177,10 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     try std.testing.expectError(Violation.KeysUnavailable, run_check(&fault_storage, 1, &census, &failed_seed));
     fault_storage.fault = .number_reused;
     try std.testing.expectError(Violation.PacketNumberReused, run_check(&fault_storage, 1, &census, &failed_seed));
+    // The server reads the client's stream and checks every octet it reads.
+    fault_storage.fault = .wrong_octet;
+    try std.testing.expectError(Violation.ConnectionError, run_check(&fault_storage, 1, &census, &failed_seed));
+    try std.testing.expectEqual(error.TransferOctetWrong, fault_storage.failure.?);
     // A check that dropped nothing proved nothing of loss recovery, and says so.
     fault_storage.fault = .none;
     try std.testing.expectError(Violation.ScheduleUnexercised, run_check(&fault_storage, 0, &census, &failed_seed));

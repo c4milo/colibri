@@ -48,6 +48,7 @@ fn apply_fault(storage: *Storage) void {
         .server_alert => server.provider.fails_with = .handshake_failure,
         .keys_refused => server.suite.keys_unavailable = 1,
         .number_reused => storage.histories[@intFromEnum(Side.client)].largest_sent[@intFromEnum(quic.core.Level.initial)] = 0,
+        .wrong_octet => storage.endpoints[@intFromEnum(Side.client)].supplies_wrong_octet = true,
     }
 }
 
@@ -123,12 +124,12 @@ const Run = struct {
     }
 
     /// The run is over once both endpoints have confirmed the handshake, the client's stream has
-    /// been acknowledged whole, and nothing is left on the path.
+    /// been acknowledged whole and read whole, and nothing is left on the path.
     fn is_done(run: *const Run) bool {
         const client = &run.storage.endpoints[@intFromEnum(Side.client)];
         const server = &run.storage.endpoints[@intFromEnum(Side.server)];
         if (!client.connection.handshake_confirmed or !server.connection.handshake_confirmed) return false;
-        if (!client.transfer_done) return false;
+        if (!client.transfer_done or !server.transfer_read) return false;
         return run.storage.network.in_flight_count() == 0;
     }
 

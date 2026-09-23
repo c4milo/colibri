@@ -7,7 +7,8 @@
 //! - It derives the Initial keys from the client's first Destination Connection ID (RFC 9001 §5.2).
 //! - It gives the provider this endpoint's transport parameters before the handshake (§8.2).
 //! - It installs each later level's keys when the handshake reaches that level (§4.1.4).
-//! - It keeps the octets of the stream it sends (decision 57).
+//! - It keeps the octets of the stream it sends (decision 57), and places the pool the octets it
+//!   receives wait in (decision 61).
 //! Everything else is one colibri call per datagram each way (decisions 59 and 60) and one per
 //! instant. It reads no clock and draws no random number (invariant 5).
 const std = @import("std");
@@ -24,7 +25,11 @@ const StreamProvider = quic.stream.stream_provider.StreamProvider;
 /// Why an endpoint stopped: a connection error, which two colibri endpoints never give each other,
 /// or a send colibri refused.
 pub const Error = quic.connection_datagram.Error || quic.connection_send.Error || quic.connection_recovery.Error ||
-    quic.connection_stream_send.Error || quic.stream.stream_table.OpenError;
+    quic.connection_stream_send.Error || quic.stream.stream_table.OpenError || quic.connection_stream_read.Error ||
+    error{
+        /// The server read an octet of the client's stream other than the one the client sent.
+        TransferOctetWrong,
+    };
 
 /// The connection IDs of the run: the client's, the server's, and the one the client addresses its
 /// first Initial to, which both derive the Initial keys from (RFC 9001 §5.2). Fixed octets, so a
@@ -70,6 +75,15 @@ pub const Endpoint = struct {
     transfer_started: bool,
     /// Whether the peer acknowledged every octet of it, FIN included (RFC 9000 §3.1).
     transfer_done: bool,
+    /// The pool the peer's stream octets wait in (decision 61), and what the server has read of
+    /// the client's stream.
+    pool: quic.stream.stream_incoming.DefaultPool,
+    read_buffer: [sim.constants.network_datagram_len_max]u8,
+    transfer_read_len: u64,
+    transfer_read: bool,
+    /// Makes the client supply its stream's first octet changed, which a fault test uses to show
+    /// the server's check fires (`quic_connection_check.Fault`).
+    supplies_wrong_octet: bool,
 
     pub fn init(endpoint: *Endpoint, role: Role, now_ns: u64) void {
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
@@ -78,12 +92,16 @@ pub const Endpoint = struct {
             .local_parameters = parameters(),
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = local_source, .original_destination = &original_id },
+            .receive = endpoint.pool.storage(),
         });
         endpoint.provider = .{ .role = role };
         endpoint.suite = .{};
         endpoint.send_scratch = .{};
         endpoint.transfer_started = false;
         endpoint.transfer_done = false;
+        endpoint.transfer_read_len = 0;
+        endpoint.transfer_read = false;
+        endpoint.supplies_wrong_octet = false;
         // RFC 9001 §5.2: both endpoints derive the Initial keys from the Destination Connection ID
         // of the client's first Initial packet.
         const suite = endpoint.suite.suite();
@@ -111,6 +129,25 @@ pub const Endpoint = struct {
         );
         if (received.completed_streams > 0) endpoint.transfer_done = true;
         endpoint.install_keys();
+        if (endpoint.connection.role == .server) try endpoint.read_transfer();
+    }
+
+    /// The server reads what has arrived of the client's stream, and checks each octet against
+    /// the one the client sent at that offset (decision 61).
+    fn read_transfer(endpoint: *Endpoint) Error!void {
+        if (endpoint.transfer_read) return;
+        // Bounded: each read takes at least one octet, and the stream holds `transfer_len`.
+        for (0..transfer_len + 1) |_| {
+            const read = quic.connection_stream_read.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
+                // The stream's first octets have not arrived, so the server has not opened it.
+                error.NotReadable => return,
+                else => return failure,
+            };
+            try endpoint.check_octets(endpoint.read_buffer[0..read.len]);
+            endpoint.transfer_read_len += read.len;
+            if (read.fin) endpoint.transfer_read = true;
+            if (read.len == 0 or read.fin) return;
+        }
     }
 
     /// Builds the next datagram into `output`, or answers null when nothing is owed.
@@ -129,6 +166,14 @@ pub const Endpoint = struct {
         ) orelse return null;
         endpoint.install_keys();
         return sent;
+    }
+
+    /// Each octet read against the one the client sent at that offset.
+    fn check_octets(endpoint: *const Endpoint, octets: []const u8) Error!void {
+        // Bounded by what one read took.
+        for (octets, 0..) |octet, index| {
+            if (octet != octet_at(endpoint.transfer_read_len + index)) return error.TransferOctetWrong;
+        }
     }
 
     /// The instant this endpoint next wants to be called at (design §4.2).
@@ -184,18 +229,27 @@ fn parameters() Parameters {
     return held;
 }
 
-const stream_vtable: quic.stream.stream_provider.VTable = .{ .read = read_transfer };
+const stream_vtable: quic.stream.stream_provider.VTable = .{ .read = supply_transfer };
 
 /// The client's stream, read back by offset. Every call at one offset answers the same octets,
 /// which RFC 9000 §2.2 asks of a retransmission.
-fn read_transfer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
-    _ = context;
+fn supply_transfer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
+    const endpoint: *const Endpoint = @ptrCast(@alignCast(context));
     _ = stream_id;
     if (offset >= transfer_len) return 0;
     const len: usize = @intCast(@min(output.len, transfer_len - offset));
-    for (output[0..len], 0..) |*octet, index| octet.* = @truncate((offset + index) *% octet_stride +% octet_seed);
+    for (output[0..len], 0..) |*octet, index| octet.* = octet_at(offset + index);
+    if (endpoint.supplies_wrong_octet and offset == 0) output[0] ^= 1;
     return len;
 }
+
+/// The octet of the client's stream at `offset`.
+fn octet_at(offset: u64) u8 {
+    return @truncate(offset *% octet_stride +% octet_seed);
+}
+
+/// The client's first bidirectional stream, which is the one it sends (RFC 9000 §2.1).
+const transfer_stream: quic.stream.StreamId = .{ .value = 0 };
 
 /// The network's ECN codepoint as the receive path names it (RFC 9000 §13.4).
 fn space_ecn(ecn: sim.network.Ecn) quic.connection_receive.Datagram.Ecn {
