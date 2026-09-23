@@ -132,6 +132,13 @@ pub const nanoseconds_per_microsecond: u64 = 1_000;
 /// and lost before a connection is given up.
 pub const close_probe_timeouts: u64 = 3;
 
+/// Probe Timeouts a flow control limited endpoint with nothing in flight waits before it sends
+/// its BLOCKED frames again. RFC 9000 §4.1 says only "periodically", to keep the peer's idle
+/// timeout from closing the connection, so the period is colibri's. One PTO is longer than a
+/// round trip, so a frame is not repeated before an answer could arrive, and the idle timeout is
+/// at least `close_probe_timeouts` of them (§10.1), so the frame goes out before it runs out.
+pub const blocked_repeat_probe_timeouts: u64 = 1;
+
 /// Probe Timeouts RFC 9001 §6.5 measures both of its key update waits in: an endpoint "SHOULD
 /// retain old read keys for no more than three times the PTO after having received a packet
 /// protected using the new keys", and "SHOULD wait three times the PTO before initiating a key
@@ -149,6 +156,8 @@ comptime {
     // Both of §6.5's sentences say "three times the PTO", so the number is the RFC's and not a
     // knob: a change here is a change to what the specification asks for.
     assert(key_update_probe_timeouts == 3);
+    // The BLOCKED frames repeat inside the idle timeout, which §10.1 holds at three PTOs or more.
+    assert(blocked_repeat_probe_timeouts < close_probe_timeouts);
 }
 
 /// How the answers of a closing endpoint thin out (RFC 9000 §10.2.1): each one waits for this

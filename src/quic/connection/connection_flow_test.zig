@@ -27,6 +27,8 @@ const Record = recovery_sent.Record;
 const StreamId = stream_module.StreamId;
 const StreamProvider = stream_module.StreamProvider;
 const connection_recovery = @import("connection_recovery.zig");
+const timer = @import("connection_timer.zig");
+const datagram_module = @import("connection_datagram.zig");
 const testing = std.testing;
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
@@ -406,4 +408,64 @@ test "RFC 9000 §4.6, §19.14: a stream the peer's limit refused is what STREAMS
     // A stream opened since clears the refusal, so reaching the new limit says nothing.
     _ = try stream_send.open(&client, .bidirectional);
     try testing.expectEqual(null, try send_from(&client));
+}
+
+/// Where a whole datagram's work is written (decision 60). Test-only.
+var datagram_scratch: datagram_module.Scratch = undefined;
+
+/// Takes `sent` at `reader` the way a caller does, so each packet is recorded in its space and
+/// an acknowledgment is owed (RFC 9000 §13.1).
+fn receive_whole(sent: send.Sent, reader: *Connection) !void {
+    const datagram_in: receive.Datagram = .{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect };
+    _ = try datagram_module.receive(reader, suite_holder.suite(), provider_holder.provider(), datagram_in, &datagram_scratch);
+}
+
+/// `fill_window`, with the server recording the packet so it can acknowledge it (§13.1).
+fn fill_window_recorded(end: u64, fin: bool) !StreamId {
+    const id = try stream_send.open(&client, .bidirectional);
+    try stream_send.supply(&client, id, end, fin);
+    try receive_whole((try send_from(&client)).?, &server);
+    return id;
+}
+
+/// The client sends a lone PING, which the server takes: the second of two ack-eliciting packets
+/// is what has the server acknowledge at once (RFC 9000 §13.2.2).
+fn ping_server() !void {
+    send.owe_probes(&client, .application, 1);
+    try receive_whole((try send_from(&client)).?, &server);
+}
+
+test "RFC 9000 §4.1: a sender still blocked with nothing in flight says so again a PTO later" {
+    open_pair();
+    client.confirm_handshake();
+    const id = try fill_window_recorded(body_len, false);
+    const blocked = (try send_from(&client)).?;
+    // The BLOCKED frames are in flight, so nothing is owed yet.
+    try testing.expectEqual(null, flow_frames.blocked_deadline_ns(&client));
+    // The server acknowledges both packets, which leaves nothing in flight.
+    try receive_whole(blocked, &server);
+    try receive_whole((try send_from(&server)).?, &client);
+    const at_ns = flow_frames.blocked_deadline_ns(&client).?;
+    try testing.expectEqual(test_now_ns + client.recovery.rtt.probe_timeout_ns(true), at_ns);
+    // RFC 9000 §10.2.2: a draining connection sends nothing, BLOCKED frames included.
+    client.termination.state = .draining;
+    try testing.expectEqual(null, flow_frames.blocked_deadline_ns(&client));
+    client.termination.state = .active;
+    try testing.expectEqual(timer.Kind.blocked, timer.next(&client).?.kind);
+    try testing.expect(!(try timer.on_instant(&client, suite_holder.suite(), &recovery_scratch, at_ns - 1)).blocked);
+    try testing.expect((try timer.on_instant(&client, suite_holder.suite(), &recovery_scratch, at_ns)).blocked);
+    // The next packet carries both frames again, naming the same limits.
+    const again = (try send_from(&client)).?;
+    try testing.expectEqual(again.packets[0].packet_number, client.data_blocked.sent_in);
+    try testing.expectEqual(again.packets[0].packet_number, client_stream(id).stream_data_blocked.sent_in);
+}
+
+test "RFC 9000 §4.1: a sender the limits hold nothing back for owes nothing periodically" {
+    open_pair();
+    client.confirm_handshake();
+    // The whole body and its FIN fit in the window, so the limit holds nothing back.
+    _ = try fill_window_recorded(window, true);
+    try ping_server();
+    try receive_whole((try send_from(&server)).?, &client);
+    try testing.expectEqual(null, flow_frames.blocked_deadline_ns(&client));
 }

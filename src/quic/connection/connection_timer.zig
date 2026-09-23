@@ -16,6 +16,7 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const key_update = @import("connection_key_update.zig");
 const connection_recovery = @import("connection_recovery.zig");
+const connection_flow = @import("connection_flow.zig");
 
 const Connection = connection_module.Connection;
 const Suite = crypto.Suite;
@@ -35,6 +36,9 @@ pub const Kind = enum {
     /// RFC 9000 §13.2.1: the max_ack_delay this endpoint advertised, measured from the oldest
     /// ack-eliciting packet it has not acknowledged.
     acknowledgment,
+    /// RFC 9000 §4.1: a flow control limited endpoint with nothing in flight owes its BLOCKED
+    /// frames again.
+    blocked,
 };
 
 pub const Deadline = struct {
@@ -53,6 +57,7 @@ pub fn next(connection: *Connection) ?Deadline {
     earliest = nearer(earliest, of(connection.path.challenge_deadline_ns(), .path));
     earliest = nearer(earliest, of(key_update.previous_keys_deadline_ns(connection), .previous_keys));
     earliest = nearer(earliest, of(acknowledgment_deadline_ns(connection), .acknowledgment));
+    earliest = nearer(earliest, of(connection_flow.blocked_deadline_ns(connection), .blocked));
     return earliest;
 }
 
@@ -80,6 +85,8 @@ pub const Fired = struct {
     path: bool = false,
     /// RFC 9001 §6.5: the read keys of the phase before were discarded.
     previous_keys: bool = false,
+    /// RFC 9000 §4.1: the BLOCKED frames are owed again, and the next `send` carries them.
+    blocked: bool = false,
 };
 
 /// Fires whichever deadlines `now_ns` has reached. `scratch` holds the packets the loss timer
@@ -105,6 +112,7 @@ pub fn on_instant(
     const keys_before = connection.key_phase.previous_held;
     key_update.on_instant(connection, suite, now_ns);
     fired.previous_keys = keys_before and !connection.key_phase.previous_held;
+    fired.blocked = fire_blocked(connection, now_ns);
     // Last, so an error leaves every other deadline fired. A connection the ones above closed
     // runs no loss detection (`connection_recovery.loss_deadline_ns`).
     fired.loss = try connection_recovery.on_loss_timer(connection, now_ns, scratch);
@@ -116,6 +124,14 @@ pub fn on_instant(
 /// It includes the peer's max_ack_delay, as the closing period's does (§10.2).
 fn idle_probe_timeout_ns(connection: *const Connection) u64 {
     return connection.recovery.rtt.probe_timeout_ns(true);
+}
+
+/// Owes the BLOCKED frames again once their deadline has come (RFC 9000 §4.1).
+fn fire_blocked(connection: *Connection, now_ns: u64) bool {
+    const at_ns = connection_flow.blocked_deadline_ns(connection) orelse return false;
+    if (now_ns < at_ns) return false;
+    connection_flow.on_blocked_deadline(connection);
+    return true;
 }
 
 /// One optional instant as a deadline of `kind`.

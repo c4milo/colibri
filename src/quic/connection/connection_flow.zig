@@ -11,6 +11,10 @@
 //! A BLOCKED frame goes out once per limit, and only while this endpoint has something the limit
 //! holds back: octets to send (§4.1), or a stream it tried to open (§4.6).
 //!
+//! A sender that stays blocked with nothing in flight sends them again one PTO after its last
+//! ack-eliciting packet (`blocked_deadline_ns`), because §4.1 asks for it "periodically" so the
+//! peer's idle timeout does not close the connection.
+//!
 //! RFC 9000 §13.3 sends a lost limit frame again at the current value, and only when the lost
 //! packet carried the most recent frame for its scope; a lost BLOCKED frame likewise, and only
 //! while the endpoint is still blocked on that limit. Each scope keeps that packet's number in a
@@ -155,11 +159,67 @@ fn write_max_stream_data(
     return stream.max_stream_data.write(writer, frame, number);
 }
 
+/// The instant the BLOCKED frames are owed again, or null when they are not. RFC 9000 §4.1: "To
+/// keep the connection from closing, a sender that is flow control limited SHOULD periodically
+/// send a STREAM_DATA_BLOCKED or DATA_BLOCKED frame when it has no ack-eliciting packets in
+/// flight." The period runs from the last ack-eliciting 1-RTT packet, which is the space both
+/// frames travel in (§12.4, Table 3).
+pub fn blocked_deadline_ns(connection: *Connection) ?u64 {
+    if (connection.termination.state != .active) return null;
+    const application = @intFromEnum(Level.application);
+    const since_ns = connection.recovery.timer.spaces[application].last_ack_eliciting_sent_at_ns orelse return null;
+    if (ack_eliciting_in_flight(connection)) return null;
+    if (!is_flow_limited(connection)) return null;
+    const probe_timeout_ns = connection.recovery.rtt.probe_timeout_ns(true);
+    return since_ns +| constants.blocked_repeat_probe_timeouts *| probe_timeout_ns;
+}
+
+/// Owes again each DATA_BLOCKED and STREAM_DATA_BLOCKED frame whose limit still holds octets back,
+/// once `blocked_deadline_ns` has come (RFC 9000 §4.1).
+pub fn on_blocked_deadline(connection: *Connection) void {
+    if (is_data_blocked(connection)) connection.data_blocked.owed = true;
+    var walk = connection.streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        if (is_stream_data_blocked(stream)) stream.stream_data_blocked.owed = true;
+    }
+}
+
+/// Whether any packet in flight elicits an acknowledgment, in any space (RFC 9002 §2).
+fn ack_eliciting_in_flight(connection: *Connection) bool {
+    // Bounded by the three spaces of RFC 9000 §12.3.
+    for (&connection.recovery.tables) |*table| {
+        if (table.ack_eliciting_count() > 0) return true;
+    }
+    return false;
+}
+
+/// Whether either limit holds back octets this endpoint has to send (RFC 9000 §4.1).
+fn is_flow_limited(connection: *Connection) bool {
+    if (is_data_blocked(connection)) return true;
+    var walk = connection.streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        if (is_stream_data_blocked(stream)) return true;
+    }
+    return false;
+}
+
+/// RFC 9000 §4.1: the connection's limit holds back octets a stream has to send.
+fn is_data_blocked(connection: *Connection) bool {
+    return connection.send_flow.is_blocked() and has_unframed_octets(connection);
+}
+
+/// RFC 9000 §4.1: one stream's limit holds back octets it has to send.
+fn is_stream_data_blocked(stream: *const Stream) bool {
+    return stream.send_flow.is_blocked() and stream.sending.may_send_data() and stream.outgoing.unframed_len() > 0;
+}
+
 /// RFC 9000 §19.12: the connection's limit holds back octets this endpoint has to send (§4.1: a
 /// sender "has data to write but is blocked by flow control limits").
 fn write_data_blocked(connection: *Connection, writer: *Writer, number: u64) bool {
     const sender = &connection.send_flow;
-    const blocked = sender.is_blocked() and has_unframed_octets(connection);
+    const blocked = is_data_blocked(connection);
     const fresh = blocked and sender.blocked_frame_limit() != null;
     const frame: frame_module.Frame = .{ .data_blocked = .{ .limit = sender.limit } };
     return write_blocked_frame(writer, frame, blocked, fresh, &connection.data_blocked, number);
@@ -182,8 +242,7 @@ fn write_streams_blocked(connection: *Connection, directionality: Directionality
 
 /// RFC 9000 §19.13: one stream's limit holds back octets it has to send.
 fn write_stream_data_blocked(stream: *Stream, writer: *Writer, number: u64) bool {
-    const blocked = stream.send_flow.is_blocked() and stream.sending.may_send_data() and
-        stream.outgoing.unframed_len() > 0;
+    const blocked = is_stream_data_blocked(stream);
     const fresh = blocked and stream.send_flow.blocked_frame_limit() != null;
     const frame: frame_module.Frame = .{ .stream_data_blocked = .{ .stream_id = stream.id, .limit = stream.send_flow.limit } };
     return write_blocked_frame(writer, frame, blocked, fresh, &stream.stream_data_blocked, number);
