@@ -182,6 +182,9 @@ const Recorder = struct {
     taken_len: usize = 0,
     peer_body: []const u8 = "",
     done: bool = false,
+    /// A level whose keys the octets it is handed produce, which it gives the suite at once, as a
+    /// caller's code moves TLS's secrets to its suite (decision 48).
+    makes_available: ?Level = null,
 
     fn provider(self: *Recorder) tls.QuicProvider {
         return .{ .context = @ptrCast(self), .vtable = &table };
@@ -195,6 +198,7 @@ const Recorder = struct {
         const self: *Recorder = @ptrCast(@alignCast(context));
         @memcpy(self.taken[self.taken_len..][0..data.len], data);
         self.taken_len += data.len;
+        if (self.makes_available) |level| suite_holder.available[@intFromEnum(level)] = @splat(true);
     }
     fn write(_: *anyopaque, _: Level, _: []u8) tls.quic_provider.WriteError!usize {
         return 0;
@@ -245,6 +249,67 @@ test "RFC 9001 §4.1.3, §8.2, §4.1.1: the provider takes what arrived and the 
     try testing.expect(server.handshake_done.owed);
 }
 
+test "decision 62: a Handshake packet behind the Initial that made its keys opens in one call" {
+    open_pair(&.{.initial});
+    keys.on_keys_installed(&client, .handshake, .read);
+    keys.on_keys_installed(&client, .handshake, .write);
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    send.owe_probes(&client, .handshake, 1);
+    const sent = try send_from(&client);
+    try testing.expectEqual(2, sent.count);
+    // RFC 9001 §4.1.4: the server has no Handshake keys until TLS has read the Initial's octets.
+    recorder = .{ .makes_available = .handshake };
+    const received = try receive_at(&server, recorder.provider(), sent.len, test_now_ns);
+    try testing.expectEqual(2, received.processed);
+    try testing.expectEqual(sent.packets[1].packet_number, server.space_at(.handshake).received.largest().?);
+}
+
+test "decision 62: a 1-RTT packet behind the packet that completes the handshake opens" {
+    open_pair(&.{ .initial, .handshake, .application });
+    client.handshake_complete = true;
+    send.owe_probes(&client, .handshake, 1);
+    send.owe_probes(&client, .application, 1);
+    const sent = try send_from(&client);
+    try testing.expectEqual(2, sent.count);
+    var writer = Writer.init(&client_body);
+    try transport_parameters.write(&writer, &client.local_parameters, .client);
+    recorder = .{ .peer_body = writer.written(), .done = true };
+    // RFC 9001 §5.7: no 1-RTT packet is opened before the handshake completes, and here it
+    // completes with the packet ahead of it.
+    const received = try receive_at(&server, recorder.provider(), sent.len, test_now_ns);
+    try testing.expect(received.handshake_completed);
+    try testing.expectEqual(2, received.processed);
+    try testing.expectEqual(sent.packets[1].packet_number, server.space_at(.application).received.largest().?);
+}
+
+test "decision 62: receive marks the Initial keys the caller gave the suite before it" {
+    open_pair(&.{});
+    keys.on_keys_installed(&client, .initial, .write);
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    const sent = try send_from(&client);
+    // RFC 9001 §5.2: the server's caller derived the Initial keys from the client's connection
+    // ID before it handed colibri the datagram.
+    suite_holder.available[@intFromEnum(Level.initial)] = @splat(true);
+    recorder = .{};
+    const received = try receive_at(&server, recorder.provider(), sent.len, test_now_ns);
+    try testing.expectEqual(1, received.processed);
+}
+
+test "decision 62: send marks the keys the suite holds, and never a level colibri discarded" {
+    open_pair(&.{.initial});
+    client.keys.mark_discarded(.application);
+    suite_holder.available = @splat(@splat(true));
+    // RFC 9001 §4.1.4: "TLS indicates to QUIC that reading or writing keys at that encryption
+    // level are available", one direction at a time.
+    suite_holder.available[@intFromEnum(Level.handshake)][@intFromEnum(crypto.suite.Direction.read)] = false;
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    _ = try send_from(&client);
+    try testing.expectEqual(keys.State.none, client.keys.at(.handshake, .read));
+    try testing.expectEqual(keys.State.available, client.keys.at(.handshake, .write));
+    // RFC 9001 §4.9: a discarded level stays discarded whatever the suite answers.
+    try testing.expectEqual(keys.State.discarded, client.keys.at(.application, .write));
+}
+
 test "RFC 9000 §6.2: a Version Negotiation packet is the whole datagram and goes to its function" {
     open_pair(&.{.initial});
     var writer = Writer.init(&datagram);
@@ -277,8 +342,9 @@ const RetrySuite = struct {
     fn tag_valid(_: *const anyopaque, _: []const u8, _: *const [crypto.constants.aead_tag_len]u8) bool {
         return true;
     }
-    fn unreached_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
-        unreachable;
+    /// The test marks the client's levels itself, so the suite reports holding none.
+    fn none_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
+        return false;
     }
     fn unreached_seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {
         unreachable;
@@ -309,7 +375,7 @@ const RetrySuite = struct {
     }
     const table: crypto.suite.VTable = .{
         .install_initial_keys = install,
-        .keys_available = unreached_available,
+        .keys_available = none_available,
         .seal = unreached_seal,
         .open = unreached_open,
         .retry_tag_valid = tag_valid,

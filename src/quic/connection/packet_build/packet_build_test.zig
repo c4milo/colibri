@@ -78,6 +78,10 @@ pub const RoundTrip = struct {
     previous_discards: usize = 0,
     /// How many times colibri told this suite to forget each level's keys (RFC 9001 §4.9).
     discards: [core.levels_count]usize = @splat(0),
+    /// The levels and directions this suite reports holding keys for, which colibri marks
+    /// installed on its own (decision 62). A test that marks its levels itself leaves them all
+    /// false.
+    available: [core.levels_count][crypto.suite.directions_count]bool = @splat(@splat(false)),
 
     pub fn init(held: *RoundTrip) void {
         held.* = .{};
@@ -156,9 +160,14 @@ pub const RoundTrip = struct {
         return held.phase;
     }
 
+    fn keys_available(context: *const anyopaque, level: Level, direction: crypto.suite.Direction) bool {
+        const held: *const RoundTrip = @ptrCast(@alignCast(context));
+        return held.available[@intFromEnum(level)][@intFromEnum(direction)];
+    }
+
     const vtable: crypto.suite.VTable = .{
         .install_initial_keys = unreachable_install,
-        .keys_available = unreachable_available,
+        .keys_available = keys_available,
         .seal = seal,
         .open = open,
         .retry_tag_valid = unreachable_tag_valid,
@@ -173,9 +182,6 @@ pub const RoundTrip = struct {
 };
 
 fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
-    unreachable;
-}
-fn unreachable_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
     unreachable;
 }
 fn unreachable_tag_valid(

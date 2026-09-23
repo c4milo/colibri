@@ -28,6 +28,8 @@ const tls = @import("tls");
 const crypto = @import("crypto");
 const constants = @import("constants.zig");
 
+const NullSuite = @import("null_suite.zig").NullSuite;
+
 const Crc32 = std.hash.Crc32;
 const Alert = tls.Alert;
 const Level = tls.Level;
@@ -80,6 +82,12 @@ comptime {
     assert(server_script.len <= constants.null_quic_steps_max);
 }
 
+/// The steps of either script whose completion makes a level's secrets (RFC 9001 §4.1.5's Figure
+/// 5): the Handshake level's once the ServerHello has been written or read, and the application
+/// level's once the server's Finished has.
+const handshake_keys_step: u8 = 2;
+const application_keys_step: u8 = 4;
+
 /// What one endpoint of the null QUIC provider answers. A test places the struct and fills what it
 /// wants before the run; everything else is a state the handshake reaches.
 pub const NullQuicProvider = struct {
@@ -109,6 +117,11 @@ pub const NullQuicProvider = struct {
     /// The alert a test makes the next `provide_handshake` or `write_handshake` raise, so a check
     /// can drive RFC 9001 §4.8's path. Null runs the handshake.
     fails_with: ?Alert = null,
+    /// The suite this endpoint's keys go to, or null when a test moves them itself. A caller's
+    /// code gives its suite each level's secrets inside the call that made TLS produce them (RFC
+    /// 9001 §4.1.4, decision 48), and colibri asks the suite before the next packet (decision
+    /// 62). This field is that code for the null pair.
+    suite: ?*NullSuite = null,
 
     /// The vtable-shaped view colibri holds.
     pub fn provider(self: *NullQuicProvider) tls.QuicProvider {
@@ -246,7 +259,23 @@ pub const NullQuicProvider = struct {
         self.apply(step, message.body);
         self.consume(index, message.total_len);
         self.step += 1;
+        self.hand_over_keys();
         return true;
+    }
+
+    /// Gives the suite each level's keys once the script has reached the step that makes them.
+    fn hand_over_keys(self: *NullQuicProvider) void {
+        const suite = self.suite orelse return;
+        self.hand_over(suite, .handshake, handshake_keys_step);
+        self.hand_over(suite, .application, application_keys_step);
+    }
+
+    fn hand_over(self: *const NullQuicProvider, suite: *NullSuite, level: Level, step: u8) void {
+        if (self.step < step) return;
+        // Once: every step after this one would hand the level over again. colibri discards a
+        // level only after the script's last step, so a discarded one never reaches here.
+        if (suite.state_of(level, .read) != .none) return;
+        suite.install(level);
     }
 
     /// What reading a message changes besides the cursor.
@@ -286,6 +315,7 @@ pub const NullQuicProvider = struct {
         if (!step.writes or step.level != level) return 0;
         const written = try write_framed(output, step.message, self.body_of(step.message));
         self.step += 1;
+        self.hand_over_keys();
         assert(written > 0);
         return written;
     }

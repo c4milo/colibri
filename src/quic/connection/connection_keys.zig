@@ -99,10 +99,27 @@ pub fn highest_sendable(connection: *const Connection) ?Level {
     return null;
 }
 
-/// Records that the suite installed `level` in `direction`, which the caller did because its
-/// provider produced that level's secrets (RFC 9001 §4.1.4, decision 48).
+/// Records that the suite installed `level` in `direction`. `take_available` calls it for every
+/// caller (decision 62); a test calls it to place a connection in a state.
 pub fn on_keys_installed(connection: *Connection, level: Level, direction: Direction) void {
     connection.keys.mark_installed(level, direction);
+}
+
+/// Marks installed each level and direction the suite now holds keys for (decision 62). RFC 9001
+/// §4.1.4: "TLS indicates to QUIC that reading or writing keys at that encryption level are
+/// available", and the caller's code moves them from its provider to its suite (decision 48).
+/// Only a level still in state `none` is asked about: a discarded level never comes back (§4.9),
+/// and once every level is available or discarded this asks the suite nothing.
+pub fn take_available(connection: *Connection, suite: Suite) void {
+    // Bounded by the three levels RFC 9001 §4.1.4 names and the two directions.
+    for (0..core.levels_count) |level_index| {
+        const level: Level = @enumFromInt(level_index);
+        for (0..crypto.suite.directions_count) |direction_index| {
+            const direction: Direction = @enumFromInt(direction_index);
+            if (connection.keys.at(level, direction) != .none) continue;
+            if (suite.vtable.keys_available(suite.context, level, direction)) on_keys_installed(connection, level, direction);
+        }
+    }
 }
 
 /// The first Handshake packet this endpoint sent. RFC 9001 §4.9.1: "a client MUST discard Initial

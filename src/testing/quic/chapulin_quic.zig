@@ -13,9 +13,10 @@
 //! pulled the moment chapulin stages it, because `ch_quic_crypto_in` refuses another delivery
 //! while one is staged.
 //!
-//! **The caller installs each level's keys (decision 60).** chapulin reports a level ready through
-//! `on_level_ready`, from inside the call that fed it. The session keeps the report in `ready`,
-//! and `take_ready` hands it to the caller, which marks the level installed on the connection.
+//! **colibri learns which levels are ready from the suite (decision 62).** chapulin sets a level's
+//! bits in `levels_ready` inside the call that fed it, and `keys_available` reads those bits, so
+//! colibri sees a level the moment chapulin has it. chapulin also reports each level through
+//! `on_level_ready`, which it requires, and which this session has no use for.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -27,7 +28,6 @@ const c = chapulin_quic_c.c;
 const tls = quic.tls;
 const Level = quic.core.Level;
 const Role = quic.crypto.suite.Role;
-const Direction = quic.crypto.suite.Direction;
 const Keylog = chapulin_quic_c.Keylog;
 
 pub const ok: c_int = 0;
@@ -91,9 +91,6 @@ pub const Session = struct {
     peer_parameters: [constants.quic_peer_params_len_max]u8,
     peer_parameters_len: ?usize,
     outgoing: [quic.core.levels_count]Outgoing,
-    /// Levels chapulin reported ready that the caller has not taken, one bit per level and
-    /// direction at `ready_bit`.
-    ready: u8,
     /// Whether `ch_quic_init` or `ch_srv_quic_init` ran, which they do once the parameters are
     /// set (RFC 9001 §8.2).
     started: bool,
@@ -116,7 +113,6 @@ pub const Session = struct {
             outgoing.len = 0;
             outgoing.taken = 0;
         }
-        session.ready = 0;
         session.started = false;
         session.alert_taken = false;
         session.outgoing_overflowed = false;
@@ -172,19 +168,6 @@ pub const Session = struct {
         return .{ .context = @ptrCast(session), .vtable = &chapulin_quic_suite.vtable };
     }
 
-    /// The levels chapulin made ready since the last call, which the caller marks installed on
-    /// its connection (RFC 9001 §4.1.4, decision 60).
-    pub fn take_ready(session: *Session) u8 {
-        const ready = session.ready;
-        session.ready = 0;
-        return ready;
-    }
-
-    /// Whether `level` became ready in `direction`, in what `take_ready` answered.
-    pub fn is_ready(ready: u8, level: Level, direction: Direction) bool {
-        return ready & ready_bit(@intFromEnum(level), @intFromEnum(direction)) != 0;
-    }
-
     /// Whether the session failed, which `ch_quic_state` reports.
     pub fn failed(session: *const Session) bool {
         return c.ch_quic_state(&session.quic) == c.CH_ST_FAILED;
@@ -206,8 +189,8 @@ pub const Session = struct {
     }
 };
 
-/// The bit of one level in one direction, laid out as chapulin's `CH_QUIC_LEVEL_BIT` lays out
-/// `levels_ready`, so the session's own `ready` and chapulin's field read the same way.
+/// The bit of one level in one direction in chapulin's `levels_ready`, laid out as its
+/// `CH_QUIC_LEVEL_BIT` lays it out.
 pub fn ready_bit(level: usize, direction: usize) u8 {
     const directions: usize = quic.crypto.suite.directions_count;
     return @as(u8, 1) << @intCast(level * directions + direction);
@@ -217,9 +200,12 @@ fn session_of(io: ?*anyopaque) *Session {
     return @ptrCast(@alignCast(io.?));
 }
 
+/// chapulin requires the callback. colibri reads the same fact from `levels_ready` through
+/// `keys_available` (decision 62), so there is nothing to do here.
 fn on_level_ready(io: ?*anyopaque, level: u8, direction: u8) callconv(.c) void {
-    const session = session_of(io);
-    session.ready |= ready_bit(level, direction);
+    _ = io;
+    _ = level;
+    _ = direction;
 }
 
 /// The peer's parameters, which point into chapulin's buffer for the length of the call alone.

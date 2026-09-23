@@ -6,7 +6,8 @@
 //! - It derives the Initial keys from the client's first Destination Connection ID (RFC 9001
 //!   §5.2).
 //! - It gives the provider this endpoint's transport parameters before the handshake (§8.2).
-//! - It marks each later level installed when chapulin reports it ready (§4.1.4).
+//! - It lets chapulin move each later level's keys to the suite, which one `ch_quic` does inside
+//!   the call that fed it (§4.1.4). colibri reads them from the suite (decision 62).
 //! - It supplies the octets of the stream it sends, and places the pool the octets it receives
 //!   wait in.
 //! The order of the first two differs from the simulator's: chapulin starts its session when it
@@ -18,9 +19,6 @@ const constants = @import("../constants.zig");
 const chapulin_quic = @import("chapulin_quic.zig");
 
 const Connection = quic.Connection;
-const Level = quic.core.Level;
-const Role = quic.crypto.Role;
-const Direction = quic.crypto.Direction;
 const Parameters = quic.transport_parameters.Parameters;
 const Session = chapulin_quic.Session;
 
@@ -104,9 +102,6 @@ pub const Endpoint = struct {
         // of the client's first Initial packet.
         const suite = endpoint.session.suite();
         suite.vtable.install_initial_keys(suite.context, role, &original_id) catch return error.SessionRefused;
-        quic.connection_keys.on_keys_installed(&endpoint.connection, .initial, .read);
-        quic.connection_keys.on_keys_installed(&endpoint.connection, .initial, .write);
-        _ = endpoint.session.take_ready();
     }
 
     /// Takes one datagram the peer sent.
@@ -121,7 +116,6 @@ pub const Endpoint = struct {
             &endpoint.scratch,
         );
         if (received.completed_streams > 0) endpoint.transfer_done = true;
-        endpoint.install_ready();
         if (endpoint.connection.role == .server) try endpoint.read_transfer();
     }
 
@@ -137,7 +131,6 @@ pub const Endpoint = struct {
             &endpoint.output,
             now_ns,
         ) orelse return null;
-        endpoint.install_ready();
         return endpoint.output[0..sent.len];
     }
 
@@ -152,21 +145,6 @@ pub const Endpoint = struct {
         const at_ns = endpoint.next_deadline_ns() orelse return;
         if (now_ns < at_ns) return;
         _ = try quic.connection_timer.on_instant(&endpoint.connection, endpoint.session.suite(), &endpoint.scratch.recovery, now_ns);
-    }
-
-    /// RFC 9001 §4.1.4: marks installed each level chapulin reported ready. A level colibri has
-    /// discarded stays discarded (§4.9).
-    fn install_ready(endpoint: *Endpoint) void {
-        const ready = endpoint.session.take_ready();
-        // Bounded by the levels and the two directions.
-        for (0..quic.core.levels_count) |level_index| {
-            const level: Level = @enumFromInt(level_index);
-            for ([_]Direction{ .read, .write }) |direction| {
-                if (!Session.is_ready(ready, level, direction)) continue;
-                if (endpoint.connection.keys.at(level, direction) != .none) continue;
-                quic.connection_keys.on_keys_installed(&endpoint.connection, level, direction);
-            }
-        }
     }
 
     /// The server reads what has arrived of the client's stream, and checks each octet.

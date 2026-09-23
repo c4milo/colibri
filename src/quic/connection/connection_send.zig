@@ -127,6 +127,9 @@ pub fn send(
     // RFC 9000 §10.2.2: "an endpoint in the draining state MUST NOT send any packets", and the
     // same answer covers a connection whose closing period has ended (§10.2).
     if (connection.termination.permission() == .send_nothing) return null;
+    // Decision 62: a level whose keys the caller's code gave the suite since the last call can
+    // carry a packet in this datagram.
+    keys_module.take_available(connection, suite);
     const ceiling = @min(output.len, datagram_ceiling(connection));
     if (ceiling < constants.packet_header_len_max) return null;
     var plans: [core.levels_count]packet_build.Planned = undefined;

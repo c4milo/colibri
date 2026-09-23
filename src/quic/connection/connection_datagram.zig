@@ -12,9 +12,16 @@
 //!    then is it recorded in its space (§13.1) and does it restart the idle timer (§10.1).
 //! 4. A HANDSHAKE_DONE confirms the handshake at a client and discards its Handshake keys (RFC
 //!    9001 §4.1.2, §4.9.2).
-//! 5. The provider takes what the datagram's CRYPTO frames completed (RFC 9001 §4.1.3), the peer's
+//! 5. The provider takes what the packet's CRYPTO frames completed (RFC 9001 §4.1.3), the peer's
 //!    transport parameters are read once they have arrived (§8.2), and the handshake completes when
 //!    the provider says it has (§4.1.1).
+//! 6. Each level the suite now holds keys for is marked installed (decision 62).
+//!
+//! Steps 5 and 6 run after each packet and not once for the datagram. A server's first datagram
+//! carries the ServerHello in an Initial packet and the rest of its flight in Handshake packets
+//! behind it (§12.2), and those open only once the ServerHello has made the Handshake keys. RFC
+//! 9001 §4.1.4 asks an endpoint to buffer "packets if they might be processed using keys that are
+//! not yet available", and within one datagram the packets are already held.
 //!
 //! A connection that is closing reads nothing and counts the datagram, which is what RFC 9000
 //! §10.2.1's limit on its answers is measured against. One that is draining or closed discards it.
@@ -111,10 +118,10 @@ pub fn receive(
     // RFC 9000 §8.1: a server may send "three times the amount of data received from that
     // address", which every datagram counts toward whether or not a packet in it opens.
     connection.path.on_datagram_received(datagram.octets.len);
+    // Decision 62: keys the caller's code gave the suite since the last call open packets here.
+    keys_module.take_available(connection, suite);
     if (try take_whole(connection, suite, datagram.octets, scratch, &received)) return received;
-    try walk_packets(connection, suite, datagram, scratch, &received);
-    if (connection.termination.state != .active) return received;
-    try advance_handshake(connection, suite, provider, &received);
+    try walk_packets(connection, suite, provider, datagram, scratch, &received);
     return received;
 }
 
@@ -155,6 +162,7 @@ fn take_whole(
 fn walk_packets(
     connection: *Connection,
     suite: crypto.Suite,
+    provider: tls.QuicProvider,
     datagram: Datagram,
     scratch: *Scratch,
     received: *Received,
@@ -171,6 +179,8 @@ fn walk_packets(
         // RFC 9000 §10.2.2: a CONNECTION_CLOSE puts the connection into the draining state,
         // after which nothing the rest of the datagram holds changes anything.
         if (connection.termination.state != .active) return;
+        // Before the next packet, which may need the keys this one's CRYPTO frames produced.
+        try advance_handshake(connection, suite, provider, received);
     }
 }
 
@@ -215,7 +225,10 @@ fn advance_handshake(
     // RFC 9001 §8.2: the peer's transport parameters travel in the handshake, and the connection
     // takes them the moment they have arrived.
     _ = try connection_crypto.take_peer_parameters(connection, provider);
-    received.handshake_completed = try connection_handshake.complete(connection, provider, suite);
+    if (try connection_handshake.complete(connection, provider, suite)) received.handshake_completed = true;
+    // RFC 9001 §4.1.4: "The availability of new keys is always a result of providing inputs to
+    // TLS", so this is the moment to ask.
+    keys_module.take_available(connection, suite);
 }
 
 test {

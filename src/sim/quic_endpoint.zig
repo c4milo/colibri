@@ -6,7 +6,9 @@
 //! things colibri cannot:
 //! - It derives the Initial keys from the client's first Destination Connection ID (RFC 9001 §5.2).
 //! - It gives the provider this endpoint's transport parameters before the handshake (§8.2).
-//! - It installs each later level's keys when the handshake reaches that level (§4.1.4).
+//! - It moves each later level's keys from the provider to the suite when the handshake reaches
+//!   that level (§4.1.4), which the null provider does through its `suite` field. colibri reads
+//!   them from the suite on its own (decision 62).
 //! - It keeps the octets of the stream it sends (decision 57), and places the pool the octets it
 //!   receives wait in (decision 61).
 //! Everything else is one colibri call per datagram each way (decisions 59 and 60) and one per
@@ -17,7 +19,6 @@ const sim = @import("sim");
 const quic = @import("quic");
 
 const Connection = quic.Connection;
-const Level = quic.core.Level;
 const Role = quic.connection.Role;
 const Parameters = quic.transport_parameters.Parameters;
 const StreamProvider = quic.stream.stream_provider.StreamProvider;
@@ -41,13 +42,6 @@ const original_octet: u8 = 0x0d;
 const client_id: [id_len]u8 = @splat(client_octet);
 const server_id: [id_len]u8 = @splat(server_octet);
 const original_id: [id_len]u8 = @splat(original_octet);
-
-/// The null provider's script (`null_quic_provider.zig`, RFC 9001 §4.1.5's Figure 5) reaches the
-/// Handshake level at its second step, once the ServerHello has been written or read, and the
-/// application level at its fourth, once the server's Finished has. Those are the moments a TLS
-/// stack hands over each level's secrets (§4.1.4).
-const handshake_keys_step: u8 = 2;
-const application_keys_step: u8 = 4;
 
 /// What each endpoint grants its peer (RFC 9000 §18.2): room for the one stream the client sends,
 /// and an idle timeout long enough that only a dead path reaches it.
@@ -94,7 +88,7 @@ pub const Endpoint = struct {
             .identity = .{ .local_initial_source = local_source, .original_destination = &original_id },
             .receive = endpoint.pool.storage(),
         });
-        endpoint.provider = .{ .role = role };
+        endpoint.provider = .{ .role = role, .suite = &endpoint.suite };
         endpoint.suite = .{};
         endpoint.send_scratch = .{};
         endpoint.transfer_started = false;
@@ -106,8 +100,6 @@ pub const Endpoint = struct {
         // of the client's first Initial packet.
         const suite = endpoint.suite.suite();
         suite.vtable.install_initial_keys(suite.context, role, &original_id) catch unreachable;
-        quic.connection_keys.on_keys_installed(&endpoint.connection, .initial, .read);
-        quic.connection_keys.on_keys_installed(&endpoint.connection, .initial, .write);
         // RFC 9001 §8.2: the parameters travel in the handshake, so the provider holds them before
         // it starts. `Connection.init` wrote the connection IDs into them (RFC 9000 §7.3).
         var body: [sim.constants.null_quic_params_len_max]u8 = undefined;
@@ -128,7 +120,6 @@ pub const Endpoint = struct {
             &endpoint.scratch,
         );
         if (received.completed_streams > 0) endpoint.transfer_done = true;
-        endpoint.install_keys();
         if (endpoint.connection.role == .server) try endpoint.read_transfer();
     }
 
@@ -164,7 +155,6 @@ pub const Endpoint = struct {
             &endpoint.output,
             now_ns,
         ) orelse return null;
-        endpoint.install_keys();
         return sent;
     }
 
@@ -187,21 +177,6 @@ pub const Endpoint = struct {
         const at_ns = endpoint.next_deadline_ns() orelse return;
         if (now_ns < at_ns) return;
         _ = try quic.connection_timer.on_instant(&endpoint.connection, endpoint.suite.suite(), &endpoint.scratch.recovery, now_ns);
-    }
-
-    /// RFC 9001 §4.1.4: installs each level's keys once the handshake has reached it.
-    fn install_keys(endpoint: *Endpoint) void {
-        endpoint.install_at(.handshake, handshake_keys_step);
-        endpoint.install_at(.application, application_keys_step);
-    }
-
-    fn install_at(endpoint: *Endpoint, level: Level, step: u8) void {
-        if (endpoint.provider.step < step) return;
-        // Once: a level colibri discarded stays discarded (RFC 9001 §4.9).
-        if (endpoint.suite.state_of(level, .read) != .none) return;
-        endpoint.suite.install(level);
-        quic.connection_keys.on_keys_installed(&endpoint.connection, level, .read);
-        quic.connection_keys.on_keys_installed(&endpoint.connection, level, .write);
     }
 
     /// The client opens its one stream and hands colibri all of it once the handshake completes.
