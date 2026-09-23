@@ -46,6 +46,8 @@ pub const Stream = struct {
     /// How far this endpoint's octets reach, how far they went out and how many arrived
     /// (decision 57).
     outgoing: stream_outgoing.Outgoing = .{},
+    /// The MAX_STREAM_DATA frame most recently sent for this stream (RFC 9000 §13.3).
+    max_stream_data: flow.Advertised = .{},
 
     pub fn stream_identifier(stream: *const Stream) StreamId {
         return .{ .value = stream.id };
@@ -103,6 +105,8 @@ pub const Streams = struct {
     next_index: [constants.stream_directionalities]u64,
     /// The stream octets lost in transit and owed again (§13.3), across every stream.
     lost: stream_lost.LostRanges,
+    /// The MAX_STREAMS frame most recently sent for each stream type (§13.3).
+    max_streams: [constants.stream_directionalities]flow.Advertised,
 
     /// `peer_limits` are the counts this endpoint advertises, which `init` caps at the table's
     /// capacity: §3.2's implicit creation makes an advertised limit a promise to hold that many
@@ -117,6 +121,7 @@ pub const Streams = struct {
         streams.role = role;
         streams.next_index = @splat(0);
         streams.lost.init();
+        streams.max_streams = @splat(.{});
         for (0..constants.stream_directionalities) |index| {
             streams.local_limit[index] = flow.Sender.init(local_limits[index]);
             const capped = @min(peer_limits[index], constants.streams_per_connection_max);
@@ -195,6 +200,12 @@ pub const Streams = struct {
         assert(stream.sending.state.is_terminal() or !id.is_sendable_by(streams.role));
         assert(stream.receiving.state.is_terminal() or !id.is_receivable_by(streams.role));
         streams.pool.close(id.value);
+        // RFC 9000 §4.6: "Implementations might choose to increase limits as streams are closed,
+        // to keep the number of streams available to peers roughly consistent." A closed stream
+        // the peer opened is what a MAX_STREAMS frame gives back.
+        if (id.is_initiated_by(streams.role.peer())) {
+            streams.peer_limit[@intFromEnum(id.directionality())].consume(1);
+        }
     }
 
     /// Counts a range the peer acknowledged toward its stream (RFC 9000 §3.1). True when that
@@ -379,8 +390,8 @@ test "§4.6: more room for the peer is offered as its streams close" {
         const stream = test_streams.lookup(id).live;
         _ = stream.receiving.on(.received_reset);
         _ = stream.receiving.on(.application_read_reset);
+        // Closing a stream the peer opened is what gives its count back.
         test_streams.close(id);
-        test_streams.peer_limit[@intFromEnum(Directionality.unidirectional)].consume(1);
     }
     try testing.expectEqual(test_limit + test_limit / 2, test_streams.peer_limit_frame(.unidirectional, 0).?);
 }

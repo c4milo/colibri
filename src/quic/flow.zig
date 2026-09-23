@@ -82,6 +82,33 @@ pub const Sender = struct {
     }
 };
 
+/// The most recent frame that told the peer a limit, for one scope: the connection, one stream or
+/// one stream type. RFC 9000 §13.3 sends "an updated value ... if the packet containing the most
+/// recently sent" frame "is declared lost", so this holds that packet's number and whether a
+/// frame is owed. An acknowledgment needs nothing here: an acknowledged packet is never declared
+/// lost, so its number never matches a loss.
+pub const Advertised = struct {
+    /// The number of the 1-RTT packet that carried the most recent frame, when `sent` is set.
+    sent_in: u64 = 0,
+    sent: bool = false,
+    /// Whether a frame is owed at the limit current when it is written.
+    owed: bool = false,
+
+    /// Records that packet `number` carried a frame for this scope.
+    pub fn on_sent(advertised: *Advertised, number: u64) void {
+        advertised.sent_in = number;
+        advertised.sent = true;
+        advertised.owed = false;
+    }
+
+    /// Owes a frame again when packet `number` carried the most recent one (RFC 9000 §13.3).
+    pub fn on_lost(advertised: *Advertised, number: u64) void {
+        if (!advertised.sent or advertised.sent_in != number) return;
+        advertised.sent = false;
+        advertised.owed = true;
+    }
+};
+
 /// Why a peer's use of a limit was refused.
 pub const Error = error{
     /// RFC 9000 §4.1: the sender violated the advertised connection or stream data limit, which
@@ -171,6 +198,9 @@ pub const Receiver = struct {
     /// as the test, so the window stays where it started.
     pub fn credit_frame_limit(receiver: *Receiver, now_ns: u64, round_trip_ns: u64) ?u64 {
         const gain = receiver.consumed + receiver.window - receiver.limit;
+        // RFC 9000 §4.1: a limit that does not rise "has no effect", so it is never worth a frame.
+        // A window of 0 or 1 makes the fraction below 0, which alone would offer one every call.
+        if (gain == 0) return null;
         if (gain < receiver.window / constants.flow_credit_fraction) return null;
         receiver.tune(now_ns, round_trip_ns);
         receiver.credited_at_ns = now_ns;
@@ -278,6 +308,37 @@ test "§4.1, §4.2: credit follows what the application took, not what arrived" 
     // The limit moved, so the same read is not offered twice.
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     try testing.expectEqual(half_window, receiver.available());
+}
+
+test "§4.1: a limit that would not rise is never offered, whatever the window" {
+    // A window of one makes the fraction zero, which is where offering every call would start.
+    var single = Receiver.init(1, 1);
+    try testing.expectEqual(null, single.credit_frame_limit(0, 0));
+    try single.use(1, error.StreamLimitExceeded);
+    single.consume(1);
+    try testing.expectEqual(2, single.credit_frame_limit(0, 0).?);
+    try testing.expectEqual(null, single.credit_frame_limit(0, 0));
+    // A receiver that admits nothing never offers anything.
+    var none = Receiver.none();
+    try testing.expectEqual(null, none.credit_frame_limit(0, 0));
+}
+
+test "§13.3: a lost limit frame is owed again only when it was the most recent" {
+    var advertised: Advertised = .{};
+    // Nothing sent, so no loss matches.
+    advertised.on_lost(0);
+    try testing.expect(!advertised.owed);
+    advertised.on_sent(4);
+    advertised.on_sent(7);
+    advertised.on_lost(4);
+    try testing.expect(!advertised.owed);
+    advertised.on_lost(7);
+    try testing.expect(advertised.owed);
+    try testing.expect(!advertised.sent);
+    // Sending again clears what was owed.
+    advertised.on_sent(9);
+    try testing.expect(!advertised.owed);
+    try testing.expectEqual(9, advertised.sent_in);
 }
 
 test "§4.1: the window is what the limit stays ahead of, however much was read at once" {

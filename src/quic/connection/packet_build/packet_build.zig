@@ -164,7 +164,7 @@ pub fn plan(
         return Error.PacketNumbersExhausted;
 
     const shape = try shape_of(connection, level, truncated.len, room);
-    const framed = try packet_build_frames.write(connection, provider, stream_provider, space, level, payload, shape.room, now_ns);
+    const framed = try packet_build_frames.write(connection, provider, stream_provider, space, level, number, payload, shape.room, now_ns);
     if (framed.len == 0) return null;
     // The number is spent only once the packet exists, so a level with nothing to send leaves
     // no hole in its space (invariant 17).

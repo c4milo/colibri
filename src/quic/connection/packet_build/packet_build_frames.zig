@@ -17,6 +17,7 @@ const connection_stream_send = @import("../connection_stream/connection_stream_s
 const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const connection_close = @import("../connection_close.zig");
 const connection_handshake = @import("../connection_handshake.zig");
+const connection_flow = @import("../connection_flow.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
@@ -52,6 +53,7 @@ pub fn write(
     stream_provider: StreamProvider,
     space: anytype,
     level: Level,
+    number: u64,
     payload: []u8,
     room: usize,
     now_ns: u64,
@@ -80,6 +82,9 @@ pub fn write(
     // RFC 9001 §4.1.2: "The server MUST send a HANDSHAKE_DONE frame as soon as the handshake is
     // complete", so it goes before any octets compete for the room.
     const carries_handshake_done = connection_handshake.write_done(connection, level, &writer);
+    // RFC 9000 §4.2: the limits the peer may use, before any octets compete for the room, so a
+    // peer waiting on credit is not kept waiting by this endpoint's own data.
+    const carries_limits = connection_flow.write_limits(connection, level, &writer, number, now_ns);
     const written_path = writer.written().len;
     const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
     return .{
@@ -91,7 +96,7 @@ pub fn write(
         // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing, and a CRYPTO or STREAM
         // frame does. Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
         .ack_eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
-            carries_handshake_done,
+            carries_handshake_done or carries_limits,
         .carries_handshake_done = carries_handshake_done,
         .carries_ack = written_ack > 0,
         .path_challenge = path.path_challenge,
