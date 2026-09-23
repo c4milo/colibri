@@ -77,6 +77,12 @@ pub fn build(b: *std.Build) void {
     if (b.pkg_hash.len != 0) return;
     const pepegrillo_dependency = b.lazyDependency("pepegrillo", .{}) orelse return;
     const pepegrillo = pepegrillo_dependency.module("pepegrillo");
+    // Decision 58: rotor is the loop of `src/testing/`'s UDP endpoints. Lazy like pepegrillo, and
+    // requested here for the same reason, with the target and mode this build resolved. rotor's
+    // build, like this one, offers ReleaseSafe as `-Drelease` and no `-Doptimize`.
+    const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
+    const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
+    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), target, optimize);
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");
@@ -112,6 +118,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "testing-client", .module = graph.testing_client },
         .{ .name = "testing-tls", .module = graph.testing_tls },
         .{ .name = "testing-tls-server", .module = graph.testing_tls_server },
+        .{ .name = "testing-udp", .module = testing_udp },
     };
     var golden_tests: ?*std.Build.Step = null;
     for (unit_test_modules) |entry| {

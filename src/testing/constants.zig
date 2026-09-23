@@ -157,6 +157,29 @@ pub const tls_der_len_max: usize = 2048;
 /// RFC 9846 §5.1 caps at 2^14 of plaintext plus its header and tag.
 pub const tls_record_buffer_len: usize = 18 * 1024;
 
+/// Operations one UDP endpoint's loop holds in flight: its one multishot receive, and the sends
+/// the kernel has not yet taken (decision 58).
+pub const udp_operations_max: u32 = 64;
+
+/// Buffers the kernel receives datagrams into, a power of two as rotor's groups require. The
+/// endpoint gives each back once it has read it, so a few cover a burst; rotor's guide advises
+/// sizing a group to the buffers in flight rather than to the memory there is.
+pub const udp_receive_buffers: u32 = 16;
+
+/// Octets of one receive buffer: rotor's prefix of 192, which holds the peer's address and the
+/// control messages, and the datagram after it.
+pub const udp_buffer_bytes: u32 = 2048;
+
+/// The largest datagram an endpoint must receive whole: Ethernet's MTU, which the paths of
+/// design §9's endpoints stay within.
+pub const udp_payload_len_min: u32 = 1500;
+
+comptime {
+    assert(udp_operations_max > 1);
+    assert(std.math.isPowerOfTwo(udp_receive_buffers));
+    assert(udp_buffer_bytes > udp_payload_len_min);
+}
+
 comptime {
     assert(tls_receive_len > tls_record_buffer_len);
     assert(tls_record_buffer_len > 1 << 14);

@@ -64,6 +64,7 @@ core, wire, sim, h2 <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2         <- testing, testing_client
+h2, rotor        <- testing_udp
 ```
 
 | Module | Holds | Imports | RFCs |
@@ -84,6 +85,7 @@ core, h2         <- testing, testing_client
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
+| `testing_udp` | the UDP socket of §9's QUIC endpoints, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)), and the one module that imports Rotor | `h2` for the shared constants, and `rotor` | — |
 
 The architecture depends on three of these edges and forbids one.
 
@@ -2429,8 +2431,8 @@ larger half begins.
 ## 9. Test-only entry points
 
 Five, and they are not interchangeable. Each lives in `src/testing/`, is excluded from the
-packaged library, does its I/O without blocking ([decision 46](decisions.md)), and is the only
-place in the tree permitted to touch a socket
+packaged library, does its I/O without blocking ([decisions 46 and 58](decisions.md)), and is the
+only place in the tree permitted to touch a socket
 ([invariant 2](invariants.md#inv-2--colibri-performs-no-io) is scoped to `src/` outside it).
 
 1. **An h2 server** answering `GET /` and `POST /` with 200 and a non-empty body, in both

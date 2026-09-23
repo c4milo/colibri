@@ -159,8 +159,8 @@ exists — never propose a second one.
 - Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
   library and is the only directory permitted to open a socket. Every endpoint there does its I/O
-  without blocking: one `poll` call over a fixed array of connections, and no other call that
-  waits (decision 46).
+  without blocking: one `poll` call over a fixed array of connections, or Rotor's one system call
+  per tick for the UDP endpoints, and no other call that waits (decisions 46 and 58).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
@@ -201,9 +201,9 @@ tree. Design §11 holds the method and the numbers.
 
 - Changing a named limit.
 - Adding a dependency. The library is meant to have none: no package, no vendored C, and no
-  allocator at all (decision 35). There are two ruled exceptions, and the library imports neither:
-  chapulin, which `src/testing/` links (decision 10), and pepegrillo, the tooling `tools/` builds
-  on (decision 36).
+  allocator at all (decision 35). There are three ruled exceptions, and the library imports none:
+  chapulin, which `src/testing/` links (decision 10); pepegrillo, the tooling `tools/` builds on
+  (decision 36); and Rotor, the loop `src/testing/`'s UDP endpoints run on (decision 58).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
@@ -269,7 +269,9 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
-- Tooling: the first build on a machine fetches pepegrillo (decision 36). After a bump with `zig
+- Tooling: the first build on a machine fetches pepegrillo (decision 36) and Rotor (decision 58).
+  A Rotor bump is `zig fetch --save=rotor git+https://github.com/c4milo/rotor#<commit>`, and
+  `.lazy = true` must survive it too. After a pepegrillo bump with `zig
   fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm `.lazy = true`
   is still set in `build.zig.zon` and copy the new hook. `zig build --fork=<pepegrillo checkout>`
   builds against a local pepegrillo instead of the pinned commit.

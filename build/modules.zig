@@ -208,6 +208,23 @@ pub fn add(
     };
 }
 
+/// The UDP endpoint of design §9, rooted at `src/testing/udp.zig`: the one module that imports
+/// rotor (decision 58). It is made apart from `add` because rotor is a lazy package that only
+/// colibri's own build requests, after a dependent project's build has stopped. `h2` is there for
+/// `src/testing/constants.zig`, which every module of `src/testing/` shares.
+pub fn add_testing_udp(
+    b: *std.Build,
+    graph: Modules,
+    rotor: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    const module = create(b, "src/testing/udp.zig", target, optimize);
+    module.addImport("h2", graph.h2);
+    module.addImport("rotor", rotor);
+    return module;
+}
+
 fn create(
     b: *std.Build,
     root_source_file: []const u8,

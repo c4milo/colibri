@@ -11,6 +11,14 @@
             .hash = "pepegrillo-0.0.0-axiFUBEBCACosqh8z-DdeIpRsD1B5g2_KwqZyYFeznIX",
             .lazy = true,
         },
+        // The event loop of `src/testing/`'s endpoints, never linked into the library
+        // (decision 58). Lazy, and requested only when colibri is the root build, like
+        // pepegrillo.
+        .rotor = .{
+            .url = "git+https://github.com/c4milo/rotor#86a7ade8fc86dc17a52323947ec68757e22bee75",
+            .hash = "rotor-0.3.0-YZkxRKWcEACeO1wTc58Q-ZvoKEVYbpvWMIdW00VIj7ij",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",
