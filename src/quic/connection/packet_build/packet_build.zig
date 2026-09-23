@@ -98,10 +98,11 @@ pub const Built = struct {
     ack_eliciting: bool,
     /// RFC 9002 §2, via `recovery_sent.counts_in_flight`.
     in_flight: bool,
-    /// RFC 9000 §13.3: the CRYPTO octets this packet carried, which the caller puts in the
-    /// `recovery_sent.Record` it keeps, so a loss can say which octets to send again.
-    crypto_offset: u64 = 0,
-    crypto_len: u16 = 0,
+    /// RFC 9000 §13.3: the CRYPTO or STREAM octets this packet carried, which the caller puts in
+    /// the `recovery_sent.Record` it keeps, so a loss can say which octets to send again.
+    carries: recovery_sent.Carries = .none,
+    data_offset: u64 = 0,
+    data_len: u16 = 0,
 };
 
 /// One packet framed but not yet protected. RFC 9000 §14.1's expansion has to be decided before
@@ -130,10 +131,11 @@ pub const Planned = struct {
     /// Whether this packet carries a PATH_RESPONSE (RFC 9000 §8.2.2), which §8.2.2 expands the
     /// datagram for just as §8.2.1 does for a challenge.
     carries_path_response: bool = false,
-    /// RFC 9000 §13.3: where this packet's CRYPTO octets sit in the level's flow, which the
-    /// caller records so a lost packet can say which octets to send again.
-    crypto_offset: u64 = 0,
-    crypto_len: u16 = 0,
+    /// RFC 9000 §13.3: which octets this packet carries and where they sit in their flow, which
+    /// the caller records so a lost packet can say which octets to send again.
+    carries: recovery_sent.Carries = .none,
+    data_offset: u64 = 0,
+    data_len: u16 = 0,
 };
 
 /// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
@@ -175,8 +177,9 @@ pub fn plan(
         .carries_ack = framed.carries_ack,
         .path_challenge = framed.path_challenge,
         .carries_path_response = framed.carries_path_response,
-        .crypto_offset = framed.crypto_offset,
-        .crypto_len = framed.crypto_len,
+        .carries = framed.carries,
+        .data_offset = framed.data_offset,
+        .data_len = framed.data_len,
     };
 }
 
@@ -299,8 +302,9 @@ pub fn seal_planned(
         // RFC 9002 §2, stated once in `recovery_sent`: a packet is in flight when it elicits an
         // acknowledgment or carries PADDING, and §14.1's expansion is what adds the second.
         .in_flight = recovery_sent.counts_in_flight(pending.ack_eliciting, planned.padding_len > 0),
-        .crypto_offset = planned.crypto_offset,
-        .crypto_len = planned.crypto_len,
+        .carries = planned.carries,
+        .data_offset = planned.data_offset,
+        .data_len = planned.data_len,
     };
 }
 

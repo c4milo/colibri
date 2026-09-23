@@ -19,6 +19,7 @@ const Level = core.Level;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Error = @import("packet_build.zig").Error;
+const Carries = @import("../../recovery/recovery_sent.zig").Carries;
 
 /// What went into the payload.
 pub const Framed = struct {
@@ -28,10 +29,11 @@ pub const Framed = struct {
     carries_ack: bool = false,
     path_challenge: ?[constants.path_challenge_len]u8 = null,
     carries_path_response: bool = false,
-    /// RFC 9000 §13.3: where this packet's CRYPTO octets sit in the level's flow, so a lost
-    /// packet can say which to send again.
-    crypto_offset: u64 = 0,
-    crypto_len: u16 = 0,
+    /// RFC 9000 §13.3: which octets this packet carries and where they sit in their flow, so a
+    /// lost packet can say which to send again (`recovery_sent.Record`).
+    carries: Carries = .none,
+    data_offset: u64 = 0,
+    data_len: u16 = 0,
 };
 
 /// Writes the frames this packet carries. The set is small on purpose: an ACK when the space owes
@@ -74,8 +76,9 @@ pub fn write(
     const crypto_len = written_crypto.len;
     return .{
         .len = written_path + crypto_len,
-        .crypto_offset = written_crypto.offset,
-        .crypto_len = written_crypto.payload_len,
+        .carries = if (crypto_len > 0) .crypto else .none,
+        .data_offset = written_crypto.offset,
+        .data_len = written_crypto.payload_len,
         // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing and a CRYPTO frame does.
         // Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
         .ack_eliciting = crypto_len > 0 or path.carries_path_response or path.path_challenge != null,

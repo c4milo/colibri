@@ -345,8 +345,9 @@ fn record_of(sent: send.Sent, at: usize) Record {
         .sent_len = @intCast(sent.len),
         .ack_eliciting = packet.ack_eliciting,
         .in_flight = packet.in_flight,
-        .crypto_offset = packet.crypto_offset,
-        .crypto_len = packet.crypto_len,
+        .carries = packet.carries,
+        .data_offset = packet.data_offset,
+        .data_len = packet.data_len,
     };
 }
 
@@ -355,8 +356,8 @@ test "RFC 9000 §13.3: CRYPTO octets from a lost packet are sent again under a n
     provider_holder = .{ .owed = &flight, .owed_level = .initial };
     const first = (try send_from(&client)).?;
     try testing.expectEqual(0, first.packets[0].packet_number);
-    try testing.expectEqual(0, first.packets[0].crypto_offset);
-    try testing.expectEqual(flight_len, first.packets[0].crypto_len);
+    try testing.expectEqual(0, first.packets[0].data_offset);
+    try testing.expectEqual(flight_len, first.packets[0].data_len);
     // The provider gave its octets up, so there is nothing new to send until something is lost.
     try testing.expectEqual(null, try send_from(&client));
 
@@ -371,8 +372,8 @@ test "RFC 9000 §13.3: CRYPTO octets from a lost packet are sent again under a n
     const again = (try send_from(&client)).?;
     try testing.expect(again.packets[0].packet_number > first.packets[0].packet_number);
     // §19.6: the Offset is where the octets sit in the flow, so the repeat starts where they did.
-    try testing.expectEqual(0, again.packets[0].crypto_offset);
-    try testing.expectEqual(flight_len, again.packets[0].crypto_len);
+    try testing.expectEqual(0, again.packets[0].data_offset);
+    try testing.expectEqual(flight_len, again.packets[0].data_len);
 
     // The peer reads the flight off the second datagram, having never seen the first.
     _ = try walk_back(&server, again);
@@ -387,10 +388,19 @@ test "RFC 9000 §13.3: a lost packet that carried no CRYPTO asks for nothing" {
     // "PING and PADDING frames contain no information, so lost PING or PADDING frames do not
     // require repair", and neither does a packet that carried only an acknowledgment.
     var quiet = record_of(first, 0);
-    quiet.crypto_offset = 0;
-    quiet.crypto_len = 0;
+    quiet.carries = .none;
+    quiet.data_offset = 0;
+    quiet.data_len = 0;
     const report = connection_crypto.on_packets_lost(&client, .initial, &.{quiet});
     try testing.expectEqual(0, report.packets);
+    try testing.expectEqual(null, try send_from(&client));
+
+    // Octets a packet carried for a stream fall under §13.3's STREAM rule and not the CRYPTO one,
+    // even where the offset is one the level's flow also used.
+    var streamed = record_of(first, 0);
+    streamed.carries = .stream;
+    const streamed_report = connection_crypto.on_packets_lost(&client, .initial, &.{streamed});
+    try testing.expectEqual(0, streamed_report.packets);
     try testing.expectEqual(null, try send_from(&client));
 }
 
@@ -413,8 +423,8 @@ test "RFC 9000 §13.3: the lowest lost offset is where the flow is sent again fr
     provider_holder = .{ .owed = &long_flight, .owed_level = .initial };
     const first = (try send_from(&client)).?;
     const second = (try send_from(&client)).?;
-    try testing.expectEqual(0, first.packets[0].crypto_offset);
-    try testing.expect(second.packets[0].crypto_offset > 0);
+    try testing.expectEqual(0, first.packets[0].data_offset);
+    try testing.expect(second.packets[0].data_offset > 0);
 
     // Both declared lost, the higher offset last, which is the order an ACK's ranges walk in.
     const lost = [_]Record{ record_of(first, 0), record_of(second, 0) };
@@ -424,7 +434,7 @@ test "RFC 9000 §13.3: the lowest lost offset is where the flow is sent again fr
     // §13.3 sends the information again, and the lowest lost offset is where that starts:
     // rewinding to the last record's offset instead would leave the first packet's octets unsent.
     const again = (try send_from(&client)).?;
-    try testing.expectEqual(0, again.packets[0].crypto_offset);
+    try testing.expectEqual(0, again.packets[0].data_offset);
 }
 
 test "RFC 9000 §13.3: losing a packet of frames that need no repair asks for nothing" {
@@ -439,7 +449,7 @@ test "RFC 9000 §13.3: losing a packet of frames that need no repair asks for no
     client.path.owe_challenge(challenge_data);
 
     const first = (try send_from(&client)).?;
-    try testing.expectEqual(0, first.packets[0].crypto_len);
+    try testing.expectEqual(0, first.packets[0].data_len);
     // Nothing is owed once they have gone out, so nothing goes out again unprompted.
     try testing.expectEqual(null, try send_from(&client));
 

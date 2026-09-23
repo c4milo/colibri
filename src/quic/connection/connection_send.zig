@@ -30,6 +30,7 @@ const connection_module = @import("connection.zig");
 const packet_build = @import("packet_build/packet_build.zig");
 const connection_close = @import("connection_close.zig");
 const transport_parameters = @import("../transport_parameters.zig");
+const recovery_sent = @import("../recovery/recovery_sent.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
@@ -61,11 +62,11 @@ pub const Packet = struct {
     len: usize,
     ack_eliciting: bool,
     in_flight: bool,
-    /// RFC 9000 §13.3: the CRYPTO octets this packet carried, which the caller keeps in its
-    /// `recovery_sent.Record` so a loss can say which octets to send again. A length of zero
-    /// means it carried none.
-    crypto_offset: u64 = 0,
-    crypto_len: u16 = 0,
+    /// RFC 9000 §13.3: the CRYPTO or STREAM octets this packet carried, which the caller keeps in
+    /// its `recovery_sent.Record` so a loss can say which octets to send again.
+    carries: recovery_sent.Carries = .none,
+    data_offset: u64 = 0,
+    data_len: u16 = 0,
 };
 
 /// What was assembled.
@@ -245,8 +246,9 @@ fn seal_all(
             .len = built.len,
             .ack_eliciting = built.ack_eliciting,
             .in_flight = built.in_flight,
-            .crypto_offset = built.crypto_offset,
-            .crypto_len = built.crypto_len,
+            .carries = built.carries,
+            .data_offset = built.data_offset,
+            .data_len = built.data_len,
         };
         sent.count += 1;
         sent.len += built.len;

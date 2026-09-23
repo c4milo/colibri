@@ -173,9 +173,9 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
     var held: Lost = .{};
     // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
     for (lost) |record| {
-        if (record.crypto_len == 0) continue;
+        if (record.carries != .crypto) continue;
         held.packets += 1;
-        if (!connection.crypto_at(level).on_lost(record.crypto_offset)) held.forgotten = true;
+        if (!connection.crypto_at(level).on_lost(record.data_offset)) held.forgotten = true;
     }
     return held;
 }

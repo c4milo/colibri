@@ -214,5 +214,7 @@ test "RFC 9002 Appendix A.1.1: a record stays small, because 256 of them sit in 
     // `sent_packets_max` is 256 and RFC 9000 §12.3 gives a connection three spaces, so every
     // octet here is paid for 768 times. The number is pinned so a field added without measuring
     // shows up as a failing test rather than as memory nobody looked at.
-    try testing.expectEqual(32, @sizeOf(Record));
+    // Decision 57's stream range costs one identifier: the offset and length are the ones CRYPTO
+    // already used, because a packet carries one or the other.
+    try testing.expectEqual(40, @sizeOf(Record));
 }

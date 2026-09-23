@@ -230,8 +230,9 @@ fn send_numbered(count: u64) !void {
             .sent_len = test_datagram_len,
             .ack_eliciting = true,
             .in_flight = true,
-            .crypto_offset = number * test_datagram_len,
-            .crypto_len = test_datagram_len,
+            .carries = .crypto,
+            .data_offset = number * test_datagram_len,
+            .data_len = test_datagram_len,
         }, at_ns);
     }
 }
@@ -250,7 +251,7 @@ test "A.7: every packet an ACK takes out reaches the caller, not only the larges
     for (test_acknowledged[0..split_acknowledged], &numbers) |held, *number| number.* = held.number;
     try testing.expectEqualSlices(u64, &.{ 3, 4, 0, 1 }, &numbers);
     // The whole record reaches the caller, which is what lets it say which octets arrived.
-    try testing.expectEqual(3 * test_datagram_len, test_acknowledged[0].crypto_offset);
+    try testing.expectEqual(3 * test_datagram_len, test_acknowledged[0].data_offset);
 }
 
 test "A.7: a slice too short for the acknowledgment is told how many records did not fit" {

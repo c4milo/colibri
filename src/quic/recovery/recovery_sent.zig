@@ -27,6 +27,19 @@ const space = @import("../space/space.zig");
 /// receiving side already names, because §13.4.1 counts the same four values coming in.
 pub const Ecn = space.Space.Ecn;
 
+/// Which flow a packet's `data_offset` and `data_len` describe (RFC 9000 §13.3). A packet carries
+/// at most one CRYPTO frame or one STREAM frame and never both (decisions 56 and 57), so one range
+/// describes either.
+pub const Carries = enum(u8) {
+    none,
+    crypto,
+    stream,
+    /// A STREAM frame with the FIN bit set (RFC 9000 §19.8). §4.5: "A sender always communicates
+    /// the final size of a stream to the receiver reliably", so a lost FIN is sent again, with or
+    /// without octets beside it.
+    stream_fin,
+};
+
 pub const Error = error{
     /// Every slot is in use. RFC 9002 places no bound on `sent_packets`, so colibri's is its own
     /// and the sender must wait for an acknowledgment rather than send past it. Nothing changed.
@@ -55,16 +68,23 @@ pub const Record = struct {
     /// no socket, so the IP header is the caller's and this is what the caller set; §13.4.2.1
     /// validates the peer's counts against it.
     ecn: Ecn = .not_ect,
-    /// Where this packet's CRYPTO octets sat in its level's flow (RFC 9000 §19.6), and how many
-    /// there were. RFC 9000 §13.3: "Data sent in CRYPTO frames is retransmitted ... until all
-    /// data has been acknowledged", so a lost packet must be able to say which octets to send
-    /// again. A length of zero means it carried none, which is every packet after the handshake.
+    /// Which flow the packet's octets were in, if any. RFC 9000 §13.3 retransmits CRYPTO data
+    /// "until all data has been acknowledged" and STREAM data "in new STREAM frames", so a lost
+    /// packet must say which octets to send again, and an acknowledged one which octets arrived.
+    carries: Carries = .none,
+    /// Where those octets sat in their flow: the level's for CRYPTO (RFC 9000 §19.6), the
+    /// stream's for STREAM (§19.8).
     ///
-    /// The two sit here rather than in a struct of their own because a struct of `u64` and `u16`
-    /// pads to sixteen octets, and 256 records in each of three spaces pay for every one of them.
-    crypto_offset: u64 = 0,
-    /// Octets, which one packet bounds, so 16 bits carry it (RFC 9000 §14.1, §18.2).
-    crypto_len: u16 = 0,
+    /// The range sits here flat rather than in a struct of its own because a struct of `u64` and
+    /// `u16` pads to sixteen octets, and 256 records in each of three spaces pay for every one.
+    data_offset: u64 = 0,
+    /// Octets, which one packet bounds, so 16 bits carry it (RFC 9000 §14.1, §18.2). Zero with
+    /// `stream_fin` is a FIN sent on its own.
+    data_len: u16 = 0,
+    /// The stream the octets belong to, by its 62-bit identifier (RFC 9000 §2.1), when `carries`
+    /// is a stream. A table slot would not do: a slot is reused, and a late acknowledgment would
+    /// count toward the next stream in it (decision 57).
+    stream_id: u64 = 0,
 };
 
 /// Whether a packet the sender just framed counts toward the bytes in flight. RFC 9002 §2:
