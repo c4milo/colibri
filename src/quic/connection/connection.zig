@@ -40,6 +40,7 @@ const identity_module = @import("connection_identity.zig");
 const keys_module = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
 const retry_module = @import("connection_retry.zig");
+const handshake_module = @import("connection_handshake.zig");
 
 const Level = core.Level;
 const Parameters = transport_parameters.Parameters;
@@ -107,6 +108,8 @@ pub const Connection = struct {
     /// receives a HANDSHAKE_DONE frame. It is not what `handshake_complete` answers, and RFC 9002
     /// §6.2.1 and RFC 9001 §4.9.3 both turn on the difference.
     handshake_confirmed: bool,
+    /// The HANDSHAKE_DONE frame a server owes its client (RFC 9000 §19.20, §13.3).
+    handshake_done: handshake_module.HandshakeDone,
     /// The CONNECTION_CLOSE this endpoint owes its peer (RFC 9000 §10.2), or null while it owes
     /// none. §10.2.1 keeps "only enough information to generate a packet containing a
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
@@ -133,6 +136,7 @@ pub const Connection = struct {
         connection.peer_parameters = null;
         connection.handshake_complete = false;
         connection.handshake_confirmed = false;
+        connection.handshake_done = .{};
         connection.key_phase.init();
         connection.retry_token.init();
         connection.pending_close = null;

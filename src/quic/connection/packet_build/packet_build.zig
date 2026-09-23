@@ -35,6 +35,7 @@ const keys_module = @import("../connection_keys.zig");
 const key_update = @import("../connection_key_update.zig");
 const recovery_sent = @import("../../recovery/recovery_sent.zig");
 const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
+const connection_handshake = @import("../connection_handshake.zig");
 const packet_build_frames = @import("packet_build_frames.zig");
 
 const Level = core.Level;
@@ -168,6 +169,7 @@ pub fn plan(
     // The number is spent only once the packet exists, so a level with nothing to send leaves
     // no hole in its space (invariant 17).
     _ = space.next_number() catch unreachable;
+    if (framed.carries_handshake_done) connection_handshake.on_done_sent(connection, number);
     return .{
         .level = level,
         .number = number,

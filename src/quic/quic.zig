@@ -43,6 +43,7 @@ pub const packet_build = @import("connection/packet_build/packet_build.zig");
 pub const connection_send = @import("connection/connection_send.zig");
 pub const connection_version = @import("connection/connection_version.zig");
 pub const connection_close = @import("connection/connection_close.zig");
+pub const connection_handshake = @import("connection/connection_handshake.zig");
 pub const Connection = connection.Connection;
 pub const crypto_stream = @import("crypto_stream.zig");
 pub const transport_parameters = @import("transport_parameters.zig");

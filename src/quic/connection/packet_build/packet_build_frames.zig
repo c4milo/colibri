@@ -16,6 +16,7 @@ const connection_crypto = @import("../connection_crypto.zig");
 const connection_stream_send = @import("../connection_stream/connection_stream_send.zig");
 const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const connection_close = @import("../connection_close.zig");
+const connection_handshake = @import("../connection_handshake.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
@@ -31,6 +32,8 @@ pub const Framed = struct {
     carries_ack: bool = false,
     path_challenge: ?[constants.path_challenge_len]u8 = null,
     carries_path_response: bool = false,
+    /// Whether it carries a HANDSHAKE_DONE frame, whose packet number §13.3 needs.
+    carries_handshake_done: bool = false,
     /// RFC 9000 §13.3: which octets this packet carries and where they sit in their flow, so a
     /// lost packet can say which to send again (`recovery_sent.Record`).
     carries: Carries = .none,
@@ -74,6 +77,9 @@ pub fn write(
     // transmission of a packet containing a PATH_RESPONSE frame unless constrained by congestion
     // control", so they are written before the handshake's octets compete for the room.
     const path = write_path_frames(connection, level, &writer);
+    // RFC 9001 §4.1.2: "The server MUST send a HANDSHAKE_DONE frame as soon as the handshake is
+    // complete", so it goes before any octets compete for the room.
+    const carries_handshake_done = connection_handshake.write_done(connection, level, &writer);
     const written_path = writer.written().len;
     const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
     return .{
@@ -84,7 +90,9 @@ pub fn write(
         .stream_id = data.stream_id,
         // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing, and a CRYPTO or STREAM
         // frame does. Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
-        .ack_eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null,
+        .ack_eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
+            carries_handshake_done,
+        .carries_handshake_done = carries_handshake_done,
         .carries_ack = written_ack > 0,
         .path_challenge = path.path_challenge,
         .carries_path_response = path.carries_path_response,

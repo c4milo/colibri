@@ -72,6 +72,8 @@ pub const RoundTrip = struct {
     /// How many times colibri told this suite to forget the read keys of the phase before
     /// (RFC 9001 §6.5), which is what times that discard.
     previous_discards: usize = 0,
+    /// How many times colibri told this suite to forget each level's keys (RFC 9001 §4.9).
+    discards: [core.levels_count]usize = @splat(0),
 
     pub fn init(held: *RoundTrip) void {
         held.* = .{};
@@ -162,7 +164,7 @@ pub const RoundTrip = struct {
         .update_keys = update_keys,
         .key_phase = key_phase,
         .discard_previous_keys = discard_previous_keys,
-        .discard_keys = unreachable_discard,
+        .discard_keys = discard_keys,
     };
 };
 
@@ -192,14 +194,17 @@ fn unreachable_tag_write(
 ) crypto.suite.RetryTagError!void {
     unreachable;
 }
-fn unreachable_discard(_: *anyopaque, _: Level) void {
-    unreachable;
+fn discard_keys(context: *anyopaque, level: Level) void {
+    const held: *RoundTrip = @ptrCast(@alignCast(context));
+    held.discards[@intFromEnum(level)] += 1;
 }
 
 /// A provider that owes `owed` octets at `owed_level` and nothing anywhere else.
 pub const Fake = struct {
     owed: []const u8 = "",
     owed_level: Level = .initial,
+    /// What `handshake_complete` answers (RFC 9001 §4.1.1).
+    done: bool = false,
 
     pub fn provider(self: *Fake) tls.QuicProvider {
         return .{ .context = @ptrCast(self), .vtable = &table };
@@ -222,8 +227,9 @@ pub const Fake = struct {
     fn alpn(_: *const anyopaque) ?[]const u8 {
         return &tls.constants.alpn_h3;
     }
-    fn complete(_: *const anyopaque) bool {
-        return false;
+    fn complete(context: *const anyopaque) bool {
+        const self: *const Fake = @ptrCast(@alignCast(context));
+        return self.done;
     }
     fn alert_of(_: *anyopaque) ?tls.Alert {
         return null;

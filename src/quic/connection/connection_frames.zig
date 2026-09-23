@@ -95,6 +95,11 @@ pub const Report = struct {
     close: ?Close,
     /// What the packet left for the send path to answer (RFC 9000 §8.2.2, §19.7).
     owed: path_frames.Owed,
+    /// Whether the packet carried a HANDSHAKE_DONE frame, which confirms the handshake at a
+    /// client (RFC 9001 §4.1.2). The caller then discards the Handshake keys, which RFC 9001
+    /// §4.9.2 requires and which takes the suite this function is not given
+    /// (`connection_keys.on_handshake_confirmed`).
+    handshake_done: bool = false,
 };
 
 /// What a peer's CONNECTION_CLOSE said. The connection ends; the caller decides what to tell the
@@ -145,7 +150,10 @@ fn apply(connection: *Connection, opened: receive.Opened, frame: Frame, now_ns: 
         .crypto => |crypto| connection_crypto.receive_crypto(connection, opened.level, crypto) catch
             return Error.Crypto,
         .connection_close => |close| take_close(connection, close, now_ns, report),
-        .handshake_done => try take_handshake_done(connection),
+        .handshake_done => {
+            try take_handshake_done(connection);
+            report.handshake_done = true;
+        },
         // RFC 9000 §19.9: MAX_DATA raises what this endpoint may send on the connection, and
         // §4.1 makes a smaller value one to ignore rather than an error.
         .max_data => |max| _ = connection.send_flow.raise(max.maximum),
