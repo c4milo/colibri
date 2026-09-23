@@ -44,7 +44,7 @@ pub fn read_request(request: []const u8) Error![]const u8 {
 fn check_path(path: []const u8) Error!void {
     assert(path.len > 0 and path[0] == '/');
     for (path) |octet| {
-        if (!std.ascii.isGraph(octet) or octet == '\\') return error.PathRefused;
+        if (!std.ascii.isGraphical(octet) or octet == '\\') return error.PathRefused;
     }
     var segments = std.mem.splitScalar(u8, path[1..], '/');
     // Bounded by the path, which `hq_request_len_max` bounds.
@@ -78,6 +78,8 @@ test "hq-interop: a request line written is read back to the same path" {
 
 test "hq-interop: a request that is not GET /path is refused" {
     try testing.expectError(error.RequestMalformed, read_request("POST /a\r\n"));
+    // A method as long as GET's, so only the method itself tells the two apart.
+    try testing.expectError(error.RequestMalformed, read_request("PUT /a\r\n"));
     try testing.expectError(error.RequestMalformed, read_request("GET a\r\n"));
     try testing.expectError(error.RequestMalformed, read_request("GET \r\n"));
 }
