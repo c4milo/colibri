@@ -12,6 +12,7 @@ pub const packet_check = @import("packet_check.zig");
 pub const network_check = @import("network_check.zig");
 pub const recovery_check = @import("recovery_check.zig");
 pub const recovery_check_run = @import("recovery_check_run.zig");
+pub const quic_connection_check = @import("quic_connection_check.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -19,4 +20,5 @@ test {
     _ = network_check;
     _ = recovery_check;
     _ = recovery_check_run;
+    _ = quic_connection_check;
 }
