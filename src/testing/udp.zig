@@ -102,6 +102,12 @@ pub const Endpoint = struct {
         return events[0..count];
     }
 
+    /// The instant the last `tick` read from the monotonic clock, in nanoseconds, which the QUIC
+    /// endpoints pass to colibri (decision 63). 0 until the first tick. It makes no system call.
+    pub fn now_ns(endpoint: *const Endpoint) u64 {
+        return endpoint.loop.now_ns();
+    }
+
     /// The peer and the octets of a received datagram.
     pub fn delivery(endpoint: *Endpoint, event: Event) rotor.Delivery {
         assert(event.user_data == receive_user_data);
@@ -165,7 +171,14 @@ test "decision 58: datagrams cross between two endpoints through rotor's loop" {
         .ecn = .not_ect,
         .flags = .{ .peer = true },
     };
-    for (0..test_datagrams) |_| try exchange(sender, receiver, &outbound);
+    // Decision 63: no instant before the first tick, and none that runs backwards after it.
+    try testing.expectEqual(0, receiver.now_ns());
+    var previous_ns: u64 = 0;
+    for (0..test_datagrams) |_| {
+        try exchange(sender, receiver, &outbound);
+        try testing.expect(receiver.now_ns() > 0 and receiver.now_ns() >= previous_ns);
+        previous_ns = receiver.now_ns();
+    }
     try receiver.close();
     try sender.close();
 }

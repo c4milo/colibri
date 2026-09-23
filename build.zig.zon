@@ -15,8 +15,8 @@
         // (decision 58). Lazy, and requested only when colibri is the root build, like
         // pepegrillo.
         .rotor = .{
-            .url = "git+https://github.com/c4milo/rotor#86a7ade8fc86dc17a52323947ec68757e22bee75",
-            .hash = "rotor-0.3.0-YZkxRKWcEACeO1wTc58Q-ZvoKEVYbpvWMIdW00VIj7ij",
+            .url = "git+https://github.com/c4milo/rotor#ead36699772002031cedee03678281088c5c5726",
+            .hash = "rotor-0.3.0-YZkxRHpmEQAuTrDyEoysdKwsBvt9J6tw7ncgc6PoOn-8",
             .lazy = true,
         },
     },
