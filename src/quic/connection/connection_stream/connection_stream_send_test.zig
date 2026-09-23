@@ -30,10 +30,10 @@ const Range = stream_module.stream_lost.Range;
 const Carries = recovery_sent.Carries;
 const testing = std.testing;
 
-var client: Connection = undefined;
+pub var client: Connection = undefined;
 var server: Connection = undefined;
 var scratch: send.DefaultScratch = .{};
-var datagram: [constants.datagram_len_min]u8 = undefined;
+pub var datagram: [constants.datagram_len_min]u8 = undefined;
 var suite_holder: build_test.RoundTrip = undefined;
 var provider_holder: build_test.Fake = undefined;
 
@@ -47,8 +47,8 @@ const peer_id: [id_len]u8 = @splat(peer_octet);
 const test_max_data: u64 = 1_048_576;
 const test_max_streams: u64 = 8;
 /// A body one packet holds, and one that takes three.
-const short_body_len: u64 = 300;
-const long_body_len: u64 = 3_000;
+pub const short_body_len: u64 = 300;
+pub const long_body_len: u64 = 3_000;
 /// A limit below the short body, for the flow control tests.
 const small_window: u64 = 100;
 /// Octets a provider has ready, below 64, so a Length field that measured two octets for the
@@ -66,7 +66,7 @@ fn octet_at(offset: u64) u8 {
 }
 
 /// The caller's octets on every stream, `len` of them, read back by offset. Test-only.
-const Body = struct {
+pub const Body = struct {
     len: u64,
 
     fn provider(body: *Body) StreamProvider {
@@ -104,7 +104,7 @@ fn parameters(windows: Windows) Parameters {
 
 /// Two endpoints past the handshake, each holding the other's parameters. The client, which
 /// sends in these tests, holds `windows`.
-fn open_pair(windows: Windows) void {
+pub fn open_pair(windows: Windows) void {
     suite_holder.init();
     provider_holder = .{};
     open_one(&client, .client);
@@ -128,18 +128,18 @@ fn open_one(connection: *Connection, role: connection_module.Role) void {
     connection.handshake_complete = true;
 }
 
-fn send_from(body: *Body, output_len: usize) !?send.Sent {
+pub fn send_from(body: *Body, output_len: usize) !?send.Sent {
     return send.send(&client, suite_holder.suite(), provider_holder.provider(), body.provider(), &scratch, datagram[0..output_len], test_now_ns);
 }
 
 /// A body's stream, opened and supplied whole, ended when `fin` is set.
-fn open_supplied(len: u64, fin: bool) !StreamId {
+pub fn open_supplied(len: u64, fin: bool) !StreamId {
     const id = try stream_send.open(&client, .bidirectional);
     try stream_send.supply(&client, id, len, fin);
     return id;
 }
 
-fn stream_of(id: StreamId) *stream_module.Stream {
+pub fn stream_of(id: StreamId) *stream_module.Stream {
     return client.streams.lookup(id).live;
 }
 
