@@ -177,6 +177,21 @@ pub const Recovery = struct {
         return found;
     }
 
+    /// Takes every packet `kind` has in flight out of its table as lost, and writes as many of the
+    /// records as fit into `lost`. RFC 9002 §6.2.4: "instead of sending an ack-eliciting packet,
+    /// the sender MAY mark any packets still in flight as lost". Decision 64 does so when a PTO
+    /// fires at a handshake level, so the probes carry the CRYPTO octets those packets held.
+    ///
+    /// It is no congestion event: the packets are declared lost to move their octets, and §6.2.4
+    /// names "an unnecessary rate reduction by the congestion controller" as this choice's risk.
+    pub fn declare_in_flight_lost(recovery: *Recovery, kind: Kind, lost: []Record) recovery_sent.Removed {
+        assert(kind != .application);
+        const removed = recovery.table_of(kind).remove_range_into(0, constants.packet_number_max, lost);
+        recovery.timer.spaces[@intFromEnum(kind)].ack_eliciting_in_flight = false;
+        assert(recovery.table_of(kind).count() == 0);
+        return removed;
+    }
+
     /// RFC 9002 Appendix B.8's `OnPacketsLost`.
     fn after_loss(recovery: *Recovery, kind: Kind, found: recovery_loss.Detected, now_ns: u64) void {
         const held = &recovery.timer.spaces[@intFromEnum(kind)];

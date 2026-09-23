@@ -319,6 +319,22 @@ test "RFC 9002 A.9, decision 59: a Probe Timeout owes probes in the space that s
     // RFC 9002 §6.2.4: two probes, because a packet is in flight.
     try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
     try testing.expectEqual(1, server.recovery.timer.pto_count);
+    // Decision 64 declares packets lost at the handshake levels alone: this one stays in flight.
+    try testing.expectEqual(1, server.recovery.tables[@intFromEnum(Level.application)].count());
+}
+
+test "decision 64: a Handshake PTO declares its packets lost, and the window stays" {
+    open_as(.client);
+    try record_sent(.handshake, .none, 0, 0, sent_at_ns);
+    const window = server.recovery.congestion.window;
+    try testing.expect(try fire_loss_timer());
+    // RFC 9002 §6.2.4: "the sender MAY mark any packets still in flight as lost", so the probes
+    // carry what they held.
+    try testing.expectEqual(0, server.recovery.tables[@intFromEnum(Level.handshake)].count());
+    try testing.expectEqual(0, server.recovery.in_flight_len());
+    try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.handshake)]);
+    // Declared lost to move their octets and not for congestion, so no rate reduction.
+    try testing.expectEqual(window, server.recovery.congestion.window);
 }
 
 test "RFC 9002 A.8: a server at the anti-amplification limit sets no probe timer" {
@@ -404,9 +420,11 @@ test "RFC 9002 A.7: a client's first Handshake ACK starts the backoff again" {
     try record_sent(.handshake, .none, 0, 0, sent_at_ns);
     try testing.expect(try fire_loss_timer());
     try testing.expectEqual(1, server.recovery.timer.pto_count);
+    // Decision 64 declared packet 0 lost, so the probe is what the peer acknowledges.
+    try record_sent(.handshake, .none, 0, 0, sent_at_ns + round_trip_ns);
     // "Reset pto_count unless the client is unsure if the server has validated the client's
     // address", and the Handshake ACK is what makes it sure.
-    _ = try take_ack(.handshake, 0, 0, 0, sent_at_ns + round_trip_ns);
+    _ = try take_ack(.handshake, 1, 1, 0, sent_at_ns + 2 * round_trip_ns);
     try testing.expectEqual(0, server.recovery.timer.pto_count);
 }
 

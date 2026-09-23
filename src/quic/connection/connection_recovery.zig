@@ -116,9 +116,22 @@ pub fn on_loss_timer(connection: *Connection, now_ns: u64, scratch: *Scratch) Er
             assert(lost.found.unwritten == 0);
             try on_packets_lost(connection, level_of(lost.space), scratch.lost[0..lost.found.written]);
         },
-        .probe => |probe| connection_send.owe_probes(connection, level_of(probe.space), probe.count),
+        .probe => |probe| try on_probe_timeout(connection, probe.space, probe.count, scratch),
     }
     return true;
+}
+
+/// RFC 9002 §6.2.4's probes. At the Initial and Handshake levels, decision 64 first declares the
+/// level's packets in flight lost, so the probes carry their CRYPTO octets rather than a PING.
+fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch) Error!void {
+    const level = level_of(kind);
+    if (level != .application) {
+        const removed = connection.recovery.declare_in_flight_lost(kind, &scratch.lost);
+        // The list holds a whole table, so no packet is left unreported.
+        assert(removed.unwritten == 0);
+        try on_packets_lost(connection, level, scratch.lost[0..removed.written]);
+    }
+    connection_send.owe_probes(connection, level, count);
 }
 
 /// The encryption level whose packets fill `kind`'s space (RFC 9000 §12.3).
