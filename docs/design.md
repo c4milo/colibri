@@ -2047,6 +2047,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1250 passed, 18 skipped.
 
+  **A sent record holds one range for CRYPTO or STREAM, 2026-09-22**, `d9bde2e`. Decision 57's
+  second piece. A packet carries at most one CRYPTO frame or one STREAM frame and never both, so
+  the CRYPTO pair on `recovery_sent.Record` becomes `data_offset` and `data_len`, tagged by
+  `carries`: none, CRYPTO, STREAM, or STREAM with the FIN. The record names the stream by its
+  62-bit identifier, never a table slot, because a slot is reused. It grows from 32 octets to 40,
+  where a separate stream range would have made it 56. Nothing frames STREAM yet, so only the
+  record carries `stream_id`; the send path gains it with the frames that fill it.
+
+  `connection_crypto.on_packets_lost` now reads `carries` and not a nonzero length, and a test
+  loses a record that carried stream octets at an offset the CRYPTO flow also used.
+
+  7 mutations, 7 CAUGHT.
+
+  `zig build test`: 1250 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
