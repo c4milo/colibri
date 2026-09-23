@@ -207,7 +207,12 @@ pub const quic_rounds_max: u32 = 10_000;
 /// clock's (non-negotiable 3), and it is long enough that a peer's `max_ack_delay` passes.
 pub const quic_round_ns: u64 = 5_000_000;
 
+/// The longest hq-interop request line an endpoint reads or writes: `GET `, a path and CRLF. The
+/// runner's paths are a directory and a random file name, far shorter than this.
+pub const hq_request_len_max: usize = 1024;
+
 comptime {
+    assert(hq_request_len_max > "GET /\r\n".len);
     assert(quic_crypto_out_len > 2 * tls_der_len_max);
     assert(quic_datagram_len_max <= udp_buffer_bytes);
     assert(quic_rounds_max > 0 and quic_round_ns > 0);
