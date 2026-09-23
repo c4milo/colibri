@@ -87,27 +87,49 @@ pub fn write(
     if (connection_stream_send.write_endings(connection, level, &writer, number)) carries_control = true;
     const written_path = writer.written().len;
     const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
+    // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing, and a CRYPTO or STREAM
+    // frame does. Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
+    const eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
+        carries_handshake_done or carries_control;
+    const framed_len = written_path + data.len;
+    const probe_len = write_probe(connection, level, payload[framed_len..budget], eliciting);
     // RFC 9000 §13.2.1 asks for an ACK "with other frames": one written only because it was
     // pending, with nothing after it, does not go out, and the space is as it was.
-    if (!ack.owed and written_ack > 0 and written_path + data.len == written_ack) {
+    if (!ack.owed and written_ack > 0 and framed_len + probe_len == written_ack) {
         space.restore_ack_pending(ack.pending);
         return .{ .len = 0, .ack_eliciting = false };
     }
+    const ack_eliciting = eliciting or probe_len > 0;
+    count_probe(connection, level, ack_eliciting);
     return .{
-        .len = written_path + data.len,
+        .len = framed_len + probe_len,
         .carries = data.carries,
         .data_offset = data.offset,
         .data_len = data.data_len,
         .stream_id = data.stream_id,
-        // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing, and a CRYPTO or STREAM
-        // frame does. Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
-        .ack_eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
-            carries_handshake_done or carries_control,
+        .ack_eliciting = ack_eliciting,
         .carries_handshake_done = carries_handshake_done,
         .carries_ack = written_ack > 0,
         .path_challenge = path.path_challenge,
         .carries_path_response = path.carries_path_response,
     };
+}
+
+/// Writes a PING when a probe is owed at `level` and nothing already written elicits an
+/// acknowledgment. RFC 9002 §6.2.4: "When there is no data to send, the sender SHOULD send a PING
+/// or other ack-eliciting frame in a single packet". Returns the octets written.
+fn write_probe(connection: *const Connection, level: Level, output: []u8, eliciting: bool) usize {
+    if (connection.probes_owed[@intFromEnum(level)] == 0 or eliciting) return 0;
+    var writer = Writer.init(output);
+    frame_module.write(&writer, .ping) catch return 0;
+    return writer.written().len;
+}
+
+/// Counts off one probe for an ack-eliciting packet at `level` (RFC 9002 §6.2.4: "All probe
+/// packets sent on a PTO MUST be ack-eliciting").
+fn count_probe(connection: *Connection, level: Level, ack_eliciting: bool) void {
+    const owed = &connection.probes_owed[@intFromEnum(level)];
+    if (owed.* > 0 and ack_eliciting) owed.* -= 1;
 }
 
 /// The one CRYPTO or STREAM frame a packet carries, and the range its record keeps.

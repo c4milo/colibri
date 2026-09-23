@@ -83,6 +83,18 @@ pub const Sent = struct {
     }
 };
 
+/// Owes `count` probe packets at `level`, which RFC 9002's PTO asks for (`Recovery.Action.probe`,
+/// Appendix A.9). §6.2.4: "When a PTO timer expires, a sender MUST send at least one
+/// ack-eliciting packet in the packet number space as a probe", and "All probe packets sent on a
+/// PTO MUST be ack-eliciting". Each ack-eliciting packet `send` builds at `level` counts off one;
+/// one that would elicit nothing carries a PING, which §6.2.4 asks for "When there is no data to
+/// send". A probe never repeats a range still in flight (invariant 29).
+pub fn owe_probes(connection: *Connection, level: Level, count: u8) void {
+    assert(count > 0 and count <= constants.probe_packets);
+    const owed = &connection.probes_owed[@intFromEnum(level)];
+    owed.* = @max(owed.*, count);
+}
+
 /// Assembles one datagram into the front of `output`. Null when there is nothing to send, which
 /// is the ordinary answer whenever the connection is idle.
 pub fn send(

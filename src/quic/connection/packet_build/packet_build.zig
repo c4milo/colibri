@@ -419,4 +419,5 @@ fn suite_key_phase(suite: crypto.Suite) bool {
 test {
     _ = @import("packet_build_test.zig");
     _ = @import("packet_build_ack_test.zig");
+    _ = @import("packet_build_probe_test.zig");
 }

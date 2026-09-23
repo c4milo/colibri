@@ -114,6 +114,9 @@ pub const Connection = struct {
     handshake_confirmed: bool,
     /// The HANDSHAKE_DONE frame a server owes its client (RFC 9000 §19.20, §13.3).
     handshake_done: handshake_module.HandshakeDone,
+    /// The probe packets RFC 9002 §6.2.4 owes at each level, which a PTO sets
+    /// (`connection_send.owe_probes`) and each ack-eliciting packet at that level counts off.
+    probes_owed: [core.levels_count]u8,
     /// The CONNECTION_CLOSE this endpoint owes its peer (RFC 9000 §10.2), or null while it owes
     /// none. §10.2.1 keeps "only enough information to generate a packet containing a
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
@@ -141,6 +144,7 @@ pub const Connection = struct {
         connection.handshake_complete = false;
         connection.handshake_confirmed = false;
         connection.handshake_done = .{};
+        connection.probes_owed = @splat(0);
         connection.max_data = .{};
         connection.data_blocked = .{};
         connection.key_phase.init();
