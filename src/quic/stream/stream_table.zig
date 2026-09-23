@@ -47,6 +47,9 @@ pub const Stream = struct {
     /// How far this endpoint's octets reach, how far they went out and how many arrived
     /// (decision 57).
     outgoing: stream_outgoing.Outgoing = .{},
+    /// Where this stream's new octets go against other streams': a lower value first (RFC 9000
+    /// §2.3).
+    priority: u8 = constants.stream_priority_default,
     /// The MAX_STREAM_DATA and STREAM_DATA_BLOCKED frames most recently sent for this stream
     /// (RFC 9000 §13.3).
     max_stream_data: frame_latest.Latest = .{},
@@ -124,6 +127,9 @@ pub const Streams = struct {
     /// How many streams are in "Reset Sent", waiting for their RESET_STREAM to be acknowledged
     /// (RFC 9000 §3.1). An acknowledgment looks for one only while this is above zero.
     resets_unacknowledged: u32,
+    /// The table slot of the stream that last sent new octets, so streams of one priority take
+    /// turns: the slot after it goes next.
+    send_turn: u32,
 
     /// `peer_limits` are the counts this endpoint advertises, which `init` caps at the table's
     /// capacity: §3.2's implicit creation makes an advertised limit a promise to hold that many
@@ -142,6 +148,8 @@ pub const Streams = struct {
         streams.streams_blocked = @splat(.{});
         streams.open_refused = @splat(false);
         streams.resets_unacknowledged = 0;
+        // No stream has sent, so the turn starts at the first slot.
+        streams.send_turn = constants.streams_per_connection_max - 1;
         for (0..constants.stream_directionalities) |index| {
             streams.local_limit[index] = flow.Sender.init(local_limits[index]);
             const capped = @min(peer_limits[index], constants.streams_per_connection_max);

@@ -1,11 +1,21 @@
 //! The frames one packet carries, written into the caller's scratch before anything is sealed.
 //! Split off `packet_build.zig` for length; `plan` is what calls it, once per packet.
 //!
-//! The set is small on purpose: an ACK when the space owes one (RFC 9000 §13.2.1), the path
-//! frames §8.2 leaves owed, and whatever handshake octets the provider owes at this level
-//! (RFC 9001 §4.1.3). Every other frame is written by the piece that owns it, which is what
-//! RFC 9000 §13.3 asks for — "the information that might be carried in frames is sent again in
-//! new frames as needed", by whoever holds the information.
+//! This file decides the order frames compete in for one packet's room. Each frame is written by
+//! the piece that holds its information, which is what RFC 9000 §13.3 asks for: "the information
+//! that might be carried in frames is sent again in new frames as needed". The order, and why:
+//!
+//! 1. A CONNECTION_CLOSE, alone, when one is owed (§10.2.1).
+//! 2. An ACK, when owed, and when the space has new ack-eliciting packets and anything else goes
+//!    out with it (§13.2.1). It goes first because a space owes it soonest.
+//! 3. PATH_RESPONSE and PATH_CHALLENGE, which §8.2.2 says an endpoint "MUST NOT delay".
+//! 4. HANDSHAKE_DONE, which a server sends "as soon as the handshake is complete" (RFC 9001
+//!    §4.1.2).
+//! 5. The limits this endpoint gives, then the BLOCKED frames, then RESET_STREAM and
+//!    STOP_SENDING: small frames a peer may be waiting on, ahead of any octets.
+//! 6. One frame of octets: the handshake's CRYPTO octets, or a stream's. Lost stream octets go
+//!    before new ones (§13.3), and new ones go in the order RFC 9000 §2.3 sets.
+//! 7. A PING, when a probe is owed and nothing above elicits an acknowledgment (RFC 9002 §6.2.4).
 const std = @import("std");
 const core = @import("core");
 const tls = @import("tls");
@@ -43,10 +53,8 @@ pub const Framed = struct {
     stream_id: u64 = 0,
 };
 
-/// Writes the frames this packet carries. The set is small on purpose: an ACK when the space owes
-/// one (RFC 9000 §13.2.1), the path frames §8.2 leaves owed, and one frame of octets: whatever
-/// handshake octets the provider owes at this level (RFC 9001 §4.1.3), or else a stream's (RFC
-/// 9000 §19.8). Every other frame is written by the piece that owns it.
+/// Writes the frames this packet carries, in the order this file's header gives. `number` is the
+/// packet's, which the frames §13.3 sends again record.
 pub fn write(
     connection: *Connection,
     provider: tls.QuicProvider,

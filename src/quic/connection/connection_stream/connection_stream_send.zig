@@ -6,9 +6,8 @@
 //! again the same way. Lost ranges go first (RFC 9000 §13.3), and new octets wait while any is
 //! owed, which is what bounds the lost table (decision 57).
 //!
-//! Which stream's octets go next is the frame scheduler's
-//! (https://github.com/c4milo/colibri/issues/29). Until there is one, the first stream in the
-//! table's order that has octets and credit to send them goes first.
+//! Which stream's new octets go next is RFC 9000 §2.3's: the caller sets a priority per stream,
+//! a lower value goes first, and streams of one value take turns (`set_priority`).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -186,19 +185,70 @@ fn drop_unneeded(streams: *Streams) void {
     }
 }
 
-/// Frames the new octets of the first stream that has some and the credit to send them.
+/// Frames the new octets of the stream RFC 9000 §2.3's order puts first: the lowest priority
+/// value, and among streams of one value, the next after the one that sent last, so they take
+/// turns. A stream that frames nothing, for want of room or of octets from the provider, gives way
+/// to the next.
 fn write_new(connection: *Connection, stream_provider: StreamProvider, output: []u8) Written {
-    var walk = connection.streams.pool.iterator();
-    // Bounded by the table's capacity, `streams_per_connection_max`.
-    while (walk.next()) |stream| {
-        const owed = owed_new(connection, stream) orelse continue;
-        const written = frame(stream_provider, owed, output);
-        // No room here, or a provider with nothing yet for this stream: another may have some.
+    var tried: [constants.streams_per_connection_max]bool = @splat(false);
+    // Bounded by the table's capacity: each pass tries one stream it has not tried, or ends.
+    for (0..constants.streams_per_connection_max) |_| {
+        const chosen = choose(connection, &tried) orelse return .{};
+        tried[chosen.slot] = true;
+        const written = frame(stream_provider, chosen.owed, output);
         if (written.len == 0) continue;
-        on_new_framed(connection, stream, written);
+        on_new_framed(connection, chosen.stream, written);
+        connection.streams.send_turn = chosen.slot;
         return written;
     }
     return .{};
+}
+
+/// A stream with new octets to send, where it sits in the table, and what it owes.
+const Choice = struct {
+    stream: *Stream,
+    slot: u32,
+    owed: Range,
+};
+
+/// The untried stream with new octets that sends next, or null when there is none.
+fn choose(connection: *Connection, tried: *const [constants.streams_per_connection_max]bool) ?Choice {
+    var best: ?Choice = null;
+    var best_rank: u64 = 0;
+    var walk = connection.streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        // The iterator has moved one past the slot it returned.
+        const slot = walk.slot - 1;
+        if (tried[slot]) continue;
+        const owed = owed_new(connection, stream) orelse continue;
+        const rank = rank_of(stream.priority, slot, connection.streams.send_turn);
+        if (best != null and rank >= best_rank) continue;
+        best = .{ .stream = stream, .slot = slot, .owed = owed };
+        best_rank = rank;
+    }
+    return best;
+}
+
+/// Orders streams by priority, then by how far past the last one to send a stream's slot is, so
+/// the next slot after it ranks first among equals (RFC 9000 §2.3).
+fn rank_of(priority: u8, slot: u32, turn: u32) u64 {
+    const capacity = constants.streams_per_connection_max;
+    const distance = (slot + capacity - turn - 1) % capacity;
+    return @as(u64, priority) * capacity + distance;
+}
+
+/// Sets where `id`'s new octets go against other streams': a lower value first, and streams of
+/// one value take turns. RFC 9000 §2.3: "A QUIC implementation SHOULD provide ways in which an
+/// application can indicate the relative priority of streams." Lost octets still go before any
+/// new ones (§13.3).
+pub fn set_priority(connection: *Connection, id: StreamId, priority: u8) Error!void {
+    if (!id.is_sendable_by(connection.streams.role)) return Error.NotWritable;
+    const stream = switch (connection.streams.lookup(id)) {
+        .live => |stream| stream,
+        .closed, .unopened => return Error.NotWritable,
+    };
+    stream.priority = priority;
 }
 
 /// The new octets of `stream` that may go out now, or null when there are none.
@@ -264,4 +314,5 @@ fn frame(stream_provider: StreamProvider, owed: Range, output: []u8) Written {
 test {
     _ = @import("connection_stream_send_test.zig");
     _ = @import("connection_stream_send_ending_test.zig");
+    _ = @import("connection_stream_send_priority_test.zig");
 }

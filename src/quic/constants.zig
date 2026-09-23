@@ -350,6 +350,11 @@ pub const sent_packets_max: usize = 256;
 /// smaller packet splits one into.
 pub const stream_lost_ranges_max: usize = sent_packets_max;
 
+/// The priority a stream sends at until the caller sets one (RFC 9000 §2.3). A lower value goes
+/// first, and this is the middle of the range, so the caller can put a stream before or after the
+/// rest.
+pub const stream_priority_default: u8 = 128;
+
 /// RFC 9002 Appendix A.9: a Probe Timeout sends one or two ack-eliciting packets, and two is
 /// what recovers a tail of exactly one lost packet in one round trip rather than two.
 pub const probe_packets: u8 = 2;
