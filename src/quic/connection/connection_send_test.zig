@@ -469,3 +469,21 @@ test "RFC 9000 §13.3: losing a packet of frames that need no repair asks for no
     try testing.expect(!report.forgotten);
     try testing.expectEqual(null, try send_from(&client));
 }
+
+/// Octets a server that has received this much may send, three times over (RFC 9000 §8.1): a
+/// datagram's worth short of what §14.1's expansion asks for. Test-only.
+const tiny_allowance_received: u64 = 351;
+
+test "RFC 9001 §5.4.2: a tiny packet in an expanded datagram is padded rather than widened" {
+    open_pair();
+    // A probe with nothing else to say is a lone PING: one octet, below the four a sample needs.
+    send.owe_probes(&client, .initial, 1);
+    const padded = (try send_from(&client)).?;
+    // RFC 9000 §14.1 asks for 1,200 octets, and the widening the PADDING replaced adds none.
+    try testing.expectEqual(constants.datagram_len_min, padded.len);
+    // A server that may send less than that fills its allowance and not one octet past it.
+    server.path.on_datagram_received(tiny_allowance_received);
+    send.owe_probes(&server, .initial, 1);
+    const limited = (try send_from(&server)).?;
+    try testing.expectEqual(tiny_allowance_received * constants.anti_amplification_factor, limited.len);
+}

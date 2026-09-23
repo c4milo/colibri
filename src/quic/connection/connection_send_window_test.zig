@@ -259,3 +259,47 @@ test "RFC 9000 §10.1: the first ack-eliciting packet since a receive restarts t
     _ = try send_at(second_ns) orelse return error.NothingSent;
     try testing.expectEqual(first_ns, endpoint.termination.idle_since_ns);
 }
+
+/// The server of the next test: a Handshake flight owed, and a 1-RTT PING owed behind it.
+fn owe_flight_and_ping() void {
+    open_at(.server, &.{ .handshake, .application });
+    provider_holder = .{ .owed = long_flight[0..leading_flight_len], .owed_level = .handshake };
+    send.owe_probes(&endpoint, .application, 1);
+}
+
+/// Octets of the Handshake flight ahead of the PING, enough that the datagram passes the header
+/// `send` needs room for before it plans anything. Test-only.
+const leading_flight_len: usize = 1000;
+/// Room after the Handshake packet for a 1-RTT PING before its number is widened, and not after:
+/// a short header of byte 0, a four-octet connection ID and a one-octet number, one octet of
+/// payload and the tag make 23, and RFC 9001 §5.4.2's widening makes 25. Test-only.
+const unwidened_ping_room: u64 = 24;
+
+test "RFC 9001 §5.4.2: no packet is planned in room its widened number would overrun" {
+    owe_flight_and_ping();
+    const leading_len = (try send_now() orelse return error.NothingSent).packets[0].len;
+    // The same datagram again, with an allowance that leaves the PING 24 octets (RFC 9000 §8.1).
+    owe_flight_and_ping();
+    const allowance = leading_len + unwidened_ping_room;
+    const received = allowance / constants.anti_amplification_factor + 1;
+    endpoint.path.received = received;
+    endpoint.path.sent = received * constants.anti_amplification_factor - allowance;
+    const sent = try send_now() orelse return error.NothingSent;
+    try testing.expectEqual(1, sent.count);
+    try testing.expectEqual(leading_len, sent.len);
+}
+
+/// What a server received before a datagram that coalesces a widened packet with a full one.
+/// Test-only.
+const coalesced_allowance_received: u64 = 200;
+
+test "RFC 9000 §8.1: a widened packet's octets count against what the rest of the datagram takes" {
+    open(.server);
+    endpoint.path.received = coalesced_allowance_received;
+    // A lone PING at the Handshake level, widened, then 1-RTT octets that fill whatever is left.
+    send.owe_probes(&endpoint, .handshake, 1);
+    provider_holder = .{ .owed = &long_flight, .owed_level = .application };
+    const sent = try send_now() orelse return error.NothingSent;
+    try testing.expectEqual(2, sent.count);
+    try testing.expectEqual(coalesced_allowance_received * constants.anti_amplification_factor, sent.len);
+}

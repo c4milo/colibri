@@ -178,9 +178,8 @@ pub fn plan(
     return .{
         .level = level,
         .number = number,
-        // RFC 9001 §5.4.2, decision 54: the packet number and payload must reach four octets so
-        // header protection has a sample, and a short packet widens the number to get there.
-        .truncated = widen_for_sample(number, truncated, framed.len),
+        // Unwidened: `sealed_truncated` decides RFC 9001 §5.4.2's widening once the padding is known.
+        .truncated = truncated,
         .payload_len = framed.len,
         .ack_eliciting = framed.ack_eliciting,
         .shape = shape,
@@ -236,6 +235,10 @@ fn shape_of(connection: *Connection, level: Level, packet_number_len: u8, output
     const length_len = if (level == .application) 0 else wire.varint.encoded_len_minimal(largest_length);
     const header = fixed + length_len;
     if (output_len <= header + constants.aead_tag_len) return Error.NoSpaceLeft;
+    // RFC 9001 §5.4.2: the number and payload reach four octets, which a tiny packet meets by
+    // widening its number (decision 54), so the room holds that much whatever is framed.
+    const sampled_len = header - packet_number_len + constants.protected_len_min + constants.aead_tag_len;
+    if (output_len < sampled_len) return Error.NoSpaceLeft;
     return .{ .length_len = length_len, .header_len = header, .room = output_len - header - constants.aead_tag_len };
 }
 
@@ -274,6 +277,19 @@ pub fn widen_for_sample(number: u64, truncated: packet_number.Truncated, payload
     return .{ .value = @truncate(number), .len = needed };
 }
 
+/// The Packet Number field a planned packet is sealed with. RFC 9001 §5.4.2, decision 54: the
+/// packet number and payload must reach four octets so header protection has a sample, and a
+/// short packet widens the number to get there. PADDING counts toward the four, so the widening
+/// is decided over the payload the datagram's expansion left.
+pub fn sealed_truncated(planned: Planned) packet_number.Truncated {
+    return widen_for_sample(planned.number, planned.truncated, planned.payload_len + planned.padding_len);
+}
+
+/// Octets the widening adds to a planned packet's header, which `Shape.header_len` leaves out.
+pub fn widening_len(planned: Planned) usize {
+    return sealed_truncated(planned).len - planned.truncated.len;
+}
+
 /// Everything `seal_packet` needs, gathered so its signature stays readable.
 const Pending = struct {
     level: Level,
@@ -298,7 +314,7 @@ pub fn seal_planned(
     const pending: Pending = .{
         .level = planned.level,
         .number = planned.number,
-        .truncated = planned.truncated,
+        .truncated = sealed_truncated(planned),
         .payload = payload[0..payload_len],
         .ack_eliciting = planned.ack_eliciting,
         .shape = planned.shape,

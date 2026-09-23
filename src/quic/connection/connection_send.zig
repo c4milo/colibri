@@ -268,10 +268,12 @@ fn note_close_sent(connection: *Connection, plans: []const packet_build.Planned,
     connection.termination.on_close_sent(now_ns, probe_timeout_ns);
 }
 
-/// Octets a planned packet will occupy once sealed: its header, its payload and the tag.
+/// Octets a planned packet will occupy once sealed: its header with any widening of its packet
+/// number, its payload and the tag.
 fn packet_len_of(connection: *Connection, planned: packet_build.Planned) usize {
     _ = connection;
-    return planned.shape.header_len + planned.payload_len + planned.padding_len + constants.aead_tag_len;
+    const header_len = planned.shape.header_len + packet_build.widening_len(planned);
+    return header_len + planned.payload_len + planned.padding_len + constants.aead_tag_len;
 }
 
 /// What bounds a datagram besides the caller's buffer, in the order the file header names them.
@@ -294,11 +296,15 @@ fn datagram_ceiling(connection: *const Connection) usize {
 fn expand_last(connection: *Connection, plans: []packet_build.Planned, planned_len: usize, ceiling: usize) void {
     if (!owes_expansion(connection, plans)) return;
     if (planned_len >= constants.datagram_len_min) return;
-    const wanted = constants.datagram_len_min - planned_len;
     const last = &plans[plans.len - 1];
+    // RFC 9001 §5.4.2's widening of a tiny packet's number is what PADDING replaces once there is
+    // any: padding the widened octets back in lands the datagram on 1,200 exactly, and when the
+    // ceiling allows less the widening shrinks by as much as the padding grows.
+    const widened_len = packet_build.widening_len(last.*);
+    const wanted = constants.datagram_len_min - planned_len + widened_len;
     // The padding goes in the last packet's payload, so it is bounded by what that payload's
     // buffer still holds as well as by what the datagram needs.
-    last.padding_len = @min(wanted, room_for_padding(last, ceiling, planned_len));
+    last.padding_len = @min(wanted, room_for_padding(last, ceiling, planned_len - widened_len));
 }
 
 /// How many octets of PADDING the last packet can still take.
