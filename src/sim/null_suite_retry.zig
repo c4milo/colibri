@@ -50,3 +50,26 @@ pub fn token_valid(context: *const anyopaque, address: []const u8, token: []cons
     const expires = std.mem.readInt(u64, token[@sizeOf(u32)..][0..@sizeOf(u64)], .big);
     return now_ns < expires;
 }
+
+const testing = std.testing;
+const NullSuite = null_suite.NullSuite;
+/// RFC 9001 Appendix A's Destination Connection ID, which the pseudo-packet carries. Test-only.
+const sample_dcid = "\x83\x94\xc8\xf0\x3e\x51\x57\x08";
+
+/// The tag the test below produced on the host that wrote it, macOS on arm64, and must produce on
+/// every other. It pins that the null suite's octets do not vary by host; it says nothing about
+/// whether they are good ones. Test-only.
+const retry_tag_expected = "\x50\x0d\xea\xf3\x9f\x93\xfd\x3b\x14\x40\xc3\x22\xdb\xde\xd4\xea".*;
+
+test "§5.8: the Retry tag is a function of the pseudo-packet, and a suite may decline to write it" {
+    var suite_under_test: NullSuite = .{};
+    const vtable = suite_under_test.suite().vtable;
+    var tag: [tag_len]u8 = undefined;
+    try vtable.retry_tag_write(&suite_under_test, "\x08" ++ sample_dcid ++ "retry", &tag);
+    try testing.expect(vtable.retry_tag_valid(&suite_under_test, "\x08" ++ sample_dcid ++ "retry", &tag));
+    try testing.expect(!vtable.retry_tag_valid(&suite_under_test, "\x08" ++ sample_dcid ++ "retrz", &tag));
+    // One host's tag is every host's: the checksums are taken over octets in network order.
+    try testing.expectEqualSlices(u8, &retry_tag_expected, &tag);
+    suite_under_test.writes_retry_tag = false;
+    try testing.expectError(error.Unsupported, vtable.retry_tag_write(&suite_under_test, "retry", &tag));
+}

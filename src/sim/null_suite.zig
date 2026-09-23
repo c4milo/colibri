@@ -71,6 +71,10 @@ pub const NullSuite = struct {
     writes_retry_tag: bool = true,
     /// Makes `retry_token_write` refuse, as a suite that offers no Retry would (decision 55).
     mints_retry_token: bool = true,
+    /// How many calls asked for a level this suite holds no keys for. Invariant 21 has colibri
+    /// ask only at levels it was told are available, so the QUIC simulator treats any count above
+    /// zero as a violation rather than as a lost packet.
+    keys_unavailable: u64 = 0,
 
     pub fn suite(self: *NullSuite) crypto.Suite {
         return .{ .context = @ptrCast(self), .vtable = &table };
@@ -111,6 +115,12 @@ pub const NullSuite = struct {
             .previous_held = self.previous_held,
             .current_phase_lowest = opening.current_phase_lowest,
         });
+    }
+
+    /// Counts a call at a level without keys (invariant 21) and answers `failure`.
+    fn unavailable(self: *NullSuite, failure: anytype) @TypeOf(failure) {
+        self.keys_unavailable +|= 1;
+        return failure;
     }
 
     /// Counts a packet that failed authentication (RFC 9001 §6.6) and says what `open` answers.
@@ -160,7 +170,7 @@ fn keys_available(context: *const anyopaque, level: Level, direction: Direction)
 
 fn seal(context: *anyopaque, sealing: Sealing, output: []u8) crypto.suite.SealError!usize {
     const self = from(context);
-    if (self.state_of(sealing.level, .write) != .available) return error.KeysUnavailable;
+    if (self.state_of(sealing.level, .write) != .available) return self.unavailable(error.KeysUnavailable);
     // RFC 9001 §6.6: past the confidentiality limit the keys protect nothing more.
     if (self.seals_left == 0) return error.ConfidentialityLimitReached;
     const header_len = sealing.header.len;
@@ -181,7 +191,7 @@ fn seal(context: *anyopaque, sealing: Sealing, output: []u8) crypto.suite.SealEr
 
 fn open(context: *anyopaque, opening: Opening) crypto.suite.OpenError!Opened {
     const self = from(context);
-    if (self.state_of(opening.level, .read) != .available) return error.KeysUnavailable;
+    if (self.state_of(opening.level, .read) != .available) return self.unavailable(error.KeysUnavailable);
     const packet = opening.packet;
     const offset = opening.packet_number_offset;
     // RFC 9001 §5.4.2: a packet too short for the sample is discarded before it is read.
@@ -217,7 +227,7 @@ fn open(context: *anyopaque, opening: Opening) crypto.suite.OpenError!Opened {
 fn update_keys(context: *anyopaque) crypto.suite.UpdateError!void {
     const self = from(context);
     // RFC 9001 §6.1: only the 1-RTT keys are ever updated.
-    if (self.state_of(.application, .write) != .available) return error.KeysUnavailable;
+    if (self.state_of(.application, .write) != .available) return self.unavailable(error.KeysUnavailable);
     self.phase += 1;
     self.previous_held = true;
 }
@@ -360,6 +370,9 @@ test "§4.9: a level with no keys, or with discarded ones, is refused by both ca
     try testing.expectError(error.KeysUnavailable, open_short(&pair.server, packet, null, null));
     vtable.discard_keys(&pair.client, .initial);
     try testing.expectError(error.KeysUnavailable, seal_initial(&pair.client));
+    // Invariant 21: each refusal is counted, three by the client and one by the server.
+    try testing.expectEqual(3, pair.client.keys_unavailable);
+    try testing.expectEqual(1, pair.server.keys_unavailable);
 }
 
 test "§5.5: a packet too short for the sample, or with any octet changed, is discarded" {
@@ -466,27 +479,9 @@ test "§6.6: both limits are reached at the number set, and a seal that fails co
     try testing.expectError(error.IntegrityLimitReached, open_short(&pair.server, packet, null, null));
 }
 
-test "§5.8: the Retry tag is a function of the pseudo-packet, and a suite may decline to write it" {
-    var null_suite: NullSuite = .{};
-    const vtable = null_suite.suite().vtable;
-    var tag: [tag_len]u8 = undefined;
-    try vtable.retry_tag_write(&null_suite, "\x08" ++ sample_dcid ++ "retry", &tag);
-    try testing.expect(vtable.retry_tag_valid(&null_suite, "\x08" ++ sample_dcid ++ "retry", &tag));
-    try testing.expect(!vtable.retry_tag_valid(&null_suite, "\x08" ++ sample_dcid ++ "retrz", &tag));
-    // One host's tag is every host's: the checksums are taken over octets in network order.
-    try testing.expectEqualSlices(u8, &retry_tag_expected, &tag);
-    null_suite.writes_retry_tag = false;
-    try testing.expectError(error.Unsupported, vtable.retry_tag_write(&null_suite, "retry", &tag));
-}
-
 test "invariant 25: a suite that refuses the Initial keys installs none" {
     var null_suite: NullSuite = .{ .refuses_initial_keys = true };
     const vtable = null_suite.suite().vtable;
     try testing.expectError(error.Unsupported, vtable.install_initial_keys(&null_suite, .client, sample_dcid));
     try testing.expect(!vtable.keys_available(&null_suite, .initial, .write));
 }
-
-/// The tag the test above produced on the host that wrote it, macOS on arm64, and must produce on
-/// every other. It pins that the null suite's octets do not vary by host; it says nothing about
-/// whether they are good ones. Test-only.
-const retry_tag_expected = "\x50\x0d\xea\xf3\x9f\x93\xfd\x3b\x14\x40\xc3\x22\xdb\xde\xd4\xea".*;
