@@ -4,8 +4,13 @@
 //! Recovery answers in packets: the ones an acknowledgment took out of flight and the ones it
 //! declared lost, each a `recovery_sent.Record` naming what the packet carried. Every piece that
 //! sends information RFC 9000 §13.3 repairs keeps its own record of it, so this file hands each
-//! batch of packets to all of them, and nothing else. Which packets they are is `recovery_ack`'s
-//! and `recovery_loss`'s to decide.
+//! batch of packets to all of them. Which packets they are is `recovery_ack`'s and
+//! `recovery_loss`'s to decide.
+//!
+//! It also runs the loss detection timer when `connection_timer.on_instant` finds it due, and
+//! tells RFC 9002 Appendix A.8's timer the four facts it reads from the rest of the connection.
+//! Each fact is state the connection already holds, so it is copied in before the timer is read
+//! rather than recorded twice.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -19,6 +24,8 @@ const recovery_ack = @import("../recovery/recovery_ack.zig");
 const recovery_congestion = @import("../recovery/recovery_congestion.zig");
 const stream_module = @import("../stream/stream.zig");
 const connection_module = @import("connection.zig");
+const keys_module = @import("connection_keys.zig");
+const connection_send = @import("connection_send.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const connection_flow = @import("connection_flow.zig");
 const connection_handshake = @import("connection_handshake.zig");
@@ -72,6 +79,11 @@ pub fn on_ack_received(
     completed_from: usize,
 ) Error!usize {
     const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
+    // RFC 9002 Appendix A.7 reads `PeerCompletedAddressValidation` and the handshake's state.
+    sync_timer(connection);
+    // RFC 9002 Appendix A.7 asks `PeerCompletedAddressValidation` once the ACK is taken, and for
+    // a client "has received Handshake ACK" is this ACK.
+    if (level == .handshake) connection.recovery.timer.peer_completed_address_validation = true;
     const decoded: recovery_ack.Ack = .{ .ranges = ack.ranges, .delay_ns = ack_delay_ns(connection, level, ack.delay), .ecn = ack.ecn };
     const outcome = recovery_ack.on_ack_received(&connection.recovery, kind, decoded, utilization(connection), now_ns, &scratch.acknowledged, &scratch.lost);
     // Each list holds a whole table, so no packet is left unreported.
@@ -79,6 +91,64 @@ pub fn on_ack_received(
     const acknowledged = on_packets_acknowledged(connection, level, scratch.acknowledged[0..outcome.written], scratch.completed[completed_from..]);
     try on_packets_lost(connection, level, scratch.lost[0..outcome.lost.written]);
     return acknowledged.written;
+}
+
+/// The instant RFC 9002 Appendix A.8's loss detection timer is set for, or null when it is not
+/// set. RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a
+/// packet containing a CONNECTION_CLOSE frame", so a connection that is no longer active sets none.
+pub fn loss_deadline_ns(connection: *Connection) ?u64 {
+    if (connection.termination.state != .active) return null;
+    sync_timer(connection);
+    const timer = connection.recovery.next_timer() orelse return null;
+    return timer.at_ns;
+}
+
+/// RFC 9002 Appendix A.9's `OnLossDetectionTimeout`, when the timer is due at `now_ns`. Packets it
+/// declares lost go to every piece that sends what they carried again; a Probe Timeout owes the
+/// probes `send` builds (RFC 9002 §6.2.4). True when the timer was due.
+pub fn on_loss_timer(connection: *Connection, now_ns: u64, scratch: *Scratch) Error!bool {
+    const at_ns = loss_deadline_ns(connection) orelse return false;
+    if (now_ns < at_ns) return false;
+    switch (connection.recovery.on_timeout(now_ns, &scratch.lost)) {
+        .none => {},
+        .lost => |lost| {
+            // The list holds a whole table, so no packet is left unreported.
+            assert(lost.found.unwritten == 0);
+            try on_packets_lost(connection, level_of(lost.space), scratch.lost[0..lost.found.written]);
+        },
+        .probe => |probe| connection_send.owe_probes(connection, level_of(probe.space), probe.count),
+    }
+    return true;
+}
+
+/// The encryption level whose packets fill `kind`'s space (RFC 9000 §12.3).
+fn level_of(kind: space_module.Kind) Level {
+    return @enumFromInt(@intFromEnum(kind));
+}
+
+/// Copies into `recovery.timer` what RFC 9002 Appendix A.8 reads from the rest of the connection.
+fn sync_timer(connection: *Connection) void {
+    const timer = &connection.recovery.timer;
+    // RFC 9002 §6.2.1: "An endpoint MUST NOT set its PTO timer for the Application Data packet
+    // number space until the handshake is confirmed."
+    timer.handshake_confirmed = connection.handshake_confirmed;
+    // RFC 9002 Appendix A.9: an anti-deadlock probe goes in a Handshake packet "if (has handshake
+    // keys)", and in a padded Initial otherwise.
+    timer.has_handshake_keys = keys_module.can_seal(connection, .handshake);
+    timer.peer_completed_address_validation = peer_completed_address_validation(connection);
+    // RFC 9002 Appendix A.8: "The server's timer is not set if nothing can be sent", which is
+    // when `connection_send.send` would refuse any datagram (RFC 9000 §8.1).
+    timer.at_anti_amplification_limit = connection.path.send_allowance() < constants.packet_header_len_max;
+}
+
+/// RFC 9002 Appendix A.8's `PeerCompletedAddressValidation`.
+fn peer_completed_address_validation(connection: *const Connection) bool {
+    // RFC 9002 Appendix A.8: "Assume clients validate the server's address implicitly."
+    if (connection.role == .server) return true;
+    // RFC 9002 Appendix A.8: "has received Handshake ACK || handshake confirmed". A Handshake
+    // ACK is what sets the space's largest acknowledged packet.
+    const handshake_space = @intFromEnum(space_module.Kind.handshake);
+    return connection.handshake_confirmed or connection.recovery.largest_acknowledged[handshake_space] != null;
 }
 
 /// RFC 9000 §19.3: the ACK Delay is in microseconds, scaled by 2 to the power of the peer's

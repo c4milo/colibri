@@ -44,8 +44,9 @@ pub const Table = recovery_sent.Sent(constants.sent_packets_max);
 pub const Action = union(enum) {
     /// The timer fired with nothing to do, which a caller that armed a stale timer can see.
     none,
-    /// Packets were declared lost. Their frames are the caller's to resend.
-    lost: recovery_loss.Detected,
+    /// Packets in `space` were declared lost. Their frames are the caller's to resend, and the
+    /// space is what says whose: RFC 9000 §12.3 gives each space its own packet numbers.
+    lost: struct { space: Kind, found: recovery_loss.Detected },
     /// Send `count` ack-eliciting packets in `space`, which RFC 9002 Appendix A.9 fills with new
     /// data if there is any, else data already sent, else a PING frame.
     probe: struct { space: Kind, count: u8 },
@@ -121,6 +122,8 @@ pub const Recovery = struct {
         // RFC 9000 §13.4.2.1 compares what the peer reports against what this endpoint marked.
         recovery.ecn[@intFromEnum(kind)].on_packet_sent(sent.ecn);
         if (!sent.in_flight) return;
+        // RFC 9002 Appendix A.5: a packet in flight sets the timer again.
+        recovery.timer.armed_at_ns = now_ns;
         const held = &recovery.timer.spaces[@intFromEnum(kind)];
         if (sent.ack_eliciting) held.last_ack_eliciting_sent_at_ns = now_ns;
         held.ack_eliciting_in_flight = recovery.table_of(kind).ack_eliciting_count() > 0;
@@ -137,14 +140,18 @@ pub const Recovery = struct {
 
     /// RFC 9002 Appendix A.8's `SetLossDetectionTimer`: the instant colibri next wants to be
     /// called at, or null when it wants nothing.
-    pub fn next_timer(recovery: *const Recovery, now_ns: u64) ?Timer {
-        return recovery_timer.next(recovery.timer, recovery.rtt, now_ns);
+    pub fn next_timer(recovery: *const Recovery) ?Timer {
+        return recovery_timer.next(recovery.timer, recovery.rtt);
     }
 
     /// RFC 9002 Appendix A.9's `OnLossDetectionTimeout`.
     pub fn on_timeout(recovery: *Recovery, now_ns: u64, lost: []Record) Action {
-        const timer = recovery.next_timer(now_ns) orelse return .none;
-        if (timer.mode == .loss) return .{ .lost = recovery.detect(timer.space, now_ns, lost) };
+        const timer = recovery.next_timer() orelse return .none;
+        // RFC 9002 Appendix A.9 ends every branch with `SetLossDetectionTimer`.
+        recovery.timer.armed_at_ns = now_ns;
+        if (timer.mode == .loss) {
+            return .{ .lost = .{ .space = timer.space, .found = recovery.detect(timer.space, now_ns, lost) } };
+        }
         // RFC 9002 Appendix A.9: with nothing outstanding this is the anti-deadlock packet, and
         // the space `recovery_timer.zig` chose is the one it goes in.
         const count: u8 = if (recovery.timer.spaces[@intFromEnum(timer.space)].ack_eliciting_in_flight)

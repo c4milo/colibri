@@ -5,10 +5,9 @@
 //! connection, each armed by the piece that owns it; what is here is the earliest of them, and
 //! the one call that fires whichever have come due.
 //!
-//! **Loss detection is reported, not run.** RFC 9002 Appendix A.9's `OnLossDetectionTimeout`
-//! needs storage for the packets it declares lost, which decision 35 leaves with the caller, so
-//! `on_instant` says the timer went off and `Recovery.on_timeout` stays the caller's to call.
-//! Everything else is state colibri already holds, so it acts.
+//! **Every deadline is acted on here.** Decision 59 has the connection run RFC 9002 Appendix
+//! A.9's `OnLossDetectionTimeout` too, which needs storage for the packets it declares lost:
+//! decision 35 leaves that with the caller, so `on_instant` takes it.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -16,6 +15,7 @@ const crypto = @import("crypto");
 const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const key_update = @import("connection_key_update.zig");
+const connection_recovery = @import("connection_recovery.zig");
 
 const Connection = connection_module.Connection;
 const Suite = crypto.Suite;
@@ -44,13 +44,10 @@ pub const Deadline = struct {
 
 /// The instant colibri next wants `on_instant`, or null when nothing is armed. `kind` is what
 /// made it the nearest, which a caller reads for a trace and nothing turns on.
-pub fn next(connection: *Connection, now_ns: u64) ?Deadline {
-    var earliest: ?Deadline = null;
+pub fn next(connection: *Connection) ?Deadline {
     // RFC 9002 Appendix A.8's `SetLossDetectionTimer` decides between a loss time and a probe,
     // and answers null when neither is armed.
-    if (connection.recovery.next_timer(now_ns)) |timer| {
-        earliest = nearer(earliest, .{ .at_ns = timer.at_ns, .kind = .loss });
-    }
+    var earliest = of(connection_recovery.loss_deadline_ns(connection), .loss);
     earliest = nearer(earliest, of(connection.termination.idle_deadline_ns(), .idle));
     earliest = nearer(earliest, of(connection.termination.period_deadline_ns(), .period));
     earliest = nearer(earliest, of(connection.path.challenge_deadline_ns(), .path));
@@ -70,8 +67,8 @@ fn acknowledgment_deadline_ns(connection: *const Connection) ?u64 {
 /// What the instant set off. More than one can come due at once, so this is a set and not a
 /// choice: a connection idle past its timeout may also have a probe owed.
 pub const Fired = struct {
-    /// RFC 9002 Appendix A.9: the loss detection timer went off. The caller calls
-    /// `Recovery.on_timeout`, which needs storage for what it declares lost.
+    /// RFC 9002 Appendix A.9: the loss detection timer went off, and the packets it declared lost
+    /// are owed again or the probes it asked for are owed.
     loss: bool = false,
     /// RFC 9000 §10.1: the connection was idle past its effective timeout and is now closed,
     /// silently — no CONNECTION_CLOSE goes out, because the peer has stopped listening too.
@@ -85,10 +82,16 @@ pub const Fired = struct {
     previous_keys: bool = false,
 };
 
-/// Fires whichever deadlines `now_ns` has reached.
-pub fn on_instant(connection: *Connection, suite: Suite, now_ns: u64) Fired {
+/// Fires whichever deadlines `now_ns` has reached. `scratch` holds the packets the loss timer
+/// declares lost. An error is `connection_recovery`'s, and the caller closes the connection with
+/// `connection_recovery.connection_error_code`.
+pub fn on_instant(
+    connection: *Connection,
+    suite: Suite,
+    scratch: *connection_recovery.Scratch,
+    now_ns: u64,
+) connection_recovery.Error!Fired {
     var fired: Fired = .{};
-    if (connection.recovery.next_timer(now_ns)) |timer| fired.loss = now_ns >= timer.at_ns;
     // RFC 9000 §10.1 closes the connection silently, and §10.2's period belongs to a connection
     // that closed deliberately, so the two cannot both be running.
     if (connection.termination.is_idle_timed_out(now_ns)) {
@@ -102,6 +105,9 @@ pub fn on_instant(connection: *Connection, suite: Suite, now_ns: u64) Fired {
     const keys_before = connection.key_phase.previous_held;
     key_update.on_instant(connection, suite, now_ns);
     fired.previous_keys = keys_before and !connection.key_phase.previous_held;
+    // Last, so an error leaves every other deadline fired. A connection the ones above closed
+    // runs no loss detection (`connection_recovery.loss_deadline_ns`).
+    fired.loss = try connection_recovery.on_loss_timer(connection, now_ns, scratch);
     assert(!fired.idle or !fired.period);
     return fired;
 }

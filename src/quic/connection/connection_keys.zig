@@ -18,6 +18,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const crypto = @import("crypto");
+const space_module = @import("../space/space.zig");
 const connection_module = @import("connection.zig");
 
 const Level = core.Level;
@@ -133,6 +134,11 @@ fn discard(connection: *Connection, suite: Suite, level: Level) void {
     if (connection.keys.at(level, .write) == .discarded) return;
     suite.vtable.discard_keys(suite.context, level);
     connection.keys.mark_discarded(level);
+    // RFC 9002 §6.4: packets sent with discarded keys "can no longer be acknowledged", so "The
+    // sender MUST discard all recovery state associated with those packets and MUST remove them
+    // from the count of bytes in flight" (Appendix A.11).
+    assert(level != .application);
+    connection.recovery.discard_space(@as(space_module.Kind, @enumFromInt(@intFromEnum(level))));
 }
 
 comptime {

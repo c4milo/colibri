@@ -15,6 +15,7 @@ const recovery = @import("connection_recovery.zig");
 const stream_send = @import("connection_stream/connection_stream_send.zig");
 const frame_module = @import("../frame/frame.zig");
 const frames = @import("connection_frames.zig");
+const build_test = @import("packet_build/packet_build_test.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -24,6 +25,7 @@ const StreamId = stream_module.StreamId;
 const testing = std.testing;
 
 var server: Connection = undefined;
+var suite_holder: build_test.RoundTrip = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const id_len: usize = 4;
@@ -53,8 +55,15 @@ fn parameters() Parameters {
 }
 
 fn open_server() void {
+    open_as(.server);
+    server.apply_peer_parameters(parameters());
+}
+
+/// An endpoint of `role` holding keys at every level, before the peer's parameters arrive.
+fn open_as(role: connection_module.Role) void {
+    suite_holder.init();
     server.init(.{
-        .role = .server,
+        .role = role,
         .local_parameters = parameters(),
         .now_ns = test_now_ns,
         .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
@@ -63,7 +72,6 @@ fn open_server() void {
         keys.on_keys_installed(&server, level, .read);
         keys.on_keys_installed(&server, level, .write);
     }
-    server.apply_peer_parameters(parameters());
 }
 
 /// A stream the server opened and framed `range_len` octets and its FIN on, as one packet would.
@@ -247,4 +255,171 @@ test "decision 59: an ACK that reveals a loss the connection cannot repair is a 
         frames.Error.Recovery,
         take_ack(.initial, threshold_packets - 1, threshold_packets - 1, 0, sent_at_ns + round_trip_ns),
     );
+}
+
+/// A max_ack_delay other than RFC 9000 §18.2's default of 25, so a test can see it arrive.
+/// Test-only.
+const peer_max_ack_delay_ms: u64 = 50;
+
+/// A client's padded Initial carrying only an ACK: in flight, eliciting nothing (RFC 9002 §2).
+/// It sets the loss detection timer (Appendix A.5) and leaves the peer nothing to acknowledge.
+fn send_padded_ack() !void {
+    const number = try server.space_at(.initial).next_number();
+    try server.recovery.on_packet_sent(.initial, .{
+        .number = number,
+        .sent_at_ns = sent_at_ns,
+        .sent_len = @intCast(constants.datagram_len_min),
+        .ack_eliciting = false,
+        .in_flight = true,
+    }, sent_at_ns);
+}
+
+/// The loss timer, run at the instant it is set for.
+fn fire_loss_timer() !bool {
+    const at_ns = recovery.loss_deadline_ns(&server).?;
+    return recovery.on_loss_timer(&server, at_ns, &scratch);
+}
+
+test "RFC 9002 A.9, decision 59: the loss timer declares a packet lost and owes its octets again" {
+    open_server();
+    const id = try stream_send.open(&server, .bidirectional);
+    try stream_send.supply(&server, id, range_len * 2, false);
+    const stream = server.streams.lookup(id).live;
+    _ = stream.sending.on(.sent_data);
+    stream.outgoing.on_framed(range_len * 2, false);
+    try record_sent(.application, .stream, id.value, 0, sent_at_ns);
+    try record_sent(.application, .stream, id.value, range_len, sent_at_ns);
+    // The second is acknowledged, one short of §6.1.1's threshold, so the first waits on §6.1.2.
+    _ = try take_ack(.application, 1, 1, 0, sent_at_ns + round_trip_ns);
+    try testing.expectEqual(0, server.streams.lost.count);
+    const at_ns = recovery.loss_deadline_ns(&server).?;
+    try testing.expect(!try recovery.on_loss_timer(&server, at_ns - 1, &scratch));
+    try testing.expect(try recovery.on_loss_timer(&server, at_ns, &scratch));
+    try testing.expectEqual(1, server.streams.lost.count);
+    try testing.expectEqual(0, server.recovery.in_flight_len());
+}
+
+test "decision 59: a loss the timer finds that the connection cannot repair is a connection error" {
+    open_server();
+    server.crypto_at(.initial).send_base = 1;
+    try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
+    try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
+    _ = try take_ack(.initial, 1, 1, 0, sent_at_ns + round_trip_ns);
+    try testing.expectError(error.CryptoForgotten, fire_loss_timer());
+}
+
+test "RFC 9002 A.9, decision 59: a Probe Timeout owes probes in the space that set it" {
+    open_server();
+    server.path.on_datagram_received(constants.datagram_len_min);
+    // RFC 9002 §6.2.1: no Application Data probe before the handshake is confirmed.
+    try record_sent(.application, .none, 0, 0, sent_at_ns);
+    try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
+    server.confirm_handshake();
+    try testing.expect(try fire_loss_timer());
+    // RFC 9002 §6.2.4: two probes, because a packet is in flight.
+    try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
+    try testing.expectEqual(1, server.recovery.timer.pto_count);
+}
+
+test "RFC 9002 A.8: a server at the anti-amplification limit sets no probe timer" {
+    open_server();
+    server.confirm_handshake();
+    try record_sent(.application, .none, 0, 0, sent_at_ns);
+    // RFC 9000 §8.1: a server that has received nothing may send nothing, and one that has
+    // received a single octet may send three, which holds no packet.
+    try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
+    server.path.on_datagram_received(1);
+    try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
+    server.path.on_datagram_received(constants.datagram_len_min);
+    try testing.expect(recovery.loss_deadline_ns(&server) != null);
+}
+
+test "RFC 9002 A.8: a client probes until the server has validated its address" {
+    // "Assume clients validate the server's address implicitly": a server with nothing the peer
+    // must acknowledge sets no timer, although a packet in flight has set it.
+    open_server();
+    server.path.on_datagram_received(constants.datagram_len_min);
+    try send_padded_ack();
+    try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
+
+    // A client with nothing in flight sends an anti-deadlock probe (Appendix A.9), in a Handshake
+    // packet because it holds Handshake keys.
+    open_as(.client);
+    try send_padded_ack();
+    try testing.expect(try fire_loss_timer());
+    try testing.expectEqual(1, server.probes_owed[@intFromEnum(Level.handshake)]);
+    // "has received Handshake ACK || handshake confirmed" ends it.
+    server.recovery.largest_acknowledged[@intFromEnum(Level.handshake)] = 0;
+    try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
+    open_as(.client);
+    try send_padded_ack();
+    server.confirm_handshake();
+    try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
+}
+
+test "RFC 9002 A.9: a client without Handshake keys probes with an Initial" {
+    suite_holder.init();
+    server.init(.{
+        .role = .client,
+        .local_parameters = parameters(),
+        .now_ns = test_now_ns,
+        .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
+    });
+    keys.on_keys_installed(&server, .initial, .write);
+    try send_padded_ack();
+    try testing.expect(try fire_loss_timer());
+    try testing.expectEqual(1, server.probes_owed[@intFromEnum(Level.initial)]);
+}
+
+test "RFC 9002 §6.4: discarding keys discards the packets sent with them" {
+    open_server();
+    try record_sent(.handshake, .none, 0, 0, sent_at_ns);
+    try testing.expectEqual(range_len, server.recovery.in_flight_len());
+    // RFC 9001 §4.9.2: a server discards its Handshake keys when the handshake is confirmed.
+    keys.on_handshake_confirmed(&server, suite_holder.suite());
+    try testing.expectEqual(0, server.recovery.in_flight_len());
+    try testing.expectEqual(0, server.recovery.table_of(.handshake).count());
+}
+
+test "RFC 9000 §18.2: the peer's max_ack_delay reaches the Probe Timeout" {
+    open_as(.server);
+    var peer = parameters();
+    peer.max_ack_delay_ms = peer_max_ack_delay_ms;
+    server.apply_peer_parameters(peer);
+    const expected_ns = peer_max_ack_delay_ms * constants.nanoseconds_per_millisecond;
+    try testing.expectEqual(expected_ns, server.recovery.rtt.peer_max_ack_delay_ns);
+}
+
+test "RFC 9000 §10.2.1: a connection that has stopped being active sets no loss timer" {
+    open_server();
+    server.path.on_datagram_received(constants.datagram_len_min);
+    try record_sent(.initial, .none, 0, 0, sent_at_ns);
+    try testing.expect(recovery.loss_deadline_ns(&server) != null);
+    server.termination.on_close_sent(sent_at_ns, round_trip_ns);
+    try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
+}
+
+test "RFC 9002 A.7: a client's first Handshake ACK starts the backoff again" {
+    open_as(.client);
+    try record_sent(.handshake, .none, 0, 0, sent_at_ns);
+    try testing.expect(try fire_loss_timer());
+    try testing.expectEqual(1, server.recovery.timer.pto_count);
+    // "Reset pto_count unless the client is unsure if the server has validated the client's
+    // address", and the Handshake ACK is what makes it sure.
+    _ = try take_ack(.handshake, 0, 0, 0, sent_at_ns + round_trip_ns);
+    try testing.expectEqual(0, server.recovery.timer.pto_count);
+}
+
+test "RFC 9002 §5.3: once the handshake is confirmed the ACK Delay counts up to max_ack_delay" {
+    open_server();
+    server.peer_parameters.?.ack_delay_exponent = peer_exponent;
+    try record_sent(.application, .none, 0, 0, sent_at_ns);
+    _ = try take_ack(.application, 0, 0, 0, sent_at_ns + round_trip_ns);
+    server.confirm_handshake();
+    // The peer reports 50 ms, above its max_ack_delay of 25, so only 25 comes off the sample.
+    const later_ns = sent_at_ns + slower_round_trip_ns;
+    try record_sent(.application, .none, 0, 0, later_ns);
+    _ = try take_ack(.application, 1, 1, delay_field, later_ns + slower_round_trip_ns);
+    try testing.expect(server.recovery.rtt.smoothed_ns > round_trip_ns);
+    try testing.expect(server.recovery.rtt.smoothed_ns < slower_round_trip_ns);
 }

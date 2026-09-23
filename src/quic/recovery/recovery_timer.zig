@@ -66,11 +66,17 @@ pub const State = struct {
     /// RFC 9000 §8.1: whether this endpoint may send nothing more until it receives more. A
     /// timer would only fire on something it cannot answer, so none is set.
     at_anti_amplification_limit: bool = false,
+    /// The instant RFC 9002 Appendix A.8's `SetLossDetectionTimer` last ran: when a packet in
+    /// flight was sent (A.5), an acknowledgment took packets out (A.7), or the timer went off
+    /// (A.9). The anti-deadlock probe counts from it ("Anti-deadlock PTO starts from the current
+    /// time"). colibri answers the timer whenever asked, and an instant read at each question
+    /// would move the probe later every time. Null until the first of them.
+    armed_at_ns: ?u64 = null,
 };
 
 /// The instant the timer should next fire, or null when none should be set (RFC 9002
 /// Appendix A.8's `SetLossDetectionTimer`).
-pub fn next(state: State, rtt: Rtt, now_ns: u64) ?Timer {
+pub fn next(state: State, rtt: Rtt) ?Timer {
     // RFC 9002 Appendix A.8: time threshold loss detection comes first, because a packet already
     // known to be ageing into loss is nearer than any probe.
     if (earliest_loss(state)) |timer| return timer;
@@ -79,7 +85,7 @@ pub fn next(state: State, rtt: Rtt, now_ns: u64) ?Timer {
     // RFC 9002 Appendix A.8: with nothing outstanding to detect and the peer's address validated
     // there is nothing to probe for either.
     if (!any_ack_eliciting_in_flight(state) and state.peer_completed_address_validation) return null;
-    return probe(state, rtt, now_ns);
+    return probe(state, rtt);
 }
 
 /// The nearest `loss_time` across the spaces (RFC 9002 Appendix A.8's `GetLossTimeAndSpace`).
@@ -105,16 +111,17 @@ fn any_ack_eliciting_in_flight(state: State) bool {
 }
 
 /// The Probe Timeout and the space it is for (RFC 9002 Appendix A.8's `GetPtoTimeAndSpace`).
-fn probe(state: State, rtt: Rtt, now_ns: u64) ?Timer {
+fn probe(state: State, rtt: Rtt) ?Timer {
     const duration_ns = backed_off(rtt.probe_timeout_ns(false), state.pto_count);
     if (!any_ack_eliciting_in_flight(state)) {
         // RFC 9002 Appendix A.8: this is the anti-deadlock probe, which only a client with an
-        // unvalidated address sends, and it starts from now because nothing is outstanding to
-        // measure from. A Handshake packet proves address ownership; without those keys a padded
-        // Initial earns the server more anti-amplification credit.
+        // unvalidated address sends, and it starts from when the timer was set because nothing
+        // is outstanding to measure from. A Handshake packet proves address ownership; without
+        // those keys a padded Initial earns the server more anti-amplification credit.
         assert(!state.peer_completed_address_validation);
+        const armed_at_ns = state.armed_at_ns orelse return null;
         const kind: Kind = if (state.has_handshake_keys) .handshake else .initial;
-        return .{ .at_ns = now_ns +| duration_ns, .mode = .probe, .space = kind };
+        return .{ .at_ns = armed_at_ns +| duration_ns, .mode = .probe, .space = kind };
     }
     return soonest_probe(state, rtt, duration_ns);
 }
@@ -192,20 +199,20 @@ test "A.8: a packet ageing into loss is nearer than any probe" {
     reset();
     in_flight(.initial);
     // With only a probe to set, the timer is the probe.
-    try testing.expectEqual(Mode.probe, next(test_state, test_rtt, test_now_ns).?.mode);
+    try testing.expectEqual(Mode.probe, next(test_state, test_rtt).?.mode);
     // A loss time in any space takes it over, whatever the probe would have been.
     test_state.spaces[@intFromEnum(Kind.handshake)].loss_time_ns = test_now_ns;
-    const found = next(test_state, test_rtt, test_now_ns).?;
+    const found = next(test_state, test_rtt).?;
     try testing.expectEqual(Mode.loss, found.mode);
     try testing.expectEqual(Kind.handshake, found.space);
     try testing.expectEqual(test_now_ns, found.at_ns);
     // The nearest across the spaces is the one that is set.
     test_state.spaces[@intFromEnum(Kind.initial)].loss_time_ns = test_now_ns - 1;
-    try testing.expectEqual(Kind.initial, next(test_state, test_rtt, test_now_ns).?.space);
+    try testing.expectEqual(Kind.initial, next(test_state, test_rtt).?.space);
     // RFC 9002 Appendix A.8 checks the loss time before the anti-amplification limit, so a
     // server that may send nothing still sets a timer for a packet it already knows is ageing.
     test_state.at_anti_amplification_limit = true;
-    try testing.expectEqual(Mode.loss, next(test_state, test_rtt, test_now_ns).?.mode);
+    try testing.expectEqual(Mode.loss, next(test_state, test_rtt).?.mode);
 }
 
 test "A.8: no timer is set where nothing could answer it" {
@@ -214,42 +221,45 @@ test "A.8: no timer is set where nothing could answer it" {
     // RFC 9002 Appendix A.8: a server at the anti-amplification limit may send nothing, so a
     // probe would fire on something it cannot do.
     test_state.at_anti_amplification_limit = true;
-    try testing.expectEqual(null, next(test_state, test_rtt, test_now_ns));
+    try testing.expectEqual(null, next(test_state, test_rtt));
     // With nothing outstanding and the peer's address validated there is nothing to detect.
     reset();
     test_state.peer_completed_address_validation = true;
-    try testing.expectEqual(null, next(test_state, test_rtt, test_now_ns));
+    try testing.expectEqual(null, next(test_state, test_rtt));
 }
 
-test "A.8: with nothing outstanding an unvalidated client probes from now" {
+test "A.8: with nothing outstanding an unvalidated client probes from when the timer was set" {
     reset();
-    // RFC 9002 Appendix A.8: the anti-deadlock probe starts from the current instant, because
-    // nothing is outstanding to measure from. Without Handshake keys it is a padded Initial,
-    // which earns the server more anti-amplification credit.
-    const initial = next(test_state, test_rtt, test_now_ns).?;
+    // Nothing has set the timer yet, so there is no instant to count from.
+    try testing.expectEqual(null, next(test_state, test_rtt));
+    // RFC 9002 Appendix A.8: the anti-deadlock probe starts from the instant the timer was set,
+    // because nothing is outstanding to measure from. Without Handshake keys it is a padded
+    // Initial, which earns the server more anti-amplification credit.
+    test_state.armed_at_ns = test_now_ns;
+    const initial = next(test_state, test_rtt).?;
     try testing.expectEqual(Mode.probe, initial.mode);
     try testing.expectEqual(Kind.initial, initial.space);
     try testing.expectEqual(test_now_ns + test_probe_ns, initial.at_ns);
     // With them it is a Handshake packet, which proves address ownership.
     test_state.has_handshake_keys = true;
-    try testing.expectEqual(Kind.handshake, next(test_state, test_rtt, test_now_ns).?.space);
+    try testing.expectEqual(Kind.handshake, next(test_state, test_rtt).?.space);
 }
 
 test "A.8: a probe is measured from the last packet the peer must acknowledge" {
     reset();
     in_flight(.handshake);
-    const found = next(test_state, test_rtt, test_now_ns).?;
+    const found = next(test_state, test_rtt).?;
     try testing.expectEqual(Kind.handshake, found.space);
     try testing.expectEqual(test_sent_at_ns + test_probe_ns, found.at_ns);
     // A space that sent an ack-eliciting packet earlier but has nothing outstanding now — which
     // is every space once its packets are acknowledged — contributes nothing, however much
     // nearer its probe would have been.
     test_state.spaces[@intFromEnum(Kind.initial)].last_ack_eliciting_sent_at_ns = test_sent_at_ns - 1;
-    try testing.expectEqual(Kind.handshake, next(test_state, test_rtt, test_now_ns).?.space);
+    try testing.expectEqual(Kind.handshake, next(test_state, test_rtt).?.space);
     // Put something outstanding in it and it wins, because its probe is the nearer.
     in_flight(.initial);
     test_state.spaces[@intFromEnum(Kind.initial)].last_ack_eliciting_sent_at_ns = test_sent_at_ns - 1;
-    try testing.expectEqual(Kind.initial, next(test_state, test_rtt, test_now_ns).?.space);
+    try testing.expectEqual(Kind.initial, next(test_state, test_rtt).?.space);
 }
 
 test "A.8: the Application Data space waits for the handshake and carries the peer's delay" {
@@ -257,11 +267,11 @@ test "A.8: the Application Data space waits for the handshake and carries the pe
     in_flight(.application);
     // RFC 9002 Appendix A.8: until the handshake is confirmed that space is skipped, and here
     // nothing else is outstanding, so no timer is set at all.
-    try testing.expectEqual(null, next(test_state, test_rtt, test_now_ns));
+    try testing.expectEqual(null, next(test_state, test_rtt));
     // A space before it still sets one, and the walk stops at Application Data rather than
     // passing it.
     in_flight(.handshake);
-    const before = next(test_state, test_rtt, test_now_ns).?;
+    const before = next(test_state, test_rtt).?;
     try testing.expectEqual(Kind.handshake, before.space);
     try testing.expectEqual(test_sent_at_ns + test_probe_ns, before.at_ns);
     // Once confirmed the space arms, and §6.2.1 puts the peer's max_ack_delay on it alone — so
@@ -269,7 +279,7 @@ test "A.8: the Application Data space waits for the handshake and carries the pe
     reset();
     in_flight(.application);
     test_state.handshake_confirmed = true;
-    const after = next(test_state, test_rtt, test_now_ns).?;
+    const after = next(test_state, test_rtt).?;
     try testing.expectEqual(Kind.application, after.space);
     try testing.expectEqual(test_sent_at_ns + test_application_probe_ns, after.at_ns);
 }
@@ -278,20 +288,20 @@ test "§6.2.1: the timeout doubles for each probe and stops doubling at a named 
     reset();
     in_flight(.initial);
     test_state.pto_count = 1;
-    try testing.expectEqual(test_sent_at_ns + 2 * test_probe_ns, next(test_state, test_rtt, test_now_ns).?.at_ns);
+    try testing.expectEqual(test_sent_at_ns + 2 * test_probe_ns, next(test_state, test_rtt).?.at_ns);
     test_state.pto_count = 3;
-    try testing.expectEqual(test_sent_at_ns + 8 * test_probe_ns, next(test_state, test_rtt, test_now_ns).?.at_ns);
+    try testing.expectEqual(test_sent_at_ns + 8 * test_probe_ns, next(test_state, test_rtt).?.at_ns);
     // The peer's delay is backed off with the rest in the Application Data space.
     reset();
     in_flight(.application);
     test_state.handshake_confirmed = true;
     test_state.pto_count = 1;
-    try testing.expectEqual(test_sent_at_ns + 2 * test_application_probe_ns, next(test_state, test_rtt, test_now_ns).?.at_ns);
+    try testing.expectEqual(test_sent_at_ns + 2 * test_application_probe_ns, next(test_state, test_rtt).?.at_ns);
     // Past the named limit the doubling stops rather than overflowing.
     reset();
     in_flight(.initial);
     test_state.pto_count = constants.probe_timeout_backoff_max;
-    const capped = next(test_state, test_rtt, test_now_ns).?.at_ns;
+    const capped = next(test_state, test_rtt).?.at_ns;
     test_state.pto_count = std.math.maxInt(u6);
-    try testing.expectEqual(capped, next(test_state, test_rtt, test_now_ns).?.at_ns);
+    try testing.expectEqual(capped, next(test_state, test_rtt).?.at_ns);
 }

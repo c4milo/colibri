@@ -97,6 +97,8 @@ pub fn on_ack_received(
     // because a probe that was answered is no longer evidence of a path that will not answer.
     if (held.timer.peer_completed_address_validation) held.timer.pto_count = 0;
     held.timer.spaces[at].ack_eliciting_in_flight = held.table_of(kind).ack_eliciting_count() > 0;
+    // RFC 9002 Appendix A.7 ends with `SetLossDetectionTimer`.
+    held.timer.armed_at_ns = now_ns;
     return outcome;
 }
 

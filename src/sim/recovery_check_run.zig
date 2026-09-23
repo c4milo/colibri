@@ -102,7 +102,7 @@ const Run = struct {
     fn next_instant(run: *const Run) u64 {
         var at_ns: u64 = run.now_ns +| idle_step_ns;
         if (run.storage.network.next_arrival_ns()) |arrival_ns| at_ns = @min(at_ns, arrival_ns);
-        if (run.storage.sender.next_timer(run.now_ns)) |timer| at_ns = @min(at_ns, timer.at_ns);
+        if (run.storage.sender.next_timer()) |timer| at_ns = @min(at_ns, timer.at_ns);
         return @max(at_ns, run.now_ns +| 1);
     }
 
@@ -170,12 +170,12 @@ const Run = struct {
 
     /// Fires the one loss detection timer where it is due (RFC 9002 Appendix A.9).
     fn fire_timer(run: *Run) Violation!void {
-        const timer = run.storage.sender.next_timer(run.now_ns) orelse return;
+        const timer = run.storage.sender.next_timer() orelse return;
         if (timer.at_ns > run.now_ns) return;
         const action = run.storage.sender.on_timeout(run.now_ns, &run.storage.lost);
         switch (action) {
             .none => {},
-            .lost => |found| try run.settle_lost(found.written),
+            .lost => |lost| try run.settle_lost(lost.found.written),
             .probe => |probe| try run.send_probes(probe.count),
         }
     }

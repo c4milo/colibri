@@ -9,6 +9,8 @@ const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
 const key_update = @import("connection_key_update.zig");
 const timer = @import("connection_timer.zig");
+const connection_recovery = @import("connection_recovery.zig");
+const Kind = @import("../space/space.zig").Kind;
 const build_test = @import("packet_build/packet_build_test.zig");
 
 const testing = std.testing;
@@ -17,6 +19,8 @@ const Parameters = transport_parameters.Parameters;
 
 var test_connection: Connection = undefined;
 var suite_holder: build_test.RoundTrip = undefined;
+/// Where the loss timer's lost packets go (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
@@ -49,17 +53,23 @@ fn open_connection(idle_ms: u64) void {
         .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
     });
     // RFC 9002 Appendix A.8 arms an anti-deadlock probe until the peer has validated this
-    // endpoint's address, which would be the nearest deadline in every case below. The case that
-    // is about that probe turns it back off.
-    test_connection.recovery.timer.peer_completed_address_validation = true;
+    // endpoint's address, which would be the nearest deadline in every case below. A Handshake
+    // ACK is what tells a client so ("has received Handshake ACK"). The case that is about that
+    // probe takes it back.
+    acknowledge_handshake(0);
 }
 
 fn next() ?timer.Deadline {
-    return timer.next(&test_connection, test_now_ns);
+    return timer.next(&test_connection);
 }
 
-fn fire(now_ns: u64) timer.Fired {
-    return timer.on_instant(&test_connection, suite_holder.suite(), now_ns);
+fn fire(now_ns: u64) !timer.Fired {
+    return timer.on_instant(&test_connection, suite_holder.suite(), &recovery_scratch, now_ns);
+}
+
+/// Records that the peer acknowledged Handshake packet `number`, or nothing when null.
+fn acknowledge_handshake(number: ?u64) void {
+    test_connection.recovery.largest_acknowledged[@intFromEnum(Kind.handshake)] = number;
 }
 
 /// RFC 9001 §6.5's period, which the key update's own deadline is measured in.
@@ -71,9 +81,17 @@ test "RFC 9002 Appendix A.8: a client arms a probe until the peer has validated 
     open_connection(0);
     // "PeerCompletedAddressValidation": until it holds, a client with nothing outstanding still
     // sets a timer, so a handshake cannot deadlock on a lost first flight.
-    test_connection.recovery.timer.peer_completed_address_validation = false;
+    acknowledge_handshake(null);
+    // RFC 9002 Appendix A.5: a padded Initial that elicits nothing is in flight, and sets it.
+    try test_connection.recovery.on_packet_sent(.initial, .{
+        .number = 0,
+        .sent_at_ns = test_now_ns,
+        .sent_len = @intCast(constants.datagram_len_min),
+        .ack_eliciting = false,
+        .in_flight = true,
+    }, test_now_ns);
     try testing.expectEqual(timer.Kind.loss, next().?.kind);
-    test_connection.recovery.timer.peer_completed_address_validation = true;
+    acknowledge_handshake(0);
     try testing.expectEqual(null, next());
 }
 
@@ -82,7 +100,7 @@ test "design §4.2: a connection with nothing armed asks for no instant" {
     // default, so this connection has no timer of any kind.
     open_connection(0);
     try testing.expectEqual(null, next());
-    const fired = fire(test_now_ns + idle_timeout_ns);
+    const fired = try fire(test_now_ns + idle_timeout_ns);
     try testing.expect(!fired.idle and !fired.period and !fired.path and !fired.loss);
 }
 
@@ -93,10 +111,10 @@ test "RFC 9000 §10.1: the idle timeout is a deadline, and firing it closes the 
     try testing.expectEqual(test_now_ns + idle_timeout_ns, deadline.at_ns);
 
     // An instant short of it fires nothing.
-    try testing.expect(!fire(deadline.at_ns - 1).idle);
+    try testing.expect(!(try fire(deadline.at_ns - 1)).idle);
     try testing.expectEqual(.send_anything, test_connection.termination.permission());
 
-    const fired = fire(deadline.at_ns);
+    const fired = try fire(deadline.at_ns);
     try testing.expect(fired.idle);
     // §10.1: the connection is closed silently, so nothing may be sent afterwards.
     try testing.expectEqual(.send_nothing, test_connection.termination.permission());
@@ -115,7 +133,7 @@ test "RFC 9000 §8.2.4: an outstanding PATH_CHALLENGE is the nearer deadline" {
     try testing.expectEqual(timer.Kind.path, deadline.kind);
     try testing.expectEqual(test_now_ns + challenge_timeout_ns, deadline.at_ns);
 
-    const fired = fire(deadline.at_ns);
+    const fired = try fire(deadline.at_ns);
     try testing.expect(fired.path);
     // "Path validation only fails when the endpoint attempting to validate the path abandons its
     // attempt", which is what the timer did.
@@ -136,8 +154,8 @@ test "RFC 9000 §10.2: the closing period replaces the idle timeout" {
     // §10.1's timer belongs to an active connection, and this one is closing.
     try testing.expectEqual(null, test_connection.termination.idle_deadline_ns());
 
-    try testing.expect(!fire(deadline.at_ns - 1).period);
-    try testing.expect(fire(deadline.at_ns).period);
+    try testing.expect(!(try fire(deadline.at_ns - 1)).period);
+    try testing.expect((try fire(deadline.at_ns)).period);
     // §10.2: once the period ends the caller discards the state.
     try testing.expectEqual(null, next());
 }
@@ -153,15 +171,15 @@ test "RFC 9001 §6.5: the previous read keys are a deadline of their own" {
     try testing.expectEqual(timer.Kind.previous_keys, deadline.kind);
     try testing.expectEqual(test_now_ns + three_probe_timeouts_ns(), deadline.at_ns);
 
-    try testing.expect(!fire(deadline.at_ns - 1).previous_keys);
+    try testing.expect(!(try fire(deadline.at_ns - 1)).previous_keys);
     try testing.expectEqual(0, suite_holder.previous_discards);
-    const fired = fire(deadline.at_ns);
+    const fired = try fire(deadline.at_ns);
     try testing.expect(fired.previous_keys);
     try testing.expectEqual(1, suite_holder.previous_discards);
     try testing.expectEqual(timer.Kind.idle, next().?.kind);
 }
 
-test "RFC 9002 Appendix A.8: a packet in flight arms the loss timer, which is reported" {
+test "RFC 9002 Appendix A.9, decision 59: a packet in flight arms the loss timer, which runs" {
     open_connection(idle_timeout_ms);
     // RFC 9002 Appendix A.8's `GetPtoTimeAndSpace` skips the Application Data space until the
     // handshake is confirmed, so the packet that arms this one is an Initial.
@@ -175,11 +193,12 @@ test "RFC 9002 Appendix A.8: a packet in flight arms the loss timer, which is re
 
     const deadline = next().?;
     try testing.expectEqual(timer.Kind.loss, deadline.kind);
-    try testing.expect(!fire(deadline.at_ns - 1).loss);
-    const fired = fire(deadline.at_ns);
-    // Appendix A.9's `OnLossDetectionTimeout` is the caller's, because it needs storage for what
-    // it declares lost, so the timer is reported and nothing here acts on it.
+    try testing.expect(!(try fire(deadline.at_ns - 1)).loss);
+    const fired = try fire(deadline.at_ns);
     try testing.expect(fired.loss);
+    // Decision 59: Appendix A.9's `OnLossDetectionTimeout` ran. Nothing was old enough to be lost,
+    // so it was the Probe Timeout, and §6.2.4 owes two probes while a packet is in flight.
+    try testing.expectEqual(constants.probe_packets, test_connection.probes_owed[@intFromEnum(core.Level.initial)]);
 }
 
 test "design §4.2: more than one deadline can come due at one instant" {
@@ -190,7 +209,7 @@ test "design §4.2: more than one deadline can come due at one instant" {
 
     // Every one of the three is past at an instant beyond them all, and `Fired` is a set rather
     // than a choice, so each says so.
-    const fired = fire(test_now_ns + idle_timeout_ns);
+    const fired = try fire(test_now_ns + idle_timeout_ns);
     try testing.expect(fired.idle);
     try testing.expect(fired.path);
     try testing.expect(fired.previous_keys);

@@ -123,7 +123,7 @@ test "A.7: an acknowledgment measures the path, takes packets out and grows the 
     // RFC 9002 Appendix A.8: with nothing outstanding and the address validated, no timer.
     try testing.expect(!test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
     test_recovery.timer.peer_completed_address_validation = true;
-    try testing.expectEqual(null, test_recovery.next_timer(at_ns));
+    try testing.expectEqual(null, test_recovery.next_timer());
 }
 
 test "§5.1: a repeated acknowledgment measures nothing" {
@@ -225,7 +225,7 @@ test "A.9: a probe timeout asks for two packets and backs the next one off" {
     test_recovery.timer.handshake_confirmed = true;
     test_recovery.timer.peer_completed_address_validation = true;
     try send_spaced(.application, 1);
-    const timer = test_recovery.next_timer(test_start_ns).?;
+    const timer = test_recovery.next_timer().?;
     try testing.expectEqual(.probe, timer.mode);
     try testing.expectEqual(Kind.application, timer.space);
     const action = test_recovery.on_timeout(timer.at_ns, &test_lost);
@@ -233,7 +233,7 @@ test "A.9: a probe timeout asks for two packets and backs the next one off" {
     try testing.expectEqual(Kind.application, action.probe.space);
     try testing.expectEqual(1, test_recovery.timer.pto_count);
     // RFC 9002 §6.2.1: the next timeout is twice as far out.
-    const backed_off = test_recovery.next_timer(timer.at_ns).?;
+    const backed_off = test_recovery.next_timer().?;
     try testing.expectEqual(timer.at_ns - test_start_ns, (backed_off.at_ns - test_start_ns) / 2);
     // The packet is still outstanding, so the probe did not take it out of flight.
     try testing.expectEqual(test_datagram_len, test_recovery.in_flight_len());
@@ -249,12 +249,13 @@ test "A.9: a loss timeout declares the packet lost and rearms" {
     const at_ns = test_start_ns + 2 * test_close_ns + test_round_trip_ns;
     const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(2, 2), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(1, outcome.lost.count);
-    const timer = test_recovery.next_timer(at_ns).?;
+    const timer = test_recovery.next_timer().?;
     try testing.expectEqual(.loss, timer.mode);
     try testing.expectEqual(outcome.lost.loss_time_ns, timer.at_ns);
     // At that instant the survivor is old enough, and the timer has nothing left to arm.
     const action = test_recovery.on_timeout(timer.at_ns, &test_lost);
-    try testing.expectEqual(1, action.lost.count);
+    try testing.expectEqual(1, action.lost.found.count);
+    try testing.expectEqual(Kind.application, action.lost.space);
     try testing.expectEqual(1, test_lost[0].number);
     try testing.expectEqual(0, test_recovery.in_flight_len());
     try testing.expectEqual(null, test_recovery.timer.spaces[@intFromEnum(Kind.application)].loss_time_ns);
@@ -308,9 +309,9 @@ test "A.6: a datagram lifts the anti-amplification limit" {
     try send_spaced(.initial, 1);
     test_recovery.timer.at_anti_amplification_limit = true;
     // RFC 9002 Appendix A.8: a server that may send nothing sets no timer.
-    try testing.expectEqual(null, test_recovery.next_timer(test_start_ns));
+    try testing.expectEqual(null, test_recovery.next_timer());
     test_recovery.on_datagram_received();
-    try testing.expect(test_recovery.next_timer(test_start_ns) != null);
+    try testing.expect(test_recovery.next_timer() != null);
 }
 
 test "§7.7: what may go out is the smaller of the window and what the pacer has earned" {
@@ -337,27 +338,43 @@ test "A.8: a space holding only PADDING owes no acknowledgment and arms no probe
     try testing.expectEqual(test_datagram_len, test_recovery.in_flight_len());
     // But the peer owes nothing for it, so RFC 9002 Appendix A.8 arms no Probe Timeout.
     try testing.expect(!test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
-    try testing.expectEqual(null, test_recovery.next_timer(test_start_ns));
+    try testing.expectEqual(null, test_recovery.next_timer());
     // One ack-eliciting packet beside it does arm one.
     try test_recovery.on_packet_sent(.application, eliciting(1, test_start_ns), test_start_ns);
     try testing.expect(test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
-    try testing.expect(test_recovery.next_timer(test_start_ns) != null);
+    try testing.expect(test_recovery.next_timer() != null);
 }
 
 test "A.9: with nothing outstanding the probe is the single anti-deadlock packet" {
     test_recovery.init(test_datagram_len);
     // RFC 9002 Appendix A.8: a client whose address the server has not validated arms a probe
-    // even with nothing outstanding, and Appendix A.9 sends one packet rather than two.
-    const timer = test_recovery.next_timer(test_start_ns).?;
+    // even with nothing outstanding, and Appendix A.9 sends one packet rather than two. A padded
+    // packet that elicits nothing is what sets the timer (Appendix A.5), and it is counted from.
+    try test_recovery.on_packet_sent(.handshake, padding_only(0, test_start_ns), test_start_ns);
+    const timer = test_recovery.next_timer().?;
+    try testing.expectEqual(test_start_ns + test_recovery.rtt.probe_timeout_ns(false), timer.at_ns);
     try testing.expectEqual(.probe, timer.mode);
     try testing.expectEqual(Kind.initial, timer.space);
     const action = test_recovery.on_timeout(timer.at_ns, &test_lost);
     try testing.expectEqual(1, action.probe.count);
     try testing.expectEqual(Kind.initial, action.probe.space);
+    // RFC 9002 Appendix A.9 sets the timer again as it goes off, and §6.2.1 doubles the period.
+    const again = test_recovery.next_timer().?;
+    try testing.expectEqual(timer.at_ns + 2 * test_recovery.rtt.probe_timeout_ns(false), again.at_ns);
     // With something outstanding it is the two of a real Probe Timeout.
     try send_spaced(.initial, 1);
-    const armed = test_recovery.next_timer(test_start_ns).?;
+    const armed = test_recovery.next_timer().?;
     try testing.expectEqual(constants.probe_packets, test_recovery.on_timeout(armed.at_ns, &test_lost).probe.count);
+}
+
+test "A.7: an acknowledgment sets the timer again, which the anti-deadlock probe counts from" {
+    test_recovery.init(test_datagram_len);
+    try send_spaced(.initial, 1);
+    const at_ns = test_start_ns + test_round_trip_ns;
+    _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(0, 0), .full, at_ns, &test_acknowledged, &test_lost);
+    // Nothing is outstanding and the address is not validated, so this is the anti-deadlock probe.
+    const timer = test_recovery.next_timer().?;
+    try testing.expectEqual(at_ns + test_recovery.rtt.probe_timeout_ns(false), timer.at_ns);
 }
 
 test "A.7: the backoff starts again only once the peer has validated the address" {
