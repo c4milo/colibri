@@ -47,6 +47,7 @@ pub const connection_handshake = @import("connection/connection_handshake.zig");
 pub const connection_flow = @import("connection/connection_flow.zig");
 pub const connection_id_frames = @import("connection/connection_id_frames.zig");
 pub const connection_recovery = @import("connection/connection_recovery.zig");
+pub const connection_datagram = @import("connection/connection_datagram.zig");
 pub const Connection = connection.Connection;
 pub const crypto_stream = @import("crypto_stream.zig");
 pub const transport_parameters = @import("transport_parameters.zig");

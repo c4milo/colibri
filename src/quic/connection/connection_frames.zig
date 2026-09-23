@@ -73,7 +73,7 @@ pub fn connection_error_code(failure: Error) u64 {
 }
 
 /// `failure` as a member of `Subset`, or null when it is not one.
-fn member_of(comptime Subset: type, failure: Error) ?Subset {
+pub fn member_of(comptime Subset: type, failure: anytype) ?Subset {
     // Bounded by the members of an error set named at compile time.
     inline for (@typeInfo(Subset).error_set.?) |member| {
         const held = @field(Subset, member.name);

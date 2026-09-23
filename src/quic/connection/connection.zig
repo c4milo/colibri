@@ -287,4 +287,5 @@ test {
     _ = @import("connection_path_frames.zig");
     _ = @import("packet_build/packet_build.zig");
     _ = @import("connection_send.zig");
+    _ = @import("connection_datagram.zig");
 }
