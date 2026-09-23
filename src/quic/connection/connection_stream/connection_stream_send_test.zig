@@ -300,7 +300,10 @@ test "§4.1: new octets stop at the peer's limit for the stream, and at the conn
     const id = try open_supplied(short_body_len, true);
     const limited = (try send_from(&body, datagram.len)).?;
     try testing.expectEqual(small_window, limited.packets[0].data_len);
-    // "Senders MUST NOT send data in excess of either limit": nothing more until it rises.
+    // "Senders MUST NOT send data in excess of either limit": no more octets until it rises, and
+    // one STREAM_DATA_BLOCKED says so (§4.1), once for this limit.
+    const blocked = (try send_from(&body, datagram.len)).?;
+    try testing.expectEqual(Carries.none, blocked.packets[0].carries);
     try testing.expectEqual(null, try send_from(&body, datagram.len));
     _ = stream_of(id).send_flow.raise(short_body_len);
     const rest = (try send_from(&body, datagram.len)).?;

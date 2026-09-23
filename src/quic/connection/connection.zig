@@ -78,8 +78,9 @@ pub const Connection = struct {
     send_flow: flow.Sender,
     /// The connection-level data colibri will accept, which its own parameters fix (§4.1).
     receive_flow: flow.Receiver,
-    /// The MAX_DATA frame most recently sent (RFC 9000 §13.3).
+    /// The MAX_DATA and DATA_BLOCKED frames most recently sent (RFC 9000 §13.3).
     max_data: flow.Advertised,
+    data_blocked: flow.Advertised,
     /// The connection IDs colibri issued and the peer may use (RFC 9000 §5.1).
     local_ids: connection_id.Local,
     /// The connection IDs the peer issued and colibri may use (§5.1).
@@ -140,6 +141,7 @@ pub const Connection = struct {
         connection.handshake_confirmed = false;
         connection.handshake_done = .{};
         connection.max_data = .{};
+        connection.data_blocked = .{};
         connection.key_phase.init();
         connection.retry_token.init();
         connection.pending_close = null;

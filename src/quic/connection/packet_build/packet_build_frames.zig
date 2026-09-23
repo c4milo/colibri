@@ -84,7 +84,9 @@ pub fn write(
     const carries_handshake_done = connection_handshake.write_done(connection, level, &writer);
     // RFC 9000 §4.2: the limits the peer may use, before any octets compete for the room, so a
     // peer waiting on credit is not kept waiting by this endpoint's own data.
-    const carries_limits = connection_flow.write_limits(connection, level, &writer, number, now_ns);
+    var carries_limits = connection_flow.write_limits(connection, level, &writer, number, now_ns);
+    // RFC 9000 §4.1, §4.6: what the peer's limits hold back, after the limits this endpoint gives.
+    if (connection_flow.write_blocked(connection, level, &writer, number)) carries_limits = true;
     const written_path = writer.written().len;
     const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
     return .{

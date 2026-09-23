@@ -46,8 +46,10 @@ pub const Stream = struct {
     /// How far this endpoint's octets reach, how far they went out and how many arrived
     /// (decision 57).
     outgoing: stream_outgoing.Outgoing = .{},
-    /// The MAX_STREAM_DATA frame most recently sent for this stream (RFC 9000 §13.3).
+    /// The MAX_STREAM_DATA and STREAM_DATA_BLOCKED frames most recently sent for this stream
+    /// (RFC 9000 §13.3).
     max_stream_data: flow.Advertised = .{},
+    stream_data_blocked: flow.Advertised = .{},
 
     pub fn stream_identifier(stream: *const Stream) StreamId {
         return .{ .value = stream.id };
@@ -105,8 +107,12 @@ pub const Streams = struct {
     next_index: [constants.stream_directionalities]u64,
     /// The stream octets lost in transit and owed again (§13.3), across every stream.
     lost: stream_lost.LostRanges,
-    /// The MAX_STREAMS frame most recently sent for each stream type (§13.3).
+    /// The MAX_STREAMS and STREAMS_BLOCKED frames most recently sent for each stream type (§13.3).
     max_streams: [constants.stream_directionalities]flow.Advertised,
+    streams_blocked: [constants.stream_directionalities]flow.Advertised,
+    /// Whether this endpoint tried to open a stream of each type and the peer's limit refused it
+    /// since the last one it opened, which is when §4.6 asks for STREAMS_BLOCKED.
+    open_refused: [constants.stream_directionalities]bool,
 
     /// `peer_limits` are the counts this endpoint advertises, which `init` caps at the table's
     /// capacity: §3.2's implicit creation makes an advertised limit a promise to hold that many
@@ -122,6 +128,8 @@ pub const Streams = struct {
         streams.next_index = @splat(0);
         streams.lost.init();
         streams.max_streams = @splat(.{});
+        streams.streams_blocked = @splat(.{});
+        streams.open_refused = @splat(false);
         for (0..constants.stream_directionalities) |index| {
             streams.local_limit[index] = flow.Sender.init(local_limits[index]);
             const capped = @min(peer_limits[index], constants.streams_per_connection_max);
@@ -146,9 +154,12 @@ pub const Streams = struct {
     /// Opens the next stream this endpoint initiates, of `directionality` (RFC 9000 §2.1).
     pub fn open_local(streams: *Streams, directionality: Directionality) OpenError!*Stream {
         const which = @intFromEnum(directionality);
-        // RFC 9000 §4.6: endpoints MUST NOT exceed the limit their peer set. A caller that is
-        // blocked here sends STREAMS_BLOCKED (§19.14).
-        if (streams.local_limit[which].is_blocked()) return error.StreamLimitReached;
+        if (streams.local_limit[which].is_blocked()) {
+            // The refusal is what STREAMS_BLOCKED reports (§19.14).
+            streams.open_refused[which] = true;
+            // RFC 9000 §4.6: endpoints MUST NOT exceed the limit their peer set.
+            return error.StreamLimitReached;
+        }
         const index = streams.next_index[which];
         // RFC 9000 §2.1: a stream ID is 62 bits, so each type's indices end.
         if (index > constants.stream_index_max) return error.IdentifiersExhausted;
@@ -156,6 +167,7 @@ pub const Streams = struct {
         const stream = streams.pool.open(id.value) catch return error.Full;
         streams.next_index[which] = index + 1;
         streams.local_limit[which].spend(1);
+        streams.open_refused[which] = false;
         return stream;
     }
 

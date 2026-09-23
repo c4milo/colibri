@@ -1,13 +1,19 @@
-//! The limits this endpoint gives its peer (RFC 9000 §4.1, §4.6): MAX_DATA, MAX_STREAM_DATA and
-//! MAX_STREAMS (§19.9 to §19.11). Part of design §8 step 9e.
+//! The flow control frames (RFC 9000 §4.1, §4.6): MAX_DATA, MAX_STREAM_DATA and MAX_STREAMS, the
+//! limits this endpoint gives its peer (§19.9 to §19.11), and DATA_BLOCKED, STREAM_DATA_BLOCKED
+//! and STREAMS_BLOCKED, which say the peer's limits are holding this endpoint back (§19.12 to
+//! §19.14). Part of design §8 step 9e.
 //!
 //! `flow.Receiver` decides when new credit is worth a frame, and grows its window (decision 49).
 //! What it measures from is what the application consumed, so `consume` is how the caller says it
 //! read octets, and reading is what lets the peer send more (§4.1). A stream count is given back
 //! when a stream the peer opened closes (`Streams.close`, §4.6).
 //!
+//! A BLOCKED frame goes out once per limit, and only while this endpoint has something the limit
+//! holds back: octets to send (§4.1), or a stream it tried to open (§4.6).
+//!
 //! RFC 9000 §13.3 sends a lost limit frame again at the current value, and only when the lost
-//! packet carried the most recent frame for its scope. Each scope keeps that packet's number in a
+//! packet carried the most recent frame for its scope; a lost BLOCKED frame likewise, and only
+//! while the endpoint is still blocked on that limit. Each scope keeps that packet's number in a
 //! `flow.Advertised`, so a loss is matched by number and nothing is kept per packet.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -67,19 +73,44 @@ pub fn write_limits(connection: *Connection, level: Level, writer: *Writer, numb
     return wrote;
 }
 
-/// Owes a limit frame again for every scope whose most recent one the lost packets carried
-/// (RFC 9000 §13.3: "An updated value is sent in a MAX_DATA frame if the packet containing the
-/// most recently sent MAX_DATA frame is declared lost", and the same for the other two). The
-/// records are one space's, and only 1-RTT packets carried these frames.
+/// Writes the DATA_BLOCKED, STREAMS_BLOCKED and STREAM_DATA_BLOCKED frames owed now, each naming
+/// the limit current when it is written, and records packet `number` as the one carrying them.
+/// True when any went in.
+pub fn write_blocked(connection: *Connection, level: Level, writer: *Writer, number: u64) bool {
+    // RFC 9000 §12.4, Table 3 marks all three "__01", as it does the limit frames.
+    if (level != .application) return false;
+    var wrote = write_data_blocked(connection, writer, number);
+    for ([_]Directionality{ .bidirectional, .unidirectional }) |directionality| {
+        if (write_streams_blocked(connection, directionality, writer, number)) wrote = true;
+    }
+    var walk = connection.streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        if (write_stream_data_blocked(stream, writer, number)) wrote = true;
+    }
+    return wrote;
+}
+
+/// Owes a flow control frame again for every scope whose most recent one the lost packets
+/// carried (RFC 9000 §13.3: "An updated value is sent in a MAX_DATA frame if the packet
+/// containing the most recently sent MAX_DATA frame is declared lost", the same for the other
+/// limits, and "A new frame is sent if a packet containing the most recent frame for a scope is
+/// lost" for the blocked ones). The records are one space's, and only 1-RTT packets carried these
+/// frames.
 pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Record) void {
     if (level != .application) return;
     // Bounded by the slice the caller placed, which `constants.sent_packets_max` sizes.
     for (lost) |record| {
         connection.max_data.on_lost(record.number);
+        connection.data_blocked.on_lost(record.number);
         for (&connection.streams.max_streams) |*advertised| advertised.on_lost(record.number);
+        for (&connection.streams.streams_blocked) |*advertised| advertised.on_lost(record.number);
         var walk = connection.streams.pool.iterator();
         // Bounded by the table's capacity, `streams_per_connection_max`.
-        while (walk.next()) |stream| stream.max_stream_data.on_lost(record.number);
+        while (walk.next()) |stream| {
+            stream.max_stream_data.on_lost(record.number);
+            stream.stream_data_blocked.on_lost(record.number);
+        }
     }
 }
 
@@ -123,6 +154,69 @@ fn write_max_stream_data(
     assert(stream.stream_identifier().is_receivable_by(connection.streams.role));
     const frame: frame_module.Frame = .{ .max_stream_data = .{ .stream_id = stream.id, .maximum = stream.receive_flow.limit } };
     return write_or_owe(writer, frame, &stream.max_stream_data, number);
+}
+
+/// RFC 9000 §19.12: the connection's limit holds back octets this endpoint has to send (§4.1: a
+/// sender "has data to write but is blocked by flow control limits").
+fn write_data_blocked(connection: *Connection, writer: *Writer, number: u64) bool {
+    const sender = &connection.send_flow;
+    const blocked = sender.is_blocked() and has_unframed_octets(connection);
+    const fresh = blocked and sender.blocked_frame_limit() != null;
+    const frame: frame_module.Frame = .{ .data_blocked = .{ .limit = sender.limit } };
+    return write_blocked_frame(writer, frame, blocked, fresh, &connection.data_blocked, number);
+}
+
+/// RFC 9000 §19.14: the peer's limit refused a stream this endpoint tried to open (§4.6: "An
+/// endpoint that is unable to open a new stream due to the peer's limits SHOULD send a
+/// STREAMS_BLOCKED frame").
+fn write_streams_blocked(connection: *Connection, directionality: Directionality, writer: *Writer, number: u64) bool {
+    const streams = &connection.streams;
+    const which = @intFromEnum(directionality);
+    const blocked = streams.open_refused[which] and streams.local_limit[which].is_blocked();
+    const fresh = blocked and streams.blocked_frame_limit(directionality) != null;
+    const frame: frame_module.Frame = .{ .streams_blocked = .{
+        .directionality = frame_directionality(directionality),
+        .limit = streams.local_limit[which].limit,
+    } };
+    return write_blocked_frame(writer, frame, blocked, fresh, &streams.streams_blocked[which], number);
+}
+
+/// RFC 9000 §19.13: one stream's limit holds back octets it has to send.
+fn write_stream_data_blocked(stream: *Stream, writer: *Writer, number: u64) bool {
+    const blocked = stream.send_flow.is_blocked() and stream.sending.may_send_data() and
+        stream.outgoing.unframed_len() > 0;
+    const fresh = blocked and stream.send_flow.blocked_frame_limit() != null;
+    const frame: frame_module.Frame = .{ .stream_data_blocked = .{ .stream_id = stream.id, .limit = stream.send_flow.limit } };
+    return write_blocked_frame(writer, frame, blocked, fresh, &stream.stream_data_blocked, number);
+}
+
+/// Writes a blocked frame when a new limit blocks or a lost one is owed, and drops what is owed
+/// once the endpoint is no longer blocked: RFC 9000 §13.3 resends one "only while the endpoint is
+/// blocked on the corresponding limit".
+fn write_blocked_frame(
+    writer: *Writer,
+    frame: frame_module.Frame,
+    blocked: bool,
+    fresh: bool,
+    advertised: *flow.Advertised,
+    number: u64,
+) bool {
+    if (!blocked) {
+        advertised.owed = false;
+        return false;
+    }
+    if (!fresh and !advertised.owed) return false;
+    return write_or_owe(writer, frame, advertised, number);
+}
+
+/// Whether any stream has octets it could send if the connection's limit let it.
+fn has_unframed_octets(connection: *Connection) bool {
+    var walk = connection.streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        if (stream.sending.may_send_data() and stream.outgoing.unframed_len() > 0) return true;
+    }
+    return false;
 }
 
 /// Writes `frame` and records the packet carrying it, or leaves the frame owed when it does not

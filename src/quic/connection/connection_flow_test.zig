@@ -8,6 +8,7 @@ const constants = @import("../constants.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 const flow = @import("../flow.zig");
+const frame_module = @import("../frame/frame.zig");
 const stream_module = @import("../stream/stream.zig");
 const connection_module = @import("connection.zig");
 const keys = @import("connection_keys.zig");
@@ -111,6 +112,33 @@ fn deliver(sent: send.Sent, reader: *Connection) !void {
         const outcome = try receive.next(&walk, reader, suite_holder.suite()) orelse return;
         _ = try frames.process(reader, outcome.opened, test_now_ns);
     }
+}
+
+/// Frames one packet can carry in these tests. Test-only.
+const frames_max: usize = 16;
+
+/// Opens the one packet of `sent` at the server, takes its frames, and returns them read back, so
+/// a frame the server ignores can still be checked. Test-only.
+fn frames_of(sent: send.Sent, out: *[frames_max]frame_module.Frame) ![]frame_module.Frame {
+    var walk: receive.Walk = undefined;
+    walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
+    const opened = (try receive.next(&walk, &server, suite_holder.suite())).?.opened;
+    _ = try frames.process(&server, opened, test_now_ns);
+    var reader = core.Reader.init(opened.payload);
+    var count: usize = 0;
+    // Bounded by `frames_max`, and each read shortens the payload.
+    while (reader.remaining_len() > 0 and count < frames_max) : (count += 1) {
+        out[count] = try frame_module.read(&reader);
+    }
+    return out[0..count];
+}
+
+/// The first frame of `kind` among `held`. Test-only.
+fn find(held: []const frame_module.Frame, kind: std.meta.Tag(frame_module.Frame)) !frame_module.Frame {
+    for (held) |frame| {
+        if (std.meta.activeTag(frame) == kind) return frame;
+    }
+    return error.TestExpectedFrame;
 }
 
 fn record_of(sent: send.Sent) Record {
@@ -277,4 +305,101 @@ test "RFC 9000 §2.1: only a stream this endpoint receives on can be consumed" {
     try testing.expectError(error.NotReadable, flow_frames.consume(&client, outgoing, 1));
     const unopened = StreamId.of(.server, .bidirectional, 0);
     try testing.expectError(error.NotReadable, flow_frames.consume(&client, unopened, 1));
+}
+
+test "RFC 9000 §4.1, §19.12, §19.13: a sender with octets held back by both limits says so once per limit" {
+    open_pair();
+    const id = try fill_window(body_len, false);
+    // Below 1-RTT nothing is written (RFC 9000 §12.4, Table 3).
+    var room: [constants.datagram_len_min]u8 = undefined;
+    var handshake_writer = Writer.init(&room);
+    try testing.expect(!flow_frames.write_blocked(&client, .handshake, &handshake_writer, 0));
+    try testing.expectEqual(0, handshake_writer.written().len);
+    const blocked = (try send_from(&client)).?;
+    try testing.expect(blocked.packets[0].ack_eliciting);
+    try testing.expectEqual(blocked.packets[0].packet_number, client.data_blocked.sent_in);
+    try testing.expectEqual(blocked.packets[0].packet_number, client_stream(id).stream_data_blocked.sent_in);
+    // The server takes both frames, which oblige it to nothing, and each names the limit that
+    // blocks (§19.12, §19.13).
+    var read: [frames_max]frame_module.Frame = undefined;
+    const held = try frames_of(blocked, &read);
+    try testing.expectEqual(window, (try find(held, .data_blocked)).data_blocked.limit);
+    const stream_blocked = (try find(held, .stream_data_blocked)).stream_data_blocked;
+    try testing.expectEqual(id.value, stream_blocked.stream_id);
+    try testing.expectEqual(window, stream_blocked.limit);
+    // Once for each limit: nothing more goes out while the limits stay where they are.
+    try testing.expectEqual(null, try send_from(&client));
+}
+
+test "RFC 9000 §4.1: a sender blocked with nothing more to send says nothing" {
+    open_pair();
+    // The whole body and its FIN went out in the window, so the limit holds nothing back.
+    _ = try fill_window(window, true);
+    try testing.expectEqual(null, try send_from(&client));
+    try testing.expect(!client.data_blocked.sent);
+    // Nor with every supplied octet out and the stream not yet ended.
+    open_pair();
+    const open_id = try fill_window(window, false);
+    try testing.expectEqual(.send, client_stream(open_id).sending.state);
+    try testing.expectEqual(null, try send_from(&client));
+    // Nor for a stream reset with octets unsent: §3.1 sends none from "Reset Sent".
+    open_pair();
+    const reset_id = try fill_window(body_len, false);
+    _ = client_stream(reset_id).sending.on(.sent_reset);
+    try testing.expectEqual(null, try send_from(&client));
+    try testing.expect(!client.data_blocked.sent);
+    try testing.expect(!client_stream(reset_id).stream_data_blocked.sent);
+}
+
+test "RFC 9000 §13.3: a lost BLOCKED frame is sent again only while still blocked" {
+    open_pair();
+    const id = try fill_window(body_len, false);
+    const first = (try send_from(&client)).?;
+    flow_frames.on_packets_lost(&client, .application, &.{record_of(first)});
+    try testing.expect(client.data_blocked.owed);
+    try testing.expect(client_stream(id).stream_data_blocked.owed);
+    // Still blocked, so the next packet carries both again, naming the same limits.
+    const again = (try send_from(&client)).?;
+    try testing.expectEqual(again.packets[0].packet_number, client.data_blocked.sent_in);
+    try testing.expectEqual(again.packets[0].packet_number, client_stream(id).stream_data_blocked.sent_in);
+
+    // Lost again, but credit arrives first: "only while the endpoint is blocked on the
+    // corresponding limit", so octets go out and no BLOCKED frame with them.
+    flow_frames.on_packets_lost(&client, .application, &.{record_of(again)});
+    try flow_frames.consume(&server, id, half_window);
+    try deliver((try send_from(&server)).?, &client);
+    const unblocked = (try send_from(&client)).?;
+    try testing.expectEqual(recovery_sent.Carries.stream, unblocked.packets[0].carries);
+    try testing.expect(!client.data_blocked.owed);
+    try testing.expect(!client_stream(id).stream_data_blocked.owed);
+}
+
+test "RFC 9000 §4.6, §19.14: a stream the peer's limit refused is what STREAMS_BLOCKED reports" {
+    open_pair();
+    for (0..max_streams) |_| _ = try stream_send.open(&client, .bidirectional);
+    // At the limit and nothing refused yet: §4.6 asks for the frame from an endpoint "unable to
+    // open a new stream", which this one has not tried to do.
+    try testing.expectEqual(null, try send_from(&client));
+    try testing.expectError(error.StreamLimitReached, stream_send.open(&client, .bidirectional));
+    const blocked = (try send_from(&client)).?;
+    try testing.expectEqual(blocked.packets[0].packet_number, client.streams.streams_blocked[0].sent_in);
+    try testing.expect(!client.streams.streams_blocked[1].sent);
+    var read: [frames_max]frame_module.Frame = undefined;
+    const reported = (try find(try frames_of(blocked, &read), .streams_blocked)).streams_blocked;
+    try testing.expectEqual(frame_module.Directionality.bidirectional, reported.directionality);
+    try testing.expectEqual(max_streams, reported.limit);
+    try testing.expectEqual(null, try send_from(&client));
+    // Lost, and still refused, so it goes again.
+    flow_frames.on_packets_lost(&client, .application, &.{record_of(blocked)});
+    const again = (try send_from(&client)).?;
+    try testing.expectEqual(again.packets[0].packet_number, client.streams.streams_blocked[0].sent_in);
+
+    // Lost again, but the peer raises the limit first, so nothing is owed any more.
+    flow_frames.on_packets_lost(&client, .application, &.{record_of(again)});
+    try testing.expect(client.streams.raise_local_limit(.bidirectional, max_streams + 1));
+    try testing.expectEqual(null, try send_from(&client));
+    try testing.expect(!client.streams.streams_blocked[0].owed);
+    // A stream opened since clears the refusal, so reaching the new limit says nothing.
+    _ = try stream_send.open(&client, .bidirectional);
+    try testing.expectEqual(null, try send_from(&client));
 }
