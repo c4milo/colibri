@@ -22,6 +22,26 @@ pub const Format = enum {
     /// A whole datagram, read packet by packet by the version 1 reader (RFC 9000 §17, §12.2), at
     /// an endpoint whose connection IDs are the case's `connection_id_len` octets long.
     quic_packet,
+    /// A whole datagram, walked by the version 1 receive path at a client in the case's
+    /// `receive_state` (`corpus_receive.zig`). Its verdict is the first packet's discard, or the
+    /// connection error the walk returns.
+    quic_receive,
+};
+
+/// The client a `quic_receive` case's datagram arrives at (`corpus_receive.zig`).
+pub const ReceiveState = enum {
+    /// Every level readable and the handshake complete.
+    complete,
+    /// Every level's keys installed and the handshake not complete (RFC 9001 §5.7).
+    handshake_pending,
+    /// The Initial keys alone (RFC 9001 §4.9).
+    initial_only,
+    /// A key update answered and not yet acknowledged under the new keys (RFC 9001 §6.2).
+    update_unacknowledged,
+    /// The previous phase's keys held and the current phase begun at packet 4 (RFC 9001 §6.5).
+    current_phase_from_4,
+    /// More packets failed than the integrity limit permits (RFC 9001 §6.6).
+    integrity_exhausted,
 };
 
 /// How a case's octets are made.
@@ -55,6 +75,8 @@ pub const Case = struct {
     /// Octets of the connection IDs the endpoint reading a quic_packet case issued, which a short
     /// header does not carry (RFC 8999 §5.2). Unused by the other formats.
     connection_id_len: u8 = 0,
+    /// The client a quic_receive case's datagram arrives at. Unused by the other formats.
+    receive_state: ReceiveState = .complete,
     construction: Construction,
     /// Null when the case must decode and consume every octet; otherwise the error its decoder
     /// must return.
@@ -335,6 +357,108 @@ pub const quic_packet = [_]Case{
     }, error.FixedBitClear),
 };
 
+/// `case`, received at a client in `state`.
+fn in_state(state: ReceiveState, case: Case) Case {
+    var result = case;
+    result.receive_state = state;
+    return result;
+}
+
+/// The last octet of a quic_receive packet's 16-octet tag, which names the keys that open it
+/// (`corpus_receive.zig`). Any other value is a packet no key opens (RFC 9001 §5.5).
+pub const marker_current: u8 = 0x11;
+pub const marker_next: u8 = 0x22;
+pub const marker_previous: u8 = 0x33;
+const marker_none: u8 = 0x44;
+
+/// The connection IDs quic_receive packets carry: the client's own, the server's, and another.
+/// One octet each, the least RFC 9000 §17.2 lets colibri issue, so two long headers and their
+/// tags fit in one case.
+pub const receive_client_id = [_]u8{0x0c};
+const receive_server_id = [_]u8{0x5e};
+const receive_other_id = [_]u8{0x77};
+
+/// The tag of a quic_receive packet: fifteen octets that say nothing and the marker.
+fn receive_tag(marker: u8) [16]u8 {
+    return [_]u8{0} ** 15 ++ [_]u8{marker};
+}
+
+/// A version 1 Initial packet to the client: no token, a Length of eighteen, the number, one octet
+/// of PADDING and the tag (RFC 9000 §17.2.2).
+fn receive_initial(dcid: [1]u8, scid: [1]u8, number: u8, marker: u8) [29]u8 {
+    return [_]u8{ 0xc0, 0, 0, 0, 1, 1 } ++ dcid ++ [_]u8{1} ++ scid ++ [_]u8{ 0, 18, number, 0 } ++ receive_tag(marker);
+}
+
+/// A Handshake packet, which carries no token (RFC 9000 §17.2.4).
+fn receive_handshake(dcid: [1]u8, scid: [1]u8, number: u8, marker: u8) [28]u8 {
+    return [_]u8{ 0xe0, 0, 0, 0, 1, 1 } ++ dcid ++ [_]u8{1} ++ scid ++ [_]u8{ 18, number, 0 } ++ receive_tag(marker);
+}
+
+/// A 1-RTT packet to the client (RFC 9000 §17.3.1).
+fn receive_short(number: u8, marker: u8) [20]u8 {
+    return [_]u8{0x40} ++ receive_client_id ++ [_]u8{ number, 0 } ++ receive_tag(marker);
+}
+
+const receive_first = receive_initial(receive_client_id, receive_server_id, 0, marker_current);
+
+pub const quic_receive = [_]Case{
+    accept("quic_receive_initial", .{ .literal = &receive_first }),
+    // RFC 9000 §12.2: both packets of a datagram are processed.
+    accept("quic_receive_coalesced", .{
+        .literal = &(receive_first ++ receive_handshake(receive_client_id, receive_server_id, 0, marker_current)),
+    }),
+    accept("quic_receive_short", .{ .literal = &receive_short(0, marker_current) }),
+    // RFC 9001 §6.2: a packet under the next keys starts an update, which the client answers.
+    accept("quic_receive_key_update", .{ .literal = &receive_short(0, marker_next) }),
+    // RFC 9001 §6.5: a delayed packet of the previous phase, numbered below the current one's.
+    in_state(.current_phase_from_4, accept("quic_receive_previous_below_current", .{
+        .literal = &receive_short(3, marker_previous),
+    })),
+    // RFC 9001 §5.5: a packet that will not open is discarded, not a connection error.
+    reject("quic_receive_not_opened", .{
+        .literal = &receive_initial(receive_client_id, receive_server_id, 0, marker_none),
+    }, error.WouldNotOpen),
+    reject("quic_receive_second_not_opened", .{
+        .literal = &(receive_first ++ receive_handshake(receive_client_id, receive_server_id, 0, marker_none)),
+    }, error.WouldNotOpen),
+    // RFC 9000 §12.2: a later packet with another Destination Connection ID is ignored.
+    reject("quic_receive_other_connection", .{
+        .literal = &(receive_first ++ receive_handshake(receive_other_id, receive_server_id, 0, marker_current)),
+    }, error.OtherConnection),
+    // RFC 9000 §7.2: a Source Connection ID other than the first the client accepted.
+    reject("quic_receive_other_source", .{
+        .literal = &(receive_first ++ receive_handshake(receive_client_id, receive_other_id, 0, marker_current)),
+    }, error.OtherSource),
+    // RFC 9000 §12.3: a packet number already processed in the space.
+    reject("quic_receive_duplicate", .{ .literal = &(receive_first ++ receive_first) }, error.AlreadyProcessed),
+    // RFC 9001 §4.9: a level whose keys the client does not hold.
+    in_state(.initial_only, reject("quic_receive_handshake_without_keys", .{
+        .literal = &receive_handshake(receive_client_id, receive_server_id, 0, marker_current),
+    }, error.NoKeys)),
+    // RFC 9001 §5.7: no 1-RTT packet is read before the handshake completes.
+    in_state(.handshake_pending, reject("quic_receive_short_before_complete", .{
+        .literal = &receive_short(0, marker_current),
+    }, error.NoKeys)),
+    // RFC 9000 §17.3.1: a zero Fixed Bit leaves nothing to say where the packet ends.
+    reject("quic_receive_unreadable_header", .{
+        .literal = &([_]u8{0x00} ++ receive_client_id ++ [_]u8{ 0, 0 } ++ receive_tag(marker_current)),
+    }, error.UnreadableHeader),
+    // RFC 9000 §12.2: a Retry carries no Length and is not a packet this walk reads.
+    reject("quic_receive_retry", .{ .literal = &retry_packet }, error.NotForThisWalk),
+    // RFC 9001 §6.2: a second update before the first was acknowledged.
+    in_state(.update_unacknowledged, reject("quic_receive_update_twice", .{
+        .literal = &receive_short(0, marker_next),
+    }, error.ConsecutiveKeyUpdate)),
+    // RFC 9001 §6.4: old keys opened a packet numbered above one the new keys opened.
+    in_state(.current_phase_from_4, reject("quic_receive_old_above_current", .{
+        .literal = &receive_short(6, marker_previous),
+    }, error.OldKeysAboveCurrentPhase)),
+    // RFC 9001 §6.6: past the integrity limit the connection closes.
+    in_state(.integrity_exhausted, reject("quic_receive_integrity_exhausted", .{
+        .literal = &receive_first,
+    }, error.AeadLimitReached)),
+};
+
 pub const all = [_]struct { format: Format, cases: []const Case }{
     .{ .format = .varint, .cases = &varint },
     .{ .format = .prefixed_integer, .cases = &prefixed_integer },
@@ -343,4 +467,5 @@ pub const all = [_]struct { format: Format, cases: []const Case }{
     .{ .format = .hpack, .cases = &hpack },
     .{ .format = .quic_invariant, .cases = &quic_invariant },
     .{ .format = .quic_packet, .cases = &quic_packet },
+    .{ .format = .quic_receive, .cases = &quic_receive },
 };

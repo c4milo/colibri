@@ -1,0 +1,18 @@
+colibri-golden-manifest version=1 format=quic_receive cases=17
+quic_receive_initial len=29 crc32=0xc268bba7 verdict=accept state=complete construction=literal
+quic_receive_coalesced len=57 crc32=0xdd12072e verdict=accept state=complete construction=literal
+quic_receive_short len=20 crc32=0xb0540b0e verdict=accept state=complete construction=literal
+quic_receive_key_update len=20 crc32=0x0f846a18 verdict=accept state=complete construction=literal
+quic_receive_previous_below_current len=20 crc32=0x8fb29788 verdict=accept state=current_phase_from_4 construction=literal
+quic_receive_not_opened len=29 crc32=0xd9691edc verdict=WouldNotOpen state=complete construction=literal
+quic_receive_second_not_opened len=57 crc32=0xc613a255 verdict=WouldNotOpen state=complete construction=literal
+quic_receive_other_connection len=57 crc32=0xb60f772b verdict=OtherConnection state=complete construction=literal
+quic_receive_other_source len=57 crc32=0x3f52bad1 verdict=OtherSource state=complete construction=literal
+quic_receive_duplicate len=58 crc32=0xac7e0fbe verdict=AlreadyProcessed state=complete construction=literal
+quic_receive_handshake_without_keys len=28 crc32=0xa0a0f9b9 verdict=NoKeys state=initial_only construction=literal
+quic_receive_short_before_complete len=20 crc32=0xb0540b0e verdict=NoKeys state=handshake_pending construction=literal
+quic_receive_unreadable_header len=20 crc32=0x85acab18 verdict=UnreadableHeader state=complete construction=literal
+quic_receive_retry len=36 crc32=0xbe001999 verdict=NotForThisWalk state=complete construction=literal
+quic_receive_update_twice len=20 crc32=0x0f846a18 verdict=ConsecutiveKeyUpdate state=update_unacknowledged construction=literal
+quic_receive_old_above_current len=20 crc32=0x6b48f66f verdict=OldKeysAboveCurrentPhase state=current_phase_from_4 construction=literal
+quic_receive_integrity_exhausted len=29 crc32=0xc268bba7 verdict=AeadLimitReached state=integrity_exhausted construction=literal
