@@ -264,6 +264,13 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   `close_notify`. Both need a Go toolchain and both roles built. `tools/ci.sh` runs them when it
   finds a checkout carrying both objects, at `$CHAPULIN` or `../chapulin`, and says so when it
   does not.
+- QUIC check: `-Dchapulin-quic=<checkout>` links chapulin's QUIC object into `src/testing/` and
+  nowhere else. Build it with `make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib
+  && cp bin/chapulin.o bin/chapulin-quic.o`; `ROLE=both` puts both roles in one object, and
+  `KEYLOG=on` hands the check the traffic secrets. `tools/quic_loopback.sh <checkout>` runs a
+  colibri client and a colibri server over it in one process, through one handshake and one
+  stream, and writes the secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain.
+  `tools/ci.sh` runs it when it finds `bin/chapulin-quic.o`.
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the

@@ -69,6 +69,7 @@ pub fn build(b: *std.Build) void {
     const chapulin: modules.Chapulin = .{
         .client = b.option([]const u8, "chapulin-client", "A chapulin checkout built ROLE=client (decision 10)"),
         .server = b.option([]const u8, "chapulin-server", "A chapulin checkout built ROLE=server (decision 10)"),
+        .quic = b.option([]const u8, "chapulin-quic", "A chapulin checkout built TRANSPORT=quic ROLE=both (decision 10)"),
     };
     const graph = modules.add(b, target, optimize, chapulin);
 
@@ -118,6 +119,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "testing-client", .module = graph.testing_client },
         .{ .name = "testing-tls", .module = graph.testing_tls },
         .{ .name = "testing-tls-server", .module = graph.testing_tls_server },
+        .{ .name = "testing-quic", .module = graph.testing_quic },
         .{ .name = "testing-udp", .module = testing_udp },
     };
     var golden_tests: ?*std.Build.Step = null;
@@ -157,6 +159,7 @@ pub fn build(b: *std.Build) void {
     add_h2_client_step(b, graph.testing_client);
     add_tls_handshake_step(b, graph.testing_tls);
     add_tls_accept_step(b, graph.testing_tls_server);
+    add_quic_loopback_step(b, graph.testing_quic);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
 
@@ -314,6 +317,18 @@ fn add_tls_accept_step(b: *std.Build, testing_tls_server: *std.Build.Module) voi
     const run = b.addRunArtifact(check);
     if (b.args) |args| run.addArgs(args);
     const step = b.step("tls-accept", "Accept one TLS handshake from a peer: -- <port> <identity-prefix>");
+    step.dependOn(&run.step);
+    b.installArtifact(check);
+}
+
+/// `zig build quic-loopback -- <identity-prefix> <hostname> <unix-seconds>`: one QUIC handshake
+/// and one stream between two colibri connections over chapulin, in one process. It needs a
+/// chapulin checkout built `TRANSPORT=quic ROLE=both`, so it is never part of `zig build test`.
+fn add_quic_loopback_step(b: *std.Build, testing_quic: *std.Build.Module) void {
+    const check = b.addExecutable(.{ .name = "quic-loopback", .root_module = testing_quic });
+    const run = b.addRunArtifact(check);
+    if (b.args) |args| run.addArgs(args);
+    const step = b.step("quic-loopback", "Run colibri's QUIC client and server over chapulin: -- <identity> <host> <seconds>");
     step.dependOn(&run.step);
     b.installArtifact(check);
 }

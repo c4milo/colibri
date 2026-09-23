@@ -1,0 +1,104 @@
+//! The chapulin calls the QUIC check links, and the assertion hook its object imports
+//! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 9e.
+//!
+//! `-Dchapulin-quic=<checkout>` names a checkout whose `bin/chapulin-quic.o` was built
+//! `TRANSPORT=quic ROLE=both KEYLOG=on`. The headers are read from it in place. Without the
+//! option `available` is false and everything below compiles to nothing.
+//!
+//! **One object serves both roles.** `ROLE=both` compiles the client's `ch_quic_init` and the
+//! server's `ch_srv_quic_init` into one object, and the packet calls of `quic.h` serve either.
+//! The record-mode endpoints need two objects because both roles export `ch_read`; a QUIC object
+//! exports neither.
+const std = @import("std");
+const build_options = @import("build_options");
+const constants = @import("../constants.zig");
+
+/// Whether a checkout was given.
+pub const available: bool = build_options.chapulin;
+
+/// chapulin's own declarations, read from its headers rather than copied.
+pub const c = if (available) @cImport({
+    // `quic.h` brings `cfg.h` and `session.h`, and `srv_quic.h` the server's two calls.
+    @cInclude("quic.h");
+    @cInclude("srv_quic.h");
+    // `ch_srv_check`, the server's boot-time test of its signing key.
+    @cInclude("srv.h");
+    @cInclude("drbg.h");
+    @cInclude("keylog.h");
+}) else struct {};
+
+/// The seed a `RAND=drbg` build takes, which chapulin's `drbg.h` fixes at 32 octets.
+pub const seed_len: usize = 32;
+
+/// chapulin routes every failed assertion here. A failed chapulin assertion is a defect in
+/// chapulin or in how colibri configured it, and the check must not carry on past it.
+fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
+    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
+}
+
+/// The NSS key log lines of a run, which the check writes to the file SSLKEYLOGFILE names once
+/// the run ends. chapulin hands each traffic secret to `ch_keylog` inside the handshake step that
+/// derived it, and that call must not block, so the line is kept here rather than written.
+pub const Keylog = struct {
+    octets: [constants.quic_keylog_len]u8 = undefined,
+    len: usize = 0,
+    /// Whether a line did not fit, which the check reports rather than writing a partial log.
+    overflowed: bool = false,
+
+    /// Appends `<label> <client_random> <secret>` in lowercase hex, as the format writes it.
+    pub fn append(keylog: *Keylog, label: []const u8, client_random: []const u8, secret: []const u8) void {
+        const separators: usize = 3;
+        const line_len = label.len + hex_digits_per_octet * (client_random.len + secret.len) + separators;
+        if (keylog.len + line_len > keylog.octets.len) {
+            keylog.overflowed = true;
+            return;
+        }
+        const line = keylog.octets[keylog.len..][0..line_len];
+        const printed = std.fmt.bufPrint(line, "{s} {x} {x}\n", .{ label, client_random, secret }) catch unreachable;
+        std.debug.assert(printed.len == line_len);
+        keylog.len += line_len;
+    }
+
+    pub fn written(keylog: *const Keylog) []const u8 {
+        return keylog.octets[0..keylog.len];
+    }
+};
+
+/// Hex writes each octet as two digits.
+const hex_digits_per_octet: usize = 2;
+
+comptime {
+    // Only a build that links chapulin owes it the handler, and only that build defines it.
+    // `ch_keylog`, the other hook, reads the session, so `chapulin_quic.zig` exports it.
+    if (available) @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+}
+
+const testing = std.testing;
+
+/// A client random and a secret whose hex is easy to tell apart. Test-only.
+const random_octet: u8 = 0xab;
+const secret_octet: u8 = 0x01;
+
+test "a key log line is the label and two hex values, and a full log refuses rather than cuts" {
+    var keylog: Keylog = .{};
+    const random: [seed_len]u8 = @splat(random_octet);
+    const secret: [seed_len]u8 = @splat(secret_octet);
+    const label = "CLIENT_TRAFFIC_SECRET_0";
+    keylog.append(label, &random, &secret);
+    const separators: usize = 3;
+    const line_len = label.len + hex_digits_per_octet * (random.len + secret.len) + separators;
+    try testing.expectEqual(line_len, keylog.len);
+    try testing.expect(std.mem.startsWith(u8, keylog.written(), label ++ " abab"));
+    try testing.expect(std.mem.endsWith(u8, keylog.written(), "0101010101\n"));
+    // Bounded by the log's size: every line is the same length.
+    while (!keylog.overflowed) keylog.append(label, &random, &secret);
+    try testing.expectEqual(0, keylog.len % line_len);
+}
+
+test "the checkout the build was given links, and carries both roles" {
+    if (!available) return error.SkipZigTest;
+    const seed: [seed_len]u8 = @splat(0);
+    c.ch_drbg_seed(&seed);
+    try testing.expect(@hasDecl(c, "ch_srv_quic_init"));
+    try testing.expect(@hasDecl(c, "ch_quic_init"));
+}

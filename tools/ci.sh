@@ -118,6 +118,13 @@ if [ -f "${chapulin}/bin/chapulin-client.o" ] && [ -f "${chapulin}/bin/chapulin-
 else
   tls_lines="No chapulin checkout with both role objects at ${chapulin}, so this run made no TLS handshake."
 fi
+# Design §8 step 9e's QUIC loopback: a colibri client and server over chapulin's QUIC object.
+if [ -f "${chapulin}/bin/chapulin-quic.o" ]; then
+  section "QUIC handshake, colibri to colibri over chapulin" tools/quic_loopback.sh "${chapulin}"
+  quic_lines="$(grep -E "^quic-loopback:" "${scratch}/last.log")"
+else
+  quic_lines="No chapulin checkout with a QUIC object at ${chapulin}, so this run made no QUIC handshake."
+fi
 if command -v h2load >/dev/null 2>&1; then
   section "Throughput, indicative" throughput
   throughput_lines="$(tail -2 "${scratch}/last.log")"
@@ -165,6 +172,13 @@ fi
   echo "colibri's chapulin-backed server against a Go client (docs/decisions.md entry 10)."
   echo
   echo "${tls_lines}" | fenced
+  echo
+  echo "## QUIC over chapulin"
+  echo
+  echo "Design §8 step 9e's loopback check: a colibri client and a colibri server, each over one"
+  echo "session of chapulin's \`TRANSPORT=quic ROLE=both\` object, finish a handshake and one stream."
+  echo
+  echo "${quic_lines}" | fenced
   echo
   echo "## Throughput, indicative"
   echo

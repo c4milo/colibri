@@ -182,6 +182,37 @@ pub const udp_buffer_bytes: u32 = 2048;
 /// design §9's endpoints stay within.
 pub const udp_payload_len_min: u32 = 1500;
 
+/// The handshake octets the QUIC provider holds at one encryption level until colibri takes them
+/// into CRYPTO frames (RFC 9001 §4.1.3). The server's Handshake flight is the largest: its
+/// Certificate message carries two certificates of at most `tls_der_len_max` octets each.
+pub const quic_crypto_out_len: usize = 8 * 1024;
+
+/// The peer's transport parameters the QUIC provider keeps (RFC 9001 §8.2). RFC 9000 §18 sets no
+/// bound, and this holds every parameter §18.2 defines with room for a peer's own.
+pub const quic_peer_params_len_max: usize = 1024;
+
+/// The NSS key log the QUIC check writes to SSLKEYLOGFILE: four lines per endpoint, each a label
+/// of at most 31 octets and two 32-octet values in hex, so 162 octets.
+pub const quic_keylog_len: usize = 2048;
+
+/// The largest datagram the QUIC check moves between its two endpoints: RFC 9000 §14's 1,200
+/// octets plus the room a path of Ethernet's MTU leaves.
+pub const quic_datagram_len_max: usize = udp_payload_len_min;
+
+/// Rounds the QUIC check runs before it calls the run stuck. A round moves every datagram each
+/// endpoint owes, and a clean run finishes in a few dozen.
+pub const quic_rounds_max: u32 = 10_000;
+
+/// The instant the QUIC check advances by each round. It is the check's own time, never the
+/// clock's (non-negotiable 3), and it is long enough that a peer's `max_ack_delay` passes.
+pub const quic_round_ns: u64 = 5_000_000;
+
+comptime {
+    assert(quic_crypto_out_len > 2 * tls_der_len_max);
+    assert(quic_datagram_len_max <= udp_buffer_bytes);
+    assert(quic_rounds_max > 0 and quic_round_ns > 0);
+}
+
 comptime {
     assert(udp_operations_max > 1);
     assert(std.math.isPowerOfTwo(udp_receive_buffers));

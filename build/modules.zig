@@ -62,6 +62,8 @@ pub const Modules = struct {
     testing_client: *std.Build.Module,
     testing_tls: *std.Build.Module,
     testing_tls_server: *std.Build.Module,
+    /// The QUIC loopback check of design §8 step 9e, rooted at `src/testing/quic_loopback.zig`.
+    testing_quic: *std.Build.Module,
 };
 
 pub fn add(
@@ -186,6 +188,19 @@ pub fn add(
     testing_tls_server.link_libc = true;
     link_chapulin(b, testing_tls_server, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER", "CH_EXPORTER" });
 
+    // Step 9e's QUIC check fills `tls.QuicProvider` and `crypto.Suite` from chapulin's QUIC mode.
+    // A fifth root, because its object is another build: `TRANSPORT=quic` exports none of the
+    // record calls the other four link, and `ROLE=both` puts both roles in one object. `KEYLOG=on`
+    // imports `ch_keylog`, which the check defines, so a capture of a run can be decrypted.
+    const testing_quic = create(b, "src/testing/quic_loopback.zig", target, optimize);
+    testing_quic.addImport("h2", h2);
+    testing_quic.addImport("quic", quic);
+    testing_quic.link_libc = true;
+    link_chapulin(b, testing_quic, chapulin.quic, "chapulin-quic.o", &.{
+        "CH_RAND_DRBG",   "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC",
+        "CH_ROLE_SERVER", "CH_ROLE_BOTH",    "CH_KEYLOG",
+    });
+
     return .{
         .core = core,
         .wire = wire,
@@ -205,6 +220,7 @@ pub fn add(
         .testing_client = testing_client,
         .testing_tls = testing_tls,
         .testing_tls_server = testing_tls_server,
+        .testing_quic = testing_quic,
     };
 }
 
@@ -243,6 +259,8 @@ fn create(
 pub const Chapulin = struct {
     client: ?[]const u8 = null,
     server: ?[]const u8 = null,
+    /// A checkout whose `bin/chapulin-quic.o` was built `TRANSPORT=quic ROLE=both`.
+    quic: ?[]const u8 = null,
 };
 
 /// Links one chapulin object into a `src/testing/` module and tells its source whether it is
