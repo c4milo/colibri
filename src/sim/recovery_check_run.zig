@@ -158,9 +158,12 @@ const Run = struct {
             .{ .ranges = ack.ranges, .delay_ns = ack.delay * delay_unit_ns(), .ecn = ack.ecn },
             .full,
             run.now_ns,
+            &run.storage.acknowledged,
             &run.storage.lost,
         );
-        try run.settle_acknowledged(ack);
+        // Both slices are as long as the table, so nothing is left out of either.
+        assert(outcome.unwritten == 0 and outcome.lost.unwritten == 0);
+        try run.settle_acknowledged(outcome.written);
         try run.settle_lost(outcome.lost.written);
         run.result.acknowledged += outcome.acknowledged;
     }
@@ -247,19 +250,13 @@ const Run = struct {
         return run.now_ns >= start_ns + blackhole_from_ns and run.now_ns < start_ns + blackhole_until_ns;
     }
 
-    /// Records that the packets an ACK newly named are accounted for. RFC 9000 §13.2.1 has an
-    /// endpoint repeat ranges it has already sent, so a number the harness no longer holds
-    /// outstanding is a repeat and not a second account.
-    fn settle_acknowledged(run: *Run, ack: quic.frame_ack.Ack) Violation!void {
-        var walk = ack.ranges.iterator();
-        // Bounded by the frame's own ACK Range Count.
-        while (walk.next()) |range| {
-            var number = range.smallest;
-            // Bounded by how many packets a seed sends.
-            while (number <= range.largest and number < numbers_max) : (number += 1) {
-                if (run.storage.outstanding[number]) try run.settle(number);
-            }
-        }
+    /// Records that the packets one ACK took out of flight are accounted for, from the records
+    /// the sender reported. RFC 9000 §13.2.1 has an endpoint repeat ranges it has already sent,
+    /// and the sender reports a packet only the first time, so a repeat reaches `settle` never and
+    /// a record reported twice is `PacketCountedTwice`.
+    fn settle_acknowledged(run: *Run, written: usize) Violation!void {
+        // Bounded by the caller's slice, which is the table's own named capacity.
+        for (run.storage.acknowledged[0..written]) |held| try run.settle(held.number);
     }
 
     /// The same for the packets one detection pass declared lost.
@@ -290,6 +287,9 @@ const Run = struct {
 
     fn finish(run: *Run) Violation!Result {
         if (run.storage.sender.in_flight_len() != 0) return Violation.NotDrained;
+        // Every packet sent was either acknowledged or declared lost, so one the sender never
+        // reported either way is a record it dropped.
+        for (run.storage.outstanding) |held| if (held) return Violation.NotDrained;
         var result = run.result;
         result.window = run.storage.sender.congestion.window;
         result.smoothed_rtt_ns = if (run.storage.sender.rtt.has_sample()) run.storage.sender.rtt.smoothed_ns else 0;

@@ -99,6 +99,10 @@ pub const Removed = struct {
     /// and its ECT(1) twin.
     ect_0: usize,
     ect_1: usize,
+    /// How many of them were written to the caller's slice, and how many did not fit. A caller
+    /// that wants every one passes a slice as long as its table.
+    written: usize,
+    unwritten: usize,
 
     pub fn none() Removed {
         return .{
@@ -110,6 +114,8 @@ pub const Removed = struct {
             .record = null,
             .ect_0 = 0,
             .ect_1 = 0,
+            .written = 0,
+            .unwritten = 0,
         };
     }
 };
@@ -174,13 +180,21 @@ pub fn Sent(comptime capacity: usize) type {
         /// inclusive (RFC 9000 §19.3). A number the table never held, or already gave up, is
         /// passed over, which is what makes a repeated acknowledgment cost nothing.
         pub fn remove_range(table: *Table, smallest: u64, largest: u64) Removed {
-            return take_range(&table.records, &table.live, &table.counts, smallest, largest);
+            return table.remove_range_into(smallest, largest, &.{});
+        }
+
+        /// `remove_range`, and writes each record it takes into `taken`, in packet number order,
+        /// as far as the slice holds them. RFC 9000 §13.3 sends information again by what a lost
+        /// packet carried, and an acknowledged packet is what ends that for everything it
+        /// carried, so a caller that must learn which octets the peer now holds reads them here.
+        pub fn remove_range_into(table: *Table, smallest: u64, largest: u64, taken: []Record) Removed {
+            return take_range(&table.records, &table.live, &table.counts, smallest, largest, taken);
         }
 
         /// Takes out one record, whatever its place (RFC 9002 Appendix A.10 removes a packet it
         /// has declared lost). Null when the table does not hold it.
         pub fn remove(table: *Table, number: u64) ?Record {
-            const removed = take_range(&table.records, &table.live, &table.counts, number, number);
+            const removed = take_range(&table.records, &table.live, &table.counts, number, number, &.{});
             if (removed.count == 0) return null;
             return removed.record.?;
         }
@@ -239,7 +253,7 @@ fn append(records: []Record, live: []bool, counts: *Counts, sent: Record) Error!
     if (sent.ack_eliciting) counts.ack_eliciting_count += 1;
 }
 
-fn take_range(records: []Record, live: []bool, counts: *Counts, smallest: u64, largest: u64) Removed {
+fn take_range(records: []Record, live: []bool, counts: *Counts, smallest: u64, largest: u64, taken: []Record) Removed {
     assert(smallest <= largest);
     var removed = Removed.none();
     var from = lower_bound(records, counts.*, smallest);
@@ -247,7 +261,7 @@ fn take_range(records: []Record, live: []bool, counts: *Counts, smallest: u64, l
     while (from < counts.span) : (from += 1) {
         const at = slot_at(records.len, counts.head, from);
         if (records[at].number > largest) break;
-        if (live[at]) take(records, live, counts, at, &removed);
+        if (live[at]) take(records, live, counts, at, &removed, taken);
     }
     compact(records.len, live, counts);
     return removed;
@@ -258,7 +272,7 @@ fn take_all(records: []Record, live: []bool, counts: *Counts) Removed {
     // Bounded by the span, which is at most the storage the caller placed.
     for (0..counts.span) |from| {
         const at = slot_at(records.len, counts.head, from);
-        if (live[at]) take(records, live, counts, at, &removed);
+        if (live[at]) take(records, live, counts, at, &removed, &.{});
     }
     compact(records.len, live, counts);
     assert(counts.count == 0 and counts.span == 0 and counts.in_flight_len == 0);
@@ -266,15 +280,21 @@ fn take_all(records: []Record, live: []bool, counts: *Counts) Removed {
     return removed;
 }
 
-/// Takes the record in `at` out and adds it to `removed`. The slot stays where it is so the
-/// numbers keep ascending; `compact` is what frees it.
-fn take(records: []const Record, live: []bool, counts: *Counts, at: usize, removed: *Removed) void {
+/// Takes the record in `at` out, adds it to `removed` and writes it into `taken` when there is
+/// room. The slot stays where it is so the numbers keep ascending; `compact` is what frees it.
+fn take(records: []const Record, live: []bool, counts: *Counts, at: usize, removed: *Removed, taken: []Record) void {
     assert(live[at]);
     const held = records[at];
     live[at] = false;
     counts.count -= 1;
     removed.count += 1;
     removed.record = held;
+    if (removed.written < taken.len) {
+        taken[removed.written] = held;
+        removed.written += 1;
+    } else {
+        removed.unwritten += 1;
+    }
     if (held.in_flight) {
         assert(counts.in_flight_len >= held.sent_len);
         counts.in_flight_len -= held.sent_len;

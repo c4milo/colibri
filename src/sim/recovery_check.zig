@@ -117,6 +117,9 @@ pub const Storage = struct {
     sender: Recovery,
     receiver: Space,
     network: Network,
+    /// The records one acknowledgment took out of flight, and the ones one detection pass
+    /// declared lost. Each is as long as the sender's table, so every record fits.
+    acknowledged: [quic.constants.sent_packets_max]Record,
     lost: [quic.constants.sent_packets_max]Record,
     /// Whether the packet of that number is still outstanding as far as the harness knows, and
     /// whether it has been accounted for. The two together are what catch a packet leaving

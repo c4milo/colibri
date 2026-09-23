@@ -108,6 +108,22 @@ test "§19.3: one ACK range takes out every number it covers and no other" {
     try testing.expectEqual(2, test_table.count());
 }
 
+test "§19.3: the records a range takes out are written for the caller, as far as they fit" {
+    test_table.init();
+    for (0..test_capacity) |number| try test_table.record(eliciting(number));
+    var taken: [2]Record = undefined;
+    const removed = test_table.remove_range_into(0, 2, &taken);
+    // The slice bounds what is written, never what is taken out.
+    try testing.expectEqual(3, removed.count);
+    try testing.expectEqual(2, removed.written);
+    try testing.expectEqual(1, removed.unwritten);
+    try testing.expectEqual(1, test_table.count());
+    // In packet number order, which is the order the table holds them in.
+    try testing.expectEqual(0, taken[0].number);
+    try testing.expectEqual(1, taken[1].number);
+    try testing.expectEqual(test_sent_at_ns + 1, taken[1].sent_at_ns);
+}
+
 test "§19.3: a range below or above everything held takes out nothing" {
     test_table.init();
     for (2..4) |number| try test_table.record(eliciting(number));

@@ -38,6 +38,10 @@ pub const Outcome = struct {
     /// How many packets it took out of flight, and their octets.
     acknowledged: usize,
     in_flight_len: u64,
+    /// How many of those packets' records were written to the caller's slice, and how many did
+    /// not fit. A caller that wants every one passes a slice as long as the space's table.
+    written: usize,
+    unwritten: usize,
     /// Whether it produced a round trip sample (RFC 9002 §5.1 allows one per ACK at most).
     rtt_sampled: bool,
     /// What the detection pass it triggered found.
@@ -46,12 +50,20 @@ pub const Outcome = struct {
 
 /// RFC 9002 Appendix A.7's `OnAckReceived`. `used` is RFC 9002 §7.8's judgement, which only the
 /// caller can make: whether the window or the application bounded what was sent.
+///
+/// The records of the packets it acknowledges go into `acknowledged`, every one and not only the
+/// largest, in the order the frame names its ranges, which RFC 9000 §19.3.1 puts "in descending
+/// packet number order".
+/// RFC 9000 §3.1 moves a stream to "Data Recvd" once all its data is acknowledged, and only the
+/// records say which stream octets each packet carried. The records declared lost go into
+/// `lost`, as `recovery_loss.detect` writes them.
 pub fn on_ack_received(
     held: *Recovery,
     kind: Kind,
     ack: Ack,
     used: Utilization,
     now_ns: u64,
+    acknowledged: []Record,
     lost: []Record,
 ) Outcome {
     const at = @intFromEnum(kind);
@@ -64,10 +76,12 @@ pub fn on_ack_received(
     else
         ack.ranges.largest_acknowledged;
 
-    const removed = take(held, kind, ack);
+    const removed = take(held, kind, ack, acknowledged);
     var outcome: Outcome = .{
         .acknowledged = removed.count,
         .in_flight_len = removed.in_flight_len,
+        .written = removed.written,
+        .unwritten = removed.unwritten,
         .rtt_sampled = false,
         .lost = recovery_loss.Detected.none(),
     };
@@ -86,15 +100,20 @@ pub fn on_ack_received(
     return outcome;
 }
 
-/// Takes every number the frame named out of the space's table.
-fn take(held: *Recovery, kind: Kind, ack: Ack) recovery_sent.Removed {
+/// Takes every number the frame named out of the space's table, and writes their records into
+/// `acknowledged` one range after another.
+fn take(held: *Recovery, kind: Kind, ack: Ack, acknowledged: []Record) recovery_sent.Removed {
     var total = recovery_sent.Removed.none();
     var walk = ack.ranges.iterator();
     // Bounded: RFC 9000 §19.3's ranges are bounded by the frame's own ACK Range Count, and the
     // reader the iterator holds cannot run past the octets it was given.
     while (walk.next()) |range| {
-        const removed = held.table_of(kind).remove_range(range.smallest, range.largest);
+        assert(total.written <= acknowledged.len);
+        const into = acknowledged[total.written..];
+        const removed = held.table_of(kind).remove_range_into(range.smallest, range.largest, into);
         total.count += removed.count;
+        total.written += removed.written;
+        total.unwritten += removed.unwritten;
         total.in_flight_len += removed.in_flight_len;
         // RFC 9000 §13.4.2.1 counts over the whole frame, not over one range of it.
         total.ect_0 += removed.ect_0;
@@ -170,4 +189,78 @@ fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization) void
     // nothing to the window is what skipping them does.
     const largest = removed.record.?;
     held.congestion.on_ack(largest.sent_at_ns, removed.in_flight_len, used);
+}
+
+const testing = std.testing;
+
+/// The recovery state these tests drive, and room for what one ACK takes out. Test-only.
+var test_recovery: Recovery = undefined;
+var test_acknowledged: [constants.sent_packets_max]Record = undefined;
+var test_lost: [constants.sent_packets_max]Record = undefined;
+const test_datagram_len: u16 = 1_200;
+const test_start_ns: u64 = 1_000_000_000;
+const test_interval_ns: u64 = 1_000_000;
+
+/// RFC 9000 §19.3.1 encodes each range after the first as a Gap and an ACK Range Length, the
+/// next range's largest being `previous_smallest - gap - 2`. The first range covers 3 and 4, and
+/// these two octets name 0 and 1, so packet 2 is the one left out.
+const split_largest: u64 = 4;
+const split_first_range: u64 = 1;
+const split_octets = [_]u8{ 0, 1 };
+const split_acknowledged: usize = 4;
+
+fn split_ack() Ack {
+    const ranges: frame_ack.AckRanges = .{
+        .largest_acknowledged = split_largest,
+        .first_range = split_first_range,
+        .octets = &split_octets,
+        .count = 1,
+    };
+    return .{ .ranges = ranges, .delay_ns = 0, .ecn = null };
+}
+
+/// Sends packets 0 to `count - 1`, each carrying CRYPTO octets at an offset of its own, so a
+/// test can tell one record from another by more than its number. Test-only.
+fn send_numbered(count: u64) !void {
+    for (0..count) |number| {
+        const at_ns = test_start_ns + number * test_interval_ns;
+        try test_recovery.on_packet_sent(.application, .{
+            .number = number,
+            .sent_at_ns = at_ns,
+            .sent_len = test_datagram_len,
+            .ack_eliciting = true,
+            .in_flight = true,
+            .crypto_offset = number * test_datagram_len,
+            .crypto_len = test_datagram_len,
+        }, at_ns);
+    }
+}
+
+test "A.7: every packet an ACK takes out reaches the caller, not only the largest" {
+    test_recovery.init(test_datagram_len);
+    try send_numbered(split_largest + 1);
+    const at_ns = test_start_ns + test_interval_ns * (split_largest + 1);
+    const outcome = on_ack_received(&test_recovery, .application, split_ack(), .full, at_ns, &test_acknowledged, &test_lost);
+    try testing.expectEqual(split_acknowledged, outcome.acknowledged);
+    try testing.expectEqual(split_acknowledged, outcome.written);
+    try testing.expectEqual(0, outcome.unwritten);
+    // RFC 9000 §19.3.1 names the ranges "in descending packet number order", and a range's
+    // records come out in ascending order within it.
+    var numbers: [split_acknowledged]u64 = undefined;
+    for (test_acknowledged[0..split_acknowledged], &numbers) |held, *number| number.* = held.number;
+    try testing.expectEqualSlices(u64, &.{ 3, 4, 0, 1 }, &numbers);
+    // The whole record reaches the caller, which is what lets it say which octets arrived.
+    try testing.expectEqual(3 * test_datagram_len, test_acknowledged[0].crypto_offset);
+}
+
+test "A.7: a slice too short for the acknowledgment is told how many records did not fit" {
+    test_recovery.init(test_datagram_len);
+    try send_numbered(split_largest + 1);
+    const at_ns = test_start_ns + test_interval_ns * (split_largest + 1);
+    const outcome = on_ack_received(&test_recovery, .application, split_ack(), .full, at_ns, test_acknowledged[0..1], &test_lost);
+    // The slice bounds what is written, never what leaves flight.
+    try testing.expectEqual(split_acknowledged, outcome.acknowledged);
+    try testing.expectEqual(1, outcome.written);
+    try testing.expectEqual(split_acknowledged - 1, outcome.unwritten);
+    try testing.expectEqual(3, test_acknowledged[0].number);
 }

@@ -14,8 +14,10 @@ const Kind = space.Kind;
 const Record = recovery_sent.Record;
 const testing = std.testing;
 
-/// The recovery state the tests drive, and room for everything one pass can declare lost.
+/// The recovery state the tests drive, and room for everything one pass can acknowledge or
+/// declare lost.
 var test_recovery: recovery.Recovery = undefined;
+var test_acknowledged: [constants.sent_packets_max]Record = undefined;
 var test_lost: [constants.sent_packets_max]Record = undefined;
 /// A path of 1200-octet datagrams. Every instant is written whole in nanoseconds, because the
 /// magic-numbers rule reads a constant's whole value.
@@ -110,7 +112,7 @@ test "A.7: an acknowledgment measures the path, takes packets out and grows the 
     const window = test_recovery.congestion.window;
     // The ACK names both, and the largest is newly acknowledged, so §5.1 takes one sample.
     const at_ns = test_start_ns + test_round_trip_ns + test_round_trip_ns / 2;
-    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 1), .full, at_ns, &test_lost);
+    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 1), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(2, outcome.acknowledged);
     try testing.expectEqual(2 * test_datagram_len, outcome.in_flight_len);
     try testing.expect(outcome.rtt_sampled);
@@ -128,18 +130,18 @@ test "§5.1: a repeated acknowledgment measures nothing" {
     test_recovery.init(test_datagram_len);
     try send_spaced(.application, 2);
     const at_ns = test_start_ns + test_round_trip_ns * 2;
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 1), .full, at_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 1), .full, at_ns, &test_acknowledged, &test_lost);
     const smoothed_ns = test_recovery.rtt.smoothed_ns;
     // The same frame again names nothing the table still holds, so §5.1 has nothing to measure
     // and the estimate does not move.
-    const again = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 1), .full, at_ns + 1, &test_lost);
+    const again = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 1), .full, at_ns + 1, &test_acknowledged, &test_lost);
     try testing.expectEqual(0, again.acknowledged);
     try testing.expect(!again.rtt_sampled);
     try testing.expectEqual(smoothed_ns, test_recovery.rtt.smoothed_ns);
     // RFC 9002 Appendix A.7: the largest acknowledged only rises, so an older frame does not
     // lower it and cannot make an outstanding packet look acknowledged.
     try testing.expectEqual(1, test_recovery.largest_acknowledged[@intFromEnum(Kind.application)]);
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 0), .full, at_ns + 2, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 0), .full, at_ns + 2, &test_acknowledged, &test_lost);
     try testing.expectEqual(1, test_recovery.largest_acknowledged[@intFromEnum(Kind.application)]);
     // RFC 9002 Appendix A.7 returns where nothing was newly acknowledged, so a repeat carrying a
     // higher ECN-CE count is not a congestion event either: the frame says nothing new. RFC 9000
@@ -147,7 +149,7 @@ test "§5.1: a repeated acknowledgment measures nothing" {
     const window = test_recovery.congestion.window;
     var marked = ack_of(0, 1);
     marked.ecn = .{ .ect_0 = 2, .ect_1 = 0, .ecn_ce = 9 };
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, marked, .full, at_ns + 3, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, marked, .full, at_ns + 3, &test_acknowledged, &test_lost);
     try testing.expectEqual(window, test_recovery.congestion.window);
     try testing.expectEqual(0, test_recovery.ecn[@intFromEnum(Kind.application)].reported.ecn_ce);
 }
@@ -159,7 +161,7 @@ test "§5.1: a sample needs the largest named and an ack-eliciting packet" {
     // before. What is newly acknowledged is older, so §5.1 refuses the sample.
     _ = test_recovery.table_of(.application).remove_range(2, 2);
     const at_ns = test_start_ns + test_round_trip_ns * 4;
-    const stale = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 2), .full, at_ns, &test_lost);
+    const stale = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 2), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(2, stale.acknowledged);
     try testing.expect(!stale.rtt_sampled);
     try testing.expect(!test_recovery.rtt.has_sample());
@@ -170,7 +172,7 @@ test "§5.1: a sample needs the largest named and an ack-eliciting packet" {
     quiet.ack_eliciting = false;
     quiet.in_flight = false;
     try test_recovery.on_packet_sent(.application, quiet, test_start_ns);
-    const silent = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 0), .full, at_ns, &test_lost);
+    const silent = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(0, 0), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(1, silent.acknowledged);
     try testing.expect(!silent.rtt_sampled);
 }
@@ -182,7 +184,7 @@ test "A.7: an acknowledgment that reveals loss halves the window" {
     // The peer acknowledges 4 alone. RFC 9002 §6.1.1's threshold reaches 0 and 1, and §6.1.2's
     // reaches the rest, because every one went out a round trip apart.
     const at_ns = test_start_ns + test_round_trip_ns * 5;
-    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(4, 4), .full, at_ns, &test_lost);
+    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(4, 4), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(1, outcome.acknowledged);
     try testing.expectEqual(4, outcome.lost.count);
     try testing.expectEqual(4 * test_datagram_len, outcome.lost.in_flight_len);
@@ -203,7 +205,7 @@ test "B.7: a rise in the peer's ECN-CE count is a congestion event" {
     const at_ns = test_start_ns + test_round_trip_ns * 2;
     var marked = ack_of(0, 1);
     marked.ecn = .{ .ect_0 = 2, .ect_1 = 0, .ecn_ce = 1 };
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, marked, .full, at_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, marked, .full, at_ns, &test_acknowledged, &test_lost);
     // RFC 9002 Appendix B.7: the path reported congestion without dropping anything, and the
     // window halves for it just as it would for loss.
     try testing.expectEqual(window / 2, test_recovery.congestion.window);
@@ -213,7 +215,7 @@ test "B.7: a rise in the peer's ECN-CE count is a congestion event" {
     const halved = test_recovery.congestion.window;
     var repeated = ack_of(2, 3);
     repeated.ecn = .{ .ect_0 = 4, .ect_1 = 0, .ecn_ce = 1 };
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, repeated, .full, at_ns + 2 * test_round_trip_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, repeated, .full, at_ns + 2 * test_round_trip_ns, &test_acknowledged, &test_lost);
     try testing.expect(test_recovery.congestion.window >= halved);
     try testing.expectEqual(at_ns, test_recovery.congestion.recovery_started_at_ns);
 }
@@ -245,7 +247,7 @@ test "A.9: a loss timeout declares the packet lost and rearms" {
     const test_close_ns: u64 = 10_000_000;
     try send(.application, 0, 3, test_start_ns, test_close_ns);
     const at_ns = test_start_ns + 2 * test_close_ns + test_round_trip_ns;
-    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(2, 2), .full, at_ns, &test_lost);
+    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(2, 2), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(1, outcome.lost.count);
     const timer = test_recovery.next_timer(at_ns).?;
     try testing.expectEqual(.loss, timer.mode);
@@ -263,7 +265,7 @@ test "§7.6: a long enough span of loss puts the window back to the minimum" {
     test_recovery.timer.handshake_confirmed = true;
     // One round trip sample first, because §7.6.2 counts only packets sent after it.
     try send_spaced(.initial, 1);
-    _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(0, 0), .full, test_start_ns + test_round_trip_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(0, 0), .full, test_start_ns + test_round_trip_ns, &test_acknowledged, &test_lost);
     try testing.expect(test_recovery.rtt.has_sample());
     // Then a run of ack-eliciting packets a round trip apart, every one of them lost. Sixteen
     // of them span fifteen round trips, which is past §7.6.1's three Probe Timeouts.
@@ -272,7 +274,7 @@ test "§7.6: a long enough span of loss puts the window back to the minimum" {
     // One more far later, whose acknowledgment is what reveals the rest as lost.
     try send(.application, run, 1, test_long_after_ns, 0);
     const at_ns = test_long_after_ns + test_round_trip_ns;
-    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(run, run), .full, at_ns, &test_lost);
+    const outcome = recovery_ack.on_ack_received(&test_recovery, .application, ack_of(run, run), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(run, outcome.lost.count);
     try testing.expect(outcome.lost.is_persistent_congestion(test_recovery.rtt.persistent_congestion_ns()));
     // RFC 9002 Appendix B.8 puts the window at the minimum and ends the recovery period, and
@@ -365,10 +367,10 @@ test "A.7: the backoff starts again only once the peer has validated the address
     const at_ns = test_start_ns + 2 * test_round_trip_ns;
     // RFC 9002 Appendix A.7: a client unsure whether the server has validated its address keeps
     // its backoff, because an answered probe is not yet evidence the path will answer again.
-    _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(0, 0), .full, at_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(0, 0), .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expectEqual(3, test_recovery.timer.pto_count);
     test_recovery.timer.peer_completed_address_validation = true;
-    _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(1, 1), .full, at_ns + 1, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .initial, ack_of(1, 1), .full, at_ns + 1, &test_acknowledged, &test_lost);
     try testing.expectEqual(0, test_recovery.timer.pto_count);
 }
 
@@ -382,7 +384,7 @@ test "RFC 9000 §13.4.2.2: validation failing disables ECN and takes no counts" 
     // §13.4.2.1: a count for ECT(1), "an ECT codepoint that it never applied".
     var forged = ack_of(0, 1);
     forged.ecn = .{ .ect_0 = 2, .ect_1 = 1, .ecn_ce = 0 };
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, forged, .full, at_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, forged, .full, at_ns, &test_acknowledged, &test_lost);
     // §13.4.2.2: "If validation fails, then the endpoint MUST disable ECN."
     try testing.expect(!test_recovery.ecn_permitted());
     // §13.4.2.1 validates "before using them", so a frame that failed leaves nothing behind and
@@ -401,7 +403,7 @@ test "RFC 9000 §13.4.2.1: an increase smaller than the packets acknowledged fai
     // acknowledged packets that were originally sent with an ECT(0) marking".
     var short = ack_of(0, 1);
     short.ecn = .{ .ect_0 = 1, .ect_1 = 0, .ecn_ce = 0 };
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expect(!test_recovery.ecn_permitted());
 }
 
@@ -434,6 +436,6 @@ test "RFC 9000 §13.4.2.1: the markings are counted over the frame, not over one
     // them. A count that rose by one is less than that, which §13.4.2.1 fails.
     var short = ack_of_two(3);
     short.ecn = .{ .ect_0 = 1, .ect_1 = 0, .ecn_ce = 0 };
-    _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_lost);
+    _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expect(!test_recovery.ecn_permitted());
 }
