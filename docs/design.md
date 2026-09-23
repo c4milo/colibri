@@ -2456,6 +2456,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1403 passed, 23 skipped.
 
+  **Each packet's handshake octets reach TLS before the next packet, 2026-09-23.** Decision 62,
+  [#45](https://github.com/c4milo/colibri/issues/45).
+  - `receive` advances the handshake after each packet it processes, and
+    `connection_keys.take_available` then marks each level and direction the suite holds keys
+    for. `receive` and `send` ask the same at their start. Callers no longer call
+    `on_keys_installed`.
+  - The null provider gives its suite each level's keys at the step that makes them, as a
+    caller's code would. The simulator's endpoint and the loopback check lost their install
+    loops.
+  - `tools/quic_loopback.sh` against chapulin `9c903d8`, on the same machine: the handshake is
+    confirmed in round 1 rather than 5, and the 1 MiB stream is read by round 8 rather than 43,
+    in 901 client datagrams and 9 server datagrams. The old run also lost the 1-RTT packets that
+    shared a datagram with the client's Finished, and those losses cut the congestion window.
+  - The simulator's census keeps 13,660 datagrams and moves to 13,687 packets and 708 dropped.
+    Its null server makes its Handshake keys while it writes the ServerHello, inside `send`, so
+    its first datagram never carried a Handshake packet to lose.
+
+  Mutations: 10, 9 CAUGHT and one equivalent. Asking the suite about the read direction alone
+  was caught only after a test gave the two directions different answers. The equivalent one let
+  the null provider hand over a discarded level, which never happens: colibri discards a level
+  only after the script's last step.
+
+  `zig build test`: 1407 passed, 23 skipped.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
