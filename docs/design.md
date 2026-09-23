@@ -2119,6 +2119,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1276 passed, 18 skipped.
 
+  **Acknowledged and lost records reach the streams, 2026-09-22**, `f08de58`. Decision 57's last
+  piece. Loss recovery is the caller's to drive, and `recovery_ack.on_ack_received` hands it the
+  records an ACK took out and the ones it found lost. `connection_stream_recovery` reads the
+  stream range each record names. `on_packets_acknowledged` counts the range toward its stream
+  and writes the identifier of each stream that enters "Data Recvd" into a slice the caller
+  places. From then on the caller may drop that stream's octets. `on_packets_lost` puts the
+  ranges in the lost table for `send`, and a table that cannot hold one closes the connection
+  with INTERNAL_ERROR (RFC 9000 §20.1). A record that carried CRYPTO or nothing is passed over.
+
+  Four files now started `connection_stream_`, so `a0562d8` moved them into
+  `connection/connection_stream/`, as CLAUDE.md asks, before this piece added two more.
+
+  11 mutations, 11 CAUGHT.
+
+  `zig build test`: 1282 passed, 18 skipped.
+
+  What decision 57 leaves to other pieces: RESET_STREAM and STOP_SENDING are not sent yet
+  ([#37](https://github.com/c4milo/colibri/issues/37)). A probe carries new octets or a PING and
+  never a range in flight, which invariant 29 needs, but nothing writes a probe yet
+  ([#29](https://github.com/c4milo/colibri/issues/29)). The simulator check that each stream's
+  count reaches its final size belongs to the QUIC connection check
+  ([#24](https://github.com/c4milo/colibri/issues/24)).
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
