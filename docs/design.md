@@ -2520,6 +2520,44 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Mutations: 2, 2 CAUGHT, one for each direction's comparison.
 
+  **The endpoint runs in the QUIC Interop Runner, 2026-09-23.** `tools/interop.sh` builds the
+  `colibri-qns` image from the working tree and a chapulin checkout, and runs the runner at commit
+  `740c05a` against each peer, with colibri as the server and as the client.
+  - The image builds chapulin `TRUST=raw-ecdsa`, selected here with `-Dchapulin-quic-trust`. The
+    runner's certificates carry no extended key usage, so they fail chapulin's Web PKI profile.
+    Its client pins the server's P-256 key, which the runner's shared `/certs` holds.
+  - `tools/quic_interop/qns_identity.py` converts the runner's PEM into the raw DER and key
+    octets the endpoint reads. `run_endpoint.sh` maps `ROLE`, `TESTCASE` and `REQUESTS` onto
+    `quic-udp`, and exits 127 for the cases the endpoint does not build.
+  - The runner's simulator learns a server is listening by sending it an unknown version, so the
+    endpoint now answers with Version Negotiation (RFC 9000 §6.1).
+  - A server holds `quic_connections_max` connections, routed by the client's address, so a
+    connection whose close was lost does not turn the next one away.
+  - On a connection error the endpoint closes with its code (RFC 9000 §11) instead of exiting.
+  - `tools/quic_interop/run_runner.py` lets the runner run on Python 3.14, which dropped two
+    asyncio calls pyshark makes.
+
+  Against quic-go on this machine, colibri client and server, and colibri against itself:
+
+  | Test | colibri server | colibri client |
+  |---|---|---|
+  | handshake, transfer, chacha20, multiplexing, transferloss | pass | pass |
+  | retry | unsupported: the suite mints no token | pass |
+  | handshakeloss | fail | fail |
+
+  The runs found a colibri defect, fixed in its own commit. RFC 9000 §3.2 has a frame for a
+  peer's stream open every lower stream too, and only the named stream got its §18.2 limits.
+  The others kept a one-octet window, so their own frames, arriving late on a lossy path, broke
+  flow control. 2 mutations, 2 CAUGHT.
+
+  handshakeloss fails in both roles for one reason. A probe (RFC 9002 §6.2.4) carries a PING and
+  never the unacknowledged CRYPTO octets, which decision 57's rule allows. Under the case's bursty
+  loss the octets are resent only once an acknowledgment shows them lost, and the probes that do
+  arrive give the peer nothing it can use.
+
+  Not built yet: a qlog, IPv6, Retry as a server, and `tools/ci.sh` running the runner. The hosted
+  runner's tshark is older than the 4.5.0 the runner needs.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
