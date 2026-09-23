@@ -15,9 +15,10 @@ const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 
-const Address = rotor.Address;
-const Event = rotor.Event;
-const Outbound = rotor.datagram.Outbound;
+pub const Address = rotor.Address;
+pub const Event = rotor.Event;
+pub const Outbound = rotor.datagram.Outbound;
+pub const Delivery = rotor.Delivery;
 
 /// The loop's options. One multishot receive and the sends in flight.
 const loop_options: rotor.Loop.Options = .{ .operations = constants.udp_operations_max };
@@ -67,6 +68,12 @@ pub const Endpoint = struct {
         );
         endpoint.socket = try rotor.sync.open_datagram(bind_to.family, &bind_to, .{});
         errdefer rotor.sync.close_now(endpoint.socket);
+        endpoint.start_receive();
+    }
+
+    /// Starts the multishot receive. rotor ends one with a final event, the one without `more`,
+    /// when the kernel stops it — its buffers ran out, say — and `restart_receive` starts it again.
+    fn start_receive(endpoint: *Endpoint) void {
         const receive: rotor.Operation = .{ .user_data = receive_user_data, .kind = .{ .receive_from = .{
             .socket = endpoint.socket,
             .group = group_id,
@@ -75,6 +82,16 @@ pub const Endpoint = struct {
         const taken = endpoint.loop.submit(&.{receive}, &handles);
         assert(taken == 1);
         endpoint.receiving = handles[0];
+    }
+
+    /// Ends the endpoint's part in a receive event, once its datagram has been read: gives the
+    /// buffer back, and starts the receive again when this was its final event. rotor ends a
+    /// multishot receive with `buffers_exhausted` when the group runs out, and has the caller give
+    /// buffers back before it starts one again, which is the order here.
+    pub fn finish_receive(endpoint: *Endpoint, event: Event) void {
+        assert(event.user_data == receive_user_data);
+        if (event.flags.buffer) endpoint.give_back(event);
+        if (!event.flags.more) endpoint.start_receive();
     }
 
     /// The address the socket is bound to, with the port the kernel chose when it was asked for 0.
@@ -183,6 +200,44 @@ test "decision 58: datagrams cross between two endpoints through rotor's loop" {
     try sender.close();
 }
 
+/// Events one receive may deliver before it has to end: one per buffer, and the final one. Test-only.
+const test_burst: usize = constants.udp_receive_buffers + 1;
+
+test "decision 58: a receive that ran out of buffers starts again" {
+    const receiver = &test_endpoints[0];
+    const sender = &test_endpoints[1];
+    try receiver.open(&test_memory[0], Address.ipv4(loopback_octets, 0));
+    try sender.open(&test_memory[1], Address.ipv4(loopback_octets, 0));
+    const outbound: Outbound = .{
+        .peer = try receiver.local_address(),
+        .local = undefined,
+        .segment_bytes = 0,
+        .ecn = .not_ect,
+        .flags = .{ .peer = true },
+    };
+    var events: [constants.udp_operations_max]Event = undefined;
+    // More datagrams than the group holds, none of them given back, so the receive ends.
+    for (0..test_burst) |_| {
+        try testing.expect(sender.send(test_send_user_data, test_octets, &outbound));
+        try testing.expectEqual(1, (try sender.tick(&events, test_wait_ns)).len);
+    }
+    var held: [test_burst]Event = undefined;
+    var held_len: usize = 0;
+    // Bounded: each tick delivers at least one event, and the receive ends within the burst.
+    while (held_len == 0 or held[held_len - 1].flags.more) {
+        const arrived = try receiver.tick(&events, test_wait_ns);
+        try testing.expect(arrived.len > 0 and held_len + arrived.len <= held.len);
+        @memcpy(held[held_len..][0..arrived.len], arrived);
+        held_len += arrived.len;
+    }
+    try testing.expect(!held[held_len - 1].flags.buffer);
+    for (held[0..held_len]) |event| receiver.finish_receive(event);
+    // The receive started again, so the next datagram arrives.
+    try exchange(sender, receiver, &outbound);
+    try receiver.close();
+    try sender.close();
+}
+
 /// Sends one datagram, waits for the send's event, then for the datagram at the receiver, reads
 /// it and gives its buffer back. Test-only.
 fn exchange(sender: *Endpoint, receiver: *Endpoint, outbound: *const Outbound) !void {
@@ -198,5 +253,5 @@ fn exchange(sender: *Endpoint, receiver: *Endpoint, outbound: *const Outbound) !
     const got = receiver.delivery(arrived[0]);
     try testing.expectEqualStrings(test_octets, got.bytes);
     try testing.expectEqual((try sender.local_address()).port, got.from.peer.port);
-    receiver.give_back(arrived[0]);
+    receiver.finish_receive(arrived[0]);
 }

@@ -10,7 +10,7 @@
 //! that could name a file outside the served directory.
 const std = @import("std");
 const assert = std.debug.assert;
-const constants = @import("../constants.zig");
+const constants = @import("../../constants.zig");
 
 /// The ALPN token both endpoints offer.
 pub const alpn = "hq-interop";

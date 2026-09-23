@@ -211,7 +211,37 @@ pub const quic_round_ns: u64 = 5_000_000;
 /// runner's paths are a directory and a random file name, far shorter than this.
 pub const hq_request_len_max: usize = 1024;
 
+/// Requests the hq-interop server answers at once, which is the `initial_max_streams_bidi` it
+/// grants: one slot, with its request line, per stream the client may have open.
+pub const hq_requests_max: usize = 100;
+
+/// Paths one hq-interop client run fetches. The runner's multiplexing case asks for the most.
+pub const hq_paths_max: usize = 2048;
+
+/// Octets the hq-interop client reads from a stream at once, before it writes them to the file.
+pub const hq_read_len: usize = 16 * 1024;
+
+/// The application error code of a stream the hq-interop server refuses. hq-interop defines no
+/// codes, so it is 0.
+pub const hq_refused_error_code: u64 = 0;
+
+/// Datagrams one UDP endpoint may have in flight to the kernel: every operation of the loop but
+/// its receive.
+pub const udp_send_slots: usize = udp_operations_max - 1;
+
+/// The longest one tick of a UDP QUIC endpoint waits. A connection's next deadline is usually
+/// sooner, and a wait this short keeps a lost wakeup cheap.
+pub const quic_tick_wait_ns_max: u64 = 100 * 1_000_000;
+
+/// Ticks one UDP QUIC endpoint runs before it gives up: with `quic_tick_wait_ns_max`, days.
+pub const quic_run_ticks_max: u64 = 1 << 32;
+
+/// The idle timeout each UDP QUIC endpoint advertises (RFC 9000 §10.1), in milliseconds.
+pub const quic_idle_timeout_ms: u64 = 30_000;
+
 comptime {
+    assert(hq_paths_max >= hq_requests_max);
+    assert(udp_send_slots > 0);
     assert(hq_request_len_max > "GET /\r\n".len);
     assert(quic_crypto_out_len > 2 * tls_der_len_max);
     assert(quic_datagram_len_max <= udp_buffer_bytes);

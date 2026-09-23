@@ -85,7 +85,8 @@ h2, rotor        <- testing_udp
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
-| `testing_udp` | the UDP socket of §9's QUIC endpoints, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)), and the one module that imports Rotor | `h2` for the shared constants, and `rotor` | — |
+| `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over chapulin's QUIC mode in one process | `h2` for the shared constants, and `quic` | — |
+| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop server and client, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)), and the one module that imports Rotor | `h2` for the shared constants, `quic`, and `rotor` | — |
 
 The architecture depends on three of these edges and forbids one.
 

@@ -12,6 +12,7 @@
 const std = @import("std");
 const build_options = @import("build_options");
 const constants = @import("../constants.zig");
+const check_file = @import("../tls/check_file.zig");
 
 /// Whether a checkout was given.
 pub const available: bool = build_options.chapulin;
@@ -62,7 +63,24 @@ pub const Keylog = struct {
     pub fn written(keylog: *const Keylog) []const u8 {
         return keylog.octets[0..keylog.len];
     }
+
+    /// Appends the lines to the file at `path`, which SSLKEYLOGFILE names, and answers false when
+    /// it cannot. The file holds secrets, so only its owner may read it.
+    pub fn append_to_file(keylog: *const Keylog, path: []const u8) bool {
+        var path_storage: [check_file.path_len_max:0]u8 = undefined;
+        if (path.len >= path_storage.len or keylog.overflowed) return false;
+        @memcpy(path_storage[0..path.len], path);
+        path_storage[path.len] = 0;
+        const descriptor = std.c.open(&path_storage, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, keylog_mode);
+        if (descriptor < 0) return false;
+        defer _ = std.c.close(descriptor);
+        const lines = keylog.written();
+        return std.c.write(descriptor, lines.ptr, lines.len) == lines.len;
+    }
 };
+
+/// Owner read and write: the key log holds secrets.
+const keylog_mode: std.c.mode_t = 0o600;
 
 /// Hex writes each octet as two digits.
 const hex_digits_per_octet: usize = 2;

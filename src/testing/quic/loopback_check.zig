@@ -226,19 +226,8 @@ fn report(run: Run) void {
 
 /// Writes the key log, appending as the format's readers expect of SSLKEYLOGFILE.
 fn write_keylog(path: []const u8) void {
-    var path_storage: [check_file.path_len_max:0]u8 = undefined;
-    if (path.len >= path_storage.len) fail("the key log path is too long", .{});
-    @memcpy(path_storage[0..path.len], path);
-    path_storage[path.len] = 0;
-    const descriptor = std.c.open(&path_storage, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true }, key_log_mode);
-    if (descriptor < 0) fail("cannot open {s}", .{path});
-    defer _ = std.c.close(descriptor);
-    const written = keylog.written();
-    if (std.c.write(descriptor, written.ptr, written.len) != written.len) fail("cannot write {s}", .{path});
+    if (!keylog.append_to_file(path)) fail("cannot write the key log to {s}", .{path});
 }
-
-/// The key log holds secrets, so only its owner may read it.
-const key_log_mode: std.c.mode_t = 0o600;
 
 fn fail(comptime format: []const u8, arguments: anytype) noreturn {
     std.debug.print("quic-loopback: " ++ format ++ "\n", arguments);

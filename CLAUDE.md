@@ -271,6 +271,12 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   colibri client and a colibri server over it in one process, through one handshake and one
   stream, and writes the secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain.
   `tools/ci.sh` runs it when it finds `bin/chapulin-quic.o`.
+- UDP QUIC endpoint: `zig build quic-udp -- server <ipv4> <port> <identity-prefix> <www> [once]`
+  and `-- client <ipv4> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> <path>...`
+  run design §9's hq-interop server and client over Rotor's UDP loop and the same chapulin
+  object. `tools/quic_udp.sh <checkout> [port]` runs a client against a server on 127.0.0.1,
+  checks each file arrives octet for octet and that a missing one resets its stream, and
+  `tools/ci.sh` runs it beside the loopback check.
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the

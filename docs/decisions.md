@@ -1295,7 +1295,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     explicit, and it puts resend logic in every caller, where colibri's simulator cannot test it.
 
 58. **Rotor is the loop of `src/testing/`'s UDP endpoints, a third test-only dependency.** Ruled
-    by the owner on 2026-09-22. It amends entry 52, which deferred the question to step 9e.
+    by the owner on 2026-09-22. It amends entry 52, which deferred the question to step 9e, and
+    entry 63 extends it: the loop reports the instant the endpoints pass to colibri.
 
     Entry 52 had one reason to wait: Rotor carried no datagrams. Its version one does. It runs
     the same conformance suite over kqueue on macOS and io_uring on Linux, UDP included, and it

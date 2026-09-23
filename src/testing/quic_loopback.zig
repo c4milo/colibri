@@ -9,7 +9,7 @@ pub const chapulin_quic = @import("quic/chapulin_quic.zig");
 pub const chapulin_quic_suite = @import("quic/chapulin_quic_suite.zig");
 pub const loopback_endpoint = @import("quic/loopback_endpoint.zig");
 pub const loopback_check = @import("quic/loopback_check.zig");
-pub const hq = @import("quic/hq.zig");
+pub const hq = @import("quic/hq/hq.zig");
 
 comptime {
     // The chapulin object imports `ch_assert_fail` and `ch_keylog`, which these two files export.

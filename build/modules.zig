@@ -196,10 +196,7 @@ pub fn add(
     testing_quic.addImport("h2", h2);
     testing_quic.addImport("quic", quic);
     testing_quic.link_libc = true;
-    link_chapulin(b, testing_quic, chapulin.quic, "chapulin-quic.o", &.{
-        "CH_RAND_DRBG",   "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC",
-        "CH_ROLE_SERVER", "CH_ROLE_BOTH",    "CH_KEYLOG",
-    });
+    link_chapulin(b, testing_quic, chapulin.quic, "chapulin-quic.o", &chapulin_quic_defines);
 
     return .{
         .core = core,
@@ -224,20 +221,25 @@ pub fn add(
     };
 }
 
-/// The UDP endpoint of design §9, rooted at `src/testing/udp.zig`: the one module that imports
-/// rotor (decision 58). It is made apart from `add` because rotor is a lazy package that only
-/// colibri's own build requests, after a dependent project's build has stopped. `h2` is there for
-/// `src/testing/constants.zig`, which every module of `src/testing/` shares.
+/// The UDP QUIC endpoint of design §9, rooted at `src/testing/quic_udp.zig`: the one module that
+/// imports rotor (decision 58). It is made apart from `add` because rotor is a lazy package that
+/// only colibri's own build requests, after a dependent project's build has stopped. `h2` is
+/// there for `src/testing/constants.zig`, which every module of `src/testing/` shares; `quic` is
+/// the module the endpoint serves, and chapulin's QUIC object fills its two vtables (decision 10).
 pub fn add_testing_udp(
     b: *std.Build,
     graph: Modules,
     rotor: *std.Build.Module,
+    chapulin: Chapulin,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
-    const module = create(b, "src/testing/udp.zig", target, optimize);
+    const module = create(b, "src/testing/quic_udp.zig", target, optimize);
     module.addImport("h2", graph.h2);
+    module.addImport("quic", graph.quic);
     module.addImport("rotor", rotor);
+    module.link_libc = true;
+    link_chapulin(b, module, chapulin.quic, "chapulin-quic.o", &chapulin_quic_defines);
     return module;
 }
 
@@ -253,6 +255,12 @@ fn create(
         .optimize = optimize,
     });
 }
+
+/// The axes chapulin's QUIC object is built with, which its headers need to parse the same way.
+const chapulin_quic_defines = [_][]const u8{
+    "CH_RAND_DRBG",   "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC",
+    "CH_ROLE_SERVER", "CH_ROLE_BOTH",    "CH_KEYLOG",
+};
 
 /// The chapulin checkout each role's endpoint links, named apart because the two roles are two
 /// builds and either can be present without the other (decision 10).

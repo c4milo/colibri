@@ -83,7 +83,7 @@ pub fn build(b: *std.Build) void {
     // build, like this one, offers ReleaseSafe as `-Drelease` and no `-Doptimize`.
     const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
     const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
-    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), target, optimize);
+    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), chapulin, target, optimize);
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");
@@ -160,6 +160,7 @@ pub fn build(b: *std.Build) void {
     add_tls_handshake_step(b, graph.testing_tls);
     add_tls_accept_step(b, graph.testing_tls_server);
     add_quic_loopback_step(b, graph.testing_quic);
+    add_quic_udp_step(b, testing_udp);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_hooks_step(b);
 
@@ -331,6 +332,17 @@ fn add_quic_loopback_step(b: *std.Build, testing_quic: *std.Build.Module) void {
     const step = b.step("quic-loopback", "Run colibri's QUIC client and server over chapulin: -- <identity> <host> <seconds>");
     step.dependOn(&run.step);
     b.installArtifact(check);
+}
+
+/// `zig build quic-udp -- server|client ...`: design §9's UDP QUIC endpoint, as the hq-interop
+/// server or client. It needs a chapulin checkout built `TRANSPORT=quic ROLE=both`.
+fn add_quic_udp_step(b: *std.Build, testing_udp: *std.Build.Module) void {
+    const endpoint = b.addExecutable(.{ .name = "quic-udp", .root_module = testing_udp });
+    const run = b.addRunArtifact(endpoint);
+    if (b.args) |args| run.addArgs(args);
+    const step = b.step("quic-udp", "Run the UDP QUIC endpoint: -- server|client ...");
+    step.dependOn(&run.step);
+    b.installArtifact(endpoint);
 }
 
 fn add_hooks_step(b: *std.Build) void {
