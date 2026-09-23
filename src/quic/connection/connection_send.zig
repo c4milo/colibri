@@ -119,15 +119,13 @@ pub fn send(
     var plans: [core.levels_count]packet_build.Planned = undefined;
     var count: usize = 0;
     var planned_len: usize = 0;
-    const window_len = connection.recovery.congestion.available_len(connection.recovery.in_flight_len());
-    // RFC 9002 §7.8: whether the window, and not what there is to send, is what bounds sending.
-    connection.window_limited = window_len < @min(ceiling, connection.recovery.congestion.max_datagram_len);
+    const window = window_of(connection, ceiling);
     // RFC 9000 §12.2: "Coalescing packets in order of increasing encryption levels ... makes it
     // more likely that the receiver will be able to process all the packets in a single pass",
     // and a short header carries no Length so §12.2 makes it the last packet anyway.
     for (0..core.levels_count) |index| {
         const level: Level = @enumFromInt(index);
-        const room = room_at(connection, level, window_len -| planned_len, ceiling - planned_len) orelse continue;
+        const room = room_at(connection, level, window.len -| planned_len, ceiling - planned_len) orelse continue;
         const payload = &scratch.payloads[index];
         const planned = packet_build.plan(connection, provider, stream_provider, level, payload, room, now_ns) catch |failure| switch (failure) {
             // A level that cannot fit a packet in what is left ends the datagram rather than
@@ -142,7 +140,8 @@ pub fn send(
     if (count == 0) return null;
     expand_last(connection, plans[0..count], planned_len, ceiling);
     const sent = try seal_all(connection, suite, scratch, plans[0..count], output);
-    record_all(connection, plans[0..count], &sent, now_ns);
+    const recorded = record_all(connection, plans[0..count], &sent, now_ns);
+    if (window.past_window and recorded) connection.recovery.congestion.past_window_allowed = false;
     // After the records, because discarding the Initial keys discards the Initial space's records
     // too (RFC 9002 §6.4), and an Initial packet coalesced ahead of this one is among them.
     note_handshake_sent(connection, suite, plans[0..count]);
@@ -150,6 +149,24 @@ pub fn send(
     note_ack_eliciting_sent(connection, &sent, now_ns);
     note_challenge_sent(connection, plans[0..count], sent.len, now_ns);
     return sent;
+}
+
+/// What RFC 9002 §7's congestion window leaves this datagram.
+const Window = struct {
+    /// Octets the packets of the datagram may add to the bytes in flight.
+    len: u64,
+    /// Whether that is §7.3.2's one datagram past the window, which sending it spends.
+    past_window: bool,
+};
+
+fn window_of(connection: *Connection, ceiling: usize) Window {
+    const datagram_len = @min(ceiling, connection.recovery.congestion.max_datagram_len);
+    const available_len = connection.recovery.congestion.available_len(connection.recovery.in_flight_len());
+    // RFC 9002 §7.8: whether the window, and not what there is to send, is what bounds sending.
+    connection.window_limited = available_len < datagram_len;
+    // RFC 9002 §7.3.2: on entering recovery "a single packet can be sent prior to reduction".
+    const past_window = connection.window_limited and connection.recovery.congestion.past_window_allowed;
+    return .{ .len = if (past_window) datagram_len else available_len, .past_window = past_window };
 }
 
 /// What `level`'s packet may hold, given the octets `window_len` the congestion window leaves and
@@ -207,7 +224,9 @@ fn note_handshake_sent(connection: *Connection, suite: crypto.Suite, plans: []co
 /// lost". A packet of ACK frames alone is not tracked: nothing in it is sent again (RFC 9000
 /// §13.3), and a peer need not acknowledge it (§13.2.1), so its record would hold a slot of the
 /// table until loss detection gave it up.
-fn record_all(connection: *Connection, plans: []const packet_build.Planned, sent: *const Sent, now_ns: u64) void {
+/// True when any packet was recorded, which is what spends §7.3.2's datagram past the window.
+fn record_all(connection: *Connection, plans: []const packet_build.Planned, sent: *const Sent, now_ns: u64) bool {
+    var recorded = false;
     // Bounded by the levels: a datagram coalesces at most one packet of each (§12.2).
     for (plans, sent.written()) |planned, packet| {
         // RFC 9000 §10.2.1: a closing endpoint keeps nothing a CONNECTION_CLOSE does not need.
@@ -215,7 +234,9 @@ fn record_all(connection: *Connection, plans: []const packet_build.Planned, sent
         const kind: space_module.Kind = @enumFromInt(@intFromEnum(packet.level));
         // `room_at` framed nothing at a level whose table was full, so the record fits.
         connection.recovery.on_packet_sent(kind, record_of(packet, now_ns), now_ns) catch unreachable;
+        recorded = true;
     }
+    return recorded;
 }
 
 /// The record RFC 9002 Appendix A.1.1 keeps of `packet`. The caller marks no ECN codepoint that

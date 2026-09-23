@@ -45,6 +45,10 @@ pub const Congestion = struct {
     /// this is: its expression truncates to no growth at all once the window passes the maximum
     /// datagram size squared, which is under two megabytes on an ordinary path.
     avoidance_acknowledged_len: u64,
+    /// Whether one datagram may still go out past the window. RFC 9002 §7.3.2: "If the congestion
+    /// window is reduced immediately, a single packet can be sent prior to reduction", which a
+    /// recovery period's start allows and the first datagram past the window spends.
+    past_window_allowed: bool,
 
     pub fn init(congestion: *Congestion, max_datagram_len: u64) void {
         assert(max_datagram_len >= constants.datagram_len_min);
@@ -54,6 +58,7 @@ pub const Congestion = struct {
             .slow_start_threshold = std.math.maxInt(u64),
             .recovery_started_at_ns = null,
             .avoidance_acknowledged_len = 0,
+            .past_window_allowed = false,
         };
     }
 
@@ -116,6 +121,9 @@ pub const Congestion = struct {
         congestion.slow_start_threshold = congestion.window / constants.congestion_loss_reduction_divisor;
         congestion.window = @max(congestion.slow_start_threshold, congestion.minimum_window());
         congestion.avoidance_acknowledged_len = 0;
+        // RFC 9002 §7.3.2: "This speeds up loss recovery if the data in the lost packet is
+        // retransmitted."
+        congestion.past_window_allowed = true;
     }
 
     /// RFC 9002 §7.6 and Appendix B.8: on persistent congestion the window MUST fall to the
@@ -198,6 +206,9 @@ test "B.6: a congestion event halves the window and starts a recovery period" {
     try testing.expectEqual(test_initial_window / 2, test_congestion.slow_start_threshold);
     try testing.expectEqual(test_initial_window / 2, test_congestion.window);
     try testing.expectEqual(test_late_ns, test_congestion.recovery_started_at_ns);
+    // RFC 9002 §7.3.2: "a single packet can be sent prior to reduction".
+    try testing.expect(test_congestion.past_window_allowed);
+    test_congestion.past_window_allowed = false;
     // A packet sent at or before the period began is inside it; one sent after is not.
     try testing.expect(test_congestion.in_recovery(test_late_ns));
     try testing.expect(!test_congestion.in_recovery(test_late_ns + 1));
@@ -206,6 +217,8 @@ test "B.6: a congestion event halves the window and starts a recovery period" {
     test_congestion.on_congestion_event(test_early_ns, test_late_ns + 1);
     try testing.expectEqual(test_initial_window / 2, test_congestion.window);
     try testing.expectEqual(test_late_ns, test_congestion.recovery_started_at_ns);
+    // Nor does it allow a second packet past the window: that is the period's, and was spent.
+    try testing.expect(!test_congestion.past_window_allowed);
     // An event over a packet sent after the period starts a new one and halves again.
     test_congestion.on_congestion_event(test_late_ns + 1, test_late_ns + 2);
     try testing.expectEqual(test_initial_window / 4, test_congestion.window);

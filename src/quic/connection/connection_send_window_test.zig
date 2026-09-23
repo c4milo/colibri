@@ -260,6 +260,28 @@ test "RFC 9000 §10.1: the first ack-eliciting packet since a receive restarts t
     try testing.expectEqual(first_ns, endpoint.termination.idle_since_ns);
 }
 
+test "RFC 9002 §7.3.2: entering recovery lets one datagram past the window, and only one" {
+    // A window with room leaves the allowance for when it has none.
+    open(.server);
+    provider_holder = .{ .owed = &flight, .owed_level = .handshake };
+    endpoint.recovery.congestion.past_window_allowed = true;
+    _ = try send_now() orelse return error.NothingSent;
+    try testing.expect(endpoint.recovery.congestion.past_window_allowed);
+
+    open(.server);
+    provider_holder = .{ .owed = &long_flight, .owed_level = .handshake };
+    leave_window(0);
+    endpoint.recovery.congestion.past_window_allowed = true;
+    // "If the congestion window is reduced immediately, a single packet can be sent prior to
+    // reduction", which is how the octets of the lost packet go again at once.
+    const sent = try send_now() orelse return error.NothingSent;
+    try testing.expect(sent.packets[0].ack_eliciting);
+    try testing.expectEqual(sent.len, endpoint.recovery.in_flight_len());
+    try testing.expect(!endpoint.recovery.congestion.past_window_allowed);
+    // The window binds again.
+    try testing.expectEqual(null, try send_now());
+}
+
 /// The server of the next test: a Handshake flight owed, and a 1-RTT PING owed behind it.
 fn owe_flight_and_ping() void {
     open_at(.server, &.{ .handshake, .application });
