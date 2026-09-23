@@ -476,4 +476,3 @@ test "RFC 9000 §17.3: a 1-RTT packet fills the datagram exactly, with no Length
     try testing.expectEqual(Level.application, opened.level);
     _ = try frames.process(&peer_connection, opened, test_now_ns);
 }
-

@@ -270,9 +270,9 @@ const testing = std.testing;
 
 test "invariant 23: the vtable's members are the twelve decisions 48 and 55 list, and none returns a key" {
     const expected = [_][]const u8{
-        "install_initial_keys", "keys_available",     "seal",
-        "open",                 "retry_tag_valid",    "retry_tag_write",
-        "retry_token_write",    "retry_token_valid",  "update_keys",
+        "install_initial_keys", "keys_available",        "seal",
+        "open",                 "retry_tag_valid",       "retry_tag_write",
+        "retry_token_write",    "retry_token_valid",     "update_keys",
         "key_phase",            "discard_previous_keys", "discard_keys",
     };
     const fields = @typeInfo(VTable).@"struct".fields;

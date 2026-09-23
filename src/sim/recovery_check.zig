@@ -175,7 +175,6 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.crc32 = combine(census.crc32, result);
     }
     failed_seed.* = null;
-    std.debug.print("PROBE recovery sent={d} acked={d} lost={d} probes={d} scenarios={any} crc32=0x{x:0>8}\n", .{ census.sent, census.acknowledged, census.lost, census.probes, census.scenarios, census.crc32 });
     // A run in which nothing was lost, no probe fired, or a scenario never came up would pass
     // while proving none of what this check claims.
     if (census.lost == 0 or census.probes == 0) return Violation.ScenariosUnexercised;

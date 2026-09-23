@@ -354,7 +354,6 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
     failed_seed.* = null;
     // A run in which nothing was dropped, duplicated, reordered or marked would pass while
     // proving none of what this check claims.
-    std.debug.print("PROBE dropped={d} dup={d} reordered={d} marked={d} out_of_order={d} sent={d} delivered={d} crc32=0x{x:0>8}\n", .{ census.dropped, census.duplicated, census.reordered, census.marked_congestion, census.recovered_out_of_order, census.sent, census.delivered, census.crc32.final() });
     const unexercised = census.dropped == 0 or census.duplicated == 0 or
         census.reordered == 0 or census.marked_congestion == 0 or census.recovered_out_of_order == 0;
     if (unexercised) return error.ScheduleUnexercised;
