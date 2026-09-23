@@ -69,11 +69,7 @@ pub fn write(
         return .{ .len = close_len, .ack_eliciting = false, .carries_close = close_len > 0 };
     }
     var writer = Writer.init(payload[0..budget]);
-    // RFC 9000 §13.2.1: an ACK goes first because it is the frame a space owes soonest, and
-    // §13.2 makes acknowledging cheap enough that it is never worth holding back.
-    if (space.owes_ack(now_ns, connection.max_ack_delay_ns())) {
-        _ = space.write_ack(&writer, now_ns, exponent_of(connection), report_ecn) catch {};
-    }
+    const ack = write_ack(connection, space, &writer, now_ns);
     const written_ack = writer.written().len;
     // RFC 9000 §8.2: the path frames go next. §8.2.2 says an endpoint "MUST NOT delay
     // transmission of a packet containing a PATH_RESPONSE frame unless constrained by congestion
@@ -91,6 +87,12 @@ pub fn write(
     if (connection_stream_send.write_endings(connection, level, &writer, number)) carries_control = true;
     const written_path = writer.written().len;
     const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
+    // RFC 9000 §13.2.1 asks for an ACK "with other frames": one written only because it was
+    // pending, with nothing after it, does not go out, and the space is as it was.
+    if (!ack.owed and written_ack > 0 and written_path + data.len == written_ack) {
+        space.restore_ack_pending(ack.pending);
+        return .{ .len = 0, .ack_eliciting = false };
+    }
     return .{
         .len = written_path + data.len,
         .carries = data.carries,
@@ -144,6 +146,23 @@ fn write_data(
         .data_len = stream.data_len,
         .stream_id = stream.stream_id,
     };
+}
+
+/// What `write_ack` did, so `write` can take back an ACK nothing else went out with.
+const AckWritten = struct {
+    owed: bool,
+    pending: @import("../../space/space.zig").Space.AckPending,
+};
+
+/// Writes an ACK when the space owes one (RFC 9000 §13.2.1, §13.2.2), and when it has new
+/// ack-eliciting packets to acknowledge, which §13.2.1 asks for "with other frames": whether any
+/// follow is known only once they are written, so `write` takes back one that stood alone. It
+/// goes first because it is the frame a space owes soonest.
+fn write_ack(connection: *const Connection, space: anytype, writer: *Writer, now_ns: u64) AckWritten {
+    const held: AckWritten = .{ .owed = space.owes_ack(now_ns, connection.max_ack_delay_ns()), .pending = space.ack_pending() };
+    if (!held.owed and !space.has_new_ack_eliciting()) return held;
+    _ = space.write_ack(writer, now_ns, exponent_of(connection), report_ecn) catch {};
+    return held;
 }
 
 /// What the path frames amount to in one packet.

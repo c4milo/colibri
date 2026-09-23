@@ -210,6 +210,31 @@ pub const Space = struct {
         return since_ns +| max_ack_delay_ns;
     }
 
+    /// Whether ack-eliciting packets have arrived since the last ACK frame went out, which RFC 9000
+    /// §13.2.1 calls "new ack-eliciting packets to acknowledge".
+    pub fn has_new_ack_eliciting(space: *const Space) bool {
+        return space.ack_eliciting_since_ack > 0;
+    }
+
+    /// What an ACK frame going out clears, so a builder that writes one and then sends nothing
+    /// can put it back (`restore_ack_pending`). An ACK taken back was never owed, so the flag that
+    /// makes one owed at once was clear before it and stays clear.
+    pub const AckPending = struct {
+        since_ack: u64,
+        since_at_ns: ?u64,
+    };
+
+    pub fn ack_pending(space: *const Space) AckPending {
+        return .{ .since_ack = space.ack_eliciting_since_ack, .since_at_ns = space.ack_eliciting_since_at_ns };
+    }
+
+    /// Undoes what `write_ack` cleared, for an ACK frame that did not go out after all.
+    pub fn restore_ack_pending(space: *Space, pending: AckPending) void {
+        assert(!space.ack_immediately);
+        space.ack_eliciting_since_ack = pending.since_ack;
+        space.ack_eliciting_since_at_ns = pending.since_at_ns;
+    }
+
     /// Writes an ACK frame for everything received in this space (RFC 9000 §19.3), all of it or
     /// none, and returns whether one was written. `now_ns` gives the ACK Delay and
     /// `ack_delay_exponent` is this endpoint's transport parameter (§18.2). `report_ecn` is
