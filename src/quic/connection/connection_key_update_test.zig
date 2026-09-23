@@ -22,11 +22,15 @@ const packet_build = @import("packet_build/packet_build.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
 const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
+const connection_recovery = @import("connection_recovery.zig");
 const testing = std.testing;
 const Level = core.Level;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 pub var test_connection: Connection = undefined;
 pub var suite_holder: build_test.RoundTrip = undefined;
@@ -164,7 +168,7 @@ test "RFC 9001 §6.2: the key set of the packet that opened reaches the frame la
     const outcome = try walk_payload(6, ack_payload(4), test_now_ns);
     try testing.expectError(
         frames.Error.OldKeysAcknowledgeNew,
-        frames.process(&test_connection, outcome.opened, test_now_ns),
+        frames.process(&test_connection, outcome.opened, test_now_ns, &recovery_scratch),
     );
 }
 

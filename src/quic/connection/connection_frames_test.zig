@@ -14,6 +14,7 @@ const connection_module = @import("connection.zig");
 const identity_module = @import("connection_identity.zig");
 const frames = @import("connection_frames.zig");
 
+const connection_recovery = @import("connection_recovery.zig");
 const testing = std.testing;
 
 /// RFC 9000 §19.16's rule turns on which connection ID a packet was addressed to, and a case
@@ -24,6 +25,9 @@ const Writer = core.Writer;
 const Frame = frame_module.Frame;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 var test_connection: Connection = undefined;
 const payload_len: usize = 256;
@@ -60,7 +64,7 @@ fn frames_of(list: []const Frame) []const u8 {
 }
 
 fn run(level: Level, list: []const Frame) frames.Error!frames.Report {
-    return frames.process(&test_connection, .{ .level = level, .payload = frames_of(list) }, test_now_ns);
+    return frames.process(&test_connection, .{ .level = level, .payload = frames_of(list) }, test_now_ns, &recovery_scratch);
 }
 
 /// A CONNECTION_CLOSE of each layer (RFC 9000 §19.19). The transport one carries a Frame Type
@@ -82,7 +86,7 @@ test "RFC 9000 §12.4: a packet with no frames is a connection error" {
     open_as(.client);
     // "An endpoint MUST treat receipt of a packet containing no frames as a connection error of
     // type PROTOCOL_VIOLATION."
-    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .{ .level = .initial, .payload = &.{} }, test_now_ns));
+    try testing.expectError(frames.Error.EmptyPayload, frames.process(&test_connection, .{ .level = .initial, .payload = &.{} }, test_now_ns, &recovery_scratch));
     try testing.expectEqual(
         error_code.protocol_violation,
         frames.connection_error_code(frames.Error.EmptyPayload),
@@ -192,7 +196,7 @@ test "RFC 9000 §19: a frame that will not parse is a FRAME_ENCODING_ERROR" {
     const unknown = [_]u8{ 0x3f, 0x00 };
     try testing.expectError(
         frames.Error.FrameEncoding,
-        frames.process(&test_connection, .{ .level = .application, .payload = &unknown }, test_now_ns),
+        frames.process(&test_connection, .{ .level = .application, .payload = &unknown }, test_now_ns, &recovery_scratch),
     );
     try testing.expectEqual(
         error_code.frame_encoding_error,
@@ -206,6 +210,7 @@ fn run_with(key_set: crypto.suite.KeySet, list: []const Frame) frames.Error!fram
         &test_connection,
         .{ .level = .application, .payload = frames_of(list), .key_set = key_set },
         test_now_ns,
+        &recovery_scratch,
     );
 }
 

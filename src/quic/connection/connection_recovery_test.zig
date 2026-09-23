@@ -13,6 +13,8 @@ const keys = @import("connection_keys.zig");
 const id_frames = @import("connection_id_frames.zig");
 const recovery = @import("connection_recovery.zig");
 const stream_send = @import("connection_stream/connection_stream_send.zig");
+const frame_module = @import("../frame/frame.zig");
+const frames = @import("connection_frames.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -139,4 +141,110 @@ test "decision 59: an acknowledged packet reaches every piece that waits on one"
     try testing.expectEqual(id.value, completed[0].value);
     try testing.expectEqual(null, server.handshake_done.sent_in);
     try testing.expectEqual(0, server.remote_ids.retirements().len);
+}
+
+/// Where an ACK frame's packets go while RFC 9002 takes them. Test-only.
+var scratch: recovery.Scratch = undefined;
+/// When the tests send, and two round trips a path might show. Test-only.
+const sent_at_ns: u64 = 1_000_000_000;
+const round_trip_ns: u64 = 100_000_000;
+const slower_round_trip_ns: u64 = 150_000_000;
+/// 50 ms as the ACK Delay field carries it: microseconds over 2^4, an exponent the peer's
+/// parameters set above RFC 9000 §18.2's default of 3. Test-only.
+const peer_exponent: u64 = 4;
+const delay_field: u64 = 3_125;
+/// Packets one space sends before an ACK of the last reveals the first lost (RFC 9002 §6.1.1).
+const threshold_packets: u64 = constants.loss_packet_threshold + 1;
+
+/// Records that packet `number` carried `range` of stream `id`, as the send path will (RFC 9002
+/// Appendix A.5), and spends the number in the space so the peer may acknowledge it.
+fn record_sent(level: Level, carries: recovery_sent.Carries, id: u64, offset: u64, at_ns: u64) !void {
+    const number = try server.space_at(level).next_number();
+    const kind: @import("../space/space.zig").Kind = @enumFromInt(@intFromEnum(level));
+    try server.recovery.on_packet_sent(kind, .{
+        .number = number,
+        .sent_at_ns = at_ns,
+        .sent_len = range_len,
+        .ack_eliciting = true,
+        .in_flight = true,
+        .carries = carries,
+        .data_offset = offset,
+        .data_len = range_len,
+        .stream_id = id,
+    }, at_ns);
+}
+
+/// The server reads an ACK frame for `smallest` to `largest` at `level`, at `at_ns`.
+fn take_ack(level: Level, smallest: u64, largest: u64, delay: u64, at_ns: u64) !frames.Report {
+    var payload: [constants.datagram_len_min]u8 = undefined;
+    var writer = core.Writer.init(&payload);
+    const ack: frame_module.Ack = .{
+        .ranges = .{ .largest_acknowledged = largest, .first_range = largest - smallest, .octets = &.{}, .count = 0 },
+        .delay = delay,
+        .ecn = null,
+    };
+    try frame_module.write(&writer, .{ .ack = ack });
+    return frames.process(&server, .{ .level = level, .payload = writer.written() }, at_ns, &scratch);
+}
+
+test "RFC 9002 A.7, decision 59: an ACK frame the connection reads takes its packets out" {
+    open_server();
+    const id = try framed_stream();
+    const window = server.recovery.congestion.window;
+    try record_sent(.application, .stream_fin, id.value, 0, sent_at_ns);
+    const report = try take_ack(.application, 0, 0, 0, sent_at_ns + round_trip_ns);
+    // RFC 9002 §7.8: the window did not bound what was sent, so the acknowledgment grows nothing.
+    try testing.expectEqual(window, server.recovery.congestion.window);
+    // The packet left flight, the round trip was measured, and the stream it finished is named.
+    try testing.expectEqual(0, server.recovery.in_flight_len());
+    try testing.expectEqual(round_trip_ns, server.recovery.rtt.smoothed_ns);
+    try testing.expectEqual(1, report.completed_streams);
+    try testing.expectEqual(id.value, scratch.completed[0].value);
+}
+
+test "RFC 9002 A.10, decision 59: an ACK that reveals a loss owes the lost octets again" {
+    open_server();
+    const id = try stream_send.open(&server, .bidirectional);
+    try stream_send.supply(&server, id, range_len * threshold_packets, false);
+    const stream = server.streams.lookup(id).live;
+    _ = stream.sending.on(.sent_data);
+    stream.outgoing.on_framed(range_len * threshold_packets, false);
+    for (0..threshold_packets) |index| try record_sent(.application, .stream, id.value, range_len * index, sent_at_ns);
+    // Only the last is acknowledged, which RFC 9002 §6.1.1's threshold makes the first lost.
+    _ = try take_ack(.application, threshold_packets - 1, threshold_packets - 1, 0, sent_at_ns + round_trip_ns);
+    try testing.expectEqual(1, server.streams.lost.count);
+    try testing.expectEqual(0, server.streams.lost.oldest().?.offset);
+}
+
+test "RFC 9000 §19.3: the ACK Delay is decoded with the peer's exponent, and ignored at Initial" {
+    open_server();
+    server.peer_parameters.?.ack_delay_exponent = peer_exponent;
+    // The first sample sets the estimate; the second arrives 50 ms late by the peer's own account.
+    try record_sent(.application, .none, 0, 0, sent_at_ns);
+    _ = try take_ack(.application, 0, 0, 0, sent_at_ns + round_trip_ns);
+    const later_ns = sent_at_ns + slower_round_trip_ns;
+    try record_sent(.application, .none, 0, 0, later_ns);
+    _ = try take_ack(.application, 1, 1, delay_field, later_ns + slower_round_trip_ns);
+    // RFC 9002 §5.3: the delay comes off the sample, which is the round trip again.
+    try testing.expectEqual(round_trip_ns, server.recovery.rtt.smoothed_ns);
+
+    // RFC 9002 §5.3: an endpoint "MAY ignore the acknowledgment delay for Initial packets".
+    open_server();
+    server.peer_parameters.?.ack_delay_exponent = peer_exponent;
+    try record_sent(.initial, .none, 0, 0, sent_at_ns);
+    _ = try take_ack(.initial, 0, 0, 0, sent_at_ns + round_trip_ns);
+    try record_sent(.initial, .none, 0, 0, later_ns);
+    _ = try take_ack(.initial, 1, 1, delay_field, later_ns + slower_round_trip_ns);
+    try testing.expect(server.recovery.rtt.smoothed_ns > round_trip_ns);
+}
+
+test "decision 59: an ACK that reveals a loss the connection cannot repair is a connection error" {
+    open_server();
+    // CRYPTO octets the level's window already forgot (`connection_crypto.on_packets_lost`).
+    server.crypto_at(.initial).send_base = 1;
+    for (0..threshold_packets) |_| try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
+    try testing.expectError(
+        frames.Error.Recovery,
+        take_ack(.initial, threshold_packets - 1, threshold_packets - 1, 0, sent_at_ns + round_trip_ns),
+    );
 }

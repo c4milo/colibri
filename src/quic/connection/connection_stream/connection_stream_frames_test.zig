@@ -12,6 +12,7 @@ const connection_module = @import("../connection.zig");
 const frames = @import("../connection_frames.zig");
 const stream_frames = @import("connection_stream_frames.zig");
 
+const connection_recovery = @import("../connection_recovery.zig");
 const testing = std.testing;
 
 /// RFC 9000 §19.16's rule turns on which connection ID a packet was addressed to, and a case
@@ -22,6 +23,9 @@ const Frame = frame_module.Frame;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 const StreamId = stream_id_module.StreamId;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 var test_connection: Connection = undefined;
 const payload_len: usize = 256;
@@ -79,7 +83,7 @@ fn open_server() void {
 fn run(list: []const Frame) frames.Error!frames.Report {
     var writer = Writer.init(&payload);
     for (list) |held| frame_module.write(&writer, held) catch unreachable;
-    return frames.process(&test_connection, .{ .level = .application, .payload = writer.written() }, test_now_ns);
+    return frames.process(&test_connection, .{ .level = .application, .payload = writer.written() }, test_now_ns, &recovery_scratch);
 }
 
 fn stream_frame(id: u64, offset: u64, len: usize, fin: bool) Frame {

@@ -20,10 +20,14 @@ const close_module = @import("connection_close.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
 const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
+const connection_recovery = @import("connection_recovery.zig");
 const testing = std.testing;
 const Level = core.Level;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 var client: Connection = undefined;
 var server: Connection = undefined;
@@ -124,7 +128,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !Read {
             .discarded => continue,
         };
         seen.packets += 1;
-        const report = try frames.process(reader, opened, test_now_ns);
+        const report = try frames.process(reader, opened, test_now_ns, &recovery_scratch);
         if (report.close) |close| {
             seen.closes += 1;
             seen.levels[@intFromEnum(opened.level)] = true;

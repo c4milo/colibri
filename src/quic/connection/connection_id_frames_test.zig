@@ -20,7 +20,11 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 const Record = recovery_sent.Record;
+const connection_recovery = @import("connection_recovery.zig");
 const testing = std.testing;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 var client: Connection = undefined;
 var server: Connection = undefined;
@@ -85,7 +89,7 @@ fn deliver(sent: send.Sent, reader: *Connection) !void {
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, reader, suite_holder.suite())).?.opened;
-    _ = try frames.process(reader, opened, test_now_ns);
+    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch);
 }
 
 fn record_of(sent: send.Sent) Record {

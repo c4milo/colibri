@@ -12,6 +12,7 @@ const connection_module = @import("connection.zig");
 const frames = @import("connection_frames.zig");
 const path_frames = @import("connection_path_frames.zig");
 
+const connection_recovery = @import("connection_recovery.zig");
 const testing = std.testing;
 
 /// RFC 9000 §8.2.1's expansion, as the two answers a datagram can give to it.
@@ -25,6 +26,9 @@ const Writer = core.Writer;
 const Frame = frame_module.Frame;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 var test_connection: Connection = undefined;
 const payload_len: usize = 256;
@@ -70,7 +74,7 @@ fn open_as(role: connection_module.Role) void {
 fn run(list: []const Frame) frames.Error!frames.Report {
     var writer = Writer.init(&payload);
     for (list) |held| frame_module.write(&writer, held) catch unreachable;
-    return frames.process(&test_connection, .{ .level = .application, .payload = writer.written() }, test_now_ns);
+    return frames.process(&test_connection, .{ .level = .application, .payload = writer.written() }, test_now_ns, &recovery_scratch);
 }
 
 test "RFC 9000 §19.7: only a client may receive a NEW_TOKEN frame" {
@@ -188,11 +192,12 @@ test "RFC 9000 §19.16: a frame cannot retire the connection ID its own packet a
         &test_connection,
         .{ .level = .application, .payload = writer.written(), .addressed_to = second },
         test_now_ns,
+        &recovery_scratch,
     ));
     // The same frame on a packet addressed to the other connection ID is legal, which is what
     // makes the refusal about the packet and not about the number.
     const first: u64 = 0;
-    _ = try frames.process(&test_connection, .{ .level = .application, .payload = writer.written(), .addressed_to = first }, test_now_ns);
+    _ = try frames.process(&test_connection, .{ .level = .application, .payload = writer.written(), .addressed_to = first }, test_now_ns, &recovery_scratch);
     try testing.expectEqual(1, test_connection.local_ids.active_len());
 }
 

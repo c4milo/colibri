@@ -11,9 +11,13 @@ const keys = @import("../connection_keys.zig");
 const connection_module = @import("../connection.zig");
 const fixture = @import("packet_build_test.zig");
 
+const connection_recovery = @import("../connection_recovery.zig");
 const testing = std.testing;
 const Connection = connection_module.Connection;
 const test_now_ns: u64 = 1_000_000;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
     fixture.open_connection();
@@ -30,7 +34,7 @@ test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
     // packet for §13.1 to admit the acknowledgment, so its space is advanced first.
     _ = try fixture.peer_connection.space_at(.initial).next_number();
     const opened = try fixture.walk_back(built);
-    const report = try frames.process(&fixture.peer_connection, opened, test_now_ns);
+    const report = try frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch);
     try testing.expectEqual(1, report.frames);
     try testing.expect(!report.ack_eliciting);
     try testing.expectEqual(0, fixture.peer_connection.space_at(.initial).largest_acknowledged.?);
@@ -58,7 +62,7 @@ test "RFC 9000 §13.2.1: an ACK goes out once max_ack_delay has passed" {
     // endpoint communicated using the max_ack_delay transport parameter."
     const built = (try fixture.build_at_instant(.application, deadline_ns)).?;
     const opened = try fixture.walk_back(built);
-    const report = try frames.process(&fixture.peer_connection, opened, test_now_ns);
+    const report = try frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch);
     try testing.expectEqual(1, report.frames);
     // Table 3 marks ACK N, so the packet that carries one elicits nothing itself.
     try testing.expect(!report.ack_eliciting);
@@ -87,7 +91,7 @@ test "RFC 9000 §13.2.1: an ACK not yet owed goes out with other frames, and onl
     const built = (try fixture.build_at_instant(.application, test_now_ns)).?;
     try testing.expect(!space.has_new_ack_eliciting());
     const opened = try fixture.walk_back(built);
-    const report = try frames.process(&fixture.peer_connection, opened, test_now_ns);
+    const report = try frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch);
     try testing.expectEqual(2, report.frames);
     try testing.expectEqual(0, fixture.peer_connection.space_at(.application).largest_acknowledged.?);
 
@@ -95,7 +99,7 @@ test "RFC 9000 §13.2.1: an ACK not yet owed goes out with other frames, and onl
     fixture.test_connection.path.owe_challenge(challenge_data);
     const next = (try fixture.build_at_instant(.application, test_now_ns)).?;
     const next_opened = try fixture.walk_back(next);
-    try testing.expectEqual(1, (try frames.process(&fixture.peer_connection, next_opened, test_now_ns)).frames);
+    try testing.expectEqual(1, (try frames.process(&fixture.peer_connection, next_opened, test_now_ns, &recovery_scratch)).frames);
 }
 
 test "RFC 9000 §13.2.2: an ACK taken back leaves the count, so the second packet still earns one" {

@@ -7,9 +7,16 @@
 //! batch of packets to all of them, and nothing else. Which packets they are is `recovery_ack`'s
 //! and `recovery_loss`'s to decide.
 const std = @import("std");
+const assert = std.debug.assert;
 const core = @import("core");
+const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
+const frame_module = @import("../frame/frame.zig");
+const space_module = @import("../space/space.zig");
+const transport_parameters = @import("../transport_parameters.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
+const recovery_ack = @import("../recovery/recovery_ack.zig");
+const recovery_congestion = @import("../recovery/recovery_congestion.zig");
 const stream_module = @import("../stream/stream.zig");
 const connection_module = @import("connection.zig");
 const connection_crypto = @import("connection_crypto.zig");
@@ -42,6 +49,52 @@ pub fn connection_error_code(failure: Error) u64 {
 /// What the acknowledged packets finished: the streams that entered "Data Recvd" (RFC 9000
 /// §3.1), whose octets the caller may now drop (decision 57).
 pub const Acknowledged = stream_recovery.Acknowledged;
+
+/// Where one ACK frame's packets are written while it is taken: the ones it acknowledged, the
+/// ones it revealed lost, and the streams they finished. The caller places it (decision 35) and
+/// passes it with every packet `connection_frames.process` reads. Each list holds a whole table,
+/// so nothing is left out.
+pub const Scratch = struct {
+    acknowledged: [constants.sent_packets_max]Record,
+    lost: [constants.sent_packets_max]Record,
+    completed: [constants.streams_per_connection_max]StreamId,
+};
+
+/// RFC 9002 Appendix A.7's `OnAckReceived` for one ACK frame read at `level`, and what its
+/// packets mean to the rest of the connection (decision 59). Returns how many streams it finished,
+/// written into `scratch.completed` from `completed_from` on.
+pub fn on_ack_received(
+    connection: *Connection,
+    level: Level,
+    ack: frame_module.Ack,
+    now_ns: u64,
+    scratch: *Scratch,
+    completed_from: usize,
+) Error!usize {
+    const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
+    const decoded: recovery_ack.Ack = .{ .ranges = ack.ranges, .delay_ns = ack_delay_ns(connection, level, ack.delay), .ecn = ack.ecn };
+    const outcome = recovery_ack.on_ack_received(&connection.recovery, kind, decoded, utilization(connection), now_ns, &scratch.acknowledged, &scratch.lost);
+    // Each list holds a whole table, so no packet is left unreported.
+    assert(outcome.unwritten == 0 and outcome.lost.unwritten == 0);
+    const acknowledged = on_packets_acknowledged(connection, level, scratch.acknowledged[0..outcome.written], scratch.completed[completed_from..]);
+    try on_packets_lost(connection, level, scratch.lost[0..outcome.lost.written]);
+    return acknowledged.written;
+}
+
+/// RFC 9000 §19.3: the ACK Delay is in microseconds, scaled by 2 to the power of the peer's
+/// ack_delay_exponent (§18.2). RFC 9002 §5.3: an endpoint "MAY ignore the acknowledgment delay for
+/// Initial packets", which colibri does.
+fn ack_delay_ns(connection: *const Connection, level: Level, delay: u64) u64 {
+    if (level == .initial) return 0;
+    const exponent = if (connection.peer_parameters) |peer| peer.ack_delay_exponent else transport_parameters.default_ack_delay_exponent;
+    return (delay <<| @as(u6, @intCast(exponent))) *| constants.nanoseconds_per_microsecond;
+}
+
+/// RFC 9002 §7.8: an acknowledgment grows the window only when the window bounded what was sent,
+/// which the send path records.
+fn utilization(connection: *const Connection) recovery_congestion.Utilization {
+    return if (connection.window_limited) .full else .limited;
+}
 
 /// Hands the packets an acknowledgment took out of `level`'s space to every piece that keeps a
 /// record of what it sent. `completed` receives the streams that finished.

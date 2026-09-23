@@ -26,7 +26,11 @@ const Parameters = transport_parameters.Parameters;
 const Record = recovery_sent.Record;
 const StreamId = stream_module.StreamId;
 const StreamProvider = stream_module.StreamProvider;
+const connection_recovery = @import("connection_recovery.zig");
 const testing = std.testing;
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 var client: Connection = undefined;
 var server: Connection = undefined;
@@ -110,7 +114,7 @@ fn deliver(sent: send.Sent, reader: *Connection) !void {
     // Bounded by what one datagram can hold (RFC 9000 §12.2).
     for (0..constants.coalesced_packets_max) |_| {
         const outcome = try receive.next(&walk, reader, suite_holder.suite()) orelse return;
-        _ = try frames.process(reader, outcome.opened, test_now_ns);
+        _ = try frames.process(reader, outcome.opened, test_now_ns, &recovery_scratch);
     }
 }
 
@@ -123,7 +127,7 @@ fn frames_of(sent: send.Sent, out: *[frames_max]frame_module.Frame) ![]frame_mod
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, &server, suite_holder.suite())).?.opened;
-    _ = try frames.process(&server, opened, test_now_ns);
+    _ = try frames.process(&server, opened, test_now_ns, &recovery_scratch);
     var reader = core.Reader.init(opened.payload);
     var count: usize = 0;
     // Bounded by `frames_max`, and each read shortens the payload.

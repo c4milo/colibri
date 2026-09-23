@@ -117,6 +117,9 @@ pub const Connection = struct {
     /// The probe packets RFC 9002 §6.2.4 owes at each level, which a PTO sets
     /// (`connection_send.owe_probes`) and each ack-eliciting packet at that level counts off.
     probes_owed: [core.levels_count]u8,
+    /// Whether the congestion window bounded the last datagram `send` built, which RFC 9002 §7.8
+    /// asks before an acknowledgment may grow the window.
+    window_limited: bool,
     /// The CONNECTION_CLOSE this endpoint owes its peer (RFC 9000 §10.2), or null while it owes
     /// none. §10.2.1 keeps "only enough information to generate a packet containing a
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
@@ -145,6 +148,7 @@ pub const Connection = struct {
         connection.handshake_confirmed = false;
         connection.handshake_done = .{};
         connection.probes_owed = @splat(0);
+        connection.window_limited = false;
         connection.max_data = .{};
         connection.data_blocked = .{};
         connection.key_phase.init();

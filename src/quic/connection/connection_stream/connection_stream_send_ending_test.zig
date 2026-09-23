@@ -22,6 +22,7 @@ const Record = recovery_sent.Record;
 const StreamId = stream_module.StreamId;
 const Body = send_test.Body;
 const Frame = frame_module.Frame;
+const connection_recovery = @import("../connection_recovery.zig");
 const testing = std.testing;
 
 const test_now_ns: u64 = 1_000_000;
@@ -56,7 +57,7 @@ fn deliver(sent: send.Sent, reader: *Connection, out: *[frames_max]Frame) ![]Fra
     var walk: receive.Walk = undefined;
     walk.init(.{ .octets = send_test.datagram[0..sent.len], .now_ns = test_now_ns, .ecn = .not_ect });
     const opened = (try receive.next(&walk, reader, send_test.suite_holder.suite())).?.opened;
-    _ = try frames.process(reader, opened, test_now_ns);
+    _ = try frames.process(reader, opened, test_now_ns, &recovery_scratch);
     var payload = core.Reader.init(opened.payload);
     var count: usize = 0;
     // Bounded by `frames_max`, and each read shortens the payload.
@@ -104,6 +105,9 @@ fn one_packet_sent(body: *Body) !struct { id: StreamId, framed: u64 } {
     _ = try deliver(first, &send_test.server, &read);
     return .{ .id = id, .framed = first.packets[0].data_len };
 }
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 test "RFC 9000 §19.4: a reset stream sends RESET_STREAM with what was framed as its final size" {
     open_pair();

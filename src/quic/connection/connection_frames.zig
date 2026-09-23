@@ -29,6 +29,7 @@ const key_update = @import("connection_key_update.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const stream_frames = @import("connection_stream/connection_stream_frames.zig");
 const path_frames = @import("connection_path_frames.zig");
+const connection_recovery = @import("connection_recovery.zig");
 
 const Level = core.Level;
 const Reader = core.Reader;
@@ -60,6 +61,9 @@ pub const Error = error{
     Stream,
     /// A frame about a connection ID or a path did, and `connection_path_frames.Error` says so.
     Path,
+    /// An acknowledgment revealed a loss the connection cannot repair, and
+    /// `connection_recovery.Error` says which.
+    Recovery,
 };
 
 /// The code a CONNECTION_CLOSE carries for `failure` (RFC 9000 §20.1). `Crypto` is not among
@@ -81,7 +85,7 @@ pub fn connection_error_code(failure: Error) u64 {
         // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR. A stream
         // frame's own code is `connection_stream_frames.connection_error_code`'s, which the
         // caller reads instead, because §20.1 gives each of its rules a code of its own.
-        error.Crypto, error.Stream, error.Path => error_code.internal_error,
+        error.Crypto, error.Stream, error.Path, error.Recovery => error_code.internal_error,
     };
 }
 
@@ -95,6 +99,9 @@ pub const Report = struct {
     close: ?Close,
     /// What the packet left for the send path to answer (RFC 9000 §8.2.2, §19.7).
     owed: path_frames.Owed,
+    /// How many streams the packet's acknowledgments moved to "Data Recvd" (RFC 9000 §3.1),
+    /// which `scratch.completed` holds in order.
+    completed_streams: usize = 0,
     /// Whether the packet carried a HANDSHAKE_DONE frame, which confirms the handshake at a
     /// client (RFC 9001 §4.1.2). The caller then discards the Handshake keys, which RFC 9001
     /// §4.9.2 requires and which takes the suite this function is not given
@@ -113,7 +120,10 @@ pub const Close = struct {
 ///
 /// `payload` is the plaintext `crypto.Suite.open` left in place. Nothing here discards: the tag
 /// has matched, so a rule broken from this point is the peer's and closes the connection.
-pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64) Error!Report {
+///
+/// `scratch` is where an ACK frame's packets are written while RFC 9002 takes them (decision 59);
+/// the streams they finished stay in `scratch.completed`, and the report counts them.
+pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64, scratch: *connection_recovery.Scratch) Error!Report {
     const level = opened.level;
     // RFC 9000 §12.4: "The payload of a packet that contains frames MUST contain at least one
     // frame", and a packet with none is a connection error.
@@ -130,7 +140,7 @@ pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64) Err
         if (!frame.permitted_at(level)) return Error.FrameNotPermitted;
         report.frames += 1;
         if (frame.is_ack_eliciting()) report.ack_eliciting = true;
-        try apply(connection, opened, frame, now_ns, &report);
+        try apply(connection, opened, frame, now_ns, scratch, &report);
     }
     // A payload that held only octets no frame could be read from would have failed above, so
     // reaching here with nothing read means the payload was frames of zero length, which §19.1
@@ -141,12 +151,19 @@ pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64) Err
 
 /// Acts on one frame. The arms are the frames that act on the connection; a frame naming a
 /// stream is `connection_stream_frames.zig`'s and reaches it through `stream_frame`.
-fn apply(connection: *Connection, opened: receive.Opened, frame: Frame, now_ns: u64, report: *Report) Error!void {
+fn apply(
+    connection: *Connection,
+    opened: receive.Opened,
+    frame: Frame,
+    now_ns: u64,
+    scratch: *connection_recovery.Scratch,
+    report: *Report,
+) Error!void {
     switch (frame) {
         // RFC 9000 §19.1, §19.2: PADDING has no semantics and PING exists to elicit an
         // acknowledgment, which `is_ack_eliciting` already recorded.
         .padding, .ping => {},
-        .ack => |ack| try take_ack(connection, opened, ack, now_ns),
+        .ack => |ack| try take_ack(connection, opened, ack, now_ns, scratch, report),
         .crypto => |crypto| connection_crypto.receive_crypto(connection, opened.level, crypto) catch
             return Error.Crypto,
         .connection_close => |close| take_close(connection, close, now_ns, report),
@@ -171,7 +188,14 @@ fn apply(connection: *Connection, opened: receive.Opened, frame: Frame, now_ns: 
 }
 
 /// RFC 9000 §13.1 and §13.2: what a peer's ACK frame says about packets this endpoint sent.
-fn take_ack(connection: *Connection, opened: receive.Opened, ack: frame_module.Ack, now_ns: u64) Error!void {
+fn take_ack(
+    connection: *Connection,
+    opened: receive.Opened,
+    ack: frame_module.Ack,
+    now_ns: u64,
+    scratch: *connection_recovery.Scratch,
+    report: *Report,
+) Error!void {
     // RFC 9001 §6.2: "An endpoint that receives an acknowledgment that is carried in a packet
     // protected with old keys where any acknowledged packet was protected with newer keys MAY
     // treat that as a connection error of type KEY_UPDATE_ERROR."
@@ -183,6 +207,17 @@ fn take_ack(connection: *Connection, opened: receive.Opened, ack: frame_module.A
         // error of type PROTOCOL_VIOLATION."
         error.AcknowledgedUnsentPacket => return Error.AcknowledgedUnsentPacket,
     };
+    // RFC 9002 Appendix A.7, which decision 59 runs where the frame is read: the round trip, the
+    // packets out of flight, the losses they reveal and the window, and then what each packet
+    // carried, for every piece that sent it.
+    report.completed_streams += connection_recovery.on_ack_received(
+        connection,
+        opened.level,
+        ack,
+        now_ns,
+        scratch,
+        report.completed_streams,
+    ) catch return Error.Recovery;
     // RFC 9001 §6.5 waits three Probe Timeouts from "an acknowledgment that confirms that the
     // previous key update was received", which is this frame when it names the current phase.
     key_update.on_ack_processed(connection, opened.level, now_ns);

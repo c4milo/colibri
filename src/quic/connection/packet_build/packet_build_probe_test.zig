@@ -13,6 +13,7 @@ const send = @import("../connection_send.zig");
 const connection_module = @import("../connection.zig");
 const fixture = @import("packet_build_test.zig");
 
+const connection_recovery = @import("../connection_recovery.zig");
 const testing = std.testing;
 const Connection = connection_module.Connection;
 const test_now_ns: u64 = 1_000_000;
@@ -33,8 +34,11 @@ fn open_application() void {
 /// Reads a built packet back at the peer and returns what its frames amounted to.
 fn read_back(built: anytype) !frames.Report {
     const opened = try fixture.walk_back(built);
-    return frames.process(&fixture.peer_connection, opened, test_now_ns);
+    return frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch);
 }
+
+/// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
+var recovery_scratch: connection_recovery.Scratch = undefined;
 
 test "RFC 9002 §6.2.4: a probe with nothing to send is a PING, and each owed probe is one packet" {
     open_application();
