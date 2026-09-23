@@ -2088,6 +2088,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1263 passed, 18 skipped.
 
+  **Stream octets are sent, read through the stream provider, 2026-09-22**, `3c1453d`. Decision
+  57's fourth piece. `stream_provider.StreamProvider` is design §4.5's vtable, one member,
+  `read(stream_id, offset, output)`. `connection_send.send` takes one, and
+  `StreamProvider.none()` serves a caller that sends no stream data. The caller opens a stream
+  with `connection_stream_send.open` and says how far its octets reach with `supply`. It never
+  passes octets.
+
+  `connection_stream_send.write` puts one STREAM frame in an application-level packet (decision
+  56; RFC 9000 §12.4, Table 3). The oldest lost range goes first (§13.3), and a lost range whose
+  stream was reset or closed since is dropped. Otherwise the first stream in the table with new
+  octets and credit sends them. Each new octet spends the stream's limit and the connection's
+  (§4.1), and a lost range sent again spends neither. A packet that carries CRYPTO carries no
+  STREAM frame, because the record holds one range. The provider writes its octets straight into
+  the packet scratch after a header measured for the room. The Length field keeps that width even
+  when the provider answers fewer octets, which RFC 9000 §16 permits, so no octet is moved. The
+  field is always present, so PADDING may follow the frame. Choosing among streams is the frame
+  scheduler's, [#29](https://github.com/c4milo/colibri/issues/29).
+
+  The tests open each packet as the peer, run its frames through the receive path, and check
+  every octet of the STREAM frame against its offset. They cover a lost range sent again before
+  new octets, a lost range split to fit a smaller packet, a FIN sent alone and lost, a reset or
+  closed stream's lost range dropped, both flow control limits, a provider with fewer octets than
+  supplied, and CRYPTO and STREAM kept apart.
+
+  34 mutations, 34 CAUGHT. The Length field's width was first NOT CAUGHT: no provider had
+  answered fewer than 64 octets for a range measured at two, so the short read now reads 50. One
+  check in `frame` was removed rather than tested, because the check after it answers the same
+  case.
+
+  `zig build test`: 1276 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
