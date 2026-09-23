@@ -2313,6 +2313,54 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1325 passed, 18 skipped.
 
+  **The connection drives loss recovery, 2026-09-23**, `d7b56e6`, `0319c7a`, `33f2c69` and
+  `1dfc8e3`. Decision 59. Before it, `send` recorded no packet, an ACK frame updated only its
+  packet number space, and nothing called the loss timeout, so RFC 9002 never ran on a connection.
+
+  The four pieces:
+  - `connection_recovery` hands each batch of acknowledged or lost packets to every piece that
+    keeps a record of what it sent: CRYPTO, stream octets, the flow control frames,
+    HANDSHAKE_DONE and the connection ID frames. A lost CRYPTO range the level's window has
+    forgotten, or a full table of lost stream ranges, closes the connection with INTERNAL_ERROR
+    (RFC 9000 §20.1).
+  - An ACK frame runs Appendix A.7's `OnAckReceived` where `connection_frames.process` reads it.
+    The ACK Delay is decoded by the peer's exponent (RFC 9000 §19.3) and ignored at the Initial
+    level (RFC 9002 §5.3). The caller places a `connection_recovery.Scratch` for the packets.
+  - `send` records each packet in flight (Appendix A.5). A packet of ACK frames alone is not
+    recorded: Appendix A.1 tracks ack-eliciting packets, and a peer need not acknowledge one
+    (RFC 9000 §13.2.1), so its record would hold a table slot until loss detection gave it up.
+  - `connection_timer.on_instant` runs Appendix A.9's `OnLossDetectionTimeout`. The packets it
+    declares lost go through `connection_recovery`, and a Probe Timeout owes the probes `send`
+    builds. Discarding Initial or Handshake keys discards that space's records (RFC 9002 §6.4),
+    and the peer's max_ack_delay now reaches the Probe Timeout.
+
+  RFC 9002 §7 bounds what `send` puts in flight by the congestion window. A level sends
+  ack-eliciting packets only while the window holds the rest of the datagram, so a packet is never
+  cut short to fit and §14.1's padding fits too. Until then it sends only an ACK the space owes.
+  A PTO probe and a CONNECTION_CLOSE go whatever the window says. A client the window holds back
+  sends no Initial, because §14.1's padding would put it in flight. A space whose table is full
+  sends nothing until an acknowledgment arrives.
+
+  Appendix A.8's timer reads four facts from the rest of the connection: whether the handshake is
+  confirmed, whether this endpoint holds Handshake keys, whether the peer has validated its
+  address, and whether §8.1's limit leaves it anything to send. Nothing set any of them.
+  `connection_recovery` now copies them in from the connection's own state before the timer is
+  read.
+
+  One defect showed up along the way. The anti-deadlock probe counted from the instant the timer
+  was asked for, so each question moved it later and it never fired. It now counts from the last
+  event that set the timer (A.5, A.7 or A.9), which `recovery_timer.State.armed_at_ns` holds, and
+  `next_timer` takes no instant.
+
+  Not built: pacing (§7.7), which `send` does not consult, and ECN marking. `send` records every
+  packet as unmarked (RFC 9000 §13.4), so a caller that marks ECT would fail §13.4.2.1's
+  validation and stop marking.
+
+  Mutations: 8, 9, 21 and 23, all CAUGHT. Two first survived: an ACK that could still
+  wait was sent past the window, and a server arming an anti-deadlock probe.
+
+  `zig build test`: 1354 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
