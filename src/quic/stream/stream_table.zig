@@ -22,6 +22,7 @@ const core = @import("core");
 const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
 const flow = @import("../flow.zig");
+const frame_latest = @import("../frame/frame_latest.zig");
 const stream_id = @import("stream_id.zig");
 const stream_send = @import("stream_send.zig");
 const stream_recv = @import("stream_recv.zig");
@@ -48,8 +49,8 @@ pub const Stream = struct {
     outgoing: stream_outgoing.Outgoing = .{},
     /// The MAX_STREAM_DATA and STREAM_DATA_BLOCKED frames most recently sent for this stream
     /// (RFC 9000 §13.3).
-    max_stream_data: flow.Advertised = .{},
-    stream_data_blocked: flow.Advertised = .{},
+    max_stream_data: frame_latest.Latest = .{},
+    stream_data_blocked: frame_latest.Latest = .{},
 
     pub fn stream_identifier(stream: *const Stream) StreamId {
         return .{ .value = stream.id };
@@ -108,8 +109,8 @@ pub const Streams = struct {
     /// The stream octets lost in transit and owed again (§13.3), across every stream.
     lost: stream_lost.LostRanges,
     /// The MAX_STREAMS and STREAMS_BLOCKED frames most recently sent for each stream type (§13.3).
-    max_streams: [constants.stream_directionalities]flow.Advertised,
-    streams_blocked: [constants.stream_directionalities]flow.Advertised,
+    max_streams: [constants.stream_directionalities]frame_latest.Latest,
+    streams_blocked: [constants.stream_directionalities]frame_latest.Latest,
     /// Whether this endpoint tried to open a stream of each type and the peer's limit refused it
     /// since the last one it opened, which is when §4.6 asks for STREAMS_BLOCKED.
     open_refused: [constants.stream_directionalities]bool,

@@ -14,12 +14,11 @@
 //! RFC 9000 §13.3 sends a lost limit frame again at the current value, and only when the lost
 //! packet carried the most recent frame for its scope; a lost BLOCKED frame likewise, and only
 //! while the endpoint is still blocked on that limit. Each scope keeps that packet's number in a
-//! `flow.Advertised`, so a loss is matched by number and nothing is kept per packet.
+//! `frame.Latest`, so a loss is matched by number and nothing is kept per packet.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("../constants.zig");
-const flow = @import("../flow.zig");
 const frame_module = @import("../frame/frame.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 const stream_module = @import("../stream/stream.zig");
@@ -103,8 +102,8 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
     for (lost) |record| {
         connection.max_data.on_lost(record.number);
         connection.data_blocked.on_lost(record.number);
-        for (&connection.streams.max_streams) |*advertised| advertised.on_lost(record.number);
-        for (&connection.streams.streams_blocked) |*advertised| advertised.on_lost(record.number);
+        for (&connection.streams.max_streams) |*latest| latest.on_lost(record.number);
+        for (&connection.streams.streams_blocked) |*latest| latest.on_lost(record.number);
         var walk = connection.streams.pool.iterator();
         // Bounded by the table's capacity, `streams_per_connection_max`.
         while (walk.next()) |stream| {
@@ -119,7 +118,7 @@ fn write_max_data(connection: *Connection, writer: *Writer, number: u64, now_ns:
     const fresh = connection.receive_flow.credit_frame_limit(now_ns, round_trip_ns) != null;
     if (!fresh and !connection.max_data.owed) return false;
     const frame: frame_module.Frame = .{ .max_data = .{ .maximum = connection.receive_flow.limit } };
-    return write_or_owe(writer, frame, &connection.max_data, number);
+    return connection.max_data.write(writer, frame, number);
 }
 
 /// RFC 9000 §19.11: how many streams of one type the peer may open, once enough of them closed.
@@ -132,7 +131,7 @@ fn write_max_streams(connection: *Connection, directionality: Directionality, wr
         .directionality = frame_directionality(directionality),
         .maximum = streams.peer_limit[which].limit,
     } };
-    return write_or_owe(writer, frame, &streams.max_streams[which], number);
+    return streams.max_streams[which].write(writer, frame, number);
 }
 
 /// RFC 9000 §19.10: one stream's limit. §13.3: "An endpoint SHOULD stop sending MAX_STREAM_DATA
@@ -153,7 +152,7 @@ fn write_max_stream_data(
     // error. Credit comes only from `consume`, which refuses such a stream, so none is owed here.
     assert(stream.stream_identifier().is_receivable_by(connection.streams.role));
     const frame: frame_module.Frame = .{ .max_stream_data = .{ .stream_id = stream.id, .maximum = stream.receive_flow.limit } };
-    return write_or_owe(writer, frame, &stream.max_stream_data, number);
+    return stream.max_stream_data.write(writer, frame, number);
 }
 
 /// RFC 9000 §19.12: the connection's limit holds back octets this endpoint has to send (§4.1: a
@@ -198,15 +197,15 @@ fn write_blocked_frame(
     frame: frame_module.Frame,
     blocked: bool,
     fresh: bool,
-    advertised: *flow.Advertised,
+    latest: *frame_module.Latest,
     number: u64,
 ) bool {
     if (!blocked) {
-        advertised.owed = false;
+        latest.owed = false;
         return false;
     }
-    if (!fresh and !advertised.owed) return false;
-    return write_or_owe(writer, frame, advertised, number);
+    if (!fresh and !latest.owed) return false;
+    return latest.write(writer, frame, number);
 }
 
 /// Whether any stream has octets it could send if the connection's limit let it.
@@ -217,17 +216,6 @@ fn has_unframed_octets(connection: *Connection) bool {
         if (stream.sending.may_send_data() and stream.outgoing.unframed_len() > 0) return true;
     }
     return false;
-}
-
-/// Writes `frame` and records the packet carrying it, or leaves the frame owed when it does not
-/// fit, so the next packet carries it at the limit current then.
-fn write_or_owe(writer: *Writer, frame: frame_module.Frame, advertised: *flow.Advertised, number: u64) bool {
-    frame_module.write(writer, frame) catch {
-        advertised.owed = true;
-        return false;
-    };
-    advertised.on_sent(number);
-    return true;
 }
 
 /// The round trip `flow.Receiver` tunes its window against (decision 49), or 0 before RFC 9002

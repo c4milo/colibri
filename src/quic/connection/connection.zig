@@ -36,6 +36,7 @@ const termination_module = @import("../termination.zig");
 const recovery_module = @import("../recovery/recovery.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const frame_control = @import("../frame/frame_control.zig");
+const frame_latest = @import("../frame/frame_latest.zig");
 const identity_module = @import("connection_identity.zig");
 const keys_module = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
@@ -79,8 +80,8 @@ pub const Connection = struct {
     /// The connection-level data colibri will accept, which its own parameters fix (§4.1).
     receive_flow: flow.Receiver,
     /// The MAX_DATA and DATA_BLOCKED frames most recently sent (RFC 9000 §13.3).
-    max_data: flow.Advertised,
-    data_blocked: flow.Advertised,
+    max_data: frame_latest.Latest,
+    data_blocked: frame_latest.Latest,
     /// The connection IDs colibri issued and the peer may use (RFC 9000 §5.1).
     local_ids: connection_id.Local,
     /// The connection IDs the peer issued and colibri may use (§5.1).

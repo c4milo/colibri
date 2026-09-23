@@ -29,6 +29,8 @@ const Writer = core.Writer;
 pub const frame_ack = @import("frame_ack.zig");
 pub const frame_stream = @import("frame_stream.zig");
 pub const frame_control = @import("frame_control.zig");
+pub const frame_latest = @import("frame_latest.zig");
+pub const Latest = frame_latest.Latest;
 
 pub const Ack = frame_ack.Ack;
 pub const AckRanges = frame_ack.AckRanges;
@@ -268,6 +270,7 @@ test {
     _ = frame_ack;
     _ = frame_stream;
     _ = frame_control;
+    _ = frame_latest;
     _ = @import("frame_test.zig");
     _ = @import("frame_repair_test.zig");
 }
