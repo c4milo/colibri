@@ -2224,6 +2224,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1303 passed, 18 skipped.
 
+  **RESET_STREAM and STOP_SENDING are sent, 2026-09-22**, `861bc84` and `2d1f70f`. Nothing could
+  end one direction of a stream, and a peer's STOP_SENDING went unanswered, which RFC 9000 §3.5
+  says MUST be answered with RESET_STREAM. `connection_stream_send.reset` abandons a sending part
+  (§3.1, §19.4). It enters "Reset Sent" when the reset is asked for, not when the frame goes out,
+  so nothing is framed after the decision. The frame's final size is every octet framed, which
+  can no longer change, so each copy is the same (§13.3: its content "MUST NOT change when it is
+  sent again"). `stop_sending` asks the peer to stop, while the receiving part is in "Recv" or
+  "Size Known" (§19.5). A STOP_SENDING from the peer now owes a reset with the peer's error code
+  (§3.5). colibri resets at once in "Data Sent" too, where §3.5 allows but does not require a
+  wait.
+
+  A lost RESET_STREAM goes again until one copy is acknowledged, and that acknowledgment enters
+  "Reset Recvd" (§3.1). A lost STOP_SENDING goes again while the peer may still send (§13.3). Both
+  keep the packet that carried their most recent copy in `frame.Latest`, which `861bc84` renamed
+  from `flow.Advertised` because the record is not about limits. `connection_stream_recovery`'s
+  two functions now take the packet number space, because acknowledging a reset matches packet
+  numbers, and a number means nothing outside its space (§12.3). An acknowledgment walks the
+  streams only while one is in "Reset Sent".
+
+  28 mutations, 28 CAUGHT: 4 on the renamed record and 24 on the endings. A check in the
+  acknowledgment walk that could never fail was removed rather than kept as an equivalent mutant.
+
+  `zig build test`: 1309 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
