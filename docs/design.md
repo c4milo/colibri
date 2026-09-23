@@ -2541,19 +2541,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   | Test | colibri server | colibri client |
   |---|---|---|
-  | handshake, transfer, chacha20, multiplexing, transferloss | pass | pass |
+  | handshake, transfer, chacha20, multiplexing, transferloss, handshakeloss | pass | pass |
   | retry | unsupported: the suite mints no token | pass |
-  | handshakeloss | fail | fail |
 
   The runs found a colibri defect, fixed in its own commit. RFC 9000 §3.2 has a frame for a
   peer's stream open every lower stream too, and only the named stream got its §18.2 limits.
   The others kept a one-octet window, so their own frames, arriving late on a lossy path, broke
   flow control. 2 mutations, 2 CAUGHT.
 
-  handshakeloss fails in both roles for one reason. A probe (RFC 9002 §6.2.4) carries a PING and
-  never the unacknowledged CRYPTO octets, which decision 57's rule allows. Under the case's bursty
-  loss the octets are resent only once an acknowledgment shows them lost, and the probes that do
-  arrive give the peer nothing it can use.
+  handshakeloss failed in both roles at first. A probe (RFC 9002 §6.2.4) carried a PING and never
+  the unacknowledged CRYPTO octets, so under the case's bursty loss the probes that arrived gave
+  the peer nothing it could use. Decision 64 has a PTO at the Initial or Handshake level declare
+  that level's packets lost, so the probes carry the octets (`09da2fa`). 4 mutations, 4 CAUGHT,
+  one by the simulator's check alone, whose census moved to 13,281 datagrams, 13,318 packets and
+  690 dropped. The server side then failed on its own table: four connections whose clients'
+  closes were lost filled it until their idle timeouts, so `6072b07` gives the next client the
+  connection idle longest. The last run passed every case the endpoint builds, in both roles.
 
   Not built yet: a qlog, IPv6, Retry as a server, and `tools/ci.sh` running the runner. The hosted
   runner's tshark is older than the 4.5.0 the runner needs.
