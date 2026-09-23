@@ -13,7 +13,7 @@ const constants = @import("../../constants.zig");
 const frame_module = @import("../../frame/frame.zig");
 const connection_module = @import("../connection.zig");
 const connection_crypto = @import("../connection_crypto.zig");
-const connection_stream_send = @import("../connection_stream_send.zig");
+const connection_stream_send = @import("../connection_stream/connection_stream_send.zig");
 const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const connection_close = @import("../connection_close.zig");
 

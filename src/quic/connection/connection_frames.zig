@@ -27,7 +27,7 @@ const connection_module = @import("connection.zig");
 const receive = @import("connection_receive.zig");
 const key_update = @import("connection_key_update.zig");
 const connection_crypto = @import("connection_crypto.zig");
-const stream_frames = @import("connection_stream_frames.zig");
+const stream_frames = @import("connection_stream/connection_stream_frames.zig");
 const path_frames = @import("connection_path_frames.zig");
 
 const Level = core.Level;

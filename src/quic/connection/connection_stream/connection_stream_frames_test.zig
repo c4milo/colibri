@@ -3,13 +3,13 @@
 //! these cases drive is the whole path from a packet's payload down to a stream.
 const std = @import("std");
 const core = @import("core");
-const constants = @import("../constants.zig");
-const error_code = @import("../error_code.zig");
-const frame_module = @import("../frame/frame.zig");
-const stream_id_module = @import("../stream/stream_id.zig");
-const transport_parameters = @import("../transport_parameters.zig");
-const connection_module = @import("connection.zig");
-const frames = @import("connection_frames.zig");
+const constants = @import("../../constants.zig");
+const error_code = @import("../../error_code.zig");
+const frame_module = @import("../../frame/frame.zig");
+const stream_id_module = @import("../../stream/stream_id.zig");
+const transport_parameters = @import("../../transport_parameters.zig");
+const connection_module = @import("../connection.zig");
+const frames = @import("../connection_frames.zig");
 const stream_frames = @import("connection_stream_frames.zig");
 
 const testing = std.testing;

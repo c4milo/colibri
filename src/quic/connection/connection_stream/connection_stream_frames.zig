@@ -12,15 +12,15 @@
 //! control error, say. Invariant 7 is this: validation precedes interpretation.
 const std = @import("std");
 const core = @import("core");
-const constants = @import("../constants.zig");
-const error_code = @import("../error_code.zig");
-const flow = @import("../flow.zig");
-const frame_module = @import("../frame/frame.zig");
-const frame_stream = @import("../frame/frame_stream.zig");
-const stream_id_module = @import("../stream/stream_id.zig");
-const stream_table = @import("../stream/stream_table.zig");
-const stream_recv = @import("../stream/stream_recv.zig");
-const connection_module = @import("connection.zig");
+const constants = @import("../../constants.zig");
+const error_code = @import("../../error_code.zig");
+const flow = @import("../../flow.zig");
+const frame_module = @import("../../frame/frame.zig");
+const frame_stream = @import("../../frame/frame_stream.zig");
+const stream_id_module = @import("../../stream/stream_id.zig");
+const stream_table = @import("../../stream/stream_table.zig");
+const stream_recv = @import("../../stream/stream_recv.zig");
+const connection_module = @import("../connection.zig");
 
 const Connection = connection_module.Connection;
 const Stream = stream_table.Stream;

@@ -13,11 +13,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
-const constants = @import("../constants.zig");
-const frame_stream = @import("../frame/frame_stream.zig");
-const stream_module = @import("../stream/stream.zig");
-const stream_provider_module = @import("../stream/stream_provider.zig");
-const connection_module = @import("connection.zig");
+const constants = @import("../../constants.zig");
+const frame_stream = @import("../../frame/frame_stream.zig");
+const stream_module = @import("../../stream/stream.zig");
+const stream_provider_module = @import("../../stream/stream_provider.zig");
+const connection_module = @import("../connection.zig");
 const connection_stream_frames = @import("connection_stream_frames.zig");
 
 const Writer = core.Writer;
