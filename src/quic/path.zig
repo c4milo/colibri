@@ -189,6 +189,14 @@ pub const Path = struct {
         };
     }
 
+    /// A Handshake packet from the peer that this endpoint opened and processed. RFC 9000 §8.1:
+    /// "Once an endpoint has successfully processed a Handshake packet from the peer, it can
+    /// consider the peer address to have been validated", because a packet under Handshake keys
+    /// shows the peer read an Initial sent to that address.
+    pub fn on_handshake_processed(path: *Path) void {
+        path.validated = true;
+    }
+
     /// Takes a PATH_RESPONSE. RFC 9000 §8.2.3: validation succeeds when the frame carries the
     /// data of a PATH_CHALLENGE sent before, and a response arriving on any path validates the
     /// one its challenge went out on.

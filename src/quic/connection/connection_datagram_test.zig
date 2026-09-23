@@ -121,6 +121,23 @@ test "RFC 9000 §13.1, §10.1: a processed packet is recorded and restarts the i
     try testing.expectEqual(later_ns, server.termination.idle_since_ns);
 }
 
+test "RFC 9000 §8.1: a processed Handshake packet validates the client's address" {
+    open_pair(&.{ .initial, .handshake });
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    const initial = try send_from(&client);
+    try testing.expectEqual(1, (try receive(&server, initial.len)).processed);
+    // A server that has read only Initial packets is held to three times what arrived: anyone
+    // can send one from an address it does not hold.
+    try testing.expect(server.path.send_allowance() < std.math.maxInt(u64));
+    provider_holder = .{};
+    send.owe_probes(&client, .handshake, 1);
+    const sent = try send_from(&client);
+    _ = try receive(&server, sent.len);
+    // "Once an endpoint has successfully processed a Handshake packet from the peer, it can
+    // consider the peer address to have been validated."
+    try testing.expectEqual(std.math.maxInt(u64), server.path.send_allowance());
+}
+
 test "RFC 9000 §13.1: a packet whose frames close the connection is not recorded" {
     open_pair(&.{.handshake});
     // The client acknowledges a packet the server never sent (RFC 9000 §13.1).

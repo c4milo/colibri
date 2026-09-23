@@ -274,7 +274,12 @@ fn open_at(
     }
     // RFC 9001 §4.9.1: "a server MUST discard Initial keys when it first successfully processes a
     // Handshake packet". This one opened and is new, so its frames are processed next.
-    if (level == .handshake) keys_module.on_handshake_packet_processed(connection, suite);
+    if (level == .handshake) {
+        keys_module.on_handshake_packet_processed(connection, suite);
+        // RFC 9000 §8.1: the same packet validates the peer's address, which ends a server's
+        // anti-amplification limit (invariant 18).
+        connection.path.on_handshake_processed();
+    }
     walk.consumed += packet_len;
     const payload_start = packet_number_offset + opened.packet_number_len;
     return .{
