@@ -1362,3 +1362,28 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     caller that every other caller copies. A caller that records a packet before its frames, or
     never counts a datagram, then breaks §13.1 or §8.1 with nothing to say so. It is decision 59's
     reasoning, applied to the receive side.
+
+61. **colibri reassembles received stream octets into a pool the caller places.** Ruled by the
+    owner on 2026-09-23. It settles [#41](https://github.com/c4milo/colibri/issues/41) and
+    [#42](https://github.com/c4milo/colibri/issues/42).
+
+    colibri checked every STREAM frame against RFC 9000's flow control, final size and state
+    rules and kept none of the octets, so no caller could read a stream. And decision 49's
+    window growth had no cap, so no window grew.
+
+    So colibri reassembles. A connection's received octets go into one pool the caller places,
+    `stream_incoming.Pool(capacity)`, in fixed-size blocks any stream may take. The application
+    reads a stream's octets in order, and what it reads is what gives the peer new credit (RFC
+    9000 §4.1). One pool is enough for every stream: the octets waiting across all streams can
+    never pass the connection window, so the pool is sized by it plus two blocks per stream for
+    the ends of each stream's span. colibri never advertises more than it can hold, so the pool's
+    capacity is decision 49's cap, for the connection and for each stream alike. The default
+    capacity is 1 MiB, a named limit: about 80 Mbit/s per connection at a 100 ms round trip. A
+    caller that wants more places a larger pool. A connection given no pool reads no stream: it
+    checks STREAM frames and keeps nothing, and its windows stay where they start.
+
+    Three alternatives were refused. Handing each frame's octets to the caller puts reassembly
+    in every caller, which is decision 60's reasoning again. A buffer per stream, sized to that
+    stream's largest window, commits 128 of them per connection. Handing in-order octets out as
+    they arrive and keeping only what sits past a gap needs less pool, but makes the caller take
+    octets whenever they come rather than when it reads.
