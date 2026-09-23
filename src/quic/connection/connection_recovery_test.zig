@@ -252,7 +252,7 @@ test "decision 59: an ACK that reveals a loss the connection cannot repair is a 
     server.crypto_at(.initial).send_base = 1;
     for (0..threshold_packets) |_| try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
     try testing.expectError(
-        frames.Error.Recovery,
+        error.CryptoForgotten,
         take_ack(.initial, threshold_packets - 1, threshold_packets - 1, 0, sent_at_ns + round_trip_ns),
     );
 }

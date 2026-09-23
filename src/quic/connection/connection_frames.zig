@@ -38,8 +38,13 @@ const Connection = connection_module.Connection;
 const ConnectionClose = @import("../frame/frame_control.zig").ConnectionClose;
 
 /// Why a packet's frames closed the connection. Each is a connection error, and
-/// `connection_error_code` says which code the CONNECTION_CLOSE carries.
-pub const Error = error{
+/// `connection_error_code` says which code the CONNECTION_CLOSE carries. The errors of the pieces
+/// a frame reaches are kept as they are, because RFC 9000 §20.1 gives many of them a code of their
+/// own: FLOW_CONTROL_ERROR, STREAM_LIMIT_ERROR and the rest.
+pub const Error = Own || connection_crypto.Error || stream_frames.Error || path_frames.Error || connection_recovery.Error;
+
+/// The refusals this file makes itself.
+const Own = error{
     /// RFC 9000 §12.4: "An endpoint MUST treat receipt of a packet containing no frames as a
     /// connection error of type PROTOCOL_VIOLATION."
     EmptyPayload,
@@ -55,20 +60,30 @@ pub const Error = error{
     /// endpoint protected with newer ones, so the peer acknowledged a key update without
     /// answering it.
     OldKeysAcknowledgeNew,
-    /// The handshake failed, and `connection_crypto.Error` says how.
-    Crypto,
-    /// A frame naming a stream broke a rule, and `connection_stream_frames.Error` says which.
-    Stream,
-    /// A frame about a connection ID or a path did, and `connection_path_frames.Error` says so.
-    Path,
-    /// An acknowledgment revealed a loss the connection cannot repair, and
-    /// `connection_recovery.Error` says which.
-    Recovery,
 };
 
-/// The code a CONNECTION_CLOSE carries for `failure` (RFC 9000 §20.1). `Crypto` is not among
-/// them: its code is `connection_crypto`'s, which the caller already holds.
+/// The code a CONNECTION_CLOSE carries for `failure` (RFC 9000 §20.1). An error of a piece a frame
+/// reached carries that piece's code.
 pub fn connection_error_code(failure: Error) u64 {
+    if (member_of(connection_crypto.Error, failure)) |held| return connection_crypto.connection_error_code(held);
+    if (member_of(stream_frames.Error, failure)) |held| return stream_frames.connection_error_code(held);
+    if (member_of(path_frames.Error, failure)) |held| return path_frames.connection_error_code(held);
+    if (member_of(connection_recovery.Error, failure)) |held| return connection_recovery.connection_error_code(held);
+    return own_code(@errorCast(failure));
+}
+
+/// `failure` as a member of `Subset`, or null when it is not one.
+fn member_of(comptime Subset: type, failure: Error) ?Subset {
+    // Bounded by the members of an error set named at compile time.
+    inline for (@typeInfo(Subset).error_set.?) |member| {
+        const held = @field(Subset, member.name);
+        if (failure == held) return held;
+    }
+    return null;
+}
+
+/// The code of a refusal this file makes itself.
+fn own_code(failure: Own) u64 {
     return switch (failure) {
         // RFC 9000 §12.4 names PROTOCOL_VIOLATION for all three of these.
         error.EmptyPayload, error.FrameNotPermitted => error_code.protocol_violation,
@@ -82,10 +97,6 @@ pub fn connection_error_code(failure: Error) u64 {
         // RFC 9000 §12.4: "An endpoint MUST treat the receipt of a frame of unknown type as a
         // connection error of type FRAME_ENCODING_ERROR", which §19's own refusals share.
         error.FrameEncoding => error_code.frame_encoding_error,
-        // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR. A stream
-        // frame's own code is `connection_stream_frames.connection_error_code`'s, which the
-        // caller reads instead, because §20.1 gives each of its rules a code of its own.
-        error.Crypto, error.Stream, error.Path, error.Recovery => error_code.internal_error,
     };
 }
 
@@ -164,8 +175,7 @@ fn apply(
         // acknowledgment, which `is_ack_eliciting` already recorded.
         .padding, .ping => {},
         .ack => |ack| try take_ack(connection, opened, ack, now_ns, scratch, report),
-        .crypto => |crypto| connection_crypto.receive_crypto(connection, opened.level, crypto) catch
-            return Error.Crypto,
+        .crypto => |crypto| try connection_crypto.receive_crypto(connection, opened.level, crypto),
         .connection_close => |close| take_close(connection, close, now_ns, report),
         .handshake_done => {
             try take_handshake_done(connection);
@@ -179,11 +189,10 @@ fn apply(
         .data_blocked => {},
         // RFC 9000 §19.4 to §19.14: the frames that name a stream, which need the stream table
         // and both levels of flow control, so they live in their own file.
-        .stream, .reset_stream, .stop_sending, .max_stream_data, .max_streams, .stream_data_blocked, .streams_blocked => stream_frames.apply(connection, frame) catch
-            return Error.Stream,
+        .stream, .reset_stream, .stop_sending, .max_stream_data, .max_streams, .stream_data_blocked, .streams_blocked => try stream_frames.apply(connection, frame),
         // RFC 9000 §19.7, §19.15 to §19.18: NEW_TOKEN, the connection ID frames and the path
         // frames, which act on what the connection holds once rather than on a stream.
-        else => path_frames.apply(connection, frame, opened.addressed_to, &report.owed) catch return Error.Path,
+        else => try path_frames.apply(connection, frame, opened.addressed_to, &report.owed),
     }
 }
 
@@ -210,14 +219,14 @@ fn take_ack(
     // RFC 9002 Appendix A.7, which decision 59 runs where the frame is read: the round trip, the
     // packets out of flight, the losses they reveal and the window, and then what each packet
     // carried, for every piece that sent it.
-    report.completed_streams += connection_recovery.on_ack_received(
+    report.completed_streams += try connection_recovery.on_ack_received(
         connection,
         opened.level,
         ack,
         now_ns,
         scratch,
         report.completed_streams,
-    ) catch return Error.Recovery;
+    );
     // RFC 9001 §6.5 waits three Probe Timeouts from "an acknowledgment that confirms that the
     // previous key update was received", which is this frame when it names the current phase.
     key_update.on_ack_processed(connection, opened.level, now_ns);

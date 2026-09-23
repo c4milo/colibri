@@ -21,14 +21,13 @@ const connection_module = @import("connection.zig");
 
 const Connection = connection_module.Connection;
 
-/// Why one of these frames closed the connection.
+/// Why one of these frames closed the connection: NEW_TOKEN's own refusal, or what
+/// `connection_id.Error` names for §19.15, §19.16 and §5.1.1.
 pub const Error = error{
     /// RFC 9000 §19.7: "Clients MUST NOT send NEW_TOKEN frames. A server MUST treat receipt of a
     /// NEW_TOKEN frame as a connection error of type PROTOCOL_VIOLATION."
     NewTokenFromClient,
-    /// RFC 9000 §19.15, §19.16, §5.1.1: what `connection_id.Error` names.
-    ConnectionId,
-};
+} || connection_id.Error;
 
 /// The code a CONNECTION_CLOSE carries for `failure` (RFC 9000 §20.1). A connection ID failure
 /// keeps its own, which `connection_id.connection_error_code` gives, because §5.1.1's limit and
@@ -36,7 +35,11 @@ pub const Error = error{
 pub fn connection_error_code(failure: Error) u64 {
     return switch (failure) {
         error.NewTokenFromClient => error_code.protocol_violation,
-        error.ConnectionId => error_code.protocol_violation,
+        error.ConnectionIdLimitExceeded,
+        error.SequenceNumberReused,
+        error.RetiredUnissued,
+        error.ZeroLengthConnectionId,
+        => |held| connection_id.connection_error_code(held),
     };
 }
 
@@ -82,8 +85,7 @@ fn take_new_connection_id(connection: *Connection, held: frame_control.NewConnec
     @memcpy(entry.octets[0..held.connection_id.len], held.connection_id);
     // §5.1.1 measures the result against this endpoint's own active_connection_id_limit, which
     // §18.2 makes a value it advertised and therefore its own parameters'.
-    connection.remote_ids.offer(entry, held.retire_prior_to, connection.local_parameters.active_connection_id_limit) catch
-        return Error.ConnectionId;
+    try connection.remote_ids.offer(entry, held.retire_prior_to, connection.local_parameters.active_connection_id_limit);
 }
 
 /// RFC 9000 §19.16: the peer will no longer use one of the connection IDs colibri issued.
@@ -93,7 +95,7 @@ fn take_retire(connection: *Connection, sequence_number: u64, addressed_to: ?u64
     // peer MAY treat this as a connection error of type PROTOCOL_VIOLATION." colibri takes the
     // MAY, because it holds the octets that answer it (§5.1.1) and design §8 step 9c already
     // settled that colibri answers an optional check it has the state for.
-    connection.local_ids.retire(sequence_number, addressed_to) catch return Error.ConnectionId;
+    try connection.local_ids.retire(sequence_number, addressed_to);
 }
 
 /// RFC 9000 §19.18: the peer echoed a PATH_CHALLENGE colibri sent, which §8.2.3 makes validation.

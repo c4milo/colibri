@@ -283,3 +283,16 @@ fn ack_of(largest: u64) frame_module.Ack {
         .ecn = null,
     };
 }
+
+test "RFC 9000 §20.1: an error a frame's piece raised closes with that piece's own code" {
+    // RFC 9000 §4.1: "A receiver MUST close the connection with an error of type
+    // FLOW_CONTROL_ERROR if the sender violates the advertised connection or stream data limits."
+    try testing.expectEqual(error_code.flow_control_error, frames.connection_error_code(error.FlowControl));
+    // RFC 9000 §5.1.1: more connection IDs than the limit is a CONNECTION_ID_LIMIT_ERROR.
+    try testing.expectEqual(error_code.connection_id_limit_error, frames.connection_error_code(error.ConnectionIdLimitExceeded));
+    // RFC 9000 §7.5: more out-of-order CRYPTO data than is buffered is CRYPTO_BUFFER_EXCEEDED.
+    try testing.expectEqual(error_code.crypto_buffer_exceeded, frames.connection_error_code(error.CryptoBufferExceeded));
+    // RFC 9000 §11: a loss the connection cannot repair has no code more specific than
+    // INTERNAL_ERROR (`connection_recovery.connection_error_code`).
+    try testing.expectEqual(error_code.internal_error, frames.connection_error_code(error.LostRangesFull));
+}

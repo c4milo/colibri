@@ -23,6 +23,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const crypto = @import("crypto");
+const tls = @import("tls");
 const constants = @import("../constants.zig");
 const space = @import("../space/space.zig");
 const crypto_stream = @import("../crypto_stream.zig");
@@ -125,6 +126,9 @@ pub const Connection = struct {
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
     /// caller's octets, which the caller keeps alive until the closing period ends.
     pending_close: ?frame_control.ConnectionClose,
+    /// The alert the provider raised when the handshake failed, which RFC 9001 §4.8 turns into
+    /// the CRYPTO_ERROR code the close carries. Null while none was raised.
+    tls_alert: ?tls.Alert,
     /// RFC 9001 §6's key phase, which is packet numbers and instants and no key at all. The
     /// application level alone: §6.1's Note says no other level's keys are ever updated.
     key_phase: key_update.Phase,
@@ -154,6 +158,7 @@ pub const Connection = struct {
         connection.key_phase.init();
         connection.retry_token.init();
         connection.pending_close = null;
+        connection.tls_alert = null;
         init_spaces(connection);
         connection.crypto_streams.init();
         init_streams(connection, parameters);

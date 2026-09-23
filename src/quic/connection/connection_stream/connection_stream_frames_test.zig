@@ -116,7 +116,7 @@ test "RFC 9000 §19.8: a STREAM frame on a send-only stream is STREAM_STATE_ERRO
     // §2.1: a server-initiated unidirectional stream is one the server sends on and the client
     // never does, so a client's STREAM frame naming it is a rule broken rather than a stream.
     try testing.expectError(
-        frames.Error.Stream,
+        error.StreamState,
         run(&.{stream_frame(server_uni_first, 0, data_len, false)}),
     );
     try testing.expectEqual(
@@ -131,13 +131,8 @@ test "RFC 9000 §4.6: a stream past the advertised limit is STREAM_LIMIT_ERROR" 
     _ = try run(&.{stream_frame(client_bidi_first, 0, 1, false)});
     _ = try run(&.{stream_frame(client_bidi_second, 0, 1, false)});
     const third: u64 = 8;
-    try testing.expectError(frames.Error.Stream, run(&.{stream_frame(third, 0, 1, false)}));
-    // `process` flattens every stream rule to one error, so the code is read from the frame
-    // itself: §4.6 names STREAM_LIMIT_ERROR and nothing else would do.
-    try testing.expectError(
-        stream_frames.Error.StreamLimit,
-        stream_frames.apply(&test_connection, stream_frame(third, 0, 1, false)),
-    );
+    try testing.expectError(error.StreamLimit, run(&.{stream_frame(third, 0, 1, false)}));
+    // §4.6 names STREAM_LIMIT_ERROR and nothing else would do.
     try testing.expectEqual(
         error_code.stream_limit_error,
         stream_frames.connection_error_code(stream_frames.Error.StreamLimit),
@@ -150,7 +145,7 @@ test "RFC 9000 §4.1: the stream's own limit is what a single stream is held to"
     _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
     const past: u64 = test_max_stream_data - data_len + 1;
     try testing.expectError(
-        frames.Error.Stream,
+        error.FlowControl,
         run(&.{stream_frame(client_bidi_first, past, data_len, false)}),
     );
     try testing.expectEqual(
@@ -170,7 +165,7 @@ test "RFC 9000 §4.1: the connection-level limit counts every stream together" {
     try testing.expectEqual(test_max_data, test_connection.receive_flow.used);
     // A third stream has all 16 octets of its own limit and the connection has none left.
     try testing.expectError(
-        frames.Error.Stream,
+        error.FlowControl,
         run(&.{stream_frame(client_uni_first, 0, 1, false)}),
     );
 }
@@ -195,7 +190,7 @@ test "RFC 9000 §4.5: a final size that changes closes the connection" {
     _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, true)});
     // "Once a final size for a stream is known, it cannot change."
     try testing.expectError(
-        frames.Error.Stream,
+        error.FinalSize,
         run(&.{.{ .reset_stream = .{
             .stream_id = client_bidi_first,
             .error_code = 0,

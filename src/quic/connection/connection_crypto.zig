@@ -76,6 +76,15 @@ pub fn connection_error_code(failure: Error) u64 {
     };
 }
 
+/// The code a CONNECTION_CLOSE carries for `failure` on `connection`: an alert's own CRYPTO_ERROR
+/// code when the provider raised one (RFC 9001 §4.8), and `connection_error_code` otherwise.
+pub fn close_code(connection: *const Connection, failure: Error) u64 {
+    if (failure == error.TlsAlert) {
+        if (connection.tls_alert) |description| return alert_error_code(description);
+    }
+    return connection_error_code(failure);
+}
+
 /// The code a TLS alert closes the connection with (RFC 9001 §4.8): "The AlertDescription value
 /// is added to 0x0100 to produce a QUIC error code from the range reserved for CRYPTO_ERROR."
 pub fn alert_error_code(description: tls.Alert) u64 {
@@ -99,7 +108,7 @@ pub fn provide_handshake(connection: *Connection, provider: tls.QuicProvider) Er
         const stream = connection.crypto_at(level);
         const readable = stream.readable();
         if (readable.len == 0) continue;
-        provider.provide_handshake(level, readable) catch |failure| return provider_failure(provider, failure);
+        provider.provide_handshake(level, readable) catch |failure| return provider_failure(connection, provider, failure);
         // The provider took the whole run: RFC 9001 §4.1.3 gives it octets and keeps no offset,
         // so a message it cannot finish yet is the provider's to hold, not colibri's.
         stream.consume(readable.len);
@@ -132,7 +141,7 @@ pub fn write_crypto(
     const room = stream.send_room();
     if (room.len > 0) {
         const produced = provider.write_handshake(level, room) catch |failure|
-            return provider_failure(provider, failure);
+            return provider_failure(connection, provider, failure);
         stream.produced(produced);
     }
     const waiting = stream.unsent();
@@ -229,14 +238,17 @@ pub fn require_peer_parameters(connection: *const Connection) Error!void {
     if (connection.peer_parameters == null) return Error.ParametersMissing;
 }
 
-/// Turns a provider's failure into the connection error RFC 9001 §4.8 makes it, taking the alert
-/// so the caller can name the CRYPTO_ERROR code.
-fn provider_failure(provider: tls.QuicProvider, failure: anyerror) Error {
+/// Turns a provider's failure into the connection error RFC 9001 §4.8 makes it. The alert is
+/// kept on the connection, so `close_code` can name its CRYPTO_ERROR code.
+fn provider_failure(connection: *Connection, provider: tls.QuicProvider, failure: anyerror) Error {
     return switch (failure) {
         error.WrongLevel => Error.WrongLevel,
         error.NoSpaceLeft => Error.NoSpaceLeft,
         // RFC 9001 §4.8: TLS generates an alert, and a QUIC endpoint treats every one as fatal.
-        error.TlsFailed => if (provider.take_alert() != null) Error.TlsAlert else Error.TlsFailed,
+        error.TlsFailed => {
+            connection.tls_alert = provider.take_alert();
+            return if (connection.tls_alert != null) Error.TlsAlert else Error.TlsFailed;
+        },
         else => Error.TlsFailed,
     };
 }

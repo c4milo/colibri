@@ -87,7 +87,7 @@ test "RFC 9000 §19.7: only a client may receive a NEW_TOKEN frame" {
     // §19.7: "Clients MUST NOT send NEW_TOKEN frames. A server MUST treat receipt of a NEW_TOKEN
     // frame as a connection error of type PROTOCOL_VIOLATION."
     open_as(.server);
-    try testing.expectError(frames.Error.Path, run(&.{.{ .new_token = .{ .token = &server_token } }}));
+    try testing.expectError(error.NewTokenFromClient, run(&.{.{ .new_token = .{ .token = &server_token } }}));
     try testing.expectEqual(
         error_code.protocol_violation,
         path_frames.connection_error_code(path_frames.Error.NewTokenFromClient),
@@ -157,7 +157,7 @@ test "RFC 9000 §19.15: a NEW_CONNECTION_ID joins the set colibri may address th
     // §5.1.1: more active connection IDs than this endpoint's own active_connection_id_limit
     // closes the connection. The default is 2 (§18.2), so a third is one too many.
     _ = try run(&.{new_connection_id(2, 0)});
-    try testing.expectError(frames.Error.Path, run(&.{new_connection_id(3, 0)}));
+    try testing.expectError(error.ConnectionIdLimitExceeded, run(&.{new_connection_id(3, 0)}));
     try testing.expectEqual(
         error_code.connection_id_limit_error,
         connection_id.connection_error_code(connection_id.Error.ConnectionIdLimitExceeded),
@@ -170,7 +170,7 @@ test "RFC 9000 §19.16: a RETIRE_CONNECTION_ID naming an unissued number closes 
     // and 1 is not: "a sequence number greater than any previously sent to the peer".
     const unissued: u64 = 1;
     try testing.expectError(
-        frames.Error.Path,
+        error.RetiredUnissued,
         run(&.{.{ .retire_connection_id = .{ .sequence_number = unissued } }}),
     );
     // A second one issued makes the same frame legal.
@@ -188,7 +188,7 @@ test "RFC 9000 §19.16: a frame cannot retire the connection ID its own packet a
     // colibri takes the MAY and closes, which needs the packet to say what it was addressed to.
     var writer = Writer.init(&payload);
     frame_module.write(&writer, .{ .retire_connection_id = .{ .sequence_number = second } }) catch unreachable;
-    try testing.expectError(frames.Error.Path, frames.process(
+    try testing.expectError(error.RetiredUnissued, frames.process(
         &test_connection,
         .{ .level = .application, .payload = writer.written(), .addressed_to = second },
         test_now_ns,
