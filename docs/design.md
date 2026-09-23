@@ -2203,6 +2203,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1299 passed, 18 skipped.
 
+  **The BLOCKED frames are sent, 2026-09-22**, `01bb196`. `connection_flow.write_blocked`
+  writes DATA_BLOCKED, STREAM_DATA_BLOCKED and STREAMS_BLOCKED (RFC 9000 §19.12 to §19.14) after
+  the limit frames. Each goes once per limit, through `flow.Sender.blocked_frame_limit`, and
+  only while the limit holds something back. For the two data frames that means octets supplied
+  and unsent on a stream still in "Ready" or "Send" (§4.1: a sender that "has data to write but
+  is blocked"). For STREAMS_BLOCKED it means an open the peer's limit refused since the last
+  stream this endpoint opened (§4.6: "unable to open a new stream"), which `Streams.open_local`
+  now records. A lost one goes again at the current limit while the endpoint is still blocked,
+  and the debt is dropped once it is not (§13.3). The same `on_packets_lost` covers all six flow
+  control frames.
+
+  Not done: §4.1's SHOULD to send a BLOCKED frame "periodically" while blocked with nothing in
+  flight, which needs a timer and belongs with the scheduler
+  ([#29](https://github.com/c4milo/colibri/issues/29)). A test that expected nothing after a
+  stream limit now expects the one STREAM_DATA_BLOCKED that goes out.
+
+  16 mutations, 16 CAUGHT. The tests read the frames back at the peer, because it ignores all
+  three, so the limit and stream type each one names are checked.
+
+  `zig build test`: 1303 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
