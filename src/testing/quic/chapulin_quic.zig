@@ -32,7 +32,6 @@ const Keylog = chapulin_quic_c.Keylog;
 
 pub const ok: c_int = 0;
 
-
 /// The signing identity a server provisions in chapulin's ecdsa_secp256r1_sha256 slot: a 32-octet
 /// big-endian private scalar and a 64-octet uncompressed point X||Y (`srv_cfg.h`).
 pub const Identity = struct {
