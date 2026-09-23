@@ -32,29 +32,39 @@ const Keylog = chapulin_quic_c.Keylog;
 
 pub const ok: c_int = 0;
 
-/// How many certificates the server presents: the end-entity and the root that signed it.
-const chain_len: usize = 2;
 
 /// The signing identity a server provisions in chapulin's ecdsa_secp256r1_sha256 slot: a 32-octet
 /// big-endian private scalar and a 64-octet uncompressed point X||Y (`srv_cfg.h`).
 pub const Identity = struct {
-    /// The end-entity certificate first, then the root that signed it (RFC 9846 §4.5.1).
-    leaf: []const u8,
-    issuer: []const u8,
+    /// The DER certificates the server presents, the end-entity first and each one after it
+    /// certifying the one before (RFC 9846 §4.4.2): at least one, at most `quic_chain_len_max`.
+    chain: []const []const u8,
     private_scalar: []const u8,
     public_point: []const u8,
     /// RFC 9846 §4.3.2's cookie key, which chapulin requires of every server.
     cookie_key: []const u8,
 };
 
-/// What a client judges the server by.
-pub const Trust = struct {
-    anchors: []const c.ch_trust_anchor,
-    /// The name the certificate must carry.
-    hostname: []const u8,
-    /// Seconds since 1970-01-01T00:00:00Z, which the caller read: no file under `src/` reads a
-    /// clock (non-negotiable 3).
-    now_seconds: u64,
+/// Whether the linked object judges a server by the Web PKI (`TRUST=webpki`), or by a pinned
+/// P-256 key (`TRUST=raw-ecdsa`). chapulin declares the anchor fields in a Web PKI build alone.
+pub const webpki = chapulin_quic_c.available and @hasField(c.ch_cfg, "anchors");
+pub const Anchor = if (webpki) c.ch_trust_anchor else void;
+
+/// What a client judges the server by, which is the one mode the linked object was built with.
+pub const Trust = union(enum) {
+    /// The chain must reach one of `anchors` and carry `hostname`. `now_seconds` counts seconds
+    /// since 1970-01-01T00:00:00Z, which the caller read: no file under `src/` reads a clock
+    /// (non-negotiable 3).
+    webpki: struct {
+        anchors: []const Anchor,
+        hostname: []const u8,
+        now_seconds: u64,
+    },
+    /// The server must prove it holds the key whose P-256 point X||Y this is. chapulin reads no
+    /// certificate in this mode, so no chain, name or date is judged.
+    pinned: struct {
+        public_point: []const u8,
+    },
 };
 
 pub const Options = struct {
@@ -84,7 +94,7 @@ pub const Session = struct {
     config: c.ch_cfg,
     role: Role,
     alpn: [1]c.ch_alpn_protocol,
-    chain: [chain_len]c.ch_cert,
+    chain: [constants.quic_chain_len_max]c.ch_cert,
     /// This endpoint's transport parameters. chapulin copies the pointer, not the octets.
     local_parameters: [c.CH_TRANSPORT_PARAMS_MAX]u8,
     /// The peer's transport parameters, which chapulin hands over during a callback alone.
@@ -131,19 +141,33 @@ pub const Session = struct {
     }
 
     fn configure_client(session: *Session, trust: Trust) void {
-        session.config.anchors = trust.anchors.ptr;
-        session.config.anchor_count = trust.anchors.len;
-        session.config.hostname = trust.hostname.ptr;
-        session.config.hostname_len = trust.hostname.len;
-        session.config.now_seconds = trust.now_seconds;
+        switch (trust) {
+            .webpki => |judged| {
+                // The object's trust mode is fixed when it is built, and a caller that asks for
+                // the other one is colibri's defect.
+                if (!webpki) unreachable;
+                session.config.anchors = judged.anchors.ptr;
+                session.config.anchor_count = judged.anchors.len;
+                session.config.hostname = judged.hostname.ptr;
+                session.config.hostname_len = judged.hostname.len;
+                session.config.now_seconds = judged.now_seconds;
+            },
+            .pinned => |pin| {
+                if (webpki) unreachable;
+                session.config.server_pubkey = pin.public_point.ptr;
+                session.config.server_pubkey_len = pin.public_point.len;
+            },
+        }
     }
 
     fn configure_server(session: *Session, identity: Identity) void {
-        session.chain[0] = .{ .der = identity.leaf.ptr, .len = identity.leaf.len };
-        session.chain[1] = .{ .der = identity.issuer.ptr, .len = identity.issuer.len };
+        assert(identity.chain.len > 0 and identity.chain.len <= session.chain.len);
+        for (identity.chain, session.chain[0..identity.chain.len]) |der, *certificate| {
+            certificate.* = .{ .der = der.ptr, .len = der.len };
+        }
         session.config.srv.ecdsa_p256 = .{
             .chain = &session.chain,
-            .chain_count = session.chain.len,
+            .chain_count = @intCast(identity.chain.len),
             .priv = identity.private_scalar.ptr,
             .priv_len = identity.private_scalar.len,
             .@"pub" = identity.public_point.ptr,

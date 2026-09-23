@@ -210,8 +210,8 @@ tree. Design §11 holds the method and the numbers.
 
 ## Commands
 
-Everything below exists but `tools/h3spec.sh`, `tools/interop.sh` and `bench/run.sh`, which land
-with design §8 steps 12, 9 and 13. Change this section when a step adds or renames a command.
+Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land with design §8 steps
+12 and 13. Change this section when a step adds or renames a command.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
@@ -279,6 +279,12 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   `tools/ci.sh` runs it beside the loopback check. `tools/quic_aioquic.sh <checkout> [port]` runs
   the same endpoint against aioquic's, pinned and installed once into a cached virtual
   environment, in both directions; it also needs `python3`, and `tools/ci.sh` runs it too.
+- QUIC Interop Runner: `tools/interop.sh <checkout> [peers] [tests]` builds the `colibri-qns` image
+  from this working tree and the checkout, with chapulin built `TRUST=raw-ecdsa` because the
+  runner's certificates fail the Web PKI profile, and runs it in the runner, pinned by commit, as a
+  server and as a client against each peer. It needs Docker with docker compose, `python3` and
+  `tshark` from Wireshark 4.5.0 or newer. `-Dchapulin-quic-trust=raw-ecdsa` builds against such an
+  object here.
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the

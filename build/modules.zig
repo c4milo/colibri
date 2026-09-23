@@ -196,7 +196,7 @@ pub fn add(
     testing_quic.addImport("h2", h2);
     testing_quic.addImport("quic", quic);
     testing_quic.link_libc = true;
-    link_chapulin(b, testing_quic, chapulin.quic, "chapulin-quic.o", &chapulin_quic_defines);
+    link_chapulin(b, testing_quic, chapulin.quic, "chapulin-quic.o", chapulin_quic_defines(chapulin.quic_trust));
 
     return .{
         .core = core,
@@ -239,7 +239,7 @@ pub fn add_testing_udp(
     module.addImport("quic", graph.quic);
     module.addImport("rotor", rotor);
     module.link_libc = true;
-    link_chapulin(b, module, chapulin.quic, "chapulin-quic.o", &chapulin_quic_defines);
+    link_chapulin(b, module, chapulin.quic, "chapulin-quic.o", chapulin_quic_defines(chapulin.quic_trust));
     return module;
 }
 
@@ -257,10 +257,18 @@ fn create(
 }
 
 /// The axes chapulin's QUIC object is built with, which its headers need to parse the same way.
-const chapulin_quic_defines = [_][]const u8{
-    "CH_RAND_DRBG",   "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC",
-    "CH_ROLE_SERVER", "CH_ROLE_BOTH",    "CH_KEYLOG",
-};
+/// The trust mode is the one axis a checkout chooses: `TRUST=webpki` for the checks on this
+/// machine, and `TRUST=raw-ecdsa` for the QUIC Interop Runner's certificates, which carry no
+/// extended key usage and so fail the Web PKI profile.
+fn chapulin_quic_defines(trust: QuicTrust) []const []const u8 {
+    return switch (trust) {
+        .webpki => &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
+        .@"raw-ecdsa" => &.{ "CH_RAND_DRBG", "CH_PIN_ECDSA", "CH_TRANSPORT_QUIC", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
+    };
+}
+
+/// The trust modes a chapulin QUIC object may be built with, spelled as its Makefile spells them.
+pub const QuicTrust = enum { webpki, @"raw-ecdsa" };
 
 /// The chapulin checkout each role's endpoint links, named apart because the two roles are two
 /// builds and either can be present without the other (decision 10).
@@ -269,6 +277,8 @@ pub const Chapulin = struct {
     server: ?[]const u8 = null,
     /// A checkout whose `bin/chapulin-quic.o` was built `TRANSPORT=quic ROLE=both`.
     quic: ?[]const u8 = null,
+    /// The trust mode that object was built with.
+    quic_trust: QuicTrust = .webpki,
 };
 
 /// Links one chapulin object into a `src/testing/` module and tells its source whether it is

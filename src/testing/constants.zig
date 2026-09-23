@@ -207,6 +207,10 @@ pub const quic_rounds_max: u32 = 10_000;
 /// clock's (non-negotiable 3), and it is long enough that a peer's `max_ack_delay` passes.
 pub const quic_round_ns: u64 = 5_000_000;
 
+/// Certificates the QUIC server presents at most: the end-entity and every certificate above it.
+/// The QUIC Interop Runner's longest chain is a leaf under a few intermediates.
+pub const quic_chain_len_max: usize = 8;
+
 /// The longest hq-interop request line an endpoint reads or writes: `GET `, a path and CRLF. The
 /// runner's paths are a directory and a random file name, far shorter than this.
 pub const hq_request_len_max: usize = 1024;
@@ -228,6 +232,11 @@ pub const hq_refused_error_code: u64 = 0;
 /// Datagrams one UDP endpoint may have in flight to the kernel: every operation of the loop but
 /// its receive.
 pub const udp_send_slots: usize = udp_operations_max - 1;
+
+/// Connections one UDP QUIC server holds at once. The QUIC Interop Runner's handshake loss case
+/// opens one after another, and a connection whose close was lost lingers until its idle timeout,
+/// so a server must take the next while the last is still open.
+pub const quic_connections_max: usize = 4;
 
 /// The longest one tick of a UDP QUIC endpoint waits. A connection's next deadline is usually
 /// sooner, and a wait this short keeps a lost wakeup cheap.

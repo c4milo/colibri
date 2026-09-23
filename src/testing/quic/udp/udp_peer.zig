@@ -47,6 +47,27 @@ pub fn first_initial(datagram: []const u8, local_id_len: usize) ?quic.packet.hea
     return long;
 }
 
+/// The Version Negotiation packet a server owes a datagram that asks for a version it does not
+/// speak, written into `output`, or null when it owes none. RFC 9000 §6.1: a server "SHOULD send
+/// a Version Negotiation packet" when the packet "is large enough to initiate a new connection
+/// for any supported version", which §14.1 makes 1,200 octets, and §5.2.2 has it drop a smaller
+/// one.
+pub fn version_negotiation(datagram: []const u8, output: []u8) ?[]const u8 {
+    const invariant = quic.packet.invariant;
+    const long = invariant.read_long(datagram) catch return null;
+    // RFC 8999 §6: a Version Negotiation packet is never answered with one.
+    if (long.is_version_negotiation() or long.version == quic.constants.version_1) return null;
+    if (datagram.len < quic.constants.datagram_len_min) return null;
+    var writer = quic.core.Writer.init(output);
+    // RFC 9000 §17.2.1: the server "SHOULD set the most significant bit of this field (0x40) to
+    // 1", so the packet reads as QUIC to a version that uses the Fixed Bit.
+    invariant.write_version_negotiation(&writer, version_negotiation_unused_bits, long, &.{quic.constants.version_1}) catch return null;
+    return writer.written();
+}
+
+/// The seven bits RFC 8999 §6 leaves free, with RFC 9000 §17.2.1's 0x40 set.
+const version_negotiation_unused_bits: u7 = 0x40;
+
 pub const Peer = struct {
     connection: quic.Connection,
     session: chapulin_quic.Session,
@@ -168,6 +189,26 @@ fn long_packet(long_type: quic.packet.header.LongType) ![]const u8 {
     const header_len = writer.written().len;
     @memset(test_packet[header_len..][0..test_payload_len], 0);
     return test_packet[0 .. header_len + test_payload_len];
+}
+
+test "RFC 9000 §6.1: a server answers an unknown version with Version Negotiation, and only then" {
+    var answer: [quic.constants.datagram_len_min]u8 = undefined;
+    // A version 1 Initial, expanded to 1,200 octets, asks for a version the server speaks.
+    const initial = try long_packet(.initial);
+    @memset(test_packet[initial.len..], 0);
+    const expanded = test_packet[0..quic.constants.datagram_len_min];
+    try testing.expectEqual(null, version_negotiation(expanded, &answer));
+    // The same datagram under a reserved version (RFC 9000 §15).
+    const reserved_version = [_]u8{ 0x1a, 0x2a, 0x3a, 0x4a };
+    @memcpy(test_packet[1..][0..reserved_version.len], &reserved_version);
+    const probe = expanded;
+    const written = version_negotiation(probe, &answer).?;
+    const parsed = try quic.packet.invariant.read_long(written);
+    try testing.expect(parsed.is_version_negotiation());
+    // RFC 8999 §6: the connection IDs come back swapped, and here they are the same octets.
+    try testing.expectEqualSlices(u8, &test_id, parsed.dcid);
+    // RFC 9000 §5.2.2: a datagram too small to start a connection gets nothing.
+    try testing.expectEqual(null, version_negotiation(probe[0 .. probe.len - 1], &answer));
 }
 
 test "RFC 9000 §7.2: a server starts a connection from a client's Initial and nothing else" {

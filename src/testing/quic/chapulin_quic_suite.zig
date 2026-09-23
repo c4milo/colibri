@@ -208,22 +208,24 @@ const placeholder_octet: u8 = 0x30;
 const placeholder_len: usize = 8;
 const placeholder: [placeholder_len]u8 = @splat(placeholder_octet);
 const test_now_seconds: u64 = 1;
+/// A P-256 point's length, X||Y, which a raw-pin build takes. Test-only.
+const point_len: usize = 64;
+const placeholder_point: [point_len]u8 = @splat(placeholder_octet);
 
 fn start_test_client() !quic.crypto.Suite {
     const seed: [chapulin_quic_c.seed_len]u8 = @splat(0);
     c.ch_drbg_seed(&seed);
-    const anchors = [_]c.ch_trust_anchor{.{
+    const anchors = [_]chapulin_quic.Anchor{if (chapulin_quic.webpki) .{
         .name = &placeholder,
         .name_len = placeholder.len,
         .spki = &placeholder,
         .spki_len = placeholder.len,
-    }};
-    test_session.init(.{
-        .role = .client,
-        .alpn = "hq-interop",
-        .receive = &test_receive,
-        .trust = .{ .anchors = &anchors, .hostname = "localhost", .now_seconds = test_now_seconds },
-    });
+    } else {}};
+    const trust: chapulin_quic.Trust = if (chapulin_quic.webpki)
+        .{ .webpki = .{ .anchors = &anchors, .hostname = "localhost", .now_seconds = test_now_seconds } }
+    else
+        .{ .pinned = .{ .public_point = &placeholder_point } };
+    test_session.init(.{ .role = .client, .alpn = "hq-interop", .receive = &test_receive, .trust = trust });
     // chapulin copies the parameters into its ClientHello unread (RFC 9001 §8.2).
     try test_session.provider().set_transport_params(&placeholder);
     const suite = test_session.suite();

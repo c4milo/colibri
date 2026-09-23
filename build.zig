@@ -70,6 +70,7 @@ pub fn build(b: *std.Build) void {
         .client = b.option([]const u8, "chapulin-client", "A chapulin checkout built ROLE=client (decision 10)"),
         .server = b.option([]const u8, "chapulin-server", "A chapulin checkout built ROLE=server (decision 10)"),
         .quic = b.option([]const u8, "chapulin-quic", "A chapulin checkout built TRANSPORT=quic ROLE=both (decision 10)"),
+        .quic_trust = b.option(modules.QuicTrust, "chapulin-quic-trust", "The TRUST that object was built with") orelse .webpki,
     };
     const graph = modules.add(b, target, optimize, chapulin);
 

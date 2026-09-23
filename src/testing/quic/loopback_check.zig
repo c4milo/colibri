@@ -37,6 +37,9 @@ var keylog: chapulin_quic_c.Keylog = .{};
 
 var leaf_storage: [constants.tls_der_len_max]u8 = undefined;
 var issuer_storage: [constants.tls_der_len_max]u8 = undefined;
+/// The end-entity certificate and the root that signed it, which is what the Go tool mints.
+const go_chain_len: usize = 2;
+var chain: [go_chain_len][]const u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
 var private_storage: [private_scalar_len]u8 = undefined;
@@ -90,18 +93,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try seed_chapulin();
     const prefix = asked.identity_prefix;
     // A chapulin anchor is the root's Subject Name and its SubjectPublicKeyInfo, each the whole
-    // DER TLV. The client pins this one root.
+    // DER TLV. The client pins this one root, or in a raw-pin build the server's own key.
     const anchor_name = try check_file.read_part(prefix, ".name", &name_storage);
     const spki = try check_file.read_part(prefix, ".spki", &spki_storage);
-    const anchors = [_]c.ch_trust_anchor{.{
+    const anchors = [_]chapulin_quic.Anchor{if (chapulin_quic.webpki) .{
         .name = anchor_name.ptr,
         .name_len = anchor_name.len,
         .spki = spki.ptr,
         .spki_len = spki.len,
-    }};
+    } else {}};
+    chain[0] = try check_file.read_part(prefix, ".leaf.der", &leaf_storage);
+    chain[1] = try check_file.read_part(prefix, ".ca.der", &issuer_storage);
     const identity: chapulin_quic.Identity = .{
-        .leaf = try check_file.read_part(prefix, ".leaf.der", &leaf_storage),
-        .issuer = try check_file.read_part(prefix, ".ca.der", &issuer_storage),
+        .chain = &chain,
         .private_scalar = try check_file.read_part(prefix, ".priv", &private_storage),
         .public_point = try check_file.read_part(prefix, ".pub", &public_storage),
         .cookie_key = &cookie_storage,
@@ -118,7 +122,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .role = .client,
         .alpn = alpn,
         .receive = &client_receive,
-        .trust = .{ .anchors = &anchors, .hostname = asked.hostname, .now_seconds = asked.now_seconds },
+        .trust = trust_of(&anchors, asked),
         .keylog = &keylog,
     }, 0) catch |failure| fail("the client did not start: {t}", .{failure});
     const run = exchange();
@@ -137,6 +141,13 @@ fn check_keylog() void {
     if (keylog.overflowed) fail("the key log did not fit", .{});
     const lines = std.mem.count(u8, keylog.written(), "\n");
     if (lines != keylog_lines_per_endpoint * endpoints) fail("the key log holds {d} lines", .{lines});
+}
+
+/// What the client judges the server by: the root in a Web PKI build, the server's own key in a
+/// raw-pin build.
+fn trust_of(anchors: []const chapulin_quic.Anchor, asked: Arguments) chapulin_quic.Trust {
+    if (chapulin_quic.webpki) return .{ .webpki = .{ .anchors = anchors, .hostname = asked.hostname, .now_seconds = asked.now_seconds } };
+    return .{ .pinned = .{ .public_point = &public_storage } };
 }
 
 /// What a run counted.

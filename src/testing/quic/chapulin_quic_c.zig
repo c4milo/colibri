@@ -64,6 +64,12 @@ pub const Keylog = struct {
         return keylog.octets[0..keylog.len];
     }
 
+    /// Forgets every line, once they have been written out.
+    pub fn clear(keylog: *Keylog) void {
+        keylog.len = 0;
+        keylog.overflowed = false;
+    }
+
     /// Appends the lines to the file at `path`, which SSLKEYLOGFILE names, and answers false when
     /// it cannot. The file holds secrets, so only its owner may read it.
     pub fn append_to_file(keylog: *const Keylog, path: []const u8) bool {

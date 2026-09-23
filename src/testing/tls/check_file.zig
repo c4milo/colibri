@@ -21,6 +21,19 @@ pub fn read_part(prefix: []const u8, suffix: []const u8, into: []u8) ![]const u8
     return read_file(joined[0 .. prefix.len + suffix.len], into);
 }
 
+/// Reads one part of a set when the peer wrote it, and answers null when it did not.
+pub fn read_part_if_present(prefix: []const u8, suffix: []const u8, into: []u8) ?[]const u8 {
+    var joined: [path_len_max:0]u8 = undefined;
+    if (prefix.len + suffix.len >= joined.len) std.process.exit(exit_usage);
+    @memcpy(joined[0..prefix.len], prefix);
+    @memcpy(joined[prefix.len..][0..suffix.len], suffix);
+    joined[prefix.len + suffix.len] = 0;
+    const descriptor = std.c.open(&joined, .{});
+    if (descriptor < 0) return null;
+    _ = std.c.close(descriptor);
+    return read_file(joined[0 .. prefix.len + suffix.len], into) catch null;
+}
+
 /// Reads up to `into.len` octets of `path`, and returns what it read.
 pub fn read_file(path: []const u8, into: []u8) ![]const u8 {
     if (path.len >= path_storage.len) std.process.exit(exit_usage);
