@@ -67,7 +67,7 @@ pub fn apply(connection: *Connection, frame: frame_module.Frame) Error!void {
     switch (frame) {
         .stream => |held| try take_stream(connection, held),
         .reset_stream => |held| try take_reset(connection, held.stream_id, held.final_size),
-        .stop_sending => |held| try take_stop_sending(connection, held.stream_id),
+        .stop_sending => |held| try take_stop_sending(connection, held.stream_id, held.error_code),
         .max_stream_data => |held| try take_max_stream_data(connection, held.stream_id, held.maximum),
         // RFC 9000 §19.11: MAX_STREAMS raises how many this endpoint may open, and §4.6 makes a
         // value below the current one something to ignore rather than an error.
@@ -123,13 +123,16 @@ fn take_reset(connection: *Connection, stream_id: u64, final_size: u64) Error!vo
 
 /// A STOP_SENDING frame (RFC 9000 §19.5): the peer wants nothing more on a stream this endpoint
 /// sends on, and §3.5 has this endpoint answer with RESET_STREAM.
-fn take_stop_sending(connection: *Connection, stream_id: u64) Error!void {
+fn take_stop_sending(connection: *Connection, stream_id: u64, application_error_code: u64) Error!void {
     const id: StreamId = .{ .value = stream_id };
     // RFC 9000 §19.5: "Receiving a STOP_SENDING frame for a locally initiated stream that has
     // not yet been created MUST be treated as a connection error of type STREAM_STATE_ERROR."
-    // Checking the identifier is what this frame owes today; §3.5's RESET_STREAM answer is the
-    // send path's, and `Sending` moves on `sent_reset` when that frame goes out, not here.
-    _ = try sendable_stream(connection, id) orelse return;
+    const stream = try sendable_stream(connection, id) orelse return;
+    // RFC 9000 §3.5: an endpoint that receives STOP_SENDING "MUST send a RESET_STREAM frame if the
+    // stream is in the 'Ready' or 'Send' state", and in "Data Sent" it may send it at once rather
+    // than defer it. It "SHOULD copy the error code from the STOP_SENDING frame". A stream whose
+    // sending part has ended already refuses the reset, which is the answer: nothing more to send.
+    _ = connection.streams.reset(stream, application_error_code);
 }
 
 /// A MAX_STREAM_DATA frame (RFC 9000 §19.10): the peer raised what this endpoint may send.

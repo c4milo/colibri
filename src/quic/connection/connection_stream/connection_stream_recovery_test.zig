@@ -50,10 +50,10 @@ test "§3.1: the acknowledgment that covers a stream's last range moves it to Da
 
     var completed: [completed_max]StreamId = undefined;
     // The last range and the first arrive before the middle one, which leaves the stream short.
-    const early = stream_recovery.on_packets_acknowledged(&send_test.client, &.{ records[2], records[0] }, &completed);
+    const early = stream_recovery.on_packets_acknowledged(&send_test.client, .application, &.{ records[2], records[0] }, &completed);
     try testing.expectEqual(0, early.written);
     try testing.expectEqual(.data_sent, send_test.stream_of(id).sending.state);
-    const last = stream_recovery.on_packets_acknowledged(&send_test.client, records[1..2], &completed);
+    const last = stream_recovery.on_packets_acknowledged(&send_test.client, .application, records[1..2], &completed);
     try testing.expectEqual(1, last.written);
     try testing.expectEqual(id.value, completed[0].value);
     try testing.expectEqual(.data_recvd, send_test.stream_of(id).sending.state);
@@ -71,9 +71,9 @@ test "§13.3: records that carried no stream octets count toward no stream" {
     var quiet = streamed;
     quiet.carries = .none;
     var completed: [completed_max]StreamId = undefined;
-    _ = stream_recovery.on_packets_acknowledged(&send_test.client, &.{ crypto, quiet }, &completed);
+    _ = stream_recovery.on_packets_acknowledged(&send_test.client, .application, &.{ crypto, quiet }, &completed);
     try testing.expectEqual(0, send_test.stream_of(id).outgoing.acknowledged_len);
-    try stream_recovery.on_packets_lost(&send_test.client, &.{ crypto, quiet });
+    try stream_recovery.on_packets_lost(&send_test.client, .application, &.{ crypto, quiet });
     try testing.expectEqual(0, send_test.client.streams.lost.count);
 }
 
@@ -84,7 +84,7 @@ test "§3.1: a slice too short for the completed streams is told how many did no
     _ = try send_test.open_supplied(send_test.short_body_len, true);
     const records = [_]Record{ try sent_record(&body), try sent_record(&body) };
     var completed: [1]StreamId = undefined;
-    const held = stream_recovery.on_packets_acknowledged(&send_test.client, &records, &completed);
+    const held = stream_recovery.on_packets_acknowledged(&send_test.client, .application, &records, &completed);
     try testing.expectEqual(1, held.written);
     try testing.expectEqual(1, held.unwritten);
     try testing.expectEqual(first_id.value, completed[0].value);
@@ -96,7 +96,7 @@ test "§13.3: lost records' ranges are kept, joined where they meet, and sent ag
     _ = try send_test.open_supplied(send_test.long_body_len, true);
     const first = try sent_record(&body);
     const second = try sent_record(&body);
-    try stream_recovery.on_packets_lost(&send_test.client, &.{ first, second });
+    try stream_recovery.on_packets_lost(&send_test.client, .application, &.{ first, second });
     // The two ranges meet, so the table holds one.
     try testing.expectEqual(1, send_test.client.streams.lost.count);
     const again = try sent_record(&body);
@@ -117,6 +117,6 @@ test "§20.1: a lost range the full table cannot hold closes the connection with
     for (0..constants.stream_lost_ranges_max) |index| {
         try send_test.client.streams.lost.add(.{ .stream_id = id.value + 4, .offset = gap * index, .len = 1, .fin = false });
     }
-    try testing.expectError(error.Full, stream_recovery.on_packets_lost(&send_test.client, &.{lost}));
+    try testing.expectError(error.Full, stream_recovery.on_packets_lost(&send_test.client, .application, &.{lost}));
     try testing.expectEqual(0x01, stream_recovery.connection_error_code(error.Full));
 }

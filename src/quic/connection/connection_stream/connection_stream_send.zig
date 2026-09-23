@@ -14,6 +14,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const constants = @import("../../constants.zig");
+const frame_module = @import("../../frame/frame.zig");
 const frame_stream = @import("../../frame/frame_stream.zig");
 const stream_module = @import("../../stream/stream.zig");
 const stream_provider_module = @import("../../stream/stream_provider.zig");
@@ -21,6 +22,7 @@ const connection_module = @import("../connection.zig");
 const connection_stream_frames = @import("connection_stream_frames.zig");
 
 const Writer = core.Writer;
+const Level = core.Level;
 const Connection = connection_module.Connection;
 const Stream = stream_module.Stream;
 const Streams = stream_module.Streams;
@@ -36,6 +38,10 @@ pub const Error = error{
     NotWritable,
     /// RFC 9000 §19.8: a stream cannot reach past 2^62-1. Nothing changed.
     OffsetTooLarge,
+    /// The identifier names no stream this endpoint receives on now, or one whose receiving part
+    /// has left "Recv" and "Size Known", where RFC 9000 §19.5 permits STOP_SENDING. Nothing
+    /// changed.
+    NotReadable,
 };
 
 /// Opens the next stream this endpoint initiates (RFC 9000 §2.1), with the limits the peer's
@@ -60,6 +66,83 @@ pub fn supply(connection: *Connection, id: StreamId, end: u64, fin: bool) Error!
     // stream.
     if (!stream.sending.may_send_data() or stream.outgoing.finished) return Error.NotWritable;
     stream.outgoing.supply(end, fin) catch return Error.OffsetTooLarge;
+}
+
+/// Abandons sending on `id` with the application's `error_code` (RFC 9000 §3.1, §19.4). colibri
+/// owes a RESET_STREAM from here on and reads none of the stream's octets again, so the caller may
+/// drop them (decision 57).
+pub fn reset(connection: *Connection, id: StreamId, error_code: u64) Error!void {
+    if (!id.is_sendable_by(connection.streams.role)) return Error.NotWritable;
+    const stream = switch (connection.streams.lookup(id)) {
+        .live => |stream| stream,
+        .closed, .unopened => return Error.NotWritable,
+    };
+    // RFC 9000 §3.1: "Reset Sent" is reached from "Ready", "Send" and "Data Sent" alone.
+    if (!connection.streams.reset(stream, error_code)) return Error.NotWritable;
+}
+
+/// Asks the peer to stop sending on `id`, because the application reads no more of it (RFC 9000
+/// §3.5), with the application's `error_code`. Asking twice changes nothing.
+pub fn stop_sending(connection: *Connection, id: StreamId, error_code: u64) Error!void {
+    if (!id.is_receivable_by(connection.streams.role)) return Error.NotReadable;
+    const stream = switch (connection.streams.lookup(id)) {
+        .live => |stream| stream,
+        .closed, .unopened => return Error.NotReadable,
+    };
+    // RFC 9000 §19.5: "A STOP_SENDING frame can be sent for streams in the 'Recv' or 'Size Known'
+    // states".
+    if (!wants_stop_sending(stream)) return Error.NotReadable;
+    if (stream.stop_sending.owed or stream.stop_sending.sent) return;
+    stream.stop_error_code = error_code;
+    stream.stop_sending.owed = true;
+}
+
+/// Writes the RESET_STREAM and STOP_SENDING frames owed now (RFC 9000 §19.4, §19.5) and records
+/// packet `number` as the one carrying them. True when any went in.
+pub fn write_endings(connection: *Connection, level: Level, writer: *Writer, number: u64) bool {
+    // RFC 9000 §12.4, Table 3 marks both "__01", and decision 20 refuses 0-RTT.
+    if (level != .application) return false;
+    var wrote = false;
+    var walk = connection.streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        if (write_reset(stream, writer, number)) wrote = true;
+        if (write_stop_sending(stream, writer, number)) wrote = true;
+    }
+    return wrote;
+}
+
+/// RFC 9000 §19.4. The final size is every octet framed: nothing is framed after the reset, so
+/// it is the same in every copy (§13.3: "The content of a RESET_STREAM frame MUST NOT change when
+/// it is sent again") and it is what both flow control limits counted (§4.5).
+fn write_reset(stream: *Stream, writer: *Writer, number: u64) bool {
+    if (!stream.reset_stream.owed) return false;
+    // A RESET_STREAM is owed only from "Reset Sent", which only its acknowledgment leaves.
+    assert(stream.sending.state == .reset_sent);
+    const reset_frame: frame_module.Frame = .{ .reset_stream = .{
+        .stream_id = stream.id,
+        .error_code = stream.reset_error_code,
+        .final_size = stream.outgoing.framed_end,
+    } };
+    return stream.reset_stream.write(writer, reset_frame, number);
+}
+
+/// RFC 9000 §19.5, sent until the receiving part leaves "Recv" and "Size Known" (§3.5: then
+/// "sending a STOP_SENDING frame is unnecessary").
+fn write_stop_sending(stream: *Stream, writer: *Writer, number: u64) bool {
+    if (!stream.stop_sending.owed) return false;
+    if (!wants_stop_sending(stream)) {
+        stream.stop_sending.owed = false;
+        return false;
+    }
+    const stop_frame: frame_module.Frame = .{ .stop_sending = .{ .stream_id = stream.id, .error_code = stream.stop_error_code } };
+    return stream.stop_sending.write(writer, stop_frame, number);
+}
+
+/// Whether the peer may still send on `stream`, which is when STOP_SENDING has a use (RFC 9000
+/// §3.5, §19.5).
+fn wants_stop_sending(stream: *const Stream) bool {
+    return stream.receiving.state == .recv or stream.receiving.state == .size_known;
 }
 
 /// What one STREAM frame took, which the send path puts in the packet's record (RFC 9000 §13.3).
@@ -180,4 +263,5 @@ fn frame(stream_provider: StreamProvider, owed: Range, output: []u8) Written {
 
 test {
     _ = @import("connection_stream_send_test.zig");
+    _ = @import("connection_stream_send_ending_test.zig");
 }

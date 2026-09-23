@@ -51,6 +51,13 @@ pub const Stream = struct {
     /// (RFC 9000 §13.3).
     max_stream_data: frame_latest.Latest = .{},
     stream_data_blocked: frame_latest.Latest = .{},
+    /// The RESET_STREAM this endpoint owes or sent (RFC 9000 §19.4), and its error code, which
+    /// §13.3 says "MUST NOT change when it is sent again".
+    reset_stream: frame_latest.Latest = .{},
+    reset_error_code: u64 = 0,
+    /// The STOP_SENDING this endpoint owes or sent (RFC 9000 §19.5), and its error code.
+    stop_sending: frame_latest.Latest = .{},
+    stop_error_code: u64 = 0,
 
     pub fn stream_identifier(stream: *const Stream) StreamId {
         return .{ .value = stream.id };
@@ -114,6 +121,9 @@ pub const Streams = struct {
     /// Whether this endpoint tried to open a stream of each type and the peer's limit refused it
     /// since the last one it opened, which is when §4.6 asks for STREAMS_BLOCKED.
     open_refused: [constants.stream_directionalities]bool,
+    /// How many streams are in "Reset Sent", waiting for their RESET_STREAM to be acknowledged
+    /// (RFC 9000 §3.1). An acknowledgment looks for one only while this is above zero.
+    resets_unacknowledged: u32,
 
     /// `peer_limits` are the counts this endpoint advertises, which `init` caps at the table's
     /// capacity: §3.2's implicit creation makes an advertised limit a promise to hold that many
@@ -131,6 +141,7 @@ pub const Streams = struct {
         streams.max_streams = @splat(.{});
         streams.streams_blocked = @splat(.{});
         streams.open_refused = @splat(false);
+        streams.resets_unacknowledged = 0;
         for (0..constants.stream_directionalities) |index| {
             streams.local_limit[index] = flow.Sender.init(local_limits[index]);
             const capped = @min(peer_limits[index], constants.streams_per_connection_max);
@@ -254,6 +265,30 @@ pub const Streams = struct {
             // Nothing is framed on a stream before it opens.
             .unopened => unreachable,
         };
+    }
+
+    /// Abandons sending on `stream` with `application_error_code` (RFC 9000 §3.1: from "Ready", "Send" or
+    /// "Data Sent" an application "can signal that it wishes to abandon transmission"). The
+    /// sending part enters "Reset Sent" now, when the frame is owed rather than when it goes out,
+    /// so nothing is framed after the decision (§19.4: "After sending a RESET_STREAM, an endpoint
+    /// ceases transmission and retransmission of STREAM frames"). False when the part has ended.
+    pub fn reset(streams: *Streams, stream: *Stream, application_error_code: u64) bool {
+        if (stream.sending.on(.sent_reset) != .taken) return false;
+        stream.reset_error_code = application_error_code;
+        stream.reset_stream.owed = true;
+        streams.resets_unacknowledged += 1;
+        return true;
+    }
+
+    /// The peer acknowledged the packet that carried `stream`'s RESET_STREAM, which enters "Reset
+    /// Recvd" (RFC 9000 §3.1).
+    pub fn on_reset_acknowledged(streams: *Streams, stream: *Stream) void {
+        assert(streams.resets_unacknowledged > 0);
+        const transition = stream.sending.on(.reset_acknowledged);
+        assert(transition == .taken);
+        streams.resets_unacknowledged -= 1;
+        // Nothing more is owed or outstanding, so no later loss report can owe the frame again.
+        stream.reset_stream = .{};
     }
 
     /// Raises what the peer permits this endpoint to open (RFC 9000 §19.11). False when the

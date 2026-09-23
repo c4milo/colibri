@@ -31,11 +31,11 @@ const Carries = recovery_sent.Carries;
 const testing = std.testing;
 
 pub var client: Connection = undefined;
-var server: Connection = undefined;
-var scratch: send.DefaultScratch = .{};
+pub var server: Connection = undefined;
+pub var scratch: send.DefaultScratch = .{};
 pub var datagram: [constants.datagram_len_min]u8 = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
+pub var suite_holder: build_test.RoundTrip = undefined;
+pub var provider_holder: build_test.Fake = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const id_len: usize = 4;
@@ -69,7 +69,7 @@ fn octet_at(offset: u64) u8 {
 pub const Body = struct {
     len: u64,
 
-    fn provider(body: *Body) StreamProvider {
+    pub fn provider(body: *Body) StreamProvider {
         return .{ .context = body, .vtable = &body_vtable };
     }
 };

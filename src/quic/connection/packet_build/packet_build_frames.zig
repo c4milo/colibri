@@ -84,9 +84,11 @@ pub fn write(
     const carries_handshake_done = connection_handshake.write_done(connection, level, &writer);
     // RFC 9000 §4.2: the limits the peer may use, before any octets compete for the room, so a
     // peer waiting on credit is not kept waiting by this endpoint's own data.
-    var carries_limits = connection_flow.write_limits(connection, level, &writer, number, now_ns);
+    var carries_control = connection_flow.write_limits(connection, level, &writer, number, now_ns);
     // RFC 9000 §4.1, §4.6: what the peer's limits hold back, after the limits this endpoint gives.
-    if (connection_flow.write_blocked(connection, level, &writer, number)) carries_limits = true;
+    if (connection_flow.write_blocked(connection, level, &writer, number)) carries_control = true;
+    // RFC 9000 §19.4, §19.5: the streams this endpoint ends, before any stream's octets.
+    if (connection_stream_send.write_endings(connection, level, &writer, number)) carries_control = true;
     const written_path = writer.written().len;
     const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
     return .{
@@ -98,7 +100,7 @@ pub fn write(
         // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing, and a CRYPTO or STREAM
         // frame does. Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
         .ack_eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
-            carries_handshake_done or carries_limits,
+            carries_handshake_done or carries_control,
         .carries_handshake_done = carries_handshake_done,
         .carries_ack = written_ack > 0,
         .path_challenge = path.path_challenge,
