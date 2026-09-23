@@ -1438,3 +1438,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     clock read in the tree and narrow the lint for it. Taking the instant from outside the process
     through a file or a pipe keeps the rule but adds a read to every timer.
 
+64. **A PTO at the Initial or Handshake level declares that level's packets in flight lost, so its
+    probe carries their CRYPTO octets.** Ruled by the owner on 2026-09-23. It keeps entry 57's rule
+    that no octet is in two packets at once, and settles the QUIC Interop Runner's handshake loss
+    case.
+
+    A probe (RFC 9002 §6.2.4) carried new octets or a PING, and at the handshake levels there are
+    rarely new octets, so it carried a PING. Lost CRYPTO octets were sent again only once an
+    acknowledgment showed them lost. Under bursty loss the probes that did arrive gave the peer
+    nothing it could use, and the runner's handshake loss case failed in both roles.
+
+    §6.2.4 offers: "instead of sending an ack-eliciting packet, the sender MAY mark any packets
+    still in flight as lost." colibri does that at the Initial and Handshake levels when their PTO
+    fires, and then sends the probes. Their CRYPTO octets enter the lost ranges, so the probes
+    carry them, and each octet is still in exactly one place.
+
+    These packets are declared lost to move their octets, not because the path signalled
+    congestion, so they are no congestion event. §6.2.4 names "an unnecessary rate reduction by the
+    congestion controller" as the risk of this choice, and colibri takes none.
+
+    Two alternatives were refused. Letting a probe repeat octets still in flight breaks entry 57's
+    rule, and the CRYPTO stream's accounting would have to take one octet in two packets. Leaving
+    PING-only probes keeps every lossy handshake waiting on a round trip it need not.
+
