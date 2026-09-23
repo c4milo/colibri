@@ -2142,6 +2142,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   count reaches its final size belongs to the QUIC connection check
   ([#24](https://github.com/c4milo/colibri/issues/24)).
 
+  **The handshake completes, and a server sends HANDSHAKE_DONE, 2026-09-22**, `064022f`. Nothing
+  set `handshake_complete` outside the tests, so a server never confirmed its handshake or sent
+  HANDSHAKE_DONE, and a colibri client never confirmed either. `connection_handshake.complete`
+  marks the handshake complete once the provider reports it (RFC 9001 §4.1.1), after requiring
+  the peer's transport parameters (§8.2). A server confirms at the same moment (§4.1.2), owes a
+  HANDSHAKE_DONE frame and discards its Handshake keys (§4.9.2).
+
+  The frame goes in a 1-RTT packet (RFC 9000 §12.4, Table 3), after the path frames and before
+  any octets. RFC 9000 §13.3 retransmits it until it is acknowledged, and that needs only the
+  number of the packet that last carried it. So the connection keeps that number and
+  `recovery_sent.Record` stays at 40 octets. Losing that packet owes the frame again. An
+  acknowledgment of it, and of no other packet or space, ends the obligation.
+
+  At a client, `connection_frames.Report.handshake_done` says a HANDSHAKE_DONE confirmed the
+  handshake, and the caller then discards the Handshake keys with
+  `connection_keys.on_handshake_confirmed`, because `process` is not given the suite. The tests'
+  suite now records key discards by level rather than treating one as unreachable.
+
+  22 mutations, 22 CAUGHT. Matching a later packet number was first NOT CAUGHT, and a case now
+  acknowledges a later packet that carried something else. A call in `complete` that read the
+  peer's parameters was removed rather than tested, because reading them is the caller's step
+  as the handshake carries them.
+
+  `zig build test`: 1288 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
