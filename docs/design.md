@@ -1577,7 +1577,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
      wrote.
   9. ~~Retry, with §7.3's validation.~~ **Done**, `bb33948` to `89a4bfa`, and recorded below.
      Both halves of §17.2.5, §8.1.2's token, and the connection IDs §7.3 authenticates.
-  10. **The simulator connection check** for invariants 17 to 21.
+  10. ~~The simulator connection check for invariants 17 to 21.~~ **Done**, `79d8d29`, and
+      recorded below.
   11. **The test-only endpoint and `tools/interop.sh`**, which is the only part that waits on
       chapulin, whose QUIC server has not yet exchanged a packet with any implementation.
 
@@ -2312,6 +2313,58 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   not written again.
 
   `zig build test`: 1325 passed, 18 skipped.
+
+  **The simulator drives a QUIC connection, 2026-09-23**, `79d8d29`. Piece 10,
+  [#24](https://github.com/c4milo/colibri/issues/24). Two colibri endpoints finish a handshake
+  and move one 16,384-octet stream across the network of step 8. Each is a `Connection` with the
+  null QUIC provider and the null suite. `src/sim/quic_endpoint.zig` plays the rest of a caller:
+  - it derives the Initial keys from the client's first Destination Connection ID (RFC 9001
+    §5.2);
+  - it hands the provider this endpoint's transport parameters (§8.2);
+  - it installs the Handshake and 1-RTT keys when the null provider's script reaches them
+    (§4.1.4);
+  - it keeps the octets of the stream it sends (decision 57).
+
+  Each of 256 seeds draws up to 10% loss and 10% duplication over delays that reorder.
+  `quic_invariants.zig` reads invariants 17 to 21 after every datagram and every step: numbers
+  never reused, a server within three times what it received, flow control limits that never
+  fall, every datagram to the one path's connection ID, and no call on a level without keys.
+
+  Over 256 seeds on macOS 25.6 arm64: 13,986 datagrams, 13,991 packets, 722 dropped. Digest
+  `0x1693a3d7` in Debug and in `-Drelease`. `zig build test-sim-run-quic` runs it, in the module
+  with no HTTP module in its graph (decision 5).
+
+  Building the check found six gaps, each fixed in a commit of its own before it:
+  - `88c7945`: RFC 9001 §4.9.1's two triggers for discarding the Initial keys had no caller.
+  - `d6c8970`, `4d87ab2`: receiving a datagram took seven steps that no library code ran, so the
+    idle timer never restarted on receive. Decision 60 has `connection_datagram.receive` run
+    them all in one call.
+  - `695c63f`: the frame layer flattened stream, path, crypto and recovery refusals into one
+    error, which closed with INTERNAL_ERROR where RFC 9000 names FLOW_CONTROL_ERROR and the
+    rest. A TLS alert's description was dropped, so its CRYPTO_ERROR code was lost too.
+  - `25bf319`: the peer's max_idle_timeout was never read, and no send restarted the idle timer
+    (RFC 9000 §10.1).
+
+  Running it found two more:
+  - `feeb757`: a tiny packet's number widened for the header protection sample (decision 54)
+    was left out of the planned length, so a server's padded PING sealed two octets past its
+    RFC 9000 §8.1 allowance.
+  - `10ce41f`: a handshake deadlocked. The client's lost Finished waited behind 1-RTT packets
+    the server could not read yet. RFC 9002 §6.2.1 forbids an Application Data PTO before
+    confirmation, and the Handshake space held nothing in flight. RFC 9002 §7.3.2's one
+    datagram past the window on entering recovery is what lets the Finished go again.
+
+  `306603e` has the null suite count each call at a level without keys, which is what invariant
+  21's read compares against zero.
+
+  Not built: pacing, ECN marking, and a server that coalesces its Handshake flight with its
+  ServerHello. The last is the harness's: the null provider's keys can only be installed
+  between `send` calls, so the ServerHello and the Handshake packets go in separate datagrams.
+
+  Mutations: 13 over the check, 13 CAUGHT. The per-step read of invariants 19 and 21 first
+  survived, because nothing broke one during a run; two faults now break each read mid-run.
+
+  `zig build test`: 1379 passed, 18 skipped.
 
   **The connection drives loss recovery, 2026-09-23**, `d7b56e6`, `0319c7a`, `33f2c69` and
   `1dfc8e3`. Decision 59. Before it, `send` recorded no packet, an ACK frame updated only its
