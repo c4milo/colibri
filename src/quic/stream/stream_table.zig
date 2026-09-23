@@ -223,8 +223,8 @@ pub const Streams = struct {
     }
 
     /// The first index of `id`'s type that has not been opened, which is one past the watermark
-    /// or 0 when the type has none.
-    fn lowest_unopened(streams: *const Streams, id: StreamId) u64 {
+    /// or 0 when the type has none. `open_peer` opens every index from here to `id`'s.
+    pub fn lowest_unopened(streams: *const Streams, id: StreamId) u64 {
         const watermark = streams.pool.watermark_of(class_of(id.value)) orelse return 0;
         return (StreamId{ .value = watermark }).index() + 1;
     }

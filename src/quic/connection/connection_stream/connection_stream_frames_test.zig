@@ -111,6 +111,22 @@ test "RFC 9000 §3.2: a peer's STREAM frame is what creates the stream" {
     try testing.expectEqual(1, test_connection.streams.len());
 }
 
+test "RFC 9000 §3.2: a stream a later one opened takes its own limits, and its frames fit them" {
+    open_server();
+    // The frame names the client's second bidirectional stream, and §3.2 opens the first with it:
+    // "all streams of that type with lower-numbered stream IDs" are created.
+    _ = try run(&.{stream_frame(client_bidi_second, 0, data_len, false)});
+    try testing.expectEqual(2, test_connection.streams.len());
+    // §18.2: the first is peer-initiated and bidirectional, so bidi_remote is its window. Its
+    // own frame, arriving late as a network may deliver it, fits that window.
+    _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
+    const first = switch (test_connection.streams.lookup(.{ .value = client_bidi_first })) {
+        .live => |stream| stream,
+        else => return error.TestUnexpectedResult,
+    };
+    try testing.expectEqual(test_bidi_remote, first.receive_flow.limit);
+}
+
 test "RFC 9000 §19.8: a STREAM frame on a send-only stream is STREAM_STATE_ERROR" {
     open_server();
     // §2.1: a server-initiated unidirectional stream is one the server sends on and the client

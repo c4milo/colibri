@@ -11,6 +11,7 @@
 //! would close the connection with the wrong one — a stream past the limit reported as a flow
 //! control error, say. Invariant 7 is this: validation precedes interpretation.
 const std = @import("std");
+const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("../../constants.zig");
 const error_code = @import("../../error_code.zig");
@@ -198,12 +199,29 @@ fn open_or_find(connection: *Connection, id: StreamId) Error!?*Stream {
     }
     // RFC 9000 §3.2: "An endpoint that receives a frame for a stream that it has not created
     // creates that stream", and §4.6's limit is what refuses one past what was advertised.
+    const first_index = connection.streams.lowest_unopened(id);
     const stream = connection.streams.open_peer(id) catch |failure| switch (failure) {
         error.StreamLimitReached => return Error.StreamLimit,
         error.Full, error.IdentifiersExhausted => return Error.Internal,
     };
-    initialise_flow(connection, stream, id);
+    initialise_opened(connection, id, first_index);
     return stream;
+}
+
+/// Gives each stream `open_peer` opened its limits: the one the frame named, and every stream of
+/// its type below it, which RFC 9000 §3.2 creates with it. A frame for one of those arrives later
+/// and finds it open, so this is the only moment its limits are set.
+fn initialise_opened(connection: *Connection, id: StreamId, first_index: u64) void {
+    assert(first_index <= id.index());
+    // Bounded: §4.6's limit, which the table's capacity caps, bounds how many opened at once.
+    for (first_index..id.index() + 1) |index| {
+        const opened = StreamId.of(id.initiator(), id.directionality(), index);
+        const stream = switch (connection.streams.lookup(opened)) {
+            .live => |held| held,
+            .closed, .unopened => unreachable,
+        };
+        initialise_flow(connection, stream, opened);
+    }
 }
 
 /// Gives a stream the two limits RFC 9000 §18.2 fixes for it. The table cannot do this: §18.2
