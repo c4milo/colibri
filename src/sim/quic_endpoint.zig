@@ -127,9 +127,6 @@ pub const Endpoint = struct {
             &endpoint.output,
             now_ns,
         ) orelse return null;
-        // RFC 9001 §4.1.1: the handshake is complete when the TLS stack says so, and a client's
-        // stack says so once its own Finished is written, which happens inside `send`.
-        _ = try quic.connection_handshake.complete(&endpoint.connection, provider, suite);
         endpoint.install_keys();
         return sent;
     }

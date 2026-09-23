@@ -5,6 +5,7 @@
 const std = @import("std");
 const core = @import("core");
 const constants = @import("../constants.zig");
+const error_code = @import("../error_code.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
@@ -130,6 +131,25 @@ test "RFC 9001 §4.1.2: a client's handshake completes without being confirmed" 
     try testing.expect(!client.handshake_done.owed);
     try testing.expectEqual(keys.State.available, client.keys.at(.handshake, .write));
     try testing.expectEqual(0, suite_holder.discards[@intFromEnum(Level.handshake)]);
+}
+
+/// The client's last flight, which is what its stack writes before it reports completion.
+/// Test-only.
+const finished_octet: u8 = 0x14;
+const finished_len: usize = 4;
+const finished: [finished_len]u8 = @splat(finished_octet);
+
+test "RFC 9001 §4.1.1: a client whose stack completes as it sends completes then" {
+    open_pair();
+    provider_holder = .{ .owed = &finished, .owed_level = .handshake, .done = true };
+    _ = (try send_from(&client)).?;
+    try testing.expect(client.handshake_complete);
+    // The same handshake without the server's parameters is refused where it completes (§8.2).
+    suite_holder.init();
+    open_one(&client, .client);
+    provider_holder = .{ .owed = &finished, .owed_level = .handshake, .done = true };
+    try testing.expectError(error.ParametersMissing, send_from(&client));
+    try testing.expectEqual(error_code.transport_parameter_error, send.connection_error_code(error.ParametersMissing).?);
 }
 
 test "RFC 9001 §8.2: a handshake that completes without the peer's parameters is refused" {

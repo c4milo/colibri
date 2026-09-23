@@ -35,6 +35,8 @@ const connection_close = @import("connection_close.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 const keys_module = @import("connection_keys.zig");
+const connection_crypto = @import("connection_crypto.zig");
+const connection_handshake = @import("connection_handshake.zig");
 const space_module = @import("../space/space.zig");
 const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 
@@ -42,7 +44,18 @@ const Level = core.Level;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 
-pub const Error = packet_build.Error;
+pub const Error = packet_build.Error || error{
+    /// RFC 9001 §8.2: the handshake completed while this datagram was framed, and the peer's
+    /// transport parameters never arrived.
+    ParametersMissing,
+};
+
+/// The code a CONNECTION_CLOSE carries for `failure`, or null when none goes out.
+pub fn connection_error_code(failure: Error) ?u64 {
+    // RFC 9001 §8.2: a missing extension is a TRANSPORT_PARAMETER_ERROR (RFC 9000 §7.4).
+    if (failure == error.ParametersMissing) return connection_crypto.connection_error_code(error.ParametersMissing);
+    return packet_build.connection_error_code(@errorCast(failure));
+}
 
 /// Where a datagram's packets are framed before any is sealed. One payload buffer per encryption
 /// level, because §12.2 coalesces one packet of each and all three are planned before the first
@@ -148,7 +161,20 @@ pub fn send(
     note_close_sent(connection, plans[0..count], now_ns);
     note_ack_eliciting_sent(connection, &sent, now_ns);
     note_challenge_sent(connection, plans[0..count], sent.len, now_ns);
+    try note_handshake_complete(connection, provider, suite);
     return sent;
+}
+
+/// RFC 9001 §4.1.1: "the TLS handshake is considered complete when the TLS stack has reported
+/// that the handshake is complete". A client's stack reports it once its Finished is written,
+/// which happens while a datagram is framed, so `send` asks as `connection_datagram.receive` does
+/// (decision 60).
+fn note_handshake_complete(connection: *Connection, provider: tls.QuicProvider, suite: crypto.Suite) Error!void {
+    _ = connection_handshake.complete(connection, provider, suite) catch |failure| switch (failure) {
+        error.ParametersMissing => return Error.ParametersMissing,
+        // `complete` refuses nothing else: it reads the provider and changes no flow.
+        else => unreachable,
+    };
 }
 
 /// What RFC 9002 §7's congestion window leaves this datagram.
