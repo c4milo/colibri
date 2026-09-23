@@ -2407,6 +2407,55 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Mutations: 7, 7 CAUGHT. `zig build test`: 1400 passed, 20 skipped.
 
+  **A colibri client and server finish a QUIC handshake over chapulin, 2026-09-23.** Piece 11's
+  first part, [#25](https://github.com/c4milo/colibri/issues/25). It is the first run of
+  colibri's connection with a real TLS 1.3 stack and real packet protection.
+  - `src/testing/quic/chapulin_quic.zig` puts one `ch_quic` behind both `tls.QuicProvider` and
+    `crypto.Suite` (decisions 10 and 48). A chapulin client stages one message for the caller to
+    pull, and a chapulin server pushes its flight through a callback. Both land in one buffer per
+    level, which `write_handshake` hands out.
+  - chapulin reports each level ready from inside the call that fed it. The session keeps the
+    report and the endpoint marks the level installed after the colibri call returns, as decision
+    60 has the caller do.
+  - `tools/quic_loopback.sh` runs a colibri client and a colibri server in one process over one
+    chapulin object built `TRANSPORT=quic ROLE=both KEYLOG=on`. Datagrams move in memory, and the
+    check advances its own instant 5 ms a round. The client verifies the server's chain, both
+    select "hq-interop" (RFC 9001 §8.1), and the server reads a 1 MiB stream. That length takes
+    the 1-RTT packet numbers past 256, where a one-octet Packet Number field no longer decodes
+    without the largest number received (RFC 9000 Appendix A.3). The check requires four key log
+    lines per endpoint.
+
+  First run, on an Apple M1 Pro under macOS 26.6.2 with a chapulin copy patched as below:
+  handshake complete and confirmed in round 5 and the stream read in round 43; 904 client
+  datagrams, 1,082,906 octets; 44 server datagrams, 3,791 octets.
+
+  Mutations of the adapter and the check: 17, 16 CAUGHT and one equivalent. Three were caught
+  only after a change: a lost largest packet number needed the longer stream, and a discard not
+  passed to chapulin and a wrong octet read as right each needed a test. The equivalent one read
+  `keys_available` in the other direction, which cannot differ because chapulin sets and clears
+  both directions of a level together.
+
+  It found three defects:
+  - colibri, fixed in `a7e5404`: a datagram grew to the peer's `max_udp_payload_size`, and the
+    client sent 1,313 octets. RFC 9000 §14.2 says an endpoint without PMTU discovery "SHOULD NOT
+    send datagrams larger than the smallest allowed maximum datagram size". Every datagram now
+    stays at 1,200 octets, the size RFC 9002's controller already counted in. 3 mutations, 3
+    CAUGHT. The simulator's census moved to 13,660 datagrams, 13,683 packets and 706 dropped.
+  - chapulin: in a `ROLE=both` object every session derives the server's Initial keys, because
+    `quic.c` picks the role with `#ifdef CH_ROLE_SERVER`. A client there seals under the wrong
+    label, so no Initial opens.
+  - chapulin: a QUIC server's EncryptedExtensions buffer has no room for the transport
+    parameters, so the server fails with an internal_error alert after its ServerHello.
+
+  Both chapulin defects went to the chapulin session, which is fixing them. Until the fixes land
+  on chapulin's `main`, the check fails at the client's first Initial.
+
+  The run also shows the cost of [#45](https://github.com/c4milo/colibri/issues/45). The client
+  drops the Handshake packet that follows the ServerHello in the server's first datagram, and the
+  handshake waits for the server's PTO.
+
+  `zig build test`: 1403 passed, 23 skipped.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
