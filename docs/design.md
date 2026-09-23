@@ -2392,10 +2392,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   after a reset first survived; the test that catches it is new. 3 over the simulator, 3
   CAUGHT; dropping the octet check first survived, and a fault now changes an octet.
 
-  Not built: closing a stream once both its parts finish, which
-  [#44](https://github.com/c4milo/colibri/issues/44) holds.
-
   `zig build test`: 1396 passed, 20 skipped.
+
+  **A finished stream closes, 2026-09-23**, `9fb82ce`,
+  [#44](https://github.com/c4milo/colibri/issues/44). Nothing closed a stream, so a finished one
+  kept its table slot and the peer never got its stream count back (RFC 9000 §4.6). A connection
+  could open 128 streams over its whole life.
+  - `connection_stream_close.close_if_finished` closes a stream once each part it has is in a
+    terminal state: "Data Recvd" or "Reset Recvd" for the sending part (§3.1), "Data Read" or
+    "Reset Read" for the receiving part (§3.2). Closing frees the table slot and the stream's
+    receive blocks.
+  - Three events can finish a part, and each calls it: an acknowledgment of the last octets or
+    of a RESET_STREAM, a read of the last octet, and a read that reports a reset.
+
+  Mutations: 7, 7 CAUGHT. `zig build test`: 1400 passed, 20 skipped.
 
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
