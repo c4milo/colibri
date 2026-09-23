@@ -315,4 +315,5 @@ test {
     _ = @import("connection_send.zig");
     _ = @import("connection_datagram.zig");
     _ = @import("connection_stream/connection_stream_read.zig");
+    _ = @import("connection_stream/connection_stream_close.zig");
 }

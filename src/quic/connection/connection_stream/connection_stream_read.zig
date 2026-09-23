@@ -9,6 +9,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const stream_module = @import("../../stream/stream.zig");
 const connection_module = @import("../connection.zig");
+const stream_close = @import("connection_stream_close.zig");
 
 const Connection = connection_module.Connection;
 const StreamId = stream_module.StreamId;
@@ -46,6 +47,8 @@ pub fn read(connection: *Connection, id: StreamId, output: []u8) Error!Read {
     // to 'Reset Recvd'", and the application is told of the reset instead of the octets.
     if (stream.receiving.state == .reset_recvd) {
         _ = stream.receiving.on(.application_read_reset);
+        // RFC 9000 §3.2: "Reset Read" ends the receiving part, which may finish the stream.
+        _ = stream_close.close_if_finished(connection, stream);
         return Error.StreamReset;
     }
     const len = stream.incoming.read(storage, stream.receive_flow.consumed, output);
@@ -54,10 +57,13 @@ pub fn read(connection: *Connection, id: StreamId, output: []u8) Error!Read {
     connection.receive_flow.consume(len);
     const final_size = stream.receiving.final_size orelse return .{ .len = len, .fin = false };
     const fin = stream.receive_flow.consumed == final_size;
-    // RFC 9000 §3.2: "Data Recvd" becomes "Data Read" once the application has every octet.
-    if (fin) _ = stream.receiving.on(.application_read_all);
     assert(stream.receive_flow.consumed <= final_size);
-    return .{ .len = len, .fin = fin };
+    if (!fin) return .{ .len = len, .fin = false };
+    // RFC 9000 §3.2: "Data Recvd" becomes "Data Read" once the application has every octet,
+    // which ends the receiving part and may finish the stream.
+    _ = stream.receiving.on(.application_read_all);
+    _ = stream_close.close_if_finished(connection, stream);
+    return .{ .len = len, .fin = true };
 }
 
 test {

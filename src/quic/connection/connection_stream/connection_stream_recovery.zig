@@ -15,6 +15,7 @@ const error_code = @import("../../error_code.zig");
 const recovery_sent = @import("../../recovery/recovery_sent.zig");
 const stream_module = @import("../../stream/stream.zig");
 const connection_module = @import("../connection.zig");
+const stream_close = @import("connection_stream_close.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -67,6 +68,8 @@ pub fn on_packets_acknowledged(
         } else {
             held.unwritten += 1;
         }
+        // RFC 9000 §3.1: the sending part is in "Data Recvd", which may finish the stream.
+        _ = stream_close.close_if_finished(connection, connection.streams.lookup(.{ .value = range.stream_id }).live);
     }
     return held;
 }
@@ -96,7 +99,10 @@ fn acknowledge_reset(connection: *Connection, number: u64) void {
     var walk = streams.pool.iterator();
     // Bounded by the table's capacity, `streams_per_connection_max`.
     while (walk.next()) |stream| {
-        if (stream.reset_stream.carried_by(number)) streams.on_reset_acknowledged(stream);
+        if (!stream.reset_stream.carried_by(number)) continue;
+        streams.on_reset_acknowledged(stream);
+        // RFC 9000 §3.1: the sending part is in "Reset Recvd", which may finish the stream.
+        _ = stream_close.close_if_finished(connection, stream);
     }
 }
 

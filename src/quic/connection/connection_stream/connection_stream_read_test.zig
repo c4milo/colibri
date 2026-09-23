@@ -1,6 +1,7 @@
-//! The tests of `connection_stream_read.zig`: a server with a receive pool reads what a client
-//! sent on a stream (decision 61), in order, and each read gives the client credit (RFC 9000 §4.1).
-//! Every datagram goes through the client's send path and the server's `connection_datagram`.
+//! The tests of `connection_stream_read.zig` and `connection_stream_close.zig`: a server with a
+//! receive pool reads what a client sent on a stream (decision 61), in order, and each read gives
+//! the client credit (RFC 9000 §4.1); a stream closes once both its parts finish (§3). Every
+//! datagram goes through the sender's send path and the receiver's `connection_datagram`.
 const std = @import("std");
 const core = @import("core");
 const constants = @import("../../constants.zig");
@@ -13,6 +14,7 @@ const send = @import("../connection_send.zig");
 const datagram_module = @import("../connection_datagram.zig");
 const stream_send = @import("connection_stream_send.zig");
 const stream_read = @import("connection_stream_read.zig");
+const stream_incoming = stream_module.stream_incoming;
 const build_test = @import("../packet_build/packet_build_test.zig");
 
 const Level = core.Level;
@@ -32,6 +34,7 @@ var datagram_scratch: datagram_module.Scratch = undefined;
 const pool_blocks: usize = 16;
 const pool_capacity: usize = pool_blocks * stream_module.stream_incoming.block_len;
 var pool: stream_module.stream_incoming.Pool(pool_capacity) = .{};
+var client_pool: stream_module.stream_incoming.Pool(pool_capacity) = .{};
 
 /// Datagrams held while a test decides when each arrives. Test-only.
 const held_max: usize = 8;
@@ -40,6 +43,10 @@ var held_len: [held_max]usize = undefined;
 var output: [pool_capacity]u8 = undefined;
 
 const test_now_ns: u64 = 1_000_000;
+/// The instant the helpers send and receive at, which `exchange` moves on. Test-only.
+var clock_ns: u64 = test_now_ns;
+/// Longer than RFC 9000 §18.2's default max_ack_delay of 25 ms, so each round owes its ACKs.
+const round_ns: u64 = 30_000_000;
 const id_len: usize = 4;
 const local_octet: u8 = 0xc1;
 const peer_octet: u8 = 0x51;
@@ -69,15 +76,17 @@ fn parameters() Parameters {
     granted.initial_max_data = connection_window;
     granted.initial_max_stream_data_bidi_remote = stream_window;
     granted.initial_max_stream_data_bidi_local = stream_window;
+    granted.initial_max_stream_data_uni = stream_window;
     granted.initial_max_streams_bidi = 1;
     granted.initial_max_streams_uni = 1;
     return granted;
 }
 
 fn open_pair() void {
+    clock_ns = test_now_ns;
     suite_holder.init();
     provider_holder = .{};
-    open_one(&client, .client, null);
+    open_one(&client, .client, client_pool.storage());
     open_one(&server, .server, pool.storage());
     client.apply_peer_parameters(parameters());
     server.apply_peer_parameters(parameters());
@@ -103,14 +112,14 @@ fn send_all(from: *Connection) !usize {
     var count: usize = 0;
     // Bounded by `held_max`.
     while (count < held_max) : (count += 1) {
-        const sent = try send.send(from, suite_holder.suite(), provider_holder.provider(), .{ .context = &body_context, .vtable = &body_vtable }, &send_scratch, &held[count], test_now_ns) orelse break;
+        const sent = try send.send(from, suite_holder.suite(), provider_holder.provider(), .{ .context = &body_context, .vtable = &body_vtable }, &send_scratch, &held[count], clock_ns) orelse break;
         held_len[count] = sent.len;
     }
     return count;
 }
 
 fn deliver(index: usize, to: *Connection) !void {
-    _ = try datagram_module.receive(to, suite_holder.suite(), provider_holder.provider(), .{ .octets = held[index][0..held_len[index]], .now_ns = test_now_ns, .ecn = .not_ect }, &datagram_scratch);
+    _ = try datagram_module.receive(to, suite_holder.suite(), provider_holder.provider(), .{ .octets = held[index][0..held_len[index]], .now_ns = clock_ns, .ecn = .not_ect }, &datagram_scratch);
 }
 
 fn expect_octets(from: u64, octets: []const u8) !void {
@@ -177,6 +186,7 @@ test "decision 61: every receive window grows no further than the pool holds" {
     for (0..count) |index| try deliver(index, &server);
     try testing.expectEqual(pool_capacity, server.streams.lookup(id).live.receive_flow.window_max);
     // A connection given no pool keeps its windows where they start.
+    open_one(&client, .client, null);
     try testing.expectEqual(connection_window, client.receive_flow.window_max);
 }
 
@@ -210,4 +220,79 @@ test "RFC 9000 §2.1: a stream this endpoint only sends on is not one to read" {
     try testing.expectError(error.NotReadable, stream_read.read(&server, own, &output));
     const unopened: StreamId = .{ .value = 8 };
     try testing.expectError(error.NotReadable, stream_read.read(&server, unopened, &output));
+}
+
+/// Rounds of sending each way until neither endpoint owes anything. Test-only.
+const exchange_rounds_max: usize = 8;
+
+/// Each endpoint sends what it owes and the other takes it, until both are quiet.
+fn exchange() !void {
+    // Bounded by `exchange_rounds_max`.
+    for (0..exchange_rounds_max) |_| {
+        clock_ns += round_ns;
+        const from_client = try send_all(&client);
+        for (0..from_client) |index| try deliver(index, &server);
+        const from_server = try send_all(&server);
+        for (0..from_server) |index| try deliver(index, &client);
+        if (from_client == 0 and from_server == 0) return;
+    }
+    return error.TestExchangeNotQuiet;
+}
+
+/// Blocks on the pool's free list. Test-only.
+fn free_blocks() usize {
+    const storage = server.receive_storage.?;
+    var count: usize = 0;
+    var index = storage.header.free_head;
+    while (index != std.math.maxInt(u16)) : (count += 1) index = storage.blocks[index].next;
+    return count;
+}
+
+test "RFC 9000 §3: a stream closes once each endpoint has finished both of its parts" {
+    open_pair();
+    const all = free_blocks();
+    const id = try client_stream(body_len, true);
+    try exchange();
+    const read = try stream_read.read(&server, id, &output);
+    try testing.expect(read.fin);
+    // The server has read everything and not yet ended its own side, so the stream stays.
+    try testing.expect(server.streams.lookup(id) == .live);
+    try stream_send.supply(&server, id, 0, true);
+    try exchange();
+    // RFC 9000 §3.1: the server's FIN was acknowledged, so both of its parts are finished.
+    try testing.expect(server.streams.lookup(id) == .closed);
+    // RFC 9000 §4.6: a closed stream the client opened is one more it may open.
+    try testing.expectEqual(1, server.streams.peer_limit[@intFromEnum(stream_module.Directionality.bidirectional)].consumed);
+    // Decision 61: the block the last octets sat in went back with the stream.
+    try testing.expectEqual(all, free_blocks());
+    // The client closes once it reads the server's FIN, its own having been acknowledged.
+    try testing.expect(client.streams.lookup(id) == .live);
+    const end = try stream_read.read(&client, id, &output);
+    try testing.expect(end.fin);
+    try testing.expect(client.streams.lookup(id) == .closed);
+}
+
+test "RFC 9000 §3: a unidirectional stream closes when its one part finishes at each end" {
+    open_pair();
+    const id = try stream_send.open(&client, .unidirectional);
+    try stream_send.supply(&client, id, body_len, true);
+    try exchange();
+    // RFC 9000 §3.1: the client's octets and FIN were acknowledged.
+    try testing.expect(client.streams.lookup(id) == .closed);
+    try testing.expect((try stream_read.read(&server, id, &output)).fin);
+    // RFC 9000 §3.2: the server read to the end, and receiving is all it does on this stream.
+    try testing.expect(server.streams.lookup(id) == .closed);
+}
+
+test "RFC 9000 §3: a reset stream closes once the reset is acknowledged and read" {
+    open_pair();
+    const id = try stream_send.open(&client, .unidirectional);
+    try stream_send.supply(&client, id, body_len, false);
+    try stream_send.reset(&client, id, 0);
+    try exchange();
+    // RFC 9000 §3.1: the RESET_STREAM was acknowledged, which is "Reset Recvd".
+    try testing.expect(client.streams.lookup(id) == .closed);
+    try testing.expectError(error.StreamReset, stream_read.read(&server, id, &output));
+    // RFC 9000 §3.2: the application was told, which is "Reset Read".
+    try testing.expect(server.streams.lookup(id) == .closed);
 }
