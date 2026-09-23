@@ -250,9 +250,9 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   produces no published number (decision 32).
 - TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin
   into `src/testing/` and nowhere else (decision 10). colibri vendors none of its C: build the
-  checkout yourself with `make RAND=drbg TRUST=webpki lib && cp bin/chapulin.o
-  bin/chapulin-client.o` and `make RAND=drbg ROLE=server lib && cp bin/chapulin.o
-  bin/chapulin-server.o`, and colibri reads the headers from it in place. The client's
+  checkout yourself with `make RAND=drbg TRUST=webpki EXPORTER=on lib && cp bin/chapulin.o
+  bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none EXPORTER=on lib && cp
+  bin/chapulin.o bin/chapulin-server.o`, and colibri reads the headers from it in place. The client's
   `TRUST=webpki` is not a preference: chapulin compiles its ALPN fields out for `TRUST=raw` and
   `TRUST=ca`, and without ALPN no client can negotiate h2 (RFC 9113 §3.1), so colibri refuses
   such a build at compile time. Without the options the TLS endpoints compile to nothing, so a

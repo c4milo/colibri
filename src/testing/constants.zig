@@ -157,6 +157,14 @@ pub const tls_der_len_max: usize = 2048;
 /// RFC 9846 §5.1 caps at 2^14 of plaintext plus its header and tag.
 pub const tls_record_buffer_len: usize = 18 * 1024;
 
+/// The label, context and length both TLS checks export under (RFC 9846 §7.5). The Go peers in
+/// `tools/h2_interop/` export under the same three, and the scripts require the two values to
+/// match. The label is longer than the 12 octets TLS 1.3's own labels need, so a chapulin that
+/// kept its default label bound would fail the run.
+pub const tls_exporter_label = "EXPORTER-colibri-check";
+pub const tls_exporter_context = "colibri";
+pub const tls_exporter_len: usize = 32;
+
 /// Operations one UDP endpoint's loop holds in flight: its one multishot receive, and the sends
 /// the kernel has not yet taken (decision 58).
 pub const udp_operations_max: u32 = 64;

@@ -46,9 +46,20 @@ fi
 
 # The clock is the caller's: no source file under src/ may read one (CLAUDE.md non-negotiable 3),
 # and a webpki chain is valid only at a time.
-if ! ./zig-out/bin/tls-handshake "$port" "$scratch/ca" "$hostname" "$(date +%s)"; then
+if ! ./zig-out/bin/tls-handshake "$port" "$scratch/ca" "$hostname" "$(date +%s)" 2>&1 \
+  | tee "$scratch/client.log"; then
   echo "tls_handshake: the handshake failed; the peer said:" >&2
   tail -5 "$scratch/server.log" >&2
+  exit 1
+fi
+
+# RFC 9846 §7.5: both ends of one session export one value for one label and context. The peer
+# prints its value while the client is still finishing, so it is written by the time this reads.
+client_exporter="$(sed -n 's/^tls-handshake: exporter //p' "$scratch/client.log")"
+server_exporter="$(sed -n 's/^exporter //p' "$scratch/server.log")"
+if [ -z "$client_exporter" ] || [ "$client_exporter" != "$server_exporter" ]; then
+  echo "tls_handshake: the exporters differ: colibri ${client_exporter:-none}," \
+    "the peer ${server_exporter:-none}" >&2
   exit 1
 fi
 

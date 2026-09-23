@@ -162,8 +162,8 @@ pub fn add(
     // Decision 10, and the reason the two objects are separate: a chapulin build carries one role,
     // and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
     // The server endpoint links the `ROLE=server` object and the client endpoint the client one.
-    link_chapulin(b, testing, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER" });
-    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI" });
+    link_chapulin(b, testing, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER", "CH_EXPORTER" });
+    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_EXPORTER" });
 
     // Design §8 step 5's check runs one handshake against a server that is not colibri's. It is
     // a third root because an executable has one `main`, and the other two are the h2 server's
@@ -175,7 +175,7 @@ pub fn add(
     testing_tls.addImport("h2", h2);
     testing_tls.addImport("tls", tls);
     testing_tls.link_libc = true;
-    link_chapulin(b, testing_tls, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI" });
+    link_chapulin(b, testing_tls, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_EXPORTER" });
 
     // The other half of step 5's check, and a fourth root for the same reason as the third: one
     // `main` per executable, and one role per chapulin object (decision 10). This one accepts.
@@ -184,7 +184,7 @@ pub fn add(
     testing_tls_server.addImport("h2", h2);
     testing_tls_server.addImport("tls", tls);
     testing_tls_server.link_libc = true;
-    link_chapulin(b, testing_tls_server, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER" });
+    link_chapulin(b, testing_tls_server, chapulin.server, "chapulin-server.o", &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER", "CH_EXPORTER" });
 
     return .{
         .core = core,
@@ -265,8 +265,9 @@ fn link_chapulin(
     module.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ path, "bin", object }) });
     // chapulin's headers are compiled by the same axes that compiled its object, and they refuse
     // to parse without them. colibri names the variant it needs rather than accepting any: the
-    // entropy pattern, and for the client the trust mode that compiles ALPN in at all
-    // (chapulin's cfg.h). A checkout built another way fails here or at `check_alpn`, which is
-    // the point — CLAUDE.md's Commands section names the two `make` lines that match.
+    // entropy pattern, for the client the trust mode that compiles ALPN in at all (chapulin's
+    // cfg.h), and the exporter, which adds a field to `ch_tls`. A checkout built another way
+    // fails here, at `check_alpn`, or at the link for want of `ch_export`, which is the point —
+    // CLAUDE.md's Commands section names the two `make` lines that match.
     for (defines) |define| module.addCMacro(define, "1");
 }

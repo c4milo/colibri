@@ -28,6 +28,13 @@ import (
 // What the client sends and expects back. The server echoes the octets it opened.
 var probe = []byte("colibri record phase\n")
 
+// The label, context and length of the exporter both ends print (RFC 9846 §7.5). They are
+// src/testing/constants.zig's tls_exporter_label, tls_exporter_context and tls_exporter_len, and
+// tools/tls_accept.sh requires the two printed values to match.
+const exporterLabel = "EXPORTER-colibri-check"
+const exporterContext = "colibri"
+const exporterLen = 32
+
 func main() {
 	if len(os.Args) != 4 {
 		log.Fatal("usage: tls_client <port> <identity-prefix> <hostname>")
@@ -69,6 +76,11 @@ func main() {
 	state := connection.ConnectionState()
 	fmt.Printf("tls_client: complete alpn=%s version=0x%04x suite=0x%04x\n",
 		state.NegotiatedProtocol, state.Version, state.CipherSuite)
+	exported, err := state.ExportKeyingMaterial(exporterLabel, []byte(exporterContext), exporterLen)
+	if err != nil {
+		log.Fatalf("export failed: %v", err)
+	}
+	fmt.Printf("tls_client: exporter %x\n", exported)
 	// A completed handshake is not proof of ALPN: Go's client does not fail when the server
 	// selects no protocol, so the check asserts it here.
 	if state.NegotiatedProtocol != "h2" {

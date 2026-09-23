@@ -36,6 +36,13 @@ const validity = 24 * time.Hour
 // The name the leaf carries and the client asks for.
 const hostname = "localhost"
 
+// The label, context and length of the exporter both ends print (RFC 9846 §7.5). They are
+// src/testing/constants.zig's tls_exporter_label, tls_exporter_context and tls_exporter_len, and
+// tools/tls_handshake.sh requires the two printed values to match.
+const exporterLabel = "EXPORTER-colibri-check"
+const exporterContext = "colibri"
+const exporterLen = 32
+
 func main() {
 	if len(os.Args) != 3 {
 		log.Fatal("usage: tls_server <port> <anchor-prefix>")
@@ -76,6 +83,10 @@ func main() {
 			// so a client that cannot negotiate it fails the handshake rather than the request.
 			NextProtos: []string{"h2"},
 			MinVersion: tls.VersionTLS13,
+			// Go calls this on each connection once the server has sent its Finished, which is
+			// when the exporter secret exists. The client's check sends no request, so no
+			// handler would ever run to print it.
+			VerifyConnection: printExporter,
 		},
 	}
 	listener, err := net.Listen("tcp", server.Addr)
@@ -85,6 +96,17 @@ func main() {
 	fmt.Println("ready")
 	os.Stdout.Sync()
 	log.Fatal(server.ServeTLS(listener, "", ""))
+}
+
+// Prints the keying material this end exports, for tools/tls_handshake.sh to compare with the
+// value colibri's client prints.
+func printExporter(state tls.ConnectionState) error {
+	exported, err := state.ExportKeyingMaterial(exporterLabel, []byte(exporterContext), exporterLen)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("exporter %x\n", exported)
+	return nil
 }
 
 // Mints the root the client will trust.

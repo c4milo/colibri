@@ -112,12 +112,62 @@ test "the vtable colibri gets answers every member" {
     // A session that has not failed has no alert to report.
     try testing.expectEqual(null, held.vtable.take_alert(held.context));
 
-    // Every member is mandatory (decision 8), so the two chapulin does not offer refuse rather
+    // Every member is mandatory (decision 8), so the one chapulin does not offer refuses rather
     // than being absent.
     const update = held.vtable.initiate_key_update(held.context, .update_not_requested, &room);
     try testing.expectError(error.Unsupported, update);
+    // RFC 9846 §7.5: the exporter secret exists once the handshake completes, and not before.
     const exported = held.vtable.export_keying_material(held.context, "colibri", null, &room);
-    try testing.expectError(error.Unsupported, exported);
+    try testing.expectError(error.HandshakeIncomplete, exported);
+}
+
+test "the exporter answers inside chapulin's bounds and refuses outside them" {
+    if (!chapulin.available) return error.SkipZigTest;
+    const anchors = [_]c.ch_trust_anchor{};
+    try test_client.init(.{
+        .anchors = &anchors,
+        .hostname = test_hostname,
+        .socket = 0,
+        .now_seconds = test_now_seconds,
+        .receive = &test_receive,
+    });
+    // What a completed handshake leaves. The live exporter is compared with a Go peer's by
+    // `tools/tls_handshake.sh`; this pins the bounds the adapter enforces.
+    test_client.held.io = .{ .records = .{} };
+    test_client.held.session.state = c.CH_ST_CONNECTED;
+    const held = test_client.provider();
+    const exporter = held.vtable.export_keying_material;
+    var first: [constants.tls_exporter_len]u8 = @splat(0);
+    var second: [constants.tls_exporter_len]u8 = @splat(0);
+
+    // The label bound, both sides of it, and the two labels a C string cannot carry.
+    try exporter(held.context, "x" ** c.CH_EXPORT_LABEL_MAX, null, &first);
+    const over = exporter(held.context, "x" ** (c.CH_EXPORT_LABEL_MAX + 1), null, &first);
+    try testing.expectError(error.Unsupported, over);
+    try testing.expectError(error.Unsupported, exporter(held.context, "", null, &first));
+    try testing.expectError(error.Unsupported, exporter(held.context, "col\x00ibri", null, &first));
+    // Two labels that differ only in their last octet give two values, so the adapter passes
+    // chapulin the whole label.
+    try exporter(held.context, "colibri-a", null, &first);
+    try exporter(held.context, "colibri-b", null, &second);
+    try testing.expect(!std.mem.eql(u8, &first, &second));
+
+    // The output bound, both sides of it.
+    var longest: [c.CH_EXPORT_MAX + 1]u8 = @splat(0);
+    try exporter(held.context, "colibri", null, longest[0..c.CH_EXPORT_MAX]);
+    try testing.expectError(error.OutputTooLong, exporter(held.context, "colibri", null, &longest));
+
+    // RFC 9846 §7.5 computes one value for no context and an empty one, and another for any
+    // context with octets in it.
+    try exporter(held.context, "colibri", null, &first);
+    try exporter(held.context, "colibri", "", &second);
+    try testing.expectEqualSlices(u8, &first, &second);
+    try exporter(held.context, "colibri", "context", &second);
+    try testing.expect(!std.mem.eql(u8, &first, &second));
+
+    // A session that closed has wiped the secret.
+    test_client.held.session.state = c.CH_ST_CLOSED;
+    try testing.expectError(error.HandshakeIncomplete, exporter(held.context, "colibri", null, &first));
 }
 
 test "once the handshake is done the session reports what it chose" {

@@ -206,11 +206,13 @@ written down because a result code meaning "call again, nothing consumed" would 
 pre-buffering, and because nothing in chapulin states that the contract is deliberate rather than
 incidental.
 
-**What colibri has to do to use the two new values.** Both are off in chapulin's default build,
-and `build/modules.zig`'s `link_chapulin` lists pass neither. The exporter wants `CH_EXPORTER` and
-`HKDF_LABEL_MAX=32` on the record-transport objects that call `ch_export`; the key log wants
-`CH_KEYLOG` on the objects whose connections the interop runner captures, and a `ch_keylog`
-definition in `src/testing/`. A QUIC object can carry `CH_KEYLOG` and cannot carry `CH_EXPORTER`.
+**What colibri has done with the two new values.** Both are off in chapulin's default build. The
+exporter is on: both TLS objects are built `EXPORTER=on`, `link_chapulin` passes `CH_EXPORTER`,
+and `src/testing/tls/chapulin_record.zig` answers `export_keying_material` through `ch_export`.
+`tools/tls_handshake.sh` and `tools/tls_accept.sh` require colibri's value to match the Go peer's.
+The key log is not on yet. It is for the interop runner's QUIC connections, and no endpoint links
+a chapulin QUIC object yet. That endpoint turns on `KEYLOG=on` and defines `ch_keylog` in
+`src/testing/`. A QUIC object can carry `CH_KEYLOG` and cannot carry `CH_EXPORTER`.
 
 **The handshake is no longer on this list, and that is new.** `ROLE=server` with
 `TRANSPORT=record` drives the server handshake with no callback at all: `ch_srv_record_in` takes

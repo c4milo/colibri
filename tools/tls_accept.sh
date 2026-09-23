@@ -49,7 +49,7 @@ if ! grep -q ready "$scratch/server.log" 2>/dev/null; then
   exit 1
 fi
 
-if ! "$scratch/tls_client" "$port" "$scratch/identity" "$hostname"; then
+if ! "$scratch/tls_client" "$port" "$scratch/identity" "$hostname" | tee "$scratch/client.log"; then
   echo "tls_accept: the client failed; colibri's server said:" >&2
   cat "$scratch/server.log" >&2
   exit 1
@@ -63,5 +63,14 @@ wait "$server_pid" || {
 }
 server_pid=""
 cat "$scratch/server.log"
+
+# RFC 9846 §7.5: both ends of one session export one value for one label and context.
+client_exporter="$(sed -n 's/^tls_client: exporter //p' "$scratch/client.log")"
+server_exporter="$(sed -n 's/^tls-accept: exporter //p' "$scratch/server.log")"
+if [ -z "$server_exporter" ] || [ "$server_exporter" != "$client_exporter" ]; then
+  echo "tls_accept: the exporters differ: colibri ${server_exporter:-none}," \
+    "the peer ${client_exporter:-none}" >&2
+  exit 1
+fi
 
 echo "tls_accept: ok"

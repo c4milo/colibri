@@ -94,6 +94,24 @@ fn report() void {
     }
 }
 
+/// RFC 9846 §7.5: prints the keying material exported under the label and context the peer also
+/// uses. `tools/tls_accept.sh` compares it with the value the peer printed, and two ends that
+/// disagree derived different secrets from one handshake.
+fn report_exporter() void {
+    const held = server.provider();
+    var exported: [constants.tls_exporter_len]u8 = undefined;
+    held.vtable.export_keying_material(
+        held.context,
+        constants.tls_exporter_label,
+        constants.tls_exporter_context,
+        &exported,
+    ) catch |failure| {
+        std.debug.print("tls-accept: the exporter refused: {t}\n", .{failure});
+        std.process.exit(exit_failed);
+    };
+    std.debug.print("tls-accept: exporter {x}\n", .{exported[0..]});
+}
+
 /// RFC 9113 §9.2 and [decision 45](../../../docs/decisions.md): `attach_tls` refuses a suite
 /// colibri does not admit, so a handshake that completed on one is not a session h2 could use.
 /// Printing the codepoint is not enough; this is what makes the run fail on it.
@@ -133,6 +151,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_failed);
     };
     report();
+    report_exporter();
     try echo_once(socket);
     try await_close(socket);
     std.debug.print("tls-accept: records ok, peer closed cleanly\n", .{});

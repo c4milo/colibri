@@ -299,20 +299,51 @@ fn initiate_key_update(
     return tls.provider.KeyUpdateError.Unsupported;
 }
 
-/// RFC 9846 §7.5 standardises the exporter without obliging a stack to offer it, and chapulin's
-/// four public record-mode calls do not. h2 needs none of it.
+/// RFC 9846 §7.5's exporter, which chapulin's `EXPORTER=on` build offers as `ch_export`. h2 needs
+/// none of it; the check endpoints compare it with their peer's, which is how they tell that both
+/// ends derived one set of secrets.
+///
+/// chapulin answers only while its session is connected. A session that closed or failed has
+/// wiped the secret, and this adapter reports that as the secret not existing, as before the
+/// handshake completed. §7.5 computes one value for no context and for an empty one, so both go
+/// to chapulin as a null pointer and a zero length.
 fn export_keying_material(
     context: *anyopaque,
     label: []const u8,
     context_value: ?[]const u8,
     output: []u8,
 ) tls.provider.ExportError!void {
-    _ = .{ context, label, context_value, output };
-    return tls.provider.ExportError.Unsupported;
+    const role = held(context);
+    if (role.session.state != c.CH_ST_CONNECTED) return tls.provider.ExportError.HandshakeIncomplete;
+    // chapulin's bound is 255 octets, lower than the 255 hash lengths of RFC 5869 §2.3 that the
+    // error names, and a provider enforces its own.
+    if (output.len > c.CH_EXPORT_MAX) return tls.provider.ExportError.OutputTooLong;
+    // chapulin refuses a zero length, and there is nothing to write.
+    if (output.len == 0) return;
+    var label_storage: [c.CH_EXPORT_LABEL_MAX + 1]u8 = undefined;
+    const label_terminated = label_string(label, &label_storage) orelse
+        return tls.provider.ExportError.Unsupported;
+    const value = context_value orelse &.{};
+    const value_pointer: ?[*]const u8 = if (value.len == 0) null else value.ptr;
+    const code = c.ch_export(&role.session, label_terminated, value_pointer, value.len, output.ptr, output.len);
+    // Every argument rule chapulin's `tls.h` names is checked above, so a refusal here is a
+    // defect in this adapter or in chapulin, not a condition colibri could handle.
+    std.debug.assert(code == ok);
+}
+
+/// chapulin takes an exporter label as a C string of 1 to `CH_EXPORT_LABEL_MAX` octets. A label
+/// outside that bound, or one holding a zero octet a C string would end at, answers null: it is a
+/// label this provider has no exporter for.
+fn label_string(label: []const u8, storage: *[c.CH_EXPORT_LABEL_MAX + 1]u8) ?[*:0]const u8 {
+    if (label.len == 0 or label.len > c.CH_EXPORT_LABEL_MAX) return null;
+    if (std.mem.indexOfScalar(u8, label, 0) != null) return null;
+    @memcpy(storage[0..label.len], label);
+    storage[label.len] = 0;
+    return storage[0..label.len :0].ptr;
 }
 
 /// The calls colibri makes on a chapulin session, whichever side it is. Every member is mandatory
-/// (decision 8), so the two chapulin does not offer answer `Unsupported` rather than being absent.
+/// (decision 8), so the one chapulin does not offer answers `Unsupported` rather than being absent.
 pub const vtable: tls.VTable = .{
     .handshake_read = handshake_read,
     .handshake_write = handshake_write,
