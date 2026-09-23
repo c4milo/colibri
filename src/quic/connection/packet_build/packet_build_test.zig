@@ -15,6 +15,7 @@ const frames = @import("../connection_frames.zig");
 const packet_build = @import("packet_build.zig");
 const packet_number = @import("../../packet/packet_number.zig");
 
+const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const testing = std.testing;
 
 /// How many bits an octet holds, which reading a multi-octet field shifts by (RFC 9000 §1.3).
@@ -292,6 +293,7 @@ pub fn build_at_instant(level: Level, now_ns: u64) !?packet_build.Built {
         &test_connection,
         round_trip.suite(),
         fake.provider(),
+        StreamProvider.none(),
         level,
         &scratch,
         &datagram,
@@ -441,6 +443,7 @@ test "decision 35: a smaller scratch bounds the packet, not the datagram" {
         &test_connection,
         round_trip.suite(),
         fake.provider(),
+        StreamProvider.none(),
         .initial,
         &small_scratch,
         &datagram,

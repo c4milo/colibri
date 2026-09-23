@@ -18,6 +18,7 @@ const connection_crypto = @import("connection_crypto.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
+const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 const testing = std.testing;
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -82,6 +83,7 @@ fn send_from(connection: *Connection) !?send.Sent {
         connection,
         suite_holder.suite(),
         provider_holder.provider(),
+        StreamProvider.none(),
         &scratch,
         &datagram,
         test_now_ns,
@@ -348,6 +350,7 @@ fn record_of(sent: send.Sent, at: usize) Record {
         .carries = packet.carries,
         .data_offset = packet.data_offset,
         .data_len = packet.data_len,
+        .stream_id = packet.stream_id,
     };
 }
 

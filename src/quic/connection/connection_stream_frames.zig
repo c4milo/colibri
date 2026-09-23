@@ -189,7 +189,7 @@ fn open_or_find(connection: *Connection, id: StreamId) Error!?*Stream {
 /// §18.2 names them from the sender's own side. What this endpoint may receive comes from the
 /// parameters it sent, and what it may send comes from the peer's, so the same stream reads a
 /// different parameter in each direction and `_local` and `_remote` swap between them.
-fn initialise_flow(connection: *Connection, stream: *Stream, id: StreamId) void {
+pub fn initialise_flow(connection: *Connection, stream: *Stream, id: StreamId) void {
     const mine = connection.local_parameters;
     const receive_limit = if (id.directionality() == .unidirectional)
         // §18.2: initial_max_stream_data_uni is "the initial flow control limit for unidirectional

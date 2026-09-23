@@ -71,6 +71,42 @@ pub fn write_stream(writer: *Writer, stream: Stream) core.writer.Error!void {
     try writer.write_bytes(stream.data);
 }
 
+/// A STREAM frame's header, for data the caller places directly after it (RFC 9000 §19.8). The
+/// Length field is `length_len` octets wide, chosen before the data's length is known: RFC 9000
+/// §16 says "Values do not need to be encoded on the minimum number of bytes necessary, with the
+/// sole exception of the Frame Type field".
+pub const StreamHeader = struct {
+    stream_id: u64,
+    offset: u64,
+    data_len: u64,
+    length_len: u8,
+    fin: bool,
+};
+
+/// Octets a STREAM frame's header takes before its data: the type, the Stream ID, the Offset when
+/// it is not 0, and a Length field `length_len` wide (RFC 9000 §19.8).
+pub fn stream_header_len(stream_id: u64, offset: u64, length_len: u8) usize {
+    const offset_len: usize = if (offset == 0) 0 else wire.varint.encoded_len_minimal(offset);
+    return stream_type_len + wire.varint.encoded_len_minimal(stream_id) + offset_len + length_len;
+}
+
+/// A STREAM frame's type is 0x08 to 0x0f, one octet as a variable-length integer (RFC 9000 §19.8).
+const stream_type_len: usize = 1;
+
+/// Writes the header `stream_header_len` measured, with its Length field set.
+pub fn write_stream_header(writer: *Writer, header: StreamHeader) core.writer.Error!void {
+    assert(header.offset <= constants.stream_offset_max - header.data_len);
+    // RFC 9000 §19.8: an offset of 0 needs no Offset field, and a Length field is always present
+    // here so that PADDING may follow the frame.
+    var frame_type = constants.frame_stream_first | constants.stream_flag_len;
+    if (header.offset != 0) frame_type |= constants.stream_flag_off;
+    if (header.fin) frame_type |= constants.stream_flag_fin;
+    try frame.write_type(writer, frame_type);
+    try wire.varint.encode(writer, header.stream_id);
+    if (header.offset != 0) try wire.varint.encode(writer, header.offset);
+    try wire.varint.encode_with_len(writer, header.data_len, header.length_len);
+}
+
 /// Reads a CRYPTO frame whose type has been consumed (RFC 9000 §19.6).
 pub fn read_crypto(reader: *Reader) frame.Error!Crypto {
     const offset = try frame.read_varint(reader);

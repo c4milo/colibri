@@ -14,6 +14,7 @@ pub const stream_recv = @import("stream_recv.zig");
 pub const stream_table = @import("stream_table.zig");
 pub const stream_outgoing = @import("stream_outgoing.zig");
 pub const stream_lost = @import("stream_lost.zig");
+pub const stream_provider = @import("stream_provider.zig");
 
 pub const StreamId = stream_id.StreamId;
 pub const Initiator = stream_id.Initiator;
@@ -22,6 +23,7 @@ pub const Sending = stream_send.Sending;
 pub const Receiving = stream_recv.Receiving;
 pub const Streams = stream_table.Streams;
 pub const Stream = stream_table.Stream;
+pub const StreamProvider = stream_provider.StreamProvider;
 
 test {
     std.testing.refAllDecls(@This());
@@ -31,5 +33,6 @@ test {
     _ = stream_table;
     _ = stream_outgoing;
     _ = stream_lost;
+    _ = stream_provider;
     _ = @import("stream_test.zig");
 }

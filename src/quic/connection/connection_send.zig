@@ -31,6 +31,7 @@ const packet_build = @import("packet_build/packet_build.zig");
 const connection_close = @import("connection_close.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
+const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 
 const Level = core.Level;
 const Writer = core.Writer;
@@ -67,6 +68,7 @@ pub const Packet = struct {
     carries: recovery_sent.Carries = .none,
     data_offset: u64 = 0,
     data_len: u16 = 0,
+    stream_id: u64 = 0,
 };
 
 /// What was assembled.
@@ -87,6 +89,7 @@ pub fn send(
     connection: *Connection,
     suite: crypto.Suite,
     provider: tls.QuicProvider,
+    stream_provider: StreamProvider,
     scratch: anytype,
     output: []u8,
     now_ns: u64,
@@ -106,7 +109,7 @@ pub fn send(
         const level: Level = @enumFromInt(index);
         const room = ceiling - planned_len;
         const payload = &scratch.payloads[index];
-        const planned = packet_build.plan(connection, provider, level, payload, room, now_ns) catch |failure| switch (failure) {
+        const planned = packet_build.plan(connection, provider, stream_provider, level, payload, room, now_ns) catch |failure| switch (failure) {
             // A level that cannot fit a packet in what is left ends the datagram rather than
             // failing it: §12.2 coalesces what fits and the rest goes in the next one.
             error.NoSpaceLeft => break,
@@ -249,6 +252,7 @@ fn seal_all(
             .carries = built.carries,
             .data_offset = built.data_offset,
             .data_len = built.data_len,
+            .stream_id = built.stream_id,
         };
         sent.count += 1;
         sent.len += built.len;

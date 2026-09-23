@@ -19,6 +19,7 @@ const send = @import("connection_send.zig");
 const close_module = @import("connection_close.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
+const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 const testing = std.testing;
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -95,6 +96,7 @@ fn send_from(connection: *Connection) !?send.Sent {
         connection,
         suite_holder.suite(),
         provider_holder.provider(),
+        StreamProvider.none(),
         &scratch,
         &datagram,
         test_now_ns,

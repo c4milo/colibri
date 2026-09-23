@@ -21,6 +21,7 @@ const retry = @import("connection_retry.zig");
 const packet_build = @import("packet_build/packet_build.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
+const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 const testing = std.testing;
 const Level = core.Level;
 const Writer = core.Writer;
@@ -345,6 +346,7 @@ test "RFC 9000 §8.1.2: every Initial after a Retry carries the token" {
         &test_connection,
         suite_holder.suite(),
         provider_holder.provider(),
+        StreamProvider.none(),
         .initial,
         &scratch,
         &datagram,
@@ -373,6 +375,7 @@ test "RFC 9000 §17.2.2: the Token Length and Token are counted when the header 
         &test_connection,
         suite_holder.suite(),
         provider_holder.provider(),
+        StreamProvider.none(),
         .initial,
         &scratch,
         &output,
@@ -400,6 +403,7 @@ fn build_initial(suite_holder: *build_test.RoundTrip, provider_holder: *build_te
         &test_connection,
         suite_holder.suite(),
         provider_holder.provider(),
+        StreamProvider.none(),
         .initial,
         &scratch,
         &output,

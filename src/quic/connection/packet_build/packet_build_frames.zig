@@ -13,6 +13,8 @@ const constants = @import("../../constants.zig");
 const frame_module = @import("../../frame/frame.zig");
 const connection_module = @import("../connection.zig");
 const connection_crypto = @import("../connection_crypto.zig");
+const connection_stream_send = @import("../connection_stream_send.zig");
+const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const connection_close = @import("../connection_close.zig");
 
 const Level = core.Level;
@@ -34,14 +36,17 @@ pub const Framed = struct {
     carries: Carries = .none,
     data_offset: u64 = 0,
     data_len: u16 = 0,
+    stream_id: u64 = 0,
 };
 
 /// Writes the frames this packet carries. The set is small on purpose: an ACK when the space owes
-/// one (RFC 9000 §13.2.1) and whatever handshake octets the provider owes at this level
-/// (RFC 9001 §4.1.3). Every other frame is written by the piece that owns it.
+/// one (RFC 9000 §13.2.1), the path frames §8.2 leaves owed, and one frame of octets: whatever
+/// handshake octets the provider owes at this level (RFC 9001 §4.1.3), or else a stream's (RFC
+/// 9000 §19.8). Every other frame is written by the piece that owns it.
 pub fn write(
     connection: *Connection,
     provider: tls.QuicProvider,
+    stream_provider: StreamProvider,
     space: anytype,
     level: Level,
     payload: []u8,
@@ -70,21 +75,57 @@ pub fn write(
     // control", so they are written before the handshake's octets compete for the room.
     const path = write_path_frames(connection, level, &writer);
     const written_path = writer.written().len;
-    // RFC 9001 §4.1.3: the handshake's octets, which `connection_crypto` puts in CRYPTO frames.
-    const written_crypto = connection_crypto.write_crypto(connection, provider, level, payload[written_path..budget]) catch
-        return Error.Crypto;
-    const crypto_len = written_crypto.len;
+    const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
     return .{
-        .len = written_path + crypto_len,
-        .carries = if (crypto_len > 0) .crypto else .none,
-        .data_offset = written_crypto.offset,
-        .data_len = written_crypto.payload_len,
-        // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing and a CRYPTO frame does.
-        // Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
-        .ack_eliciting = crypto_len > 0 or path.carries_path_response or path.path_challenge != null,
+        .len = written_path + data.len,
+        .carries = data.carries,
+        .data_offset = data.offset,
+        .data_len = data.data_len,
+        .stream_id = data.stream_id,
+        // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing, and a CRYPTO or STREAM
+        // frame does. Table 3 marks PATH_CHALLENGE and PATH_RESPONSE as eliciting one.
+        .ack_eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null,
         .carries_ack = written_ack > 0,
         .path_challenge = path.path_challenge,
         .carries_path_response = path.carries_path_response,
+    };
+}
+
+/// The one CRYPTO or STREAM frame a packet carries, and the range its record keeps.
+const DataFrame = struct {
+    len: usize = 0,
+    carries: Carries = .none,
+    offset: u64 = 0,
+    data_len: u16 = 0,
+    stream_id: u64 = 0,
+};
+
+/// Writes the handshake's octets when the provider owes some at this level, and a stream's
+/// otherwise. Never both: a packet's record holds one range (decisions 56 and 57).
+fn write_data(
+    connection: *Connection,
+    provider: tls.QuicProvider,
+    stream_provider: StreamProvider,
+    level: Level,
+    output: []u8,
+) Error!DataFrame {
+    // RFC 9001 §4.1.3: the handshake's octets, which `connection_crypto` puts in CRYPTO frames.
+    const crypto = connection_crypto.write_crypto(connection, provider, level, output) catch
+        return Error.Crypto;
+    if (crypto.len > 0) {
+        return .{ .len = crypto.len, .carries = .crypto, .offset = crypto.offset, .data_len = crypto.payload_len };
+    }
+    // RFC 9000 §12.4, Table 3: STREAM frames travel in 0-RTT and 1-RTT packets alone, and
+    // decision 20 refuses 0-RTT.
+    if (level != .application) return .{};
+    const stream = connection_stream_send.write(connection, stream_provider, output);
+    if (stream.len == 0) return .{};
+    return .{
+        .len = stream.len,
+        .carries = if (stream.fin) .stream_fin else .stream,
+        .offset = stream.offset,
+        .data_len = stream.data_len,
+        .stream_id = stream.stream_id,
     };
 }
 

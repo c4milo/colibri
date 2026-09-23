@@ -34,6 +34,7 @@ const error_code = @import("../../error_code.zig");
 const keys_module = @import("../connection_keys.zig");
 const key_update = @import("../connection_key_update.zig");
 const recovery_sent = @import("../../recovery/recovery_sent.zig");
+const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const packet_build_frames = @import("packet_build_frames.zig");
 
 const Level = core.Level;
@@ -103,6 +104,7 @@ pub const Built = struct {
     carries: recovery_sent.Carries = .none,
     data_offset: u64 = 0,
     data_len: u16 = 0,
+    stream_id: u64 = 0,
 };
 
 /// One packet framed but not yet protected. RFC 9000 §14.1's expansion has to be decided before
@@ -136,6 +138,7 @@ pub const Planned = struct {
     carries: recovery_sent.Carries = .none,
     data_offset: u64 = 0,
     data_len: u16 = 0,
+    stream_id: u64 = 0,
 };
 
 /// Frames one packet at `level` without protecting it. Null when there is nothing to send there,
@@ -143,6 +146,7 @@ pub const Planned = struct {
 pub fn plan(
     connection: *Connection,
     provider: tls.QuicProvider,
+    stream_provider: StreamProvider,
     level: Level,
     payload: []u8,
     room: usize,
@@ -159,7 +163,7 @@ pub fn plan(
         return Error.PacketNumbersExhausted;
 
     const shape = try shape_of(connection, level, truncated.len, room);
-    const framed = try packet_build_frames.write(connection, provider, space, level, payload, shape.room, now_ns);
+    const framed = try packet_build_frames.write(connection, provider, stream_provider, space, level, payload, shape.room, now_ns);
     if (framed.len == 0) return null;
     // The number is spent only once the packet exists, so a level with nothing to send leaves
     // no hole in its space (invariant 17).
@@ -180,6 +184,7 @@ pub fn plan(
         .carries = framed.carries,
         .data_offset = framed.data_offset,
         .data_len = framed.data_len,
+        .stream_id = framed.stream_id,
     };
 }
 
@@ -190,13 +195,14 @@ pub fn build(
     connection: *Connection,
     suite: crypto.Suite,
     provider: tls.QuicProvider,
+    stream_provider: StreamProvider,
     level: Level,
     scratch: anytype,
     output: []u8,
     now_ns: u64,
 ) Error!?Built {
     const budget = @min(output.len, @TypeOf(scratch.*).payload_len_max);
-    const planned = try plan(connection, provider, level, &scratch.payload, output.len, now_ns) orelse return null;
+    const planned = try plan(connection, provider, stream_provider, level, &scratch.payload, output.len, now_ns) orelse return null;
     _ = budget;
     return try seal_planned(connection, suite, planned, &scratch.header, &scratch.payload, output);
 }
@@ -305,6 +311,7 @@ pub fn seal_planned(
         .carries = planned.carries,
         .data_offset = planned.data_offset,
         .data_len = planned.data_len,
+        .stream_id = planned.stream_id,
     };
 }
 

@@ -21,6 +21,7 @@ const frames = @import("connection_frames.zig");
 const packet_build = @import("packet_build/packet_build.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
+const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 const testing = std.testing;
 const Level = core.Level;
 const Writer = core.Writer;
@@ -425,6 +426,7 @@ pub fn build_at(level: Level) !?packet_build.Built {
         &test_connection,
         suite(),
         provider_holder.provider(),
+        StreamProvider.none(),
         level,
         &scratch,
         &datagram,
