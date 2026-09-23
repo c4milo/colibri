@@ -24,11 +24,21 @@ const issued_c: [issued_len]u8 = @splat(issued_c_octet);
 const issued_each = [_][]const u8{ &issued_a, &issued_b, &issued_c };
 
 var test_local: Local = undefined;
+/// The Stateless Reset Token every connection ID after the first carries in these tests.
+const test_token_octet: u8 = 0x7e;
+const test_token: [constants.stateless_reset_token_len]u8 = @splat(test_token_octet);
 /// A limit a test measures against, at the floor RFC 9000 §18.2 puts under it. Test-only.
 const test_limit = constants.active_connection_id_limit_min;
 
 /// Octets of the connection IDs the tests use. Test-only.
 const test_connection_id_len = 4;
+
+/// The sequence numbers retirements are owed or outstanding for, in order. Test-only.
+fn retiring_numbers(out: *[constants.connection_ids_max]u64) []u64 {
+    const held = test_remote.retirements();
+    for (held, 0..) |retirement, index| out[index] = retirement.sequence_number;
+    return out[0..held.len];
+}
 
 /// A connection ID whose octets are `seed` repeated, at sequence `sequence_number`. Test-only.
 fn entry_of(sequence_number: u64, seed: u8) Entry {
@@ -76,21 +86,20 @@ test "§5.1.2: the ones below Retire Prior To go before the new one arrives" {
     try test_remote.offer(entry_of(3, 0xa3), 3, test_limit);
     try testing.expectEqual(1, test_remote.active_len());
     try testing.expectEqual(3, test_remote.active().?.sequence_number);
-    // RFC 9000 §5.1.2: the retired ones are named in RETIRE_CONNECTION_ID frames.
-    try testing.expectEqual(1, test_remote.next_retire_frame().?);
-    try testing.expectEqual(2, test_remote.next_retire_frame().?);
-    try testing.expectEqual(null, test_remote.next_retire_frame());
+    // RFC 9000 §5.1.2: the retired ones are named in RETIRE_CONNECTION_ID frames, owed now.
+    var numbers: [constants.connection_ids_max]u64 = undefined;
+    try testing.expectEqualSlices(u64, &.{ 1, 2 }, retiring_numbers(&numbers));
+    for (test_remote.retirements()) |retirement| try testing.expect(retirement.frame.owed);
     // RFC 9000 §19.15: one below the mark arriving late is retired rather than added back, and
     // a RETIRE_CONNECTION_ID frame is owed for it.
     try test_remote.offer(entry_of(0, 0xa0), 0, test_limit);
     try testing.expectEqual(1, test_remote.active_len());
-    try testing.expectEqual(0, test_remote.next_retire_frame().?);
+    try testing.expectEqualSlices(u64, &.{ 1, 2, 0 }, retiring_numbers(&numbers));
     // §19.15: unless it has already done so — the same late frame owes no second frame.
     try test_remote.offer(entry_of(0, 0xa0), 0, test_limit);
-    try testing.expectEqual(null, test_remote.next_retire_frame());
     // And neither does one this endpoint already retired when the mark rose.
     try test_remote.offer(entry_of(1, 0xa1), 0, test_limit);
-    try testing.expectEqual(null, test_remote.next_retire_frame());
+    try testing.expectEqualSlices(u64, &.{ 1, 2, 0 }, retiring_numbers(&numbers));
 }
 
 test "§5.1.2: Retire Prior To retires below itself and keeps the one at it" {
@@ -102,8 +111,8 @@ test "§5.1.2: Retire Prior To retires below itself and keeps the one at it" {
     try test_remote.offer(entry_of(3, 0xa3), 2, test_limit);
     try testing.expectEqual(2, test_remote.active_len());
     try testing.expectEqual(2, test_remote.active().?.sequence_number);
-    try testing.expectEqual(1, test_remote.next_retire_frame().?);
-    try testing.expectEqual(null, test_remote.next_retire_frame());
+    var numbers: [constants.connection_ids_max]u64 = undefined;
+    try testing.expectEqualSlices(u64, &.{1}, retiring_numbers(&numbers));
 }
 
 test "§19.15: an endpoint with a zero-length connection ID takes no such frame" {
@@ -115,15 +124,15 @@ test "§19.15: an endpoint with a zero-length connection ID takes no such frame"
 
 test "§5.1.1: this endpoint's own connection IDs start at 0 and rise by one" {
     test_local.init(false);
-    try testing.expectEqual(0, test_local.issue(&issued_a).?);
-    try testing.expectEqual(1, test_local.issue(&issued_b).?);
-    try testing.expectEqual(2, test_local.issue(&issued_c).?);
+    try testing.expectEqual(0, test_local.issue(&issued_a, null).?);
+    try testing.expectEqual(1, test_local.issue(&issued_b, &test_token).?);
+    try testing.expectEqual(2, test_local.issue(&issued_c, &test_token).?);
     try testing.expectEqual(3, test_local.active_len());
 }
 
 test "§19.16: a peer retires only what this endpoint issued, and not the one in use" {
     test_local.init(false);
-    for (0..3) |index| _ = test_local.issue(issued_each[index]).?;
+    for (0..3) |index| _ = test_local.issue(issued_each[index], if (index == 0) null else &test_token).?;
     // RFC 9000 §19.16: a sequence number greater than any issued is a connection error, and
     // the last one issued is not greater than any.
     try testing.expectError(error.RetiredUnissued, test_local.retire(3, null));

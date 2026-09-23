@@ -171,14 +171,14 @@ test "RFC 9000 §19.16: a RETIRE_CONNECTION_ID naming an unissued number closes 
     );
     // A second one issued makes the same frame legal.
     open_as(.client);
-    try testing.expectEqual(unissued, test_connection.local_ids.issue(&offered_id).?);
+    try testing.expectEqual(unissued, test_connection.local_ids.issue(&offered_id, &reset_token).?);
     _ = try run(&.{.{ .retire_connection_id = .{ .sequence_number = unissued } }});
     try testing.expectEqual(1, test_connection.local_ids.active_len());
 }
 
 test "RFC 9000 §19.16: a frame cannot retire the connection ID its own packet arrived on" {
     open_as(.client);
-    const second = test_connection.local_ids.issue(&offered_id).?;
+    const second = test_connection.local_ids.issue(&offered_id, &reset_token).?;
     // §19.16: "The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT refer to
     // the Destination Connection ID field of the packet in which the frame is contained."
     // colibri takes the MAY and closes, which needs the packet to say what it was addressed to.

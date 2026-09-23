@@ -12,7 +12,8 @@
 //! 4. HANDSHAKE_DONE, which a server sends "as soon as the handshake is complete" (RFC 9001
 //!    §4.1.2).
 //! 5. The limits this endpoint gives, then the BLOCKED frames, then RESET_STREAM and
-//!    STOP_SENDING: small frames a peer may be waiting on, ahead of any octets.
+//!    STOP_SENDING, then NEW_CONNECTION_ID and RETIRE_CONNECTION_ID: small frames a peer may be
+//!    waiting on, ahead of any octets.
 //! 6. One frame of octets: the handshake's CRYPTO octets, or a stream's. Lost stream octets go
 //!    before new ones (§13.3), and new ones go in the order RFC 9000 §2.3 sets.
 //! 7. A PING, when a probe is owed and nothing above elicits an acknowledgment (RFC 9002 §6.2.4).
@@ -28,6 +29,7 @@ const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvide
 const connection_close = @import("../connection_close.zig");
 const connection_handshake = @import("../connection_handshake.zig");
 const connection_flow = @import("../connection_flow.zig");
+const connection_id_frames = @import("../connection_id_frames.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
@@ -93,6 +95,8 @@ pub fn write(
     if (connection_flow.write_blocked(connection, level, &writer, number)) carries_control = true;
     // RFC 9000 §19.4, §19.5: the streams this endpoint ends, before any stream's octets.
     if (connection_stream_send.write_endings(connection, level, &writer, number)) carries_control = true;
+    // RFC 9000 §19.15, §19.16: the connection IDs this endpoint gives and retires.
+    if (connection_id_frames.write(connection, level, &writer, number)) carries_control = true;
     const written_path = writer.written().len;
     const data = try write_data(connection, provider, stream_provider, level, payload[written_path..budget]);
     // RFC 9000 §13.2.1, Table 3's N marking: an ACK elicits nothing, and a CRYPTO or STREAM

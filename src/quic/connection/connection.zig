@@ -189,7 +189,7 @@ pub const Connection = struct {
         // Connection ID field of the long packet header during the handshake. The sequence number
         // of the initial connection ID is 0." So the identity's own is entry 0 of this set, and
         // §19.16 can ask which connection ID a packet was addressed to from the first packet on.
-        const issued = connection.local_ids.issue(connection.identity.source().slice());
+        const issued = connection.local_ids.issue(connection.identity.source().slice(), null);
         assert(issued != null and issued.? == 0);
         connection.remote_ids.init(false);
         // RFC 9000 §8.1: the anti-amplification limit is the server's, because a server is handed

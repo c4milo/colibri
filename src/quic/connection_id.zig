@@ -19,6 +19,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const error_code = @import("error_code.zig");
+const frame_latest = @import("frame/frame_latest.zig");
 
 /// One connection ID, with what RFC 9000 §5.1.1 and §19.15 attach to it.
 pub const Entry = struct {
@@ -66,9 +67,9 @@ pub const Remote = struct {
     retire_prior_to: u64,
     /// The largest sequence number offered, so a repeat is told from something new (§19.15).
     highest_offered: ?u64,
-    /// Sequence numbers retired and not yet acknowledged by a RETIRE_CONNECTION_ID frame going
-    /// out, which the caller drains (§5.1.2).
-    retiring: [constants.connection_ids_max]u64,
+    /// Connection IDs retired and owed a RETIRE_CONNECTION_ID frame, until the peer acknowledges
+    /// one (§5.1.2, §13.3).
+    retiring: [constants.connection_ids_max]Retirement,
     retiring_len: usize,
     /// Sequence numbers a RETIRE_CONNECTION_ID frame was already owed for, so §19.15's "unless
     /// it has already done so" holds after the queue above has drained.
@@ -170,7 +171,7 @@ pub const Remote = struct {
         remote.reported[remote.reported_len] = sequence_number;
         remote.reported_len += 1;
         if (remote.retiring_len == remote.retiring.len) return;
-        remote.retiring[remote.retiring_len] = sequence_number;
+        remote.retiring[remote.retiring_len] = .{ .sequence_number = sequence_number, .frame = .{ .owed = true } };
         remote.retiring_len += 1;
     }
 
@@ -180,14 +181,33 @@ pub const Remote = struct {
         remote.len -= 1;
     }
 
-    /// The sequence number of the next RETIRE_CONNECTION_ID frame this endpoint owes, or null
-    /// when it owes none (RFC 9000 §5.1.2, §19.16).
-    pub fn next_retire_frame(remote: *Remote) ?u64 {
-        if (remote.retiring_len == 0) return null;
-        const sequence_number = remote.retiring[0];
-        for (1..remote.retiring_len) |index| remote.retiring[index - 1] = remote.retiring[index];
-        remote.retiring_len -= 1;
-        return sequence_number;
+    /// The retirements this endpoint has yet to see acknowledged, whose frames the send path
+    /// writes (RFC 9000 §5.1.2, §19.16).
+    pub fn retirements(remote: *Remote) []Retirement {
+        return remote.retiring[0..remote.retiring_len];
+    }
+
+    /// Drops every retirement whose most recent RETIRE_CONNECTION_ID packet `number` carried: the
+    /// peer has it, and nothing more is owed.
+    pub fn on_packet_acknowledged(remote: *Remote, number: u64) void {
+        var index: usize = 0;
+        // Each turn either drops an entry or steps past one, so the array bounds the walk.
+        for (0..remote.retiring.len) |_| {
+            if (index == remote.retiring_len) return;
+            if (!remote.retiring[index].frame.carried_by(number)) {
+                index += 1;
+                continue;
+            }
+            for (index + 1..remote.retiring_len) |at| remote.retiring[at - 1] = remote.retiring[at];
+            remote.retiring_len -= 1;
+        }
+    }
+
+    /// Owes again each RETIRE_CONNECTION_ID frame whose most recent copy packet `number` carried
+    /// (RFC 9000 §13.3: "retired connection IDs are sent in RETIRE_CONNECTION_ID frames and
+    /// retransmitted if the packet containing them is lost").
+    pub fn on_packet_lost(remote: *Remote, number: u64) void {
+        for (remote.retiring[0..remote.retiring_len]) |*retirement| retirement.frame.on_lost(number);
     }
 
     /// An active connection ID to send to, or null when the peer has left none. RFC 9000
@@ -198,6 +218,13 @@ pub const Remote = struct {
     }
 };
 
+/// A connection ID this endpoint retired, and the RETIRE_CONNECTION_ID frame that tells the peer
+/// (RFC 9000 §19.16).
+pub const Retirement = struct {
+    sequence_number: u64,
+    frame: frame_latest.Latest,
+};
+
 /// One connection ID this endpoint issued, with the sequence number RFC 9000 §5.1.1 gives it.
 /// The octets are kept because §19.16 asks which connection ID a packet was addressed to, and
 /// only the octets on the wire can answer that.
@@ -205,6 +232,12 @@ pub const Issued = struct {
     sequence_number: u64,
     len: u8,
     octets: [constants.connection_id_len_max]u8,
+    /// The Stateless Reset Token its NEW_CONNECTION_ID frame carries (RFC 9000 §19.15), which the
+    /// caller derives: §10.3.2 derives one from a key, and colibri holds none (non-negotiable 2).
+    stateless_reset_token: [constants.stateless_reset_token_len]u8,
+    /// The NEW_CONNECTION_ID frame that tells the peer of it. §13.3: "New connection IDs are sent
+    /// in NEW_CONNECTION_ID frames and retransmitted if the packet containing them is lost."
+    new_frame: frame_latest.Latest,
 
     pub fn value(issued: *const Issued) []const u8 {
         return issued.octets[0..issued.len];
@@ -225,22 +258,36 @@ pub const Local = struct {
 
     pub fn init(local: *Local, zero_length: bool) void {
         local.next_sequence_number = 0;
-        local.active = @splat(.{ .sequence_number = 0, .len = 0, .octets = @splat(0) });
+        local.active = @splat(.{
+            .sequence_number = 0,
+            .len = 0,
+            .octets = @splat(0),
+            .stateless_reset_token = @splat(0),
+            .new_frame = .{},
+        });
         local.len = 0;
         local.zero_length = zero_length;
     }
 
     /// Records one this endpoint issued, and returns its sequence number (RFC 9000 §5.1.1). The
     /// octets are the caller's: §5.1 wants a connection ID unpredictable and invariant 5 forbids
-    /// colibri a random number.
-    pub fn issue(local: *Local, octets: []const u8) ?u64 {
+    /// colibri a random number. Every one after the first owes a NEW_CONNECTION_ID frame carrying
+    /// `token`; the first went out in the handshake's Source Connection ID field (§5.1.1).
+    pub fn issue(local: *Local, octets: []const u8, token: ?*const [constants.stateless_reset_token_len]u8) ?u64 {
         assert(octets.len <= constants.connection_id_len_max);
         // RFC 9000 §5.1: a zero-length connection ID is issued once, by an endpoint that uses no
         // connection ID at all, and it is never one a RETIRE_CONNECTION_ID can name (§19.16).
         assert((octets.len == 0) == local.zero_length);
         if (local.len == local.active.len) return null;
         const sequence_number = local.next_sequence_number;
-        var issued: Issued = .{ .sequence_number = sequence_number, .len = @intCast(octets.len), .octets = @splat(0) };
+        assert((token == null) == (sequence_number == 0));
+        var issued: Issued = .{
+            .sequence_number = sequence_number,
+            .len = @intCast(octets.len),
+            .octets = @splat(0),
+            .stateless_reset_token = if (token) |held| held.* else @splat(0),
+            .new_frame = .{ .owed = token != null },
+        };
         @memcpy(issued.octets[0..octets.len], octets);
         local.active[local.len] = issued;
         local.len += 1;
@@ -285,6 +332,19 @@ pub const Local = struct {
 
     pub fn active_len(local: *const Local) usize {
         return local.len;
+    }
+
+    /// The connection IDs issued and not retired, whose NEW_CONNECTION_ID frames the send path
+    /// writes.
+    pub fn active_ids(local: *Local) []Issued {
+        return local.active[0..local.len];
+    }
+
+    /// Owes again each NEW_CONNECTION_ID frame whose most recent copy packet `number` carried
+    /// (RFC 9000 §13.3). "Retransmissions of this frame carry the same sequence number value",
+    /// which the entry keeps.
+    pub fn on_packet_lost(local: *Local, number: u64) void {
+        for (local.active[0..local.len]) |*held| held.new_frame.on_lost(number);
     }
 };
 
