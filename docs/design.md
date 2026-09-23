@@ -2447,8 +2447,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - chapulin: a QUIC server's EncryptedExtensions buffer has no room for the transport
     parameters, so the server fails with an internal_error alert after its ServerHello.
 
-  Both chapulin defects went to the chapulin session, which is fixing them. Until the fixes land
-  on chapulin's `main`, the check fails at the client's first Initial.
+  chapulin fixed both in `9c903d8`, and `tools/quic_loopback.sh` passes against that commit
+  unpatched, on the same machine, with the same rounds and datagram counts as the first run.
 
   The run also shows the cost of [#45](https://github.com/c4milo/colibri/issues/45). The client
   drops the Handshake packet that follows the ServerHello in the server's first datagram, and the
