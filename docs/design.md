@@ -2248,6 +2248,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1309 passed, 18 skipped.
 
+  **The application frame scheduler, 2026-09-22**, `b020293`, `7a320ac` and `38b8326`.
+  `packet_build_frames.zig`'s header now states the order frames compete in for one packet's
+  room, with the rule behind each place. Three rules were missing from it.
+
+  RFC 9000 §13.2.1: "An endpoint SHOULD send an ACK frame with other frames when there are new
+  ack-eliciting packets to acknowledge." An ACK went out only once it was owed. Now a pending one
+  is written whenever the packet carries anything else. If nothing follows, the ACK is taken back
+  and the space's count and instant are restored, so a lone ACK still waits for its deadline.
+
+  RFC 9002 §6.2.4's probes. `Recovery.Action.probe` asked the caller for ack-eliciting packets
+  that nothing could build when there was nothing to send. `connection_send.owe_probes` records
+  the count per level. Each ack-eliciting packet at that level counts one off, and one that would
+  elicit nothing carries a PING. A probe carries new frames or a PING and never repeats a range
+  in flight, which invariant 29 needs.
+
+  RFC 9000 §2.3: an implementation "SHOULD provide ways in which an application can indicate the
+  relative priority of streams." Until now the first stream in the table sent until it ran out.
+  `connection_stream_send.set_priority` orders new octets, a lower value first, from
+  `stream_priority_default` in the middle of the range. Streams of one value take turns, and one
+  whose provider has nothing yet gives way to the next. Lost octets still go before new ones
+  (§13.3).
+
+  Not done: §4.1's SHOULD to send a BLOCKED frame "periodically" while nothing is in flight. It
+  needs a timer of its own and the connection's own recovery bookkeeping, and it is filed as
+  [#43](https://github.com/c4milo/colibri/issues/43).
+
+  24 mutations: 22 CAUGHT and 2 equivalent. The ACK snapshot's at-once flag is always clear when
+  an ACK is taken back, so it was removed. Two priority ranks are never equal, so no tie can
+  break either way. Two mutations first NOT CAUGHT got a test case each: an ACK taken back that
+  must leave its count, and a first-ranked stream that frames nothing.
+
+  `zig build test`: 1318 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
