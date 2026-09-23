@@ -11,9 +11,12 @@
 //! server's alone (§8.1, invariant 18). The last is checked before the datagram is returned and
 //! not after, because `Path.on_datagram_sent` asserts it and an assertion is not a check.
 //!
-//! **It tells recovery nothing on its own.** RFC 9002's loss recovery is the caller's to drive,
-//! so `Sent` reports every packet and the caller records them. That keeps the instant a
-//! parameter, and `connection_timer.zig` is where the deadlines it produces are read.
+//! **It records what it sends, and the congestion window bounds it.** Decision 59 has the
+//! connection drive RFC 9002's loss recovery, so each packet that counts in flight goes into
+//! `connection.recovery` here, at the instant the caller passed. RFC 9002 §7 keeps the bytes in
+//! flight within the congestion window, and a level the window holds back sends only what adds
+//! nothing in flight: ACK frames (§2). colibri waits until the window holds the rest of the
+//! datagram rather than cut a packet short, so §14.1's padding fits in it too.
 //!
 //! **Two more rules expand a datagram.** RFC 9000 §8.2.1 and §8.2.2 ask for 1,200 octets around a
 //! PATH_CHALLENGE and a PATH_RESPONSE, and both except the anti-amplification limit — which
@@ -31,6 +34,7 @@ const packet_build = @import("packet_build/packet_build.zig");
 const connection_close = @import("connection_close.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
+const space_module = @import("../space/space.zig");
 const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 
 const Level = core.Level;
@@ -114,12 +118,15 @@ pub fn send(
     var plans: [core.levels_count]packet_build.Planned = undefined;
     var count: usize = 0;
     var planned_len: usize = 0;
+    const window_len = connection.recovery.congestion.available_len(connection.recovery.in_flight_len());
+    // RFC 9002 §7.8: whether the window, and not what there is to send, is what bounds sending.
+    connection.window_limited = window_len < @min(ceiling, connection.recovery.congestion.max_datagram_len);
     // RFC 9000 §12.2: "Coalescing packets in order of increasing encryption levels ... makes it
     // more likely that the receiver will be able to process all the packets in a single pass",
     // and a short header carries no Length so §12.2 makes it the last packet anyway.
     for (0..core.levels_count) |index| {
         const level: Level = @enumFromInt(index);
-        const room = ceiling - planned_len;
+        const room = room_at(connection, level, window_len -| planned_len, ceiling - planned_len) orelse continue;
         const payload = &scratch.payloads[index];
         const planned = packet_build.plan(connection, provider, stream_provider, level, payload, room, now_ns) catch |failure| switch (failure) {
             // A level that cannot fit a packet in what is left ends the datagram rather than
@@ -134,9 +141,73 @@ pub fn send(
     if (count == 0) return null;
     expand_last(connection, plans[0..count], planned_len, ceiling);
     const sent = try seal_all(connection, suite, scratch, plans[0..count], output);
+    record_all(connection, plans[0..count], &sent, now_ns);
     note_close_sent(connection, plans[0..count], now_ns);
     note_challenge_sent(connection, plans[0..count], sent.len, now_ns);
     return sent;
+}
+
+/// What `level`'s packet may hold, given the octets `window_len` the congestion window leaves and
+/// the octets `room` the datagram leaves. Null when the level sends nothing in this datagram.
+fn room_at(connection: *const Connection, level: Level, window_len: u64, room: usize) ?packet_build.Room {
+    // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a packet
+    // containing a CONNECTION_CLOSE frame", so no recovery state bounds it, and §10.2.1's own
+    // limit on how often it answers is the caller's to keep.
+    if (connection_close.owes(connection)) return .{ .len = room };
+    const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
+    // `constants.sent_packets_max`: a space whose table is full waits for an acknowledgment, and
+    // RFC 9002 Appendix A.1 tracks every ack-eliciting packet, so none goes until one arrives.
+    if (connection.recovery.tables[@intFromEnum(kind)].is_full()) return null;
+    if (in_flight_len_allowed(connection, level, window_len, room)) |len| return .{ .len = len };
+    // RFC 9000 §14.1: "A client MUST expand the payload of all UDP datagrams carrying Initial
+    // packets", and RFC 9002 §2 counts that PADDING in flight, so a client the window holds back
+    // sends no Initial at all.
+    if (connection.role == .client and level == .initial) return null;
+    return .{ .len = room, .in_flight_allowed = false };
+}
+
+/// The octets `level`'s packet may add to the bytes in flight, or null when the congestion window
+/// allows it none.
+fn in_flight_len_allowed(connection: *const Connection, level: Level, window_len: u64, room: usize) ?usize {
+    // RFC 9002 §7: the window binds every packet "unless the packet is sent on a PTO timer
+    // expiration".
+    if (connection.probes_owed[@intFromEnum(level)] > 0) return room;
+    // RFC 9002 §7: "An endpoint MUST NOT send a packet if it would cause bytes_in_flight ... to be
+    // larger than the congestion window." colibri waits for a whole datagram's worth of window.
+    if (window_len < @min(room, connection.recovery.congestion.max_datagram_len)) return null;
+    return @intCast(@min(room, window_len));
+}
+
+/// RFC 9002 Appendix A.5's `OnPacketSent` for each packet of the datagram that counts in flight.
+/// A.1: "a QUIC sender tracks every ack-eliciting packet until the packet is acknowledged or
+/// lost". A packet of ACK frames alone is not tracked: nothing in it is sent again (RFC 9000
+/// §13.3), and a peer need not acknowledge it (§13.2.1), so its record would hold a slot of the
+/// table until loss detection gave it up.
+fn record_all(connection: *Connection, plans: []const packet_build.Planned, sent: *const Sent, now_ns: u64) void {
+    // Bounded by the levels: a datagram coalesces at most one packet of each (§12.2).
+    for (plans, sent.written()) |planned, packet| {
+        // RFC 9000 §10.2.1: a closing endpoint keeps nothing a CONNECTION_CLOSE does not need.
+        if (!packet.in_flight or planned.carries_close) continue;
+        const kind: space_module.Kind = @enumFromInt(@intFromEnum(packet.level));
+        // `room_at` framed nothing at a level whose table was full, so the record fits.
+        connection.recovery.on_packet_sent(kind, record_of(packet, now_ns), now_ns) catch unreachable;
+    }
+}
+
+/// The record RFC 9002 Appendix A.1.1 keeps of `packet`. The caller marks no ECN codepoint that
+/// colibri knows of, so the record carries none (RFC 9000 §13.4).
+fn record_of(packet: Packet, now_ns: u64) recovery_sent.Record {
+    return .{
+        .number = packet.packet_number,
+        .sent_at_ns = now_ns,
+        .sent_len = @intCast(packet.len),
+        .ack_eliciting = packet.ack_eliciting,
+        .in_flight = packet.in_flight,
+        .carries = packet.carries,
+        .data_offset = packet.data_offset,
+        .data_len = packet.data_len,
+        .stream_id = packet.stream_id,
+    };
 }
 
 /// RFC 9000 §8.2.1: the datagram exists now, so its length is what says whether the path MTU is
@@ -279,4 +350,5 @@ fn seal_all(
 
 test {
     _ = @import("connection_send_test.zig");
+    _ = @import("connection_send_window_test.zig");
 }

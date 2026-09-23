@@ -17,6 +17,8 @@
 //! 6. One frame of octets: the handshake's CRYPTO octets, or a stream's. Lost stream octets go
 //!    before new ones (§13.3), and new ones go in the order RFC 9000 §2.3 sets.
 //! 7. A PING, when a probe is owed and nothing above elicits an acknowledgment (RFC 9002 §6.2.4).
+//!
+//! A packet the congestion window holds back carries the first two alone (`Room.in_flight_allowed`).
 const std = @import("std");
 const core = @import("core");
 const tls = @import("tls");
@@ -36,6 +38,17 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Error = @import("packet_build.zig").Error;
 const Carries = @import("../../recovery/recovery_sent.zig").Carries;
+
+/// What one packet may hold. RFC 9002 §7 bounds the octets in flight by the congestion window,
+/// and §2 counts a packet of ACK frames alone as not in flight, so an endpoint the window holds
+/// back still acknowledges.
+pub const Room = struct {
+    /// Octets of the datagram the packet may occupy.
+    len: usize,
+    /// Whether the packet may count toward the bytes in flight. False admits only ACK and
+    /// CONNECTION_CLOSE, neither of which elicits an acknowledgment (§2).
+    in_flight_allowed: bool = true,
+};
 
 /// What went into the payload.
 pub const Framed = struct {
@@ -65,10 +78,10 @@ pub fn write(
     level: Level,
     number: u64,
     payload: []u8,
-    room: usize,
+    room: Room,
     now_ns: u64,
 ) Error!Framed {
-    const budget = @min(room, payload.len);
+    const budget = @min(room.len, payload.len);
     // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a packet
     // containing a CONNECTION_CLOSE frame", so once one is owed it is the only frame written.
     // Nothing else would be read: §10.2.2 puts the peer into the draining state on reading it.
@@ -81,6 +94,9 @@ pub fn write(
     var writer = Writer.init(payload[0..budget]);
     const ack = write_ack(connection, space, &writer, now_ns);
     const written_ack = writer.written().len;
+    // RFC 9002 §7: "An endpoint MUST NOT send a packet if it would cause bytes_in_flight ... to
+    // be larger than the congestion window", and a packet of ACK frames alone adds nothing (§2).
+    if (!room.in_flight_allowed) return acknowledgment_only(space, ack, written_ack);
     // RFC 9000 §8.2: the path frames go next. §8.2.2 says an endpoint "MUST NOT delay
     // transmission of a packet containing a PATH_RESPONSE frame unless constrained by congestion
     // control", so they are written before the handshake's octets compete for the room.
@@ -125,6 +141,14 @@ pub fn write(
         .path_challenge = path.path_challenge,
         .carries_path_response = path.carries_path_response,
     };
+}
+
+/// The packet `write` builds when nothing in flight may go: an ACK the space owes, or nothing.
+/// One written only because it was pending is taken back, as `write` does (§13.2.1).
+fn acknowledgment_only(space: anytype, ack: AckWritten, written_ack: usize) Framed {
+    if (ack.owed) return .{ .len = written_ack, .ack_eliciting = false, .carries_ack = written_ack > 0 };
+    if (written_ack > 0) space.restore_ack_pending(ack.pending);
+    return .{ .len = 0, .ack_eliciting = false };
 }
 
 /// Writes a PING when a probe is owed at `level` and nothing already written elicits an

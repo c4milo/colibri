@@ -2,9 +2,9 @@
 //! counts toward its stream, and a lost one is kept so `send` frames it again. Part of design §8
 //! step 9e.
 //!
-//! RFC 9002's loss recovery is the caller's to drive, and it hands out the records a packet
-//! number space took out: `recovery_ack.on_ack_received` writes the acknowledged ones and the
-//! lost ones into slices the caller placed. Each record names the one stream range its packet
+//! The connection drives RFC 9002's loss recovery (decision 59), and `connection_recovery` hands
+//! this file the records a packet number space took out: the acknowledged ones and the lost ones,
+//! in slices the caller placed. Each record names the one stream range its packet
 //! carried (decision 57), so this file reads nothing but those records. It runs for the
 //! application space alone, because only 1-RTT packets carry STREAM frames (RFC 9000 §12.4,
 //! Table 3), and a record from another space names no stream and is passed over.

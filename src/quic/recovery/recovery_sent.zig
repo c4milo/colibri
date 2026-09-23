@@ -186,6 +186,12 @@ pub fn Sent(comptime capacity: usize) type {
             return table.counts.in_flight_len;
         }
 
+        /// Whether `record` would refuse the next packet (`Error.Full`), which a sender asks
+        /// before it frames one.
+        pub fn is_full(table: *const Table) bool {
+            return table.counts.span == capacity;
+        }
+
         /// How many outstanding packets the peer must acknowledge (RFC 9002 Appendix A.8).
         pub fn ack_eliciting_count(table: *const Table) usize {
             return table.counts.ack_eliciting_count;

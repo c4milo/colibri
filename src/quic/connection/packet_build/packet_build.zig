@@ -3,7 +3,8 @@
 //! **It builds a packet, not a datagram.** RFC 9000 §12.2's coalescing, §14.1's expansion to
 //! 1,200 octets and §8's anti-amplification limit are all about a datagram, and none of them is
 //! here; the piece that assembles a datagram calls this once per packet. Nothing here tells
-//! RFC 9002's recovery anything either: it reports what it built and the caller records it.
+//! RFC 9002's recovery anything either: it reports what it built, and `connection_send` records
+//! it (decision 59).
 //!
 //! **The header is final before the payload is framed, which sounds backwards.** RFC 9001 §5.3
 //! makes the unprotected header the AEAD's associated data, so it cannot change after `seal`;
@@ -41,6 +42,9 @@ const packet_build_frames = @import("packet_build_frames.zig");
 const Level = core.Level;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
+
+/// What one packet may hold, which `connection_send` decides by RFC 9002 §7's congestion window.
+pub const Room = packet_build_frames.Room;
 
 /// Where one packet is framed before it is sealed. `crypto.Sealing` says every slice is colibri's
 /// and none overlaps the output, so the frames cannot be written at their final offset in the
@@ -150,7 +154,7 @@ pub fn plan(
     stream_provider: StreamProvider,
     level: Level,
     payload: []u8,
-    room: usize,
+    room: Room,
     now_ns: u64,
 ) Error!?Planned {
     // RFC 9001 §4.9 and invariant 21: a level colibri never installed or already discarded is not
@@ -163,8 +167,9 @@ pub fn plan(
     const truncated = packet_number.encode(number, space.largest_acknowledged) catch
         return Error.PacketNumbersExhausted;
 
-    const shape = try shape_of(connection, level, truncated.len, room);
-    const framed = try packet_build_frames.write(connection, provider, stream_provider, space, level, number, payload, shape.room, now_ns);
+    const shape = try shape_of(connection, level, truncated.len, room.len);
+    const framed_room: Room = .{ .len = shape.room, .in_flight_allowed = room.in_flight_allowed };
+    const framed = try packet_build_frames.write(connection, provider, stream_provider, space, level, number, payload, framed_room, now_ns);
     if (framed.len == 0) return null;
     // The number is spent only once the packet exists, so a level with nothing to send leaves
     // no hole in its space (invariant 17).
@@ -204,7 +209,7 @@ pub fn build(
     now_ns: u64,
 ) Error!?Built {
     const budget = @min(output.len, @TypeOf(scratch.*).payload_len_max);
-    const planned = try plan(connection, provider, stream_provider, level, &scratch.payload, output.len, now_ns) orelse return null;
+    const planned = try plan(connection, provider, stream_provider, level, &scratch.payload, .{ .len = output.len }, now_ns) orelse return null;
     _ = budget;
     return try seal_planned(connection, suite, planned, &scratch.header, &scratch.payload, output);
 }
