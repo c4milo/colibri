@@ -37,9 +37,10 @@ fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callc
     std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }
 
-/// The NSS key log lines of a run, which the check writes to the file SSLKEYLOGFILE names once
-/// the run ends. chapulin hands each traffic secret to `ch_keylog` inside the handshake step that
-/// derived it, and that call must not block, so the line is kept here rather than written.
+/// The NSS key log lines, which a check writes to the file SSLKEYLOGFILE names: the loopback
+/// check once its run ends, a UDP endpoint after each step. chapulin hands each traffic secret to
+/// `ch_keylog` inside the handshake step that derived it, and that call must not block, so the
+/// line is kept here rather than written.
 pub const Keylog = struct {
     octets: [constants.quic_keylog_len]u8 = undefined,
     len: usize = 0,

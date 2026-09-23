@@ -82,7 +82,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // only once the loop has had every send's final event, which closing the socket waits for.
     socket.close() catch |failure| fail("the socket did not close: {t}", .{failure});
     report();
-    udp_identity.write_keylog();
 }
 
 fn connect() void {
@@ -116,6 +115,8 @@ fn turn(connection: *Connection, now_ns: u64) void {
     connection.peer.on_instant(now_ns) catch |failure| fail("a deadline failed: {t}", .{failure});
     step_application(connection);
     flush(connection, now_ns);
+    // A client's stack derives its last secrets while it writes its Finished, inside `send`.
+    udp_identity.write_keylog();
 }
 
 /// How long the next tick may wait: until the soonest deadline of a live connection, and never
@@ -145,6 +146,9 @@ fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     if (arguments == .server and answer_version(delivery)) return;
     const connection = connection_for(delivery.bytes) orelse accept(delivery, now_ns) orelse return;
     _ = connection.peer.receive(delivery.bytes, now_ns) catch |failure| close_on(connection, failure);
+    // The step may have derived secrets. They go out now, because a server's connections step
+    // through their handshakes together and the log holds one step's lines, not a run's.
+    udp_identity.write_keylog();
 }
 
 /// The live connection a datagram belongs to. RFC 9000 §5.2 matches it by its Destination
@@ -270,8 +274,6 @@ fn finished() bool {
                 ended = true;
             }
             if (!ended) return false;
-            // The runner stops a server by killing it, so the secrets go out per connection.
-            udp_identity.write_keylog();
             return asked.once or connection_failed;
         },
     }

@@ -129,8 +129,10 @@ const go_chain_len: usize = 2;
 const chain_suffix_len_max: usize = 16;
 
 /// Appends the traffic secrets gathered since the last call to the file SSLKEYLOGFILE names,
-/// when it names one, and empties the log so no line is written twice.
+/// when it names one, and empties the log so no line is written twice. With none gathered it
+/// opens no file, so a caller may call it after every step.
 pub fn write_keylog() void {
+    if (keylog.len == 0 and !keylog.overflowed) return;
     defer keylog.clear();
     const path = std.c.getenv("SSLKEYLOGFILE") orelse return;
     if (!keylog.append_to_file(std.mem.span(path))) std.debug.print("quic-udp: cannot write the key log\n", .{});
