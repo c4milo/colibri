@@ -2366,6 +2366,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1379 passed, 18 skipped.
 
+  **Three more pieces, 2026-09-23.**
+  - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
+    client's stack finishes once its own Finished is written, which happens inside `send`, so
+    the client had stayed incomplete until the next datagram arrived (RFC 9001 §4.1.1). 3
+    mutations, 3 CAUGHT.
+  - `7d2c208`, [#43](https://github.com/c4milo/colibri/issues/43): a sender held back by flow
+    control with no ack-eliciting packet in flight owes its DATA_BLOCKED and STREAM_DATA_BLOCKED
+    frames again one PTO after its last ack-eliciting 1-RTT packet (RFC 9000 §4.1's
+    "periodically"). `connection_timer` reports it as `Kind.blocked`. The period is the named
+    limit `blocked_repeat_probe_timeouts`, one PTO. That is longer than a round trip, and a
+    comptime assert holds it below the three PTOs RFC 9000 §10.1 sets as the idle timeout's
+    floor. 10 mutations, 10 CAUGHT; a draining connection owing the frames first survived.
+  - `5a64471`, [#33](https://github.com/c4milo/colibri/issues/33): the golden corpus gains
+    `quic_receive`, 17 cases walked through `connection_receive` at a client in a state the
+    manifest names. Each pins the first discard, or the connection error the walk returns.
+    Together they cover RFC 9000 §7.2, §12.2 and §12.3, and RFC 9001 §4.9, §5.5, §5.7, §6.2,
+    §6.4 and §6.6. The golden module is given `quic` and not `sim`, so the corpus has a suite
+    of its own. The last octet of a packet's tag says which keys open it, which models what a
+    real suite learns by trying its keys. 9 corpus mutations added. 9 mutations of the receive
+    path, 9 CAUGHT by `zig build test-golden` alone.
+
+  `zig build test`: 1382 passed, 18 skipped.
+
   **The connection drives loss recovery, 2026-09-23**, `d7b56e6`, `0319c7a`, `33f2c69` and
   `1dfc8e3`. Decision 59. Before it, `send` recorded no packet, an ACK frame updated only its
   packet number space, and nothing called the loss timeout, so RFC 9002 never ran on a connection.
