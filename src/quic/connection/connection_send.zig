@@ -6,9 +6,9 @@
 //! appended after `seal` — the assembler plans each level, learns which packet is last, pads
 //! that one and seals them all.
 //!
-//! **What bounds a datagram, in the order it is asked.** The caller's buffer, then the peer's
-//! `max_udp_payload_size` (RFC 9000 §18.2), then §8's anti-amplification limit, which is the
-//! server's alone (§8.1, invariant 18). The last is checked before the datagram is returned and
+//! **What bounds a datagram, in the order it is asked.** The caller's buffer, then the maximum
+//! datagram size (RFC 9000 §14.2), then §8's anti-amplification limit, which is the server's
+//! alone (§8.1, invariant 18). The last is checked before the datagram is returned and
 //! not after, because `Path.on_datagram_sent` asserts it and an assertion is not a check.
 //!
 //! **It records what it sends, and the congestion window bounds it.** Decision 59 has the
@@ -325,18 +325,24 @@ fn packet_len_of(connection: *Connection, planned: packet_build.Planned) usize {
 
 /// What bounds a datagram besides the caller's buffer, in the order the file header names them.
 ///
-/// RFC 9000 §18.2's `max_udp_payload_size` is what the peer said it can receive; before the
-/// handshake carries it, §14.1's smallest allowed maximum datagram is all colibri may assume.
+/// The maximum datagram size is the one RFC 9002's congestion controller counts in, which
+/// `Connection.init` sets to §14.1's smallest allowed maximum datagram size. colibri runs neither
+/// PMTUD nor DPLPMTUD, and §14.2 says "In the absence of these mechanisms, QUIC endpoints SHOULD
+/// NOT send datagrams larger than the smallest allowed maximum datagram size."
+///
+/// The peer's `max_udp_payload_size` (§18.2) never binds below that size, because §18.2 makes
+/// "Values below 1200" invalid and `transport_parameters` refuses them. A discovery that raised
+/// the maximum would have to bound it by the peer's value, which is what the assertion guards.
+///
 /// §8.1's anti-amplification limit bounds it too, and it is a bound and not an assertion: a
-/// server that has received nothing may send nothing, which is the ordinary state of every
-/// server at the start of a connection rather than a defect in colibri.
+/// server that has received nothing may send nothing, which is the ordinary state of every server
+/// at the start of a connection rather than a defect in colibri.
 fn datagram_ceiling(connection: *const Connection) usize {
-    const by_peer: u64 = if (connection.peer_parameters) |peer|
-        @min(peer.max_udp_payload_size, constants.datagram_len_max)
-    else
-        constants.datagram_len_min;
+    // RFC 9000 §14.2: no datagram above the maximum datagram size, which no discovery has raised.
+    const maximum = connection.recovery.congestion.max_datagram_len;
+    assert(maximum == constants.datagram_len_min);
     // §21.1.1.1 exempts a client, whose allowance `Path` answers as unlimited (invariant 18).
-    return @intCast(@min(by_peer, connection.path.send_allowance()));
+    return @intCast(@min(maximum, connection.path.send_allowance()));
 }
 
 /// RFC 9000 §14.1's expansion, put on the datagram's last packet by decision 54.

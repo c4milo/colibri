@@ -35,7 +35,8 @@ var server: Connection = undefined;
 /// test and never the scratch. A caller that places a smaller one gets smaller packets, which
 /// `packet_build_test.zig` pins.
 var scratch: send.Scratch(datagram_buffer_len) = .{};
-/// Larger than §14.1's smallest allowed maximum, so a peer that accepts more can be believed.
+/// Larger than §14.1's smallest allowed maximum, so what bounds a datagram is §14.2's rule and
+/// never the buffer.
 const datagram_buffer_len: usize = 2000;
 var datagram: [datagram_buffer_len]u8 = undefined;
 /// Longer than any datagram these tests build, so the provider always has more to give.
@@ -200,16 +201,16 @@ test "RFC 9001 §4.9.1: a level discarded contributes no packet to the datagram"
     try testing.expectEqual(null, try send_from(&client));
 }
 
-test "RFC 9000 §18.2: the peer's max_udp_payload_size bounds the datagram" {
+test "RFC 9000 §14.2: no datagram exceeds the smallest maximum, whatever the peer accepts" {
     open_pair();
-    // Before the handshake carries it, §14.1's smallest allowed maximum is all colibri assumes,
-    // even though the caller's buffer holds more.
+    // The caller's buffer holds more, and nothing has told colibri the path does.
     provider_holder = .{ .owed = &long_flight, .owed_level = .initial };
     const before = (try send_from(&client)).?;
     try testing.expectEqual(constants.datagram_len_min, before.len);
 
-    // §18.2: "The value of the maximum UDP payload size ... values below 1200 are invalid", so a
-    // peer can only ever raise this. One that accepts more is believed.
+    // §18.2's `max_udp_payload_size` is what the peer can receive, not what the path carries.
+    // §14.2: without PMTUD or DPLPMTUD, "QUIC endpoints SHOULD NOT send datagrams larger than the
+    // smallest allowed maximum datagram size", so a peer that accepts more changes nothing.
     open_pair();
     var peer = parameters();
     const larger: u64 = 1500;
@@ -217,7 +218,7 @@ test "RFC 9000 §18.2: the peer's max_udp_payload_size bounds the datagram" {
     client.apply_peer_parameters(peer);
     provider_holder = .{ .owed = &long_flight, .owed_level = .initial };
     const after = (try send_from(&client)).?;
-    try testing.expectEqual(larger, after.len);
+    try testing.expectEqual(constants.datagram_len_min, after.len);
 }
 
 /// The unpredictable octets RFC 9000 §8.2.1 asks for, as a fixed value: §5.1 wants them drawn by

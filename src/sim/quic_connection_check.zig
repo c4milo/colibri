@@ -27,10 +27,10 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0x1693a3d7;
-pub const census_datagrams_expected: u64 = 13_986;
-pub const census_packets_expected: u64 = 13_991;
-pub const census_dropped_expected: u64 = 722;
+pub const census_crc32_expected: u32 = 0xe61773cc;
+pub const census_datagrams_expected: u64 = 13_660;
+pub const census_packets_expected: u64 = 13_683;
+pub const census_dropped_expected: u64 = 706;
 
 /// How a seed failed.
 pub const Violation = quic_invariants.Violation || error{
