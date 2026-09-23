@@ -2169,6 +2169,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1288 passed, 18 skipped.
 
+  **The limit frames are sent, 2026-09-22**, `ad5cbe1`. Nothing gave a peer more credit, so a
+  peer stopped at the first limit it reached. `connection_flow` writes MAX_DATA,
+  MAX_STREAM_DATA and MAX_STREAMS (RFC 9000 §19.9 to §19.11) in 1-RTT packets, after
+  HANDSHAKE_DONE and before any octets. `flow.Receiver` still decides when new credit is worth a
+  frame. What it measures from is what the application consumed (§4.1), so
+  `connection_flow.consume` is how the caller reports that it read a stream's octets.
+  `Streams.close` gives a count back for each stream the peer opened (§4.6), which is what
+  MAX_STREAMS then offers. MAX_STREAM_DATA stops once the stream's receiving part leaves "Recv"
+  (§13.3's SHOULD).
+
+  §13.3 resends a lost limit frame at the current value, and only when the lost packet carried
+  the most recent frame for its scope. `flow.Advertised` holds that packet's number for each
+  scope: the connection, each stream, and each stream type. A loss is matched by number, so an
+  acknowledgment needs nothing, and a frame with no room stays owed for the next packet.
+
+  Two defects came up on the way. With a window of 0 or 1, `window / flow_credit_fraction` is
+  0, so `credit_frame_limit` offered a limit on every call, and MAX_STREAMS went out in every
+  packet for a peer allowed one stream. Credit that raises nothing is now never offered (§4.1:
+  a limit that does not rise "has no effect"). The second defect is filed, not fixed: every
+  receiver starts with its cap equal to its window, so decision 49's growth never happens
+  ([#42](https://github.com/c4milo/colibri/issues/42)). Choosing the cap is a named limit and the
+  owner's to set. A test gives one connection a larger cap and shows the window doubling
+  against the round trip.
+
+  The caller still has no stream octets to read and report, because nothing hands received
+  stream data to it ([#41](https://github.com/c4milo/colibri/issues/41)).
+
+  22 mutations, 22 CAUGHT. The resend of a lost MAX_STREAMS and the round trip passed to the
+  window's growth each got a test case for their mutation. One check in MAX_STREAM_DATA became an
+  assertion, because credit comes only from `consume`, which already refuses a stream this
+  endpoint does not receive on.
+
+  `zig build test`: 1299 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
