@@ -147,6 +147,7 @@ pub fn send(
     // too (RFC 9002 §6.4), and an Initial packet coalesced ahead of this one is among them.
     note_handshake_sent(connection, suite, plans[0..count]);
     note_close_sent(connection, plans[0..count], now_ns);
+    note_ack_eliciting_sent(connection, &sent, now_ns);
     note_challenge_sent(connection, plans[0..count], sent.len, now_ns);
     return sent;
 }
@@ -180,6 +181,16 @@ fn in_flight_len_allowed(connection: *const Connection, level: Level, window_len
     // larger than the congestion window." colibri waits for a whole datagram's worth of window.
     if (window_len < @min(room, connection.recovery.congestion.max_datagram_len)) return null;
     return @intCast(@min(room, window_len));
+}
+
+/// RFC 9000 §10.1: "An endpoint also restarts its idle timer when sending an ack-eliciting packet
+/// if no other ack-eliciting packets have been sent since last receiving and processing a packet."
+/// `Termination.on_ack_eliciting_sent` answers the second half.
+fn note_ack_eliciting_sent(connection: *Connection, sent: *const Sent, now_ns: u64) void {
+    // Bounded by the levels: a datagram coalesces at most one packet of each (§12.2).
+    for (sent.written()) |packet| {
+        if (packet.ack_eliciting) connection.termination.on_ack_eliciting_sent(now_ns);
+    }
 }
 
 /// RFC 9001 §4.9.1: "a client MUST discard Initial keys when it first sends a Handshake packet".

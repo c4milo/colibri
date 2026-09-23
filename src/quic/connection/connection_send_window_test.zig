@@ -1,6 +1,7 @@
 //! The tests of what `connection_send.zig` does for RFC 9002 (decision 59): which packets it
-//! records, what §7's congestion window lets through, and the Initial records RFC 9001 §4.9.1
-//! discards. Split off `connection_send_test.zig` for length.
+//! records, what §7's congestion window lets through, the Initial records RFC 9001 §4.9.1
+//! discards, and when RFC 9000 §10.1's idle timer restarts. Split off `connection_send_test.zig`
+//! for length.
 const std = @import("std");
 const core = @import("core");
 const constants = @import("../constants.zig");
@@ -77,6 +78,10 @@ fn open_at(role: connection_module.Role, levels: []const Level) void {
 }
 
 fn send_now() !?send.Sent {
+    return send_at(test_now_ns);
+}
+
+fn send_at(now_ns: u64) !?send.Sent {
     return send.send(
         &endpoint,
         suite_holder.suite(),
@@ -84,7 +89,7 @@ fn send_now() !?send.Sent {
         StreamProvider.none(),
         &scratch,
         &datagram,
-        test_now_ns,
+        now_ns,
     );
 }
 
@@ -236,4 +241,21 @@ test "RFC 9001 §4.9.1: a client's first Handshake packet discards the Initial k
     // RFC 9002 §6.4: the Initial packet leaves flight with its keys, and the Handshake one stays.
     try testing.expectEqual(0, endpoint.recovery.table_of(.initial).count());
     try testing.expectEqual(sent.packets[1].len, endpoint.recovery.in_flight_len());
+}
+
+test "RFC 9000 §10.1: the first ack-eliciting packet since a receive restarts the idle timer" {
+    open(.server);
+    const first_ns = test_now_ns + 1;
+    const second_ns = test_now_ns + 2;
+    // An ACK alone elicits nothing and restarts nothing.
+    receive_eliciting(.handshake);
+    _ = try send_at(first_ns) orelse return error.NothingSent;
+    try testing.expectEqual(test_now_ns, endpoint.termination.idle_since_ns);
+    provider_holder = .{ .owed = &long_flight, .owed_level = .handshake };
+    _ = try send_at(first_ns) orelse return error.NothingSent;
+    try testing.expectEqual(first_ns, endpoint.termination.idle_since_ns);
+    // "if no other ack-eliciting packets have been sent since last receiving and processing a
+    // packet": a second one restarts nothing.
+    _ = try send_at(second_ns) orelse return error.NothingSent;
+    try testing.expectEqual(first_ns, endpoint.termination.idle_since_ns);
 }

@@ -152,7 +152,7 @@ test "RFC 9000 §10.2: the closing period replaces the idle timeout" {
     // §10.2: the period is three times the Probe Timeout.
     try testing.expectEqual(test_now_ns + constants.close_probe_timeouts * probe_timeout_ns, deadline.at_ns);
     // §10.1's timer belongs to an active connection, and this one is closing.
-    try testing.expectEqual(null, test_connection.termination.idle_deadline_ns());
+    try testing.expectEqual(null, test_connection.termination.idle_deadline_ns(0));
 
     try testing.expect(!(try fire(deadline.at_ns - 1)).period);
     try testing.expect((try fire(deadline.at_ns)).period);
@@ -234,4 +234,15 @@ test "RFC 9000 §13.2.1: an unacknowledged ack-eliciting packet is a deadline of
     // timer: the caller writes it on its next pass and the idle timeout is nearest again.
     _ = test_connection.space_at(.application).receive(1, test_now_ns, true, .not_ect);
     try testing.expectEqual(timer.Kind.idle, next().?.kind);
+}
+
+test "RFC 9000 §10.1: an idle timeout shorter than three Probe Timeouts waits for three" {
+    const short_ms: u64 = 1;
+    open_connection(short_ms);
+    const deadline = next().?;
+    try testing.expectEqual(timer.Kind.idle, deadline.kind);
+    const probe_timeout_ns = test_connection.recovery.rtt.probe_timeout_ns(true);
+    try testing.expectEqual(test_now_ns + constants.close_probe_timeouts * probe_timeout_ns, deadline.at_ns);
+    try testing.expect(!(try fire(deadline.at_ns - 1)).idle);
+    try testing.expect((try fire(deadline.at_ns)).idle);
 }

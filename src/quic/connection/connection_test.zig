@@ -114,6 +114,15 @@ test "RFC 9000 §10.1: an idle timeout of zero disables it, and any other value 
     try testing.expectEqual(expected, test_connection.termination.idle_timeout_ns.?);
 }
 
+test "RFC 9000 §10.1: the peer's parameters make the timeout the smaller of the two" {
+    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
+    var peer = Parameters.initial();
+    const shorter_ms = test_idle_timeout_ms / 2;
+    peer.max_idle_timeout_ms = shorter_ms;
+    test_connection.apply_peer_parameters(peer);
+    try testing.expectEqual(shorter_ms * constants.nanoseconds_per_millisecond, test_connection.termination.idle_timeout_ns.?);
+}
+
 test "RFC 9001 §4.1.2: confirmed is a state of its own, reached after complete" {
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expect(!test_connection.handshake_confirmed);

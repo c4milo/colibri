@@ -61,8 +61,10 @@ pub const Termination = struct {
     state: State,
     /// Set once the state leaves `active`.
     reason: ?Reason,
-    /// The effective idle timeout in nanoseconds, or null when both endpoints disabled it.
-    /// RFC 9000 §10.1: the minimum of the two advertised values, or the sole non-zero one.
+    /// The idle timeout the two endpoints advertised, in nanoseconds, or null when both disabled
+    /// it: RFC 9000 §10.1's minimum of the two values, or the sole non-zero one. §10.1's floor of
+    /// three times the current Probe Timeout moves with the round trip, so it is applied when the
+    /// timeout is asked for, from the PTO the caller passes.
     idle_timeout_ns: ?u64,
     /// The instant the idle timer last restarted (§10.1).
     idle_since_ns: u64,
@@ -96,11 +98,22 @@ pub const Termination = struct {
     /// It is never below three times the Probe Timeout, which §10.1 requires so that several
     /// probes can be sent and lost before the connection is given up.
     pub fn effective_idle_timeout_ns(local_ms: u64, peer_ms: u64, probe_timeout_ns: u64) ?u64 {
+        return floored(advertised_idle_timeout_ns(local_ms, peer_ms), probe_timeout_ns);
+    }
+
+    /// RFC 9000 §10.1's minimum of the two advertised values, or the sole non-zero one, in
+    /// nanoseconds, and null when both are 0.
+    pub fn advertised_idle_timeout_ns(local_ms: u64, peer_ms: u64) ?u64 {
         const advertised_ms = if (local_ms == 0 or peer_ms == 0) @max(local_ms, peer_ms) else @min(local_ms, peer_ms);
         if (advertised_ms == 0) return null;
-        const advertised_ns = advertised_ms *| constants.nanoseconds_per_millisecond;
-        // RFC 9000 §10.1: endpoints MUST increase the period to at least three times the PTO.
-        return @max(advertised_ns, probe_timeout_ns *| constants.close_probe_timeouts);
+        return advertised_ms *| constants.nanoseconds_per_millisecond;
+    }
+
+    /// RFC 9000 §10.1: "endpoints MUST increase the idle timeout period to be at least three
+    /// times the current Probe Timeout (PTO)".
+    fn floored(advertised_ns: ?u64, probe_timeout_ns: u64) ?u64 {
+        const held = advertised_ns orelse return null;
+        return @max(held, probe_timeout_ns *| constants.close_probe_timeouts);
     }
 
     /// RFC 9000 §10.1: the timer restarts when a packet from the peer is received and processed.
@@ -125,10 +138,11 @@ pub const Termination = struct {
         termination.ack_eliciting_sent_since_receive = true;
     }
 
-    /// Whether the connection has been idle past its effective timeout (RFC 9000 §10.1).
-    pub fn is_idle_timed_out(termination: *const Termination, now_ns: u64) bool {
+    /// Whether the connection has been idle past its effective timeout (RFC 9000 §10.1), with
+    /// `probe_timeout_ns` the current PTO.
+    pub fn is_idle_timed_out(termination: *const Termination, now_ns: u64, probe_timeout_ns: u64) bool {
         if (termination.state != .active) return false;
-        const timeout_ns = termination.idle_timeout_ns orelse return false;
+        const timeout_ns = floored(termination.idle_timeout_ns, probe_timeout_ns) orelse return false;
         assert(now_ns >= termination.idle_since_ns);
         return now_ns - termination.idle_since_ns >= timeout_ns;
     }
@@ -136,9 +150,9 @@ pub const Termination = struct {
     /// The instant RFC 9000 §10.1's idle timeout expires, or null when none is armed. It is the
     /// deadline design §4.2 has colibri return and the caller honour, and `is_idle_timed_out`
     /// is the same rule asked at an instant.
-    pub fn idle_deadline_ns(termination: *const Termination) ?u64 {
+    pub fn idle_deadline_ns(termination: *const Termination, probe_timeout_ns: u64) ?u64 {
         if (termination.state != .active) return null;
-        const timeout_ns = termination.idle_timeout_ns orelse return null;
+        const timeout_ns = floored(termination.idle_timeout_ns, probe_timeout_ns) orelse return null;
         return termination.idle_since_ns +| timeout_ns;
     }
 
@@ -251,12 +265,12 @@ test "§10.1: the effective timeout is the minimum of the two, or the one that i
 test "§10.1: a packet received restarts the timer, and the connection closes silently" {
     const timeout_ns = 10 * millisecond_ns;
     test_termination.init(timeout_ns, 0);
-    try testing.expect(!test_termination.is_idle_timed_out(timeout_ns - 1));
+    try testing.expect(!test_termination.is_idle_timed_out(timeout_ns - 1, 0));
     // One nanosecond short is not idle; the timeout itself is.
-    try testing.expect(test_termination.is_idle_timed_out(timeout_ns));
+    try testing.expect(test_termination.is_idle_timed_out(timeout_ns, 0));
     test_termination.on_packet_received(timeout_ns - 1);
-    try testing.expect(!test_termination.is_idle_timed_out(timeout_ns));
-    try testing.expect(test_termination.is_idle_timed_out(2 * timeout_ns));
+    try testing.expect(!test_termination.is_idle_timed_out(timeout_ns, 0));
+    try testing.expect(test_termination.is_idle_timed_out(2 * timeout_ns, 0));
     // RFC 9000 §10.1: the connection is silently closed, so nothing is sent.
     test_termination.on_idle_timeout();
     try testing.expectEqual(State.closed, test_termination.state);
@@ -264,23 +278,23 @@ test "§10.1: a packet received restarts the timer, and the connection closes si
     try testing.expectEqual(Permission.send_nothing, test_termination.permission());
     // A timeout both endpoints disabled never fires.
     test_termination.init(null, 0);
-    try testing.expect(!test_termination.is_idle_timed_out(std.math.maxInt(u32)));
+    try testing.expect(!test_termination.is_idle_timed_out(std.math.maxInt(u32), 0));
 }
 
 test "§10.1: sending restarts the timer once, until something is received again" {
     const timeout_ns = 10 * millisecond_ns;
     test_termination.init(timeout_ns, 0);
     test_termination.on_ack_eliciting_sent(5 * millisecond_ns);
-    try testing.expect(!test_termination.is_idle_timed_out(timeout_ns));
+    try testing.expect(!test_termination.is_idle_timed_out(timeout_ns, 0));
     // A second send restarts nothing: an endpoint that only talks cannot hold a dead
     // connection open.
     test_termination.on_ack_eliciting_sent(12 * millisecond_ns);
-    try testing.expect(test_termination.is_idle_timed_out(15 * millisecond_ns));
+    try testing.expect(test_termination.is_idle_timed_out(15 * millisecond_ns, 0));
     // Receiving clears that, so the next send restarts the timer again.
     test_termination.on_packet_received(14 * millisecond_ns);
     test_termination.on_ack_eliciting_sent(20 * millisecond_ns);
-    try testing.expect(!test_termination.is_idle_timed_out(29 * millisecond_ns));
-    try testing.expect(test_termination.is_idle_timed_out(30 * millisecond_ns));
+    try testing.expect(!test_termination.is_idle_timed_out(29 * millisecond_ns, 0));
+    try testing.expect(test_termination.is_idle_timed_out(30 * millisecond_ns, 0));
 }
 
 test "§10.2.1: sending a close enters the closing state, which answers and then ends" {
@@ -369,7 +383,7 @@ test "§10.1, §10.2: a connection that is closing is not idle, and does not clo
     test_termination.init(millisecond_ns, 0);
     test_termination.on_close_sent(0, test_pto_ns);
     // The idle timer belongs to an active connection alone.
-    try testing.expect(!test_termination.is_idle_timed_out(std.math.maxInt(u32)));
+    try testing.expect(!test_termination.is_idle_timed_out(std.math.maxInt(u32), 0));
     // A second close changes nothing, and neither does a send.
     test_termination.on_close_sent(millisecond_ns, test_pto_ns);
     try testing.expectEqual(Reason.closed_locally, test_termination.reason.?);
@@ -468,4 +482,13 @@ test "§10: every event in every state lands where the transition table says" {
             try testing.expectEqual(Permission.send_nothing, termination.permission());
         }
     }
+}
+
+test "§10.1: the timeout is never less than three Probe Timeouts, whatever was advertised" {
+    const timeout_ns = 10 * millisecond_ns;
+    test_termination.init(timeout_ns, 0);
+    // Three PTOs of 100 ms outlast the 10 ms advertised, so 10 ms of silence is not idle yet.
+    try testing.expect(!test_termination.is_idle_timed_out(timeout_ns, test_pto_ns));
+    try testing.expectEqual(closing_period_ns, test_termination.idle_deadline_ns(test_pto_ns).?);
+    try testing.expect(test_termination.is_idle_timed_out(closing_period_ns, test_pto_ns));
 }

@@ -229,6 +229,13 @@ pub const Connection = struct {
         // type with the same value", so raising is the same operation a MAX_STREAMS performs.
         _ = connection.streams.raise_local_limit(.bidirectional, peer.initial_max_streams_bidi);
         _ = connection.streams.raise_local_limit(.unidirectional, peer.initial_max_streams_uni);
+        // RFC 9000 §10.1: "the effective value at an endpoint is computed as the minimum of the two
+        // advertised values (or the sole advertised value, if only one endpoint advertises a
+        // non-zero value)".
+        connection.termination.idle_timeout_ns = termination_module.Termination.advertised_idle_timeout_ns(
+            connection.local_parameters.max_idle_timeout_ms,
+            peer.max_idle_timeout_ms,
+        );
         // RFC 9002 §6.2.1: the Probe Timeout adds the peer's max_ack_delay, which RFC 9000 §18.2
         // gives "in milliseconds".
         connection.recovery.rtt.peer_max_ack_delay_ns = peer.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
