@@ -3,11 +3,11 @@
 //!
 //! Each turn waits in Rotor's `tick` until a datagram arrives or a connection's next deadline
 //! passes, then reads the instant that tick read (decision 63). It hands each datagram to the
-//! connection its sender's address names, in Rotor's own buffer, which the suite opens in place.
-//! Then every live connection fires its deadlines, lets hq-interop read and answer, and sends
-//! what colibri owes. A sent datagram's octets belong to Rotor until its send's event (Rotor's
-//! rule 3), so each is built in a slot of its own, and a datagram Rotor has no room for is one
-//! lost on the way, which RFC 9002 recovers.
+//! connection its Destination Connection ID names (RFC 9000 §5.2), in Rotor's own buffer, which
+//! the suite opens in place. Then every live connection fires its deadlines, lets hq-interop read
+//! and answer, and sends what colibri owes. A sent datagram's octets belong to Rotor until its
+//! send's event (Rotor's rule 3), so each is built in a slot of its own, and a datagram Rotor has
+//! no room for is one lost on the way, which RFC 9002 recovers.
 //!
 //! A server holds up to `quic_connections_max` connections, so one whose close was lost does not
 //! turn the next client away while it waits out its idle timeout. A client holds one.
@@ -143,22 +143,21 @@ fn on_event(event: udp.Event, now_ns: u64) void {
 
 fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     if (arguments == .server and answer_version(delivery)) return;
-    const connection = connection_from(delivery.from.peer) orelse accept(delivery, now_ns) orelse return;
+    const connection = connection_for(delivery.bytes) orelse accept(delivery, now_ns) orelse return;
     _ = connection.peer.receive(delivery.bytes, now_ns) catch |failure| close_on(connection, failure);
 }
 
-/// The live connection whose datagrams come from `address`. A client's one connection takes
-/// every datagram, because it sends to one server.
-fn connection_from(address: udp.Address) ?*Connection {
+/// The live connection a datagram belongs to. RFC 9000 §5.2 matches it by its Destination
+/// Connection ID and not by the sender's address: a client that reuses a port for its next
+/// connection sends from the address of the last. A client's one connection takes every
+/// datagram, because it sends to one server.
+fn connection_for(datagram: []const u8) ?*Connection {
     if (arguments == .client) return if (connections[0].live) &connections[0] else null;
+    const dcid = udp_peer.destination_of(datagram, udp_identity.id_len) orelse return null;
     for (&connections) |*connection| {
-        if (connection.live and same_address(connection.outbound.peer, address)) return connection;
+        if (connection.live and connection.peer.connection.addressed_by(dcid)) return connection;
     }
     return null;
-}
-
-fn same_address(one: udp.Address, other: udp.Address) bool {
-    return one.family == other.family and one.port == other.port and std.mem.eql(u8, &one.bytes, &other.bytes);
 }
 
 /// A connection error colibri found (RFC 9000 §11): the connection closes with the error's code,

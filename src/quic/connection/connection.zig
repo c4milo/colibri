@@ -262,6 +262,19 @@ pub const Connection = struct {
         return connection.crypto_streams.at(level);
     }
 
+    /// Whether a packet whose Destination Connection ID is `dcid` belongs to this connection.
+    /// RFC 9000 §5.2 has the caller decide that before it hands the datagram over, and the
+    /// connection holds the IDs it is decided by.
+    pub fn addressed_by(connection: *const Connection, dcid: []const u8) bool {
+        // RFC 9000 §5.2: "a non-zero-length Destination Connection ID corresponding to an
+        // existing connection", which is one this endpoint issued (§5.1).
+        if (connection.local_ids.sequence_number_of(dcid) != null) return true;
+        // RFC 9000 §7.2: until a client hears from the server it addresses the value it chose,
+        // so a server also answers to that one. A client never chose its own address.
+        if (connection.role != .server) return false;
+        return std.mem.eql(u8, connection.identity.original_destination.slice(), dcid);
+    }
+
     /// RFC 9000 §18.2: the maximum delay this endpoint advertised before it acknowledges an
     /// ack-eliciting packet, in the unit RFC 9002 counts in. §13.2.1 calls it "an explicit
     /// contract", so it is this endpoint's own parameter and never the peer's.

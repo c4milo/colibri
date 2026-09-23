@@ -198,6 +198,31 @@ test "RFC 9000 §19.16: a zero-length connection ID reaches the set that refuses
     );
 }
 
+test "RFC 9000 §5.2: a packet belongs to the connection its Destination Connection ID names" {
+    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
+    // §5.1: the server's own first ID, and one it issues later in a NEW_CONNECTION_ID frame.
+    try testing.expect(test_connection.addressed_by(&local_id));
+    const issued: [test_id_len]u8 = @splat(0x52);
+    try testing.expect(!test_connection.addressed_by(&issued));
+    // §10.3: every ID after the first carries a Stateless Reset Token.
+    const token: [constants.stateless_reset_token_len]u8 = @splat(0x7e);
+    try testing.expect(test_connection.local_ids.issue(&issued, &token) != null);
+    try testing.expect(test_connection.addressed_by(&issued));
+    // §7.2: the ID the client chose, which its Initial packets carry until the server answers.
+    try testing.expect(test_connection.addressed_by(&original_id));
+    // Another client's choice, which may arrive from the address this one used, and a shorter
+    // run of the same octets, which is a different ID.
+    const other: [test_id_len]u8 = @splat(0x99);
+    try testing.expect(!test_connection.addressed_by(&other));
+    try testing.expect(!test_connection.addressed_by(local_id[0 .. test_id_len - 1]));
+    try testing.expect(!test_connection.addressed_by(original_id[0 .. test_id_len - 1]));
+
+    // A client chose the server's first ID, and is never addressed by it.
+    test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
+    try testing.expect(test_connection.addressed_by(&local_id));
+    try testing.expect(!test_connection.addressed_by(&original_id));
+}
+
 test "invariant 20: a connection holds one path and cannot name a second" {
     // Decision 21 refuses migration, so a connection has one path for its life and a send has no
     // other to choose. RFC 9000 §9's rules all turn on observing an address, which non-negotiable

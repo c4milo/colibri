@@ -47,6 +47,19 @@ pub fn first_initial(datagram: []const u8, local_id_len: usize) ?quic.packet.hea
     return long;
 }
 
+/// The Destination Connection ID of a datagram's first packet, which RFC 9000 §5.2 matches to a
+/// connection, or null for a packet that names none. §12.2: "Receivers SHOULD ignore any
+/// subsequent packets with a different Destination Connection ID than the first packet in the
+/// datagram", so the first one routes the whole datagram.
+pub fn destination_of(datagram: []const u8, local_id_len: usize) ?[]const u8 {
+    const parsed = quic.packet.header.read(datagram, local_id_len) catch return null;
+    return switch (parsed) {
+        .long => |long| long.dcid,
+        .short => |short| short.dcid,
+        else => null,
+    };
+}
+
 /// The Version Negotiation packet a server owes a datagram that asks for a version it does not
 /// speak, written into `output`, or null when it owes none. RFC 9000 §6.1: a server "SHOULD send
 /// a Version Negotiation packet" when the packet "is large enough to initiate a new connection
@@ -220,4 +233,20 @@ test "RFC 9000 §7.2: a server starts a connection from a client's Initial and n
     @memset(&test_packet, 0);
     test_packet[0] = short_first_octet;
     try testing.expectEqual(null, first_initial(&test_packet, test_id.len));
+}
+
+test "RFC 9000 §5.2: a datagram is routed by its first packet's Destination Connection ID" {
+    try testing.expectEqualSlices(u8, &test_id, destination_of(try long_packet(.handshake), test_id.len).?);
+    // A short header carries no length, so the ID is as long as the ones this endpoint issued.
+    const short_first_octet: u8 = 0x40;
+    @memset(&test_packet, 0);
+    test_packet[0] = short_first_octet;
+    @memcpy(test_packet[1..][0..test_id.len], &test_id);
+    try testing.expectEqualSlices(u8, &test_id, destination_of(&test_packet, test_id.len).?);
+    // A Version Negotiation packet names no connection a server holds (RFC 9000 §6.1): its
+    // Header Form bit is set and its Version is 0 (RFC 8999 §6).
+    const long_first_octet: u8 = 0x80;
+    test_packet[0] = long_first_octet;
+    @memset(test_packet[1..][0..quic.packet.invariant.version_len], 0);
+    try testing.expectEqual(null, destination_of(&test_packet, test_id.len));
 }
