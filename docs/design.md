@@ -2062,6 +2062,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1250 passed, 18 skipped.
 
+  **Each stream counts what it sent, lost and had acknowledged, 2026-09-22**, `9df4675`. Decision
+  57's third piece. A stream holds no octets. `stream_outgoing.Outgoing` holds four offsets:
+  how far the caller's octets reach, how far colibri has framed them, how many the peer has
+  acknowledged, and whether the caller ended the stream there. `Streams.on_range_acknowledged`
+  adds an acknowledged range to its stream and moves the sending part to "Data Recvd" once every
+  octet and the FIN are acknowledged (RFC 9000 §3.1). `Streams.on_range_lost` keeps a lost range
+  in `stream_lost.LostRanges`, the ranges owed again across every stream, oldest first, unless the
+  stream has sent RESET_STREAM (§13.3).
+
+  The count is exact because each framed octet is in one place: one packet in flight, the lost
+  table, or acknowledged. [Invariant 29](invariants.md) states that, and
+  `Outgoing.on_acknowledged` asserts that the count never passes the framed offset.
+
+  The lost table holds `stream_lost_ranges_max` ranges, which is `sent_packets_max`: a lost range
+  comes from one lost packet, and new octets wait while any range is owed. A range split to fit
+  a smaller packet (§13.3) lies next to its remainder, so the table joins adjacent ranges of one
+  stream, and losing the piece again leaves one entry and not two. A table that fills anyway
+  refuses the range with `Full`, which the connection turns into INTERNAL_ERROR.
+
+  30 mutations, 30 CAUGHT. Two cases were written for one mutation each: a range whose octets go
+  out before its FIN, and a stream still in "Send" losing a range. One check in
+  `is_all_acknowledged` was removed rather than tested, because an acknowledged FIN implies the
+  stream was ended.
+
+  `zig build test`: 1263 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
