@@ -388,6 +388,26 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** Applying RFC 9000's 20-byte connection-ID maximum in the invariant reader, which
   RFC 9000 §17.2.1 forbids from influencing whether a Version Negotiation packet is sent.
 
+### INV-29 — a framed stream octet is in one place
+
+- **Claim.** Every stream octet colibri has framed is in exactly one of three places: one packet
+  in flight, the lost-range table, or acknowledged. The FIN is the same. So a stream's count of
+  acknowledged octets never counts one twice, and "Data Recvd" (RFC 9000 §3.1) is entered once
+  every octet and the FIN are acknowledged, and not before.
+- **Mechanism.** A lost packet's record leaves the sent table (RFC 9002 Appendix A.10) as its
+  range enters the lost table. Framing a lost range again puts it in one new packet and takes it
+  out of the table. An acknowledgment takes the record out of the sent table, so a late
+  acknowledgment of a packet already declared lost finds nothing to count. A probe carries new
+  octets or a PING and never a range already in flight (RFC 9002 §6.2.4 permits either).
+  [Decision 57](decisions.md#the-h2-connection) is why colibri resends exact ranges rather than
+  rewinding a stream, which would put an octet in two packets at once.
+- **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count
+  never passes the framed offset. A simulator invariant that each stream's acknowledged count
+  equals its final size at "Data Recvd" lands with the QUIC connection check (design §8 step 9e,
+  piece 10). Step 9e.
+- **Violation.** A probe that resends octets still in flight, or a rewind to the lowest lost
+  offset: either puts one octet in two packets, and acknowledging both counts it twice.
+
 ## What the caller supplies
 
 ### INV-23 — colibri holds no secret

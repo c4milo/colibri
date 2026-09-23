@@ -261,3 +261,96 @@ test "§4.5: a final size below what already arrived is refused, by either frame
     try testing.expectEqual(7, by_reset.final_size.?);
     try testing.expectError(error.FinalSizeChanged, by_reset.on_stream_frame(0, 8, true));
 }
+
+const constants = @import("../constants.zig");
+const stream_table = @import("stream_table.zig");
+const stream_lost = @import("stream_lost.zig");
+
+/// A table whose streams this endpoint opens, as a client. Test-only.
+var test_streams: stream_table.Streams = undefined;
+const test_stream_limit: u64 = 4;
+const test_stream_limits: [constants.stream_directionalities]u64 = @splat(test_stream_limit);
+/// A stream's octets, sent in two frames of half each. Test-only.
+const test_body_len: u64 = 1_000;
+const test_half_len: u64 = 500;
+
+/// Opens a stream and sends its body in two frames, the FIN with the second, as `send` would.
+fn sent_stream() !*stream_table.Stream {
+    test_streams.init(.client, test_stream_limits, test_stream_limits);
+    const stream = try test_streams.open_local(.bidirectional);
+    try stream.outgoing.supply(test_body_len, true);
+    _ = stream.sending.on(.sent_data);
+    stream.outgoing.on_framed(test_half_len, false);
+    _ = stream.sending.on(.sent_fin);
+    stream.outgoing.on_framed(test_half_len, true);
+    return stream;
+}
+
+fn first_half(stream: *const stream_table.Stream) stream_lost.Range {
+    return .{ .stream_id = stream.id, .offset = 0, .len = test_half_len, .fin = false };
+}
+
+fn second_half(stream: *const stream_table.Stream) stream_lost.Range {
+    return .{ .stream_id = stream.id, .offset = test_half_len, .len = test_half_len, .fin = true };
+}
+
+test "§3.1: the range that completes a stream's acknowledgment moves it to Data Recvd" {
+    const stream = try sent_stream();
+    // The FIN's range arrives first, which leaves the first half outstanding.
+    try testing.expect(!test_streams.on_range_acknowledged(second_half(stream)));
+    try testing.expectEqual(.data_sent, stream.sending.state);
+    try testing.expect(test_streams.on_range_acknowledged(first_half(stream)));
+    try testing.expectEqual(.data_recvd, stream.sending.state);
+}
+
+test "§3.1: a stream reset after its FIN stays in Reset Sent when its data is acknowledged" {
+    const stream = try sent_stream();
+    _ = stream.sending.on(.sent_reset);
+    try testing.expect(!test_streams.on_range_acknowledged(first_half(stream)));
+    try testing.expect(!test_streams.on_range_acknowledged(second_half(stream)));
+    try testing.expectEqual(.reset_sent, stream.sending.state);
+}
+
+test "§13.3: a lost range is kept, and none is kept once RESET_STREAM has gone out" {
+    const stream = try sent_stream();
+    try test_streams.on_range_lost(first_half(stream));
+    try testing.expectEqual(1, test_streams.lost.count);
+    try testing.expectEqual(0, test_streams.lost.oldest().?.offset);
+    // "Once an endpoint sends a RESET_STREAM frame, no further STREAM frames are needed."
+    _ = stream.sending.on(.sent_reset);
+    try test_streams.on_range_lost(second_half(stream));
+    try testing.expectEqual(1, test_streams.lost.count);
+    // A stream still in "Send", its FIN not yet out, retransmits too (§3.1).
+    const open = try test_streams.open_local(.bidirectional);
+    try open.outgoing.supply(test_body_len, false);
+    _ = open.sending.on(.sent_data);
+    open.outgoing.on_framed(test_half_len, false);
+    try test_streams.on_range_lost(first_half(open));
+    try testing.expectEqual(2, test_streams.lost.count);
+}
+
+test "§13.3: a range of a stream that has since closed counts toward nothing" {
+    const stream = try sent_stream();
+    const id = stream.stream_identifier();
+    const range = first_half(stream);
+    // The peer read the reset and acknowledged it, and the stream closed with both halves done.
+    _ = stream.sending.on(.sent_reset);
+    _ = stream.sending.on(.reset_acknowledged);
+    _ = stream.receiving.on(.received_reset);
+    _ = stream.receiving.on(.application_read_reset);
+    test_streams.close(id);
+    try testing.expect(!test_streams.on_range_acknowledged(range));
+    try test_streams.on_range_lost(range);
+    try testing.expectEqual(0, test_streams.lost.count);
+}
+
+test "§13.3: a lost range the full table cannot hold is refused, not dropped" {
+    const stream = try sent_stream();
+    const far_offset = 4 * test_body_len;
+    for (0..constants.stream_lost_ranges_max) |index| {
+        // Another stream's ranges, a gap apart, so the stream's own range joins none of them.
+        const other: stream_lost.Range = .{ .stream_id = stream.id + 4, .offset = far_offset * index, .len = 1, .fin = false };
+        try test_streams.lost.add(other);
+    }
+    try testing.expectError(stream_lost.Error.Full, test_streams.on_range_lost(first_half(stream)));
+}

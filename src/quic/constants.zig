@@ -344,6 +344,12 @@ pub const congestion_loss_reduction_divisor: u64 = 2;
 /// giving them a smaller table of their own is a change design §11 would have to measure first.
 pub const sent_packets_max: usize = 256;
 
+/// Lost stream ranges a connection keeps until they are framed again (RFC 9000 §13.3). A lost
+/// range comes from one lost packet, and new octets wait while any range is owed (decision 57),
+/// so the sent table's bound is this one's too. Merging adjacent ranges absorbs the pieces that a
+/// smaller packet splits one into.
+pub const stream_lost_ranges_max: usize = sent_packets_max;
+
 /// RFC 9002 Appendix A.9: a Probe Timeout sends one or two ack-eliciting packets, and two is
 /// what recovers a tail of exactly one lost packet in one round trip rather than two.
 pub const probe_packets: u8 = 2;

@@ -25,6 +25,8 @@ const flow = @import("../flow.zig");
 const stream_id = @import("stream_id.zig");
 const stream_send = @import("stream_send.zig");
 const stream_recv = @import("stream_recv.zig");
+const stream_outgoing = @import("stream_outgoing.zig");
+const stream_lost = @import("stream_lost.zig");
 
 const StreamId = stream_id.StreamId;
 const Initiator = stream_id.Initiator;
@@ -41,6 +43,9 @@ pub const Stream = struct {
     send_flow: flow.Sender = flow.Sender.init(0),
     /// What the peer may send on it, against this endpoint's limit (§4.1).
     receive_flow: flow.Receiver = flow.Receiver.init(1, 1),
+    /// How far this endpoint's octets reach, how far they went out and how many arrived
+    /// (decision 57).
+    outgoing: stream_outgoing.Outgoing = .{},
 
     pub fn stream_identifier(stream: *const Stream) StreamId {
         return .{ .value = stream.id };
@@ -96,6 +101,8 @@ pub const Streams = struct {
     peer_limit: [constants.stream_directionalities]flow.Receiver,
     /// The next index this endpoint opens, by directionality (§2.1).
     next_index: [constants.stream_directionalities]u64,
+    /// The stream octets lost in transit and owed again (§13.3), across every stream.
+    lost: stream_lost.LostRanges,
 
     /// `peer_limits` are the counts this endpoint advertises, which `init` caps at the table's
     /// capacity: §3.2's implicit creation makes an advertised limit a promise to hold that many
@@ -109,6 +116,7 @@ pub const Streams = struct {
         streams.pool.init();
         streams.role = role;
         streams.next_index = @splat(0);
+        streams.lost.init();
         for (0..constants.stream_directionalities) |index| {
             streams.local_limit[index] = flow.Sender.init(local_limits[index]);
             const capped = @min(peer_limits[index], constants.streams_per_connection_max);
@@ -187,6 +195,41 @@ pub const Streams = struct {
         assert(stream.sending.state.is_terminal() or !id.is_sendable_by(streams.role));
         assert(stream.receiving.state.is_terminal() or !id.is_receivable_by(streams.role));
         streams.pool.close(id.value);
+    }
+
+    /// Counts a range the peer acknowledged toward its stream (RFC 9000 §3.1). True when that
+    /// acknowledged the whole stream, every octet and the FIN, which moves its sending part to
+    /// "Data Recvd": from then on the caller may drop the stream's octets (decision 57).
+    pub fn on_range_acknowledged(streams: *Streams, range: stream_lost.Range) bool {
+        const stream = streams.sent_on(range) orelse return false;
+        stream.outgoing.on_acknowledged(range.len, range.fin);
+        if (!stream.outgoing.is_all_acknowledged()) return false;
+        // A stream reset after its FIN went out stays in "Reset Sent", which §3.1 gives no way
+        // to "Data Recvd".
+        return stream.sending.on(.all_data_acknowledged) == .taken;
+    }
+
+    /// Keeps a range the peer did not receive so that `send` frames it again (RFC 9000 §13.3).
+    /// Nothing is kept for a stream that sent RESET_STREAM: "Once an endpoint sends a
+    /// RESET_STREAM frame, no further STREAM frames are needed."
+    pub fn on_range_lost(streams: *Streams, range: stream_lost.Range) stream_lost.Error!void {
+        const stream = streams.sent_on(range) orelse return;
+        if (!stream.sending.retransmits_data()) return;
+        try streams.lost.add(range);
+    }
+
+    /// The stream a range this endpoint sent belongs to, or null when that stream has closed,
+    /// which a reset acknowledged before the range was can do.
+    fn sent_on(streams: *Streams, range: stream_lost.Range) ?*Stream {
+        const id: StreamId = .{ .value = range.stream_id };
+        // colibri frames octets only for a stream it may send on (§2.1).
+        assert(id.is_sendable_by(streams.role));
+        return switch (streams.lookup(id)) {
+            .live => |stream| stream,
+            .closed => null,
+            // Nothing is framed on a stream before it opens.
+            .unopened => unreachable,
+        };
     }
 
     /// Raises what the peer permits this endpoint to open (RFC 9000 §19.11). False when the

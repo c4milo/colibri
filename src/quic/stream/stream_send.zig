@@ -107,6 +107,13 @@ pub const Sending = struct {
         return sending.state == .ready or sending.state == .send;
     }
 
+    /// Whether lost stream data is framed again. RFC 9000 §3.1: in "Send" and in "Data Sent" the
+    /// endpoint "retransmits stream data as necessary", and §13.3 stops once a RESET_STREAM has
+    /// gone out: "no further STREAM frames are needed".
+    pub fn retransmits_data(sending: *const Sending) bool {
+        return sending.state == .send or sending.state == .data_sent;
+    }
+
     /// Whether flow control still applies. RFC 9000 §3.1: an endpoint in "Data Sent" need not
     /// check the limits or send STREAM_DATA_BLOCKED frames, because the final size is fixed.
     pub fn observes_flow_control(sending: *const Sending) bool {

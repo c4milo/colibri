@@ -12,6 +12,8 @@ pub const stream_id = @import("stream_id.zig");
 pub const stream_send = @import("stream_send.zig");
 pub const stream_recv = @import("stream_recv.zig");
 pub const stream_table = @import("stream_table.zig");
+pub const stream_outgoing = @import("stream_outgoing.zig");
+pub const stream_lost = @import("stream_lost.zig");
 
 pub const StreamId = stream_id.StreamId;
 pub const Initiator = stream_id.Initiator;
@@ -27,5 +29,7 @@ test {
     _ = stream_send;
     _ = stream_recv;
     _ = stream_table;
+    _ = stream_outgoing;
+    _ = stream_lost;
     _ = @import("stream_test.zig");
 }
