@@ -2366,6 +2366,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1379 passed, 18 skipped.
 
+  **Received stream octets are reassembled, 2026-09-23**, `8bf3794` and `290fbf4`. Decision 61,
+  [#41](https://github.com/c4milo/colibri/issues/41) and
+  [#42](https://github.com/c4milo/colibri/issues/42). colibri had checked every STREAM frame and
+  kept none of its octets, so no caller could read a stream and no window could grow.
+  - `stream_incoming.Pool(capacity)` is one pool per connection, which the caller places and
+    passes as `Options.receive`. Streams take its blocks of `stream_receive_block_len` = 1,024
+    octets as they need them. Each block marks which of its octets arrived (RFC 9000 §2.2). One
+    pool serves every stream because the octets waiting across them never pass the connection
+    window. It holds two blocks per stream beyond its capacity for the ends of each stream's
+    span, so a peer within its limits cannot exhaust it.
+  - `connection_stream_read.read` copies a stream's octets in order up to the first gap and
+    gives each block back once read. What it reads is what gives the peer credit (RFC 9000
+    §4.1). Reading every octet moves the stream to "Data Read" (§3.2), and a reset is reported
+    once as `StreamReset`.
+  - The pool's capacity caps every receive window, the connection's and each stream's: decision
+    49's cap, `receive_pool_len_default` = 1 MiB. A connection given no pool keeps no octets and
+    its windows stay where they start.
+  - The simulator's server now reads the client's stream and checks every octet against what the
+    client sent. The census did not move: 16 KiB of reads earns no credit frame against 64 KiB
+    windows, so the datagrams are the same.
+
+  Mutations: 15 over the library, 14 CAUGHT. The fifteenth was equivalent: `contiguous_end`'s
+  early stop repeated what its block-number check already does, so the stop went. Octets kept
+  after a reset first survived; the test that catches it is new. 3 over the simulator, 3
+  CAUGHT; dropping the octet check first survived, and a fault now changes an octet.
+
+  Not built: closing a stream once both its parts finish, which
+  [#44](https://github.com/c4milo/colibri/issues/44) holds.
+
+  `zig build test`: 1396 passed, 20 skipped.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
