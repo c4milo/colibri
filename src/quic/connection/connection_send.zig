@@ -34,6 +34,7 @@ const packet_build = @import("packet_build/packet_build.zig");
 const connection_close = @import("connection_close.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
+const keys_module = @import("connection_keys.zig");
 const space_module = @import("../space/space.zig");
 const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 
@@ -142,6 +143,9 @@ pub fn send(
     expand_last(connection, plans[0..count], planned_len, ceiling);
     const sent = try seal_all(connection, suite, scratch, plans[0..count], output);
     record_all(connection, plans[0..count], &sent, now_ns);
+    // After the records, because discarding the Initial keys discards the Initial space's records
+    // too (RFC 9002 §6.4), and an Initial packet coalesced ahead of this one is among them.
+    note_handshake_sent(connection, suite, plans[0..count]);
     note_close_sent(connection, plans[0..count], now_ns);
     note_challenge_sent(connection, plans[0..count], sent.len, now_ns);
     return sent;
@@ -176,6 +180,15 @@ fn in_flight_len_allowed(connection: *const Connection, level: Level, window_len
     // larger than the congestion window." colibri waits for a whole datagram's worth of window.
     if (window_len < @min(room, connection.recovery.congestion.max_datagram_len)) return null;
     return @intCast(@min(room, window_len));
+}
+
+/// RFC 9001 §4.9.1: "a client MUST discard Initial keys when it first sends a Handshake packet".
+/// `connection_keys` answers for the role and for a level already discarded.
+fn note_handshake_sent(connection: *Connection, suite: crypto.Suite, plans: []const packet_build.Planned) void {
+    // Bounded by the levels: a datagram coalesces at most one packet of each (§12.2).
+    for (plans) |planned| {
+        if (planned.level == .handshake) keys_module.on_handshake_packet_sent(connection, suite);
+    }
 }
 
 /// RFC 9002 Appendix A.5's `OnPacketSent` for each packet of the datagram that counts in flight.

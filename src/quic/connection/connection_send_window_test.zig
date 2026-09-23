@@ -1,6 +1,6 @@
 //! The tests of what `connection_send.zig` does for RFC 9002 (decision 59): which packets it
-//! records, and what §7's congestion window lets through. Split off `connection_send_test.zig`
-//! for length.
+//! records, what §7's congestion window lets through, and the Initial records RFC 9001 §4.9.1
+//! discards. Split off `connection_send_test.zig` for length.
 const std = @import("std");
 const core = @import("core");
 const constants = @import("../constants.zig");
@@ -221,4 +221,19 @@ test "constants.sent_packets_max: a space whose table is full sends nothing, not
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expectEqual(Level.initial, sent.packets[0].level);
     try testing.expectEqual(1, sent.count);
+}
+
+test "RFC 9001 §4.9.1: a client's first Handshake packet discards the Initial keys and records" {
+    open(.client);
+    // A probe owed at Initial puts an Initial packet in flight ahead of the Handshake one.
+    send.owe_probes(&endpoint, .initial, 1);
+    provider_holder = .{ .owed = &flight, .owed_level = .handshake };
+    const sent = try send_now() orelse return error.NothingSent;
+    try testing.expectEqual(2, sent.count);
+    try testing.expectEqual(Level.initial, sent.packets[0].level);
+    // "a client MUST discard Initial keys when it first sends a Handshake packet"
+    try testing.expectEqual(keys.State.discarded, endpoint.keys.at(.initial, .write));
+    // RFC 9002 §6.4: the Initial packet leaves flight with its keys, and the Handshake one stays.
+    try testing.expectEqual(0, endpoint.recovery.table_of(.initial).count());
+    try testing.expectEqual(sent.packets[1].len, endpoint.recovery.in_flight_len());
 }

@@ -60,9 +60,16 @@ const Opener = struct {
     /// after counting more failures than the AEAD permits.
     reached_integrity_limit: bool,
     opened: usize,
+    /// How many levels colibri told it to forget (RFC 9001 §4.9).
+    discarded: usize,
 
     fn init(held: *Opener) void {
-        held.* = .{ .refuses = null, .reached_integrity_limit = false, .opened = 0 };
+        held.* = .{ .refuses = null, .reached_integrity_limit = false, .opened = 0, .discarded = 0 };
+    }
+
+    fn discard(context: *anyopaque, _: Level) void {
+        const held: *Opener = @ptrCast(@alignCast(context));
+        held.discarded += 1;
     }
 
     fn suite(held: *Opener) crypto.Suite {
@@ -105,7 +112,7 @@ const Opener = struct {
         .update_keys = unreachable_update,
         .key_phase = unreachable_phase,
         .discard_previous_keys = unreachable_discard_previous,
-        .discard_keys = unreachable_discard,
+        .discard_keys = discard,
     };
 };
 
@@ -149,10 +156,6 @@ fn unreachable_phase(_: *const anyopaque) bool {
 fn unreachable_discard_previous(_: *anyopaque) void {
     unreachable;
 }
-fn unreachable_discard(_: *anyopaque, _: Level) void {
-    unreachable;
-}
-
 fn parameters() Parameters {
     var held = Parameters.initial();
     held.initial_max_data = test_max_data;
@@ -173,6 +176,20 @@ fn open_connection() void {
     keys.on_keys_installed(&test_connection, .handshake, .read);
     keys.on_keys_installed(&test_connection, .application, .read);
     test_connection.handshake_complete = true;
+}
+
+/// A server with the Initial and Handshake levels installed for reading, which is the state RFC
+/// 9001 §4.9.1's server trigger is about.
+fn open_server() void {
+    opener.init();
+    test_connection.init(.{
+        .role = .server,
+        .local_parameters = parameters(),
+        .now_ns = test_now_ns,
+        .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id },
+    });
+    keys.on_keys_installed(&test_connection, .initial, .read);
+    keys.on_keys_installed(&test_connection, .handshake, .read);
 }
 
 /// Writes one long-header packet into `writer` and returns nothing: the payload is made up and
@@ -425,4 +442,23 @@ test "RFC 9000 §7.2: a packet that did not open supplies no Source Connection I
     const dropped = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.would_not_open, dropped.discarded);
     try testing.expectEqual(null, test_connection.identity.peer_initial_source);
+}
+
+test "RFC 9001 §4.9.1: a server discards its Initial keys once it processes a Handshake packet" {
+    open_server();
+    var writer = Writer.init(&datagram);
+    try write_packet(&writer, .handshake, &local_id, 0);
+    try write_packet(&writer, .handshake, &local_id, 1);
+    start(writer.written().len);
+    // RFC 9001 §5.5: a packet that did not authenticate was never processed, so it discards
+    // nothing.
+    opener.refuses = 0;
+    const refused = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    try testing.expectEqual(receive.Discarded.would_not_open, refused.discarded);
+    try testing.expectEqual(keys.State.available, test_connection.keys.at(.initial, .read));
+    // "a server MUST discard Initial keys when it first successfully processes a Handshake packet"
+    const processed = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    try testing.expectEqual(Level.handshake, processed.opened.level);
+    try testing.expectEqual(keys.State.discarded, test_connection.keys.at(.initial, .read));
+    try testing.expectEqual(1, opener.discarded);
 }
