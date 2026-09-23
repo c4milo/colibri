@@ -2481,6 +2481,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1407 passed, 23 skipped.
 
+  **A colibri client fetches files from a colibri server over UDP, 2026-09-23.** Piece 11's
+  second part, [#25](https://github.com/c4milo/colibri/issues/25).
+  - `testing_udp` grew from the socket into §9's UDP QUIC endpoint, with the owner's leave for its
+    new edge to `quic`. `zig build quic-udp` runs it as the hq-interop server or client over one
+    chapulin session and Rotor's loop. Its instant comes from Rotor's `Loop.now_ns` (decision
+    63, Rotor `ead3669`).
+  - hq-interop is the QUIC Interop Runner's HTTP/0.9 over QUIC: one `GET /path` line per
+    bidirectional stream, answered with the file and the end of the stream. The server refuses a
+    path with an empty, "." or ".." segment, and resets the stream of a file it does not hold.
+  - `tools/quic_udp.sh` runs both on 127.0.0.1. The client fetches files of 1,000, 100,000 and
+    3,000,000 octets, each compared octet for octet. The server must exit within 5 seconds of the
+    client's close, and a request for a missing file must end in a reset stream.
+
+  It found a colibri defect, fixed in its own commit. A server treated the client's address as
+  validated only after a PATH_RESPONSE, so RFC 9000 §8's three-times limit held it for the whole
+  connection. The first run sent 6 KB of a 100 KB file and then as much as each small ACK
+  allowed. RFC 9000 §8.1 lets an endpoint treat the address as validated once it "has
+  successfully processed a Handshake packet from the peer", and a server now does. The
+  simulator missed it because its server sends little. 2 mutations, 2 CAUGHT, one of them only
+  after the test read an Initial packet first.
+
+  The endpoint's mutations: 7, 7 CAUGHT. A receive that ran out of buffers was caught only after
+  a test ran the group out, which moved the restart into `udp.zig`.
+
+  `zig build test`: 1421 passed, 26 skipped.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
