@@ -283,6 +283,16 @@ comptime {
 /// More than this is a connection error of CRYPTO_BUFFER_EXCEEDED, which §7.5 names for it.
 pub const crypto_buffer_len: usize = 4096;
 
+/// Octets of a block of the receive pool (`stream_incoming.zig`, decision 61). A stream holding
+/// any unread octets holds at least one, so a smaller block wastes less on a stream with little
+/// waiting, and a larger one means fewer blocks for a read to walk.
+pub const stream_receive_block_len: usize = 1024;
+
+/// The receive pool a caller places when it asks for no size in particular, in octets. Decision
+/// 61 makes it the cap on the connection's receive window and on each stream's: at a 100 ms
+/// round trip it sustains about 80 Mbit/s per connection.
+pub const receive_pool_len_default: usize = 1_048_576;
+
 /// Octets of its own handshake flow colibri keeps per encryption level, so a CRYPTO frame can be
 /// written again under a new packet number (RFC 9000 §13.3) and a client can repeat its first
 /// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it, so it is a judgement, made

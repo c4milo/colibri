@@ -96,6 +96,25 @@ fn take_stream(connection: *Connection, held: frame_stream.Stream) Error!void {
     // §3.2: a frame the receiving state does not admit is not an error here — §3.2 has an
     // endpoint ignore data on a stream it has already reset or read to the end of.
     _ = stream.receiving.on(event);
+    try keep_octets(connection, stream, held);
+}
+
+/// Decision 61: the octets wait in the connection's pool until the application reads them. A
+/// connection given no pool keeps none.
+fn keep_octets(connection: *Connection, stream: *Stream, held: frame_stream.Stream) Error!void {
+    const storage = connection.receive_storage orelse return;
+    // RFC 9000 §3.2: a stream reset or already received whole wants no more octets.
+    if (!stream.receiving.accepts_data()) return;
+    // Flow control admitted the octets, and it never admits more than the pool holds, so a
+    // pool with no block free is colibri's accounting gone wrong (decision 61).
+    stream.incoming.write(storage, stream.id, stream.receive_flow.consumed, held.offset, held.data) catch
+        return Error.Internal;
+    const final_size = stream.receiving.final_size orelse return;
+    // RFC 9000 §3.2: "Once all data for the stream has been received, the receiving part enters
+    // the 'Data Recvd' state."
+    if (stream.incoming.contiguous_end(storage, stream.receive_flow.consumed) == final_size) {
+        _ = stream.receiving.on(.all_data_received);
+    }
 }
 
 /// RFC 9000 §4.1: the connection-level flow control counts what is new on this stream alone, so
@@ -119,6 +138,8 @@ fn take_reset(connection: *Connection, stream_id: u64, final_size: u64) Error!vo
     // connection with FINAL_SIZE_ERROR.
     stream.receiving.on_reset(final_size) catch return Error.FinalSize;
     _ = stream.receiving.on(.received_reset);
+    // RFC 9000 §3.2: a reset stream's octets are not delivered, so the pool takes them back.
+    if (connection.receive_storage) |storage| stream.incoming.release(storage);
 }
 
 /// A STOP_SENDING frame (RFC 9000 §19.5): the peer wants nothing more on a stream this endpoint
@@ -206,7 +227,7 @@ pub fn initialise_flow(connection: *Connection, stream: *Stream, id: StreamId) v
         // §18.2: initial_max_stream_data_bidi_remote applies to "peer-initiated bidirectional
         // streams".
         mine.initial_max_stream_data_bidi_remote;
-    stream.receive_flow = receiver_for(receive_limit);
+    stream.receive_flow = receiver_for(connection, receive_limit);
     // What this endpoint may send starts at zero until the peer's parameters arrive, which §7.4
     // puts in the handshake. `apply_peer_parameters` does not reach streams opened before it, so
     // a stream opened after reads them and one opened before is raised by MAX_STREAM_DATA.
@@ -225,9 +246,9 @@ fn send_limit(connection: *const Connection, id: StreamId) u64 {
 
 /// RFC 9000 §18.2: a stream data limit that is "absent or zero" admits nothing, which
 /// `flow.Receiver.init` cannot express because decision 49's window must be above zero.
-fn receiver_for(limit: u64) flow.Receiver {
+fn receiver_for(connection: *const Connection, limit: u64) flow.Receiver {
     if (limit == 0) return flow.Receiver.none();
-    return flow.Receiver.init(limit, limit);
+    return flow.Receiver.init(limit, connection.receive_window_max(limit));
 }
 
 /// RFC 9000 §19.11's bit and §2.1's bit stand for the same thing under two names: the frame

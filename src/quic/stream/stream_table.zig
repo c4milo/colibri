@@ -27,6 +27,7 @@ const stream_id = @import("stream_id.zig");
 const stream_send = @import("stream_send.zig");
 const stream_recv = @import("stream_recv.zig");
 const stream_outgoing = @import("stream_outgoing.zig");
+const stream_incoming = @import("stream_incoming.zig");
 const stream_lost = @import("stream_lost.zig");
 
 const StreamId = stream_id.StreamId;
@@ -47,6 +48,9 @@ pub const Stream = struct {
     /// How far this endpoint's octets reach, how far they went out and how many arrived
     /// (decision 57).
     outgoing: stream_outgoing.Outgoing = .{},
+    /// The octets the peer sent and the application has not read, in the connection's receive
+    /// pool (decision 61).
+    incoming: stream_incoming.Incoming = .{},
     /// Where this stream's new octets go against other streams': a lower value first (RFC 9000
     /// §2.3).
     priority: u8 = constants.stream_priority_default,

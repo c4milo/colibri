@@ -29,6 +29,7 @@ const space = @import("../space/space.zig");
 const crypto_stream = @import("../crypto_stream.zig");
 const stream_table = @import("../stream/stream_table.zig");
 const stream_id = @import("../stream/stream_id.zig");
+const stream_incoming = @import("../stream/stream_incoming.zig");
 const flow = @import("../flow.zig");
 const connection_id = @import("../connection_id.zig");
 const path_module = @import("../path.zig");
@@ -64,6 +65,10 @@ pub const Options = struct {
     /// §5.1 wants them unpredictable and invariant 5 forbids colibri a random number, so a
     /// client's are the caller's and a server's come off the first Initial it accepted.
     identity: identity_module.Options,
+    /// The pool the peer's stream octets wait in until the application reads them, which the
+    /// caller places (decision 61). Its capacity caps every receive window. A connection given
+    /// none reads no stream: it checks STREAM frames and keeps nothing.
+    receive: ?stream_incoming.Storage = null,
 };
 
 pub const Connection = struct {
@@ -121,6 +126,9 @@ pub const Connection = struct {
     /// Whether the congestion window bounded the last datagram `send` built, which RFC 9002 §7.8
     /// asks before an acknowledgment may grow the window.
     window_limited: bool,
+    /// The pool the peer's stream octets wait in, or null when the caller reads no stream
+    /// (decision 61).
+    receive_storage: ?stream_incoming.Storage,
     /// The CONNECTION_CLOSE this endpoint owes its peer (RFC 9000 §10.2), or null while it owes
     /// none. §10.2.1 keeps "only enough information to generate a packet containing a
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
@@ -159,6 +167,8 @@ pub const Connection = struct {
         connection.retry_token.init();
         connection.pending_close = null;
         connection.tls_alert = null;
+        connection.receive_storage = options.receive;
+        if (options.receive) |storage| storage.reset();
         init_spaces(connection);
         connection.crypto_streams.init();
         init_streams(connection, parameters);
@@ -187,7 +197,7 @@ pub const Connection = struct {
     /// Both levels of §4.1. The send side starts at zero for the same reason the stream limits do.
     fn init_flow(connection: *Connection, parameters: Parameters) void {
         connection.send_flow = flow.Sender.init(0);
-        connection.receive_flow = flow.Receiver.init(parameters.initial_max_data, parameters.initial_max_data);
+        connection.receive_flow = flow.Receiver.init(parameters.initial_max_data, connection.receive_window_max(parameters.initial_max_data));
     }
 
     fn init_paths(connection: *Connection, options: Options) void {
@@ -259,6 +269,15 @@ pub const Connection = struct {
         return connection.local_parameters.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
     }
 
+    /// The largest a receive window starting at `window` grows to (decision 49): the receive
+    /// pool's capacity (decision 61), or `window` itself when the connection keeps no octets.
+    pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
+        const storage = connection.receive_storage orelse return window;
+        // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
+        assert(window <= storage.capacity);
+        return storage.capacity;
+    }
+
     /// RFC 9001 §4.1.2's confirmed state, which a server reaches when the handshake completes and
     /// a client when a HANDSHAKE_DONE frame arrives.
     pub fn confirm_handshake(connection: *Connection) void {
@@ -295,4 +314,5 @@ test {
     _ = @import("packet_build/packet_build.zig");
     _ = @import("connection_send.zig");
     _ = @import("connection_datagram.zig");
+    _ = @import("connection_stream/connection_stream_read.zig");
 }

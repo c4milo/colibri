@@ -156,6 +156,12 @@ pub const Receiving = struct {
 
     /// Whether the endpoint still offers flow control credit. RFC 9000 §3.2: in "Size Known" it
     /// no longer needs to send MAX_STREAM_DATA frames.
+    /// Whether octets that arrive now are for the application: RFC 9000 §3.2 has "Recv" and
+    /// "Size Known" take STREAM frames, and every later state has the octets already or wants none.
+    pub fn accepts_data(receiving: *const Receiving) bool {
+        return receiving.state == .recv or receiving.state == .size_known;
+    }
+
     pub fn offers_credit(receiving: *const Receiving) bool {
         return receiving.state == .recv;
     }

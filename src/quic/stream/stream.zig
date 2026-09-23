@@ -14,6 +14,7 @@ pub const stream_recv = @import("stream_recv.zig");
 pub const stream_table = @import("stream_table.zig");
 pub const stream_outgoing = @import("stream_outgoing.zig");
 pub const stream_lost = @import("stream_lost.zig");
+pub const stream_incoming = @import("stream_incoming.zig");
 pub const stream_provider = @import("stream_provider.zig");
 
 pub const StreamId = stream_id.StreamId;
@@ -33,6 +34,7 @@ test {
     _ = stream_table;
     _ = stream_outgoing;
     _ = stream_lost;
+    _ = stream_incoming;
     _ = stream_provider;
     _ = @import("stream_test.zig");
 }
