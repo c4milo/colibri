@@ -1,9 +1,10 @@
 # The request to chapulin
 
 Status: written 2026-09-16 and refreshed against chapulin's tree on 2026-09-22, at its commit
-`8a32aeb`. Twelve of the fifteen items below have since landed in chapulin; each one says so, and
-"What is left" names what has not. The h2 blocking-handshake item landed while this refresh was
-being written, which is what [issue 20](https://github.com/c4milo/colibri/issues/20) turns on. Not sent yet;
+`2ef6d52`. Every item below has since landed in chapulin, and each one says how; "What is left"
+names the one contract note that remains. The h2 blocking-handshake item landed during the first
+refresh that day, which is what [issue 20](https://github.com/c4milo/colibri/issues/20) turns on;
+the exporter and the key log landed after it. Not sent yet;
 sending it is the owner's (https://github.com/c4milo/colibri/issues/5). colibri never edits chapulin's repository, and
 nothing here binds chapulin until chapulin's own decisions record it.
 
@@ -80,14 +81,21 @@ Verified against chapulin's tree on 2026-09-22, at its commit `8a32aeb`:
   RFC 9001 Appendix A.3 byte for byte with header protection, and the Retry tag against A.4. The
   `AES` axis picks the implementation: `soft`, `hw` under the compiler's own intrinsics, or
   `extern` for a caller-supplied block.
-- It has no exporter. Nothing in the tree implements RFC 9846 §7.5.
-- It has no key log. Nothing in the tree writes one.
+- It has an exporter behind a build value. `EXPORTER=on` adds `ch_export` (RFC 9846 §7.5) to the
+  API and 32 bytes to `ch_tls`; it is off by default, so a device pays nothing. It refuses
+  `TRANSPORT=quic`, because the call sits in `tls.c`, which a QUIC object does not compile, and
+  RFC 9001 uses no TLS exporter. chapulin's decision 43.
+- It has a key log behind a build value. `KEYLOG=on` hands each of the four traffic secrets to
+  `ch_keylog(io, label, client_random, secret)` as it derives them, in both roles and every
+  transport, QUIC included. The image defines `ch_keylog`, the way it defines `ch_rand_bytes`, so
+  a build that turned the axis on and wired nothing fails to link. The labels are the NSS key log
+  format's. A client in a raw or ca trust mode refuses the axis; `TRUST=webpki`, the server's
+  `TRUST=none` and `ROLE=both` admit it. chapulin's decision 44 and INV-29.
 
 Two of these reshape the request. The blocking-callback item is now half answered: the handshake
 takes bytes and returns bytes in both roles, and only the records after it still need a callback
-that cannot say "nothing yet". And the server role is built rather than declared, so the items
-that asked for a server ask instead for the two things a built server still lacks, the exporter
-and the key log.
+that cannot say "nothing yet". And the two items this document last listed as missing, the
+exporter and the key log, both exist, each as a build value colibri turns on in its own objects.
 
 ## What colibri asks for
 
@@ -119,7 +127,10 @@ Design §8 step 5 waits for these five.
 4. **Many sessions with no global state.** One process runs many connections at once, each with
    its own session. **Landed**: `RAND=extern` packages no generator, so the DRBG's global is not
    in the object and each connection holds its own `ch_tls`.
-5. **The exporter** (RFC 9846 §7.5). **Open**: nothing in chapulin's tree implements it.
+5. **The exporter** (RFC 9846 §7.5). **Landed** behind `EXPORTER=on` as `ch_export(t, label,
+   context, context_len, out, out_len)`. It refuses every state but connected, labels over 32
+   bytes and outputs over 255. chapulin's `bin/rec_loop_test` runs a client and a server to
+   completion and requires the two to export one value.
 
 ### For h3: QUIC mode (RFC 9001)
 
@@ -144,7 +155,7 @@ will check chapulin's answer against.
 
 ### For `crypto.Suite`
 
-Three of these four have landed; the key log has not.
+All four have landed.
 
 Design §8 step 7's vectors wait for these, and every QUIC connection needs them. The first form
 of this request asked for five primitives: AES-128-GCM, one AES-128-ECB block, raw ChaCha20,
@@ -170,10 +181,12 @@ the API over them, which `quic.h` already declares.
    and checking cannot disagree. `ch_quic_retry_ok` checks one, which is the client's half. A
    server that sends a Retry packet must compute it.
 4. **A key log** for the interop runner (design §9), written by chapulin, because colibri holds
-   nothing to log. **Open**, and the one ask that cuts against chapulin's grain rather than
-   extending it: every other item here keeps secrets inside chapulin, and this one exists to let
-   them out. Expect it to need chapulin's own decision record and a build axis, not a callback
-   added to `ch_cfg`.
+   nothing to log. **Landed** behind `KEYLOG=on`, and it took what this item expected: a
+   decision record (chapulin's 44) and a build axis, with a link-time hook rather than a `ch_cfg`
+   callback. It logs `CLIENT_HANDSHAKE_TRAFFIC_SECRET`, `SERVER_HANDSHAKE_TRAFFIC_SECRET`,
+   `CLIENT_TRAFFIC_SECRET_0` and `SERVER_TRAFFIC_SECRET_0`, each under the ClientHello's random,
+   and chapulin's loopback test requires both ends to log the same random and secret per label.
+   `src/testing/` defines the hook and writes the lines to `SSLKEYLOGFILE`.
 
 RFC 9001 fixes Initial packets (§5), the header protection used before a suite is selected
 (§5.4.1) and the Retry tag (§5.8) to AES whatever suite TLS negotiates, so no QUIC endpoint works
@@ -182,21 +195,22 @@ answers that.
 
 ## What is left
 
-Two absences, and one contract note that is smaller than a gap.
+Nothing chapulin owes, and one contract note that is smaller than a gap.
 
-1. **The exporter** (RFC 9846 §7.5), for h2. chapulin derives the key schedule `keysched.h`
-   already holds, so this is one more secret off it and one call to read it.
-2. **A key log**, for the interop runner. See the note on it above: it is the one ask that runs
-   against chapulin's own rule that secrets stay inside, so it needs a decision there before it
-   needs code.
-3. **A caller that buffers no whole record has no way to say so.** `ch_read` and `ch_write` call
-   `cfg.recv` and `cfg.send`, which return 1..n bytes or -1, so a caller must hold the bytes
-   before it calls. colibri already does:
-   [issue 20](https://github.com/c4milo/colibri/issues/20) records that after the handshake "the
-   adapter's phase 2 is buffer in and buffer out — `ch_read` and `ch_write` touch no descriptor at
-   all". So this is a contract colibri meets, not a blocker. It stays on the list because a
-   result code meaning "call again, nothing consumed" would let a caller stop pre-buffering, and
-   because nothing in chapulin states that the contract is deliberate rather than incidental.
+**A caller that buffers no whole record has no way to say so.** `ch_read` and `ch_write` call
+`cfg.recv` and `cfg.send`, which return 1..n bytes or -1, so a caller must hold the bytes before
+it calls. colibri already does: [issue 20](https://github.com/c4milo/colibri/issues/20) records
+that after the handshake "the adapter's phase 2 is buffer in and buffer out — `ch_read` and
+`ch_write` touch no descriptor at all". So this is a contract colibri meets, not a blocker. It is
+written down because a result code meaning "call again, nothing consumed" would let a caller stop
+pre-buffering, and because nothing in chapulin states that the contract is deliberate rather than
+incidental.
+
+**What colibri has to do to use the two new values.** Both are off in chapulin's default build,
+and `build/modules.zig`'s `link_chapulin` lists pass neither. The exporter wants `CH_EXPORTER` and
+`HKDF_LABEL_MAX=32` on the record-transport objects that call `ch_export`; the key log wants
+`CH_KEYLOG` on the objects whose connections the interop runner captures, and a `ch_keylog`
+definition in `src/testing/`. A QUIC object can carry `CH_KEYLOG` and cannot carry `CH_EXPORTER`.
 
 **The handshake is no longer on this list, and that is new.** `ROLE=server` with
 `TRANSPORT=record` drives the server handshake with no callback at all: `ch_srv_record_in` takes
