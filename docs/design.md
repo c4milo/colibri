@@ -2507,6 +2507,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1421 passed, 26 skipped.
 
+  **colibri meets another QUIC implementation, 2026-09-23.** `tools/quic_aioquic.sh` runs the
+  UDP endpoint against aioquic 1.3.0's, a Python stack pinned and installed into a cached virtual
+  environment, over 127.0.0.1 in both directions. `tools/quic_interop/hq_peer.py` is the
+  aioquic side, a small hq-interop server and client on its public API.
+  - colibri's client fetches files of 1,000, 100,000 and 3,000,000 octets from aioquic's server,
+    and aioquic's client fetches the same three from colibri's. Every file arrives octet for
+    octet, and colibri's server exits on aioquic's CONNECTION_CLOSE.
+  - Both directions passed on the first run, on the same machine as above, with chapulin
+    `9c903d8`. It is the first time colibri's connection or chapulin's QUIC mode exchanged a
+    packet with another implementation.
+
+  Mutations: 2, 2 CAUGHT, one for each direction's comparison.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so

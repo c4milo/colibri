@@ -124,6 +124,8 @@ if [ -f "${chapulin}/bin/chapulin-quic.o" ]; then
   quic_lines="$(grep -E "^quic-loopback:" "${scratch}/last.log")"
   section "hq-interop over UDP, colibri to colibri over chapulin" tools/quic_udp.sh "${chapulin}"
   quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic-udp: (fetched|served)" "${scratch}/last.log")"
+  section "hq-interop over UDP, colibri against aioquic" tools/quic_aioquic.sh "${chapulin}"
+  quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic_aioquic: " "${scratch}/last.log")"
 else
   quic_lines="No chapulin checkout with a QUIC object at ${chapulin}, so this run made no QUIC handshake."
 fi

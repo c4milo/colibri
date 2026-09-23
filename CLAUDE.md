@@ -276,7 +276,9 @@ with design §8 steps 12, 9 and 13. Change this section when a step adds or rena
   run design §9's hq-interop server and client over Rotor's UDP loop and the same chapulin
   object. `tools/quic_udp.sh <checkout> [port]` runs a client against a server on 127.0.0.1,
   checks each file arrives octet for octet and that a missing one resets its stream, and
-  `tools/ci.sh` runs it beside the loopback check.
+  `tools/ci.sh` runs it beside the loopback check. `tools/quic_aioquic.sh <checkout> [port]` runs
+  the same endpoint against aioquic's, pinned and installed once into a cached virtual
+  environment, in both directions; it also needs `python3`, and `tools/ci.sh` runs it too.
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
