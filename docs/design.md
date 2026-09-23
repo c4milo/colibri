@@ -109,7 +109,7 @@ The architecture depends on three of these edges and forbids one.
 
 ## 4. What the caller supplies
 
-Four things cross the boundary out of colibri. Each is a value or a vtable, never a callback
+Five things cross the boundary out of colibri. Each is a value or a vtable, never a callback
 colibri invokes at a time of its choosing.
 
 ### 4.1 Bytes
@@ -191,6 +191,17 @@ is a configuration error
 ([invariant 25](invariants.md#inv-25--a-suite-that-cannot-protect-initial-packets-is-a-configuration-error)),
 never a peer's fault. [Decision 9](decisions.md#what-the-caller-supplies) is why this is a second
 vtable, and decision 48 is why its members are these.
+
+### 4.5 The stream provider
+
+QUIC only. colibri retransmits stream data itself (RFC 9000 §13.3), so it must be able to read a
+stream's octets again until the peer acknowledges them, and it holds no copy. The caller keeps
+the octets and supplies a vtable with one member, `read(stream_id, offset, output)`, which writes
+the stream's octets from `offset` into `output` and returns how many it wrote. colibri calls it
+inside `send` alone, for new octets and for lost ones, and the caller may drop a stream's octets
+once colibri reports the stream in Data Recvd (§3.1) or reset. The provider answers the same
+octets for an offset every time, which RFC 9000 §2.2 requires and colibri cannot check.
+[Decision 57](decisions.md#the-h2-connection) is the ruling and the alternatives it beat.
 
 ## 5. What is shared, and what only looks shared
 
