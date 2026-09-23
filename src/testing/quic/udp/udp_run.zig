@@ -191,11 +191,20 @@ fn accept(delivery: udp.Delivery, now_ns: u64) ?*Connection {
     return connection;
 }
 
+/// A free entry, or when every entry is taken the one idle longest. A connection whose peer's
+/// close was lost lingers until its idle timeout (RFC 9000 §10.1), and one that has heard nothing
+/// for longest is that one: giving it up is what lets the next client in.
 fn free_connection() ?*Connection {
+    var idlest: ?*Connection = null;
     for (&connections) |*connection| {
         if (!connection.live) return connection;
+        const since_ns = connection.peer.connection.termination.idle_since_ns;
+        if (idlest == null or since_ns < idlest.?.peer.connection.termination.idle_since_ns) idlest = connection;
     }
-    return null;
+    const evicted = idlest orelse return null;
+    served += evicted.server.served;
+    evicted.live = false;
+    return evicted;
 }
 
 fn step_application(connection: *Connection) void {
