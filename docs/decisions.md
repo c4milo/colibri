@@ -1249,8 +1249,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     `sent_packets_max`, most of them already acknowledged. Instead, a lost packet's range goes
     into a table of lost ranges that the stream table keeps, and `send` frames those before any
     new octets (§13.3: "Endpoints SHOULD prioritize retransmission of data over sending new
-    data"). New octets wait while a lost range is owed, so the table never holds more than
-    `sent_packets_max` ranges.
+    data"). New octets wait while a lost range is owed, so the table needs `sent_packets_max`
+    ranges. A range split to fit a smaller packet (§13.3) is the exception, and the table joins
+    adjacent ranges of one stream to absorb it; a table that fills anyway closes the connection
+    with INTERNAL_ERROR.
 
     Each range of a stream is then in exactly one place: in one packet in flight, in the lost
     table, or acknowledged. So a count of acknowledged octets per stream is exact in any order of
