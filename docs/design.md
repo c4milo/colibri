@@ -2029,6 +2029,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1247 passed, 18 skipped.
 
+  **Every acknowledged record reaches the caller, 2026-09-22**, `272b179`. This is the first
+  piece of [decision 57](decisions.md#the-h2-connection). It counts the octets the peer has
+  acknowledged on each stream, and only a packet's record says which octets it carried.
+  `recovery_sent.Removed` kept the largest record alone, because RFC 9002 needs no more: the
+  round trip sample and the congestion event both come from the largest. So `remove_range_into`
+  writes each record it takes into a slice the caller places, and `recovery_ack.on_ack_received`
+  passes that slice through one ACK range after another, as `recovery_loss.detect` already does
+  for lost records. A slice too short is told how many records did not fit.
+
+  The recovery simulator now settles acknowledged packets from those records rather than from
+  the ACK ranges it wrote itself. A run that ends with a packet neither acknowledged nor declared
+  lost fails as `NotDrained`.
+
+  10 mutations, 10 CAUGHT: four on the table's writes, four on the sums across ranges and the
+  outcome, and two through the simulator.
+
+  `zig build test`: 1250 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
