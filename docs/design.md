@@ -2281,6 +2281,38 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1318 passed, 18 skipped.
 
+  **NEW_CONNECTION_ID and RETIRE_CONNECTION_ID are sent, 2026-09-22**, `0e074ef` and `e07bad8`.
+  Nothing gave a peer a second connection ID. The retirements a peer's Retire Prior To owed were
+  queued and never sent.
+
+  `connection_id_frames.issue` takes a connection ID's octets and its Stateless Reset Token from
+  the caller. colibri draws no random number for the octets (invariant 5), and RFC 9000 §10.3.2
+  derives the token from a key colibri does not hold (non-negotiable 2), the division #31 settled
+  for the Stateless Reset itself. It refuses:
+  - an endpoint whose peer sends it zero-length IDs (§19.15);
+  - octets of a length other than this endpoint's first, because a short header does not encode
+    the length (§17.3.1);
+  - more IDs than the peer's `active_connection_id_limit` (§5.1.1: "An endpoint MUST NOT provide
+    more connection IDs than the peer's limit").
+
+  The caller routes datagrams by Destination Connection ID and chose the octets, so it knows each
+  one this connection answers to.
+
+  Both frames travel in 1-RTT packets, after RESET_STREAM and STOP_SENDING. Each keeps a
+  `frame.Latest`, so a lost one goes again with the same content (§13.3). A NEW_CONNECTION_ID
+  stays owed-on-loss until the peer retires the ID. A retirement leaves once its frame is
+  acknowledged, which `connection_id_frames.on_packets_acknowledged` does; before, the queue
+  drained as the frame was read, whether or not it arrived. `0e074ef` split `connection_id.zig`'s
+  tests out first, for length.
+
+  Not built: NEW_TOKEN, which a server MAY send (§8.1.3). colibri asks the peer to retire none of
+  its IDs, so every Retire Prior To it writes is 0.
+
+  18 mutations, 18 CAUGHT. One first survived: no test checked that a retirement already sent is
+  not written again.
+
+  `zig build test`: 1325 passed, 18 skipped.
+
   **The rest of §6 is done, 2026-09-21**, `871d034`, `6169041`, `adf663c` and `ac522a2`.
 
   §6.2's last paragraph refuses an acknowledgment carried under the old keys that names a packet
