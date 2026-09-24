@@ -232,10 +232,35 @@ test "decision 58: a receive that ran out of buffers starts again" {
     }
     try testing.expect(!held[held_len - 1].flags.buffer);
     for (held[0..held_len]) |event| receiver.finish_receive(event);
-    // The receive started again, so the next datagram arrives.
-    try exchange(sender, receiver, &outbound);
+    // The receive started again. The datagram that found the group empty stayed in the kernel,
+    // on both of Rotor's backends, so it arrives, and so does the next one. io_uring hands both
+    // over in one tick and kqueue one in each.
+    try testing.expect(sender.send(test_send_user_data, test_octets, &outbound));
+    try testing.expectEqual(1, (try sender.tick(&events, test_wait_ns)).len);
+    try receive_datagrams(receiver, leftover_and_next);
     try receiver.close();
     try sender.close();
+}
+
+/// The datagram the empty group turned away, and the one sent after the receive started again.
+/// Test-only.
+const leftover_and_next: usize = 2;
+
+/// Waits until `count` datagrams have arrived at `receiver`, in however many ticks, checks each,
+/// and gives its buffer back. Test-only.
+fn receive_datagrams(receiver: *Endpoint, count: usize) !void {
+    var events: [constants.udp_operations_max]Event = undefined;
+    var arrived_count: usize = 0;
+    // Bounded: each tick delivers at least one datagram, or its wait ends and fails the test.
+    while (arrived_count < count) {
+        const arrived = try receiver.tick(&events, test_wait_ns);
+        try testing.expect(arrived.len > 0 and arrived_count + arrived.len <= count);
+        for (arrived) |event| {
+            try testing.expectEqualStrings(test_octets, receiver.delivery(event).bytes);
+            receiver.finish_receive(event);
+        }
+        arrived_count += arrived.len;
+    }
 }
 
 /// Sends one datagram, waits for the send's event, then for the datagram at the receiver, reads
