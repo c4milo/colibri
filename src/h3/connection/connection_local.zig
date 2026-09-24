@@ -81,6 +81,10 @@ fn open(connection: *Connection, transport: *QuicConnection) Error!u64 {
         // RFC 9114 §6.2: "the transport parameters sent by both clients and servers MUST allow
         // the peer to create at least three unidirectional streams".
         return connection.fail(transport, constants.error_general_protocol);
+    // The three go out before any request stream: an insert on the encoder stream then leaves
+    // before the field sections that reference it, so fewer of them block (RFC 9204 §2.1.2), and
+    // SETTINGS before the first request's response.
+    quic.connection_stream_send.set_priority(transport, id, constants.local_stream_priority) catch unreachable;
     return id.value;
 }
 

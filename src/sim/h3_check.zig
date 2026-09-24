@@ -27,8 +27,8 @@ const Side = sim.network.Endpoint;
 const constants = sim.constants;
 
 /// The digest of every seed's run, committed after both build modes agree on it.
-pub const census_crc32_expected: u32 = 0xbd4c7fc8;
-pub const long_census_crc32_expected: u32 = 0xc1c60f94;
+pub const census_crc32_expected: u32 = 0xdacf68d7;
+pub const long_census_crc32_expected: u32 = 0xb2ba117a;
 
 pub const Violation = h3_endpoint.Error || error{
     /// The network was asked to carry a datagram and had no slot, which is a harness defect.

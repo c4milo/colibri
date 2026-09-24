@@ -333,7 +333,7 @@ pub const h3_check_content_len_max: u32 = 3000;
 /// The long h3 check: fewer seeds, each one connection of up to `h3_long_check_exchanges_max`
 /// exchanges with short content, so QPACK's encoder stream outgrows its buffer and h3 drops the
 /// octets its peer acknowledged (decision 78). A normal seed's connection never gets that far.
-pub const h3_long_check_seeds: u64 = 64;
+pub const h3_long_check_seeds: u64 = 128;
 pub const h3_long_check_exchanges_max: u32 = 512;
 pub const h3_long_check_content_len_max: u32 = 256;
 pub const h3_check_values: u32 = 8;

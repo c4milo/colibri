@@ -103,6 +103,10 @@ pub const line_representation_len_max: usize = 8;
 /// section, encoded or received.
 pub const scratch_len: usize = frame_header_len_max + frame_length_max + section_prefix_len_max;
 
+/// The send priority of colibri's control and QPACK streams in `quic` (RFC 9000 §2.3): the
+/// highest, so each goes out before any request stream's octets.
+pub const local_stream_priority: u8 = 0;
+
 /// Frames one `receive` reads on the control stream, and on one request stream, before it moves
 /// on, so one busy stream cannot keep the others waiting.
 pub const control_frames_per_call_max: u32 = 16;
