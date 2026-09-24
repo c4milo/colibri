@@ -127,6 +127,8 @@ pub fn add(
     sim_run.addImport("wire", wire);
     sim_run.addImport("sim", sim);
     sim_run.addImport("h2", h2);
+    // The QPACK check drives the encoder and decoder, ruled by the owner on 2026-09-24.
+    sim_run.addImport("qpack", qpack);
 
     // Decision 5: the QUIC checks are driven with no HTTP module in the graph, so they are not
     // in `sim_run`, which imports `h2`.

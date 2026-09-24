@@ -278,6 +278,54 @@ pub const null_quic_pending_len_max: u32 = 1024;
 /// a flight (CLAUDE.md non-negotiable 4).
 pub const null_quic_steps_max: u32 = 5;
 
+/// The QPACK check (design §8 step 11): at most this many field sections per seed, each of at
+/// most `qpack_check_lines_max` lines, on at most `qpack_check_streams` request streams.
+pub const qpack_check_sections_max: u32 = 24;
+pub const qpack_check_lines_max: u32 = 12;
+pub const qpack_check_streams: u64 = 8;
+
+/// Request stream IDs are client-initiated bidirectional ones, which RFC 9000 §2.1 numbers in
+/// steps of four.
+pub const qpack_check_stream_id_step: u64 = 4;
+
+/// The random values a seed draws, which its lines repeat so the dynamic table has something to
+/// reference, and the longest of them.
+pub const qpack_check_values: u32 = 6;
+pub const qpack_check_value_len_max: u32 = 48;
+
+/// Table capacities a QPACK-check seed advertises, from none to colibri's largest, 16,384
+/// (`qpack.constants.dynamic_table_capacity_max`, which `sim` cannot import).
+pub const qpack_check_capacities = [_]u64{ 0, 64, 128, 220, 512, 1024, 4096, 16_384 };
+
+/// Blocked-stream counts a QPACK-check seed advertises, up to colibri's most, 100.
+pub const qpack_check_blocked_counts = [_]u64{ 0, 1, 2, 8, 100 };
+
+/// One step in this many that could cancel a stream does (RFC 9204 §2.2.2.2).
+pub const qpack_check_cancel_one_in: u64 = 16;
+
+/// One line in this many is `no_insert`, and one in this many `never_indexed`; the rest are
+/// `may_insert`.
+pub const qpack_check_no_insert_one_in: u64 = 10;
+pub const qpack_check_never_indexed_one_in: u64 = 10;
+
+/// Octets of one encoded field section, of the whole encoder stream, and of the whole decoder
+/// stream a seed writes. Each holds the most its drawn sections can produce.
+pub const qpack_check_section_len_max: u32 = 4096;
+pub const qpack_check_encoder_stream_len_max: u32 = 64 * 1024;
+pub const qpack_check_decoder_stream_len_max: u32 = 4096;
+
+/// Steps one seed may take before the check calls it stuck: far more than delivering every
+/// section, every encoder stream octet and every decoder stream octet one step each needs.
+pub const qpack_check_steps_max: u32 = 4096;
+
+/// The trace one seed writes: a record per step.
+pub const qpack_check_trace_len_max: u32 = qpack_check_steps_max * 64;
+
+comptime {
+    assert(qpack_check_sections_max > 0 and qpack_check_lines_max > 0);
+    assert(qpack_check_streams > 0);
+}
+
 comptime {
     assert(null_quic_message_header_len ==
         null_quic_message_type_len + null_quic_message_length_len);

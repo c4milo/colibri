@@ -80,7 +80,7 @@ h2, rotor        <- testing_udp
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
-| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4 | — |
+| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11 | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
