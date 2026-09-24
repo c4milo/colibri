@@ -3102,6 +3102,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **Still owed:** the two `.qif` tools of §9, which write colibri's encoded files for other
   decoders to read; fuzzing; and the TLA+ model of the two tables' state (issue #46).
 
+  **Lean proofs and a seeded check, 2026-09-24.**
+  - `1434db1`: [decision 77](decisions.md). `spec/lean/` proves that §4.5.1.1's Required Insert
+    Count comes back exactly whenever the decoder is at most `MaxEntries` behind it and less than
+    `MaxEntries` ahead. §2.1.1's rule that no entry is evicted before it is acknowledged is what
+    keeps a decoder that close. It also proves the §3.2.5, §3.2.6 and §4.5.1.2 index arithmetic.
+    `zig build test` checks the Zig functions against the proved definitions' outputs, 2,361
+    Required Insert Count rows and 162 Base rows. 6 mutations: 5 CAUGHT, and one equivalent, the
+    zero check after the full-range check refusing the one count the weakened check lets through.
+  - `f4aa8fe`: `src/sim/qpack_check.zig`. One seed draws the peer's settings, up to 24 sections
+    on up to 8 streams, and the order the three streams arrive in, each cut at any octet, with
+    streams cancelled. Every section must decode as written, and every run must end with nothing
+    blocked, unread or unacknowledged. Each seed runs twice and must write the same trace.
+
+  `zig build sim -- --qpack-check` printed, in Debug and in ReleaseSafe on macOS arm64:
+  `seeds=256 decoded=2932 lines=19049 blocked=565 cancelled=194 inserts=4778 octets=350638
+  trace_octets=529023 crc32=0xf7bc7677`. Of ten encoder and decoder mutants, six break one of the
+  check's rules. Two change the digest and break no rule in these seeds: one evicts an entry
+  before its acknowledgment, and one references a name its own line's insert evicted, which fails
+  only when the section reaches the decoder after that insert. Two reach code colibri's encoder
+  never exercises: a decoder stream written in part, and a dynamic name inside an insert. The unit
+  tests catch all ten.
+
 - **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
   request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,
   with every case accounted for; the interop runner's `http3` case; `h2load --h3`; and the h2
