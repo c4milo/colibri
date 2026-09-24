@@ -2858,8 +2858,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   it, and [invariant 5](invariants.md#quic) forbids reading it. Each field is now fed in on its
   own, in network byte order.
 
-  **Still owed:** the interop runner's `handshakeloss`, `transferloss`, `blackhole`, `longrtt`
-  and `ecn` cases, which need a connection to drive and so wait on 9e.
+  **Pacing, ECN and three runner cases, 2026-09-24.**
+  - `ae82252`: `send` asks the pacer of RFC 9002 §7.7 before each datagram, and
+    `connection_timer` names the instant the pacer has earned the next one as `Kind.pacing`. A
+    sender the pacer holds counts as using its window (§7.8). 6 mutations, 6 CAUGHT.
+  - [Decision 68](decisions.md) gives the caller two flags. With `ecn_reads`, an ACK frame carries
+    RFC 9000 §13.4.1's counts. With `ecn_marks`, each datagram is ECT(0) until §13.4.2.1's
+    validation fails, and `Sent.ecn` names the codepoint. 11 mutations, 11 CAUGHT.
+
+  The QUIC check now marks, and its network sets ECN-CE on up to 100 datagrams in 1,000. Each
+  seed ends with both endpoints' validation holding. Seed 0 found a defect: a packet of ACK frames
+  alone was not counted as sent ECT(0), though the peer counts it, so the peer reported more
+  ECT(0) packets than the sender had counted. The census is now 13,300 datagrams, 13,343 packets,
+  714 dropped and 605 marked, crc32 `0x8af4fcd1`, in Debug and in ReleaseSafe on macOS arm64.
+
+  The runner at `740c05a`, in Docker on macOS arm64, chapulin `cc88adb` built `TRUST=raw-ecdsa`:
+
+  | Peer | colibri server | colibri client |
+  |---|---|---|
+  | colibri, ngtcp2 | pass: ecn, longrtt, blackhole | pass: ecn, longrtt, blackhole |
+  | quic-go | pass: longrtt, blackhole; ecn unsupported | pass: longrtt, blackhole; ecn unsupported |
+
+  In each `ecn` pass every datagram went out ECT(0), in both directions. The server binds the IPv4
+  wildcard for `ecn`: bound to `::`, it marked no datagram to an IPv4 client, and read no
+  codepoint from one. On macOS the endpoint's datagrams arrive Not-ECT, so validation fails on the
+  first ACK and the endpoint stops marking, which is what §13.4.2.2 asks.
+
+  **Still owed:** `handshakeloss` between two colibri endpoints. It failed one run on
+  2026-09-23: a burst of loss dropped every copy of the server's first flight, and decision 65's
+  two early resends went out 6 ms apart, inside the same burst.
 
 - **Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
   zero and a static-only encoder is legal and useful; then the dynamic table with the encoder and
