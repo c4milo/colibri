@@ -2662,6 +2662,64 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   opened two connections to quic-go's server, 12 seconds apart. With quinn as the client, L1
   stays flaky, as "More peers, and the loss the random seeds missed" records.
 
+  **Rebinding in the runner, 2026-09-24.** The runner's `rebind-port` and `rebind-addr` cases
+  give the client a new port, or a new address and port, one second into the run and every five
+  seconds after. The server's first packet on each new path must carry a PATH_CHALLENGE, and the
+  client must answer every such challenge.
+  - [Decision 72](decisions.md) and its amendments: `0800bd4`, `ddf82ce`, `80240da`, `c679b56`
+    and `1786088`. The last lets a moved path's challenge go out past the congestion window and
+    the pacer, because RFC 9000 §9.4 keeps the old path's packets out of the new path's
+    congestion control.
+  - [Decision 73](decisions.md): `80240da`, with its TLA+ model in `9e6e0a0`.
+  - `f155153`: the simulator rebinds the client as a NAT does. Over 256 seeds the server moves
+    once for each rebind: 276 times in the port check and 275 in the address check.
+  - `2a23bc7`: the UDP endpoint names each datagram's address, draws the challenge data, and
+    issues spare connection IDs once the handshake is confirmed. quic-go's server waits for one
+    before it sends on the client's new path (RFC 9000 §9.5). 3 mutations, 3 CAUGHT by the
+    runner's `rebind-port` against quic-go: no challenge data, datagrams sent to the old
+    address, and no spare connection IDs.
+
+  Two runs of the runner at `740c05a`, with chapulin built `TRUST=raw-ecdsa`: the first at
+  colibri `2a23bc7` with chapulin `992043f`, the second at colibri `66dd187` with chapulin
+  `2262eee`.
+
+  | Peer | colibri server | colibri client |
+  |---|---|---|
+  | colibri | first: `rebind-port`; second: `rebind-addr` | the same runs |
+  | quic-go | both cases, both runs | both cases, both runs |
+  | ngtcp2 | both cases, both runs | first: neither; second: `rebind-addr` |
+
+  No failure is a rule colibri broke. There are two causes:
+  - The network dropped the first PATH_CHALLENGE on the new path, three times: colibri's server
+    against itself in both runs, and ngtcp2's server in the second run's `rebind-port`. Each
+    time the server was sending to the client's old address near the path's 10 Mbps, so the
+    25-packet queue was full. The next challenge was answered, and every file arrived. The
+    runner checks only the first challenge on each path, so one lost datagram fails the case.
+  - In the first run, colibri's client sent its first packet to ngtcp2's server 0.94 and 1.02
+    seconds into the capture, where against quic-go it sent at 0.73. The runner's
+    `wait-for-it.sh` polls once a second, so the first rebind came as the handshake ended. In
+    `rebind-addr` ngtcp2's server went on sending to the old address, which no longer reached
+    the client, and the handshake never finished. In `rebind-port` its first packet on the new
+    path carried no PATH_CHALLENGE.
+
+  **Resumption in the runner, 2026-09-24.** The runner's `resumption` case has the client fetch
+  one file, keep the server's session ticket, and fetch a second file on a second connection
+  that presents it. The runner fails the case if the second handshake carries a Certificate.
+  chapulin `2262eee` issues and accepts tickets in both roles (chapulin's decision 51).
+  - colibri itself needed no change. RFC 9001 §4.5 carries a NewSessionTicket in CRYPTO frames
+    after the handshake, and colibri already moved CRYPTO frames at the application level.
+  - `66dd187`: the UDP server draws its ticket key when it starts and takes its start time as
+    `seconds=<unix-seconds>`, which Rotor's instant advances (decision 63). A client given
+    `resumption` keeps the first connection's ticket and presents it once, on the second, with
+    the age RFC 9846 §4.2.11 defines. RFC 9001 §4.5 says a client "SHOULD NOT reuse tickets".
+  - chapulin fails a handshake whose ticket the server declines, so a second connection that
+    fetches its file resumed. `tools/quic_udp.sh` now runs one such resumption between two
+    colibri endpoints.
+
+  14 mutations, 14 CAUGHT: 11 by `tools/quic_udp.sh` and 3 by unit tests. The runner at
+  `740c05a`, chapulin `2262eee` built `TRUST=raw-ecdsa`, passed `resumption` in both roles
+  against colibri, quic-go and ngtcp2 on the first run.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
