@@ -35,6 +35,7 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 const assert = std.debug.assert;
 const qpack = @import("qpack");
+const round_trip = @import("qpack_vectors_round_trip.zig");
 
 const Reader = qpack.core.Reader;
 const Writer = qpack.core.Writer;
@@ -42,8 +43,8 @@ const FieldSection = qpack.http.field_section.FieldSection;
 const Decoder = qpack.decoder.Decoder;
 
 const encoded_directory = "encoded/qpack-05";
-const inputs_directory = "qifs";
-const input_extension = ".qif";
+pub const inputs_directory = "qifs";
+pub const input_extension = ".qif";
 
 /// The RFC's own examples, which the tool skips. `examples.out.220.100.1` encodes RFC 9204
 /// Appendix B, whose sections name `www.example.com`, but `draft-examples.qif` lists an earlier
@@ -55,7 +56,7 @@ const examples_name = "examples";
 const file_bytes_max = 16 << 20;
 
 /// The encoder stream's ID in the offline format.
-const encoder_stream_id: u64 = 0;
+pub const encoder_stream_id: u64 = 0;
 
 /// Room for every instruction the decoder may owe at once, each a few octets.
 const decoder_stream_room: usize = 4096;
@@ -73,7 +74,7 @@ const Failure = error{
     LineDiffers,
 };
 
-const Line = struct {
+pub const Line = struct {
     name: []const u8,
     value: []const u8,
 };
@@ -91,20 +92,29 @@ const Held = struct {
 };
 
 /// What an encoded file's name says: `<input>.out.<capacity>.<blocked streams>.<mode>`.
-const Name = struct {
+pub const Name = struct {
     input: []const u8,
     capacity: u64,
     blocked_streams: u64,
 };
 
-const Counts = struct {
+pub const Counts = struct {
     files: u64 = 0,
     sections: u64 = 0,
     lines: u64 = 0,
     blocked: u64 = 0,
     skipped: u64 = 0,
     failed: u64 = 0,
+    /// Inputs colibri's own encoder wrote and its decoder read back, and their field lines.
+    round_trips: u64 = 0,
+    round_trip_lines: u64 = 0,
+    /// Octets colibri's encoder wrote in the immediate mode, sections and encoder stream
+    /// together, at each of the round trip's four settings.
+    round_trip_octets: [round_trip_settings_count]u64 = @splat(0),
 };
+
+/// The settings `qpack_vectors_round_trip.zig` runs at.
+pub const round_trip_settings_count = 4;
 
 /// Where the last mismatch was, for the report: the section, the line, what the input listed and
 /// what the decoder produced.
@@ -118,7 +128,7 @@ const Mismatch = struct {
 var last_mismatch: Mismatch = .{};
 
 /// The decoder and the buffers it fills, placed outside any stack frame.
-var decoder: Decoder = undefined;
+pub var decoder: Decoder = undefined;
 var section: FieldSection = undefined;
 var strings: [qpack.core.constants.field_section_size_max]u8 = undefined;
 
@@ -134,8 +144,15 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("qpack-vectors: {s}\n", .{@errorName(failure)});
         std.process.exit(exit_mismatch);
     };
+    round_trip.run(init.io, init.gpa, arguments[1], &counts) catch |failure| {
+        std.debug.print("qpack-vectors: round trip: {s}\n", .{@errorName(failure)});
+        std.process.exit(exit_mismatch);
+    };
     std.debug.print("qpack-vectors: files={d} sections={d} lines={d} blocked={d} skipped={d} failed={d}\n", .{
         counts.files, counts.sections, counts.lines, counts.blocked, counts.skipped, counts.failed,
+    });
+    std.debug.print("qpack-vectors: round_trips={d} lines={d} octets={any}\n", .{
+        counts.round_trips, counts.round_trip_lines, counts.round_trip_octets,
     });
     if (counts.failed > 0) std.process.exit(exit_mismatch);
 }
@@ -203,7 +220,7 @@ fn parse_name(name: []const u8) ?Name {
 }
 
 /// The header sets of a QIF file, in order. A blank line ends a set, and a run of them ends one.
-fn parse_qif(arena: Allocator, text: []const u8) ![]const []const Line {
+pub fn parse_qif(arena: Allocator, text: []const u8) ![]const []const Line {
     var sets: std.ArrayList([]const Line) = .empty;
     var set: std.ArrayList(Line) = .empty;
     var lines = std.mem.splitScalar(u8, text, '\n');
@@ -222,7 +239,7 @@ fn parse_qif(arena: Allocator, text: []const u8) ![]const []const Line {
 }
 
 /// Decodes one encoded file and compares its sections with `expected`.
-fn run_file(arena: Allocator, encoded: []const u8, expected: []const []const Line, name: Name, counts: *Counts) !void {
+pub fn run_file(arena: Allocator, encoded: []const u8, expected: []const []const Line, name: Name, counts: *Counts) !void {
     decoder.init(.{ .max_table_capacity = name.capacity, .blocked_streams = name.blocked_streams });
     // The offline format starts the table at its maximum capacity, "for historical reasons".
     decoder.table.set_capacity(name.capacity) catch unreachable;
@@ -283,7 +300,7 @@ const Run = struct {
 
 /// Decodes one section, or answers null when its stream blocks. A decoder that owes a full queue
 /// of instructions has them written and dropped, and is asked again.
-fn decode(arena: Allocator, stream_id: u64, octets: []const u8) !?[]const Line {
+pub fn decode(arena: Allocator, stream_id: u64, octets: []const u8) !?[]const Line {
     // Bounded: once the queue is written the next call decodes or blocks.
     for (0..2) |_| {
         section.init();
@@ -298,7 +315,7 @@ fn decode(arena: Allocator, stream_id: u64, octets: []const u8) !?[]const Line {
     unreachable;
 }
 
-fn drop_decoder_stream() void {
+pub fn drop_decoder_stream() void {
     var sink: [decoder_stream_room]u8 = undefined;
     var writer = Writer.init(&sink);
     decoder.write_decoder_stream(&writer);
@@ -311,7 +328,6 @@ fn copy_lines(arena: Allocator) ![]const Line {
         const field = section.get(@intCast(index));
         line.* = .{ .name = try arena.dupe(u8, field.name), .value = try arena.dupe(u8, field.value) };
     }
-    drop_decoder_stream();
     return lines;
 }
 
@@ -337,6 +353,10 @@ fn compare(decoded: []Decoded, expected: []const []const Line, counts: *Counts) 
 }
 
 const testing = std.testing;
+
+test {
+    _ = round_trip;
+}
 
 test "an encoded file's name gives its input, capacity and blocked streams" {
     const name = parse_name("fb-req-hq.out.4096.100.1").?;
