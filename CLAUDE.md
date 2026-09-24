@@ -204,11 +204,12 @@ tree. Design §11 holds the method and the numbers.
 
 - Changing a named limit.
 - Adding a dependency. The library is meant to have none: no package, no vendored C, and no
-  allocator at all (decision 35). There are five ruled exceptions, and the library imports none:
+  allocator at all (decision 35). There are six ruled exceptions, and the library imports none:
   chapulin, which `src/testing/` links (decision 10); pepegrillo, the tooling `tools/` builds on
   (decision 36); Rotor, the loop `src/testing/`'s UDP endpoints run on (decision 58); TLC, the
-  TLA+ model checker `zig build tla` runs through pepegrillo (decision 67); and `qpackers/qifs`,
-  the QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75).
+  TLA+ model checker `zig build tla` runs through pepegrillo (decision 67); `qpackers/qifs`, the
+  QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75); and the Lean toolchain, which
+  `zig build lean` runs through pepegrillo (decision 77).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
@@ -301,6 +302,11 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   configuration says whether TLC must find its properties holding or violated, and a file in a
   model's `mutants/` must find them violated. `tools/ci.sh` runs it where Java is installed
   (decision 67).
+- Proofs: `zig build lean` builds the Lean proofs in `spec/lean/` with lake, through pepegrillo's
+  `lean` tool, and checks that the vector files the Zig tests read (such as
+  `src/qpack/insert_count_vectors.txt`) are what the proved definitions give; `zig build lean --
+  write` rewrites them. `spec/lean/lean-toolchain` pins the Lean release, which elan installs.
+  `tools/ci.sh` runs it where lake is installed (decision 77).
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
