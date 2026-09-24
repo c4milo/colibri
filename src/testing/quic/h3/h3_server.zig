@@ -221,18 +221,23 @@ const content_length_digits_max: usize = 20;
 
 const vtable: quic.stream.stream_provider.VTable = .{ .read = read_response };
 
-/// A response's octets from `offset`: its kept frames, then its content. Every call at one offset
-/// answers the same octets, which RFC 9000 §2.2 asks of a retransmission.
+/// A response's octets from `offset`: its kept frames, then its content, as many as fit. Every
+/// call at one offset answers the same octets, which RFC 9000 §2.2 asks of a retransmission.
 fn read_response(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const server: *Server = @ptrCast(@alignCast(context));
     const response = server.find(stream_id) orelse return 0;
+    var written: usize = 0;
     if (offset < response.prefix_len) {
         const from: usize = @intCast(offset);
-        const len = @min(output.len, response.prefix_len - from);
-        @memcpy(output[0..len], response.prefix[from..][0..len]);
-        return len;
+        written = @min(output.len, response.prefix_len - from);
+        @memcpy(output[0..written], response.prefix[from..][0..written]);
     }
-    const content_offset = offset - response.prefix_len;
+    if (written == output.len) return written;
+    return written + read_content(response, offset + written - response.prefix_len, output[written..]);
+}
+
+/// The response's content from `content_offset`, as much as fits.
+fn read_content(response: *const Response, content_offset: u64, output: []u8) usize {
     if (content_offset >= response.content_len) return 0;
     const room = output[0..@intCast(@min(output.len, response.content_len - content_offset))];
     return switch (response.content) {

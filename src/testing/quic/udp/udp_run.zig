@@ -64,8 +64,10 @@ var slot_busy: [constants.udp_send_slots]bool = @splat(false);
 /// Where each slot's datagram goes, which its send reads until its event (Rotor's rule 3).
 var slot_outbound: [constants.udp_send_slots]udp.Outbound = undefined;
 var events: [constants.udp_operations_max]udp.Event = undefined;
-/// Whether a connection ended on a connection error, which fails the run.
+/// Whether a connection ended on a connection error, which fails the run unless the server was
+/// asked to expect them (`errors`), and how many did.
 var connection_failed: bool = false;
+var connection_errors: u64 = 0;
 /// Files the server answered, over every connection it has ended, and the connections a ticket
 /// resumed.
 var served: u64 = 0;
@@ -230,7 +232,13 @@ fn close_on(connection: *Connection, failure: udp_peer.Error) void {
     else
         quic.error_code.internal_error;
     quic.connection_close.owe(&connection.peer.connection, quic.connection_close.transport(code, null));
-    connection_failed = true;
+    connection_errors += 1;
+    if (!expects_errors()) connection_failed = true;
+}
+
+/// Whether the server was asked to go on past a connection error (`errors`).
+fn expects_errors() bool {
+    return arguments == .server and arguments.server.errors;
 }
 
 /// Starts a connection for a client's first Initial packet (RFC 9000 §7.2) in a free entry, and
@@ -345,8 +353,14 @@ fn flush(connection: *Connection, now_ns: u64) void {
     const provider = stream_provider(connection);
     for (&slots, 0..) |*slot, index| {
         if (slot_busy[index]) continue;
-        const outgoing = (connection.peer.send(provider, slot, now_ns) catch |failure|
-            fail("the send failed: {t}", .{failure})) orelse return;
+        const outgoing = (connection.peer.send(provider, slot, now_ns) catch |failure| {
+            if (!expects_errors()) fail("the send failed: {t}", .{failure});
+            // https://github.com/c4milo/colibri/issues/59: a close the TLS stack will no longer
+            // seal cannot go out, so the connection ends here, unannounced.
+            std.debug.print("quic-udp: a send failed, and its connection ends: {t}\n", .{failure});
+            end(connection);
+            return;
+        }) orelse return;
         send_from(index, outgoing.octets, addressed(connection.outbound, outgoing));
     }
 }
@@ -414,7 +428,7 @@ pub fn outbound_to(address: udp.Address) udp.Outbound {
 
 fn report() void {
     switch (arguments) {
-        .server => std.debug.print("quic-udp: served {d} files, {d} connections resumed\n", .{ served, resumed }),
+        .server => std.debug.print("quic-udp: served {d} files, {d} connections resumed, {d} connection errors\n", .{ served, resumed, connection_errors }),
         .client => |asked| udp_run_client.report(&connections[0], asked),
     }
 }
