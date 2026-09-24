@@ -378,6 +378,12 @@ pub const stream_priority_default: u8 = 128;
 /// what recovers a tail of exactly one lost packet in one round trip rather than two.
 pub const probe_packets: u8 = 2;
 
+/// Decision 65: how many times per connection a server sends its Initial CRYPTO octets again at
+/// once, before the PTO, when its client shows it lacks them (RFC 9002 §6.2.3). §6.2.3 limits it
+/// because "An endpoint that always retransmits packets in response to receiving packets that it
+/// cannot process risks creating an infinite exchange of packets".
+pub const early_crypto_resends_max: u8 = 2;
+
 /// RFC 9002 §7.7's `N`, as a fraction: the pacing rate is `N * congestion_window / smoothed_rtt`,
 /// and §7.7 asks for an `N` that is small but at least 1, giving 1.25 as its example. Above 1 the
 /// window is not left underused when the round trip moves.

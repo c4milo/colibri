@@ -138,6 +138,21 @@ test "RFC 9000 §8.1: a processed Handshake packet validates the client's addres
     try testing.expectEqual(std.math.maxInt(u64), server.path.send_allowance());
 }
 
+test "decision 65: a client's padded Initial PING has the server send its CRYPTO octets again" {
+    open_pair(&.{.initial});
+    // The server's first flight, which the path loses.
+    provider_holder = .{ .owed = &flight, .owed_level = .initial };
+    _ = try send_from(&server);
+    try testing.expectEqual(0, server.crypto_at(.initial).unsent().len);
+    // RFC 9002 §6.2.2.1: a client whose PTO fires with no Handshake keys sends an Initial.
+    provider_holder = .{};
+    send.owe_probes(&client, .initial, 1);
+    const probe = try send_from(&client);
+    _ = try receive(&server, probe.len);
+    try testing.expectEqual(flight_len, server.crypto_at(.initial).unsent().len);
+    try testing.expectEqual(1, server.early_crypto_resends);
+}
+
 test "RFC 9000 §13.1: a packet whose frames close the connection is not recorded" {
     open_pair(&.{.handshake});
     // The client acknowledges a packet the server never sent (RFC 9000 §13.1).

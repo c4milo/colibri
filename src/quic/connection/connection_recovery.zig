@@ -134,6 +134,39 @@ fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8,
     connection_send.owe_probes(connection, level, count);
 }
 
+/// RFC 9002 §6.2.3 for a server, after one Initial packet's frames are processed.
+/// `received_len_before` is the Initial CRYPTO flow's `received_len` from before them. An
+/// ack-eliciting packet that brought no new CRYPTO octets shows the client lacks the server's
+/// own: it repeats the ClientHello, or it is the padded Initial §6.2.2.1 has a client without
+/// Handshake keys send. Decision 65 declares the server's Initial packets in flight lost, as
+/// decision 64 does on a PTO, so the next datagram carries their CRYPTO octets.
+pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, received_len_before: u64, scratch: *Scratch) Error!void {
+    if (connection.role != .server or !ack_eliciting) return;
+    // New octets are the client's own flight still arriving, which shows nothing about the
+    // server's.
+    if (connection.crypto_at(.initial).received_len() != received_len_before) return;
+    // RFC 9002 §6.2.3: "for a limited number of times per connection".
+    if (connection.early_crypto_resends == constants.early_crypto_resends_max) return;
+    // RFC 9002 §6.2.3: what is sent early is "unacknowledged CRYPTO data", so without any there
+    // is nothing to send and the limit is not spent.
+    if (!crypto_in_flight(connection, .initial)) return;
+    connection.early_crypto_resends += 1;
+    const removed = connection.recovery.declare_in_flight_lost(.initial, &scratch.lost);
+    // The list holds a whole table, so no packet is left unreported.
+    assert(removed.unwritten == 0);
+    try on_packets_lost(connection, .initial, scratch.lost[0..removed.written]);
+}
+
+/// Whether a packet in flight in `kind`'s space carries CRYPTO octets.
+fn crypto_in_flight(connection: *Connection, kind: space_module.Kind) bool {
+    var records = connection.recovery.table_of(kind).iterator();
+    // Bounded by the table, which `constants.sent_packets_max` sizes.
+    while (records.next()) |record| {
+        if (record.carries == .crypto) return true;
+    }
+    return false;
+}
+
 /// The encryption level whose packets fill `kind`'s space (RFC 9000 §12.3).
 fn level_of(kind: space_module.Kind) Level {
     return @enumFromInt(@intFromEnum(kind));
@@ -207,4 +240,5 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
 
 test {
     _ = @import("connection_recovery_test.zig");
+    _ = @import("connection_recovery_early_test.zig");
 }

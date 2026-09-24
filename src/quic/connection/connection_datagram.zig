@@ -193,6 +193,7 @@ fn process_packet(
     scratch: *Scratch,
     received: *Received,
 ) Error!void {
+    const initial_received_len = connection.crypto_at(.initial).received_len();
     const report = try frames.process(connection, opened, datagram.now_ns, &scratch.recovery);
     // RFC 9000 §13.1: "A packet MUST NOT be acknowledged until packet protection has been
     // successfully removed and all frames contained in the packet have been processed."
@@ -211,6 +212,10 @@ fn process_packet(
     // RFC 9001 §4.9.2: a client confirms the handshake on HANDSHAKE_DONE (§4.1.2), and "An
     // endpoint MUST discard its Handshake keys when the TLS handshake is confirmed".
     if (report.handshake_done) keys_module.on_handshake_confirmed(connection, suite);
+    // Decision 65: an Initial packet can show the client lacks the server's CRYPTO octets.
+    if (opened.level == .initial) {
+        try connection_recovery.on_initial_processed(connection, report.ack_eliciting, initial_received_len, &scratch.recovery);
+    }
 }
 
 /// Hands the provider what arrived and reads back what the handshake reached.

@@ -123,6 +123,9 @@ pub const Connection = struct {
     /// The probe packets RFC 9002 §6.2.4 owes at each level, which a PTO sets
     /// (`connection_send.owe_probes`) and each ack-eliciting packet at that level counts off.
     probes_owed: [core.levels_count]u8,
+    /// How many times this server has sent its Initial CRYPTO octets again before the PTO, which
+    /// decision 65 limits to `early_crypto_resends_max` (RFC 9002 §6.2.3).
+    early_crypto_resends: u8,
     /// Whether the congestion window bounded the last datagram `send` built, which RFC 9002 §7.8
     /// asks before an acknowledgment may grow the window.
     window_limited: bool,
@@ -160,6 +163,7 @@ pub const Connection = struct {
         connection.handshake_confirmed = false;
         connection.handshake_done = .{};
         connection.probes_owed = @splat(0);
+        connection.early_crypto_resends = 0;
         connection.window_limited = false;
         connection.max_data = .{};
         connection.data_blocked = .{};

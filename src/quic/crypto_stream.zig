@@ -66,6 +66,12 @@ pub const CryptoStream = struct {
         assert(stream.unsent().len == 0);
     }
 
+    /// Octets of the peer's flow received in order, whether the handshake has read them or not.
+    /// A packet that leaves it where it was brought no CRYPTO octet the handshake can use.
+    pub fn received_len(stream: *const CryptoStream) u64 {
+        return stream.base + stream.contiguous;
+    }
+
     /// Where the provider may write more of this level's flow. Empty when everything produced is
     /// still waiting to be framed, which is the window doing its job.
     pub fn send_room(stream: *CryptoStream) []u8 {
