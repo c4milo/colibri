@@ -63,7 +63,8 @@ venv/bin/python "$repository_root/tools/quic_interop/run_runner.py" -s "$peers" 
   -m >"$scratch/client.md" || status=1
 cat "$scratch/server.md" "$scratch/client.md"
 if [ "$status" -ne 0 ] && [ -n "${INTEROP_LOGS:-}" ]; then
-  cp -R "$scratch/logs-server" "$scratch/logs-client" "$INTEROP_LOGS"/ 2>/dev/null || true
+  mkdir -p "$INTEROP_LOGS"
+  cp -R "$scratch/logs-server" "$scratch/logs-client" "$INTEROP_LOGS"/
   echo "interop: logs copied to $INTEROP_LOGS"
 fi
 exit "$status"
