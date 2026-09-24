@@ -456,3 +456,30 @@ test "RFC 9000 §13.4.2.1: the markings are counted over the frame, not over one
     _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_acknowledged, &test_lost);
     try testing.expect(!test_recovery.ecn_permitted());
 }
+
+test "decision 66: a PTO takes the oldest ack-eliciting packets in flight, and no more" {
+    test_recovery.init(test_datagram_len);
+    // A packet of PADDING alone first, which carries nothing a probe could send again.
+    try test_recovery.on_packet_sent(.application, padding_only(0, test_start_ns), test_start_ns);
+    try send(.application, 1, 3, test_start_ns, test_round_trip_ns);
+    const window = test_recovery.congestion.window;
+    const taken = test_recovery.declare_oldest_lost(.application, constants.probe_packets, &test_lost);
+    try testing.expectEqual(constants.probe_packets, taken);
+    try testing.expectEqual(1, test_lost[0].number);
+    try testing.expectEqual(2, test_lost[1].number);
+    // The newest and the PADDING stay, and the timer still waits on the newest.
+    const table = test_recovery.table_of(.application);
+    try testing.expectEqual(2, table.count());
+    try testing.expect(table.remove(3) != null);
+    try testing.expect(test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
+    // RFC 9002 §6.2.4 names "an unnecessary rate reduction" as the risk, and colibri takes none.
+    try testing.expectEqual(window, test_recovery.congestion.window);
+}
+
+test "decision 66: with every ack-eliciting packet taken, the timer waits on none" {
+    test_recovery.init(test_datagram_len);
+    try send(.application, 0, 1, test_start_ns, test_round_trip_ns);
+    try testing.expectEqual(1, test_recovery.declare_oldest_lost(.application, constants.probe_packets, &test_lost));
+    try testing.expect(!test_recovery.timer.spaces[@intFromEnum(Kind.application)].ack_eliciting_in_flight);
+    try testing.expectEqual(0, test_recovery.in_flight_len());
+}

@@ -192,6 +192,32 @@ pub const Recovery = struct {
         return removed;
     }
 
+    /// Takes the `count` oldest ack-eliciting packets `kind` has in flight out of its table as
+    /// lost, writes their records into `lost`, and returns how many it took. Decision 66 does so
+    /// when a PTO fires at the application level: RFC 9002 §6.2.4 lets a sender "mark any packets
+    /// still in flight as lost", and marking the oldest alone gives each probe their frames
+    /// without sending the whole window again. As in decision 64, it is no congestion event.
+    pub fn declare_oldest_lost(recovery: *Recovery, kind: Kind, count: u8, lost: []Record) usize {
+        assert(count > 0 and count <= lost.len);
+        const table = recovery.table_of(kind);
+        var found: usize = 0;
+        var records = table.iterator();
+        // Bounded by the table, and ends once `count` are found. The walk runs from the oldest.
+        while (records.next()) |record| {
+            if (found == count) break;
+            if (!record.ack_eliciting) continue;
+            lost[found] = record;
+            found += 1;
+        }
+        // Taken after the walk, which reads the table as it was.
+        for (lost[0..found]) |record| {
+            const taken = table.remove(record.number);
+            assert(taken != null);
+        }
+        recovery.timer.spaces[@intFromEnum(kind)].ack_eliciting_in_flight = table.ack_eliciting_count() > 0;
+        return found;
+    }
+
     /// RFC 9002 Appendix B.8's `OnPacketsLost`.
     fn after_loss(recovery: *Recovery, kind: Kind, found: recovery_loss.Detected, now_ns: u64) void {
         const held = &recovery.timer.spaces[@intFromEnum(kind)];

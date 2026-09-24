@@ -319,8 +319,21 @@ test "RFC 9002 A.9, decision 59: a Probe Timeout owes probes in the space that s
     // RFC 9002 §6.2.4: two probes, because a packet is in flight.
     try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
     try testing.expectEqual(1, server.recovery.timer.pto_count);
-    // Decision 64 declares packets lost at the handshake levels alone: this one stays in flight.
+}
+
+test "decision 66: an application PTO declares the oldest packets lost, one for each probe" {
+    open_server();
+    server.path.on_datagram_received(constants.datagram_len_min);
+    server.confirm_handshake();
+    const id = try framed_stream();
+    // The stream's range went out first, then two packets of nothing a probe could carry.
+    try record_sent(.application, .stream_fin, id.value, 0, sent_at_ns);
+    for (0..constants.probe_packets) |_| try record_sent(.application, .none, 0, 0, sent_at_ns);
+    try testing.expect(try fire_loss_timer());
+    // The oldest two are lost, so the probes carry the stream's range; the newest stays.
+    try testing.expectEqual(1, server.streams.lost.count);
     try testing.expectEqual(1, server.recovery.tables[@intFromEnum(Level.application)].count());
+    try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
 }
 
 test "decision 64: a Handshake PTO declares its packets lost, and the window stays" {

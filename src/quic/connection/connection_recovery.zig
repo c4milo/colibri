@@ -121,17 +121,26 @@ pub fn on_loss_timer(connection: *Connection, now_ns: u64, scratch: *Scratch) Er
     return true;
 }
 
-/// RFC 9002 §6.2.4's probes. At the Initial and Handshake levels, decision 64 first declares the
-/// level's packets in flight lost, so the probes carry their CRYPTO octets rather than a PING.
+/// RFC 9002 §6.2.4's probes, which carry what packets declared lost here held rather than a PING.
+/// At the Initial and Handshake levels decision 64 declares every packet in flight lost, so the
+/// probes carry their CRYPTO octets. At the application level decision 66 declares the oldest
+/// ack-eliciting ones lost, one for each probe owed.
 fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch) Error!void {
     const level = level_of(kind);
-    if (level != .application) {
-        const removed = connection.recovery.declare_in_flight_lost(kind, &scratch.lost);
-        // The list holds a whole table, so no packet is left unreported.
-        assert(removed.unwritten == 0);
-        try on_packets_lost(connection, level, scratch.lost[0..removed.written]);
-    }
+    const lost_count = if (level == .application)
+        connection.recovery.declare_oldest_lost(kind, count, &scratch.lost)
+    else
+        declare_all_lost(connection, kind, scratch);
+    try on_packets_lost(connection, level, scratch.lost[0..lost_count]);
     connection_send.owe_probes(connection, level, count);
+}
+
+/// Decision 64: every packet `kind` has in flight, written into `scratch.lost`.
+fn declare_all_lost(connection: *Connection, kind: space_module.Kind, scratch: *Scratch) usize {
+    const removed = connection.recovery.declare_in_flight_lost(kind, &scratch.lost);
+    // The list holds a whole table, so no packet is left unreported.
+    assert(removed.unwritten == 0);
+    return removed.written;
 }
 
 /// RFC 9002 §6.2.3 for a server, after one Initial packet's frames are processed.
