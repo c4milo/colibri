@@ -1515,21 +1515,29 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     acknowledgment that may be lost as well.
 
 67. **TLA+ specifications, checked by the TLC model checker, check the designs colibri's protocol
-    decisions rule.** Ruled by the owner on 2026-09-23. TLC is the fourth tool colibri takes from
-    outside, beside chapulin, pepegrillo and Rotor, and like them the library never links it.
+    decisions rule.** Ruled by the owner on 2026-09-23, and amended the same day: the runner lives
+    in pepegrillo and the models in `spec/tla/`. TLC is the fourth tool colibri takes from outside,
+    beside chapulin, pepegrillo and Rotor, and like them the library never links it.
 
     The simulator runs colibri's code over seeds of random loss. Entries 64 to 66 each repaired a
     loss pattern its seeds never produced: a network that drops every packet of ACK frames alone.
     Random loss rarely drops every acknowledgment in a row. TLC explores every behavior of a
-    model, so it finds such a pattern at once. `tools/tla/ProbeTimeout.tla` models what the probes
-    of a PTO carry. With PING probes, TLC finds a lost frame never sent again. With entries 64
+    model, so it finds such a pattern at once. `spec/tla/probe_timeout/ProbeTimeout.tla` models
+    what the probes of a PTO carry. With PING probes, TLC finds a lost frame never sent again. With entries 64
     and 66, it finds every frame delivered.
 
-    `tools/tla.sh` downloads `tla2tools.jar` from tlaplus's v1.7.4 release, the last stable one,
-    once into a cache. Before each run it checks the jar against a SHA-256 pinned in the script,
+    `zig build tla` runs pepegrillo's `tla` tool, configured in `tools/tla.zig`. It fetches
+    `tla2tools.jar` from tlaplus's v1.7.4 release, the last one not marked prerelease, once into
+    pepegrillo's cache. Before each run it checks the jar against the SHA-256 `tools/tla.zig` pins,
     because the release publishes none. Each configuration names the result TLC must find. One
     that must find a violation shows the property can fail, as a mutation does for a test.
     `tools/ci.sh` runs the check where a Java runtime is installed.
+
+    The amendment makes the runner and the layout the ones every project of the owner's shares.
+    pepegrillo (entry 36) holds the runner, so no project keeps a script of its own. Each model is
+    a directory of `spec/tla/`, and Lean proofs, when colibri has any, go in `spec/lean/`. The pin
+    stayed v1.7.4: tlaplus replaced its v1.8.0 prerelease jar on 2026-09-23, so a v1.8.0 pin taken
+    earlier no longer matched what its URL served.
 
     A model is not the code. A specification states the design a decision rules, and the
     simulator and the tests check that the code does what the design says.

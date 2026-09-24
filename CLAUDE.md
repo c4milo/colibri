@@ -168,6 +168,9 @@ exists — never propose a second one.
   `tools/` holds colibri's configuration of each rule and the rules only colibri has.
 - `docs/` is the design set. `bench/` holds benchmarks with their scripts and their committed
   baselines.
+- `spec/` holds the formal specifications: one directory per TLA+ model in `spec/tla/`, and Lean
+  proofs, when there are any, in one Lean project in `spec/lean/` (decision 67). Every project
+  that uses pepegrillo keeps them this way.
 
 ## Performance
 
@@ -204,7 +207,7 @@ tree. Design §11 holds the method and the numbers.
   allocator at all (decision 35). There are four ruled exceptions, and the library imports none:
   chapulin, which `src/testing/` links (decision 10); pepegrillo, the tooling `tools/` builds on
   (decision 36); Rotor, the loop `src/testing/`'s UDP endpoints run on (decision 58); and TLC, the
-  TLA+ model checker `tools/tla.sh` runs (decision 67).
+  TLA+ model checker `zig build tla` runs through pepegrillo (decision 67).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
@@ -286,10 +289,12 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   server and as a client against each peer. It needs Docker with docker compose, `python3` and
   `tshark` from Wireshark 4.5.0 or newer. `-Dchapulin-quic-trust=raw-ecdsa` builds against such an
   object here.
-- Models: `tools/tla.sh [configuration...]` model-checks the TLA+ specifications in `tools/tla/`
-  with TLC, pinned by release and SHA-256 and cached on first use; it needs Java. The first line
-  of each `<Module>_<case>.cfg` says whether TLC must find its properties holding or violated.
-  `tools/ci.sh` runs it where Java is installed (decision 67).
+- Models: `zig build tla [-- <configuration>...]` model-checks the TLA+ specifications in
+  `spec/tla/` with TLC, through pepegrillo's `tla` tool. `tools/tla.zig` pins TLC by release and
+  SHA-256, and the jar is cached on first use; it needs Java. The first line of each
+  configuration says whether TLC must find its properties holding or violated, and a file in a
+  model's `mutants/` must find them violated. `tools/ci.sh` runs it where Java is installed
+  (decision 67).
 - Format: `zig fmt --check build.zig build src tools`.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
