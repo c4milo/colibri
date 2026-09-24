@@ -66,6 +66,8 @@ pub const Result = struct {
     adversary_dropped: u64 = 0,
     /// The instant both endpoints had confirmed the handshake, from the run's start.
     handshake_ns: u64 = 0,
+    /// How many times the server's path moved to its client's new address (RFC 9000 §9.3).
+    migrations: u64 = 0,
 };
 
 /// What the whole run counted, which the test compares across build modes and hosts.
@@ -82,6 +84,11 @@ pub const Census = struct {
     marked: u64 = 0,
     /// The longest any seed took to confirm the handshake at both endpoints.
     handshake_max_ns: u64 = 0,
+    /// Rebinds the network made, datagrams it dropped for going to a lost binding, and moves the
+    /// server made to follow.
+    rebinds: u64 = 0,
+    misrouted: u64 = 0,
+    migrations: u64 = 0,
 };
 
 /// What a run's network does beside, or instead of, its random schedule.
@@ -95,7 +102,21 @@ pub const Adversary = enum {
     /// The QUIC Interop Runner's handshakeloss network in place of the random schedule: its
     /// drop-rate scenario with `runner_drop`, `runner_drop_run_max` and `runner_delay_ns`.
     runner_handshake_loss,
+    /// The random schedule, and a NAT that gives the client a new port `rebind_after_handshake_ns`
+    /// after the handshake is confirmed and every `rebind_every_ns` after that, as the runner's
+    /// rebind-port case does. The server follows its client (RFC 9000 §9.3, decision 72).
+    rebind_port,
+    /// The same, with a new host each time too, as the runner's rebind-addr case does.
+    rebind_address,
 };
+
+/// When a rebinding run's NAT first gives the client a new binding, after the handshake is
+/// confirmed, and how often after that. A NAT drops what the server sends to a binding it has
+/// just replaced, so rebinds much closer than the round trip leave the server nothing it can
+/// reach; the interval is five of the network's longest round trips, as the runner's 5 seconds
+/// are many of its 30 ms ones.
+pub const rebind_after_handshake_ns: u64 = 50_000_000;
+pub const rebind_every_ns: u64 = 500_000_000;
 
 /// The runner's handshakeloss scenario: 30% of datagrams dropped toward each endpoint, at most 3
 /// in a row, and 15 ms each way.
@@ -159,6 +180,9 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.marked += storage.network.census.marked_congestion;
         census.adversary_dropped += result.adversary_dropped;
         census.handshake_max_ns = @max(census.handshake_max_ns, result.handshake_ns);
+        census.rebinds += storage.network.census.rebinds;
+        census.misrouted += storage.network.census.misrouted;
+        census.migrations += result.migrations;
         census.crc32 = combine(census.crc32, result);
     }
     failed_seed.* = null;
@@ -173,6 +197,7 @@ fn exercised(adversary: Adversary, census: *const Census) bool {
     return switch (adversary) {
         .none => random,
         .drop_ack_only => random and census.adversary_dropped > 0,
+        .rebind_port, .rebind_address => random and census.rebinds > 0 and census.migrations > 0,
         // The runner's scenario delays every datagram alike and marks none, so drops are all it has.
         .runner_handshake_loss => census.dropped > 0,
     };
@@ -285,4 +310,40 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
     try std.testing.expectEqual(runner_census_dropped_expected, census.dropped);
     try std.testing.expectEqual(runner_census_handshake_max_ns_expected, census.handshake_max_ns);
     try std.testing.expectEqual(runner_census_crc32_expected, census.crc32);
+}
+
+/// The rebinding checks' censuses, pinned as the lossy check's is. The server moved once for each
+/// rebind: 275 of each in the port check and 274 in the address check.
+pub const rebind_port_census_crc32_expected: u32 = 0x8344307e;
+pub const rebind_port_census_datagrams_expected: u64 = 14_207;
+pub const rebind_port_census_migrations_expected: u64 = 275;
+pub const rebind_address_census_crc32_expected: u32 = 0x3dbbd895;
+pub const rebind_address_census_datagrams_expected: u64 = 14_191;
+pub const rebind_address_census_migrations_expected: u64 = 274;
+
+/// Runs the check under `adversary` and returns its census.
+fn run_rebinding(adversary: Adversary) !Census {
+    check_storage.fault = .none;
+    check_storage.adversary = adversary;
+    var census: Census = .{};
+    var failed_seed: ?u64 = null;
+    run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
+        std.debug.print("QUIC {t} check: seed 0x{x} broke {t}, endpoint error {?}\n", .{ adversary, failed_seed orelse 0, failure, check_storage.failure });
+        return failure;
+    };
+    return census;
+}
+
+test "decision 72: a NAT that gives the client a new port leaves the server following it" {
+    const census = try run_rebinding(.rebind_port);
+    try std.testing.expectEqual(rebind_port_census_datagrams_expected, census.datagrams);
+    try std.testing.expectEqual(rebind_port_census_migrations_expected, census.migrations);
+    try std.testing.expectEqual(rebind_port_census_crc32_expected, census.crc32);
+}
+
+test "decision 72: a NAT that gives the client a new host and port leaves the server following it" {
+    const census = try run_rebinding(.rebind_address);
+    try std.testing.expectEqual(rebind_address_census_datagrams_expected, census.datagrams);
+    try std.testing.expectEqual(rebind_address_census_migrations_expected, census.migrations);
+    try std.testing.expectEqual(rebind_address_census_crc32_expected, census.crc32);
 }

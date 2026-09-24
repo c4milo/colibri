@@ -11,8 +11,11 @@
 //!   them from the suite on its own (decision 62).
 //! - It keeps the octets of the stream it sends (decision 57), and places the pool the octets it
 //!   receives wait in (decision 61).
+//! - It names each datagram's peer address, and gives colibri PATH_CHALLENGE data when the path
+//!   moves (decision 72).
 //! Everything else is one colibri call per datagram each way (decisions 59 and 60) and one per
-//! instant. It reads no clock and draws no random number (invariant 5).
+//! instant. It reads no clock and draws no random number (invariant 5): the challenge data is a
+//! count, because a simulator has no attacker to keep it from.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -84,6 +87,10 @@ pub const Endpoint = struct {
     /// Makes the client supply its stream's first octet changed, which a fault test uses to show
     /// the server's check fires (`quic_connection_check.Fault`).
     supplies_wrong_octet: bool,
+    /// How many times the path moved (RFC 9000 §9.3), and how many PATH_CHALLENGE payloads this
+    /// endpoint has drawn, which is also the next one's value.
+    migrations: u64,
+    challenges_drawn: u64,
 
     pub fn init(endpoint: *Endpoint, role: Role, now_ns: u64) void {
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
@@ -96,6 +103,8 @@ pub const Endpoint = struct {
             // Decision 68: the network carries each datagram's codepoint both ways.
             .ecn_reads = true,
             .ecn_marks = true,
+            // Decision 72: where the peer is before the network rebinds anything.
+            .peer_address = peer_address(if (role == .client) sim.network.server_address else sim.network.client_address_initial),
         });
         endpoint.provider = .{ .role = role, .suite = &endpoint.suite };
         endpoint.suite = .{};
@@ -106,6 +115,8 @@ pub const Endpoint = struct {
         endpoint.transfer_read = false;
         endpoint.transfer_len = transfer_len_default;
         endpoint.supplies_wrong_octet = false;
+        endpoint.migrations = 0;
+        endpoint.challenges_drawn = 0;
         // RFC 9001 §5.2: both endpoints derive the Initial keys from the Destination Connection ID
         // of the client's first Initial packet.
         const suite = endpoint.suite.suite();
@@ -119,18 +130,40 @@ pub const Endpoint = struct {
     }
 
     /// Takes one datagram the network delivered.
-    pub fn receive(endpoint: *Endpoint, octets: []const u8, ecn: sim.network.Ecn, now_ns: u64) Error!void {
+    pub fn receive(endpoint: *Endpoint, octets: []const u8, ecn: sim.network.Ecn, from: sim.network.Address, now_ns: u64) Error!void {
         assert(octets.len <= endpoint.received.len);
         @memcpy(endpoint.received[0..octets.len], octets);
         const received = try quic.connection_datagram.receive(
             &endpoint.connection,
             endpoint.suite.suite(),
             endpoint.provider.provider(),
-            .{ .octets = endpoint.received[0..octets.len], .now_ns = now_ns, .ecn = space_ecn(ecn) },
+            .{ .octets = endpoint.received[0..octets.len], .now_ns = now_ns, .ecn = space_ecn(ecn), .from = peer_address(from) },
             &endpoint.scratch,
         );
+        if (received.migrated) endpoint.answer_move();
         if (received.completed_streams > 0) endpoint.transfer_done = true;
         if (endpoint.connection.role == .server) try endpoint.read_transfer();
+    }
+
+    /// Decision 72: the path moved, so colibri owes PATH_CHALLENGE frames whose data the caller
+    /// gives.
+    fn answer_move(endpoint: *Endpoint) void {
+        endpoint.migrations += 1;
+        var data: quic.connection_migration.ChallengeData = undefined;
+        // Bounded by the attempts one challenge holds, a named limit.
+        for (&data.new_path) |*payload| payload.* = endpoint.draw_challenge();
+        data.previous_path = endpoint.draw_challenge();
+        quic.connection_migration.challenge(&endpoint.connection, data);
+    }
+
+    /// The next PATH_CHALLENGE payload: the count drawn so far, in network byte order. RFC 9000
+    /// §8.2.1 wants the data unpredictable to an attacker, and a simulator has none, so distinct
+    /// is all it needs.
+    fn draw_challenge(endpoint: *Endpoint) [quic.constants.path_challenge_len]u8 {
+        var payload: [quic.constants.path_challenge_len]u8 = undefined;
+        std.mem.writeInt(u64, &payload, endpoint.challenges_drawn, .big);
+        endpoint.challenges_drawn += 1;
+        return payload;
     }
 
     /// The server reads what has arrived of the client's stream, and checks each octet against
@@ -245,6 +278,17 @@ pub fn network_ecn(ecn: quic.connection_send.Ecn) sim.network.Ecn {
         .ect_1 => .ect_1,
         .ecn_ce => .ecn_ce,
     };
+}
+
+/// The network's address as colibri names a peer's (decision 72): the host as one octet.
+pub fn peer_address(address: sim.network.Address) quic.peer_address.PeerAddress {
+    return quic.peer_address.PeerAddress.of(&.{address.host}, address.port);
+}
+
+/// The address colibri named for a datagram, as the network carries it.
+pub fn network_address(address: quic.peer_address.PeerAddress) sim.network.Address {
+    assert(address.len == 1);
+    return .{ .host = address.octets[0], .port = address.port };
 }
 
 /// The network's ECN codepoint as the receive path names it (RFC 9000 §13.4).

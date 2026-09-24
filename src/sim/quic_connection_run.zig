@@ -61,7 +61,11 @@ fn apply_fault(storage: *Storage) void {
 /// sender's window never grows, so only a stream that small can arrive before the idle timeout,
 /// whatever the probes carry. It is the request the QUIC Interop Runner's client lost.
 fn apply_adversary(storage: *Storage) void {
-    if (storage.adversary == .none) return;
+    switch (storage.adversary) {
+        // A rebind wants the stream long enough that the client is still sending when it lands.
+        .none, .rebind_port, .rebind_address => return,
+        .drop_ack_only, .runner_handshake_loss => {},
+    }
     // Bounded by the two sides.
     for (&storage.endpoints) |*endpoint| endpoint.transfer_len = quic_endpoint.request_len;
 }
@@ -69,7 +73,17 @@ fn apply_adversary(storage: *Storage) void {
 /// The runner's scenario when the run asks for it (`check.Adversary.runner_handshake_loss`), and
 /// a schedule drawn for the seed otherwise.
 fn schedule_of(adversary: check.Adversary, random: *Random) Schedule {
-    if (adversary != .runner_handshake_loss) return draw_schedule(random);
+    switch (adversary) {
+        .none, .drop_ack_only => return draw_schedule(random),
+        // The first rebind is set once the handshake is confirmed (`Run.note_handshake`).
+        .rebind_port, .rebind_address => {
+            var drawn = draw_schedule(random);
+            drawn.rebind_every_ns = check.rebind_every_ns;
+            drawn.rebind_host = adversary == .rebind_address;
+            return drawn;
+        },
+        .runner_handshake_loss => {},
+    }
     return .{
         .drop = check.runner_drop,
         .drop_run_max = check.runner_drop_run_max,
@@ -134,7 +148,7 @@ const Run = struct {
         for (0..constants.network_in_flight_max) |_| {
             const delivery = run.storage.network.receive(run.now_ns, side) orelse return;
             run.storage.histories[@intFromEnum(side)].on_received(delivery.octets.len);
-            endpoint.receive(delivery.octets, delivery.ecn, run.now_ns) catch |failure| return run.fail(failure);
+            endpoint.receive(delivery.octets, delivery.ecn, delivery.from_address, run.now_ns) catch |failure| return run.fail(failure);
         }
     }
 
@@ -160,7 +174,9 @@ const Run = struct {
                 run.result.adversary_dropped += 1;
                 continue;
             }
-            if (run.storage.network.send(run.now_ns, side, octets, run.carried_ecn(&sent)) == .no_slot) return Violation.NetworkFull;
+            // Decision 72: the datagram goes where colibri named, which a rebind may have left.
+            const to = quic_endpoint.network_address(sent.to);
+            if (run.storage.network.send_to(run.now_ns, side, octets, run.carried_ecn(&sent), to) == .no_slot) return Violation.NetworkFull;
         }
         return Violation.SendsExhausted;
     }
@@ -175,7 +191,7 @@ const Run = struct {
     /// Whether the run's adversary drops the datagram `sent` describes (`check.Adversary`).
     fn adversary_drops(run: *const Run, sent: *const quic.connection_send.Sent) bool {
         switch (run.storage.adversary) {
-            .none, .runner_handshake_loss => return false,
+            .none, .runner_handshake_loss, .rebind_port, .rebind_address => return false,
             .drop_ack_only => {
                 // Bounded by the levels a datagram coalesces.
                 for (sent.written()) |packet| {
@@ -193,6 +209,10 @@ const Run = struct {
         const server = &run.storage.endpoints[@intFromEnum(Side.server)];
         if (!client.connection.handshake_confirmed or !server.connection.handshake_confirmed) return;
         run.result.handshake_ns = run.now_ns - check.start_ns;
+        // RFC 9000 §9: "The design of QUIC relies on endpoints retaining a stable address for
+        // the duration of the handshake", so a rebinding run starts rebinding after it.
+        const rebinding = run.storage.adversary == .rebind_port or run.storage.adversary == .rebind_address;
+        if (rebinding) run.storage.network.next_rebind_ns = run.now_ns + check.rebind_after_handshake_ns;
     }
 
     /// The run is over once both endpoints have confirmed the handshake, the client's stream has
@@ -233,6 +253,7 @@ const Run = struct {
         result.octets_crc32 = run.digest.final();
         const client = &run.storage.endpoints[@intFromEnum(Side.client)];
         result.round_trip_ns = client.connection.recovery.rtt.smoothed_ns;
+        result.migrations = run.storage.endpoints[@intFromEnum(Side.server)].migrations;
         return result;
     }
 };

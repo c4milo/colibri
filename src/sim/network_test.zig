@@ -232,3 +232,38 @@ fn drain_endpoint(now_ns: u64, to: Endpoint) void {
 /// several are in flight at once and reordering has room to happen. Test-only.
 const test_replay_datagrams = 200;
 const test_replay_step_ns = 2_000_000;
+
+/// When the tests' rebinds fall, and how far apart. Test-only.
+const rebind_at_ns: u64 = 100;
+const rebind_every_ns: u64 = 50;
+
+test "a rebind moves the client's port, and a datagram to the old binding is dropped" {
+    test_network.init(0, .{ .rebind_first_ns = rebind_at_ns, .rebind_every_ns = rebind_every_ns, .delay_min_ns = 1, .delay_max_ns = 1 });
+    const before = test_network.address_of(.client);
+    try send_ok(0, "early");
+    try testing.expect(test_network.receive(1, .server).?.from_address.eql(before));
+    // The first rebind is due: the client's next datagram leaves from its new binding.
+    try send_ok(rebind_at_ns, "late");
+    const after = test_network.receive(rebind_at_ns + 1, .server).?.from_address;
+    try testing.expectEqual(before.host, after.host);
+    try testing.expect(after.port != before.port);
+    // The server's datagram to the binding the client lost goes nowhere.
+    try testing.expectEqual(Sent.misrouted, test_network.send_to(rebind_at_ns, .server, "lost", .not_ect, before));
+    try testing.expectEqual(Sent.queued, test_network.send_to(rebind_at_ns, .server, "found", .not_ect, after));
+    try testing.expectEqual(1, test_network.census.misrouted);
+    // Three rebinds due at one instant are three, whenever the network is next asked.
+    try send_ok(rebind_at_ns + 3 * rebind_every_ns, "later");
+    try testing.expectEqual(4, test_network.census.rebinds);
+}
+
+test "rebind_host moves the client's host along with its port" {
+    test_network.init(0, .{ .rebind_first_ns = rebind_at_ns, .rebind_host = true, .delay_min_ns = 1, .delay_max_ns = 1 });
+    const before = test_network.address_of(.client);
+    try send_ok(rebind_at_ns, "moved");
+    const after = test_network.receive(rebind_at_ns + 1, .server).?.from_address;
+    try testing.expect(after.host != before.host);
+    try testing.expect(after.port != before.port);
+    // With no interval the rebind happens once.
+    try send_ok(rebind_at_ns * 3, "still");
+    try testing.expectEqual(1, test_network.census.rebinds);
+}

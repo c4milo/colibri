@@ -163,6 +163,13 @@ pub const network_in_flight_max: u32 = 64;
 pub const network_delay_min_ns: u64 = 5_000_000;
 pub const network_delay_max_ns: u64 = 45_000_000;
 
+/// The two endpoints' addresses before any rebind (`network.Address`). Only equality is ever
+/// asked of them, so any distinct values serve.
+pub const network_client_host: u8 = 1;
+pub const network_server_host: u8 = 2;
+pub const network_client_port: u16 = 50_000;
+pub const network_server_port: u16 = 443;
+
 /// The network check of design §8 step 8 (`network_check.zig`).
 ///
 /// Packets one seed sends, the interval between them, and the longest payload. The interval is a
