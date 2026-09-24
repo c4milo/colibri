@@ -9,8 +9,10 @@
 //! send's event (Rotor's rule 3), so each is built in a slot of its own, and a datagram Rotor has
 //! no room for is one lost on the way, which RFC 9002 recovers.
 //!
-//! A server holds up to `quic_connections_max` connections, so one whose close was lost does not
-//! turn the next client away while it waits out its idle timeout. A client holds one.
+//! A server holds as many connections as its `connections=<n>` option asks, up to
+//! `quic_connections_max`, so a client that opens many at once is served, and one whose close was
+//! lost does not turn the next client away while it waits out its idle timeout. A client holds
+//! one.
 const std = @import("std");
 const quic = @import("quic");
 const constants = @import("../../constants.zig");
@@ -40,6 +42,8 @@ const Connection = struct {
 
 var memory: udp.Memory = undefined;
 var socket: udp.Endpoint = undefined;
+/// Sized for the most a server may hold, because `src/` has no heap (CLAUDE.md non-negotiable 4).
+/// `table` is the part in use.
 var connections: [constants.quic_connections_max]Connection = undefined;
 var client: hq_client.Client = undefined;
 var arguments: udp_arguments.Arguments = undefined;
@@ -102,7 +106,7 @@ fn run() void {
         const ready = socket.tick(&events, wait_ns()) catch |failure| fail("the tick failed: {t}", .{failure});
         const now_ns = socket.now_ns();
         for (ready) |event| on_event(event, now_ns);
-        for (&connections) |*connection| {
+        for (table()) |*connection| {
             if (connection.live) turn(connection, now_ns);
         }
         if (finished()) return;
@@ -124,7 +128,7 @@ fn turn(connection: *Connection, now_ns: u64) void {
 fn wait_ns() u64 {
     const now_ns = socket.now_ns();
     var wait = constants.quic_tick_wait_ns_max;
-    for (&connections) |*connection| {
+    for (table()) |*connection| {
         if (!connection.live) continue;
         const deadline_ns = connection.peer.deadline_ns() orelse continue;
         wait = @min(wait, deadline_ns -| now_ns);
@@ -151,6 +155,14 @@ fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     udp_identity.write_keylog();
 }
 
+/// The entries in use: as many as the server's `connections=<n>` option asks, or a client's one.
+fn table() []Connection {
+    return switch (arguments) {
+        .server => |asked| connections[0..asked.connections],
+        .client => connections[0..1],
+    };
+}
+
 /// The live connection a datagram belongs to. RFC 9000 §5.2 matches it by its Destination
 /// Connection ID and not by the sender's address: a client that reuses a port for its next
 /// connection sends from the address of the last. A client's one connection takes every
@@ -158,7 +170,7 @@ fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
 fn connection_for(datagram: []const u8) ?*Connection {
     if (arguments == .client) return if (connections[0].live) &connections[0] else null;
     const dcid = udp_peer.destination_of(datagram, udp_identity.id_len) orelse return null;
-    for (&connections) |*connection| {
+    for (table()) |*connection| {
         if (connection.live and connection.peer.connection.addressed_by(dcid)) return connection;
     }
     return null;
@@ -199,7 +211,7 @@ fn accept(delivery: udp.Delivery, now_ns: u64) ?*Connection {
 /// for longest is that one: giving it up is what lets the next client in.
 fn free_connection() ?*Connection {
     var idlest: ?*Connection = null;
-    for (&connections) |*connection| {
+    for (table()) |*connection| {
         if (!connection.live) return connection;
         const since_ns = connection.peer.connection.termination.idle_since_ns;
         if (idlest == null or since_ns < idlest.?.peer.connection.termination.idle_since_ns) idlest = connection;
@@ -267,7 +279,7 @@ fn finished() bool {
         .client => return connections[0].peer.connection.termination.state != .active,
         .server => |asked| {
             var ended = false;
-            for (&connections) |*connection| {
+            for (table()) |*connection| {
                 if (!connection.live or !connection.peer.is_closed()) continue;
                 connection.live = false;
                 served += connection.server.served;

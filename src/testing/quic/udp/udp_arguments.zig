@@ -1,10 +1,12 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
-//!     quic-udp server <ipv4> <port> <identity-prefix> <www> [once]
+//!     quic-udp server <ipv4> <port> <identity-prefix> <www> [once] [connections=<n>]
 //!     quic-udp client <ipv4> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> <path>...
 //!
-//! The server binds `<ipv4>:<port>` and serves `<www>`, and with `once` it exits when its first
-//! connection ends. The client sends to `<ipv4>:<port>` and fetches each path into `<downloads>`.
+//! The server binds `<ipv4>:<port>` and serves `<www>`. With `once` it exits when its first
+//! connection ends, and `connections=<n>` holds at most n connections at once, from 1 to
+//! `quic_connections_max`, which is also the count without it. The client sends to
+//! `<ipv4>:<port>` and fetches each path into `<downloads>`.
 //! The instant is a clock the command line cannot give, so it comes from Rotor (decision 63); the
 //! Unix seconds are the certificate check's, which the caller reads (non-negotiable 3).
 const std = @import("std");
@@ -20,7 +22,9 @@ pub const Server = struct {
     /// The prefix of the files `tools/h2_interop/tls_identity.go` wrote.
     identity_prefix: []const u8,
     www: []const u8,
-    once: bool,
+    once: bool = false,
+    /// The connections the server holds at once.
+    connections: usize = constants.quic_connections_max,
 };
 
 pub const Client = struct {
@@ -52,15 +56,43 @@ pub fn parse(init: std.process.Init.Minimal) Arguments {
     const address = parse_ipv4(arguments.next() orelse usage()) orelse usage();
     const port = std.fmt.parseUnsigned(u16, arguments.next() orelse usage(), decimal) catch usage();
     return switch (role) {
-        .server => .{ .server = .{
-            .address = address,
-            .port = port,
-            .identity_prefix = arguments.next() orelse usage(),
-            .www = arguments.next() orelse usage(),
-            .once = if (arguments.next()) |word| std.mem.eql(u8, word, "once") else false,
-        } },
+        .server => .{ .server = parse_server(&arguments, address, port) },
         .client => .{ .client = parse_client(&arguments, address, port) },
     };
+}
+
+fn parse_server(arguments: *std.process.Args.Iterator, address: [ipv4_octets]u8, port: u16) Server {
+    var server: Server = .{
+        .address = address,
+        .port = port,
+        .identity_prefix = arguments.next() orelse usage(),
+        .www = arguments.next() orelse usage(),
+    };
+    // Bounded by the options there are, each of which may appear once.
+    for (0..server_options_count) |_| {
+        const word = arguments.next() orelse return server;
+        if (std.mem.eql(u8, word, "once")) {
+            server.once = true;
+        } else {
+            server.connections = parse_connections(word) orelse usage();
+        }
+    }
+    if (arguments.next() != null) usage();
+    return server;
+}
+
+/// `once` and `connections=<n>`.
+const server_options_count: usize = 2;
+
+const connections_prefix = "connections=";
+
+/// The count of `connections=<n>`, or null for any other word, or for a count the table cannot
+/// hold: from 1 to `quic_connections_max`.
+fn parse_connections(word: []const u8) ?usize {
+    if (!std.mem.startsWith(u8, word, connections_prefix)) return null;
+    const count = std.fmt.parseUnsigned(usize, word[connections_prefix.len..], decimal) catch return null;
+    if (count == 0 or count > constants.quic_connections_max) return null;
+    return count;
 }
 
 fn parse_client(arguments: *std.process.Args.Iterator, address: [ipv4_octets]u8, port: u16) Client {
@@ -103,7 +135,7 @@ fn parse_ipv4(text: []const u8) ?[ipv4_octets]u8 {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <ipv4> <port> <identity-prefix> <www> [once]\n" ++
+        "usage: quic-udp server <ipv4> <port> <identity-prefix> <www> [once] [connections=<n>]\n" ++
             "       quic-udp client <ipv4> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> <path>...\n",
         .{},
     );
@@ -117,4 +149,16 @@ test "an IPv4 address is four decimal octets" {
     try testing.expectEqual(null, parse_ipv4("127.0.0"));
     try testing.expectEqual(null, parse_ipv4("127.0.0.1.1"));
     try testing.expectEqual(null, parse_ipv4("256.0.0.1"));
+}
+
+test "a server holds from 1 to quic_connections_max connections, and names the count in one word" {
+    try testing.expectEqual(1, parse_connections("connections=1").?);
+    const most = std.fmt.comptimePrint("connections={d}", .{constants.quic_connections_max});
+    const too_many = std.fmt.comptimePrint("connections={d}", .{constants.quic_connections_max + 1});
+    try testing.expectEqual(constants.quic_connections_max, parse_connections(most).?);
+    try testing.expectEqual(null, parse_connections(too_many));
+    try testing.expectEqual(null, parse_connections("connections=0"));
+    try testing.expectEqual(null, parse_connections("connections="));
+    try testing.expectEqual(null, parse_connections("connection=4"));
+    try testing.expectEqual(null, parse_connections("once"));
 }

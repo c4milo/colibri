@@ -233,10 +233,11 @@ pub const hq_refused_error_code: u64 = 0;
 /// its receive.
 pub const udp_send_slots: usize = udp_operations_max - 1;
 
-/// Connections one UDP QUIC server holds at once. The QUIC Interop Runner's handshake loss case
-/// opens one after another, and a connection whose close was lost lingers until its idle timeout,
-/// so a server must take the next while the last is still open.
-pub const quic_connections_max: usize = 4;
+/// Connections one UDP QUIC server can hold at once, which sizes its static table. The server's
+/// `connections=<n>` option holds fewer. The QUIC Interop Runner's handshake loss case opens 50
+/// connections, and quinn's client opens all 50 at once. A connection whose close was lost also
+/// lingers until its idle timeout (RFC 9000 §10.1), so the table holds more than the case opens.
+pub const quic_connections_max: usize = 64;
 
 /// The longest one tick of a UDP QUIC endpoint waits. A connection's next deadline is usually
 /// sooner, and a wait this short keeps a lost wakeup cheap.
