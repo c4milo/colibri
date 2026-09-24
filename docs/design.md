@@ -2610,6 +2610,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   colibri against itself first failed DC, C20 and M, while other Docker containers were compiling
   on the same machine: the runner's 60-second limit ran out. Run again alone, all three passed.
 
+  **Retry as a server, 2026-09-23.** Decision 55, amended (`aa0b37a`), has a Retry token carry the
+  client's first Destination Connection ID and the Retry's Source Connection ID, which RFC 9000 §7.3
+  has the server send back and which a server that keeps no state has nowhere else.
+  - `28375bb`: `retry_token_check` replaces `retry_token_valid` and gives both IDs back. A token
+    returned to an ID its Retry did not name is invalid (§17.2.5.2), a token of another type is no
+    token (§8.1.3), and a server routes the client's next Initial by the Retry's ID. 11
+    mutations, 11 CAUGHT.
+  - `f4f4ad0`: the UDP server's `retry` option answers each client's first Initial with a Retry
+    whose token chapulin mints (`cc88adb`) under a key drawn per run. It starts a connection only
+    for an Initial that returns the token, and derives its Initial keys from the Retry's ID
+    (§17.2.5.2). 9 mutations, 9 CAUGHT: 7 by unit tests, and 2 by the runner's retry case.
+
+  The runner at `740c05a`, colibri at `f4f4ad0`, chapulin `cc88adb` built `TRUST=raw-ecdsa`: retry
+  and handshake pass with colibri as the server against quic-go, ngtcp2, neqo, quinn and colibri,
+  and as the client against the four. The loopback, UDP and aioquic checks pass over chapulin
+  `992043f`, which fixed the `TRUST=webpki` QUIC build `756ad91` had broken.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
