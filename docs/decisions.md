@@ -1894,3 +1894,49 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Generating the Zig function from Lean. It would put a second implementation in the build,
       and the Zig code would stop being the one people read and review.
     - Proving the Zig code itself. There is no verifier for Zig.
+
+78. **colibri reports how far a stream's octets are acknowledged from its start.** Ruled by the
+    owner on 2026-09-24, for design §8 step 12. It amends entry 57, which said colibri reports no
+    acknowledged prefix.
+
+    h3 writes three streams of its own that never end: its control stream (RFC 9114 §6.2.1) and
+    QPACK's encoder and decoder streams (RFC 9204 §4.2). Closing any of them is a connection
+    error. Entry 57 lets a caller drop a stream's octets only once the stream reaches "Data
+    Recvd" or is reset, and these three do neither. So every octet h3 writes on them would stay
+    in memory for the whole connection, and the encoder stream grows with every insert.
+
+    `connection_stream_acknowledged.acknowledged_end(connection, id)` returns the offset below
+    which the peer has acknowledged every octet of the stream, and the caller may drop those
+    octets. It keeps no new state. Each framed octet sits in one packet in flight, in the lost
+    table, or is acknowledged (invariant 29). So the answer is the lowest offset that an
+    in-flight record or a lost range of the stream holds, or the end of what was framed when
+    neither holds any. It scans the application space's sent records and the lost table, at most
+    `sent_packets_max` and `stream_lost_ranges_max` entries, and a caller asks only when it needs
+    room. Entry 57 refused per-stream bookkeeping of acknowledged ranges, and this adds none.
+
+    The alternatives refused:
+    - Emptying h3's storage for a stream only when everything framed on it is acknowledged, which
+      the existing count shows. Under steady load something is always in flight, so a full
+      buffer would stop inserts and acknowledgments for up to a round trip.
+    - A static-table-only h3: a QPACK table capacity of 0 advertised, and an encoder that stops
+      inserting after a fixed budget. It needs nothing from `quic`, but no peer could use a
+      dynamic table toward colibri.
+
+79. **h3 keeps the octets of its own three streams, and the caller keeps every request stream's.**
+    Ruled by the owner on 2026-09-24, for design §8 step 12. Entry 57 left the octets h3 writes
+    itself for h3 to settle.
+    - The control stream and QPACK's encoder and decoder streams are h3's. It writes them and
+      holds each in a fixed ring on the h3 connection. It reuses the part below the stream's
+      acknowledged end (entry 78). A ring with no room never drops an octet. The encoder then
+      does not insert, and the decoder holds the instructions it owes, as entry 74 has it.
+    - A request stream's octets are the caller's: the HEADERS frame, each DATA frame's header, and
+      the body. h3 writes the frames' octets into the caller's buffer, as `h2`'s write path does.
+      The caller keeps them with the body until the stream reaches "Data Recvd" or is reset. h3
+      keeps nothing per request stream but its state.
+    - h3 hands `quic` one stream provider. It answers h3's three streams from the rings and
+      passes every other stream to the caller's provider.
+
+    The alternative refused: h3 keeps the frame octets of each request stream and asks the
+    caller's provider for body octets only. The caller's provider is simpler. But h3 would then
+    hold up to one encoded field section per open stream, `field_section_size_max` octets each,
+    in memory decision 35 counts.
