@@ -121,11 +121,24 @@ pub fn on_loss_timer(connection: *Connection, now_ns: u64, scratch: *Scratch) Er
     return true;
 }
 
-/// RFC 9002 §6.2.4's probes, which carry what packets declared lost here held rather than a PING.
-/// At the Initial and Handshake levels decision 64 declares every packet in flight lost, so the
-/// probes carry their CRYPTO octets. At the application level decision 66 declares the oldest
-/// ack-eliciting ones lost, one for each probe owed.
+/// RFC 9002 §6.2.4's probes: `count` in the space whose timer expired, and one in each other
+/// space with ack-eliciting packets in flight (decision 70), which `send` coalesces.
 fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch) Error!void {
+    try owe_probes(connection, kind, count, scratch);
+    // Bounded by the three spaces of RFC 9000 §12.3.
+    for (std.enums.values(space_module.Kind)) |other| {
+        // RFC 9002 §6.2.4: "the sender SHOULD send ack-eliciting packets from other packet number
+        // spaces with in-flight data, coalescing packets if possible."
+        if (other == kind or connection.recovery.table_of(other).ack_eliciting_count() == 0) continue;
+        try owe_probes(connection, other, 1, scratch);
+    }
+}
+
+/// Probes that carry what packets declared lost here held rather than a PING. At the Initial and
+/// Handshake levels decision 64 declares every packet in flight lost, so the probes carry their
+/// CRYPTO octets. At the application level decision 66 declares the oldest ack-eliciting ones
+/// lost, one for each probe owed.
+fn owe_probes(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch) Error!void {
     const level = level_of(kind);
     const lost_count = if (level == .application)
         connection.recovery.declare_oldest_lost(kind, count, &scratch.lost)
@@ -148,8 +161,9 @@ fn declare_all_lost(connection: *Connection, kind: space_module.Kind, scratch: *
 /// ack-eliciting packet that brought no new CRYPTO octets shows the client lacks the server's
 /// own: it repeats the ClientHello, or it is the padded Initial §6.2.2.1 has a client without
 /// Handshake keys send. Decision 65 declares the server's Initial packets in flight lost, as
-/// decision 64 does on a PTO, so the next datagram carries their CRYPTO octets.
-pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, received_len_before: u64, scratch: *Scratch) Error!void {
+/// decision 64 does on a PTO, so the next datagram carries their CRYPTO octets. `now_ns` is the
+/// instant the packet arrived, which decision 71 spaces the resends by.
+pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, received_len_before: u64, now_ns: u64, scratch: *Scratch) Error!void {
     if (connection.role != .server or !ack_eliciting) return;
     // New octets are the client's own flight still arriving, which shows nothing about the
     // server's.
@@ -159,7 +173,13 @@ pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, receiv
     // RFC 9002 §6.2.3: what is sent early is "unacknowledged CRYPTO data", so without any there
     // is nothing to send and the limit is not spent.
     if (!crypto_in_flight(connection, .initial)) return;
+    // Decision 71: a client's PTO sends its two probes at once, and a resend for each would put
+    // both inside one burst of loss. The next waits a PTO, without backoff or max_ack_delay,
+    // which RFC 9002 §6.2.1 leaves out at the Initial level.
+    const spacing_ns = connection.recovery.rtt.probe_timeout_ns(false);
+    if (connection.early_crypto_resends > 0 and now_ns -| connection.early_crypto_resent_at_ns < spacing_ns) return;
     connection.early_crypto_resends += 1;
+    connection.early_crypto_resent_at_ns = now_ns;
     const removed = connection.recovery.declare_in_flight_lost(.initial, &scratch.lost);
     // The list holds a whole table, so no packet is left unreported.
     assert(removed.unwritten == 0);

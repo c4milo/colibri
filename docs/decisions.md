@@ -1513,6 +1513,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Two alternatives were refused. One resend, the RFC's example, leaves nothing when that resend
     is lost too. Resending on every such packet, with no limit, is the exchange §6.2.3 warns of.
 
+    Decision 71 amends this entry: the second resend waits until one PTO has passed since the
+    first.
+
 66. **A PTO at the application level declares the oldest ack-eliciting packets in flight lost, as
     many as the probes it owes, so the probes carry what those packets held.** Ruled by the owner
     on 2026-09-23. It extends entry 64 to the application level with a bound.

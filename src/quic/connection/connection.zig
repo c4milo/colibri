@@ -133,6 +133,8 @@ pub const Connection = struct {
     /// How many times this server has sent its Initial CRYPTO octets again before the PTO, which
     /// decision 65 limits to `early_crypto_resends_max` (RFC 9002 §6.2.3).
     early_crypto_resends: u8,
+    /// The instant of the last of those resends, which decision 71 spaces the next one from.
+    early_crypto_resent_at_ns: u64,
     /// Whether the congestion window bounded the last datagram `send` built, which RFC 9002 §7.8
     /// asks before an acknowledgment may grow the window.
     window_limited: bool,
@@ -177,6 +179,7 @@ pub const Connection = struct {
         connection.handshake_done = .{};
         connection.probes_owed = @splat(0);
         connection.early_crypto_resends = 0;
+        connection.early_crypto_resent_at_ns = 0;
         connection.window_limited = false;
         connection.pacing_limited = false;
         connection.max_data = .{};

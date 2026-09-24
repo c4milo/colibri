@@ -2896,9 +2896,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   against colibri and ngtcp2, and with `fbe9311` `tools/quic_udp.sh` on macOS received 2,793
   datagrams ECT(0) and 67 Not-ECT, the client's path ending capable.
 
-  **Still owed:** `handshakeloss` between two colibri endpoints. It failed one run on
-  2026-09-23: a burst of loss dropped every copy of the server's first flight, and decision 65's
-  two early resends went out 6 ms apart, inside the same burst.
+  **`handshakeloss` between two colibri endpoints, 2026-09-24.** It failed one run on 2026-09-23.
+  The datagram carrying the server's ServerHello was lost. Decision 65's two early resends went
+  out 6 ms apart and were lost together. The server's Handshake probes then reached a client with
+  no Handshake keys.
+  - `65a0857`: the simulator can run the runner's drop-rate network, 30% of datagrams lost each
+    way and at most three in a row, and times each handshake. Over 2,000 seeds one handshake took
+    43 seconds, and 11 took 16 seconds or more.
+  - [Decision 70](decisions.md): a PTO also probes every other space with ack-eliciting packets
+    in flight (RFC 9002 §6.2.4), so a lost ServerHello goes out again with the Handshake probes.
+    Over the same 2,000 seeds the slowest handshake took 34 seconds, and 3 took 16 or more.
+  - [Decision 71](decisions.md): the second early resend waits one PTO after the first. The
+    simulator cannot show this, because it delivers every datagram due at one instant before
+    either endpoint sends.
+
+  7 mutations, 7 CAUGHT. The census of the QUIC check is now 13,259 datagrams, 13,338 packets,
+  686 dropped and 486 marked, crc32 `0x686522e4`; the adversary check's is 5,126 datagrams and
+  1,678 dropped by the adversary; and the runner check's 256 seeds are 4,150 datagrams with the
+  slowest handshake at 8.4 seconds. Each in Debug and in ReleaseSafe on macOS arm64.
+
+  The runner at `740c05a` then passed `handshakeloss` and `transferloss` with colibri against
+  itself, and in both roles against quic-go and ngtcp2. colibri against itself passed
+  `handshakeloss` five more times in a row. With that, every runner case this step names passes.
 
 - **Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
   zero and a static-only encoder is legal and useful; then the dynamic table with the encoder and

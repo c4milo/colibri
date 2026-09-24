@@ -27,11 +27,11 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0x1ce9af4a;
-pub const census_datagrams_expected: u64 = 13_215;
-pub const census_packets_expected: u64 = 13_242;
-pub const census_dropped_expected: u64 = 662;
-pub const census_marked_expected: u64 = 487;
+pub const census_crc32_expected: u32 = 0x686522e4;
+pub const census_datagrams_expected: u64 = 13_259;
+pub const census_packets_expected: u64 = 13_338;
+pub const census_dropped_expected: u64 = 686;
+pub const census_marked_expected: u64 = 486;
 
 /// How a seed failed.
 pub const Violation = quic_invariants.Violation || error{
@@ -246,9 +246,9 @@ test "each way the driver fails is reported, so no report of it is unproved" {
 }
 
 /// The adversary check's census, pinned as the lossy check's is.
-pub const adversary_census_crc32_expected: u32 = 0x33ea6f22;
-pub const adversary_census_datagrams_expected: u64 = 5_179;
-pub const adversary_census_dropped_expected: u64 = 1_685;
+pub const adversary_census_crc32_expected: u32 = 0x989caf91;
+pub const adversary_census_datagrams_expected: u64 = 5_126;
+pub const adversary_census_dropped_expected: u64 = 1_678;
 
 test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
     check_storage.fault = .none;
@@ -266,10 +266,11 @@ test "decisions 64 and 66: a network that drops every datagram of ACK frames alo
 
 /// The runner check's census, pinned as the lossy check's is. `handshake_max_ns` is the slowest
 /// seed's handshake, which the doubling Probe Timeout of RFC 9002 §6.2.1 sets under this loss.
-pub const runner_census_crc32_expected: u32 = 0xa9a60cac;
-pub const runner_census_datagrams_expected: u64 = 4_749;
-pub const runner_census_dropped_expected: u64 = 1_377;
-pub const runner_census_handshake_max_ns_expected: u64 = 10_441_562_501;
+/// Decision 70 brought it from 10.4 to 8.4 seconds.
+pub const runner_census_crc32_expected: u32 = 0xbf6dbb33;
+pub const runner_census_datagrams_expected: u64 = 4_150;
+pub const runner_census_dropped_expected: u64 = 1_202;
+pub const runner_census_handshake_max_ns_expected: u64 = 8_397_000_000;
 
 test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
     check_storage.fault = .none;

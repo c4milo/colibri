@@ -216,7 +216,7 @@ fn process_packet(
     if (report.handshake_done) keys_module.on_handshake_confirmed(connection, suite);
     // Decision 65: an Initial packet can show the client lacks the server's CRYPTO octets.
     if (opened.level == .initial) {
-        try connection_recovery.on_initial_processed(connection, report.ack_eliciting, initial_received_len, &scratch.recovery);
+        try connection_recovery.on_initial_processed(connection, report.ack_eliciting, initial_received_len, datagram.now_ns, &scratch.recovery);
     }
 }
 
