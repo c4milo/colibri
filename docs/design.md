@@ -2561,6 +2561,55 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Not built yet: a qlog, IPv6, Retry as a server, and `tools/ci.sh` running the runner. The hosted
   runner's tshark is older than the 4.5.0 the runner needs.
 
+  **More peers, and the loss the random seeds missed, 2026-09-23.** Against ngtcp2, neqo and
+  quinn, colibri's client passed every case the endpoint builds, and its server failed
+  handshakeloss against all three, each for its own reason:
+  - `193fa99`: neqo reused a UDP port for its next connection, and the server routed a datagram by
+    its sender's address, so the new connection's Initial packets went to the old one and were
+    dropped. It now routes by Destination Connection ID (RFC 9000 §5.2), which
+    `Connection.addressed_by` answers. 7 mutations, 7 CAUGHT.
+  - `2f5afeb`: quinn opens all 50 connections at once, and a table of 4 evicted connections still
+    in their handshakes. The owner ruled a run-time option: the table holds
+    `quic_connections_max`, 64, and `connections=<n>` uses fewer. 4 mutations, 4 CAUGHT.
+  - `a5063ee` and `1360983`, decision 65: one ngtcp2 connection lost the server's first flight and
+    the CRYPTO probe of each of the next three PTOs. The server now sends its Initial CRYPTO octets
+    again at once when an ack-eliciting Initial packet brings no new CRYPTO octets, at most twice
+    per connection (RFC 9002 §6.2.3). 11 mutations, 11 CAUGHT.
+
+  quinn then showed the same failure in both roles: a request sent once and lost, the
+  acknowledgments that would have shown the loss lost too, and probes that never carried the
+  request. quinn's client probes carry NEW_CONNECTION_ID, and colibri's carried PING. Decision 66
+  (`37df3cb`, `4789639`) has a PTO at the application level declare its oldest ack-eliciting
+  packets lost, one for each probe, so the probes carry their frames. 7 mutations, 7 CAUGHT. The
+  QUIC check's census moved to 13,181 datagrams, 13,217 packets and 674 dropped. colibri's server
+  cannot change what quinn's probes carry, so handshakeloss with quinn as the client stays
+  flaky: it failed 3 of the 5 runs today, each time on a request quinn never sent again.
+
+  The random seeds never dropped every acknowledgment in a row, so two checks now look for exactly
+  that:
+  - Decision 67: `spec/tla/probe_timeout/ProbeTimeout.tla` lets the network drop every packet of
+    ACK frames alone. TLC finds a lost frame never sent again under PING probes, and every frame
+    delivered under decisions 64 and 66. `zig build tla` runs it through pepegrillo's `tla` tool.
+  - `18f8aa0`: the QUIC check gains an adversary that drops every datagram of ACK frames alone,
+    and the client sends a one-packet request under it. All 256 seeds deliver it: 5,170
+    datagrams, 1,645 dropped by the adversary. 6 mutations, 6 CAUGHT, and reverting decision 64 or
+    66 leaves seed 0 stuck.
+
+  Also: `3747a77` writes the endpoint's key log after each step, because a server with many
+  handshakes at once filled it; `9baa6f3` fixes a UDP test that failed on Linux, where io_uring
+  delivers a datagram the receive group turned away and the next one in a single tick, which had
+  kept CI red since `db27985`.
+
+  The runner at `740c05a`, colibri at `18f8aa0`, on this machine:
+
+  | Peer | colibri server | colibri client |
+  |---|---|---|
+  | quic-go, ngtcp2, neqo, quinn | pass: H, DC, C20, M, L1, L2; S unsupported | pass: H, DC, C20, M, L1, L2, S |
+  | colibri | pass: H, DC, C20, M, L1, L2 | same run |
+
+  colibri against itself first failed DC, C20 and M, while other Docker containers were compiling
+  on the same machine: the runner's 60-second limit ran out. Run again alone, all three passed.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
