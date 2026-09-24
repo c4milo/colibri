@@ -129,6 +129,13 @@ if [ -f "${chapulin}/bin/chapulin-quic.o" ]; then
 else
   quic_lines="No chapulin checkout with a QUIC object at ${chapulin}, so this run made no QUIC handshake."
 fi
+# Decision 67: the TLA+ specifications of tools/tla/, model-checked by TLC.
+if command -v java >/dev/null 2>&1; then
+  section "TLA+ models" tools/tla.sh
+  tla_lines="$(grep -E "^tla: " "${scratch}/last.log")"
+else
+  tla_lines="No Java runtime on PATH, so this run checked no TLA+ model."
+fi
 if command -v h2load >/dev/null 2>&1; then
   section "Throughput, indicative" throughput
   throughput_lines="$(tail -2 "${scratch}/last.log")"
@@ -183,6 +190,13 @@ fi
   echo "session of chapulin's \`TRANSPORT=quic ROLE=both\` object, finish a handshake and one stream."
   echo
   echo "${quic_lines}" | fenced
+  echo
+  echo "## TLA+ models"
+  echo
+  echo "Each configuration of tools/tla/ states whether TLC must find its properties holding or"
+  echo "violated (docs/decisions.md entry 67)."
+  echo
+  echo "${tla_lines}" | fenced
   echo
   echo "## Throughput, indicative"
   echo
