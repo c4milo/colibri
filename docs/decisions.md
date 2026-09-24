@@ -1615,3 +1615,45 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       lost to ordinary loss would then turn ECN off for the whole connection. Appendix A.4 lets an
       endpoint mark such a path failed; here it stays unknown, which sends the same Not-ECT and
       still becomes capable if a late acknowledgment shows a marked packet arrived.
+
+70. **A PTO also probes every other packet number space that has ack-eliciting packets in
+    flight, one packet each, coalesced into the same datagram when it fits.** Ruled by the owner
+    on 2026-09-24. It takes RFC 9002 §6.2.4's SHOULD, which colibri had not.
+
+    §6.2.4: "In addition to sending data in the packet number space for which the timer expired,
+    the sender SHOULD send ack-eliciting packets from other packet number spaces with in-flight
+    data, coalescing packets if possible. This is particularly valuable when the server has both
+    Initial and Handshake data in flight or when the client has both Handshake and Application
+    Data in flight because the peer might only have receive keys for one of the two packet
+    number spaces."
+
+    A colibri pair failed the QUIC Interop Runner's handshake loss case that way: the datagram
+    carrying the server's ServerHello was lost, and the server's Handshake probes arrived at a
+    client that could not read them. The simulator's copy of the runner's network (2,000 seeds,
+    30% loss each way, at most three in a row) showed the same stall: one seed took 43 seconds to
+    confirm the handshake. With this rule it took 15, and seeds at 16 seconds or more fell from
+    11 to 3.
+
+    Each other space's packet follows the rule of its level: decision 64 declares an Initial or
+    Handshake space's packets in flight lost, so the probe carries their CRYPTO octets, and
+    decision 66 declares the oldest application packet lost.
+
+    The alternative refused: probing only the space whose timer expired, which is what colibri
+    did, and which leaves the peer holding packets it has no keys for.
+
+71. **Decision 65's second early resend waits until one PTO has passed since the first.** Ruled by
+    the owner on 2026-09-24. It amends entry 65.
+
+    A client whose PTO fires sends two probes at once (RFC 9002 §6.2.4), and each is an Initial
+    packet that brings the server no new CRYPTO octets. Under entry 65 the server answered each
+    with an early resend, so both resends went out 6 ms apart, and in the QUIC Interop Runner's
+    handshake loss case one loss took both. The simulator cannot show this, because it delivers
+    every datagram due at one instant before either endpoint sends.
+
+    The PTO is RFC 9002 §6.2.1's period without backoff and without `max_ack_delay`, which
+    §6.2.1 leaves out at the Initial level. A client's next PTO fires about that long later, so
+    its next probe can spend the second resend.
+
+    The alternatives refused:
+    - Resends as entry 65 had them: one burst of loss can take both.
+    - A limit of one resend: RFC 9002 §6.2.3's example, which entry 65 already refused.
