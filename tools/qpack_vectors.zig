@@ -310,6 +310,8 @@ pub fn decode(arena: Allocator, stream_id: u64, octets: []const u8) !?[]const Li
             .decoded => return try copy_lines(arena),
             .blocked => return null,
             .owes_instructions => drop_decoder_stream(),
+            // Ready streams are read after every encoder stream block, so none waits.
+            .read_ready_first => return error.ReadyStreamsWaiting,
         }
     }
     unreachable;

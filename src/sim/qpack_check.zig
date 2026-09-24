@@ -291,6 +291,8 @@ const Run = struct {
                 try run.write_decoder_stream();
                 continue;
             }
+            // Ready streams are read in the step that delivers their entries, so none waits.
+            if (outcome == .read_ready_first) return error.Unfinished;
             storage.states[index] = if (outcome == .decoded) .decoded else .blocked;
             if (outcome == .decoded) try run.check_decoded(index);
             var line = try run.trace.record("section");

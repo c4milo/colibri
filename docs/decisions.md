@@ -1788,6 +1788,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Each decoder instruction written into the caller's buffer as it arises. That crosses the
       caller's boundary once per instruction, where one `write_decoder_stream` crosses it once.
 
+    Amended the same day, after `spec/tla/qpack_tables/` found an error in the first version. The
+    decoder counted every stream it held against SETTINGS_QPACK_BLOCKED_STREAMS, including one
+    whose entries had arrived but whose section the caller had not read again. An encoder told of
+    those entries by an Insert Count Increment no longer counts that stream, and may send a section
+    that blocks another, so the decoder refused a peer that kept the rule. §2.2.1 says a stream
+    "becomes unblocked when the Insert Count becomes greater than or equal to the Required Insert
+    Count", so the decoder now counts only streams still waiting for entries. Its list of held
+    streams can then fill with streams that are ready, and `read_section` returns
+    `read_ready_first`, consuming nothing, until the caller reads one.
+
 75. **The QPACK vectors are a lazy Zig package, fetched once and pinned by hash, and a tool
     decodes them in `zig build test`.** Ruled by the owner on 2026-09-24 for design §8 step 11.
 

@@ -75,6 +75,9 @@ pub const Outcome = enum {
     /// The queue of owed instructions is full. Nothing is consumed, and the caller writes the
     /// decoder stream before it asks again (decision 74).
     owes_instructions,
+    /// The list of blocked streams is full, and some of them can now be decoded. Nothing is
+    /// consumed, and the caller reads those first, as `ready_stream` names them (decision 74).
+    read_ready_first,
 };
 
 /// What `abandon_stream` did.
@@ -135,10 +138,7 @@ pub const Decoder = struct {
         const required = insert_count.decode(prefix.encoded_insert_count, inserted, decoder.table.max_entries()) catch
             return Error.DecompressionFailed;
         // RFC 9204 §2.2.1: a section that needs entries not yet received blocks its stream.
-        if (required > inserted) {
-            try decoder.block(stream_id, required);
-            return .blocked;
-        }
+        if (required > inserted) return decoder.block(stream_id, required);
         // RFC 9204 §4.5.1.2: a Sign bit of 1 at or above the Required Insert Count is invalid.
         const base = prefix.base(required) catch return Error.DecompressionFailed;
         const reach = try decoder.read_lines(&cursor, strings, section, .{ .required = required, .base = base });
@@ -190,15 +190,34 @@ pub const Decoder = struct {
         return .cancelled;
     }
 
-    fn block(decoder: *Decoder, stream_id: u64, required: u64) Error!void {
+    fn block(decoder: *Decoder, stream_id: u64, required: u64) Error!Outcome {
         for (decoder.blocked[0..decoder.blocked_len]) |held| {
-            if (held.stream_id == stream_id) return;
+            if (held.stream_id == stream_id) return .blocked;
         }
         // RFC 9204 §2.1.2: more blocked streams than the decoder promised to support is
         // QPACK_DECOMPRESSION_FAILED.
-        if (decoder.blocked_len >= decoder.settings.blocked_streams) return Error.DecompressionFailed;
+        if (decoder.still_blocked() >= decoder.settings.blocked_streams) return Error.DecompressionFailed;
+        // Fewer than `blocked_streams` still wait, so a full list holds streams that are ready.
+        if (decoder.blocked_len == decoder.blocked.len) {
+            assert(decoder.ready_stream() != null);
+            return .read_ready_first;
+        }
         decoder.blocked[decoder.blocked_len] = .{ .stream_id = stream_id, .required_insert_count = required };
         decoder.blocked_len += 1;
+        return .blocked;
+    }
+
+    /// How many held streams still wait for entries. RFC 9204 §2.2.1: a stream "becomes
+    /// unblocked when the Insert Count becomes greater than or equal to the Required Insert
+    /// Count", before its section is read again, and an encoder told of the entries no longer
+    /// counts it (spec/tla/qpack_tables).
+    fn still_blocked(decoder: *const Decoder) usize {
+        const inserted = decoder.table.insert_count();
+        var count: usize = 0;
+        for (decoder.blocked[0..decoder.blocked_len]) |held| {
+            if (held.required_insert_count > inserted) count += 1;
+        }
+        return count;
     }
 
     /// Takes the stream off the blocked list, keeping the others in the order they blocked.

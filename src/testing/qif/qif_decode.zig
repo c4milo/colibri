@@ -114,6 +114,8 @@ fn decode_section(block: qif_block.Block, output: *Writer, counts: *Counts) Erro
             },
             .blocked => return false,
             .owes_instructions => drop_decoder_stream(),
+            // Ready streams are read after every encoder stream block, so none waits.
+            .read_ready_first => return error.StillBlocked,
         }
     }
     unreachable;

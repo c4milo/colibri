@@ -139,6 +139,43 @@ test "§2.1.2: one blocked stream more than the decoder advertised fails the sec
     try testing.expectError(Error.DecompressionFailed, decode_on(stream_four, &section));
 }
 
+test "§2.2.1: a stream whose entries arrived no longer counts as blocked, before it is read again" {
+    // spec/tla/qpack_tables found it: the encoder learns of the entries from the Insert Count
+    // Increment and stops counting the stream, so the decoder must stop too.
+    test_decoder.init(example_settings);
+    try encoder_stream(&.{ 0x3f, 0xbd, 0x01 });
+    // Stream 4 needs insert 1, and blocks: the one blocked stream allowed.
+    try testing.expectEqual(Outcome.blocked, try decode_on(stream_four, &.{ 0x02, 0x00, 0x80 }));
+    try encoder_stream(&.{ 0xc0, 0x01, 'a' });
+    // Insert 1 arrived, and stream 4 has not been read again. Stream 8 needs insert 2.
+    try testing.expectEqual(Outcome.blocked, try decode_on(stream_eight, &.{ 0x03, 0x00, 0x80 }));
+    try testing.expectEqual(stream_four, test_decoder.ready_stream().?);
+    try testing.expectEqual(Outcome.decoded, try decode_on(stream_four, &.{ 0x02, 0x00, 0x80 }));
+    try encoder_stream(&.{ 0xc0, 0x01, 'b' });
+    try testing.expectEqual(stream_eight, test_decoder.ready_stream().?);
+    try testing.expectEqual(Outcome.decoded, try decode_on(stream_eight, &.{ 0x03, 0x00, 0x80 }));
+    try expect_line(0, ":authority", "b");
+}
+
+test "decision 74: a list full of ready streams stops the reading until they are read" {
+    // Each stream blocks on the next insert, which then arrives, so every held stream but the
+    // newest is ready and the one blocked stream allowed is never passed.
+    test_decoder.init(.{ .max_table_capacity = constants.dynamic_table_capacity_max, .blocked_streams = example_blocked_streams });
+    try encoder_stream(&.{ 0x3f, 0xe1, 0x7f });
+    var section: [3]u8 = .{ 0x00, 0x00, 0x80 };
+    for (0..constants.blocked_streams_max) |step| {
+        // Required Insert Count step + 1, which encodes as step + 2 below 255.
+        section[0] = @intCast(step + 2);
+        try testing.expectEqual(Outcome.blocked, try decode_on(step * stream_four, &section));
+        try encoder_stream(&.{ 0x41, 'a', 0x01, 'b' });
+    }
+    section[0] = @intCast(constants.blocked_streams_max + 2);
+    try testing.expectEqual(Outcome.read_ready_first, try decode_on(constants.blocked_streams_max * stream_four, &section));
+    // Reading one ready stream makes room.
+    try testing.expectEqual(Outcome.decoded, try decode_on(test_decoder.ready_stream().?, &.{ 0x02, 0x00, 0x80 }));
+    try testing.expectEqual(Outcome.blocked, try decode_on(constants.blocked_streams_max * stream_four, &section));
+}
+
 test "§2.2.3: a reference at or above the Required Insert Count, or evicted, fails" {
     test_decoder.init(example_settings);
     try encoder_stream(&([_]u8{ 0x3f, 0xbd, 0x01, 0xc0, 0x01, 'a', 0xc0, 0x01, 'b' }));
