@@ -1732,7 +1732,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     ack-eliciting packet there, and it has sent `ack_only_packets_before_ping` packets of ACK
     frames alone since. The last condition ends the exchange: the peer answers a PING with one
     such packet, which is not enough to add a PING of its own. Without it, two colibri endpoints
-    each added a PING to the answer and never went quiet.
+    each added a PING to the answer and never went quiet. `spec/tla/ack_elicitation/` checks it
+    under entry 67: with the count, two endpoints always go quiet, with or without loss; with a
+    PING on every ACK, TLC finds the exchange that never ends.
 
     The alternatives refused:
     - Never adding one, which is what colibri did. A peer that follows only ack-eliciting packets
