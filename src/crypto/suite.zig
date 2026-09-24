@@ -100,6 +100,53 @@ pub const TokenError = error{
     NoSpaceLeft,
 };
 
+/// The two connection IDs a Retry token carries (decision 55, amended). A server that sent a Retry
+/// puts both in its transport parameters (RFC 9000 §7.3) and keeps no state that holds them, so
+/// they travel in the token.
+pub const RetryConnectionIds = struct {
+    /// The Destination Connection ID of the client's first Initial, which the server sends back as
+    /// original_destination_connection_id.
+    original_destination: [constants.connection_id_len_max]u8 = undefined,
+    original_destination_len: u8 = 0,
+    /// The Source Connection ID of the Retry, which the client addresses next (§17.2.5.2) and the
+    /// server sends back as retry_source_connection_id.
+    retry_source: [constants.connection_id_len_max]u8 = undefined,
+    retry_source_len: u8 = 0,
+
+    pub fn of(original_destination: []const u8, retry_source: []const u8) RetryConnectionIds {
+        assert(original_destination.len <= constants.connection_id_len_max);
+        assert(retry_source.len <= constants.connection_id_len_max);
+        var ids: RetryConnectionIds = .{
+            .original_destination_len = @intCast(original_destination.len),
+            .retry_source_len = @intCast(retry_source.len),
+        };
+        @memcpy(ids.original_destination[0..original_destination.len], original_destination);
+        @memcpy(ids.retry_source[0..retry_source.len], retry_source);
+        return ids;
+    }
+
+    pub fn original_destination_slice(ids: *const RetryConnectionIds) []const u8 {
+        return ids.original_destination[0..ids.original_destination_len];
+    }
+
+    pub fn retry_source_slice(ids: *const RetryConnectionIds) []const u8 {
+        return ids.retry_source[0..ids.retry_source_len];
+    }
+};
+
+/// What the token a client's Initial returned turned out to be (RFC 9000 §8.1.2, §8.1.3).
+pub const TokenCheck = union(enum) {
+    /// A Retry token this suite wrote for this address, still in its lifetime, and the two
+    /// connection IDs it carries.
+    retry: RetryConnectionIds,
+    /// A Retry token that fails: another address, a changed octet, or an expired lifetime. §8.1.2
+    /// has the server close with INVALID_TOKEN.
+    invalid,
+    /// Not a Retry token at all. §8.1.3 has the server "proceed as if the client did not have a
+    /// validated address", so it may send a Retry.
+    not_retry,
+};
+
 pub const RetryTagError = error{
     /// The suite does not compute the Retry Integrity Tag. A suite written for clients alone
     /// answers this, and a server over it sends no Retry packet.
@@ -197,22 +244,25 @@ pub const VTable = struct {
     /// wants it authenticated, which needs a key colibri may not hold, and "only accepted for a
     /// short time", which needs an instant colibri may not read — so `now_ns` is passed in.
     /// `address` is the client's, as opaque octets: colibri owns no socket and never reads them.
+    /// The token carries `ids`, which the server needs again and keeps nowhere else.
     retry_token_write: *const fn (
         context: *anyopaque,
         address: []const u8,
+        ids: *const RetryConnectionIds,
         now_ns: u64,
         output: []u8,
     ) TokenError!usize,
 
-    /// Whether `token` is one this suite wrote for `address` and has not expired (RFC 9000
-    /// §8.1.4). A server's call, on an Initial that returned a token. §8.1.1 has the suite tell
-    /// a Retry's token from a NEW_TOKEN frame's, because the suite is what constructed both.
-    retry_token_valid: *const fn (
+    /// What `token` is (RFC 9000 §8.1.4): a Retry token this suite wrote for `address` and still
+    /// in its lifetime, with the connection IDs it carries; a Retry token that fails; or no Retry
+    /// token at all. A server's call, on an Initial that returned a token. §8.1.1 has the suite
+    /// tell a Retry's token from a NEW_TOKEN frame's, because the suite is what constructed both.
+    retry_token_check: *const fn (
         context: *const anyopaque,
         address: []const u8,
         token: []const u8,
         now_ns: u64,
-    ) bool,
+    ) TokenCheck,
 
     /// Moves to the next key phase, in both directions, and keeps the previous read keys
     /// (RFC 9001 §6.1, §6.2). colibri calls it to start a key update and to answer one.
@@ -272,7 +322,7 @@ test "invariant 23: the vtable's members are the twelve decisions 48 and 55 list
     const expected = [_][]const u8{
         "install_initial_keys", "keys_available",        "seal",
         "open",                 "retry_tag_valid",       "retry_tag_write",
-        "retry_token_write",    "retry_token_valid",     "update_keys",
+        "retry_token_write",    "retry_token_check",     "update_keys",
         "key_phase",            "discard_previous_keys", "discard_keys",
     };
     const fields = @typeInfo(VTable).@"struct".fields;
@@ -284,4 +334,13 @@ test "the three levels are the ones RFC 9001 §4.1.4 names, less 0-RTT" {
     try testing.expectEqual(3, levels_count);
     try testing.expectEqual(Role.server, Role.client.peer());
     try testing.expectEqual(Role.client, Role.server.peer());
+}
+
+test "decision 55: a Retry token's connection IDs keep their octets and their lengths" {
+    const ids = RetryConnectionIds.of("original", "retry");
+    try testing.expectEqualStrings("original", ids.original_destination_slice());
+    try testing.expectEqualStrings("retry", ids.retry_source_slice());
+    const empty = RetryConnectionIds.of("", "");
+    try testing.expectEqual(0, empty.original_destination_slice().len);
+    try testing.expectEqual(0, empty.retry_source_slice().len);
 }

@@ -183,10 +183,10 @@ const GoldenSuite = struct {
     fn retry_tag_write(_: *const anyopaque, _: []const u8, _: *[crypto.constants.retry_integrity_tag_len]u8) crypto.suite.RetryTagError!void {
         unreachable;
     }
-    fn retry_token_write(_: *anyopaque, _: []const u8, _: u64, _: []u8) crypto.suite.TokenError!usize {
+    fn retry_token_write(_: *anyopaque, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {
         unreachable;
     }
-    fn retry_token_valid(_: *const anyopaque, _: []const u8, _: []const u8, _: u64) bool {
+    fn retry_token_check(_: *const anyopaque, _: []const u8, _: []const u8, _: u64) crypto.suite.TokenCheck {
         unreachable;
     }
 
@@ -198,7 +198,7 @@ const GoldenSuite = struct {
         .retry_tag_valid = retry_tag_valid,
         .retry_tag_write = retry_tag_write,
         .retry_token_write = retry_token_write,
-        .retry_token_valid = retry_token_valid,
+        .retry_token_check = retry_token_check,
         .update_keys = update_keys,
         .key_phase = key_phase,
         .discard_previous_keys = discard_previous_keys,

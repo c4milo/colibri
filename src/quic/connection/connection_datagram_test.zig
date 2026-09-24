@@ -387,10 +387,10 @@ const RetrySuite = struct {
     fn unreached_tag_write(_: *const anyopaque, _: []const u8, _: *[crypto.constants.aead_tag_len]u8) crypto.suite.RetryTagError!void {
         unreachable;
     }
-    fn unreached_token_write(_: *anyopaque, _: []const u8, _: u64, _: []u8) crypto.suite.TokenError!usize {
+    fn unreached_token_write(_: *anyopaque, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {
         unreachable;
     }
-    fn unreached_token_valid(_: *const anyopaque, _: []const u8, _: []const u8, _: u64) bool {
+    fn unreached_token_check(_: *const anyopaque, _: []const u8, _: []const u8, _: u64) crypto.suite.TokenCheck {
         unreachable;
     }
     fn unreached_update(_: *anyopaque) crypto.suite.UpdateError!void {
@@ -413,7 +413,7 @@ const RetrySuite = struct {
         .retry_tag_valid = tag_valid,
         .retry_tag_write = unreached_tag_write,
         .retry_token_write = unreached_token_write,
-        .retry_token_valid = unreached_token_valid,
+        .retry_token_check = unreached_token_check,
         .update_keys = unreached_update,
         .key_phase = unreached_phase,
         .discard_previous_keys = unreached_discard_previous,

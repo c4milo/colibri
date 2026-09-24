@@ -119,9 +119,9 @@ pub const null_suite_retry_name: u32 = 0x5e77_1e5d;
 /// instant colibri passes in and never against a clock (non-negotiable 3).
 pub const null_suite_retry_token_lifetime_ns: u64 = 1_000_000_000;
 
-/// Octets of a Retry token the null suite writes: a checksum of the client's address, which
-/// §8.1.4 has the token bind to, and the instant it expires at.
-pub const null_suite_retry_token_len: usize = @sizeOf(u32) + @sizeOf(u64);
+/// The first octet of every Retry token the null suite writes, which tells it from any other token
+/// (RFC 9000 §8.1.1).
+pub const null_suite_retry_token_type: u8 = 0x01;
 
 /// The packet check of design §8 step 7 (`packet_check.zig`). Most packets one datagram holds: an
 /// Initial, a Handshake and a 1-RTT packet, which is the order RFC 9000 §12.2 asks for.

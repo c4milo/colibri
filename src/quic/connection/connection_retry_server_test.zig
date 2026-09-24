@@ -44,7 +44,8 @@ test "RFC 9000 §17.2.5.1: a server writes a Retry the client of §17.2.5.2 acce
     try testing.expectEqualSlices(u8, &fixture.c1, parsed.dcid);
     try testing.expectEqualSlices(u8, &fixture.s2, parsed.scid);
     // §8.1.2's token is the suite's, and the client repeats whatever it holds.
-    try testing.expectEqual(fixture.suite_token_len, parsed.token.len);
+    // Decision 55: it carries both connection IDs §7.3 has the server send back.
+    try testing.expectEqual(fixture.suite_token_len(.of(&fixture.s1, &fixture.s2)), parsed.token.len);
 
     const outcome = retry.receive(&fixture.test_connection, fixture.checker.suite(), parsed, &fixture.pseudo);
     try testing.expectEqualSlices(u8, &fixture.s2, outcome.taken.destination);
@@ -95,29 +96,45 @@ test "RFC 9000 §8.1.2: an Initial's token is absent, validated or invalid" {
     fixture.checker.init();
     const written = answer(request()).written;
     const parsed = (try header.read(fixture.output[0..written], fixture.c1.len)).retry;
+    const suite = fixture.checker.suite();
+    const now_ns = fixture.test_now_ns;
 
     // §17.2.2: "This value is 0 if no token is present", which leaves the address unvalidated.
-    try testing.expectEqual(
-        retry.TokenVerdict.absent,
-        retry.verify_token(fixture.checker.suite(), &test_address, &.{}, fixture.test_now_ns),
-    );
-    // §8.1.2: the client returned the token, which "proves to the server that it received" it.
-    try testing.expectEqual(
-        retry.TokenVerdict.validated,
-        retry.verify_token(fixture.checker.suite(), &test_address, parsed.token, fixture.test_now_ns),
-    );
+    try testing.expectEqual(.absent, retry.verify_token(suite, &test_address, &.{}, &fixture.s2, now_ns));
+    // §8.1.2: the client returned the token, which "proves to the server that it received" it,
+    // to the Retry's Source Connection ID, as §17.2.5.2 has it. Decision 55: the token gives back
+    // both IDs §7.3 has the server send.
+    const ids = retry.verify_token(suite, &test_address, parsed.token, &fixture.s2, now_ns).validated;
+    try testing.expectEqualSlices(u8, &fixture.s1, ids.original_destination_slice());
+    try testing.expectEqualSlices(u8, &fixture.s2, ids.retry_source_slice());
     // §8.1.4: "Tokens sent in Retry packets SHOULD include information that allows the server to
     // verify that the source IP address and port in client packets remain constant."
-    try testing.expectEqual(
-        retry.TokenVerdict.invalid,
-        retry.verify_token(fixture.checker.suite(), &other_address, parsed.token, fixture.test_now_ns),
-    );
+    try testing.expectEqual(.invalid, retry.verify_token(suite, &other_address, parsed.token, &fixture.s2, now_ns));
     // §8.1.4: "Servers SHOULD ensure that tokens sent in Retry packets are only accepted for a
     // short time, as they are returned immediately by clients."
-    try testing.expectEqual(
-        retry.TokenVerdict.invalid,
-        retry.verify_token(fixture.checker.suite(), &test_address, parsed.token, fixture.test_now_ns + fixture.token_lifetime_ns),
-    );
+    const late_ns = now_ns + fixture.token_lifetime_ns;
+    try testing.expectEqual(.invalid, retry.verify_token(suite, &test_address, parsed.token, &fixture.s2, late_ns));
+}
+
+test "RFC 9000 §17.2.5.2: a token returned to an ID its Retry did not name is invalid" {
+    fixture.checker.init();
+    const written = answer(request()).written;
+    const parsed = (try header.read(fixture.output[0..written], fixture.c1.len)).retry;
+    // The client addresses the Retry's Source Connection ID, so a token that arrives addressed to
+    // another came from another Retry, and its retry_source_connection_id would not be this one.
+    try testing.expectEqual(.invalid, retry.verify_token(fixture.checker.suite(), &test_address, parsed.token, &fixture.s1, fixture.test_now_ns));
+}
+
+test "RFC 9000 §8.1.3: a token that is not a Retry token leaves the address unvalidated" {
+    fixture.checker.init();
+    const written = answer(request()).written;
+    const parsed = (try header.read(fixture.output[0..written], fixture.c1.len)).retry;
+    var other_type: [fixture.token_bytes_max]u8 = undefined;
+    @memcpy(other_type[0..parsed.token.len], parsed.token);
+    other_type[0] = fixture.retry_token_type + 1;
+    // "the server SHOULD proceed as if the client did not have a validated address, including
+    // potentially sending a Retry packet", which is what an absent token means.
+    try testing.expectEqual(.absent, retry.verify_token(fixture.checker.suite(), &test_address, other_type[0..parsed.token.len], &fixture.s2, fixture.test_now_ns));
 }
 
 test "RFC 9000 §8.1.2: an invalid token closes the connection with INVALID_TOKEN" {
@@ -126,5 +143,5 @@ test "RFC 9000 §8.1.2: an invalid token closes the connection with INVALID_TOKE
     try testing.expectEqual(error_code.invalid_token, retry.connection_error_code(.invalid).?);
     // Neither of the others ends the connection.
     try testing.expectEqual(null, retry.connection_error_code(.absent));
-    try testing.expectEqual(null, retry.connection_error_code(.validated));
+    try testing.expectEqual(null, retry.connection_error_code(.{ .validated = .{} }));
 }

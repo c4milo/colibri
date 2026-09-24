@@ -71,8 +71,19 @@ var seen_len: usize = 0;
 
 /// How long a token this suite writes stays valid, which RFC 9000 §8.1.4 makes "a short time".
 pub const token_lifetime_ns: u64 = 1_000_000_000;
-/// Octets of that token: a checksum of the address it is bound to, and when it expires.
-pub const suite_token_len: usize = @sizeOf(u32) + @sizeOf(u64);
+/// The first octet of this suite's Retry tokens, which tells them from any other (§8.1.1).
+pub const retry_token_type: u8 = 0x01;
+/// Octets of a token before its connection IDs: the type, a checksum of the address it is bound
+/// to, and when it expires. Each ID then follows its one-octet length (decision 55).
+const token_head_len: usize = 1 + @sizeOf(u32) + @sizeOf(u64);
+
+/// Octets of the token this suite writes for `ids`.
+/// The most octets a token this suite writes can hold: two connection IDs of the longest length.
+pub const token_bytes_max: usize = token_head_len + (1 + crypto.constants.connection_id_len_max) + (1 + crypto.constants.connection_id_len_max);
+
+pub fn suite_token_len(ids: crypto.suite.RetryConnectionIds) usize {
+    return token_head_len + 1 + ids.original_destination_len + 1 + ids.retry_source_len;
+}
 const tag_len: usize = crypto.constants.retry_integrity_tag_len;
 
 /// A `crypto.Suite` that answers the Retry questions and nothing else. It holds no key: the tag
@@ -112,26 +123,29 @@ pub const TagChecker = struct {
         write_tag(pseudo_packet, tag);
     }
 
-    fn token_write(context: *anyopaque, address: []const u8, now_ns: u64, out: []u8) crypto.suite.TokenError!usize {
+    fn token_write(
+        context: *anyopaque,
+        address: []const u8,
+        ids: *const crypto.suite.RetryConnectionIds,
+        now_ns: u64,
+        out: []u8,
+    ) crypto.suite.TokenError!usize {
         const held: *TagChecker = @ptrCast(@alignCast(context));
         // RFC 9000 §8.1.2: a server "can request address validation by sending a Retry packet",
         // so a suite that mints no token is one whose server sends none.
         if (!held.mints_token) return error.Unsupported;
         if (held.writes_empty_token) return 0;
-        if (out.len < suite_token_len) return error.NoSpaceLeft;
-        write_token(address, now_ns, out[0..suite_token_len]);
-        return suite_token_len;
+        var writer = Writer.init(out);
+        write_token(&writer, address, ids, now_ns) catch return error.NoSpaceLeft;
+        return writer.written().len;
     }
 
-    fn token_valid(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) bool {
+    fn token_check(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) crypto.suite.TokenCheck {
         _ = context;
-        if (token.len != suite_token_len) return false;
-        var expected: [suite_token_len]u8 = undefined;
-        write_token(address, now_ns, &expected);
-        // RFC 9000 §8.1.4 binds a token to an address, so the checksum must match. The instant it
-        // expires at is read back rather than recomputed.
-        if (!std.mem.eql(u8, token[0..@sizeOf(u32)], expected[0..@sizeOf(u32)])) return false;
-        return now_ns < std.mem.readInt(u64, token[@sizeOf(u32)..][0..@sizeOf(u64)], .big);
+        var reader = core.Reader.init(token);
+        const kind = reader.read_byte() catch return .not_retry;
+        if (kind != retry_token_type) return .not_retry;
+        return read_token(&reader, address, now_ns) catch .invalid;
     }
 
     const vtable: crypto.suite.VTable = .{
@@ -142,7 +156,7 @@ pub const TagChecker = struct {
         .retry_tag_valid = tag_valid,
         .retry_tag_write = tag_write,
         .retry_token_write = token_write,
-        .retry_token_valid = token_valid,
+        .retry_token_check = token_check,
         .update_keys = unreachable_update,
         .key_phase = unreachable_phase,
         .discard_previous_keys = unreachable_discard_previous,
@@ -164,11 +178,25 @@ fn write_tag(pseudo_packet: []const u8, tag: *[tag_len]u8) void {
 }
 
 /// RFC 9000 §8.1.4's token, as a checksum of the address and the instant it expires at.
-fn write_token(address: []const u8, now_ns: u64, out: *[suite_token_len]u8) void {
-    const name = std.mem.nativeToBig(u32, std.hash.Crc32.hash(address));
-    @memcpy(out[0..@sizeOf(u32)], std.mem.asBytes(&name));
-    const expires = std.mem.nativeToBig(u64, now_ns +| token_lifetime_ns);
-    @memcpy(out[@sizeOf(u32)..], std.mem.asBytes(&expires));
+fn write_token(writer: *Writer, address: []const u8, ids: *const crypto.suite.RetryConnectionIds, now_ns: u64) core.writer.Error!void {
+    try writer.write_byte(retry_token_type);
+    try writer.write_int(u32, std.hash.Crc32.hash(address));
+    try writer.write_int(u64, now_ns +| token_lifetime_ns);
+    try writer.write_byte(ids.original_destination_len);
+    try writer.write_bytes(ids.original_destination_slice());
+    try writer.write_byte(ids.retry_source_len);
+    try writer.write_bytes(ids.retry_source_slice());
+}
+
+/// A Retry token's rest, after its type octet. RFC 9000 §8.1.4 binds it to an address, so the
+/// checksum must match, and accepts it "only for a short time", read back rather than recomputed.
+fn read_token(reader: *core.Reader, address: []const u8, now_ns: u64) !crypto.suite.TokenCheck {
+    const name = try reader.read_int(u32);
+    const expires_ns = try reader.read_int(u64);
+    const original_destination = try reader.take(try reader.read_byte());
+    const retry_source = try reader.take(try reader.read_byte());
+    if (reader.remaining_len() != 0 or name != std.hash.Crc32.hash(address) or now_ns >= expires_ns) return .invalid;
+    return .{ .retry = crypto.suite.RetryConnectionIds.of(original_destination, retry_source) };
 }
 
 /// Every member the Retry cases do not ask for is unreached: a call to one would mean a test

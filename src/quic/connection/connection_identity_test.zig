@@ -107,6 +107,21 @@ test "§7.3: no Retry means no retry_source_connection_id at all" {
     try testing.expectEqual(null, parameters.retry_source_connection_id);
 }
 
+test "§7.3 Figure 8: a server that answers a Retry token sends S1 and S2 back" {
+    // Decision 55: the token carried both, and the server built this connection from them.
+    test_identity.init(.{
+        .local_initial_source = s3,
+        .original_destination = s1,
+        .peer_initial_source = c1,
+        .retry_source = s2,
+    });
+    var parameters = Parameters.initial();
+    identity_module.describe(&test_identity, &parameters, .server);
+    try testing.expectEqualSlices(u8, s1, parameters.original_destination_connection_id.?.slice());
+    try testing.expectEqualSlices(u8, s2, parameters.retry_source_connection_id.?.slice());
+    try testing.expectEqualSlices(u8, s3, parameters.initial_source_connection_id.?.slice());
+}
+
 test "§5.1: a short header's Destination Connection ID length is this endpoint's own" {
     client();
     try testing.expectEqual(c1.len, test_identity.local_len());

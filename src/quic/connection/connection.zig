@@ -276,6 +276,9 @@ pub const Connection = struct {
         // RFC 9000 §7.2: until a client hears from the server it addresses the value it chose,
         // so a server also answers to that one. A client never chose its own address.
         if (connection.role != .server) return false;
+        // RFC 9000 §17.2.5.2: after a Retry, the client addresses the Retry's Source Connection
+        // ID instead, until the server's first Initial arrives.
+        if (connection.identity.retry_source) |retry| return std.mem.eql(u8, retry.slice(), dcid);
         return std.mem.eql(u8, connection.identity.original_destination.slice(), dcid);
     }
 

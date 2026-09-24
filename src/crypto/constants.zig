@@ -22,6 +22,10 @@ pub const aead_tag_len: usize = 16;
 /// Octets of the Retry Integrity Tag (RFC 9001 §5.8).
 pub const retry_integrity_tag_len: usize = 16;
 
+/// Most octets of a connection ID in version 1 (RFC 9000 §17.2), which a Retry token carries two of
+/// (decision 55).
+pub const connection_id_len_max: u8 = 20;
+
 /// Octets of the header protection sample, and how far past the start of the Packet Number field
 /// it begins, which is the field's longest length (RFC 9001 §5.4.2).
 pub const header_protection_sample_len: usize = 16;

@@ -37,6 +37,10 @@ pub const Options = struct {
     /// The Source Connection ID the peer put in its first Initial, when one has arrived. A server
     /// has it at once (Figure 7's C1) and a client does not hear the server's S3 until later.
     peer_initial_source: ?[]const u8 = null,
+    /// A server's own Retry Source Connection ID (Figure 8's S2), when this connection answers an
+    /// Initial that returned a Retry token. Decision 55 has the token carry it, because the server
+    /// kept nothing else. A client learns its S2 off the Retry instead (`on_retry`).
+    retry_source: ?[]const u8 = null,
 };
 
 /// The five values of RFC 9000 §7.3, and nothing derived that could disagree with them.
@@ -54,7 +58,7 @@ pub const Identity = struct {
         // asserts, and a long header carries its length so a zero-length one is admitted.
         identity.local_initial_source = ConnectionId.of(options.local_initial_source);
         identity.original_destination = ConnectionId.of(options.original_destination);
-        identity.retry_source = null;
+        identity.retry_source = if (options.retry_source) |retry| ConnectionId.of(retry) else null;
         identity.peer_initial_source = if (options.peer_initial_source) |peer|
             ConnectionId.of(peer)
         else

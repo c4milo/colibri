@@ -14,7 +14,8 @@ pub const version_1: u32 = 0x00000001;
 
 /// Most octets of a connection ID in version 1 (RFC 9000 §17.2): a long header that carries a
 /// longer one MUST be dropped. RFC 8999 permits 255, and only the version 1 reader applies this.
-pub const connection_id_len_max: u8 = 20;
+/// Named in `crypto`, because a Retry token carries two (decision 55).
+pub const connection_id_len_max: u8 = crypto.constants.connection_id_len_max;
 
 /// What `quic` and a `crypto.Suite` must agree on is named once, in `crypto`, and read from here
 /// under the same names: the packet number's range and field length (RFC 9000 §12.3, §17.1).

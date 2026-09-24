@@ -217,6 +217,16 @@ test "RFC 9000 §5.2: a packet belongs to the connection its Destination Connect
     try testing.expect(!test_connection.addressed_by(local_id[0 .. test_id_len - 1]));
     try testing.expect(!test_connection.addressed_by(original_id[0 .. test_id_len - 1]));
 
+    // RFC 9000 §17.2.5.2: after a Retry the client addresses the Retry's Source Connection ID,
+    // and no longer the ID it chose first.
+    const retry_id: [test_id_len]u8 = @splat(0x53);
+    var after_retry = test_identity;
+    after_retry.retry_source = &retry_id;
+    test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = after_retry });
+    try testing.expect(test_connection.addressed_by(&retry_id));
+    try testing.expect(!test_connection.addressed_by(&original_id));
+    try testing.expect(test_connection.addressed_by(&local_id));
+
     // A client chose the server's first ID, and is never addressed by it.
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expect(test_connection.addressed_by(&local_id));

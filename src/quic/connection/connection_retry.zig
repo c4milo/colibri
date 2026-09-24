@@ -227,9 +227,13 @@ pub fn answer(
         return .{ .refused = .source_is_destination };
     }
     var token: [constants.token_len_max]u8 = undefined;
+    // Decision 55: the token carries the two connection IDs RFC 9000 §7.3 has the server send
+    // back, because the server keeps nothing between this Retry and the client's next Initial.
+    const ids = crypto.suite.RetryConnectionIds.of(request.original_destination, request.server_source);
     const token_len = suite.vtable.retry_token_write(
         suite.context,
         request.address,
+        &ids,
         request.now_ns,
         &token,
     ) catch return .{ .refused = .no_token };
@@ -273,23 +277,40 @@ fn write_packet(
 
 /// What a client's Initial says about address validation (RFC 9000 §8.1.2), read off its Token
 /// field before a server decides whether to send a Retry.
-pub const TokenVerdict = enum {
-    /// RFC 9000 §17.2.2: the Initial carried no token, so nothing validates the address and
-    /// §8.1.2 lets the server send a Retry.
+pub const TokenVerdict = union(enum) {
+    /// RFC 9000 §17.2.2: the Initial carried no token, or §8.1.3 one that is not a Retry token,
+    /// so nothing validates the address and §8.1.2 lets the server send a Retry.
     absent,
     /// §8.1.2: the token is one this server wrote, which "proves to the server that it received
-    /// the token". The address is validated and no further Retry may be sent.
-    validated,
+    /// the token". The address is validated and no further Retry may be sent. The connection IDs
+    /// are the ones §7.3 has the server send back (decision 55).
+    validated: crypto.suite.RetryConnectionIds,
     /// §8.1.2: "If a server receives a client Initial that contains an invalid Retry token but is
     /// otherwise valid, it knows the client will not accept another Retry token."
     invalid,
 };
 
-/// Asks the suite whether the Initial's token is one it wrote for this address (RFC 9000 §8.1.4).
-pub fn verify_token(suite: Suite, address: []const u8, token: []const u8, now_ns: u64) TokenVerdict {
+/// Asks the suite what the Initial's token is (RFC 9000 §8.1.4). `destination` is the Initial's
+/// Destination Connection ID.
+pub fn verify_token(suite: Suite, address: []const u8, token: []const u8, destination: []const u8, now_ns: u64) TokenVerdict {
     if (token.len == 0) return .absent;
-    if (suite.vtable.retry_token_valid(suite.context, address, token, now_ns)) return .validated;
-    return .invalid;
+    return switch (suite.vtable.retry_token_check(suite.context, address, token, now_ns)) {
+        // §8.1.3: the server "SHOULD proceed as if the client did not have a validated address,
+        // including potentially sending a Retry packet", which is what an absent token means.
+        .not_retry => .absent,
+        .invalid => .invalid,
+        .retry => |ids| retry_token_verdict(ids, destination),
+    };
+}
+
+/// A Retry token that verified, judged against the Initial that returned it. §17.2.5.2: "A client
+/// sets the Destination Connection ID field of this Initial packet to the value from the Source
+/// Connection ID field in the Retry packet", so a token whose Retry named another ID came from
+/// another Retry, and the retry_source_connection_id it would put in the transport parameters
+/// would not be the one this client saw (§7.3).
+fn retry_token_verdict(ids: crypto.suite.RetryConnectionIds, destination: []const u8) TokenVerdict {
+    if (!std.mem.eql(u8, ids.retry_source_slice(), destination)) return .invalid;
+    return .{ .validated = ids };
 }
 
 /// The code a CONNECTION_CLOSE carries for `verdict`, or null when the connection goes on.
