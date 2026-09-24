@@ -167,6 +167,7 @@ pub fn build(b: *std.Build) void {
     add_quic_udp_step(b, testing_udp);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_tla_step(b, pepegrillo);
+    add_lean_step(b, pepegrillo);
     add_hooks_step(b);
 
     const fmt_step = b.step("fmt", "Check formatting of every Zig source");
@@ -282,6 +283,22 @@ fn add_tla_step(b: *std.Build, pepegrillo: *std.Build.Module) void {
     run.setCwd(b.path("."));
     run.has_side_effects = true;
     const step = b.step("tla", "Model-check the TLA+ specifications in spec/tla/ with TLC");
+    step.dependOn(&run.step);
+}
+
+/// `zig build lean [-- write]`: pepegrillo's lake runner over the Lean proofs in spec/lean/, then
+/// the check that the vector files the Zig tests read are what the proved definitions give
+/// (decision 77). Not part of `zig build test`: lake needs elan, which tools/ci.sh looks for.
+fn add_lean_step(b: *std.Build, pepegrillo: *std.Build.Module) void {
+    const tool = b.addExecutable(.{
+        .name = "lean",
+        .root_module = tool_module(b, pepegrillo, "tools/lean.zig"),
+    });
+    const run = b.addRunArtifact(tool);
+    if (b.args) |arguments| run.addArgs(arguments);
+    run.setCwd(b.path("."));
+    run.has_side_effects = true;
+    const step = b.step("lean", "Build the Lean proofs in spec/lean/ and check the vectors they give");
     step.dependOn(&run.step);
 }
 

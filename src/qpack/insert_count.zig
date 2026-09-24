@@ -137,3 +137,28 @@ test "§4.5.1.1: the wrap is undone against the decoder's own insert count" {
     try testing.expectEqual(12, try decode(1, 10, example_max_entries));
     try testing.expect(12 <= 10 + example_max_entries);
 }
+
+test "decision 77: every vector of spec/lean's proved decode is this decode's answer" {
+    // spec/lean/Colibri/Qpack/InsertCount.lean proves its `decode` round-trips every count in the
+    // protocol's window; its outputs over every input in range are here, and must be this one's.
+    var lines = std.mem.splitScalar(u8, @embedFile("insert_count_vectors.txt"), '\n');
+    var count: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const encoded = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        const total = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        const max_entries = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        const answer = fields.next().?;
+        if (std.mem.eql(u8, answer, "error")) {
+            try testing.expectError(Error.DecompressionFailed, decode(encoded, total, max_entries));
+        } else {
+            try testing.expectEqual(try std.fmt.parseUnsigned(u64, answer, 10), try decode(encoded, total, max_entries));
+        }
+        count += 1;
+    }
+    // Every MaxEntries from 0 to 8, every total to 4 * MaxEntries + 2, every encoded value to
+    // 2 * MaxEntries + 2.
+    try testing.expectEqual(2361, count);
+}

@@ -2,3 +2,4 @@
 zig-out/
 zig-pkg/
 ci-report.md
+spec/lean/.lake/

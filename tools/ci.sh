@@ -136,6 +136,13 @@ if command -v java >/dev/null 2>&1; then
 else
   tla_lines="No Java runtime on PATH, so this run checked no TLA+ model."
 fi
+# Decision 77: the Lean proofs of spec/lean/, and the vectors the Zig tests read from them.
+if command -v lake >/dev/null 2>&1 || [ -x "${HOME}/.elan/bin/lake" ]; then
+  section "Lean proofs" zig build lean
+  lean_lines="Every proof in spec/lean/ built, and the vector files match the proved definitions."
+else
+  lean_lines="No lake on PATH or in ~/.elan/bin, so this run built no Lean proof."
+fi
 if command -v h2load >/dev/null 2>&1; then
   section "Throughput, indicative" throughput
   throughput_lines="$(tail -2 "${scratch}/last.log")"
@@ -197,6 +204,13 @@ fi
   echo "violated (docs/decisions.md entry 67)."
   echo
   echo "${tla_lines}" | fenced
+  echo
+  echo "## Lean proofs"
+  echo
+  echo "spec/lean/ built by lake, and the vector files of src/qpack/ checked against the proved"
+  echo "definitions (docs/decisions.md entry 77)."
+  echo
+  echo "${lean_lines}" | fenced
   echo
   echo "## Throughput, indicative"
   echo

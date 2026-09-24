@@ -1,0 +1,9 @@
+name = "colibri"
+defaultTargets = ["Colibri"]
+
+[[lean_lib]]
+name = "Colibri"
+
+[[lean_exe]]
+name = "vectors"
+root = "Vectors"

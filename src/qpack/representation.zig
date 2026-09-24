@@ -422,3 +422,28 @@ test "a representation that runs off the end consumes nothing" {
     try testing.expectEqualStrings("abc", line.name);
     try testing.expectEqualStrings("defgh", line.value);
 }
+
+test "decision 77: every vector of spec/lean's proved Base decoding is this one's answer" {
+    // spec/lean/Colibri/Qpack/Index.lean proves its `decodeBase` inverts the encoder's Sign bit and
+    // Delta Base; its outputs over every input in range are here, and must be `Prefix.base`'s.
+    var lines = std.mem.splitScalar(u8, @embedFile("base_vectors.txt"), '\n');
+    var count: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const required = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        const sign = std.mem.eql(u8, fields.next().?, "1");
+        const delta = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        const answer = fields.next().?;
+        const prefix: Prefix = .{ .encoded_insert_count = 0, .sign = sign, .delta_base = delta };
+        if (std.mem.eql(u8, answer, "error")) {
+            try testing.expectError(Error.BaseNegative, prefix.base(required));
+        } else {
+            try testing.expectEqual(try std.fmt.parseUnsigned(u64, answer, 10), try prefix.base(required));
+        }
+        count += 1;
+    }
+    // Every Required Insert Count and Delta Base from 0 to 8, with each Sign bit.
+    try testing.expectEqual(162, count);
+}
