@@ -18,6 +18,7 @@ const connection_id = @import("../connection_id.zig");
 const frame_module = @import("../frame/frame.zig");
 const frame_control = @import("../frame/frame_control.zig");
 const connection_module = @import("connection.zig");
+const migration = @import("connection_migration.zig");
 
 const Connection = connection_module.Connection;
 
@@ -101,8 +102,9 @@ fn take_retire(connection: *Connection, sequence_number: u64, addressed_to: ?u64
 /// RFC 9000 §19.18: the peer echoed a PATH_CHALLENGE colibri sent, which §8.2.3 makes validation.
 fn take_path_response(connection: *Connection, data: [constants.path_challenge_len]u8) void {
     // §8.2.3: whether the path MTU was validated too turns on the datagram the challenge went
-    // out in, which `Path` recorded when it was sent. Nothing is decided here.
-    _ = connection.path.on_response(data);
+    // out in, which `Path` recorded when it was sent. The response validates whichever path its
+    // challenge went out on, the active one or the previous one (decision 72).
+    migration.on_response(connection, data);
 }
 
 test {

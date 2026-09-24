@@ -104,6 +104,9 @@ fn own_code(failure: Own) u64 {
 pub const Report = struct {
     /// RFC 9000 §13.2.1: whether any frame in the packet obliges an acknowledgment.
     ack_eliciting: bool,
+    /// RFC 9000 §9.1: whether the packet carried a frame other than a probing one, which is what
+    /// makes a packet from a new address move the path (§9.3).
+    non_probing: bool = false,
     /// How many frames were read, which a check reads and nothing else acts on.
     frames: usize,
     /// The peer's CONNECTION_CLOSE, when it sent one (RFC 9000 §19.19).
@@ -151,6 +154,7 @@ pub fn process(connection: *Connection, opened: receive.Opened, now_ns: u64, scr
         if (!frame.permitted_at(level)) return Error.FrameNotPermitted;
         report.frames += 1;
         if (frame.is_ack_eliciting()) report.ack_eliciting = true;
+        if (!frame.is_probing()) report.non_probing = true;
         try apply(connection, opened, frame, now_ns, scratch, &report);
     }
     // A payload that held only octets no frame could be read from would have failed above, so

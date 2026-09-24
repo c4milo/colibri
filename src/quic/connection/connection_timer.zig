@@ -18,6 +18,7 @@ const key_update = @import("connection_key_update.zig");
 const connection_recovery = @import("connection_recovery.zig");
 const connection_flow = @import("connection_flow.zig");
 const connection_send = @import("connection_send.zig");
+const migration = @import("connection_migration.zig");
 
 const Connection = connection_module.Connection;
 const Suite = crypto.Suite;
@@ -58,7 +59,7 @@ pub fn next(connection: *Connection) ?Deadline {
     var earliest = of(connection_recovery.loss_deadline_ns(connection), .loss);
     earliest = nearer(earliest, of(connection.termination.idle_deadline_ns(idle_probe_timeout_ns(connection)), .idle));
     earliest = nearer(earliest, of(connection.termination.period_deadline_ns(), .period));
-    earliest = nearer(earliest, of(connection.path.challenge_deadline_ns(), .path));
+    earliest = nearer(earliest, of(migration.challenge_deadline_ns(connection), .path));
     earliest = nearer(earliest, of(key_update.previous_keys_deadline_ns(connection), .previous_keys));
     earliest = nearer(earliest, of(acknowledgment_deadline_ns(connection), .acknowledgment));
     earliest = nearer(earliest, of(connection_flow.blocked_deadline_ns(connection), .blocked));
@@ -92,6 +93,9 @@ pub const Fired = struct {
     idle: bool = false,
     /// RFC 9000 §10.2: the closing or draining period ended, so the caller discards the state.
     period: bool = false,
+    /// RFC 9000 §9.3.2: the peer's new address failed validation and the connection moved back to
+    /// the last validated one (decision 72). With none, the connection closed silently instead.
+    path_reverted: bool = false,
     /// RFC 9000 §8.2.4: the outstanding PATH_CHALLENGE was abandoned, which is the only way path
     /// validation fails.
     path: bool = false,
@@ -120,7 +124,9 @@ pub fn on_instant(
     const state_before = connection.termination.state;
     connection.termination.on_instant(now_ns);
     fired.period = connection.termination.state != state_before;
-    fired.path = connection.path.on_instant(now_ns);
+    const moved = migration.on_instant(connection, now_ns);
+    fired.path = moved.abandoned;
+    fired.path_reverted = moved.reverted;
     const keys_before = connection.key_phase.previous_held;
     key_update.on_instant(connection, suite, now_ns);
     fired.previous_keys = keys_before and !connection.key_phase.previous_held;

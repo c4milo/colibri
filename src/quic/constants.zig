@@ -95,6 +95,10 @@ pub const frame_low_bit: u64 = 0x01;
 /// Octets of a PATH_CHALLENGE or PATH_RESPONSE payload (RFC 9000 §19.17, §19.18).
 pub const path_challenge_len: usize = 8;
 
+/// The longest peer address a caller names (decision 72): an IPv6 address, which RFC 4291 §2
+/// makes 128 bits. colibri compares these octets and never reads them otherwise.
+pub const peer_address_len_max: usize = 16;
+
 /// Octets of the Stateless Reset Token a NEW_CONNECTION_ID carries (RFC 9000 §19.15).
 pub const stateless_reset_token_len: usize = 16;
 

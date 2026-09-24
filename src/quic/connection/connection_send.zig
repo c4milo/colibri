@@ -38,6 +38,10 @@ const keys_module = @import("connection_keys.zig");
 const connection_crypto = @import("connection_crypto.zig");
 const connection_handshake = @import("connection_handshake.zig");
 const space_module = @import("../space/space.zig");
+const connection_expand = @import("connection_expand.zig");
+const migration = @import("connection_migration.zig");
+const path_module = @import("../path.zig");
+const PeerAddress = @import("../peer_address.zig").PeerAddress;
 const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 
 const Level = core.Level;
@@ -100,6 +104,9 @@ pub const Sent = struct {
     /// The ECN codepoint the caller sets in the datagram's IP header (RFC 9000 §13.4, decision
     /// 68). Not-ECT unless the connection was opened with `ecn_marks`.
     ecn: Ecn = .not_ect,
+    /// The address the caller sends the datagram to (decision 72): the active path's, or the
+    /// previous path's for the PATH_CHALLENGE RFC 9000 §9.3.3 sends there.
+    to: PeerAddress = .{},
 
     pub fn written(sent: *const Sent) []const Packet {
         return sent.packets[0..sent.count];
@@ -135,8 +142,13 @@ pub fn send(
     // Decision 62: a level whose keys the caller's code gave the suite since the last call can
     // carry a packet in this datagram.
     keys_module.take_available(connection, suite);
+    if (migration.owes_previous_probe(connection)) {
+        if (try send_previous_probe(connection, suite, provider, stream_provider, scratch, output, now_ns)) |sent| return sent;
+    }
+    // A ceiling too small for a level's packet is `plan`'s to find (`error.NoSpaceLeft`): a
+    // 1-RTT packet's header is far shorter than an Initial's, and RFC 9000 §8.2.1 still wants a
+    // PATH_CHALLENGE sent on a new path whose §8 limit is a few dozen octets.
     const ceiling = @min(output.len, datagram_ceiling(connection));
-    if (ceiling < constants.packet_header_len_max) return null;
     var plans: [core.levels_count]packet_build.Planned = undefined;
     var count: usize = 0;
     var planned_len: usize = 0;
@@ -159,9 +171,10 @@ pub fn send(
         planned_len += packet_len_of(connection, planned);
     }
     if (count == 0) return null;
-    expand_last(connection, plans[0..count], planned_len, ceiling);
+    connection_expand.expand_last(connection, plans[0..count], planned_len, ceiling);
     var sent = try seal_all(connection, suite, scratch, plans[0..count], output);
     sent.ecn = codepoint_of(connection, now_ns);
+    sent.to = connection.path.address;
     const recorded = record_all(connection, plans[0..count], &sent, now_ns);
     if (window.past_window and recorded) connection.recovery.congestion.past_window_allowed = false;
     // After the records, because discarding the Initial keys discards the Initial space's records
@@ -171,6 +184,38 @@ pub fn send(
     note_ack_eliciting_sent(connection, &sent, now_ns);
     note_challenge_sent(connection, plans[0..count], sent.len, now_ns);
     try note_handshake_complete(connection, provider, suite);
+    return sent;
+}
+
+/// RFC 9000 §9.3.3's PATH_CHALLENGE to the previously active path, in a datagram of its own that
+/// carries probing frames alone (§9.1), because §9.3 sends every other frame to the new address.
+/// The paths are swapped while it is built, so the path frames, §8's limit and §8.2.1's
+/// expansion all read the previous one. Loss recovery keeps no record of it: §9.4 says "Packets
+/// sent on the old path MUST NOT contribute to congestion control or RTT estimation for the new
+/// path", and §8.2.4's timer is what notices its loss.
+fn send_previous_probe(
+    connection: *Connection,
+    suite: crypto.Suite,
+    provider: tls.QuicProvider,
+    stream_provider: StreamProvider,
+    scratch: anytype,
+    output: []u8,
+    now_ns: u64,
+) Error!?Sent {
+    const previous = &connection.migration.previous.?;
+    std.mem.swap(path_module.Path, &connection.path, previous);
+    defer std.mem.swap(path_module.Path, &connection.path, previous);
+    const ceiling = @min(output.len, datagram_ceiling(connection));
+    const payload = &scratch.payloads[@intFromEnum(Level.application)];
+    // RFC 9000 §12.5: a PATH_CHALLENGE goes only in a 1-RTT packet, which `plan` refuses to build
+    // without its keys.
+    const room: packet_build.Room = .{ .len = ceiling, .probing_only = true };
+    const planned = try packet_build.plan(connection, provider, stream_provider, .application, payload, room, now_ns) orelse return null;
+    var plans = [_]packet_build.Planned{planned};
+    connection_expand.expand_last(connection, &plans, packet_len_of(connection, planned), ceiling);
+    var sent = try seal_all(connection, suite, scratch, &plans, output);
+    sent.to = connection.path.address;
+    note_challenge_sent(connection, &plans, sent.len, now_ns);
     return sent;
 }
 
@@ -382,49 +427,6 @@ fn datagram_ceiling(connection: *const Connection) usize {
     assert(maximum == constants.datagram_len_min);
     // §21.1.1.1 exempts a client, whose allowance `Path` answers as unlimited (invariant 18).
     return @intCast(@min(maximum, connection.path.send_allowance()));
-}
-
-/// RFC 9000 §14.1's expansion, put on the datagram's last packet by decision 54.
-fn expand_last(connection: *Connection, plans: []packet_build.Planned, planned_len: usize, ceiling: usize) void {
-    if (!owes_expansion(connection, plans)) return;
-    if (planned_len >= constants.datagram_len_min) return;
-    const last = &plans[plans.len - 1];
-    // RFC 9001 §5.4.2's widening of a tiny packet's number is what PADDING replaces once there is
-    // any: padding the widened octets back in lands the datagram on 1,200 exactly, and when the
-    // ceiling allows less the widening shrinks by as much as the padding grows.
-    const widened_len = packet_build.widening_len(last.*);
-    const wanted = constants.datagram_len_min - planned_len + widened_len;
-    // The padding goes in the last packet's payload, so it is bounded by what that payload's
-    // buffer still holds as well as by what the datagram needs.
-    last.padding_len = @min(wanted, room_for_padding(last, ceiling, planned_len - widened_len));
-}
-
-/// How many octets of PADDING the last packet can still take.
-fn room_for_padding(last: *const packet_build.Planned, ceiling: usize, planned_len: usize) usize {
-    const spare_in_datagram = ceiling - planned_len;
-    const spare_in_packet = last.shape.room - last.payload_len;
-    return @min(spare_in_datagram, spare_in_packet);
-}
-
-/// Whether RFC 9000 §14.1 requires this datagram to reach 1,200 octets. "A client MUST expand the
-/// payload of all UDP datagrams carrying Initial packets ... Similarly, a server MUST expand the
-/// payload of all UDP datagrams carrying ack-eliciting Initial packets."
-fn owes_expansion(connection: *const Connection, plans: []const packet_build.Planned) bool {
-    // RFC 9000 §8.2.1: "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to
-    // at least the smallest allowed maximum datagram size of 1200 bytes", and §8.2.2 says the
-    // same of a PATH_RESPONSE. Both exceptions are §8's limit, which `datagram_ceiling` has
-    // already bounded this datagram by, so the padding stops there on its own.
-    for (plans) |planned| {
-        if (planned.path_challenge != null or planned.carries_path_response) return true;
-    }
-    for (plans) |planned| {
-        if (planned.level != .initial) continue;
-        if (connection.role == .client) return true;
-        // §14.1 asks a server only for the ack-eliciting ones, so an Initial carrying nothing but
-        // an acknowledgment costs a server no padding.
-        return planned.ack_eliciting;
-    }
-    return false;
 }
 
 /// Seals every planned packet into `output`, in the order they were planned (RFC 9000 §12.2).

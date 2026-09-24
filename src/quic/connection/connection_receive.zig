@@ -27,6 +27,7 @@ const key_update = @import("connection_key_update.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
+const PeerAddress = @import("../peer_address.zig").PeerAddress;
 const Suite = crypto.Suite;
 
 /// What arrived, which is the caller's to describe because colibri owns no socket.
@@ -37,6 +38,9 @@ pub const Datagram = struct {
     now_ns: u64,
     /// The ECN codepoint of its IP header (RFC 9000 §13.4), which the caller reads.
     ecn: Ecn,
+    /// The address it came from, as the caller names it (decision 72). A caller that names no
+    /// addresses leaves it empty, and every datagram then comes from the one path.
+    from: PeerAddress = .{},
 
     pub const Ecn = @import("../space/space.zig").Space.Ecn;
 };

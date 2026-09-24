@@ -19,6 +19,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
+const PeerAddress = @import("peer_address.zig").PeerAddress;
 
 /// How far a path has got (RFC 9000 §8, §8.2). It is what a caller reports, and is derived:
 /// whether the path is validated and whether a probe is outstanding are independent, because
@@ -62,6 +63,9 @@ const Challenge = struct {
 };
 
 pub const Path = struct {
+    /// The peer's address on this path, as the caller names it (decision 72). Nothing here reads
+    /// it: `connection_migration` compares it with the address each datagram came from.
+    address: PeerAddress,
     /// RFC 9000 §8.2.3: set once a PATH_RESPONSE matched, and never cleared — a peer shown to
     /// be at an address is not unshown by a later probe going unanswered.
     validated: bool,
@@ -86,6 +90,7 @@ pub const Path = struct {
 
     pub fn init(path: *Path, start: Start) void {
         path.* = .{
+            .address = .{},
             .validated = start == .validated,
             .mtu_validated = false,
             .abandoned = false,

@@ -48,6 +48,9 @@ pub const Room = struct {
     /// Whether the packet may count toward the bytes in flight. False admits only ACK and
     /// CONNECTION_CLOSE, neither of which elicits an acknowledgment (§2).
     in_flight_allowed: bool = true,
+    /// Whether the packet carries probing frames alone (RFC 9000 §9.1), as a packet to the
+    /// previously active path does: §9.3 sends every other frame to the peer's new address.
+    probing_only: bool = false,
 };
 
 /// What went into the payload.
@@ -91,6 +94,7 @@ pub fn write(
         // there is no longer a connection to acknowledge it on.
         return .{ .len = close_len, .ack_eliciting = false, .carries_close = close_len > 0 };
     }
+    if (room.probing_only) return probing_packet(connection, level, payload[0..budget]);
     var writer = Writer.init(payload[0..budget]);
     const ack = write_ack(connection, space, &writer, now_ns);
     const written_ack = writer.written().len;
@@ -138,6 +142,19 @@ pub fn write(
         .ack_eliciting = ack_eliciting,
         .carries_handshake_done = carries_handshake_done,
         .carries_ack = written_ack > 0,
+        .path_challenge = path.path_challenge,
+        .carries_path_response = path.carries_path_response,
+    };
+}
+
+/// A packet of the path frames alone, which RFC 9000 §9.1 counts as probing frames.
+fn probing_packet(connection: *Connection, level: Level, payload: []u8) Framed {
+    var writer = Writer.init(payload);
+    const path = write_path_frames(connection, level, &writer);
+    return .{
+        .len = writer.written().len,
+        // RFC 9000 §13.2.1, Table 3: PATH_CHALLENGE and PATH_RESPONSE elicit an acknowledgment.
+        .ack_eliciting = path.path_challenge != null or path.carries_path_response,
         .path_challenge = path.path_challenge,
         .carries_path_response = path.carries_path_response,
     };

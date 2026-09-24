@@ -41,6 +41,7 @@ const connection_handshake = @import("connection_handshake.zig");
 const connection_recovery = @import("connection_recovery.zig");
 const connection_retry = @import("connection_retry.zig");
 const connection_version = @import("connection_version.zig");
+const migration = @import("connection_migration.zig");
 
 const Connection = connection_module.Connection;
 const Datagram = receive_module.Datagram;
@@ -92,6 +93,15 @@ pub const Received = struct {
     version_negotiation: ?connection_version.Reaction = null,
     /// What a Retry packet did (RFC 9000 §17.2.5), when the datagram was one.
     retry: ?connection_retry.Outcome = null,
+    /// RFC 9000 §9: a client discarded the datagram because it came from an address other than
+    /// its server's (decision 72).
+    from_unknown_server: bool = false,
+    /// Whether the datagram carried the highest-numbered non-probing packet so far, which is what
+    /// moves the path when the datagram came from a new address (RFC 9000 §9.3).
+    highest_non_probing: bool = false,
+    /// The server moved its path to the address the datagram came from (RFC 9000 §9.3). The
+    /// caller now owes `connection_migration.challenge` the data of two PATH_CHALLENGE frames.
+    migrated: bool = false,
 };
 
 /// Takes one datagram the caller received on this connection's path.
@@ -115,13 +125,21 @@ pub fn receive(
         // arrives can change what it does.
         .draining, .closed => return received,
     }
+    // Decision 72: which of the connection's paths the datagram came from.
+    const arrived = migration.arrival(connection, &datagram.from);
+    if (arrived == .unknown_server) {
+        received.from_unknown_server = true;
+        return received;
+    }
     // RFC 9000 §8.1: a server may send "three times the amount of data received from that
     // address", which every datagram counts toward whether or not a packet in it opens.
-    connection.path.on_datagram_received(datagram.octets.len);
+    migration.on_datagram_received(connection, arrived, datagram.octets.len);
     // Decision 62: keys the caller's code gave the suite since the last call open packets here.
     keys_module.take_available(connection, suite);
     if (try take_whole(connection, suite, datagram.octets, scratch, &received)) return received;
     try walk_packets(connection, suite, provider, datagram, scratch, &received);
+    if (connection.termination.state != .active) return received;
+    received.migrated = migration.after_datagram(connection, datagram.from, arrived, datagram.octets.len, received.highest_non_probing);
     return received;
 }
 
@@ -194,7 +212,12 @@ fn process_packet(
     received: *Received,
 ) Error!void {
     const initial_received_len = connection.crypto_at(.initial).received_len();
+    const largest_before = connection.space_at(opened.level).received.largest();
     const report = try frames.process(connection, opened, datagram.now_ns, &scratch.recovery);
+    // RFC 9000 §9.3: only a non-probing 1-RTT packet that raises the largest packet number moves
+    // the path. Every packet before the handshake travels on the path it began on (§9).
+    const raises = largest_before == null or opened.packet_number > largest_before.?;
+    if (opened.level == .application and report.non_probing and raises) received.highest_non_probing = true;
     // RFC 9000 §13.1: "A packet MUST NOT be acknowledged until packet protection has been
     // successfully removed and all frames contained in the packet have been processed."
     // Decision 68: a caller that reads no codepoint passes Not-ECT, so no count rises.

@@ -44,6 +44,8 @@ const keys_module = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
 const retry_module = @import("connection_retry.zig");
 const handshake_module = @import("connection_handshake.zig");
+const migration_module = @import("connection_migration.zig");
+const PeerAddress = @import("../peer_address.zig").PeerAddress;
 
 const Level = core.Level;
 const Parameters = transport_parameters.Parameters;
@@ -76,6 +78,10 @@ pub const Options = struct {
     /// Decision 68: whether the caller sets on each datagram the codepoint `Sent.ecn` names,
     /// which lets this endpoint mark ECT(0) and validate the path (§13.4.2).
     ecn_marks: bool = false,
+    /// The peer's address as the caller names it (decision 72): the server a client sends to, or
+    /// the client whose first Initial a server accepted. A caller that names no addresses leaves
+    /// it empty and passes none with its datagrams, and the path never moves.
+    peer_address: PeerAddress = .{},
 };
 
 pub const Connection = struct {
@@ -101,6 +107,8 @@ pub const Connection = struct {
     remote_ids: connection_id.Remote,
     /// Path validation and the anti-amplification limit (RFC 9000 §8.2, §21.1.1.1).
     path: path_module.Path,
+    /// The previous path and what RFC 9000 §9.3 remembers of the peer's moves (decision 72).
+    migration: migration_module.State,
     /// The stateless reset tokens the peer gave, which §10.3 matches an unreadable packet against.
     tokens: stateless_reset.Tokens,
     /// Whether the connection is active, closing or draining (RFC 9000 §10.2).
@@ -240,6 +248,8 @@ pub const Connection = struct {
             .client => .validated,
             .server => .unvalidated,
         });
+        connection.path.address = options.peer_address;
+        connection.migration.init();
         connection.tokens.init();
         // RFC 9000 §10.1: an idle timeout of 0 disables it, and §18.2 makes 0 the default.
         const idle = options.local_parameters.max_idle_timeout_ms;

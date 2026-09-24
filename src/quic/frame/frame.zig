@@ -208,6 +208,15 @@ pub const Frame = union(enum) {
             else => true,
         };
     }
+
+    /// RFC 9000 §9.1: "PATH_CHALLENGE, PATH_RESPONSE, NEW_CONNECTION_ID, and PADDING frames are
+    /// "probing frames", and all other frames are "non-probing frames"."
+    pub fn is_probing(frame: Frame) bool {
+        return switch (frame) {
+            .path_challenge, .path_response, .new_connection_id, .padding => true,
+            else => false,
+        };
+    }
 };
 
 /// Reads the frame at the reader's cursor, consuming all of it or none.

@@ -82,6 +82,15 @@ pub const Recovery = struct {
         recovery.ecn_path.init();
     }
 
+    /// RFC 9000 §9.4: the peer's new address is validated, so the congestion controller and the
+    /// RTT estimator start again "for the new path to initial values (see Appendices A.3 and B.3
+    /// of [QUIC-RECOVERY])". What the peer advertised is kept (`Rtt.reset`).
+    pub fn on_path_changed(recovery: *Recovery) void {
+        recovery.rtt.reset();
+        recovery.congestion.init(recovery.congestion.max_datagram_len);
+        recovery.pacer.init(recovery.rate());
+    }
+
     pub fn table_of(recovery: *Recovery, kind: Kind) *Table {
         return &recovery.tables[@intFromEnum(kind)];
     }
