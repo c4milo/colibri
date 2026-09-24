@@ -64,6 +64,8 @@ pub const Result = struct {
     octets_crc32: u32 = 0,
     /// Datagrams the adversary dropped.
     adversary_dropped: u64 = 0,
+    /// The instant both endpoints had confirmed the handshake, from the run's start.
+    handshake_ns: u64 = 0,
 };
 
 /// What the whole run counted, which the test compares across build modes and hosts.
@@ -78,9 +80,11 @@ pub const Census = struct {
     adversary_dropped: u64 = 0,
     /// Datagrams the network marked ECN-CE (RFC 9000 §13.4).
     marked: u64 = 0,
+    /// The longest any seed took to confirm the handshake at both endpoints.
+    handshake_max_ns: u64 = 0,
 };
 
-/// What a run's network does beside its random schedule.
+/// What a run's network does beside, or instead of, its random schedule.
 pub const Adversary = enum {
     none,
     /// Drops every datagram whose packets are none of them ack-eliciting: ACK frames alone, as
@@ -88,7 +92,16 @@ pub const Adversary = enum {
     /// what its probes carry sends a lost frame again (decisions 64 and 66). A run under it ends
     /// once the server has read the stream: the client's acknowledgment of it never arrives.
     drop_ack_only,
+    /// The QUIC Interop Runner's handshakeloss network in place of the random schedule: its
+    /// drop-rate scenario with `runner_drop`, `runner_drop_run_max` and `runner_delay_ns`.
+    runner_handshake_loss,
 };
+
+/// The runner's handshakeloss scenario: 30% of datagrams dropped toward each endpoint, at most 3
+/// in a row, and 15 ms each way.
+pub const runner_drop: u32 = 300;
+pub const runner_drop_run_max: u32 = 3;
+pub const runner_delay_ns: u64 = 15_000_000;
 
 /// A defect a test puts into a run, so each way the driver fails is shown to fail.
 pub const Fault = enum {
@@ -145,13 +158,24 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.reordered += storage.network.census.reordered;
         census.marked += storage.network.census.marked_congestion;
         census.adversary_dropped += result.adversary_dropped;
+        census.handshake_max_ns = @max(census.handshake_max_ns, result.handshake_ns);
         census.crc32 = combine(census.crc32, result);
     }
     failed_seed.* = null;
     // A run that lost nothing would pass while proving nothing of loss recovery.
-    const unexercised = census.dropped == 0 or census.duplicated == 0 or census.reordered == 0;
-    if (unexercised or census.marked == 0) return Violation.ScheduleUnexercised;
-    if (storage.adversary != .none and census.adversary_dropped == 0) return Violation.ScheduleUnexercised;
+    if (!exercised(storage.adversary, census)) return Violation.ScheduleUnexercised;
+}
+
+/// Whether the seeds did what the run's network is there to do: the random schedule dropped,
+/// duplicated, reordered and marked, and an adversary dropped.
+fn exercised(adversary: Adversary, census: *const Census) bool {
+    const random = census.dropped > 0 and census.duplicated > 0 and census.reordered > 0 and census.marked > 0;
+    return switch (adversary) {
+        .none => random,
+        .drop_ack_only => random and census.adversary_dropped > 0,
+        // The runner's scenario delays every datagram alike and marks none, so drops are all it has.
+        .runner_handshake_loss => census.dropped > 0,
+    };
 }
 
 /// Folds one seed's counts into the digest, one field at a time, so struct padding is never read
@@ -238,4 +262,26 @@ test "decisions 64 and 66: a network that drops every datagram of ACK frames alo
     try std.testing.expectEqual(adversary_census_datagrams_expected, census.datagrams);
     try std.testing.expectEqual(adversary_census_dropped_expected, census.adversary_dropped);
     try std.testing.expectEqual(adversary_census_crc32_expected, census.crc32);
+}
+
+/// The runner check's census, pinned as the lossy check's is. `handshake_max_ns` is the slowest
+/// seed's handshake, which the doubling Probe Timeout of RFC 9002 §6.2.1 sets under this loss.
+pub const runner_census_crc32_expected: u32 = 0xa9a60cac;
+pub const runner_census_datagrams_expected: u64 = 4_749;
+pub const runner_census_dropped_expected: u64 = 1_377;
+pub const runner_census_handshake_max_ns_expected: u64 = 10_441_562_501;
+
+test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
+    check_storage.fault = .none;
+    check_storage.adversary = .runner_handshake_loss;
+    var census: Census = .{};
+    var failed_seed: ?u64 = null;
+    run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
+        std.debug.print("QUIC runner check: seed 0x{x} broke {t}, endpoint error {?}\n", .{ failed_seed orelse 0, failure, check_storage.failure });
+        return failure;
+    };
+    try std.testing.expectEqual(runner_census_datagrams_expected, census.datagrams);
+    try std.testing.expectEqual(runner_census_dropped_expected, census.dropped);
+    try std.testing.expectEqual(runner_census_handshake_max_ns_expected, census.handshake_max_ns);
+    try std.testing.expectEqual(runner_census_crc32_expected, census.crc32);
 }

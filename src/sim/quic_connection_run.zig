@@ -23,7 +23,7 @@ const Violation = check.Violation;
 /// Runs one seed and returns its counts.
 pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     var random = Random.init(seed);
-    storage.network.init(seed, draw_schedule(&random));
+    storage.network.init(seed, schedule_of(storage.adversary, &random));
     storage.failure = null;
     // Bounded by the two sides of the network.
     for (std.enums.values(Side)) |side| {
@@ -64,6 +64,18 @@ fn apply_adversary(storage: *Storage) void {
     if (storage.adversary == .none) return;
     // Bounded by the two sides.
     for (&storage.endpoints) |*endpoint| endpoint.transfer_len = quic_endpoint.request_len;
+}
+
+/// The runner's scenario when the run asks for it (`check.Adversary.runner_handshake_loss`), and
+/// a schedule drawn for the seed otherwise.
+fn schedule_of(adversary: check.Adversary, random: *Random) Schedule {
+    if (adversary != .runner_handshake_loss) return draw_schedule(random);
+    return .{
+        .drop = check.runner_drop,
+        .drop_run_max = check.runner_drop_run_max,
+        .delay_min_ns = check.runner_delay_ns,
+        .delay_max_ns = check.runner_delay_ns,
+    };
 }
 
 /// A seed's network: up to `drop_max` datagrams dropped, up to `duplicate_max` duplicated and up
@@ -109,6 +121,7 @@ const Run = struct {
         for (std.enums.values(Side)) |side| try run.send_owed(side);
         for (std.enums.values(Side)) |side| try run.storage.histories[@intFromEnum(side)].check(&run.storage.endpoints[@intFromEnum(side)]);
         run.result.steps += 1;
+        run.note_handshake();
         if (run.is_done()) return true;
         run.now_ns = run.next_instant();
         return false;
@@ -162,7 +175,7 @@ const Run = struct {
     /// Whether the run's adversary drops the datagram `sent` describes (`check.Adversary`).
     fn adversary_drops(run: *const Run, sent: *const quic.connection_send.Sent) bool {
         switch (run.storage.adversary) {
-            .none => return false,
+            .none, .runner_handshake_loss => return false,
             .drop_ack_only => {
                 // Bounded by the levels a datagram coalesces.
                 for (sent.written()) |packet| {
@@ -171,6 +184,15 @@ const Run = struct {
                 return true;
             },
         }
+    }
+
+    /// Keeps the instant both endpoints first had the handshake confirmed.
+    fn note_handshake(run: *Run) void {
+        if (run.result.handshake_ns != 0) return;
+        const client = &run.storage.endpoints[@intFromEnum(Side.client)];
+        const server = &run.storage.endpoints[@intFromEnum(Side.server)];
+        if (!client.connection.handshake_confirmed or !server.connection.handshake_confirmed) return;
+        run.result.handshake_ns = run.now_ns - check.start_ns;
     }
 
     /// The run is over once both endpoints have confirmed the handshake, the client's stream has
