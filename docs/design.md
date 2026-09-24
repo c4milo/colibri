@@ -3045,6 +3045,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   files, all caught after two missing tests were written. **Still owed:** the dynamic table with
   the encoder and decoder streams, and the `qpackers/qifs` vectors, which need it.
 
+  **The decoder uses the dynamic table, and the vectors run, 2026-09-24.**
+  - `5aa9ca5` and `8e2b8d8`: [decision 74](decisions.md). The decoder applies the encoder stream,
+    resolves relative and post-Base references, blocks a stream until its Required Insert Count
+    arrives, and writes Section Acknowledgments, Stream Cancellations and Insert Count
+    Increments. RFC 9204 Appendix B.2 to B.5 pass in order through one decoder. The change also
+    fixed a defect: a peer's literal longer than `field_name_len_max` reached an assertion in
+    `FieldSection.append`, where RFC 9204 §7.4 makes it a decompression failure. 31 mutations,
+    31 CAUGHT.
+  - `9f94cbb`: RFC 9204 Appendix A wraps ten values onto a second row, and
+    `tools/static_table.zig` read only the first row of each. Entry 52 was `text/html;`, and
+    entries 57 and 58 were one value. The check in `zig build test` compared the table with the
+    same parse, so nothing caught it until the vectors ran. 5 mutations, 5 CAUGHT.
+  - `40723c8`: [decision 75](decisions.md). `zig build qpack-vectors` decodes the corpus, and
+    `zig build test` runs it. 5 mutations, 5 CAUGHT.
+
+  Before `9f94cbb`, 353 of the corpus's 529 files failed, each at a wrapped entry. After it, the
+  tool printed `files=528 sections=137984 lines=1820016 blocked=7342 skipped=1 failed=0` on macOS
+  arm64: every file six encoders made, at capacities 0, 256, 512 and 4,096, with 0 or 100
+  blocked streams, decodes to its input. 7,342 sections blocked and were decoded once their
+  entries arrived. The file skipped is the corpus's examples file, for the reason decision 75
+  gives.
+
+  **Still owed:** the encoder's use of the dynamic table, with colibri's own encoded files for
+  the offline interop; the two `.qif` tools of §9; and fuzzing.
+
 - **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
   request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,
   with every case accounted for; the interop runner's `http3` case; `h2load --h3`; and the h2
