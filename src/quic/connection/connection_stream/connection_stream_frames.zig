@@ -67,7 +67,7 @@ pub fn connection_error_code(failure: Error) u64 {
 pub fn apply(connection: *Connection, frame: frame_module.Frame) Error!void {
     switch (frame) {
         .stream => |held| try take_stream(connection, held),
-        .reset_stream => |held| try take_reset(connection, held.stream_id, held.final_size),
+        .reset_stream => |held| try take_reset(connection, held.stream_id, held.error_code, held.final_size),
         .stop_sending => |held| try take_stop_sending(connection, held.stream_id, held.error_code),
         .max_stream_data => |held| try take_max_stream_data(connection, held.stream_id, held.maximum),
         // RFC 9000 §19.11: MAX_STREAMS raises how many this endpoint may open, and §4.6 makes a
@@ -130,7 +130,7 @@ fn spend_connection_credit(connection: *Connection, stream: *Stream, reached: u6
 
 /// A RESET_STREAM frame (RFC 9000 §19.4). §4.5 makes its Final Size the stream's, and the octets
 /// it names count against both flow control limits even though they never arrive.
-fn take_reset(connection: *Connection, stream_id: u64, final_size: u64) Error!void {
+fn take_reset(connection: *Connection, stream_id: u64, application_error_code: u64, final_size: u64) Error!void {
     const id: StreamId = .{ .value = stream_id };
     const stream = try receivable_stream(connection, id) orelse return;
     try spend_connection_credit(connection, stream, final_size);
@@ -138,7 +138,9 @@ fn take_reset(connection: *Connection, stream_id: u64, final_size: u64) Error!vo
     // RFC 9000 §4.5: a final size that changes, or one below what already arrived, closes the
     // connection with FINAL_SIZE_ERROR.
     stream.receiving.on_reset(final_size) catch return Error.FinalSize;
-    _ = stream.receiving.on(.received_reset);
+    // RFC 9000 §3.2: the first reset moves the receiving part to "Reset Recvd", and a repeat of
+    // it carries nothing new.
+    if (stream.receiving.on(.received_reset) == .taken) stream.peer_reset_error_code = application_error_code;
     // RFC 9000 §3.2: a reset stream's octets are not delivered, so the pool takes them back.
     if (connection.receive_storage) |storage| stream.incoming.release(storage);
 }

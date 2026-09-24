@@ -65,6 +65,9 @@ pub const Stream = struct {
     /// The STOP_SENDING this endpoint owes or sent (RFC 9000 §19.5), and its error code.
     stop_sending: frame_latest.Latest = .{},
     stop_error_code: u64 = 0,
+    /// The error code of the peer's RESET_STREAM (RFC 9000 §19.4), which the application reads:
+    /// §3.2 has the reset "signaled to the application", and the code is the application's.
+    peer_reset_error_code: u64 = 0,
 
     pub fn stream_identifier(stream: *const Stream) StreamId {
         return .{ .value = stream.id };

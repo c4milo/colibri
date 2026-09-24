@@ -61,6 +61,19 @@ pub fn consume(connection: *Connection, id: StreamId, len: usize) Error!Read {
     return on_consumed(connection, stream, len);
 }
 
+/// The error code of the peer's RESET_STREAM on `id` (RFC 9000 §19.4), while the reset waits to
+/// be reported, or null when the peer has not reset it. It changes nothing: the next `read`,
+/// `peek` or `consume` reports the reset.
+pub fn reset_code(connection: *Connection, id: StreamId) ?u64 {
+    if (!id.is_receivable_by(connection.streams.role)) return null;
+    const stream = switch (connection.streams.lookup(id)) {
+        .live => |stream| stream,
+        .closed, .unopened => return null,
+    };
+    if (stream.receiving.state != .reset_recvd) return null;
+    return stream.peer_reset_error_code;
+}
+
 /// The stream `id` names, when the application may read it. A reset is reported instead, once.
 fn readable(connection: *Connection, id: StreamId) Error!*Stream {
     // Decision 61: a connection given no pool keeps no octets, so a read of one is the caller's

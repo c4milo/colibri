@@ -217,6 +217,9 @@ test "decision 61: every receive window grows no further than the pool holds" {
     try testing.expectEqual(connection_window, client.receive_flow.window_max);
 }
 
+/// The application error code the client resets its stream with (RFC 9000 §19.4). Test-only.
+const reset_error_code: u64 = 0x10c;
+
 /// A datagram held back past a reset, as a delayed one arrives. Test-only.
 var late: [constants.datagram_len_min]u8 = undefined;
 var late_len: usize = 0;
@@ -230,15 +233,19 @@ test "RFC 9000 §3.2: a reset stream is reported once, and its octets go back to
     late_len = held_len[0];
     @memcpy(late[0..late_len], held[0][0..late_len]);
     try testing.expect(!server.streams.lookup(id).live.incoming.is_empty());
-    try stream_send.reset(&client, id, 0);
+    try testing.expectEqual(null, stream_read.reset_code(&server, id));
+    try stream_send.reset(&client, id, reset_error_code);
     const reset_count = try send_all(&client);
     for (0..reset_count) |index| try deliver(index, &server);
     try testing.expect(server.streams.lookup(id).live.incoming.is_empty());
     // Octets that arrive after the reset are for no one (RFC 9000 §3.2), so none is kept.
     _ = try datagram_module.receive(&server, suite_holder.suite(), provider_holder.provider(), .{ .octets = late[0..late_len], .now_ns = test_now_ns, .ecn = .not_ect }, &datagram_scratch);
     try testing.expect(server.streams.lookup(id).live.incoming.is_empty());
+    // The application learns the peer's code before it reads, and reading reports the reset.
+    try testing.expectEqual(reset_error_code, stream_read.reset_code(&server, id).?);
     try testing.expectError(error.StreamReset, stream_read.read(&server, id, &output));
     try testing.expectEqual(.reset_read, server.streams.lookup(id).live.receiving.state);
+    try testing.expectEqual(null, stream_read.reset_code(&server, id));
 }
 
 test "RFC 9000 §2.1: a stream this endpoint only sends on is not one to read" {
