@@ -13,6 +13,7 @@ const stream_close = @import("connection_stream_close.zig");
 
 const Connection = connection_module.Connection;
 const StreamId = stream_module.StreamId;
+const Stream = stream_module.Stream;
 
 pub const Error = error{
     /// The identifier names no stream this endpoint receives on now: one not opened, one closed,
@@ -35,9 +36,36 @@ pub const Read = struct {
 /// Copies the octets of stream `id` the application has not read, up to the first that has not
 /// arrived, into `output`. The connection must have been given a receive pool.
 pub fn read(connection: *Connection, id: StreamId, output: []u8) Error!Read {
+    const stream = try readable(connection, id);
+    const len = stream.incoming.read(connection.receive_storage.?, stream.receive_flow.consumed, output);
+    return on_consumed(connection, stream, len);
+}
+
+/// Copies the same octets `read` would, and leaves them unread (decision 80). They give the peer
+/// no credit (RFC 9000 §4.1) until `consume` or `read` takes them. `fin` says whether the octets
+/// copied reach the stream's final size.
+pub fn peek(connection: *Connection, id: StreamId, output: []u8) Error!Read {
+    const stream = try readable(connection, id);
+    const consumed = stream.receive_flow.consumed;
+    const len = stream.incoming.peek(connection.receive_storage.?, consumed, output);
+    const final_size = stream.receiving.final_size orelse return .{ .len = len, .fin = false };
+    assert(consumed + len <= final_size);
+    return .{ .len = len, .fin = consumed + len == final_size };
+}
+
+/// Takes the first `len` octets not yet read, which a `peek` copied, as `read` would take them
+/// but without copying them again (decision 80).
+pub fn consume(connection: *Connection, id: StreamId, len: usize) Error!Read {
+    const stream = try readable(connection, id);
+    stream.incoming.discard(connection.receive_storage.?, stream.receive_flow.consumed, len);
+    return on_consumed(connection, stream, len);
+}
+
+/// The stream `id` names, when the application may read it. A reset is reported instead, once.
+fn readable(connection: *Connection, id: StreamId) Error!*Stream {
     // Decision 61: a connection given no pool keeps no octets, so a read of one is the caller's
     // defect rather than something a peer can cause.
-    const storage = connection.receive_storage.?;
+    assert(connection.receive_storage != null);
     if (!id.is_receivable_by(connection.streams.role)) return Error.NotReadable;
     const stream = switch (connection.streams.lookup(id)) {
         .live => |stream| stream,
@@ -51,7 +79,12 @@ pub fn read(connection: *Connection, id: StreamId, output: []u8) Error!Read {
         _ = stream_close.close_if_finished(connection, stream);
         return Error.StreamReset;
     }
-    const len = stream.incoming.read(storage, stream.receive_flow.consumed, output);
+    return stream;
+}
+
+/// Counts `len` octets the application took off `stream`, and finishes its receiving part when
+/// they reach the final size.
+fn on_consumed(connection: *Connection, stream: *Stream, len: usize) Read {
     // RFC 9000 §4.1: both limits are measured from what was consumed.
     stream.receive_flow.consume(len);
     connection.receive_flow.consume(len);

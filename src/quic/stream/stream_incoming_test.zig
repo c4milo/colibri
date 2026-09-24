@@ -135,3 +135,46 @@ test "decision 61: two blocks per stream beyond the capacity" {
     const edges: usize = 2;
     try testing.expectEqual(capacity_blocks + edges * constants.streams_per_connection_max, blocks);
 }
+
+test "decision 80: a peek copies what a read would, and leaves every block in place" {
+    const storage = fresh();
+    const all = free_blocks(storage);
+    var incoming: Incoming = .{};
+    const gap_start: u64 = 2 * block_len + 10;
+    try incoming.write(storage, stream_a, 0, 0, frame(0, gap_start));
+    try incoming.write(storage, stream_a, 0, gap_start + 1, frame(gap_start + 1, gap_start + 5));
+    const taken = free_blocks(storage);
+    // The peek stops at the gap, as a read would, and gives nothing back.
+    const peeked = incoming.peek(storage, 0, &output);
+    try testing.expectEqual(gap_start, peeked);
+    try expect_octets(0, output[0..peeked]);
+    try testing.expectEqual(taken, free_blocks(storage));
+    // A peek from inside the stream, and one cut short by the output.
+    try testing.expectEqual(gap_start - 100, incoming.peek(storage, 100, &output));
+    try expect_octets(100, output[0 .. gap_start - 100]);
+    try testing.expectEqual(block_len + 5, incoming.peek(storage, 0, output[0 .. block_len + 5]));
+    try testing.expectEqual(all - 3, taken);
+    // A whole block missing: the peek stops at its start, not in the block after it.
+    var other: Incoming = .{};
+    try other.write(storage, stream_b, 0, 0, frame(0, block_len));
+    try other.write(storage, stream_b, 0, 2 * block_len, frame(2 * block_len, 2 * block_len + 5));
+    try testing.expectEqual(block_len, other.peek(storage, 0, &output));
+}
+
+test "decision 80: a discard gives back the blocks it passes, as a read of them would" {
+    const storage = fresh();
+    const all = free_blocks(storage);
+    var incoming: Incoming = .{};
+    const end: u64 = 2 * block_len + 10;
+    try incoming.write(storage, stream_a, 0, 0, frame(0, end));
+    // Short of a block's end, nothing goes back; at it, that block does.
+    incoming.discard(storage, 0, block_len - 1);
+    try testing.expectEqual(all - 3, free_blocks(storage));
+    incoming.discard(storage, block_len - 1, 1);
+    try testing.expectEqual(all - 2, free_blocks(storage));
+    // What is left reads from where the discard stopped.
+    const read = incoming.read(storage, block_len, &output);
+    try testing.expectEqual(end - block_len, read);
+    try expect_octets(block_len, output[0..read]);
+    try testing.expectEqual(all - 1, free_blocks(storage));
+}

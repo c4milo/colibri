@@ -173,6 +173,45 @@ pub const Incoming = struct {
         return written;
     }
 
+    /// Copies the octets from `read_offset` up to the first that has not arrived into `output`,
+    /// as many as fit, and returns how many. Unlike `read`, it gives no block back, so the same
+    /// octets are there to copy or read again.
+    pub fn peek(incoming: *const Incoming, storage: Storage, read_offset: u64, output: []u8) usize {
+        var at = read_offset;
+        var written: usize = 0;
+        var current = incoming.first;
+        // Bounded: each pass copies to the end of a block, to a gap or to the end of `output`.
+        for (0..output.len / block_len + span_edges) |_| {
+            if (written == output.len or current == no_block) break;
+            const block = &storage.blocks[current];
+            if (block.number != at / block_len) break;
+            const within: usize = @intCast(at % block_len);
+            const run = present_run(block, within, output.len - written);
+            @memcpy(output[written..][0..run], storage.octets[current][within..][0..run]);
+            written += run;
+            at += run;
+            // A run that stops short of the block's end leaves `at` inside it, so the next
+            // block's number is not the one asked for and the walk ends there.
+            current = block.next;
+        }
+        return written;
+    }
+
+    /// Drops `len` octets from `read_offset`, as reading them would, without copying them. Every
+    /// one of them has arrived: the caller drops only octets it has seen.
+    pub fn discard(incoming: *Incoming, storage: Storage, read_offset: u64, len: u64) void {
+        assert(incoming.contiguous_end(storage, read_offset) >= read_offset + len);
+        const end = read_offset + len;
+        // Bounded by the pool's blocks. A block goes back once every octet in it lies below `end`.
+        for (0..storage.blocks.len) |_| {
+            const index = incoming.first;
+            if (index == no_block) return;
+            if ((storage.blocks[index].number + 1) * block_len > end) return;
+            incoming.first = storage.blocks[index].next;
+            storage.give_back(index);
+        }
+    }
+
     /// The offset of the first octet at or above `read_offset` that has not arrived.
     pub fn contiguous_end(incoming: *const Incoming, storage: Storage, read_offset: u64) u64 {
         var at = read_offset;

@@ -147,6 +147,33 @@ test "decision 61: the application reads a stream in order, and all of it with t
     try testing.expectEqual(.data_read, server.streams.lookup(id).live.receiving.state);
 }
 
+test "decision 80: a peek leaves the octets unread and gives no credit, and consume takes them" {
+    open_pair();
+    const id = try client_stream(body_len, true);
+    for (0..try send_all(&client)) |index| try deliver(index, &server);
+    const flow = &server.streams.lookup(id).live.receive_flow;
+    const peeked = try stream_read.peek(&server, id, &output);
+    try testing.expectEqual(body_len, peeked.len);
+    try testing.expect(peeked.fin);
+    try expect_octets(0, output[0..peeked.len]);
+    try testing.expectEqual(0, flow.consumed);
+    try testing.expectEqual(0, server.receive_flow.consumed);
+    // A peek cut short does not reach the FIN.
+    const short_len: usize = 100;
+    const short = try stream_read.peek(&server, id, output[0..short_len]);
+    try testing.expectEqual(short_len, short.len);
+    try testing.expect(!short.fin);
+    const taken = try stream_read.consume(&server, id, short_len);
+    try testing.expect(!taken.fin);
+    try testing.expectEqual(short_len, flow.consumed);
+    try testing.expectEqual(short_len, server.receive_flow.consumed);
+    // The rest reads from where the consume stopped, and ends the stream.
+    const rest = try stream_read.read(&server, id, &output);
+    try testing.expectEqual(body_len - short_len, rest.len);
+    try testing.expect(rest.fin);
+    try expect_octets(short_len, output[0..rest.len]);
+}
+
 test "RFC 9000 §2.2: octets that arrive out of order wait for the ones before them" {
     open_pair();
     const id = try client_stream(body_len, true);
