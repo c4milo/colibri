@@ -31,6 +31,8 @@ var retry_source_id: [id_len]u8 = undefined;
 /// The deployment's Retry token key and its lifetime (decision 55).
 var retry: chapulin_quic_suite.Retry = undefined;
 var cookie_storage: [cookie_key_len]u8 = undefined;
+/// The key the server seals its session tickets under (chapulin's decision 51).
+var ticket_key_storage: [c.SRV_TICKET_KEY_LEN]u8 = undefined;
 var chain_storage: [constants.quic_chain_len_max][constants.tls_der_len_max]u8 = undefined;
 var chain: [constants.quic_chain_len_max][]const u8 = undefined;
 var private_storage: [private_scalar_len]u8 = undefined;
@@ -55,6 +57,9 @@ pub fn seed() !void {
     try draw(&cookie_storage);
     // Decision 55: so is the Retry token's key, which only this process ever holds.
     try draw(&retry.key);
+    // chapulin's `srv_cfg.h`: one ticket key per deployment, and a ticket resumes only on a server
+    // that holds it, which here is this process.
+    try draw(&ticket_key_storage);
     retry.lifetime_seconds = constants.quic_retry_token_lifetime_seconds;
 }
 
@@ -111,14 +116,22 @@ pub fn server_ids(destination: []const u8, source: []const u8) udp_peer.Identity
     return .{ .local_source = &local_id, .original_destination = destination, .peer_source = source };
 }
 
-/// A client's session options. `receive` is chapulin's buffer for this connection alone.
-pub fn client_options(asked: udp_arguments.Client, receive: []u8) !chapulin_quic.Options {
+/// A client's session options. `receive` is chapulin's buffer for this connection alone. The
+/// ticket the server issues goes to `ticket_store`, and `resumption` presents one.
+pub fn client_options(
+    asked: udp_arguments.Client,
+    receive: []u8,
+    ticket_store: ?*chapulin_quic.Ticket,
+    resumption: ?chapulin_quic.Resumption,
+) !chapulin_quic.Options {
     return .{
         .role = .client,
         .alpn = hq.alpn,
         .receive = receive,
         .trust = try client_trust(asked),
         .keylog = &keylog,
+        .ticket_store = ticket_store,
+        .resumption = resumption,
     };
 }
 
@@ -135,8 +148,9 @@ fn client_trust(asked: udp_arguments.Client) !chapulin_quic.Trust {
     return .{ .webpki = .{ .anchors = &anchors, .hostname = asked.hostname, .now_seconds = asked.now_seconds } };
 }
 
-/// A server's session options. `receive` is chapulin's buffer for this connection alone.
-pub fn server_options(asked: udp_arguments.Server, receive: []u8) !chapulin_quic.Options {
+/// A server's session options. `receive` is chapulin's buffer for this connection alone, and
+/// `now_seconds` the Unix seconds its ticket carries, or 0 to issue none.
+pub fn server_options(asked: udp_arguments.Server, receive: []u8, now_seconds: u64) !chapulin_quic.Options {
     const prefix = asked.identity_prefix;
     return .{
         .role = .server,
@@ -147,6 +161,8 @@ pub fn server_options(asked: udp_arguments.Server, receive: []u8) !chapulin_quic
             .private_scalar = try check_file.read_part(prefix, ".priv", &private_storage),
             .public_point = try check_file.read_part(prefix, ".pub", &public_storage),
             .cookie_key = &cookie_storage,
+            .ticket_key = &ticket_key_storage,
+            .now_seconds = now_seconds,
         },
         .keylog = &keylog,
     };

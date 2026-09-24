@@ -24,6 +24,8 @@ pub const c = if (available) @cImport({
     @cInclude("srv_quic.h");
     // `ch_srv_check`, the server's boot-time test of its signing key.
     @cInclude("srv.h");
+    // `SRV_TICKET_KEY_LEN`, the length of the key a server seals its tickets under.
+    @cInclude("srv_ticket.h");
     @cInclude("drbg.h");
     @cInclude("keylog.h");
 }) else struct {};

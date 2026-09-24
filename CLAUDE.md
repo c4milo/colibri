@@ -277,11 +277,13 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   stream, and writes the secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain.
   `tools/ci.sh` runs it when it finds `bin/chapulin-quic.o`.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www>
-  [once] [retry] [connections=<n>]` and `-- client <address> <port> <anchor-prefix> <hostname>
-  <unix-seconds> <downloads> [keyupdate] <path>...` run design §9's hq-interop server and client
-  over Rotor's UDP loop and the same chapulin object. An address is IPv4 or IPv6; a server bound
-  to `::` takes both on Linux. `tools/quic_udp.sh <checkout> [port]` runs a client against a server on 127.0.0.1,
-  checks each file arrives octet for octet and that a missing one resets its stream, and
+  [once] [retry] [connections=<n>] [seconds=<unix-seconds>]` and `-- client <address> <port>
+  <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] <path>...` run
+  design §9's hq-interop server and client over Rotor's UDP loop and the same chapulin object,
+  which must be chapulin `2262eee` or later for its session tickets. An address is IPv4 or IPv6; a
+  server bound to `::` takes both on Linux. `tools/quic_udp.sh <checkout> [port]` runs a client
+  against a server on 127.0.0.1, checks each file arrives octet for octet, that a missing one
+  resets its stream, and that a second connection resumes the first one's session, and
   `tools/ci.sh` runs it beside the loopback check. `tools/quic_aioquic.sh <checkout> [port]` runs
   the same endpoint against aioquic's, pinned and installed once into a cached virtual
   environment, in both directions; it also needs `python3`, and `tools/ci.sh` runs it too.

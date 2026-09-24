@@ -16,6 +16,7 @@ pub const udp_peer = @import("quic/udp/udp_peer.zig");
 pub const udp_arguments = @import("quic/udp/udp_arguments.zig");
 pub const udp_identity = @import("quic/udp/udp_identity.zig");
 pub const udp_run = @import("quic/udp/udp_run.zig");
+pub const udp_run_client = @import("quic/udp/udp_run_client.zig");
 
 comptime {
     // The chapulin object imports `ch_assert_fail` and `ch_keylog`, which these two files export.
@@ -36,4 +37,5 @@ test {
     _ = udp_peer;
     _ = udp_arguments;
     _ = udp_identity;
+    _ = udp_run_client;
 }

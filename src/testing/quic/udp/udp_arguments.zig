@@ -1,8 +1,9 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [connections=<n>]
+//!         [seconds=<unix-seconds>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
-//!         [keyupdate] <path>...
+//!         [keyupdate] [resumption] <path>...
 //!
 //! An address is IPv4 in dotted decimal or IPv6 in RFC 4291 §2.2's text form. The server binds
 //! `<address>:<port>` and serves `<www>`:
@@ -11,11 +12,17 @@
 //!   that returns the token (RFC 9000 §8.1.2).
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
+//! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
+//!   tickets carry (RFC 9846 §4.6.1). Without it the server issues no ticket and accepts none.
 //!
-//! The client sends to `<address>:<port>` and fetches each path into `<downloads>`. With `keyupdate`
-//! it updates its keys once, as soon as RFC 9001 §6.1 permits.
+//! The client sends to `<address>:<port>` and fetches each path into `<downloads>`:
+//! - `keyupdate` updates its keys once, as soon as RFC 9001 §6.1 permits.
+//! - `resumption` fetches the first path on one connection, keeps the ticket the server issues,
+//!   and fetches the rest on a second connection that presents it (RFC 9846 §2.2).
+//!
 //! The instant is a clock the command line cannot give, so it comes from Rotor (decision 63); the
-//! Unix seconds are the certificate check's, which the caller reads (non-negotiable 3).
+//! Unix seconds are the certificate check's and the tickets', which the caller reads
+//! (non-negotiable 3).
 const std = @import("std");
 const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
@@ -35,6 +42,16 @@ pub const Server = struct {
     retry: bool = false,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
+    /// The Unix seconds the server started at, or 0 for none.
+    now_seconds: u64 = 0,
+
+    /// The Unix seconds at `now_ns`: `now_seconds` and the seconds Rotor's instant has advanced
+    /// since `started_ns`, the first tick's (decision 63). 0 for a server given no clock.
+    pub fn seconds_at(server: *const Server, started_ns: u64, now_ns: u64) u64 {
+        std.debug.assert(now_ns >= started_ns);
+        if (server.now_seconds == 0) return 0;
+        return server.now_seconds + (now_ns - started_ns) / constants.nanoseconds_per_second;
+    }
 };
 
 pub const Client = struct {
@@ -47,6 +64,8 @@ pub const Client = struct {
     paths: []const []const u8,
     /// Whether the client starts one key update (RFC 9001 §6.1).
     key_update: bool = false,
+    /// Whether the client fetches the rest of its paths on a second, resumed connection.
+    resumption: bool = false,
 };
 
 pub const Arguments = union(Role) {
@@ -85,6 +104,8 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
             server.once = true;
         } else if (std.mem.eql(u8, word, "retry")) {
             server.retry = true;
+        } else if (parse_seconds(word)) |seconds| {
+            server.now_seconds = seconds;
         } else {
             server.connections = parse_connections(word) orelse usage();
         }
@@ -93,13 +114,29 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
     return server;
 }
 
-/// The client's word for one key update. Every path starts with `/`, so none is this word.
+/// The client's words for one key update and for a second, resumed connection. Every path starts
+/// with `/`, so neither is a path.
 const key_update_word = "keyupdate";
+const resumption_word = "resumption";
+const client_options_count: usize = 2;
 
-/// `once`, `retry` and `connections=<n>`.
-const server_options_count: usize = 3;
+/// Paths a client with `resumption` needs: one for each of its two connections.
+const resumption_paths_min: usize = 2;
+
+/// `once`, `retry`, `connections=<n>` and `seconds=<unix-seconds>`.
+const server_options_count: usize = 4;
 
 const connections_prefix = "connections=";
+const seconds_prefix = "seconds=";
+
+/// The Unix seconds of `seconds=<unix-seconds>`, or null for any other word, or for 0, which
+/// chapulin reads as no clock.
+fn parse_seconds(word: []const u8) ?u64 {
+    if (!std.mem.startsWith(u8, word, seconds_prefix)) return null;
+    const seconds = std.fmt.parseUnsigned(u64, word[seconds_prefix.len..], decimal) catch return null;
+    if (seconds == 0) return null;
+    return seconds;
+}
 
 /// The count of `connections=<n>`, or null for any other word, or for a count the table cannot
 /// hold: from 1 to `quic_connections_max`.
@@ -111,15 +148,42 @@ fn parse_connections(word: []const u8) ?usize {
 }
 
 fn parse_client(arguments: *std.process.Args.Iterator, address: udp.Address) Client {
-    const anchor_prefix = arguments.next() orelse usage();
-    const hostname = arguments.next() orelse usage();
-    const now_seconds = std.fmt.parseUnsigned(u64, arguments.next() orelse usage(), decimal) catch usage();
-    const downloads = arguments.next() orelse usage();
+    var client: Client = .{
+        .address = address,
+        .anchor_prefix = arguments.next() orelse usage(),
+        .hostname = arguments.next() orelse usage(),
+        .now_seconds = std.fmt.parseUnsigned(u64, arguments.next() orelse usage(), decimal) catch usage(),
+        .downloads = arguments.next() orelse usage(),
+        .paths = &.{},
+    };
+    const first_path = parse_client_options(arguments, &client);
+    client.paths = parse_paths(arguments, first_path);
+    // A resumed connection needs a path of its own, after the first connection's one.
+    const paths_min = if (client.resumption) resumption_paths_min else 1;
+    if (client.paths.len < paths_min) usage();
+    return client;
+}
+
+/// Reads the client's option words into `client`, and returns the first word after them, which is
+/// the first path.
+fn parse_client_options(arguments: *std.process.Args.Iterator, client: *Client) []const u8 {
     var next = arguments.next() orelse usage();
-    const key_update = std.mem.eql(u8, next, key_update_word);
-    if (key_update) next = arguments.next() orelse usage();
+    // Bounded by the options there are, each of which may appear once.
+    for (0..client_options_count) |_| {
+        if (std.mem.eql(u8, next, key_update_word)) {
+            client.key_update = true;
+        } else if (std.mem.eql(u8, next, resumption_word)) {
+            client.resumption = true;
+        } else break;
+        next = arguments.next() orelse usage();
+    }
+    return next;
+}
+
+/// Reads the paths, `first` and every word after it.
+fn parse_paths(arguments: *std.process.Args.Iterator, first: []const u8) []const []const u8 {
     var count: usize = 0;
-    var word: ?[]const u8 = next;
+    var word: ?[]const u8 = first;
     // Bounded by `hq_paths_max`.
     while (word) |path| : (word = arguments.next()) {
         if (count == paths_storage.len) usage();
@@ -129,16 +193,7 @@ fn parse_client(arguments: *std.process.Args.Iterator, address: udp.Address) Cli
         paths_storage[count] = path;
         count += 1;
     }
-    if (count == 0) usage();
-    return .{
-        .address = address,
-        .anchor_prefix = anchor_prefix,
-        .hostname = hostname,
-        .now_seconds = now_seconds,
-        .downloads = downloads,
-        .paths = paths_storage[0..count],
-        .key_update = key_update,
-    };
+    return paths_storage[0..count];
 }
 
 /// An IPv4 address in dotted decimal or an IPv6 address in RFC 4291 §2.2's text form, and the
@@ -154,8 +209,8 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [connections=<n>]\n" ++
-            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] <path>...\n",
+        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [connections=<n>] [seconds=<unix-seconds>]\n" ++
+            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] <path>...\n",
         .{},
     );
     std.process.exit(check_file.exit_usage);
@@ -192,4 +247,23 @@ test "a server holds from 1 to quic_connections_max connections, and names the c
     try testing.expectEqual(null, parse_connections("connections="));
     try testing.expectEqual(null, parse_connections("connection=4"));
     try testing.expectEqual(null, parse_connections("once"));
+}
+
+test "a server's Unix seconds advance with Rotor's instant, and 0 stays no clock" {
+    const started_ns: u64 = 7 * constants.nanoseconds_per_second;
+    var server: Server = .{ .address = undefined, .identity_prefix = "", .www = "", .now_seconds = 1_790_000_000 };
+    try testing.expectEqual(1_790_000_000, server.seconds_at(started_ns, started_ns));
+    const later_ns = started_ns + 90 * constants.nanoseconds_per_second - 1;
+    try testing.expectEqual(1_790_000_089, server.seconds_at(started_ns, later_ns));
+    server.now_seconds = 0;
+    try testing.expectEqual(0, server.seconds_at(started_ns, later_ns));
+}
+
+test "a server's clock is one word of Unix seconds, and 0 is no clock" {
+    const seconds: u64 = 1_790_000_000;
+    try testing.expectEqual(seconds, parse_seconds("seconds=1790000000").?);
+    try testing.expectEqual(null, parse_seconds("seconds=0"));
+    try testing.expectEqual(null, parse_seconds("seconds="));
+    try testing.expectEqual(null, parse_seconds("second=1790000000"));
+    try testing.expectEqual(null, parse_seconds("connections=4"));
 }

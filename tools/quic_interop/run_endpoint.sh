@@ -12,9 +12,10 @@ set -euo pipefail
 # sends one when asked, with a token chapulin mints (decision 55). A key update is the client's
 # to start; the runner gives the server `transfer` for it, as it does for the amplification limit
 # and IPv6 cases. Both roles mark ECT(0) and report ECN counts in every case (decision 68), so
-# `ecn` is a transfer. The rest are not built.
+# `ecn` is a transfer. A server issues a session ticket on every connection, and a client asked
+# for `resumption` presents the first connection's ticket on a second. The rest are not built.
 case "$TESTCASE" in
-  handshake | transfer | chacha20 | multiconnect | retry | ecn) ;;
+  handshake | transfer | chacha20 | multiconnect | retry | ecn | resumption) ;;
   keyupdate) [ "$ROLE" = client ] || exit 127 ;;
   *) exit 127 ;;
 esac
@@ -22,7 +23,8 @@ esac
 python3 /qns_identity.py /certs /tmp/identity
 
 if [ "$ROLE" = server ]; then
-  server_options=()
+  # The Unix time the server starts at, which its session tickets carry (RFC 9846 §4.6.1).
+  server_options=("seconds=$(date +%s)")
   [ "$TESTCASE" = retry ] && server_options+=(retry)
   # Bound to the IPv6 wildcard, the one socket takes IPv4 clients too (as IPv4-mapped addresses),
   # because the runner gives the server no hint of which family its IPv6 case uses.
@@ -51,6 +53,7 @@ address="$(getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }' || true)"
 
 client_options=()
 [ "$TESTCASE" = keyupdate ] && client_options+=(keyupdate)
+[ "$TESTCASE" = resumption ] && client_options+=(resumption)
 
 client() {
   quic-udp client "$address" "$port" /tmp/identity "$host" "$(date +%s)" /downloads "${client_options[@]}" "$@"

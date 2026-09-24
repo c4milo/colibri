@@ -250,6 +250,13 @@ pub const quic_retry_token_lifetime_seconds: u64 = 10;
 /// chapulin counts a Retry token's instants in seconds, and colibri passes nanoseconds.
 pub const nanoseconds_per_second: u64 = 1_000_000_000;
 
+/// RFC 9846 §4.2.11 counts a ticket's age in milliseconds, and Rotor's instant is in nanoseconds.
+pub const nanoseconds_per_millisecond: u64 = 1_000_000;
+
+/// The longest ticket identity a UDP QUIC client keeps (RFC 9846 §4.6.1). chapulin's server issues
+/// 104 octets and other servers a few hundred; a longer ticket is not kept, and the client says so.
+pub const quic_ticket_identity_len_max: usize = 1024;
+
 /// The longest one tick of a UDP QUIC endpoint waits. A connection's next deadline is usually
 /// sooner, and a wait this short keeps a lost wakeup cheap.
 pub const quic_tick_wait_ns_max: u64 = 100 * 1_000_000;

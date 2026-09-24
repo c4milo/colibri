@@ -12,7 +12,7 @@
 //! A server holds as many connections as its `connections=<n>` option asks, up to
 //! `quic_connections_max`, so a client that opens many at once is served, and one whose close was
 //! lost does not turn the next client away while it waits out its idle timeout. A client holds
-//! one.
+//! one at a time, and `udp_run_client.zig` is its part.
 const std = @import("std");
 const quic = @import("quic");
 const constants = @import("../../constants.zig");
@@ -23,13 +23,13 @@ const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
 const udp_identity = @import("udp_identity.zig");
 const hq_server = @import("../hq/hq_server.zig");
-const hq_client = @import("../hq/hq_client.zig");
+const udp_run_client = @import("udp_run_client.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
 const StreamProvider = quic.stream.stream_provider.StreamProvider;
 
 /// One connection, and what the endpoint keeps beside it.
-const Connection = struct {
+pub const Connection = struct {
     live: bool,
     peer: udp_peer.Peer,
     /// A server's hq-interop state for this connection.
@@ -47,7 +47,6 @@ var socket: udp.Endpoint = undefined;
 /// Sized for the most a server may hold, because `src/` has no heap (CLAUDE.md non-negotiable 4).
 /// `table` is the part in use.
 var connections: [constants.quic_connections_max]Connection = undefined;
-var client: hq_client.Client = undefined;
 var arguments: udp_arguments.Arguments = undefined;
 var slots: [constants.udp_send_slots][constants.quic_datagram_len_max]u8 = undefined;
 var slot_busy: [constants.udp_send_slots]bool = @splat(false);
@@ -56,8 +55,12 @@ var slot_outbound: [constants.udp_send_slots]udp.Outbound = undefined;
 var events: [constants.udp_operations_max]udp.Event = undefined;
 /// Whether a connection ended on a connection error, which fails the run.
 var connection_failed: bool = false;
-/// Files the server answered, over every connection it has ended.
+/// Files the server answered, over every connection it has ended, and the connections a ticket
+/// resumed.
 var served: u64 = 0;
+var resumed: u64 = 0;
+/// The instant of the first tick, which a server's Unix seconds count from.
+var started_ns: u64 = 0;
 
 /// The address a client binds: any address of its server's family, with a port the kernel picks.
 fn any_address(family: udp.Address.Family) udp.Address {
@@ -82,10 +85,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try socket.open(&memory, bind);
     // Decision 63: this first tick reads the clock whose instant every turn then passes on.
     _ = try socket.tick(&events, 0);
+    started_ns = socket.now_ns();
     switch (arguments) {
         // A script starts its client once this line is out.
         .server => std.debug.print("quic-udp: listening on port {d}\n", .{(try socket.local_address()).port}),
-        .client => connect(),
+        .client => |asked| udp_run_client.connect(&connections[0], asked, started_ns),
     }
     run();
     if (connection_failed) fail("a connection ended on a connection error", .{});
@@ -93,19 +97,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
     // only once the loop has had every send's final event, which closing the socket waits for.
     socket.close() catch |failure| fail("the socket did not close: {t}", .{failure});
     report();
-}
-
-fn connect() void {
-    const asked = arguments.client;
-    const connection = &connections[0];
-    const options = udp_identity.client_options(asked, &connection.receive) catch |failure|
-        fail("cannot read the trust anchor: {t}", .{failure});
-    connection.peer.init(options, udp_identity.client_ids(), client_parameters(), socket.now_ns(), asked.address) catch |failure|
-        fail("the client did not start: {t}", .{failure});
-    connection.outbound = outbound_to(asked.address);
-    connection.spare_ids_issued = false;
-    client.init(asked.downloads, asked.paths);
-    connection.live = true;
 }
 
 /// Turns until the run is over, or the ticks run out.
@@ -117,7 +108,7 @@ fn run() void {
         for (table()) |*connection| {
             if (connection.live) turn(connection, now_ns);
         }
-        if (finished()) return;
+        if (finished(now_ns)) return;
     }
     fail("ran out of ticks", .{});
 }
@@ -125,26 +116,11 @@ fn run() void {
 /// One connection's part of a turn: its deadlines, its streams, and what it owes.
 fn turn(connection: *Connection, now_ns: u64) void {
     connection.peer.on_instant(now_ns) catch |failure| fail("a deadline failed: {t}", .{failure});
-    if (arguments == .client and arguments.client.key_update) update_keys_once(connection, now_ns);
+    if (arguments == .client and arguments.client.key_update) udp_run_client.update_keys_once(connection, now_ns);
     step_application(connection);
     flush(connection, now_ns);
     // A client's stack derives its last secrets while it writes its Finished, inside `send`.
     udp_identity.write_keylog();
-}
-
-/// Whether the client's one key update has started.
-var keys_updated: bool = false;
-
-/// Starts the client's one key update once RFC 9001 §6.1 permits it: the handshake confirmed, and
-/// a packet of the current key phase acknowledged. Until then each turn asks again.
-fn update_keys_once(connection: *Connection, now_ns: u64) void {
-    if (keys_updated) return;
-    const suite = connection.peer.session.suite();
-    quic.connection_key_update.initiate(&connection.peer.connection, suite, now_ns) catch |failure| switch (failure) {
-        error.HandshakeNotConfirmed, error.PhaseNotAcknowledged, error.PhaseNotSettled => return,
-        else => fail("the key update failed: {t}", .{failure}),
-    };
-    keys_updated = true;
 }
 
 /// How long the next tick may wait: until the soonest deadline of a live connection, and never
@@ -183,6 +159,7 @@ fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     // frames whose data is drawn here.
     if (received.migrated) quic.connection_migration.challenge(&connection.peer.connection, udp_identity.challenge_data());
     issue_spare_ids(connection);
+    if (arguments == .client) udp_run_client.on_received(now_ns);
     // The step may have derived secrets. They go out now, because a server's connections step
     // through their handshakes together and the log holds one step's lines, not a run's.
     udp_identity.write_keylog();
@@ -295,7 +272,7 @@ fn free_slot() ?usize {
 fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Connection {
     const connection = free_connection() orelse return null;
     const asked = arguments.server;
-    const options = udp_identity.server_options(asked, &connection.receive) catch |failure|
+    const options = udp_identity.server_options(asked, &connection.receive, asked.seconds_at(started_ns, now_ns)) catch |failure|
         fail("cannot read the identity: {t}", .{failure});
     connection.peer.init(options, identity, server_parameters(), now_ns, delivery.from.peer) catch |failure|
         fail("the server did not start: {t}", .{failure});
@@ -317,20 +294,22 @@ fn free_connection() ?*Connection {
         if (idlest == null or since_ns < idlest.?.peer.connection.termination.idle_since_ns) idlest = connection;
     }
     const evicted = idlest orelse return null;
-    served += evicted.server.served;
-    evicted.live = false;
+    end(evicted);
     return evicted;
+}
+
+/// Frees a server's connection, counting what it served.
+fn end(connection: *Connection) void {
+    served += connection.server.served;
+    if (connection.peer.session.resumed()) resumed += 1;
+    connection.live = false;
 }
 
 fn step_application(connection: *Connection) void {
     const held = &connection.peer.connection;
     switch (arguments) {
         .server => connection.server.step(held) catch |failure| fail("the server's streams failed: {t}", .{failure}),
-        .client => {
-            client.step(held) catch |failure| fail("the client's streams failed: {t}", .{failure});
-            // hq-interop ends the connection with NO_ERROR once every file has arrived.
-            if (client.is_done()) connection.peer.close();
-        },
+        .client => udp_run_client.step(connection),
     }
 }
 
@@ -378,22 +357,20 @@ fn answer_version(delivery: udp.Delivery) bool {
 fn stream_provider(connection: *Connection) StreamProvider {
     return switch (arguments) {
         .server => connection.server.provider(),
-        .client => client.provider(),
+        .client => udp_run_client.provider(),
     };
 }
 
-/// Whether the run is over. A client is done once its close has gone out (RFC 9000 §10.2 lets it
-/// stop there). A server frees each connection that ends, and with `once`, or after a connection
-/// error, stops at the first.
-fn finished() bool {
+/// Whether the run is over. A client's part says when it is. A server frees each connection that
+/// ends, and with `once`, or after a connection error, stops at the first.
+fn finished(now_ns: u64) bool {
     switch (arguments) {
-        .client => return connections[0].peer.connection.termination.state != .active,
+        .client => |asked| return udp_run_client.finished(&connections[0], asked, now_ns),
         .server => |asked| {
             var ended = false;
             for (table()) |*connection| {
                 if (!connection.live or !connection.peer.is_closed()) continue;
-                connection.live = false;
-                served += connection.server.served;
+                end(connection);
                 ended = true;
             }
             if (!ended) return false;
@@ -402,24 +379,14 @@ fn finished() bool {
     }
 }
 
-fn outbound_to(address: udp.Address) udp.Outbound {
+pub fn outbound_to(address: udp.Address) udp.Outbound {
     return .{ .peer = address, .local = undefined, .segment_bytes = 0, .ecn = .not_ect, .flags = .{ .peer = true } };
 }
 
 fn report() void {
     switch (arguments) {
-        .server => std.debug.print("quic-udp: served {d} files\n", .{served}),
-        .client => {
-            std.debug.print("quic-udp: fetched {d} of {d} files, {d} octets, alpn={s}\n", .{
-                client.finished_count,
-                client.paths.len,
-                client.received_len,
-                connections[0].peer.session.provider().negotiated_alpn() orelse "none",
-            });
-            // A connection that ended before every file arrived, by a timeout or the server's
-            // close, is a failed run.
-            if (!client.is_done()) fail("the connection ended with files missing", .{});
-        },
+        .server => std.debug.print("quic-udp: served {d} files, {d} connections resumed\n", .{ served, resumed }),
+        .client => |asked| udp_run_client.report(&connections[0], asked),
     }
 }
 
@@ -430,15 +397,6 @@ fn server_parameters() Parameters {
     held.initial_max_data = quic.constants.receive_pool_len_default;
     held.initial_max_stream_data_bidi_remote = constants.hq_request_len_max;
     held.initial_max_streams_bidi = constants.hq_requests_max;
-    held.max_idle_timeout_ms = constants.quic_idle_timeout_ms;
-    return held;
-}
-
-/// What the client grants: its receive pool, for the answers on the streams it opens.
-fn client_parameters() Parameters {
-    var held = Parameters.initial();
-    held.initial_max_data = quic.constants.receive_pool_len_default;
-    held.initial_max_stream_data_bidi_local = quic.constants.receive_pool_len_default;
     held.max_idle_timeout_ms = constants.quic_idle_timeout_ms;
     return held;
 }

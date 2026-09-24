@@ -2,7 +2,8 @@
 #
 # A colibri hq-interop client fetches files from a colibri hq-interop server over real UDP on
 # 127.0.0.1, both over chapulin's QUIC mode and Rotor's loop. Part of design §8 step 9e. Each
-# file must arrive octet for octet.
+# file must arrive octet for octet, and a client with `resumption` must resume its first
+# connection's session on its second (RFC 9846 §2.2).
 #
 # It needs a Go toolchain, for the identity, and a chapulin checkout whose QUIC object was built
 # with `make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib` and copied to
@@ -36,9 +37,10 @@ head -c 1000 /dev/urandom >"$scratch/www/small"
 head -c 100000 /dev/urandom >"$scratch/www/medium"
 head -c 3000000 /dev/urandom >"$scratch/www/large"
 
-# Starts a server that exits when its first connection ends, and waits for it to listen.
+# Starts a server with the options given, and waits for it to listen. With `once` it exits when
+# its first connection ends.
 start_server() {
-  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" once \
+  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" "$@" \
     >"$scratch/server.log" 2>&1 &
   server_pid=$!
   for _ in $(seq 1 100); do
@@ -57,7 +59,7 @@ client() {
     "$scratch/downloads" "$@"
 }
 
-start_server
+start_server once
 if ! client /small /medium /large; then
   echo "quic_udp: the client failed; the server said:" >&2
   cat "$scratch/server.log" >&2
@@ -88,7 +90,7 @@ for file in small medium large; do
   fi
 done
 # A path the server does not hold is answered by resetting its stream, which the client reports.
-start_server
+start_server once
 if client /small /missing >"$scratch/missing.log" 2>&1; then
   echo "quic_udp: the client fetched a file the server does not hold" >&2
   exit 1
@@ -100,4 +102,32 @@ if ! grep -q StreamReset "$scratch/missing.log"; then
 fi
 kill "$server_pid" 2>/dev/null || true
 server_pid=""
+# A server given the time issues a ticket, and the client's second connection presents it.
+# chapulin fails a handshake whose ticket the server declines, so a second connection that
+# fetches its file resumed.
+rm -f "$scratch/downloads/small" "$scratch/downloads/medium"
+start_server "seconds=$(date +%s)"
+if ! client resumption /small /medium >"$scratch/resumption.log" 2>&1; then
+  echo "quic_udp: the resuming client failed:" >&2
+  cat "$scratch/resumption.log" "$scratch/server.log" >&2
+  exit 1
+fi
+kill "$server_pid" 2>/dev/null || true
+server_pid=""
+cat "$scratch/resumption.log"
+grep -q "resumed the first" "$scratch/resumption.log" || {
+  echo "quic_udp: the client did not resume" >&2
+  exit 1
+}
+# The first connection fetches one file and the second the other.
+grep -q "fetched 2 of 2 files, 101000 octets" "$scratch/resumption.log" || {
+  echo "quic_udp: the two connections did not split the files between them" >&2
+  exit 1
+}
+for file in small medium; do
+  if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
+    echo "quic_udp: $file arrived different from what the server holds on resumption" >&2
+    exit 1
+  fi
+done
 echo "quic_udp: ok"

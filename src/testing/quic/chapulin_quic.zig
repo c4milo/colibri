@@ -42,6 +42,38 @@ pub const Identity = struct {
     public_point: []const u8,
     /// RFC 9846 §4.3.2's cookie key, which chapulin requires of every server.
     cookie_key: []const u8,
+    /// The key chapulin seals its tickets under and opens them with (`srv_cfg.h`), or null to
+    /// issue none and accept none.
+    ticket_key: ?[]const u8 = null,
+    /// The caller's Unix seconds at the start of this connection, which chapulin writes into the
+    /// ticket it issues and judges an offered one against. 0 issues no ticket and accepts none.
+    now_seconds: u64 = 0,
+};
+
+/// The octets of a resumption PSK: chapulin's one suite, TLS_CHACHA20_POLY1305_SHA256, hashes
+/// with SHA-256 (RFC 9846 §4.6.1).
+const psk_len = std.crypto.hash.sha2.Sha256.digest_length;
+
+/// A NewSessionTicket a client kept (RFC 9846 §4.6.1), which its next connection presents to
+/// resume (RFC 9846 §2.2). chapulin hands a ticket over during `on_ticket` alone, so it is copied.
+pub const Ticket = struct {
+    identity: [constants.quic_ticket_identity_len_max]u8 = undefined,
+    identity_len: usize = 0,
+    psk: [psk_len]u8 = undefined,
+    age_add: u32 = 0,
+    /// A Web PKI build binds the ticket to the host name and the anchors (`webpki_ticket.h`).
+    binding: [psk_len]u8 = undefined,
+    /// Whether a ticket arrived.
+    held: bool = false,
+    /// Whether a ticket arrived whose identity is longer than `identity` holds.
+    too_long: bool = false,
+};
+
+/// A ticket a client presents. RFC 9846 §4.2.11: the obfuscated age is the ticket's age in
+/// milliseconds plus its `ticket_age_add`, modulo 2^32.
+pub const Resumption = struct {
+    ticket: *const Ticket,
+    obfuscated_age: u32,
 };
 
 /// Whether the linked object judges a server by the Web PKI (`TRUST=webpki`), or by a pinned
@@ -78,6 +110,10 @@ pub const Options = struct {
     identity: ?Identity = null,
     /// Where the traffic secrets go, or null to drop them.
     keylog: ?*Keylog = null,
+    /// Where a client keeps the ticket its server issues, or null to keep none.
+    ticket_store: ?*Ticket = null,
+    /// A ticket a client presents to resume, or null for a full handshake.
+    resumption: ?Resumption = null,
 };
 
 /// The handshake octets waiting at one level for colibri to frame them.
@@ -108,12 +144,14 @@ pub const Session = struct {
     /// Whether an outgoing buffer was too short, which fails the handshake.
     outgoing_overflowed: bool,
     keylog: ?*Keylog,
+    ticket_store: ?*Ticket,
     /// What chapulin last answered.
     code: c_int,
 
     pub fn init(session: *Session, options: Options) void {
         assert((options.role == .client) == (options.trust != null));
         assert((options.role == .server) == (options.identity != null));
+        assert(options.role == .client or (options.ticket_store == null and options.resumption == null));
         session.quic = std.mem.zeroes(c.ch_quic);
         session.config = std.mem.zeroes(c.ch_cfg);
         session.role = options.role;
@@ -126,6 +164,7 @@ pub const Session = struct {
         session.alert_taken = false;
         session.outgoing_overflowed = false;
         session.keylog = options.keylog;
+        session.ticket_store = options.ticket_store;
         session.code = ok;
         session.alpn[0] = .{ .name = options.alpn.ptr, .name_len = options.alpn.len };
         session.config.buf = options.receive.ptr;
@@ -135,11 +174,12 @@ pub const Session = struct {
         session.config.alpn_count = session.alpn.len;
         session.config.on_level_ready = on_level_ready;
         session.config.on_transport_params = on_transport_params;
-        if (options.trust) |trust| session.configure_client(trust);
+        if (options.ticket_store != null) session.config.on_ticket = on_ticket;
+        if (options.trust) |trust| session.configure_client(trust, options.resumption);
         if (options.identity) |identity| session.configure_server(identity);
     }
 
-    fn configure_client(session: *Session, trust: Trust) void {
+    fn configure_client(session: *Session, trust: Trust, resumption: ?Resumption) void {
         switch (trust) {
             .webpki => |judged| {
                 // The object's trust mode is fixed when it is built, and a caller that asks for
@@ -150,13 +190,26 @@ pub const Session = struct {
                 session.config.hostname = judged.hostname.ptr;
                 session.config.hostname_len = judged.hostname.len;
                 session.config.now_seconds = judged.now_seconds;
+                if (resumption) |presented| session.config.ticket_binding = &presented.ticket.binding;
             },
             .pinned => |pin| {
                 if (webpki) unreachable;
-                session.config.server_pubkey = pin.public_point.ptr;
-                session.config.server_pubkey_len = pin.public_point.len;
+                // chapulin's `docs/quic_server.md`: a raw-mode client that resumes leaves both pin
+                // slots unset, because the PSK authenticates the server.
+                if (resumption == null) {
+                    session.config.server_pubkey = pin.public_point.ptr;
+                    session.config.server_pubkey_len = pin.public_point.len;
+                }
             },
         }
+        const presented = resumption orelse return;
+        assert(presented.ticket.held);
+        session.config.psk = &presented.ticket.psk;
+        session.config.psk_len = presented.ticket.psk.len;
+        session.config.psk_id = &presented.ticket.identity;
+        session.config.psk_id_len = presented.ticket.identity_len;
+        session.config.resumption = 1;
+        session.config.obfuscated_age = presented.obfuscated_age;
     }
 
     fn configure_server(session: *Session, identity: Identity) void {
@@ -174,6 +227,17 @@ pub const Session = struct {
         };
         session.config.srv.cookie_key = identity.cookie_key.ptr;
         session.config.srv.on_crypto_out = on_crypto_out;
+        const ticket_key = identity.ticket_key orelse return;
+        assert(ticket_key.len == c.SRV_TICKET_KEY_LEN);
+        session.config.srv.ticket_key = ticket_key.ptr;
+        session.config.srv.now_seconds = identity.now_seconds;
+    }
+
+    /// Whether a ticket this server issued authenticated the handshake, which then carried no
+    /// Certificate (RFC 9846 §2.2).
+    pub fn resumed(session: *const Session) bool {
+        assert(session.role == .server);
+        return session.quic.t.psk_selected != 0;
     }
 
     /// `ch_srv_check`'s test that the server's key signs and verifies. It draws entropy, so the
@@ -238,6 +302,24 @@ fn on_transport_params(io: ?*anyopaque, body: [*c]const u8, len: usize) callconv
     if (len > session.peer_parameters.len) return;
     @memcpy(session.peer_parameters[0..len], body[0..len]);
     session.peer_parameters_len = len;
+}
+
+/// A NewSessionTicket the server sent (RFC 9846 §4.6.1), which chapulin hands over for the length
+/// of the call alone. A later ticket replaces an earlier one.
+fn on_ticket(io: ?*anyopaque, issued: [*c]const c.ch_ticket) callconv(.c) void {
+    const session = session_of(io);
+    const store = session.ticket_store.?;
+    const ticket = &issued[0];
+    if (ticket.identity_len > store.identity.len) {
+        store.too_long = true;
+        return;
+    }
+    @memcpy(store.identity[0..ticket.identity_len], ticket.identity[0..ticket.identity_len]);
+    store.identity_len = ticket.identity_len;
+    store.psk = ticket.psk;
+    store.age_add = ticket.age_add;
+    if (webpki) store.binding = ticket.binding;
+    store.held = true;
 }
 
 /// A server's handshake octets at one level, as chapulin writes them.
