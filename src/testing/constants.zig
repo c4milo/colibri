@@ -239,6 +239,14 @@ pub const udp_send_slots: usize = udp_operations_max - 1;
 /// lingers until its idle timeout (RFC 9000 §10.1), so the table holds more than the case opens.
 pub const quic_connections_max: usize = 64;
 
+/// How long a UDP QUIC server accepts a Retry token after minting it. RFC 9000 §8.1.4: "Servers
+/// SHOULD ensure that tokens sent in Retry packets are only accepted for a short time, as they are
+/// returned immediately by clients." Ten seconds covers a client that loses its first reply.
+pub const quic_retry_token_lifetime_seconds: u64 = 10;
+
+/// chapulin counts a Retry token's instants in seconds, and colibri passes nanoseconds.
+pub const nanoseconds_per_second: u64 = 1_000_000_000;
+
 /// The longest one tick of a UDP QUIC endpoint waits. A connection's next deadline is usually
 /// sooner, and a wait this short keeps a lost wakeup cheap.
 pub const quic_tick_wait_ns_max: u64 = 100 * 1_000_000;

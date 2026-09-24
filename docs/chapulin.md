@@ -223,6 +223,13 @@ directions move their files intact. Two chapulin defects found on the way were f
 commit: a `ROLE=both` client derived the server's Initial keys, and a QUIC server's
 EncryptedExtensions had no room for its transport parameters.
 
+**A server's Retry token is chapulin's too, from `cc88adb`.** `ch_srv_quic_token_mint` and
+`ch_srv_quic_token_check` bind a token to the client's address and an instant, and carry the two
+connection IDs decision 55, as amended, has a Retry token carry. The UDP endpoint's `retry` option
+sends a Retry through them, under a key drawn once per run. The `TRUST=webpki` QUIC object did not
+build from `756ad91` until `992043f`, which fixed it and added that build to chapulin's `make
+check`. The loopback, UDP and aioquic checks pass over `992043f`.
+
 **The handshake is no longer on this list, and that is new.** `ROLE=server` with
 `TRANSPORT=record` drives the server handshake with no callback at all: `ch_srv_record_in` takes
 the peer's bytes and pushes each record to `cfg.srv.on_record_out`. That is what option C of

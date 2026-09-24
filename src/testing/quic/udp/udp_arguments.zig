@@ -1,11 +1,12 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
-//!     quic-udp server <ipv4> <port> <identity-prefix> <www> [once] [connections=<n>]
+//!     quic-udp server <ipv4> <port> <identity-prefix> <www> [once] [retry] [connections=<n>]
 //!     quic-udp client <ipv4> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> <path>...
 //!
 //! The server binds `<ipv4>:<port>` and serves `<www>`. With `once` it exits when its first
-//! connection ends, and `connections=<n>` holds at most n connections at once, from 1 to
-//! `quic_connections_max`, which is also the count without it. The client sends to
+//! connection ends; with `retry` it answers every client's first Initial with a Retry and serves
+//! only a client that returns the token (RFC 9000 §8.1.2); and `connections=<n>` holds at most n
+//! connections at once, from 1 to `quic_connections_max`, which is also the count without it. The client sends to
 //! `<ipv4>:<port>` and fetches each path into `<downloads>`.
 //! The instant is a clock the command line cannot give, so it comes from Rotor (decision 63); the
 //! Unix seconds are the certificate check's, which the caller reads (non-negotiable 3).
@@ -23,6 +24,8 @@ pub const Server = struct {
     identity_prefix: []const u8,
     www: []const u8,
     once: bool = false,
+    /// Whether the server validates each client's address with a Retry (RFC 9000 §8.1.2).
+    retry: bool = false,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
 };
@@ -73,6 +76,8 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: [ipv4_octets]u8,
         const word = arguments.next() orelse return server;
         if (std.mem.eql(u8, word, "once")) {
             server.once = true;
+        } else if (std.mem.eql(u8, word, "retry")) {
+            server.retry = true;
         } else {
             server.connections = parse_connections(word) orelse usage();
         }
@@ -81,8 +86,8 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: [ipv4_octets]u8,
     return server;
 }
 
-/// `once` and `connections=<n>`.
-const server_options_count: usize = 2;
+/// `once`, `retry` and `connections=<n>`.
+const server_options_count: usize = 3;
 
 const connections_prefix = "connections=";
 
@@ -135,7 +140,7 @@ fn parse_ipv4(text: []const u8) ?[ipv4_octets]u8 {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <ipv4> <port> <identity-prefix> <www> [once] [connections=<n>]\n" ++
+        "usage: quic-udp server <ipv4> <port> <identity-prefix> <www> [once] [retry] [connections=<n>]\n" ++
             "       quic-udp client <ipv4> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> <path>...\n",
         .{},
     );

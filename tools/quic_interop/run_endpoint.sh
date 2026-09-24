@@ -8,18 +8,19 @@ set -euo pipefail
 # The runner's network setup, which every endpoint image runs first.
 /setup.sh
 
-# hq-interop over one connection covers these. A Retry the client acts on, and the server does
-# not send one: its suite mints no token (decision 55). The rest are not built.
+# hq-interop over one connection covers these, and a Retry both roles now handle: the server
+# sends one when asked, with a token chapulin mints (decision 55). The rest are not built.
 case "$TESTCASE" in
-  handshake | transfer | chacha20 | multiconnect) ;;
-  retry) [ "$ROLE" = client ] || exit 127 ;;
+  handshake | transfer | chacha20 | multiconnect | retry) ;;
   *) exit 127 ;;
 esac
 
 python3 /qns_identity.py /certs /tmp/identity
 
 if [ "$ROLE" = server ]; then
-  exec quic-udp server 0.0.0.0 443 /tmp/identity /www
+  server_options=()
+  [ "$TESTCASE" = retry ] && server_options+=(retry)
+  exec quic-udp server 0.0.0.0 443 /tmp/identity /www "${server_options[@]}"
 fi
 
 /wait-for-it.sh sim:57832 -s -t 30

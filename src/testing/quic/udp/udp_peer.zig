@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 const quic = @import("quic");
 const constants = @import("../../constants.zig");
 const chapulin_quic = @import("../chapulin_quic.zig");
+const udp = @import("../../udp.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
 const StreamProvider = quic.stream.stream_provider.StreamProvider;
@@ -31,6 +32,9 @@ pub const Identity = struct {
     original_destination: []const u8,
     /// The client's Source Connection ID, which a server reads off that same Initial.
     peer_source: ?[]const u8 = null,
+    /// A server's Retry Source Connection ID, when the Initial it answers returned a Retry token
+    /// that carried it (decision 55).
+    retry_source: ?[]const u8 = null,
 };
 
 /// The connection IDs of a client's first Initial packet, which a server starts a connection
@@ -58,6 +62,22 @@ pub fn destination_of(datagram: []const u8, local_id_len: usize) ?[]const u8 {
         .short => |short| short.dcid,
         else => null,
     };
+}
+
+/// Octets of the longest address a Retry token binds: an IPv6 address and a port.
+pub const token_address_len_max: usize = udp.Address.ipv6_bytes + @sizeOf(u16);
+
+/// The client's address as the opaque octets a Retry token binds. RFC 9000 §8.1.4: a token lets
+/// "the server verify that the source IP address and port in client packets remain constant", so
+/// it covers both: the address, then the port in network byte order.
+pub fn token_address(address: udp.Address, into: *[token_address_len_max]u8) []const u8 {
+    const address_len: usize = switch (address.family) {
+        .ipv4 => udp.Address.ipv4_bytes,
+        .ipv6 => udp.Address.ipv6_bytes,
+    };
+    @memcpy(into[0..address_len], address.bytes[0..address_len]);
+    std.mem.writeInt(u16, into[address_len..][0..@sizeOf(u16)], address.port, .big);
+    return into[0 .. address_len + @sizeOf(u16)];
 }
 
 /// The Version Negotiation packet a server owes a datagram that asks for a version it does not
@@ -105,6 +125,7 @@ pub const Peer = struct {
                 .local_initial_source = identity.local_source,
                 .original_destination = identity.original_destination,
                 .peer_initial_source = identity.peer_source,
+                .retry_source = identity.retry_source,
             },
             .receive = peer.pool.storage(),
         });
@@ -118,7 +139,11 @@ pub const Peer = struct {
             return error.SessionRefused;
         peer.session.provider().set_transport_params(writer.written()) catch return error.SessionRefused;
         const suite = peer.session.suite();
-        suite.vtable.install_initial_keys(suite.context, role, identity.original_destination) catch
+        // RFC 9001 §5.2: the Initial keys derive from the client's Destination Connection ID. RFC
+        // 9000 §17.2.5.2: after a Retry that is the Retry's Source Connection ID, and "Changing the
+        // Destination Connection ID field also results in a change to the keys".
+        const keys_destination = identity.retry_source orelse identity.original_destination;
+        suite.vtable.install_initial_keys(suite.context, role, keys_destination) catch
             return error.SessionRefused;
     }
 
@@ -249,4 +274,14 @@ test "RFC 9000 §5.2: a datagram is routed by its first packet's Destination Con
     test_packet[0] = long_first_octet;
     @memset(test_packet[1..][0..quic.packet.invariant.version_len], 0);
     try testing.expectEqual(null, destination_of(&test_packet, test_id.len));
+}
+
+test "RFC 9000 §8.1.4: a Retry token binds the client's address and its port" {
+    var octets: [token_address_len_max]u8 = undefined;
+    const port: u16 = 0x1f90;
+    const bound = token_address(udp.Address.ipv4(.{ 192, 0, 2, 7 }, port), &octets);
+    try testing.expectEqualSlices(u8, &.{ 192, 0, 2, 7, 0x1f, 0x90 }, bound);
+    // Another port is another address.
+    var other: [token_address_len_max]u8 = undefined;
+    try testing.expect(!std.mem.eql(u8, bound, token_address(udp.Address.ipv4(.{ 192, 0, 2, 7 }, port + 1), &other)));
 }

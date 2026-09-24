@@ -3,9 +3,13 @@
 //!
 //! Every member is one chapulin call, and what is left here is naming. chapulin answers result
 //! codes and colibri's vtable answers errors, so each call's codes map onto the errors
-//! `crypto/suite.zig` defines. Two members have no chapulin call: the Retry token is the
-//! caller's in chapulin (`srv_quic.h`) and the suite's in colibri (decision 55), and this suite
-//! mints none, so its server sends no Retry.
+//! `crypto/suite.zig` defines.
+//!
+//! A server's Retry comes before any session exists (RFC 9000 §8.1.2), so a session's suite mints
+//! and checks no token. `Retry` is the suite a server writes its Retry and reads the returned token
+//! with: chapulin's stateless token calls (`quic_token.h`) under a key drawn once for the
+//! deployment (decision 55), and the Retry Integrity Tag, which RFC 9001 §5.8 fixes for every
+//! connection.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -27,8 +31,8 @@ pub const vtable: suite_module.VTable = .{
     .open = open,
     .retry_tag_valid = retry_tag_valid,
     .retry_tag_write = retry_tag_write,
-    .retry_token_write = retry_token_write,
-    .retry_token_valid = retry_token_valid,
+    .retry_token_write = session_token_write,
+    .retry_token_check = session_token_check,
     .update_keys = update_keys,
     .key_phase = key_phase,
     .discard_previous_keys = discard_previous_keys,
@@ -155,22 +159,127 @@ fn retry_tag_write(
     c.ch_srv_quic_retry_tag(pseudo_packet.ptr, pseudo_packet.len, tag);
 }
 
-/// No token: chapulin holds no token key, and this suite mints none, so its server sends no
-/// Retry (decision 55).
-fn retry_token_write(context: *anyopaque, address: []const u8, now_ns: u64, output: []u8) suite_module.TokenError!usize {
+/// A session mints no token: a server writes its Retry with `Retry`, before the session exists.
+fn session_token_write(
+    context: *anyopaque,
+    address: []const u8,
+    ids: *const suite_module.RetryConnectionIds,
+    now_ns: u64,
+    output: []u8,
+) suite_module.TokenError!usize {
     _ = context;
     _ = address;
+    _ = ids;
     _ = now_ns;
     _ = output;
     return error.Unsupported;
 }
 
-fn retry_token_valid(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) bool {
+fn session_token_check(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
     _ = context;
     _ = address;
     _ = token;
     _ = now_ns;
-    return false;
+    return .not_retry;
+}
+
+/// The suite a server writes a Retry and reads the token it returns with, before any session
+/// exists (RFC 9000 §8.1.2). The key is the deployment's (decision 55): drawn once, never shown to
+/// colibri, and the same for every token this server mints.
+pub const Retry = struct {
+    key: [c.CH_QUIC_TOKEN_KEY_LEN]u8,
+    /// How long a token is accepted after it was minted (RFC 9000 §8.1.4).
+    lifetime_seconds: u64,
+
+    pub fn suite(retry: *Retry) crypto.Suite {
+        return .{ .context = retry, .vtable = &retry_vtable };
+    }
+};
+
+const retry_vtable: suite_module.VTable = .{
+    .install_initial_keys = no_session_install,
+    .keys_available = no_session_available,
+    .seal = no_session_seal,
+    .open = no_session_open,
+    .retry_tag_valid = no_session_tag_valid,
+    .retry_tag_write = retry_tag_write,
+    .retry_token_write = retry_token_write,
+    .retry_token_check = retry_token_check,
+    .update_keys = no_session_update,
+    .key_phase = no_session_phase,
+    .discard_previous_keys = no_session_discard_previous,
+    .discard_keys = no_session_discard,
+};
+
+/// chapulin counts a token's lifetime in seconds, and colibri passes nanoseconds. The two instants
+/// a check compares come from the same clock, so the epoch does not matter.
+fn seconds_of(now_ns: u64) u64 {
+    return now_ns / constants.nanoseconds_per_second;
+}
+
+/// RFC 9000 §8.1.4: the token binds the address and the instant, and decision 55 has it carry the
+/// two connection IDs the server needs again.
+fn retry_token_write(
+    context: *anyopaque,
+    address: []const u8,
+    ids: *const suite_module.RetryConnectionIds,
+    now_ns: u64,
+    output: []u8,
+) suite_module.TokenError!usize {
+    const retry: *const Retry = @ptrCast(@alignCast(context));
+    var cids: c.ch_quic_retry_cids = undefined;
+    @memcpy(cids.original_dcid[0..ids.original_destination_len], ids.original_destination_slice());
+    cids.original_dcid_len = ids.original_destination_len;
+    @memcpy(cids.retry_scid[0..ids.retry_source_len], ids.retry_source_slice());
+    cids.retry_scid_len = ids.retry_source_len;
+    var written: usize = 0;
+    const code = c.ch_srv_quic_token_mint(&retry.key, address.ptr, address.len, &cids, seconds_of(now_ns), output.ptr, output.len, &written);
+    if (code == c.CH_ECAP) return error.NoSpaceLeft;
+    // CH_EINVAL is an address longer than chapulin binds, which the UDP endpoint never passes.
+    if (code != ok) return error.Unsupported;
+    return written;
+}
+
+fn retry_token_check(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
+    const retry: *const Retry = @ptrCast(@alignCast(context));
+    var cids: c.ch_quic_retry_cids = undefined;
+    const code = c.ch_srv_quic_token_check(&retry.key, token.ptr, token.len, address.ptr, address.len, seconds_of(now_ns), retry.lifetime_seconds, &cids);
+    return switch (code) {
+        ok => .{ .retry = .of(cids.original_dcid[0..cids.original_dcid_len], cids.retry_scid[0..cids.retry_scid_len]) },
+        // §8.1.3: not a Retry token, which leaves the client's address unvalidated.
+        c.CH_EPROTO => .not_retry,
+        // §8.1.2: a Retry token that fails, which the server closes on with INVALID_TOKEN.
+        else => .invalid,
+    };
+}
+
+/// The members a session holds and a Retry never reaches: a Retry is written before any key exists.
+fn no_session_install(_: *anyopaque, _: suite_module.Role, _: []const u8) suite_module.InstallError!void {
+    unreachable;
+}
+fn no_session_available(_: *const anyopaque, _: Level, _: suite_module.Direction) bool {
+    unreachable;
+}
+fn no_session_seal(_: *anyopaque, _: suite_module.Sealing, _: []u8) suite_module.SealError!usize {
+    unreachable;
+}
+fn no_session_open(_: *anyopaque, _: suite_module.Opening) suite_module.OpenError!suite_module.Opened {
+    unreachable;
+}
+fn no_session_tag_valid(_: *const anyopaque, _: []const u8, _: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+    unreachable;
+}
+fn no_session_update(_: *anyopaque) suite_module.UpdateError!void {
+    unreachable;
+}
+fn no_session_phase(_: *const anyopaque) bool {
+    unreachable;
+}
+fn no_session_discard_previous(_: *anyopaque) void {
+    unreachable;
+}
+fn no_session_discard(_: *anyopaque, _: Level) void {
+    unreachable;
 }
 
 /// RFC 9001 §6.1 and §6.2. chapulin refuses before the handshake completes.
@@ -250,4 +359,32 @@ test "a key set is the one chapulin names" {
     try testing.expectEqual(suite_module.KeySet.previous, key_set_of(c.CH_QUIC_KEY_PREVIOUS));
     try testing.expectEqual(suite_module.KeySet.current, key_set_of(c.CH_QUIC_KEY_CURRENT));
     try testing.expectEqual(suite_module.KeySet.next, key_set_of(c.CH_QUIC_KEY_NEXT));
+}
+
+/// A token key and lifetime for the Retry test. Test-only.
+const test_key_octet: u8 = 0x4b;
+const test_lifetime_seconds: u64 = 10;
+
+test "decision 55: chapulin mints a Retry token that gives both connection IDs back" {
+    if (!chapulin_quic_c.available) return error.SkipZigTest;
+    var retry: Retry = .{ .key = @splat(test_key_octet), .lifetime_seconds = test_lifetime_seconds };
+    const suite = retry.suite();
+    const ids = suite_module.RetryConnectionIds.of(&placeholder, "retry-id");
+    var token: [c.CH_QUIC_TOKEN_MAX]u8 = undefined;
+    const now_ns = test_now_seconds * constants.nanoseconds_per_second;
+    const len = try suite.vtable.retry_token_write(suite.context, "address", &ids, now_ns, &token);
+    const minted = token[0..len];
+    const checked = suite.vtable.retry_token_check(suite.context, "address", minted, now_ns).retry;
+    try testing.expectEqualSlices(u8, &placeholder, checked.original_destination_slice());
+    try testing.expectEqualStrings("retry-id", checked.retry_source_slice());
+    // RFC 9000 §8.1.4: bound to the address, and accepted for a short time only, which is seconds.
+    const soon_ns = now_ns + constants.nanoseconds_per_second;
+    try testing.expectEqualStrings("retry-id", suite.vtable.retry_token_check(suite.context, "address", minted, soon_ns).retry.retry_source_slice());
+    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, "elsewhere", minted, now_ns));
+    const late_ns = (test_now_seconds + test_lifetime_seconds + 1) * constants.nanoseconds_per_second;
+    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, "address", minted, late_ns));
+    // §8.1.3: a token of another type is no Retry token.
+    minted[0] +%= 1;
+    try testing.expectEqual(.not_retry, suite.vtable.retry_token_check(suite.context, "address", minted, now_ns));
+    try testing.expectError(error.NoSpaceLeft, suite.vtable.retry_token_write(suite.context, "address", &ids, now_ns, token[0..1]));
 }

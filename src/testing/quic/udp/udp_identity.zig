@@ -7,6 +7,8 @@ const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
 const chapulin_quic_c = @import("../chapulin_quic_c.zig");
 const chapulin_quic = @import("../chapulin_quic.zig");
+const quic = @import("quic");
+const chapulin_quic_suite = @import("../chapulin_quic_suite.zig");
 const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
 const hq = @import("../hq/hq.zig");
@@ -25,6 +27,9 @@ const cookie_key_len: usize = 32;
 var keylog: chapulin_quic_c.Keylog = .{};
 var local_id: [id_len]u8 = undefined;
 var original_id: [id_len]u8 = undefined;
+var retry_source_id: [id_len]u8 = undefined;
+/// The deployment's Retry token key and its lifetime (decision 55).
+var retry: chapulin_quic_suite.Retry = undefined;
 var cookie_storage: [cookie_key_len]u8 = undefined;
 var chain_storage: [constants.quic_chain_len_max][constants.tls_der_len_max]u8 = undefined;
 var chain: [constants.quic_chain_len_max][]const u8 = undefined;
@@ -48,6 +53,34 @@ pub fn seed() !void {
     c.ch_drbg_seed(&seed_octets);
     // RFC 9846 §4.3.2: one key per deployment, and a run is one deployment.
     try draw(&cookie_storage);
+    // Decision 55: so is the Retry token's key, which only this process ever holds.
+    try draw(&retry.key);
+    retry.lifetime_seconds = constants.quic_retry_token_lifetime_seconds;
+}
+
+/// The suite a server writes a Retry and reads a returned token with (RFC 9000 §8.1.2).
+pub fn retry_suite() quic.crypto.Suite {
+    return retry.suite();
+}
+
+/// A Retry's Source Connection ID, drawn at random, which the client addresses next (RFC 9000
+/// §17.2.5.1). §5.1 wants it unpredictable, as every connection ID this endpoint chooses.
+pub fn retry_id() []const u8 {
+    draw(&retry_source_id) catch unreachable;
+    return &retry_source_id;
+}
+
+/// A server's connection ID, drawn at random, for an Initial that returned a Retry token. The token
+/// carried the client's first Destination Connection ID and the Retry's Source Connection ID
+/// (decision 55), which RFC 9000 §7.3 has the server send back.
+pub fn server_ids_after_retry(ids: *const quic.crypto.suite.RetryConnectionIds, source: []const u8) udp_peer.Identity {
+    draw(&local_id) catch unreachable;
+    return .{
+        .local_source = &local_id,
+        .original_destination = ids.original_destination_slice(),
+        .peer_source = source,
+        .retry_source = ids.retry_source_slice(),
+    };
 }
 
 /// A client's two connection IDs, drawn at random (RFC 9000 §7.2).
