@@ -92,6 +92,54 @@ test "RFC 9204 §2.2.2.2: a stream reset while its section waits is cancelled on
     try testing.expect(!client.h3.decoder.owes());
 }
 
+/// The response `request_and_respond` sent, once exchanged: its line decodes as a literal when
+/// the encoder inserted nothing.
+fn expect_custom_response(id: u64) !void {
+    try exchange();
+    try testing.expectEqual(id, (try next(client)).?.response.stream_id);
+    try testing.expectEqualStrings("value-that-repeats", client.h3.field_section().find("x-custom").?.value);
+    try testing.expectEqual(Event{ .end = id }, (try next(client)).?);
+}
+
+test "RFC 9204 §2.1.3: the encoder inserts nothing the encoder stream's credit cannot carry" {
+    try harness.pair(table_client, .{ .role = .server });
+    // The client's MAX_STREAM_DATA leaves no room past the octets already supplied.
+    const stream = server.transport.streams.lookup(.{ .value = server.h3.local.encoder_id.? }).live;
+    stream.send_flow.limit = stream.send_flow.used + stream.outgoing.unframed_len();
+    const id = try request_and_respond();
+    try testing.expectEqual(0, server.h3.encoder.table.insert_count());
+    try expect_custom_response(id);
+}
+
+test "RFC 9204 §2.1.3: the encoder inserts nothing the connection's credit cannot carry" {
+    try harness.pair(table_client, .{ .role = .server });
+    const id = try harness.request(&harness.get_lines, "");
+    try exchange();
+    _ = (try next(server)).?.request;
+    _ = (try next(server)).?.end;
+    // The client's MAX_DATA leaves no room, and arrives only after the response is written.
+    const flow = &server.transport.send_flow;
+    const limit = flow.limit;
+    flow.limit = flow.used;
+    try harness.respond(id, &custom_lines, "");
+    try testing.expectEqual(0, server.h3.encoder.table.insert_count());
+    flow.limit = limit;
+    try expect_custom_response(id);
+}
+
+test "RFC 9204 §4.2: a peer that stops colibri's encoder stream has closed it" {
+    try harness.pair(table_client, .{ .role = .server });
+    const id = try harness.request(&harness.get_lines, "");
+    try exchange();
+    _ = (try next(server)).?.request;
+    // RFC 9204 §4.2: "the receiver MUST NOT request that the sender close either of these
+    // streams". The encoder stream's buffer has room, so only its credit shows the reset.
+    try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.encoder_id.? }, 0);
+    try exchange();
+    try testing.expectError(error.ConnectionFailed, harness.respond(id, &custom_lines, ""));
+    try testing.expectEqual(constants.error_closed_critical_stream, server.h3.failure.?);
+}
+
 test "a trailer section inserts nothing into the dynamic table" {
     // The server allows a table, so the client's encoder inserts the request's lines.
     try harness.pair(.{ .role = .client }, .{ .role = .server, .qpack = table_client.qpack });

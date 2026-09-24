@@ -147,14 +147,22 @@ pub fn flush_decoder(connection: *Connection, transport: *QuicConnection) Error!
     try supply(connection, transport, id, local.decoder.end_offset());
 }
 
-/// The encoder stream's free room, cleared for one insert at its largest. What the QPACK encoder
-/// writes into it goes to `commit_encoder`.
+/// The encoder stream's free room, cleared for one insert at its largest and cut to the stream's
+/// flow-control credit (decision 81). What the QPACK encoder writes into it goes to
+/// `commit_encoder`.
 pub fn encoder_room(connection: *Connection, transport: *QuicConnection) Error!Writer {
     const local = &connection.local;
     // Before `start`, the encoder uses the static table alone and writes no instruction.
     const id = local.encoder_id orelse return Writer.init(&.{});
     try make_room(connection, transport, &local.encoder, id, insert_len_max);
-    return local.encoder.free();
+    // RFC 9204 §2.1.3: "an encoder SHOULD NOT write an instruction unless sufficient stream and
+    // connection flow-control credit is available for the entire instruction". The encoder
+    // writes an instruction whole or not at all, so a writer no longer than the credit is enough.
+    // Null means the peer's STOP_SENDING reset the stream, which RFC 9204 §4.2 forbids.
+    const credit = quic.connection_stream_credit.send_credit(transport, .{ .value = id }) orelse
+        return connection.fail(transport, constants.error_closed_critical_stream);
+    const free = local.encoder.free();
+    return Writer.init(free.buffer[0..@intCast(@min(free.remaining_len(), credit))]);
 }
 
 /// Counts what the QPACK encoder wrote into `encoder_room`'s writer and tells `quic`.
