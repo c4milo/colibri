@@ -105,6 +105,10 @@ pub const insert_count_increment_pattern: u8 = 0x00;
 pub const insert_count_increment_mask: u8 = 0xc0;
 pub const insert_count_increment_prefix_bits: u4 = 6;
 
+/// Decision 76: the encoder inserts an entry only when its size is at most the table capacity
+/// over this, so that one line cannot evict every other entry.
+pub const insert_size_divisor: u64 = 4;
+
 /// How many field sections with dynamic table references may be outstanding at once, across
 /// every stream. RFC 9204 bounds this at nothing — §2.1.1 only requires an encoder to track
 /// them — so the bound is colibri's, and an encoder that reaches it falls back to a

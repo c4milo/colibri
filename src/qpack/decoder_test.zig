@@ -302,7 +302,8 @@ test "what the encoder writes is what the decoder reads, coded and not" {
         try section.append(":path", "/index.html");
         try section.append("x-colibri", "a value that is long enough to be worth coding");
         var writer = Writer.init(&test_octets);
-        try held.write_section(&writer, &section);
+        var no_stream = Writer.init(&.{});
+        try held.write_section(0, &writer, &no_stream, &section, &.{});
         try decode(writer.written());
         try testing.expectEqual(section.len(), test_section.len());
         var walk = section.iterator();

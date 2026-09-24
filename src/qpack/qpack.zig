@@ -9,6 +9,7 @@ pub const static_table = @import("static_table.zig");
 pub const representation = @import("representation.zig");
 pub const representation_write = @import("representation_write.zig");
 pub const encoder = @import("encoder.zig");
+pub const encoder_plan = @import("encoder_plan.zig");
 pub const decoder = @import("decoder.zig");
 pub const decoder_table = @import("decoder_table.zig");
 pub const decoder_stream = @import("decoder_stream.zig");
@@ -24,6 +25,7 @@ test {
     _ = representation;
     _ = representation_write;
     _ = encoder;
+    _ = encoder_plan;
     _ = decoder;
     _ = decoder_table;
     _ = decoder_stream;
