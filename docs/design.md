@@ -1010,6 +1010,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   <https://github.com/c4milo/colibri/issues/20> tracks it, and chapulin has the request. RFC 9113 Appendix A's prohibited suites are
   not checked and will not be: decision 45 records why.
 
+  **`h2spec -t -k` passes, 2026-09-24.** chapulin now has a record-mode server driver.
+  - `fcc6292`: the server object is built `TRANSPORT=record`, and `h2-server --tls` runs each
+    handshake inside its one `poll` call ([decision 82](decisions.md)).
+  - colibri's checks found two chapulin defects: a ChangeCipherSpec sent through the blocking
+    `send`, and records taken past the client's Finished. chapulin fixed both (`8e556ca`,
+    `24301d1`), and colibri did not work around either.
+  - 25 mutations, all CAUGHT.
+
+  What each check printed on macOS arm64, with chapulin `24301d1`:
+  - `tools/h2spec.sh 18443 <checkout>` ran h2spec 2.6.0 over TLS and printed `146 tests, 144
+    passed, 0 skipped, 2 failed`, the same as cleartext. The two failures are the RFC 7540 §5.3.1
+    cases decision 41 skips.
+  - `tools/tls_accept.sh`, the record-mode server against Go's `crypto/tls`, printed `complete
+    alpn=h2 version=0x0304 suite=0x1303`, the same exporter value on both ends, and `records ok,
+    peer closed cleanly`.
+
+  A third chapulin defect is being fixed. On the peer's `close_notify`, chapulin closes its own
+  write side, which RFC 9846 §6.1 no longer asks for, and in record mode its own `close_notify` is
+  lost.
+
+  **Still owed for the step:** interop over TLS in both directions, which needs chapulin's
+  record-mode client in colibri's client, and the server direction against curl, nghttp and Go's
+  client.
+
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not
   counted: [decision 35](decisions.md#memory) makes them zero, and `tools/lint/heap.zig` holds
