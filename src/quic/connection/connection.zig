@@ -69,6 +69,13 @@ pub const Options = struct {
     /// caller places (decision 61). Its capacity caps every receive window. A connection given
     /// none reads no stream: it checks STREAM frames and keeps nothing.
     receive: ?stream_incoming.Storage = null,
+    /// Decision 68: whether the caller reads each received datagram's ECN codepoint and passes it
+    /// in `Datagram.ecn`. RFC 9000 §13.4.1: an endpoint that "does not have access to received
+    /// ECN codepoints ... does not process or report ECN", so without it no ACK carries counts.
+    ecn_reads: bool = false,
+    /// Decision 68: whether the caller sets on each datagram the codepoint `Sent.ecn` names,
+    /// which lets this endpoint mark ECT(0) and validate the path (§13.4.2).
+    ecn_marks: bool = false,
 };
 
 pub const Connection = struct {
@@ -135,6 +142,9 @@ pub const Connection = struct {
     /// The pool the peer's stream octets wait in, or null when the caller reads no stream
     /// (decision 61).
     receive_storage: ?stream_incoming.Storage,
+    /// `Options.ecn_reads` and `Options.ecn_marks` (decision 68).
+    ecn_reads: bool,
+    ecn_marks: bool,
     /// The CONNECTION_CLOSE this endpoint owes its peer (RFC 9000 §10.2), or null while it owes
     /// none. §10.2.1 keeps "only enough information to generate a packet containing a
     /// CONNECTION_CLOSE frame", and this is that information. The Reason Phrase points at the
@@ -177,6 +187,8 @@ pub const Connection = struct {
         connection.tls_alert = null;
         connection.receive_storage = options.receive;
         if (options.receive) |storage| storage.reset();
+        connection.ecn_reads = options.ecn_reads;
+        connection.ecn_marks = options.ecn_marks;
         init_spaces(connection);
         connection.crypto_streams.init();
         init_streams(connection, parameters);

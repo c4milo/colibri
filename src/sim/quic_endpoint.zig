@@ -93,6 +93,9 @@ pub const Endpoint = struct {
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = local_source, .original_destination = &original_id },
             .receive = endpoint.pool.storage(),
+            // Decision 68: the network carries each datagram's codepoint both ways.
+            .ecn_reads = true,
+            .ecn_marks = true,
         });
         endpoint.provider = .{ .role = role, .suite = &endpoint.suite };
         endpoint.suite = .{};
@@ -232,6 +235,17 @@ fn octet_at(offset: u64) u8 {
 
 /// The client's first bidirectional stream, which is the one it sends (RFC 9000 §2.1).
 const transfer_stream: quic.stream.StreamId = .{ .value = 0 };
+
+/// The codepoint `connection_send` names for a datagram, as the network carries it (RFC 9000
+/// §13.4).
+pub fn network_ecn(ecn: quic.connection_send.Ecn) sim.network.Ecn {
+    return switch (ecn) {
+        .not_ect => .not_ect,
+        .ect_0 => .ect_0,
+        .ect_1 => .ect_1,
+        .ecn_ce => .ecn_ce,
+    };
+}
 
 /// The network's ECN codepoint as the receive path names it (RFC 9000 §13.4).
 fn space_ecn(ecn: sim.network.Ecn) quic.connection_receive.Datagram.Ecn {

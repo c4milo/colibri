@@ -43,6 +43,8 @@ const StreamProvider = @import("../stream/stream_provider.zig").StreamProvider;
 const Level = core.Level;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
+/// The ECN codepoint of a datagram's IP header (RFC 9000 §13.4), which the caller writes.
+pub const Ecn = recovery_sent.Ecn;
 
 pub const Error = packet_build.Error || error{
     /// RFC 9001 §8.2: the handshake completed while this datagram was framed, and the peer's
@@ -95,6 +97,9 @@ pub const Sent = struct {
     len: usize,
     packets: [core.levels_count]Packet,
     count: usize,
+    /// The ECN codepoint the caller sets in the datagram's IP header (RFC 9000 §13.4, decision
+    /// 68). Not-ECT unless the connection was opened with `ecn_marks`.
+    ecn: Ecn = .not_ect,
 
     pub fn written(sent: *const Sent) []const Packet {
         return sent.packets[0..sent.count];
@@ -155,7 +160,8 @@ pub fn send(
     }
     if (count == 0) return null;
     expand_last(connection, plans[0..count], planned_len, ceiling);
-    const sent = try seal_all(connection, suite, scratch, plans[0..count], output);
+    var sent = try seal_all(connection, suite, scratch, plans[0..count], output);
+    sent.ecn = codepoint_of(connection);
     const recorded = record_all(connection, plans[0..count], &sent, now_ns);
     if (window.past_window and recorded) connection.recovery.congestion.past_window_allowed = false;
     // After the records, because discarding the Initial keys discards the Initial space's records
@@ -268,25 +274,38 @@ fn note_handshake_sent(connection: *Connection, suite: crypto.Suite, plans: []co
 /// A.1: "a QUIC sender tracks every ack-eliciting packet until the packet is acknowledged or
 /// lost". A packet of ACK frames alone is not tracked: nothing in it is sent again (RFC 9000
 /// §13.3), and a peer need not acknowledge it (§13.2.1), so its record would hold a slot of the
-/// table until loss detection gave it up.
+/// table until loss detection gave it up. Its ECN codepoint is still counted, because the peer
+/// counts it (RFC 9000 §13.4.1).
 /// True when any packet was recorded, which is what spends §7.3.2's datagram past the window.
 fn record_all(connection: *Connection, plans: []const packet_build.Planned, sent: *const Sent, now_ns: u64) bool {
     var recorded = false;
     // Bounded by the levels: a datagram coalesces at most one packet of each (§12.2).
     for (plans, sent.written()) |planned, packet| {
-        // RFC 9000 §10.2.1: a closing endpoint keeps nothing a CONNECTION_CLOSE does not need.
-        if (!packet.in_flight or planned.carries_close) continue;
         const kind: space_module.Kind = @enumFromInt(@intFromEnum(packet.level));
+        // RFC 9000 §10.2.1: a closing endpoint keeps nothing a CONNECTION_CLOSE does not need.
+        if (!packet.in_flight or planned.carries_close) {
+            connection.recovery.on_packet_sent_unrecorded(kind, sent.ecn);
+            continue;
+        }
         // `room_at` framed nothing at a level whose table was full, so the record fits.
-        connection.recovery.on_packet_sent(kind, record_of(packet, now_ns), now_ns) catch unreachable;
+        connection.recovery.on_packet_sent(kind, record_of(packet, sent.ecn, now_ns), now_ns) catch unreachable;
         recorded = true;
     }
     return recorded;
 }
 
-/// The record RFC 9002 Appendix A.1.1 keeps of `packet`. The caller marks no ECN codepoint that
-/// colibri knows of, so the record carries none (RFC 9000 §13.4).
-fn record_of(packet: Packet, now_ns: u64) recovery_sent.Record {
+/// The codepoint the next datagram carries (decision 68). RFC 9000 §13.4.2: "The endpoint sets
+/// an ECT(0) codepoint in the IP header of early outgoing packets sent on a new path", and
+/// §13.4.2.2: once validation fails "It stops setting the ECT codepoint in IP packets that it
+/// sends". A caller that sets no codepoint gets Not-ECT, which is what it sends.
+fn codepoint_of(connection: *const Connection) Ecn {
+    if (!connection.ecn_marks) return .not_ect;
+    return if (connection.recovery.ecn_permitted()) .ect_0 else .not_ect;
+}
+
+/// The record RFC 9002 Appendix A.1.1 keeps of `packet`, which went out in a datagram marked
+/// `ecn`. RFC 9000 §13.4.2.1 judges the peer's counts against these marks.
+fn record_of(packet: Packet, ecn: Ecn, now_ns: u64) recovery_sent.Record {
     return .{
         .number = packet.packet_number,
         .sent_at_ns = now_ns,
@@ -297,6 +316,7 @@ fn record_of(packet: Packet, now_ns: u64) recovery_sent.Record {
         .data_offset = packet.data_offset,
         .data_len = packet.data_len,
         .stream_id = packet.stream_id,
+        .ecn = ecn,
     };
 }
 
@@ -453,4 +473,5 @@ fn seal_all(
 test {
     _ = @import("connection_send_test.zig");
     _ = @import("connection_send_window_test.zig");
+    _ = @import("connection_ecn_test.zig");
 }

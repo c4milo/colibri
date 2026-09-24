@@ -27,10 +27,11 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0x5e20db24;
-pub const census_datagrams_expected: u64 = 13_184;
-pub const census_packets_expected: u64 = 13_220;
-pub const census_dropped_expected: u64 = 674;
+pub const census_crc32_expected: u32 = 0x8af4fcd1;
+pub const census_datagrams_expected: u64 = 13_300;
+pub const census_packets_expected: u64 = 13_343;
+pub const census_dropped_expected: u64 = 714;
+pub const census_marked_expected: u64 = 605;
 
 /// How a seed failed.
 pub const Violation = quic_invariants.Violation || error{
@@ -45,6 +46,9 @@ pub const Violation = quic_invariants.Violation || error{
     StepsExhausted,
     /// Nothing was dropped over the seeds, so the check proved less than it claims.
     ScheduleUnexercised,
+    /// An endpoint stopped marking ECT(0) because RFC 9000 §13.4.2.1's validation failed, over a
+    /// network that marks nothing but ECN-CE.
+    EcnValidationFailed,
 };
 
 /// One seed's counts.
@@ -72,6 +76,8 @@ pub const Census = struct {
     reordered: u64 = 0,
     /// Datagrams the adversary dropped before the network saw them.
     adversary_dropped: u64 = 0,
+    /// Datagrams the network marked ECN-CE (RFC 9000 §13.4).
+    marked: u64 = 0,
 };
 
 /// What a run's network does beside its random schedule.
@@ -98,6 +104,9 @@ pub const Fault = enum {
     /// The client supplies its stream's first octet changed, which the server's read must report
     /// (decision 61).
     wrong_octet,
+    /// The network carries every datagram Not-ECT, as a path that clears the ECN field does,
+    /// which RFC 9000 §13.4.2.1's validation must catch.
+    ecn_cleared,
 };
 
 /// The storage one run needs, placed outside any stack frame (decision 35).
@@ -121,6 +130,7 @@ pub const sends_per_step_max: usize = 64;
 /// The highest rates a seed draws, out of `schedule_denominator`.
 pub const drop_max: u64 = 100;
 pub const duplicate_max: u64 = 100;
+pub const mark_max: u64 = 100;
 
 /// Runs the check over `[0, seeds)` and fills `census`.
 pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?u64) Violation!void {
@@ -133,12 +143,14 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.dropped += storage.network.census.dropped;
         census.duplicated += storage.network.census.duplicated;
         census.reordered += storage.network.census.reordered;
+        census.marked += storage.network.census.marked_congestion;
         census.adversary_dropped += result.adversary_dropped;
         census.crc32 = combine(census.crc32, result);
     }
     failed_seed.* = null;
     // A run that lost nothing would pass while proving nothing of loss recovery.
-    if (census.dropped == 0 or census.duplicated == 0 or census.reordered == 0) return Violation.ScheduleUnexercised;
+    const unexercised = census.dropped == 0 or census.duplicated == 0 or census.reordered == 0;
+    if (unexercised or census.marked == 0) return Violation.ScheduleUnexercised;
     if (storage.adversary != .none and census.adversary_dropped == 0) return Violation.ScheduleUnexercised;
 }
 
@@ -177,6 +189,7 @@ test "two endpoints finish a handshake and a stream over a lossy network, invari
     try std.testing.expectEqual(census_datagrams_expected, census.datagrams);
     try std.testing.expectEqual(census_packets_expected, census.packets);
     try std.testing.expectEqual(census_dropped_expected, census.dropped);
+    try std.testing.expectEqual(census_marked_expected, census.marked);
     try std.testing.expectEqual(census_crc32_expected, census.crc32);
 }
 
@@ -200,15 +213,18 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     fault_storage.fault = .wrong_octet;
     try std.testing.expectError(Violation.ConnectionError, run_check(&fault_storage, 1, &census, &failed_seed));
     try std.testing.expectEqual(error.TransferOctetWrong, fault_storage.failure.?);
+    // Each endpoint's ECN validation is read when the run ends.
+    fault_storage.fault = .ecn_cleared;
+    try std.testing.expectError(Violation.EcnValidationFailed, run_check(&fault_storage, 1, &census, &failed_seed));
     // A check that dropped nothing proved nothing of loss recovery, and says so.
     fault_storage.fault = .none;
     try std.testing.expectError(Violation.ScheduleUnexercised, run_check(&fault_storage, 0, &census, &failed_seed));
 }
 
 /// The adversary check's census, pinned as the lossy check's is.
-pub const adversary_census_crc32_expected: u32 = 0xf6fd5ebe;
-pub const adversary_census_datagrams_expected: u64 = 5_170;
-pub const adversary_census_dropped_expected: u64 = 1_645;
+pub const adversary_census_crc32_expected: u32 = 0x649000b0;
+pub const adversary_census_datagrams_expected: u64 = 5_216;
+pub const adversary_census_dropped_expected: u64 = 1_681;
 
 test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
     check_storage.fault = .none;

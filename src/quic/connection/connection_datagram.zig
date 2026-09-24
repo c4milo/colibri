@@ -197,6 +197,8 @@ fn process_packet(
     const report = try frames.process(connection, opened, datagram.now_ns, &scratch.recovery);
     // RFC 9000 §13.1: "A packet MUST NOT be acknowledged until packet protection has been
     // successfully removed and all frames contained in the packet have been processed."
+    // Decision 68: a caller that reads no codepoint passes Not-ECT, so no count rises.
+    assert(connection.ecn_reads or datagram.ecn == .not_ect);
     _ = connection.space_at(opened.level).receive(opened.packet_number, datagram.now_ns, report.ack_eliciting, datagram.ecn);
     // RFC 9000 §10.1: "An endpoint restarts its idle timer when a packet from its peer is
     // received and processed successfully."

@@ -116,6 +116,13 @@ pub const Recovery = struct {
         return recovery.ecn_enabled;
     }
 
+    /// A packet sent under `ecn` that no record keeps, such as one of ACK frames alone. RFC 9000
+    /// §13.4.2.1 fails validation when a reported count "exceeds the total number of packets sent
+    /// with each corresponding ECT codepoint", and the peer counts this packet too (§13.4.1).
+    pub fn on_packet_sent_unrecorded(recovery: *Recovery, kind: Kind, ecn: recovery_sent.Ecn) void {
+        recovery.ecn[@intFromEnum(kind)].on_packet_sent(ecn);
+    }
+
     /// RFC 9002 Appendix A.5's `OnPacketSent`.
     pub fn on_packet_sent(recovery: *Recovery, kind: Kind, sent: Record, now_ns: u64) Error!void {
         try recovery.table_of(kind).record(sent);

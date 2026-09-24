@@ -219,7 +219,9 @@ const AckWritten = struct {
 fn write_ack(connection: *const Connection, space: anytype, writer: *Writer, now_ns: u64) AckWritten {
     const held: AckWritten = .{ .owed = space.owes_ack(now_ns, connection.max_ack_delay_ns()), .pending = space.ack_pending() };
     if (!held.owed and !space.has_new_ack_eliciting()) return held;
-    _ = space.write_ack(writer, now_ns, exponent_of(connection), report_ecn) catch {};
+    // RFC 9000 §13.4.1: only an endpoint with "access to received ECN codepoints" reports ECN,
+    // and decision 68 has the caller say whether it has.
+    _ = space.write_ack(writer, now_ns, exponent_of(connection), connection.ecn_reads) catch {};
     return held;
 }
 
@@ -256,7 +258,3 @@ fn write_path_frames(connection: *Connection, level: Level, writer: *Writer) Pat
 fn exponent_of(connection: *const Connection) u6 {
     return @intCast(connection.local_parameters.ack_delay_exponent);
 }
-
-/// RFC 9000 §13.4.1 leaves reporting ECN counts to an endpoint that can read the codepoints.
-/// colibri owns no socket (non-negotiable 1), so it reports none until a caller says it can.
-const report_ecn = false;

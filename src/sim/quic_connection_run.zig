@@ -36,7 +36,10 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     var run: Run = .{ .storage = storage, .now_ns = check.start_ns, .result = .{}, .digest = std.hash.Crc32.init() };
     // Bounded by `steps_max`, which is a named limit.
     for (0..check.steps_max) |_| {
-        if (try run.step()) return run.finish();
+        if (try run.step()) {
+            try check_ecn(storage);
+            return run.finish();
+        }
     }
     return Violation.StepsExhausted;
 }
@@ -50,6 +53,7 @@ fn apply_fault(storage: *Storage) void {
         .keys_refused => server.suite.keys_unavailable = 1,
         .number_reused => storage.histories[@intFromEnum(Side.client)].largest_sent[@intFromEnum(quic.core.Level.initial)] = 0,
         .wrong_octet => storage.endpoints[@intFromEnum(Side.client)].supplies_wrong_octet = true,
+        .ecn_cleared => {},
     }
 }
 
@@ -62,13 +66,25 @@ fn apply_adversary(storage: *Storage) void {
     for (&storage.endpoints) |*endpoint| endpoint.transfer_len = quic_endpoint.request_len;
 }
 
-/// A seed's network: up to `drop_max` datagrams dropped and up to `duplicate_max` duplicated, out
-/// of `schedule_denominator`, over the default delays, which reorder on their own.
+/// A seed's network: up to `drop_max` datagrams dropped, up to `duplicate_max` duplicated and up
+/// to `mark_max` marked ECN-CE, out of `schedule_denominator`, over the default delays, which
+/// reorder on their own.
 fn draw_schedule(random: *Random) Schedule {
     return .{
         .drop = @intCast(random.below(check.drop_max + 1)),
         .duplicate = @intCast(random.below(check.duplicate_max + 1)),
+        .mark_congestion = @intCast(random.below(check.mark_max + 1)),
     };
+}
+
+/// RFC 9000 §13.4.2.1's validation fails only on counts a path or a peer got wrong. The network
+/// sets ECN-CE on a marked datagram and changes no other codepoint, and both endpoints report
+/// what they received, so a failure here is colibri's.
+fn check_ecn(storage: *const Storage) Violation!void {
+    // Bounded by the two sides.
+    for (&storage.endpoints) |*endpoint| {
+        if (!endpoint.connection.recovery.ecn_permitted()) return Violation.EcnValidationFailed;
+    }
 }
 
 fn role_of(side: Side) quic.connection.Role {
@@ -131,10 +147,16 @@ const Run = struct {
                 run.result.adversary_dropped += 1;
                 continue;
             }
-            // The endpoint marks no ECN codepoint (`connection_send` records every packet so).
-            if (run.storage.network.send(run.now_ns, side, octets, .not_ect) == .no_slot) return Violation.NetworkFull;
+            if (run.storage.network.send(run.now_ns, side, octets, run.carried_ecn(&sent)) == .no_slot) return Violation.NetworkFull;
         }
         return Violation.SendsExhausted;
+    }
+
+    /// Decision 68: the datagram carries the codepoint `connection_send` named for it, unless a
+    /// fault test has the path clear it (`check.Fault.ecn_cleared`).
+    fn carried_ecn(run: *const Run, sent: *const quic.connection_send.Sent) sim.network.Ecn {
+        if (run.storage.fault == .ecn_cleared) return .not_ect;
+        return quic_endpoint.network_ecn(sent.ecn);
     }
 
     /// Whether the run's adversary drops the datagram `sent` describes (`check.Adversary`).
