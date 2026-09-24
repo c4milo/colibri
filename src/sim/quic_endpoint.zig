@@ -51,7 +51,10 @@ const streams_granted: u64 = 1;
 const idle_timeout_ms: u64 = 60_000;
 
 /// The octets of the one stream the client sends, and how the octet at each offset is chosen.
-pub const transfer_len: u64 = 16_384;
+/// A run may send fewer (`Endpoint.transfer_len`).
+pub const transfer_len_default: u64 = 16_384;
+/// A request that fits one packet, as an hq-interop or h3 request line does.
+pub const request_len: u64 = 64;
 const octet_stride: u64 = 7;
 const octet_seed: u64 = 0x2b;
 
@@ -75,6 +78,9 @@ pub const Endpoint = struct {
     read_buffer: [sim.constants.network_datagram_len_max]u8,
     transfer_read_len: u64,
     transfer_read: bool,
+    /// The octets of the client's stream, which both endpoints hold: the client supplies that
+    /// many and the server checks them.
+    transfer_len: u64,
     /// Makes the client supply its stream's first octet changed, which a fault test uses to show
     /// the server's check fires (`quic_connection_check.Fault`).
     supplies_wrong_octet: bool,
@@ -95,6 +101,7 @@ pub const Endpoint = struct {
         endpoint.transfer_done = false;
         endpoint.transfer_read_len = 0;
         endpoint.transfer_read = false;
+        endpoint.transfer_len = transfer_len_default;
         endpoint.supplies_wrong_octet = false;
         // RFC 9001 §5.2: both endpoints derive the Initial keys from the Destination Connection ID
         // of the client's first Initial packet.
@@ -128,7 +135,7 @@ pub const Endpoint = struct {
     fn read_transfer(endpoint: *Endpoint) Error!void {
         if (endpoint.transfer_read) return;
         // Bounded: each read takes at least one octet, and the stream holds `transfer_len`.
-        for (0..transfer_len + 1) |_| {
+        for (0..endpoint.transfer_len + 1) |_| {
             const read = quic.connection_stream_read.read(&endpoint.connection, transfer_stream, &endpoint.read_buffer) catch |failure| switch (failure) {
                 // The stream's first octets have not arrived, so the server has not opened it.
                 error.NotReadable => return,
@@ -184,7 +191,7 @@ pub const Endpoint = struct {
         if (endpoint.connection.role != .client or endpoint.transfer_started) return;
         if (!endpoint.connection.handshake_complete) return;
         const id = try quic.connection_stream_send.open(&endpoint.connection, .bidirectional);
-        try quic.connection_stream_send.supply(&endpoint.connection, id, transfer_len, true);
+        try quic.connection_stream_send.supply(&endpoint.connection, id, endpoint.transfer_len, true);
         endpoint.transfer_started = true;
     }
 
@@ -211,8 +218,8 @@ const stream_vtable: quic.stream.stream_provider.VTable = .{ .read = supply_tran
 fn supply_transfer(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usize {
     const endpoint: *const Endpoint = @ptrCast(@alignCast(context));
     _ = stream_id;
-    if (offset >= transfer_len) return 0;
-    const len: usize = @intCast(@min(output.len, transfer_len - offset));
+    if (offset >= endpoint.transfer_len) return 0;
+    const len: usize = @intCast(@min(output.len, endpoint.transfer_len - offset));
     for (output[0..len], 0..) |*octet, index| octet.* = octet_at(offset + index);
     if (endpoint.supplies_wrong_octet and offset == 0) output[0] ^= 1;
     return len;

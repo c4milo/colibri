@@ -58,6 +58,8 @@ pub const Result = struct {
     round_trip_ns: u64 = 0,
     /// The digest of every datagram either endpoint sent.
     octets_crc32: u32 = 0,
+    /// Datagrams the adversary dropped.
+    adversary_dropped: u64 = 0,
 };
 
 /// What the whole run counted, which the test compares across build modes and hosts.
@@ -68,6 +70,18 @@ pub const Census = struct {
     dropped: u64 = 0,
     duplicated: u64 = 0,
     reordered: u64 = 0,
+    /// Datagrams the adversary dropped before the network saw them.
+    adversary_dropped: u64 = 0,
+};
+
+/// What a run's network does beside its random schedule.
+pub const Adversary = enum {
+    none,
+    /// Drops every datagram whose packets are none of them ack-eliciting: ACK frames alone, as
+    /// RFC 9002 §2 counts them. A sender then learns of no loss from an acknowledgment, and only
+    /// what its probes carry sends a lost frame again (decisions 64 and 66). A run under it ends
+    /// once the server has read the stream: the client's acknowledgment of it never arrives.
+    drop_ack_only,
 };
 
 /// A defect a test puts into a run, so each way the driver fails is shown to fail.
@@ -89,6 +103,7 @@ pub const Fault = enum {
 /// The storage one run needs, placed outside any stack frame (decision 35).
 pub const Storage = struct {
     fault: Fault,
+    adversary: Adversary,
     endpoints: [sim.network.Endpoint.count]quic_endpoint.Endpoint,
     histories: [sim.network.Endpoint.count]quic_invariants.History,
     network: sim.Network,
@@ -118,11 +133,13 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.dropped += storage.network.census.dropped;
         census.duplicated += storage.network.census.duplicated;
         census.reordered += storage.network.census.reordered;
+        census.adversary_dropped += result.adversary_dropped;
         census.crc32 = combine(census.crc32, result);
     }
     failed_seed.* = null;
     // A run that lost nothing would pass while proving nothing of loss recovery.
     if (census.dropped == 0 or census.duplicated == 0 or census.reordered == 0) return Violation.ScheduleUnexercised;
+    if (storage.adversary != .none and census.adversary_dropped == 0) return Violation.ScheduleUnexercised;
 }
 
 /// Folds one seed's counts into the digest, one field at a time, so struct padding is never read
@@ -150,6 +167,7 @@ var check_storage: Storage = undefined;
 
 test "two endpoints finish a handshake and a stream over a lossy network, invariants 17 to 21 holding" {
     check_storage.fault = .none;
+    check_storage.adversary = .none;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
@@ -168,6 +186,7 @@ var fault_storage: Storage = undefined;
 test "each way the driver fails is reported, so no report of it is unproved" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
+    fault_storage.adversary = .none;
     // An endpoint that stops ends the run, and the run keeps the error it stopped with.
     fault_storage.fault = .server_alert;
     try std.testing.expectError(Violation.ConnectionError, run_check(&fault_storage, 1, &census, &failed_seed));
@@ -184,4 +203,23 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     // A check that dropped nothing proved nothing of loss recovery, and says so.
     fault_storage.fault = .none;
     try std.testing.expectError(Violation.ScheduleUnexercised, run_check(&fault_storage, 0, &census, &failed_seed));
+}
+
+/// The adversary check's census, pinned as the lossy check's is.
+pub const adversary_census_crc32_expected: u32 = 0xf6fd5ebe;
+pub const adversary_census_datagrams_expected: u64 = 5_170;
+pub const adversary_census_dropped_expected: u64 = 1_645;
+
+test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
+    check_storage.fault = .none;
+    check_storage.adversary = .drop_ack_only;
+    var census: Census = .{};
+    var failed_seed: ?u64 = null;
+    run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
+        std.debug.print("QUIC adversary check: seed 0x{x} broke {t}, endpoint error {?}\n", .{ failed_seed orelse 0, failure, check_storage.failure });
+        return failure;
+    };
+    try std.testing.expectEqual(adversary_census_datagrams_expected, census.datagrams);
+    try std.testing.expectEqual(adversary_census_dropped_expected, census.adversary_dropped);
+    try std.testing.expectEqual(adversary_census_crc32_expected, census.crc32);
 }

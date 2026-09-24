@@ -32,6 +32,7 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
         storage.histories[at].init(&storage.endpoints[at]);
     }
     apply_fault(storage);
+    apply_adversary(storage);
     var run: Run = .{ .storage = storage, .now_ns = check.start_ns, .result = .{}, .digest = std.hash.Crc32.init() };
     // Bounded by `steps_max`, which is a named limit.
     for (0..check.steps_max) |_| {
@@ -50,6 +51,15 @@ fn apply_fault(storage: *Storage) void {
         .number_reused => storage.histories[@intFromEnum(Side.client)].largest_sent[@intFromEnum(quic.core.Level.initial)] = 0,
         .wrong_octet => storage.endpoints[@intFromEnum(Side.client)].supplies_wrong_octet = true,
     }
+}
+
+/// Under an adversary the client sends a request that fits one packet. Without acknowledgments a
+/// sender's window never grows, so only a stream that small can arrive before the idle timeout,
+/// whatever the probes carry. It is the request the QUIC Interop Runner's client lost.
+fn apply_adversary(storage: *Storage) void {
+    if (storage.adversary == .none) return;
+    // Bounded by the two sides.
+    for (&storage.endpoints) |*endpoint| endpoint.transfer_len = quic_endpoint.request_len;
 }
 
 /// A seed's network: up to `drop_max` datagrams dropped and up to `duplicate_max` duplicated, out
@@ -117,19 +127,41 @@ const Run = struct {
             run.digest.update(octets);
             run.result.datagrams += 1;
             run.result.packets += sent.count;
+            if (run.adversary_drops(&sent)) {
+                run.result.adversary_dropped += 1;
+                continue;
+            }
             // The endpoint marks no ECN codepoint (`connection_send` records every packet so).
             if (run.storage.network.send(run.now_ns, side, octets, .not_ect) == .no_slot) return Violation.NetworkFull;
         }
         return Violation.SendsExhausted;
     }
 
+    /// Whether the run's adversary drops the datagram `sent` describes (`check.Adversary`).
+    fn adversary_drops(run: *const Run, sent: *const quic.connection_send.Sent) bool {
+        switch (run.storage.adversary) {
+            .none => return false,
+            .drop_ack_only => {
+                // Bounded by the levels a datagram coalesces.
+                for (sent.written()) |packet| {
+                    if (packet.ack_eliciting) return false;
+                }
+                return true;
+            },
+        }
+    }
+
     /// The run is over once both endpoints have confirmed the handshake, the client's stream has
-    /// been acknowledged whole and read whole, and nothing is left on the path.
+    /// been acknowledged whole and read whole, and nothing is left on the path. Under an
+    /// adversary that drops every acknowledgment sent alone, the client may never learn its
+    /// stream arrived, so that run is over once the server has read it.
     fn is_done(run: *const Run) bool {
         const client = &run.storage.endpoints[@intFromEnum(Side.client)];
         const server = &run.storage.endpoints[@intFromEnum(Side.server)];
         if (!client.connection.handshake_confirmed or !server.connection.handshake_confirmed) return false;
-        if (!client.transfer_done or !server.transfer_read) return false;
+        if (!server.transfer_read) return false;
+        if (run.storage.adversary == .drop_ack_only) return true;
+        if (!client.transfer_done) return false;
         return run.storage.network.in_flight_count() == 0;
     }
 
