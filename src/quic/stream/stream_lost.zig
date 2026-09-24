@@ -99,6 +99,19 @@ pub const LostRanges = struct {
         if (held.len == 0 and !held.fin) lost.drop_oldest();
     }
 
+    /// The lowest offset a range of `stream_id` holds, or null when none is owed on it. Octets
+    /// there are not acknowledged, which decision 78's acknowledged end reads.
+    pub fn lowest_offset(lost: *const LostRanges, stream_id: u64) ?u64 {
+        var lowest: ?u64 = null;
+        // Bounded by the entries, whose number is a named limit.
+        for (0..lost.count) |from| {
+            const held = lost.entries[slot_at(lost.head, from)];
+            if (held.stream_id != stream_id) continue;
+            if (lowest == null or held.offset < lowest.?) lowest = held.offset;
+        }
+        return lowest;
+    }
+
     /// Removes the oldest range without framing it, which RFC 9000 §13.3 permits once a
     /// RESET_STREAM has gone out for its stream: "no further STREAM frames are needed".
     pub fn drop_oldest(lost: *LostRanges) void {
@@ -196,4 +209,17 @@ test "§13.3: a full table refuses a range it cannot join, and joins one it can"
     test_lost.drop_oldest();
     try test_lost.add(past);
     try testing.expectEqual(constants.stream_lost_ranges_max, test_lost.count);
+}
+
+test "decision 78: the lowest lost offset is per stream, whatever order the ranges came in" {
+    test_lost.init();
+    try testing.expectEqual(null, test_lost.lowest_offset(test_stream));
+    try test_lost.add(range_of(test_stream, 3 * test_len, test_len, false));
+    try test_lost.add(range_of(test_other_stream, 0, test_len, false));
+    try test_lost.add(range_of(test_stream, test_len, test_len, false));
+    // The later range sits lower, and the other stream's lower still.
+    try testing.expectEqual(test_len, test_lost.lowest_offset(test_stream).?);
+    try testing.expectEqual(0, test_lost.lowest_offset(test_other_stream).?);
+    test_lost.drop_oldest();
+    try testing.expectEqual(test_len, test_lost.lowest_offset(test_stream).?);
 }

@@ -402,7 +402,8 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   [Decision 57](decisions.md#the-h2-connection) is why colibri resends exact ranges rather than
   rewinding a stream, which would put an octet in two packets at once.
 - **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count
-  never passes the framed offset. A simulator invariant that each stream's acknowledged count
+  never passes the framed offset, and `acknowledged_end` (decision 78) asserts that its answer,
+  read off the packets in flight and the lost table, never passes that count. A simulator invariant that each stream's acknowledged count
   equals its final size at "Data Recvd" lands with the QUIC connection check (design §8 step 9e,
   piece 10). Step 9e.
 - **Violation.** A probe that resends octets still in flight, or a rewind to the lowest lost

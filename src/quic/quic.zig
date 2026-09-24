@@ -40,6 +40,7 @@ pub const connection_stream_frames = @import("connection/connection_stream/conne
 pub const connection_stream_send = @import("connection/connection_stream/connection_stream_send.zig");
 pub const connection_stream_recovery = @import("connection/connection_stream/connection_stream_recovery.zig");
 pub const connection_stream_read = @import("connection/connection_stream/connection_stream_read.zig");
+pub const connection_stream_acknowledged = @import("connection/connection_stream/connection_stream_acknowledged.zig");
 pub const connection_path_frames = @import("connection/connection_path_frames.zig");
 pub const connection_migration = @import("connection/connection_migration.zig");
 pub const packet_build = @import("connection/packet_build/packet_build.zig");
@@ -89,6 +90,7 @@ test {
     _ = connection_receive;
     _ = connection_frames;
     _ = connection_stream_frames;
+    _ = connection_stream_acknowledged;
     _ = connection_path_frames;
     _ = connection_migration;
     _ = packet_build;
