@@ -143,6 +143,9 @@ pub const Connection = struct {
     early_crypto_resends: u8,
     /// The instant of the last of those resends, which decision 71 spaces the next one from.
     early_crypto_resent_at_ns: u64,
+    /// Packets of ACK frames alone sent at the application level since the last ack-eliciting one
+    /// there, which RFC 9000 §13.2.4's PING waits for (decision 73).
+    ack_only_since_eliciting: u8,
     /// Whether the congestion window bounded the last datagram `send` built, which RFC 9002 §7.8
     /// asks before an acknowledgment may grow the window.
     window_limited: bool,
@@ -188,6 +191,7 @@ pub const Connection = struct {
         connection.probes_owed = @splat(0);
         connection.early_crypto_resends = 0;
         connection.early_crypto_resent_at_ns = 0;
+        connection.ack_only_since_eliciting = 0;
         connection.window_limited = false;
         connection.pacing_limited = false;
         connection.max_data = .{};

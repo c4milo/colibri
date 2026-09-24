@@ -11,8 +11,13 @@ const Connection = connection_module.Connection;
 
 /// RFC 9000 §14.1's expansion, put on the datagram's last packet by decision 54.
 pub fn expand_last(connection: *Connection, plans: []packet_build.Planned, planned_len: usize, ceiling: usize) void {
-    if (!owes_expansion(connection, plans)) return;
+    const owed = owes_expansion(connection, plans);
+    if (owed == .none) return;
     if (planned_len >= constants.datagram_len_min) return;
+    // RFC 9000 §8.2.1 and §8.2.2 except a datagram §8's limit keeps below 1,200 octets, and one
+    // padded part of the way validates no path MTU (§8.2.1). The octets are kept instead for the
+    // PATH_CHALLENGE frames §13.3 sends after it, which the same limit bounds (decision 72).
+    if (owed == .path_frames and ceiling < constants.datagram_len_min) return;
     const last = &plans[plans.len - 1];
     // RFC 9001 §5.4.2's widening of a tiny packet's number is what PADDING replaces once there is
     // any: padding the widened octets back in lands the datagram on 1,200 exactly, and when the
@@ -31,23 +36,25 @@ fn room_for_padding(last: *const packet_build.Planned, ceiling: usize, planned_l
     return @min(spare_in_datagram, spare_in_packet);
 }
 
-/// Whether RFC 9000 §14.1 requires this datagram to reach 1,200 octets. "A client MUST expand the
-/// payload of all UDP datagrams carrying Initial packets ... Similarly, a server MUST expand the
-/// payload of all UDP datagrams carrying ack-eliciting Initial packets."
-fn owes_expansion(connection: *const Connection, plans: []const packet_build.Planned) bool {
-    // RFC 9000 §8.2.1: "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to
-    // at least the smallest allowed maximum datagram size of 1200 bytes", and §8.2.2 says the
-    // same of a PATH_RESPONSE. Both exceptions are §8's limit, which `datagram_ceiling` has
-    // already bounded this datagram by, so the padding stops there on its own.
-    for (plans) |planned| {
-        if (planned.path_challenge != null or planned.carries_path_response) return true;
-    }
+/// Which rule, if any, requires this datagram to reach 1,200 octets.
+const Expansion = enum { none, initial, path_frames };
+
+/// RFC 9000 §14.1: "A client MUST expand the payload of all UDP datagrams carrying Initial packets
+/// ... Similarly, a server MUST expand the payload of all UDP datagrams carrying ack-eliciting
+/// Initial packets." §14.1 is asked first, because it holds whatever else the datagram carries.
+fn owes_expansion(connection: *const Connection, plans: []const packet_build.Planned) Expansion {
     for (plans) |planned| {
         if (planned.level != .initial) continue;
-        if (connection.role == .client) return true;
+        if (connection.role == .client) return .initial;
         // §14.1 asks a server only for the ack-eliciting ones, so an Initial carrying nothing but
         // an acknowledgment costs a server no padding.
-        return planned.ack_eliciting;
+        if (planned.ack_eliciting) return .initial;
     }
-    return false;
+    // RFC 9000 §8.2.1: "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to
+    // at least the smallest allowed maximum datagram size of 1200 bytes", and §8.2.2 says the
+    // same of a PATH_RESPONSE.
+    for (plans) |planned| {
+        if (planned.path_challenge != null or planned.carries_path_response) return .path_frames;
+    }
+    return .none;
 }

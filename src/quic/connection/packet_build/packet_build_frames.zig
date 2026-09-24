@@ -51,6 +51,10 @@ pub const Room = struct {
     /// Whether the packet carries probing frames alone (RFC 9000 §9.1), as a packet to the
     /// previously active path does: §9.3 sends every other frame to the peer's new address.
     probing_only: bool = false,
+    /// Whether the packet carries ACK and path frames alone, as one to a path the peer moved to
+    /// does until it is validated (decision 72). The ACK frames stay: a peer whose window is
+    /// full of unacknowledged data could not send its PATH_RESPONSE without them.
+    withholding_data: bool = false,
 };
 
 /// What went into the payload.
@@ -105,6 +109,7 @@ pub fn write(
     // transmission of a packet containing a PATH_RESPONSE frame unless constrained by congestion
     // control", so they are written before the handshake's octets compete for the room.
     const path = write_path_frames(connection, level, &writer);
+    if (room.withholding_data) return path_packet(space, ack, written_ack, writer.written().len, path);
     // RFC 9001 §4.1.2: "The server MUST send a HANDSHAKE_DONE frame as soon as the handshake is
     // complete", so it goes before any octets compete for the room.
     const carries_handshake_done = connection_handshake.write_done(connection, level, &writer);
@@ -124,7 +129,8 @@ pub fn write(
     const eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
         carries_handshake_done or carries_control;
     const framed_len = written_path + data.len;
-    const probe_len = write_probe(connection, level, payload[framed_len..budget], eliciting);
+    const ping_owed = !eliciting and ack.owed and elicit_due(connection, level, now_ns);
+    const probe_len = write_probe(connection, level, payload[framed_len..budget], eliciting, ping_owed);
     // RFC 9000 §13.2.1 asks for an ACK "with other frames": one written only because it was
     // pending, with nothing after it, does not go out, and the space is as it was.
     if (!ack.owed and written_ack > 0 and framed_len + probe_len == written_ack) {
@@ -160,6 +166,21 @@ fn probing_packet(connection: *Connection, level: Level, payload: []u8) Framed {
     };
 }
 
+/// A packet of the ACK and path frames alone (decision 72). An ACK that is only pending goes with
+/// a path frame or not at all, as `write` has it (RFC 9000 §13.2.1).
+fn path_packet(space: anytype, ack: AckWritten, written_ack: usize, len: usize, path: PathFrames) Framed {
+    // RFC 9000 §13.2.1, Table 3: PATH_CHALLENGE and PATH_RESPONSE elicit an acknowledgment.
+    const eliciting = path.path_challenge != null or path.carries_path_response;
+    if (!eliciting and !ack.owed) return acknowledgment_only(space, ack, written_ack);
+    return .{
+        .len = len,
+        .ack_eliciting = eliciting,
+        .carries_ack = written_ack > 0,
+        .path_challenge = path.path_challenge,
+        .carries_path_response = path.carries_path_response,
+    };
+}
+
 /// The packet `write` builds when nothing in flight may go: an ACK the space owes, or nothing.
 /// One written only because it was pending is taken back, as `write` does (§13.2.1).
 fn acknowledgment_only(space: anytype, ack: AckWritten, written_ack: usize) Framed {
@@ -171,11 +192,27 @@ fn acknowledgment_only(space: anytype, ack: AckWritten, written_ack: usize) Fram
 /// Writes a PING when a probe is owed at `level` and nothing already written elicits an
 /// acknowledgment. RFC 9002 §6.2.4: "When there is no data to send, the sender SHOULD send a PING
 /// or other ack-eliciting frame in a single packet". Returns the octets written.
-fn write_probe(connection: *const Connection, level: Level, output: []u8, eliciting: bool) usize {
-    if (connection.probes_owed[@intFromEnum(level)] == 0 or eliciting) return 0;
+fn write_probe(connection: *const Connection, level: Level, output: []u8, eliciting: bool, ping_owed: bool) usize {
+    if (eliciting) return 0;
+    if (connection.probes_owed[@intFromEnum(level)] == 0 and !ping_owed) return 0;
     var writer = Writer.init(output);
     frame_module.write(&writer, .ping) catch return 0;
     return writer.written().len;
+}
+
+/// RFC 9000 §13.2.4: "A receiver that sends only non-ack-eliciting packets, such as ACK frames,
+/// might not receive an acknowledgment for a long period of time ... a receiver could send a PING
+/// or other small ack-eliciting frame occasionally, such as once per round trip, to elicit an ACK
+/// from the peer." Decision 73 has colibri do so at the application level once a smoothed round
+/// trip has passed since its last ack-eliciting packet there, and once it has sent
+/// `ack_only_packets_before_ping` packets of ACK frames alone since, so that the peer's answer to
+/// the PING, one such packet, asks for no PING back.
+fn elicit_due(connection: *const Connection, level: Level, now_ns: u64) bool {
+    if (level != .application) return false;
+    if (connection.ack_only_since_eliciting < constants.ack_only_packets_before_ping) return false;
+    const held = connection.recovery.timer.spaces[@intFromEnum(Level.application)];
+    const last_ns = held.last_ack_eliciting_sent_at_ns orelse return false;
+    return now_ns -| last_ns >= connection.recovery.rtt.smoothed_ns;
 }
 
 /// Counts off one probe for an ack-eliciting packet at `level` (RFC 9002 §6.2.4: "All probe

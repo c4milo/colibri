@@ -102,6 +102,11 @@ pub const path_challenge_attempts: u8 = 3;
 /// The ones after the first, which the caller hands over with the first (decision 72).
 pub const path_challenge_resends: u8 = path_challenge_attempts - 1;
 
+/// How many packets of ACK frames alone an endpoint sends at the application level before RFC
+/// 9000 §13.2.4's PING may join the next (decision 73). The answer to a PING is one such packet,
+/// so with two the answers never ask for answers of their own.
+pub const ack_only_packets_before_ping: u8 = 2;
+
 /// The longest peer address a caller names (decision 72): an IPv6 address, which RFC 4291 §2
 /// makes 128 bits. colibri compares these octets and never reads them otherwise.
 pub const peer_address_len_max: usize = 16;

@@ -1705,3 +1705,37 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     the caller gives `path_challenge_attempts` payloads for the new path with the one for the
     previous path. colibri sends the next each PTO without an answer, and a response to any of
     them validates the path (§8.2.3).
+
+    Amended again after the QUIC Interop Runner's rebind cases, where a colibri server lost the
+    first challenge on a new path and then had no room to send another. The client's 117 octets
+    from its new port allowed 351, and the challenge's packet was filled with stream data. So,
+    until a path the peer moved to is validated, colibri sends ACK and path frames alone there,
+    and a datagram carrying a path frame is padded only when all 1,200 octets fit (§8.2.1 excepts
+    the rest, and part of the padding validates no path MTU). The octets §8 allows then go to the
+    challenges §13.3 sends. The ACK frames stay because withholding them deadlocked the
+    simulator: a peer whose window was full of unacknowledged data could not send its
+    PATH_RESPONSE. The cost is a pause of about one round trip in data on each move.
+
+73. **An endpoint that sends only ACK frames adds a PING about once a round trip, as RFC 9000
+    §13.2.4 suggests.** Adopted on 2026-09-24, while building decision 72; the owner may overrule
+    it.
+
+    §13.2.4: "A receiver that sends only non-ack-eliciting packets, such as ACK frames, might not
+    receive an acknowledgment for a long period of time ... a receiver could send a PING or other
+    small ack-eliciting frame occasionally, such as once per round trip, to elicit an ACK from
+    the peer." A colibri client that only downloads sent only ACK frames. After a NAT rebinding,
+    quic-go's server in the QUIC Interop Runner kept sending to the client's old port although
+    those ACK frames arrived from the new one, and the connection reached its idle timeout.
+
+    So at the application level colibri adds a PING to a packet carrying an ACK the space owes,
+    when that packet elicits nothing else, a smoothed round trip has passed since its last
+    ack-eliciting packet there, and it has sent `ack_only_packets_before_ping` packets of ACK
+    frames alone since. The last condition ends the exchange: the peer answers a PING with one
+    such packet, which is not enough to add a PING of its own. Without it, two colibri endpoints
+    each added a PING to the answer and never went quiet.
+
+    The alternatives refused:
+    - Never adding one, which is what colibri did. A peer that follows only ack-eliciting packets
+      never learns a client's new address.
+    - A PING on a timer of its own. It would send packets when nothing needs acknowledging, and
+      §10.1.2 leaves keeping a connection alive to the application.

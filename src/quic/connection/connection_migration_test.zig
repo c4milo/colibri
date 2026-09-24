@@ -330,3 +330,27 @@ fn resend_from_new_address(now_ns: u64) !void {
     _ = try deliver(&server, try client_ping(1), 1, rebound_address, now_ns);
     _ = try send_into(&server, 0, now_ns);
 }
+
+test "decision 72: a path the peer moved to carries ACK and path frames alone until it is validated" {
+    open_pair(true);
+    try move_server(moved_address);
+    _ = try send_into(&server, 0, test_now_ns);
+    const allowance = server.path.send_allowance();
+    const challenge = try send_into(&server, 1, test_now_ns);
+    try testing.expect(challenge.to.eql(&moved_address));
+    // RFC 9000 §8.2.1: §8's limit keeps the datagram below 1,200 octets, so it is not padded
+    // part of the way, and the octets left are there for the next challenge (§13.3).
+    try testing.expect(challenge.len < allowance);
+    try testing.expect(server.path.send_allowance() > challenge.len);
+    // The ACK the client's PING earned went with the challenge, and a PING waits for the path
+    // to be validated.
+    try testing.expect(!server.space_at(.application).has_new_ack_eliciting());
+    // One more PING from the client: its ACK may wait (RFC 9000 §13.2.1), so nothing goes.
+    _ = try deliver(&server, try client_ping(1), 1, moved_address, test_now_ns);
+    try testing.expectError(error.NothingSent, send_into(&server, 0, test_now_ns));
+    send.owe_probes(&server, .application, 1);
+    try testing.expectError(error.NothingSent, send_into(&server, 0, test_now_ns));
+    migration.on_response(&server, new_path_data);
+    const after = try send_into(&server, 0, test_now_ns);
+    try testing.expect(after.packets[0].ack_eliciting);
+}

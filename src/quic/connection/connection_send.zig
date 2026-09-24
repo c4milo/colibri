@@ -158,7 +158,7 @@ pub fn send(
     // and a short header carries no Length so §12.2 makes it the last packet anyway.
     for (0..core.levels_count) |index| {
         const level: Level = @enumFromInt(index);
-        const room = room_at(connection, level, window.len -| planned_len, ceiling - planned_len) orelse continue;
+        const room = room_on_path(connection, level, window.len -| planned_len, ceiling - planned_len) orelse continue;
         const payload = &scratch.payloads[index];
         const planned = packet_build.plan(connection, provider, stream_provider, level, payload, room, now_ns) catch |failure| switch (failure) {
             // A level that cannot fit a packet in what is left ends the datagram rather than
@@ -263,6 +263,15 @@ pub fn pacing_deadline_ns(connection: *const Connection) ?u64 {
     if (!connection.pacing_limited) return null;
     const recovery = &connection.recovery;
     return recovery.pacer.next_send_at_ns(recovery.congestion.max_datagram_len, recovery.rate());
+}
+
+/// `room_at`, on a path that may be waiting for validation. Decision 72: until a path the peer
+/// moved to is validated, §8 limits what may go there to three times what arrived, and the
+/// PATH_CHALLENGE frames §13.3 sends until one is answered need those octets more than data.
+fn room_on_path(connection: *const Connection, level: Level, window_len: u64, room: usize) ?packet_build.Room {
+    var held = room_at(connection, level, window_len, room) orelse return null;
+    if (connection.migration.awaiting_validation) held.withholding_data = true;
+    return held;
 }
 
 /// What `level`'s packet may hold, given the octets `window_len` the congestion window leaves and

@@ -176,6 +176,7 @@ pub fn plan(
     // no hole in its space (invariant 17).
     _ = space.next_number() catch unreachable;
     if (framed.carries_handshake_done) connection_handshake.on_done_sent(connection, number);
+    if (level == .application) count_ack_only(connection, framed);
     return .{
         .level = level,
         .number = number,
@@ -193,6 +194,16 @@ pub fn plan(
         .data_len = framed.data_len,
         .stream_id = framed.stream_id,
     };
+}
+
+/// What RFC 9000 §13.2.4's PING waits for (decision 73): packets of ACK frames alone since the
+/// last ack-eliciting one.
+fn count_ack_only(connection: *Connection, framed: packet_build_frames.Framed) void {
+    if (framed.ack_eliciting) {
+        connection.ack_only_since_eliciting = 0;
+    } else if (framed.carries_ack) {
+        connection.ack_only_since_eliciting +|= 1;
+    }
 }
 
 /// Builds one packet at `level` into the front of `output`, planning and sealing in one step.

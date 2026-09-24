@@ -27,11 +27,11 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0x686522e4;
-pub const census_datagrams_expected: u64 = 13_259;
-pub const census_packets_expected: u64 = 13_338;
-pub const census_dropped_expected: u64 = 686;
-pub const census_marked_expected: u64 = 486;
+pub const census_crc32_expected: u32 = 0x8f7db94c;
+pub const census_datagrams_expected: u64 = 13_942;
+pub const census_packets_expected: u64 = 14_022;
+pub const census_dropped_expected: u64 = 695;
+pub const census_marked_expected: u64 = 545;
 
 /// How a seed failed.
 pub const Violation = quic_invariants.Violation || error{
@@ -271,9 +271,9 @@ test "each way the driver fails is reported, so no report of it is unproved" {
 }
 
 /// The adversary check's census, pinned as the lossy check's is.
-pub const adversary_census_crc32_expected: u32 = 0x989caf91;
-pub const adversary_census_datagrams_expected: u64 = 5_126;
-pub const adversary_census_dropped_expected: u64 = 1_678;
+pub const adversary_census_crc32_expected: u32 = 0x0974863e;
+pub const adversary_census_datagrams_expected: u64 = 5_132;
+pub const adversary_census_dropped_expected: u64 = 1_665;
 
 test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
     check_storage.fault = .none;
@@ -292,9 +292,9 @@ test "decisions 64 and 66: a network that drops every datagram of ACK frames alo
 /// The runner check's census, pinned as the lossy check's is. `handshake_max_ns` is the slowest
 /// seed's handshake, which the doubling Probe Timeout of RFC 9002 §6.2.1 sets under this loss.
 /// Decision 70 brought it from 10.4 to 8.4 seconds.
-pub const runner_census_crc32_expected: u32 = 0xbf6dbb33;
-pub const runner_census_datagrams_expected: u64 = 4_150;
-pub const runner_census_dropped_expected: u64 = 1_202;
+pub const runner_census_crc32_expected: u32 = 0x2dbc4723;
+pub const runner_census_datagrams_expected: u64 = 4_178;
+pub const runner_census_dropped_expected: u64 = 1_209;
 pub const runner_census_handshake_max_ns_expected: u64 = 8_397_000_000;
 
 test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
@@ -313,13 +313,13 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
 }
 
 /// The rebinding checks' censuses, pinned as the lossy check's is. The server moved once for each
-/// rebind: 275 of each in the port check and 274 in the address check.
-pub const rebind_port_census_crc32_expected: u32 = 0x8344307e;
-pub const rebind_port_census_datagrams_expected: u64 = 14_207;
-pub const rebind_port_census_migrations_expected: u64 = 275;
-pub const rebind_address_census_crc32_expected: u32 = 0x3dbbd895;
-pub const rebind_address_census_datagrams_expected: u64 = 14_191;
-pub const rebind_address_census_migrations_expected: u64 = 274;
+/// rebind: 277 of each in the port check and 276 in the address check.
+pub const rebind_port_census_crc32_expected: u32 = 0xbf54d857;
+pub const rebind_port_census_datagrams_expected: u64 = 14_607;
+pub const rebind_port_census_migrations_expected: u64 = 277;
+pub const rebind_address_census_crc32_expected: u32 = 0x6f20dfec;
+pub const rebind_address_census_datagrams_expected: u64 = 14_418;
+pub const rebind_address_census_migrations_expected: u64 = 276;
 
 /// Runs the check under `adversary` and returns its census.
 fn run_rebinding(adversary: Adversary) !Census {

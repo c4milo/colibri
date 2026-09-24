@@ -116,3 +116,85 @@ test "RFC 9000 §13.2.2: an ACK taken back leaves the count, so the second packe
     _ = space.receive(1, test_now_ns, true, .not_ect);
     try testing.expect(space.owes_ack(test_now_ns, fixture.test_connection.max_ack_delay_ns()));
 }
+
+/// Opens the fixture's pair at the application level, with `sent_at_ns` the instant the tested
+/// endpoint last sent an ack-eliciting 1-RTT packet. Test-only.
+fn open_application(sent_at_ns: u64) void {
+    fixture.open_connection();
+    for ([_]*Connection{ &fixture.test_connection, &fixture.peer_connection }) |connection| {
+        keys.on_keys_installed(connection, .application, .read);
+        keys.on_keys_installed(connection, .application, .write);
+        connection.handshake_complete = true;
+    }
+    fixture.fake = .{};
+    fixture.test_connection.recovery.timer.spaces[@intFromEnum(core.Level.application)].last_ack_eliciting_sent_at_ns = sent_at_ns;
+    fixture.test_connection.ack_only_since_eliciting = constants.ack_only_packets_before_ping;
+}
+
+/// The ack-eliciting 1-RTT packets §13.2.2 acknowledges at once. Test-only.
+const packets_owing_ack: usize = 2;
+
+/// That many ack-eliciting 1-RTT packets from the peer. Test-only.
+fn receive_two() void {
+    // Bounded by the count.
+    for (0..packets_owing_ack) |_| {
+        const number = fixture.peer_connection.space_at(.application).next_number() catch unreachable;
+        _ = fixture.test_connection.space_at(.application).receive(number, test_now_ns, true, .not_ect);
+    }
+}
+
+test "RFC 9000 §13.2.4: an endpoint that only acknowledges adds a PING once a round trip has passed" {
+    open_application(test_now_ns);
+    receive_two();
+    const round_trip_ns = fixture.test_connection.recovery.rtt.smoothed_ns;
+    const early = (try fixture.build_at_instant(.application, test_now_ns + round_trip_ns - 1)).?;
+    try testing.expect(!early.ack_eliciting);
+
+    open_application(test_now_ns);
+    receive_two();
+    const late = (try fixture.build_at_instant(.application, test_now_ns + round_trip_ns)).?;
+    try testing.expect(late.ack_eliciting);
+    const report = try frames.process(&fixture.peer_connection, try fixture.walk_back(late), test_now_ns, &recovery_scratch);
+    try testing.expectEqual(2, report.frames);
+
+    // An endpoint that has not yet sent enough packets of ACK frames alone adds none: that is
+    // the peer answering a PING, and asking for an answer back would never end.
+    open_application(test_now_ns);
+    fixture.test_connection.ack_only_since_eliciting = constants.ack_only_packets_before_ping - 1;
+    receive_two();
+    try testing.expect(!(try fixture.build_at_instant(.application, test_now_ns + round_trip_ns)).?.ack_eliciting);
+
+    // An endpoint that has sent nothing ack-eliciting at this level has no round trip to count.
+    fixture.open_connection();
+    open_application(test_now_ns);
+    fixture.test_connection.recovery.timer.spaces[@intFromEnum(core.Level.application)].last_ack_eliciting_sent_at_ns = null;
+    receive_two();
+    try testing.expect(!(try fixture.build_at_instant(.application, test_now_ns + round_trip_ns)).?.ack_eliciting);
+}
+
+test "decision 73: the packets of ACK frames alone are counted, and a PING starts the count again" {
+    open_application(test_now_ns);
+    fixture.test_connection.ack_only_since_eliciting = 0;
+    const at_ns = test_now_ns + fixture.test_connection.recovery.rtt.smoothed_ns;
+    // Bounded by the threshold, a named limit.
+    for (0..constants.ack_only_packets_before_ping) |_| {
+        receive_two();
+        try testing.expect(!(try fixture.build_at_instant(.application, at_ns)).?.ack_eliciting);
+    }
+    receive_two();
+    try testing.expect((try fixture.build_at_instant(.application, at_ns)).?.ack_eliciting);
+    try testing.expectEqual(0, fixture.test_connection.ack_only_since_eliciting);
+}
+
+/// A round trip shorter than max_ack_delay, so a PING could be due while an ACK may still wait.
+/// Test-only.
+const short_round_trip_ns: u64 = 1_000_000;
+
+test "decision 73: the PING joins an ACK the space owes, and never forces one out" {
+    open_application(test_now_ns);
+    fixture.test_connection.recovery.rtt.smoothed_ns = short_round_trip_ns;
+    // One in-order ack-eliciting packet, whose ACK may wait for max_ack_delay (§13.2.1).
+    const number = try fixture.peer_connection.space_at(.application).next_number();
+    _ = fixture.test_connection.space_at(.application).receive(number, test_now_ns, true, .not_ect);
+    try testing.expectEqual(null, try fixture.build_at_instant(.application, test_now_ns + short_round_trip_ns));
+}
