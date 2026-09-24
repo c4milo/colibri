@@ -10,6 +10,9 @@ pub const constants = @import("constants.zig");
 pub const frame = @import("frame.zig");
 pub const frame_write = @import("frame_write.zig");
 pub const stream = @import("stream.zig");
+pub const send_buffer = @import("send_buffer.zig");
+pub const connection = @import("connection/connection.zig");
+pub const Connection = connection.Connection;
 pub const message = @import("message/message.zig");
 
 test {
@@ -18,5 +21,7 @@ test {
     _ = frame;
     _ = frame_write;
     _ = stream;
+    _ = send_buffer;
+    _ = connection;
     _ = message;
 }

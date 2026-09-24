@@ -1926,9 +1926,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Ruled by the owner on 2026-09-24, for design §8 step 12. Entry 57 left the octets h3 writes
     itself for h3 to settle.
     - The control stream and QPACK's encoder and decoder streams are h3's. It writes them and
-      holds each in a fixed ring on the h3 connection. It reuses the part below the stream's
-      acknowledged end (entry 78). A ring with no room never drops an octet. The encoder then
-      does not insert, and the decoder holds the instructions it owes, as entry 74 has it.
+      holds each in a fixed buffer on the h3 connection. It drops the part below the stream's
+      acknowledged end (entry 78) and moves the rest to the front, so the free room is one slice
+      a writer can fill. A buffer with no room never drops an octet. The encoder then does not
+      insert, and the decoder holds the instructions it owes, as entry 74 has it.
     - A request stream's octets are the caller's: the HEADERS frame, each DATA frame's header, and
       the body. h3 writes the frames' octets into the caller's buffer, as `h2`'s write path does.
       The caller keeps them with the body until the stream reaches "Data Recvd" or is reset. h3

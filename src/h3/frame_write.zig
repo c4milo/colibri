@@ -59,6 +59,7 @@ pub fn write_settings(writer: *Writer, settings: Settings) Error!void {
     try write_setting(&cursor, constants.setting_qpack_max_table_capacity, settings.qpack_max_table_capacity);
     try write_setting(&cursor, constants.setting_max_field_section_size, settings.max_field_section_size);
     try write_setting(&cursor, constants.setting_qpack_blocked_streams, settings.qpack_blocked_streams);
+    if (settings.reserved) |reserved| try write_setting(&cursor, reserved.identifier(), reserved.value);
     writer.* = cursor;
 }
 
@@ -68,6 +69,7 @@ fn settings_len(settings: Settings) u64 {
     total +|= pair_len(constants.setting_qpack_max_table_capacity, settings.qpack_max_table_capacity);
     total +|= pair_len(constants.setting_max_field_section_size, settings.max_field_section_size);
     total +|= pair_len(constants.setting_qpack_blocked_streams, settings.qpack_blocked_streams);
+    if (settings.reserved) |reserved| total +|= pair_len(reserved.identifier(), reserved.value);
     return total;
 }
 
@@ -140,6 +142,21 @@ test "§7.2.4: SETTINGS carries the settings that are present and no others" {
     try testing.expectEqualSlices(u8, &.{ 0x04, 0x00 }, empty.written());
     const none = (try frame.read_payload(constants.frame_settings, &.{})).settings;
     try testing.expectEqual(null, none.max_field_section_size);
+}
+
+test "§7.2.4.1: a reserved setting goes out, and a reader ignores it" {
+    var writer = Writer.init(&test_octets);
+    const reserved: frame.Reserved = .{ .n = 3, .value = 0x4000 };
+    try write_settings(&writer, .{ .max_field_section_size = 0x100, .reserved = reserved });
+    const back = try round_trip(writer.written());
+    // Its identifier, 0x1f * 3 + 0x21, and its value are in the payload after the size.
+    var payload = Reader.init(back.payload);
+    _ = try payload.take(3);
+    try testing.expectEqual(reserved.identifier(), (try wire.varint.decode(&payload)).value);
+    try testing.expectEqual(0x4000, (try wire.varint.decode(&payload)).value);
+    const found = (try frame.read_payload(back.header.frame_type, back.payload)).settings;
+    try testing.expectEqual(0x100, found.max_field_section_size);
+    try testing.expectEqual(null, found.reserved);
 }
 
 test "§7.1: the Length a writer computes is the payload a reader finds" {

@@ -163,6 +163,21 @@ pub const Settings = struct {
     /// RFC 9204 §5: both default to zero, which is what makes a static-only QPACK conformant.
     qpack_max_table_capacity: ?u64 = null,
     qpack_blocked_streams: ?u64 = null,
+    /// RFC 9114 §7.2.4.1: a reserved setting, `0x1f * N + 0x21`, which "Endpoints SHOULD include"
+    /// and which a receiver MUST ignore. Written when set; a reader never sets it.
+    reserved: ?Reserved = null,
+};
+
+/// One reserved setting: its `N` and its value, which has no meaning (RFC 9114 §7.2.4.1).
+pub const Reserved = struct {
+    n: u64,
+    value: u64,
+
+    pub fn identifier(reserved: Reserved) u64 {
+        const found = constants.reserved_base +| (constants.reserved_step *| reserved.n);
+        assert(constants.is_reserved(found));
+        return found;
+    }
 };
 
 /// Reads a SETTINGS payload (RFC 9114 §7.2.4).

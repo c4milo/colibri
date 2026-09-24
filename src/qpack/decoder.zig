@@ -164,6 +164,11 @@ pub const Decoder = struct {
         decoder_stream.write(decoder, writer);
     }
 
+    /// Whether `write_decoder_stream` has anything to write (RFC 9204 §4.4).
+    pub fn owes(decoder: *const Decoder) bool {
+        return decoder_stream.owes(decoder);
+    }
+
     /// A blocked stream whose section the dynamic table can now decode, the one blocked longest,
     /// or null. RFC 9204 §2.2.1: a stream unblocks once the insert count reaches what its section
     /// requires.
