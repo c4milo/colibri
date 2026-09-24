@@ -2627,6 +2627,41 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and as the client against the four. The loopback, UDP and aioquic checks pass over chapulin
   `992043f`, which fixed the `TRUST=webpki` QUIC build `756ad91` had broken.
 
+  **Key update, amplification and IPv6 in the runner, 2026-09-24.**
+  - `cf3872c`: the runner's `amplificationlimit` case sends a chain of nine certificates, a 10 KB
+    Handshake flight. Decision 64 sends a level's whole flight again on a PTO, and the 4 KiB
+    `crypto_send_buffer_len` had already forgotten the flight's first octets, which closed the
+    connection. The owner approved 16 KiB. 1 mutation, 1 CAUGHT.
+  - `169c91d`: the UDP endpoint takes an IPv4 or an IPv6 address. A server binds `::`, which
+    takes both families on Linux, because the runner gives the server no hint of which family its
+    `ipv6` case uses. A client's `keyupdate` option starts one key update as soon as RFC 9001
+    §6.1 permits. The runner gives the server `transfer` for all three cases. 4 mutations, 4
+    CAUGHT: 2 by unit tests, once one of them checked the IPv6 port, and the key update and the
+    `::` bind by the runner.
+
+  The owner also approved three limits in `src/testing/constants.zig` that the nine-certificate
+  chain needs:
+  - `tls_der_len_max`, from 2 KiB to 8 KiB. The leaf carries twenty 250-octet DNS names, 5,514
+    octets in all.
+  - `quic_crypto_out_len`, from 8 KiB to 20 KiB. The Certificate message is 9,663 octets, and a
+    comptime assert holds this limit above twice `tls_der_len_max`.
+  - `quic_chain_len_max`, from 8 to 16. The chain is a leaf under eight intermediates.
+
+  The runner at `740c05a`, colibri at `169c91d`, where "all" is H, DC, C20, M, L1, L2, S, U, A
+  and 6:
+
+  | Peer | colibri server | colibri client |
+  |---|---|---|
+  | quic-go | all but L1 | all but L1 |
+  | ngtcp2, neqo | all | all |
+  | quinn | all but L1 | all |
+  | colibri | all | same run |
+
+  Against quic-go, L1 passed in both roles when run again. In the failed client run every file
+  had arrived, but the runner counted 51 handshakes where it expects 50: one client process
+  opened two connections to quic-go's server, 12 seconds apart. With quinn as the client, L1
+  stays flaky, as "More peers, and the loss the random seeds missed" records.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
