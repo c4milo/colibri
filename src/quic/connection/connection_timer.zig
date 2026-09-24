@@ -17,6 +17,7 @@ const connection_module = @import("connection.zig");
 const key_update = @import("connection_key_update.zig");
 const connection_recovery = @import("connection_recovery.zig");
 const connection_flow = @import("connection_flow.zig");
+const connection_send = @import("connection_send.zig");
 
 const Connection = connection_module.Connection;
 const Suite = crypto.Suite;
@@ -39,6 +40,9 @@ pub const Kind = enum {
     /// RFC 9000 §4.1: a flow control limited endpoint with nothing in flight owes its BLOCKED
     /// frames again.
     blocked,
+    /// RFC 9002 §7.7: the pacer has earned the octets of the next datagram. Nothing fires; the
+    /// caller calls `send`, which the pacer held back last time.
+    pacing,
 };
 
 pub const Deadline = struct {
@@ -58,7 +62,15 @@ pub fn next(connection: *Connection) ?Deadline {
     earliest = nearer(earliest, of(key_update.previous_keys_deadline_ns(connection), .previous_keys));
     earliest = nearer(earliest, of(acknowledgment_deadline_ns(connection), .acknowledgment));
     earliest = nearer(earliest, of(connection_flow.blocked_deadline_ns(connection), .blocked));
+    earliest = nearer(earliest, of(pacing_deadline_ns(connection), .pacing));
     return earliest;
+}
+
+/// The pacer's instant (RFC 9002 §7.7), for a connection that is still sending: a closing or
+/// draining one sends at most CONNECTION_CLOSE, which the pacer never holds.
+fn pacing_deadline_ns(connection: *const Connection) ?u64 {
+    if (connection.termination.state != .active) return null;
+    return connection_send.pacing_deadline_ns(connection);
 }
 
 /// The instant an ACK is owed by (RFC 9000 §13.2.1). The application space alone: §13.2.1 has

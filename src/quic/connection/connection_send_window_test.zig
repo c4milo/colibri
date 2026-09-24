@@ -13,6 +13,7 @@ const keys = @import("connection_keys.zig");
 const close_module = @import("connection_close.zig");
 const id_frames = @import("connection_id_frames.zig");
 const send = @import("connection_send.zig");
+const timer = @import("connection_timer.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
 const Level = core.Level;
@@ -324,4 +325,51 @@ test "RFC 9000 §8.1: a widened packet's octets count against what the rest of t
     const sent = try send_now() orelse return error.NothingSent;
     try testing.expectEqual(2, sent.count);
     try testing.expectEqual(coalesced_allowance_received * constants.anti_amplification_factor, sent.len);
+}
+
+/// A round trip the pacing cases give the path, so the pacer earns at a rate rather than a whole
+/// burst at once (RFC 9002 §7.7 spreads the window over the smoothed round trip). Test-only.
+const paced_round_trip_ns: u64 = 100_000_000;
+/// The window the pacing cases leave: ten datagrams of `datagram_len_min`, so the congestion
+/// controller never holds the flight back. Test-only.
+const paced_window_len: u64 = 12_000;
+
+/// An endpoint whose pacer has just spent its credit, with window to spare.
+fn open_paced() void {
+    open(.server);
+    endpoint.recovery.rtt.update(.{ .rtt_ns = paced_round_trip_ns, .ack_delay_ns = 0, .handshake_confirmed = false, .taken_at_ns = test_now_ns });
+    leave_window(paced_window_len);
+    endpoint.recovery.pacer.refill(test_now_ns, endpoint.recovery.rate());
+    endpoint.recovery.pacer.on_sent(endpoint.recovery.pacer.credit_len);
+}
+
+test "RFC 9002 §7.7: the pacer holds back what the window allows, and names when to send" {
+    open_paced();
+    provider_holder = .{ .owed = &flight, .owed_level = .handshake };
+    try testing.expectEqual(null, try send_now());
+    try testing.expect(endpoint.pacing_limited);
+    // RFC 9002 §7.8: a sender the pacer holds is using its window, so growth is not held back.
+    try testing.expect(endpoint.window_limited);
+    const deadline = timer.next(&endpoint).?;
+    try testing.expectEqual(timer.Kind.pacing, deadline.kind);
+    try testing.expect(deadline.at_ns > test_now_ns);
+    // RFC 9000 §10.2.2: a draining connection sends nothing, so the pacer names no instant. The
+    // draining period ends after the pacer's instant, so its end is not what the timer names.
+    endpoint.termination.state = .draining;
+    endpoint.termination.closing_since_ns = deadline.at_ns;
+    endpoint.termination.closing_period_ns = paced_round_trip_ns;
+    try testing.expect(timer.next(&endpoint).?.kind != .pacing);
+    endpoint.termination.state = .active;
+    // One nanosecond early the pacer still refuses, and at the instant it lets the flight out.
+    try testing.expectEqual(null, try send_at(deadline.at_ns - 1));
+    const sent = try send_at(deadline.at_ns) orelse return error.NothingSent;
+    try testing.expect(sent.packets[0].ack_eliciting);
+    try testing.expect(!endpoint.pacing_limited);
+}
+
+test "RFC 9002 §7.7: an ACK alone is not paced" {
+    open_paced();
+    receive_eliciting(.handshake);
+    const sent = try send_now() orelse return error.NothingSent;
+    try testing.expect(!sent.packets[0].ack_eliciting);
 }

@@ -129,6 +129,9 @@ pub const Connection = struct {
     /// Whether the congestion window bounded the last datagram `send` built, which RFC 9002 §7.8
     /// asks before an acknowledgment may grow the window.
     window_limited: bool,
+    /// Whether the pacer of RFC 9002 §7.7, and not the window, held the last datagram back, which
+    /// `connection_timer` turns into the instant the caller calls `send` again.
+    pacing_limited: bool,
     /// The pool the peer's stream octets wait in, or null when the caller reads no stream
     /// (decision 61).
     receive_storage: ?stream_incoming.Storage,
@@ -165,6 +168,7 @@ pub const Connection = struct {
         connection.probes_owed = @splat(0);
         connection.early_crypto_resends = 0;
         connection.window_limited = false;
+        connection.pacing_limited = false;
         connection.max_data = .{};
         connection.data_blocked = .{};
         connection.key_phase.init();

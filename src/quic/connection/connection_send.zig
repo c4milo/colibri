@@ -135,7 +135,7 @@ pub fn send(
     var plans: [core.levels_count]packet_build.Planned = undefined;
     var count: usize = 0;
     var planned_len: usize = 0;
-    const window = window_of(connection, ceiling);
+    const window = window_of(connection, ceiling, now_ns);
     // RFC 9000 §12.2: "Coalescing packets in order of increasing encryption levels ... makes it
     // more likely that the receiver will be able to process all the packets in a single pass",
     // and a short header carries no Length so §12.2 makes it the last packet anyway.
@@ -188,14 +188,30 @@ const Window = struct {
     past_window: bool,
 };
 
-fn window_of(connection: *Connection, ceiling: usize) Window {
-    const datagram_len = @min(ceiling, connection.recovery.congestion.max_datagram_len);
-    const available_len = connection.recovery.congestion.available_len(connection.recovery.in_flight_len());
-    // RFC 9002 §7.8: whether the window, and not what there is to send, is what bounds sending.
-    connection.window_limited = available_len < datagram_len;
+fn window_of(connection: *Connection, ceiling: usize, now_ns: u64) Window {
+    const recovery = &connection.recovery;
+    const datagram_len = @min(ceiling, recovery.congestion.max_datagram_len);
+    const window_len = recovery.congestion.available_len(recovery.in_flight_len());
+    // RFC 9002 §7.7: "A sender SHOULD pace sending of all in-flight packets based on input from
+    // the congestion controller." The pacer's credit is brought up to this instant first.
+    recovery.pacer.refill(now_ns, recovery.rate());
+    const available_len = recovery.available_len();
+    const congestion_limited = window_len < datagram_len;
+    connection.pacing_limited = !congestion_limited and available_len < datagram_len;
+    // RFC 9002 §7.8: the window is underused only when "sending is not pacing limited", so a
+    // sender the pacer holds is using its window as fully as one the window holds.
+    connection.window_limited = congestion_limited or connection.pacing_limited;
     // RFC 9002 §7.3.2: on entering recovery "a single packet can be sent prior to reduction".
-    const past_window = connection.window_limited and connection.recovery.congestion.past_window_allowed;
+    const past_window = congestion_limited and recovery.congestion.past_window_allowed;
     return .{ .len = if (past_window) datagram_len else available_len, .past_window = past_window };
+}
+
+/// The instant the pacer will let the next datagram out (RFC 9002 §7.7), or null when the last
+/// `send` was not held back by it. The caller calls `send` again then.
+pub fn pacing_deadline_ns(connection: *const Connection) ?u64 {
+    if (!connection.pacing_limited) return null;
+    const recovery = &connection.recovery;
+    return recovery.pacer.next_send_at_ns(recovery.congestion.max_datagram_len, recovery.rate());
 }
 
 /// What `level`'s packet may hold, given the octets `window_len` the congestion window leaves and
