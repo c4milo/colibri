@@ -3214,6 +3214,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   itself, which needs QUIC streams and so waits on 9e; and h3spec, the interop runner's `http3`
   case and `h2load --h3`, which all need a connection.
 
+  **The connection and its simulator check, 2026-09-24.** The owner ruled h3's send path first
+  (decisions 78 and 79), and decision 80 followed:
+  - `61443b6`: `quic` reports how far a stream is acknowledged from its start (decision 78), which
+    h3's three streams need because they never end. 7 mutations, 7 CAUGHT.
+  - `3e1ed79`: `quic` copies a stream's received octets without taking them (decision 80), so a
+    field section blocked on QPACK stays in the receive pool. 7 mutations, 7 CAUGHT.
+  - `1b5d763`: `quic` keeps the error code of a peer's RESET_STREAM for the application. 2
+    mutations, 2 CAUGHT.
+  - `929a760`: `src/h3/connection/`. It opens the control and QPACK streams and reads the peer's.
+    It maps requests and responses (§4.1), with interim responses, trailers and content-length
+    (§4.1.2). It covers GOAWAY (§5.2), refusals and resets (§4.1.1), and greasing (§7.2.4.1,
+    §8.1). Every RFC 9114 rule it checks has a test that breaks it. 65 mutations, 65 CAUGHT. Three
+    first survived and gained tests.
+  - `1db9175`: `src/sim/h3_check.zig`. A colibri client and server exchange a seed's requests
+    over step 8's network. Every field section and content octet must arrive as planned. The
+    connection must then settle: no slot, blocked section or owed instruction left, and every
+    insert acknowledged. The long mode's connections outgrow h3's own buffers, so decision 78's
+    drop runs under loss.
+
+  `zig build sim -- --h3-check` and `-- --h3-long-check` printed, in Debug and in ReleaseSafe on
+  macOS arm64:
+  `h3: seeds=256 exchanges=7524 content=20308595 inserts=14526 acknowledged_dropped=0
+  datagrams=88945 dropped=4498 crc32=0xbd4c7fc8` and `h3-long: seeds=64 exchanges=14733
+  content=3386507 inserts=10721 acknowledged_dropped=71805 datagrams=133432 dropped=6238
+  crc32=0xc1c60f94`. 4 mutations, 4 CAUGHT. Three first survived: no buffer had filled, and
+  nothing required every insert to be acknowledged. One of them, an acknowledged end that ignores
+  the lost table, is caught only from 64 long seeds, which is why the long check runs 64.
+
+  **Still owed:** design §9's h3 server and client on the UDP endpoint, and with them h3spec, the
+  interop runner's `http3` case and `h2load --h3`. The h2 suite's semantics tests re-run against
+  h3 are the message tests of `src/h3/message/`, recorded above. The TLA+ model of the connection,
+  checked against the simulator's traces, is
+  [#58](https://github.com/c4milo/colibri/issues/58).
+
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
   **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the
   same session, and the machine written down beside the numbers. *Medium.*
