@@ -16,6 +16,13 @@
 //! to run from the variant's first with no gap, and refuses a name or value holding anything but
 //! printable ASCII, so that the generated source needs no escaping.
 //!
+//! RFC 9204's table wraps ten values onto rows of their own, whose index column is empty. Each
+//! such row continues the row above. The RFC text breaks a line at a space, which it drops, or
+//! after a `-` or a `/`, which it keeps, so a continuation joins with no space after either and
+//! with one space otherwise. That rule gives all ten values as the RFC defines them: entry 52 is
+//! `text/html; charset=utf-8` and entry 54 `text/plain;charset=utf-8`. RFC 7541's table wraps
+//! none.
+//!
 //! Exit status: 0 when the file was written or matches, 1 when --check finds a difference, 2 on a
 //! usage error or an RFC text the tool cannot read as Appendix A.
 const std = @import("std");
@@ -88,7 +95,7 @@ fn Table(comptime variant: Variant) type {
     return [variant.entry_count]Entry;
 }
 
-const ParseError = error{
+const ParseError = Allocator.Error || error{
     AppendixMissing,
     RowMalformed,
     IndexOutOfOrder,
@@ -126,7 +133,7 @@ fn generate(
     table_path: []const u8,
 ) !void {
     const rfc_text = try Io.Dir.cwd().readFileAlloc(init.io, rfc_path, arena, .limited(input_bytes_max));
-    const table = parse_appendix(variant, rfc_text) catch |err| {
+    const table = parse_appendix(variant, arena, rfc_text) catch |err| {
         std.debug.print("{s}: {s} is not {s} Appendix A: {s}\n", .{ variant.build_step, rfc_path, variant.rfc, @errorName(err) });
         std.process.exit(exit_usage);
     };
@@ -157,8 +164,9 @@ fn check(comptime variant: Variant, io: Io, arena: Allocator, table_path: []cons
     std.process.exit(exit_mismatch);
 }
 
-/// Reads every row of Appendix A's Table 1 out of the RFC text.
-fn parse_appendix(comptime variant: Variant, text: []const u8) ParseError!Table(variant) {
+/// Reads every row of Appendix A's Table 1 out of the RFC text, joining each continuation row onto
+/// the row above.
+fn parse_appendix(comptime variant: Variant, arena: Allocator, text: []const u8) ParseError!Table(variant) {
     var table: Table(variant) = @splat(.{ .name = "", .value = "" });
     var lines = std.mem.splitScalar(u8, text, '\n');
     var inside = false;
@@ -169,7 +177,13 @@ fn parse_appendix(comptime variant: Variant, text: []const u8) ParseError!Table(
             continue;
         }
         if (std.mem.startsWith(u8, line, variant.next_appendix_prefix)) break;
-        const row = try parse_row(variant, line) orelse continue;
+        const row = switch (try parse_row(variant, line) orelse continue) {
+            .row => |row| row,
+            .continuation => |rest| {
+                try continue_row(arena, table[0..row_count], rest);
+                continue;
+            },
+        };
         if (row_count == variant.entry_count or row.index != row_count + variant.first_index) {
             return error.IndexOutOfOrder;
         }
@@ -186,11 +200,37 @@ const Row = struct {
     entry: Entry,
 };
 
+/// Joins a continuation onto the last row read, of which there must be one.
+fn continue_row(arena: Allocator, read: []Entry, rest: Entry) ParseError!void {
+    if (read.len == 0) return error.RowMalformed;
+    const above = &read[read.len - 1];
+    above.name = try join(arena, above.name, rest.name);
+    above.value = try join(arena, above.value, rest.value);
+}
+
+/// A line of the table: a numbered row, or a row with no index that continues the one above.
+const Line = union(enum) {
+    row: Row,
+    continuation: Entry,
+};
+
+/// Joins a column's continuation onto it: with no space after a `-` or a `/`, where the RFC text
+/// breaks inside a value, and with the one space the text dropped otherwise.
+fn join(arena: Allocator, first: []const u8, rest: []const u8) Allocator.Error![]const u8 {
+    if (rest.len == 0) return first;
+    if (first.len == 0) return rest;
+    const glue: []const u8 = switch (first[first.len - 1]) {
+        '-', '/' => "",
+        else => " ",
+    };
+    return std.mem.concat(arena, u8, &.{ first, glue, rest });
+}
+
 /// Parses `| 16    | accept-encoding             | gzip, deflate |` into its three columns, with
 /// the spaces that pad each column removed. A line that is not four bars around three columns,
-/// or whose first column is not a number, is not a row: the column header and the `+---+` rules
-/// are rejected here.
-fn parse_row(comptime variant: Variant, line: []const u8) ParseError!?Row {
+/// or whose first column is neither a number nor empty, is not a row: the column header and the
+/// `+---+` rules are rejected here. An empty first column is a continuation of the row above.
+fn parse_row(comptime variant: Variant, line: []const u8) ParseError!?Line {
     const trimmed = std.mem.trim(u8, line, " \r");
     if (!std.mem.startsWith(u8, trimmed, "|") or !std.mem.endsWith(u8, trimmed, "|")) return null;
     var columns: [row_columns][]const u8 = undefined;
@@ -199,13 +239,14 @@ fn parse_row(comptime variant: Variant, line: []const u8) ParseError!?Row {
         column.* = std.mem.trim(u8, pieces.next() orelse return null, " ");
     }
     if (pieces.next() != null) return null;
-    const index = std.fmt.parseUnsigned(usize, columns[0], 10) catch return null;
-    if (index < variant.first_index) return error.RowMalformed;
     for (columns[1..]) |column| {
         if (!is_plain(column)) return error.NotPrintable;
     }
+    if (columns[0].len == 0) return .{ .continuation = .{ .name = columns[1], .value = columns[2] } };
+    const index = std.fmt.parseUnsigned(usize, columns[0], 10) catch return null;
+    if (index < variant.first_index) return error.RowMalformed;
     if (columns[1].len == 0) return error.RowMalformed;
-    return .{ .index = index, .entry = .{ .name = columns[1], .value = columns[2] } };
+    return .{ .row = .{ .index = index, .entry = .{ .name = columns[1], .value = columns[2] } } };
 }
 
 /// True when every octet is printable ASCII and none needs escaping in a Zig string literal.
@@ -267,11 +308,11 @@ const sample_appendix =
 ;
 
 test "a row yields its index, name and value with the padding removed" {
-    const row = (try parse_row(hpack_variant, "          | 16    | accept-encoding             | gzip, deflate |")).?;
+    const row = (try parse_row(hpack_variant, "          | 16    | accept-encoding             | gzip, deflate |")).?.row;
     try testing.expectEqual(16, row.index);
     try testing.expectEqualStrings("accept-encoding", row.entry.name);
     try testing.expectEqualStrings("gzip, deflate", row.entry.value);
-    const empty = (try parse_row(hpack_variant, "          | 1     | :authority                  |               |")).?;
+    const empty = (try parse_row(hpack_variant, "          | 1     | :authority                  |               |")).?.row;
     try testing.expectEqualStrings("", empty.entry.value);
 }
 
@@ -290,28 +331,28 @@ test "a row with an unprintable or quoted octet, an empty name or index 0 is ref
 }
 
 test "the appendix must run from 1 with no gap and hold exactly 61 rows" {
-    try testing.expectError(error.IndexOutOfOrder, parse_appendix(hpack_variant, sample_appendix));
-    try testing.expectError(error.AppendixMissing, parse_appendix(hpack_variant, "no appendix here\n"));
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
+    try testing.expectError(error.IndexOutOfOrder, parse_appendix(hpack_variant, arena, sample_appendix));
+    try testing.expectError(error.AppendixMissing, parse_appendix(hpack_variant, arena, "no appendix here\n"));
     var text: std.ArrayList(u8) = .empty;
     try text.appendSlice(arena, hpack_variant.appendix_heading ++ "\n");
     for (1..hpack_variant.entry_count + 1) |index| {
         try text.print(arena, "| {d} | name-{d} | value |\n", .{ index, index });
     }
     try text.appendSlice(arena, hpack_variant.next_appendix_prefix ++ "\n");
-    const table = try parse_appendix(hpack_variant, text.items);
+    const table = try parse_appendix(hpack_variant, arena, text.items);
     try testing.expectEqualStrings("name-61", table[hpack_variant.entry_count - 1].name);
     try text.insertSlice(arena, text.items.len - hpack_variant.next_appendix_prefix.len - 1, "| 62 | name-62 | value |\n");
-    try testing.expectError(error.IndexOutOfOrder, parse_appendix(hpack_variant, text.items));
+    try testing.expectError(error.IndexOutOfOrder, parse_appendix(hpack_variant, arena, text.items));
 }
 
 test "the committed RFC text yields exactly the first and last entries of Appendix A" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const text = try Io.Dir.cwd().readFileAlloc(testing.io, hpack_variant.rfc_file, arena_state.allocator(), .limited(input_bytes_max));
-    const table = try parse_appendix(hpack_variant, text);
+    const table = try parse_appendix(hpack_variant, arena_state.allocator(), text);
     try testing.expectEqualStrings(":authority", table[0].name);
     try testing.expectEqualStrings("www-authenticate", table[hpack_variant.entry_count - 1].name);
     try testing.expectEqualStrings("gzip, deflate", table[15].value);
@@ -321,14 +362,41 @@ test "the committed RFC text yields exactly the first and last entries of QPACK'
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const text = try Io.Dir.cwd().readFileAlloc(testing.io, qpack_variant.rfc_file, arena_state.allocator(), .limited(input_bytes_max));
-    const table = try parse_appendix(qpack_variant, text);
+    const table = try parse_appendix(qpack_variant, arena_state.allocator(), text);
     // RFC 9204 §3.1 numbers the static table from 0, so entry 0 is the first row.
     try testing.expectEqualStrings(":authority", table[0].name);
     try testing.expectEqualStrings("/", table[1].value);
     try testing.expectEqualStrings("x-frame-options", table[qpack_variant.entry_count - 1].name);
+    // The ten values the RFC wraps onto a second or third row, whole.
+    try testing.expectEqualStrings("application/dns-message", table[30].value);
+    try testing.expectEqualStrings("public, max-age=31536000", table[41].value);
+    try testing.expectEqualStrings("application/dns-message", table[44].value);
+    try testing.expectEqualStrings("application/javascript", table[45].value);
+    try testing.expectEqualStrings("application/x-www-form-urlencoded", table[47].value);
+    try testing.expectEqualStrings("text/html; charset=utf-8", table[52].value);
+    try testing.expectEqualStrings("text/plain;charset=utf-8", table[54].value);
+    try testing.expectEqualStrings("max-age=31536000; includesubdomains", table[57].value);
+    try testing.expectEqualStrings("max-age=31536000; includesubdomains; preload", table[58].value);
+    try testing.expectEqualStrings("script-src 'none'; object-src 'none'; base-uri 'none'", table[85].value);
+}
+
+test "a continuation row joins with no space after a hyphen or a slash, and one space otherwise" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    try testing.expectEqualStrings("a-b", try join(arena, "a-", "b"));
+    try testing.expectEqualStrings("a/b", try join(arena, "a/", "b"));
+    try testing.expectEqualStrings("a; b", try join(arena, "a;", "b"));
+    try testing.expectEqualStrings("a", try join(arena, "a", ""));
+    try testing.expectEqualStrings("b", try join(arena, "", "b"));
+    const rest = (try parse_row(qpack_variant, "   |       |                                  | message               |")).?;
+    try testing.expectEqualStrings("message", rest.continuation.value);
+    // A continuation with no row above it is refused.
+    const orphan = qpack_variant.appendix_heading ++ "\n|  |  | message |\n";
+    try testing.expectError(error.RowMalformed, parse_appendix(qpack_variant, arena, orphan));
 }
 
 test "QPACK's appendix must run from 0 and HPACK's index 0 is still refused" {
-    try testing.expectEqual(0, (try parse_row(qpack_variant, "| 0 | :authority | |")).?.index);
+    try testing.expectEqual(0, (try parse_row(qpack_variant, "| 0 | :authority | |")).?.row.index);
     try testing.expectError(error.RowMalformed, parse_row(hpack_variant, "| 0 | :authority | |"));
 }

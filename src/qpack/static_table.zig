@@ -42,7 +42,7 @@ pub const entries = [99]Entry{
     .{ .name = ":status", .value = "404" }, // 27
     .{ .name = ":status", .value = "503" }, // 28
     .{ .name = "accept", .value = "*/*" }, // 29
-    .{ .name = "accept", .value = "application/dns-" }, // 30
+    .{ .name = "accept", .value = "application/dns-message" }, // 30
     .{ .name = "accept-encoding", .value = "gzip, deflate, br" }, // 31
     .{ .name = "accept-ranges", .value = "bytes" }, // 32
     .{ .name = "access-control-allow-headers", .value = "cache-control" }, // 33
@@ -53,24 +53,24 @@ pub const entries = [99]Entry{
     .{ .name = "cache-control", .value = "max-age=604800" }, // 38
     .{ .name = "cache-control", .value = "no-cache" }, // 39
     .{ .name = "cache-control", .value = "no-store" }, // 40
-    .{ .name = "cache-control", .value = "public, max-" }, // 41
+    .{ .name = "cache-control", .value = "public, max-age=31536000" }, // 41
     .{ .name = "content-encoding", .value = "br" }, // 42
     .{ .name = "content-encoding", .value = "gzip" }, // 43
-    .{ .name = "content-type", .value = "application/dns-" }, // 44
-    .{ .name = "content-type", .value = "application/" }, // 45
+    .{ .name = "content-type", .value = "application/dns-message" }, // 44
+    .{ .name = "content-type", .value = "application/javascript" }, // 45
     .{ .name = "content-type", .value = "application/json" }, // 46
-    .{ .name = "content-type", .value = "application/x-www-" }, // 47
+    .{ .name = "content-type", .value = "application/x-www-form-urlencoded" }, // 47
     .{ .name = "content-type", .value = "image/gif" }, // 48
     .{ .name = "content-type", .value = "image/jpeg" }, // 49
     .{ .name = "content-type", .value = "image/png" }, // 50
     .{ .name = "content-type", .value = "text/css" }, // 51
-    .{ .name = "content-type", .value = "text/html;" }, // 52
+    .{ .name = "content-type", .value = "text/html; charset=utf-8" }, // 52
     .{ .name = "content-type", .value = "text/plain" }, // 53
-    .{ .name = "content-type", .value = "text/" }, // 54
+    .{ .name = "content-type", .value = "text/plain;charset=utf-8" }, // 54
     .{ .name = "range", .value = "bytes=0-" }, // 55
     .{ .name = "strict-transport-security", .value = "max-age=31536000" }, // 56
-    .{ .name = "strict-transport-security", .value = "max-age=31536000;" }, // 57
-    .{ .name = "strict-transport-security", .value = "max-age=31536000;" }, // 58
+    .{ .name = "strict-transport-security", .value = "max-age=31536000; includesubdomains" }, // 57
+    .{ .name = "strict-transport-security", .value = "max-age=31536000; includesubdomains; preload" }, // 58
     .{ .name = "vary", .value = "accept-encoding" }, // 59
     .{ .name = "vary", .value = "origin" }, // 60
     .{ .name = "x-content-type-options", .value = "nosniff" }, // 61
@@ -97,7 +97,7 @@ pub const entries = [99]Entry{
     .{ .name = "access-control-request-method", .value = "post" }, // 82
     .{ .name = "alt-svc", .value = "clear" }, // 83
     .{ .name = "authorization", .value = "" }, // 84
-    .{ .name = "content-security-policy", .value = "script-src 'none';" }, // 85
+    .{ .name = "content-security-policy", .value = "script-src 'none'; object-src 'none'; base-uri 'none'" }, // 85
     .{ .name = "early-data", .value = "1" }, // 86
     .{ .name = "expect-ct", .value = "" }, // 87
     .{ .name = "forwarded", .value = "" }, // 88
