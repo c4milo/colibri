@@ -19,6 +19,7 @@ const canary_rules = [_][]const u8{
     "heap",
     "io",
     "determinism",
+    "testing-clock",
     "unbounded-loop",
     "relative-import",
     "module-graph",
@@ -51,6 +52,15 @@ const canary_source =
     \\}
     \\
 ++ "//\n" ** file_length_max_lines;
+
+/// A clock in `src/testing/`, which the testing-clock rule refuses.
+const canary_testing_source =
+    \\const std = @import("std");
+    \\pub fn canary() void {
+    \\    _ = std.time;
+    \\}
+    \\
+;
 
 /// A fence with no language, which the markdown rule refuses.
 const canary_markdown =
@@ -116,6 +126,7 @@ fn add_rules_run(b: *std.Build, rules: *std.Build.Step.Compile) *std.Build.Step.
 fn add_canary_tree(b: *std.Build) std.Build.LazyPath {
     const tree = b.addWriteFiles();
     _ = tree.add("src/quic/canary.zig", canary_source);
+    _ = tree.add("src/testing/canary.zig", canary_testing_source);
     _ = tree.add("docs/canary.md", canary_markdown);
     _ = tree.add("build/modules.zig", canary_modules);
     return tree.getDirectory();

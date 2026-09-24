@@ -3,8 +3,10 @@
 //! and build modes, which holds only while a connection's output is a pure function of its
 //! configuration, the bytes it was fed, and the instants it was given.
 //!
-//! Over every `.zig` file under `src/`, the rule flags a chain that starts with `std.time`,
-//! `std.Random` or `std.crypto.random` at a dot boundary. RFC 9002's pseudocode reads `now()` at
+//! Over every `.zig` file under `src/` but `src/testing/`, the rule flags a chain that starts with
+//! `std.time`, `std.Random` or `std.crypto.random` at a dot boundary. `src/testing/` holds real
+//! network endpoints, whose connection IDs, keys and PATH_CHALLENGE data must be unpredictable,
+//! so they may draw randomness; `testing_clock.zig` holds them to decision 63's clock rule alone. RFC 9002's pseudocode reads `now()` at
 //! nine sites and all nine become parameters on five entry points (design §8 step 10), so a file
 //! that names a clock has taken one of them back.
 //!
@@ -30,10 +32,14 @@ const forbidden_references = lint.rules.forbidden_references;
 /// pseudo-random generator, and the system entropy source.
 const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random", "std.crypto.random" };
 
-/// The configuration. It reads `src/`, `src/testing/` included.
+/// The configuration. It reads `src/`, and not `src/testing/`.
 pub const config: forbidden_references.Config = .{
     .name = "determinism",
-    .scope = .{ .extensions = &.{lint.paths.zig_extension}, .include_directories = &.{"src"} },
+    .scope = .{
+        .extensions = &.{lint.paths.zig_extension},
+        .include_directories = &.{"src"},
+        .exclude_directories = &.{"src/testing"},
+    },
     .prefixes = &forbidden_prefixes,
     .reason = "time is a caller-supplied parameter and randomness is the caller's" ++
         " (invariants 4 and 5)",
@@ -122,15 +128,15 @@ test "determinism does not flag a name that merely resembles one on the list" {
     try harness.expect_messages(findings, &.{});
 }
 
-test "determinism reads src/ alone, src/testing/ included" {
+test "determinism reads src/ alone, and not src/testing/" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     try testing.expect(config.scope.applies("src/quic/recovery.zig"));
-    try testing.expect(config.scope.applies("src/testing/endpoint.zig"));
+    try testing.expect(config.scope.applies("src/sim/network.zig"));
+    try testing.expect(!config.scope.applies("src/testing/endpoint.zig"));
     try testing.expect(!config.scope.applies("tools/lint/main.zig"));
     try testing.expect(!config.scope.applies("docs/design.md"));
     try harness.expect_messages(try findings_of(arena, "tools/graph_check.zig", failing_fixture), &.{});
-    const in_testing = try findings_of(arena, "src/testing/endpoint.zig", failing_fixture);
-    try testing.expectEqual(4, in_testing.len);
+    try harness.expect_messages(try findings_of(arena, "src/testing/endpoint.zig", failing_fixture), &.{});
 }

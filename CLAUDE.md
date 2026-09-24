@@ -220,7 +220,8 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
 - Lint: `zig build lint` — cognitive complexity over `src`, `tools`, `build/` and `build.zig`,
-  then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG), unbounded-loop,
+  then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG, outside `src/testing`),
+  testing-clock (no clock in `src/testing`, decision 63), unbounded-loop,
   relative-import, module-graph, magic-numbers, markdown GFM, file length, rfc-citation
   (a validation branch with no RFC section comment) and peer-index (invariant 3). Every rule
   `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it.

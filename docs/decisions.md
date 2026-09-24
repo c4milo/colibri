@@ -1457,6 +1457,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     clock read in the tree and narrow the lint for it. Taking the instant from outside the process
     through a file or a pipe keeps the rule but adds a read to every timer.
 
+    Randomness was never this entry's question, but the lint held `src/testing/` to it all the
+    same, so the endpoints read `/dev/urandom` as a file. The owner ruled on 2026-09-24 that this
+    was a defect: the endpoints are real network peers, and their connection IDs, keys and
+    PATH_CHALLENGE data must be unpredictable. So `determinism` no longer reads `src/testing/`,
+    and `testing-clock` holds it to this entry's clock rule alone.
+
 64. **A PTO at the Initial or Handshake level declares that level's packets in flight lost, so its
     probe carries their CRYPTO octets.** Ruled by the owner on 2026-09-23. It keeps entry 57's rule
     that no octet is in two packets at once, and settles the QUIC Interop Runner's handshake loss
