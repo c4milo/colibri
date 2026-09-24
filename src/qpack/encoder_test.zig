@@ -380,3 +380,25 @@ test "§2.1.1: an entry is not evicted before its insertion is acknowledged, ref
     try write(stream_four, &.{.{ "x-e", "55555555555555555" }}, .may_insert);
     try testing.expectEqual(5, test_encoder.table.insert_count());
 }
+
+fn fuzz_decoder_stream(_: void, smith: *testing.Smith) anyerror!void {
+    var input: [constants.fuzz_input_len_max]u8 = @splat(0);
+    const octets = input[0..smith.slice(&input)];
+    // One section outstanding on stream 0, which references one insert.
+    start_pair(.{ .max_table_capacity = example_capacity, .blocked_streams = 1 });
+    try write(stream_zero, &.{.{ "x-a", "1" }}, .may_insert);
+    var reader = Reader.init(octets);
+    test_encoder.read_decoder_stream(&reader) catch return;
+    // RFC 9204 §4.4.3: nothing the decoder says raises the count past what was inserted.
+    try testing.expect(test_encoder.state.known_received <= test_encoder.table.insert_count());
+}
+
+test "fuzz: decoder stream octets are applied or refused, and the count stays in bounds" {
+    try testing.fuzz({}, fuzz_decoder_stream, .{ .corpus = &.{
+        core.fuzz.input("\x80"),
+        core.fuzz.input("\x01"),
+        core.fuzz.input("\x40\x80"),
+        core.fuzz.input("\x02"),
+    } });
+    try core.fuzz.sweep(fuzz_decoder_stream, null);
+}

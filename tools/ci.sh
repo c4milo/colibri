@@ -65,14 +65,14 @@ machine() {
 simulator_checks() {
   local mode
   for mode in "" "-Drelease"; do
-    for check in chunk connection tls qpack; do
+    for check in chunk connection tls qpack qpack-input; do
       zig build sim ${mode} -- "--${check}-check" 2>&1 | grep -E "^${check}:" || return 1
     done >"${scratch}/sim${mode}.txt"
   done
   # Non-negotiable 5: one seed replays byte-identically across build modes.
   diff "${scratch}/sim.txt" "${scratch}/sim-Drelease.txt" || return 1
   # The QUIC checks have no command line yet: their digests are pinned in their tests, so
-  # passing in both modes is the same comparison the three above make.
+  # passing in both modes is the same comparison the checks above make.
   zig build test-sim-run-quic && zig build test-sim-run-quic -Drelease
 }
 

@@ -357,3 +357,40 @@ test "a field section cut short is refused rather than half accepted" {
     try testing.expectError(Error.Truncated, decode_on(0, &.{ 0x00, 0x00, 0xd1, 0x51 }));
     try testing.expectError(Error.Truncated, decode_on(0, &.{0x00}));
 }
+
+/// Octets the fuzzed decoder reads before each input: a table of 220 octets, `:authority: a` and
+/// `x: y`, so a reference can resolve. Test-only.
+const fuzz_setup = "\x3f\xbd\x01\xc0\x01a\x41x\x01y";
+
+fn fuzz_section(_: void, smith: *testing.Smith) anyerror!void {
+    var input: [constants.fuzz_input_len_max]u8 = @splat(0);
+    const octets = input[0..smith.slice(&input)];
+    test_decoder.init(example_settings);
+    var setup = Reader.init(fuzz_setup);
+    try test_decoder.read_encoder_stream(&setup);
+    test_section.init();
+    var reader = Reader.init(octets);
+    var strings = Writer.init(&test_strings);
+    const outcome = test_decoder.read_section(stream_four, &reader, &strings, &test_section) catch return;
+    switch (outcome) {
+        // A section is read whole or not at all.
+        .decoded => try testing.expectEqual(0, reader.remaining_len()),
+        .blocked => try testing.expectEqual(octets.len, reader.remaining_len()),
+        .owes_instructions, .read_ready_first => return error.TestUnexpectedResult,
+    }
+    for (0..test_section.len()) |index| {
+        try testing.expect(test_section.get(@intCast(index)).name.len <= core.constants.field_name_len_max);
+    }
+}
+
+test "fuzz: a field section decodes whole, blocks with nothing read, or is refused" {
+    try testing.fuzz({}, fuzz_section, .{ .corpus = &.{
+        core.fuzz.input("\x03\x00\x81\x80"),
+        core.fuzz.input("\x00\x00\xd1"),
+        core.fuzz.input("\x05\x00\x80"),
+        core.fuzz.input("\x03\x81\x10\x11"),
+        core.fuzz.input("\x03\x00\x82"),
+        core.fuzz.input("\x00\x00\x5f\x00\x05PATCH"),
+    } });
+    try core.fuzz.sweep(fuzz_section, null);
+}

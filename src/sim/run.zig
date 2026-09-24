@@ -20,6 +20,7 @@ pub const tls_check = @import("tls_check.zig");
 pub const cost_check = @import("cost_check.zig");
 pub const qpack_plan = @import("qpack_plan.zig");
 pub const qpack_check = @import("qpack_check.zig");
+pub const qpack_input_check = @import("qpack_input_check.zig");
 const run_main = @import("run_main.zig");
 
 pub const main = run_main.main;
@@ -35,5 +36,6 @@ test {
     _ = cost_check;
     _ = qpack_plan;
     _ = qpack_check;
+    _ = qpack_input_check;
     _ = run_main;
 }

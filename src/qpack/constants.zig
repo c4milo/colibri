@@ -130,6 +130,10 @@ pub const decoder_instructions_owed_max: usize = 64;
 /// fits here when its strings are sent raw; RFC 9204 §7.4 lets a decoder refuse a longer one.
 pub const encoder_instruction_len_max: usize = dynamic_table_capacity_max;
 
+/// Most octets one fuzzed input holds: a field section, or encoder or decoder stream octets.
+/// Test-only.
+pub const fuzz_input_len_max: u32 = 64;
+
 /// The error codes of RFC 9204 §6, which HTTP/3 carries when QPACK cannot continue.
 pub const error_decompression_failed: u64 = 0x0200;
 pub const error_encoder_stream: u64 = 0x0201;

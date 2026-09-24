@@ -217,3 +217,24 @@ test "a string that is not valid Huffman is an encoder stream error" {
     // padding longer than seven bits.
     try testing.expectError(Error.EncoderStreamError, feed(&.{ 0x61, 0xff, 0x01, 'x' }));
 }
+
+fn fuzz_encoder_stream(_: void, smith: *testing.Smith) anyerror!void {
+    var input: [constants.fuzz_input_len_max]u8 = @splat(0);
+    const octets = input[0..smith.slice(&input)];
+    test_decoder.init(.{ .max_table_capacity = small_capacity });
+    var reader = Reader.init(octets);
+    read(&test_decoder, &reader) catch return;
+    // The table never outgrows its capacity.
+    try testing.expect(test_decoder.table.size <= test_decoder.table.capacity);
+}
+
+test "fuzz: encoder stream octets are applied or refused, and the table stays in its capacity" {
+    try testing.fuzz({}, fuzz_encoder_stream, .{ .corpus = &.{
+        core.fuzz.input("\x3f\x25\x41a\x01x\x41b\x01y\x00\x81\x01z"),
+        core.fuzz.input("\x3f\x25\xc0\x01a"),
+        core.fuzz.input("\x3f\x26"),
+        core.fuzz.input("\xff\x24\x00"),
+        core.fuzz.input("\x02"),
+    } });
+    try core.fuzz.sweep(fuzz_encoder_stream, null);
+}

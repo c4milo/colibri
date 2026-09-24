@@ -321,6 +321,11 @@ pub const qpack_check_steps_max: u32 = 4096;
 /// The trace one seed writes: a record per step.
 pub const qpack_check_trace_len_max: u32 = qpack_check_steps_max * 64;
 
+/// The QPACK input check: inputs per seed, the most edits made to one, and the longest input.
+pub const qpack_input_check_inputs: u32 = 32;
+pub const qpack_input_check_edits_max: u64 = 8;
+pub const qpack_input_check_input_len_max: u32 = 512;
+
 comptime {
     assert(qpack_check_sections_max > 0 and qpack_check_lines_max > 0);
     assert(qpack_check_streams > 0);
