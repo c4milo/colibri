@@ -95,6 +95,13 @@ pub const frame_low_bit: u64 = 0x01;
 /// Octets of a PATH_CHALLENGE or PATH_RESPONSE payload (RFC 9000 §19.17, §19.18).
 pub const path_challenge_len: usize = 8;
 
+/// How many PATH_CHALLENGE frames one attempt at validating a new path sends, each with data of
+/// its own. RFC 9000 §13.3 sends one "periodically until a matching PATH_RESPONSE frame is
+/// received", and §8.2.4 gives the attempt three PTOs, so colibri sends one each PTO.
+pub const path_challenge_attempts: u8 = 3;
+/// The ones after the first, which the caller hands over with the first (decision 72).
+pub const path_challenge_resends: u8 = path_challenge_attempts - 1;
+
 /// The longest peer address a caller names (decision 72): an IPv6 address, which RFC 4291 §2
 /// makes 128 bits. colibri compares these octets and never reads them otherwise.
 pub const peer_address_len_max: usize = 16;

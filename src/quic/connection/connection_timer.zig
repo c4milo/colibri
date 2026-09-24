@@ -96,6 +96,8 @@ pub const Fired = struct {
     /// RFC 9000 §9.3.2: the peer's new address failed validation and the connection moved back to
     /// the last validated one (decision 72). With none, the connection closed silently instead.
     path_reverted: bool = false,
+    /// RFC 9000 §13.3: the new path's next PATH_CHALLENGE is owed, and the next `send` carries it.
+    path_resent: bool = false,
     /// RFC 9000 §8.2.4: the outstanding PATH_CHALLENGE was abandoned, which is the only way path
     /// validation fails.
     path: bool = false,
@@ -127,6 +129,7 @@ pub fn on_instant(
     const moved = migration.on_instant(connection, now_ns);
     fired.path = moved.abandoned;
     fired.path_reverted = moved.reverted;
+    fired.path_resent = moved.resent;
     const keys_before = connection.key_phase.previous_held;
     key_update.on_instant(connection, suite, now_ns);
     fired.previous_keys = keys_before and !connection.key_phase.previous_held;

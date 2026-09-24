@@ -33,10 +33,27 @@ pub const State = struct {
     /// Whether the last move changed the port and kept the host, which §9.4 lets an endpoint
     /// treat as NAT rebinding.
     port_only: bool,
+    /// The data of the new path's PATH_CHALLENGE frames still to go, the next first. RFC 9000
+    /// §13.3 sends one "periodically until a matching PATH_RESPONSE frame is received".
+    resends: [constants.path_challenge_resends][constants.path_challenge_len]u8,
+    resends_len: u8,
 
     pub fn init(state: *State) void {
-        state.* = .{ .previous = null, .awaiting_validation = false, .port_only = false };
+        state.* = .{
+            .previous = null,
+            .awaiting_validation = false,
+            .port_only = false,
+            .resends = @splat(@splat(0)),
+            .resends_len = 0,
+        };
     }
+};
+
+/// The data a move owes: one PATH_CHALLENGE for each PTO of the new path's attempt, and one for
+/// the previously active path.
+pub const ChallengeData = struct {
+    new_path: [constants.path_challenge_attempts][constants.path_challenge_len]u8,
+    previous_path: [constants.path_challenge_len]u8,
 };
 
 /// Where a datagram came from, measured against the paths the connection holds.
@@ -114,21 +131,44 @@ fn move(connection: *Connection, from: PeerAddress, arrived: Arrival, len: usize
         state.previous = null;
     }
     state.awaiting_validation = !connection.path.validated;
+    state.resends_len = 0;
 }
 
-/// The data of the two PATH_CHALLENGE frames a move owes, which the caller draws because RFC 9000
+/// The data of the PATH_CHALLENGE frames a move owes, which the caller draws because RFC 9000
 /// §8.2.1 wants it unpredictable and invariant 5 forbids colibri a random number.
-pub fn challenge(
-    connection: *Connection,
-    new_path: [constants.path_challenge_len]u8,
-    previous_path: [constants.path_challenge_len]u8,
-) void {
+pub fn challenge(connection: *Connection, data: ChallengeData) void {
+    const state = &connection.migration;
     // RFC 9000 §9.3: the endpoint "MUST initiate path validation (Section 8.2) to verify the
     // peer's ownership of the address if validation is not already underway."
-    if (!connection.path.validated and connection.path.challenge == null) connection.path.owe_challenge(new_path);
+    if (!connection.path.validated and connection.path.challenge == null) {
+        connection.path.owe_challenge(data.new_path[0]);
+        state.resends = data.new_path[1..].*;
+        state.resends_len = constants.path_challenge_resends;
+    }
     // RFC 9000 §9.3.3: "In response to an apparent migration, endpoints MUST validate the
     // previously active path using a PATH_CHALLENGE frame."
-    if (connection.migration.previous) |*previous| previous.owe_challenge(previous_path);
+    if (state.previous) |*previous| previous.owe_challenge(data.previous_path);
+}
+
+/// The instant the new path's next PATH_CHALLENGE is due: a PTO after the last one went out
+/// unanswered. RFC 9000 §8.2.1: an endpoint "SHOULD NOT probe a new path with packets containing
+/// a PATH_CHALLENGE frame more frequently than it would send an Initial packet".
+fn resend_due_ns(connection: *const Connection) ?u64 {
+    if (connection.migration.resends_len == 0 or connection.path.challenge_owed != null) return null;
+    const last_ns = connection.path.last_challenge_sent_ns() orelse return null;
+    return last_ns +| connection.recovery.rtt.probe_timeout_ns(true);
+}
+
+/// RFC 9000 §13.3: the next PATH_CHALLENGE of the attempt, with data of its own, when its time
+/// has come. Returns whether one is owed now.
+fn resend_if_due(connection: *Connection, now_ns: u64) bool {
+    const due_ns = resend_due_ns(connection) orelse return false;
+    if (now_ns < due_ns) return false;
+    const state = &connection.migration;
+    connection.path.owe_challenge(state.resends[0]);
+    std.mem.copyForwards([constants.path_challenge_len]u8, state.resends[0 .. state.resends_len - 1], state.resends[1..state.resends_len]);
+    state.resends_len -= 1;
+    return true;
 }
 
 /// A PATH_RESPONSE, which validates the path its challenge went out on, whichever path it arrived
@@ -153,18 +193,26 @@ fn on_active_validated(connection: *Connection) void {
     connection.recovery.on_path_changed();
 }
 
-/// The earlier of the two paths' §8.2.4 deadlines, or null when neither has a challenge out.
+/// The earliest of the two paths' §8.2.4 deadlines and the new path's next PATH_CHALLENGE, or
+/// null when none is set.
 pub fn challenge_deadline_ns(connection: *const Connection) ?u64 {
-    const active = connection.path.challenge_deadline_ns();
-    const previous_path = connection.migration.previous orelse return active;
-    const previous = previous_path.challenge_deadline_ns() orelse return active;
-    return @min(active orelse previous, previous);
+    var earliest = earlier(connection.path.challenge_deadline_ns(), resend_due_ns(connection));
+    if (connection.migration.previous) |previous| earliest = earlier(earliest, previous.challenge_deadline_ns());
+    return earliest;
+}
+
+fn earlier(held: ?u64, other: ?u64) ?u64 {
+    const candidate = other orelse return held;
+    const already = held orelse return candidate;
+    return @min(already, candidate);
 }
 
 /// What `on_instant` did.
 pub const Fired = struct {
     /// A challenge ran out on either path (RFC 9000 §8.2.4).
     abandoned: bool = false,
+    /// The new path's next PATH_CHALLENGE is owed (RFC 9000 §13.3).
+    resent: bool = false,
     /// The active path failed validation and the connection moved back (RFC 9000 §9.3.2).
     reverted: bool = false,
     /// The active path failed validation with no validated path to move back to, and the
@@ -176,6 +224,8 @@ pub const Fired = struct {
 pub fn on_instant(connection: *Connection, now_ns: u64) Fired {
     var fired: Fired = .{};
     const active_abandoned = connection.path.on_instant(now_ns);
+    if (active_abandoned) connection.migration.resends_len = 0;
+    fired.resent = resend_if_due(connection, now_ns);
     if (connection.migration.previous) |*previous| {
         if (previous.on_instant(now_ns)) {
             fired.abandoned = true;

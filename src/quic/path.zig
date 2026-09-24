@@ -50,16 +50,23 @@ pub const Start = enum {
     validated,
 };
 
-/// The PATH_CHALLENGE this endpoint is waiting on (RFC 9000 §8.2.1).
+/// The PATH_CHALLENGE frames of one attempt this endpoint is waiting on (RFC 9000 §8.2.1).
 const Challenge = struct {
-    data: [constants.path_challenge_len]u8,
-    sent_ns: u64,
-    /// How long the attempt is given before §8.2.4 abandons it.
-    timeout_ns: u64,
-    /// RFC 9000 §8.2.1: whether the datagram this went out in reached the 1,200 octets the
+    /// The data of each one sent. RFC 9000 §13.3 sends one "periodically until a matching
+    /// PATH_RESPONSE frame is received", each with "a different payload", and §8.2.3 validates
+    /// the path on a response carrying "the data that was sent in a previous PATH_CHALLENGE".
+    data: [constants.path_challenge_attempts][constants.path_challenge_len]u8,
+    /// RFC 9000 §8.2.1: whether the datagram each went out in reached the 1,200 octets the
     /// section asks for. §8.2.3 reads it when the response arrives, because a challenge sent in
     /// a smaller datagram validates the address and not the path MTU.
-    expanded: bool,
+    expanded: [constants.path_challenge_attempts]bool,
+    count: u8,
+    /// When the first went out, which §8.2.4's timeout runs from, and the last, which the next
+    /// is spaced from.
+    first_sent_ns: u64,
+    last_sent_ns: u64,
+    /// How long the attempt is given before §8.2.4 abandons it.
+    timeout_ns: u64,
 };
 
 pub const Path = struct {
@@ -179,19 +186,35 @@ pub const Path = struct {
         now_ns: u64,
         timeout_ns: u64,
     ) void {
+        // §8.2.1: "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to at
+        // least the smallest allowed maximum datagram size of 1200 bytes." The caller says how
+        // long the datagram was and the comparison is colibri's, so the threshold is written
+        // once, here, and never at a call site.
+        const expanded = datagram_len >= constants.datagram_len_min;
+        if (path.challenge) |*held| {
+            // RFC 9000 §13.3: the same attempt, sent again with new data, which keeps the time
+            // §8.2.4 gives it.
+            if (held.count < constants.path_challenge_attempts) {
+                held.data[held.count] = data;
+                held.expanded[held.count] = expanded;
+                held.count += 1;
+                held.last_sent_ns = now_ns;
+                return;
+            }
+        }
         // RFC 9000 §8.2.1: path validation can be used at any time by either endpoint, so a
         // path already validated is challenged again — which §8.2.3 requires when the first
         // datagram was too small to test the MTU.
         path.challenge = .{
-            .data = data,
-            .sent_ns = now_ns,
+            .data = @splat(@splat(0)),
+            .expanded = @splat(false),
+            .count = 1,
+            .first_sent_ns = now_ns,
+            .last_sent_ns = now_ns,
             .timeout_ns = timeout_ns,
-            // §8.2.1: "An endpoint MUST expand datagrams that contain a PATH_CHALLENGE frame to
-            // at least the smallest allowed maximum datagram size of 1200 bytes." The caller
-            // says how long the datagram was and the comparison is colibri's, so the threshold
-            // is written once, here, and never at a call site.
-            .expanded = datagram_len >= constants.datagram_len_min,
         };
+        path.challenge.?.data[0] = data;
+        path.challenge.?.expanded[0] = expanded;
     }
 
     /// A Handshake packet from the peer that this endpoint opened and processed. RFC 9000 §8.1:
@@ -207,15 +230,25 @@ pub const Path = struct {
     /// one its challenge went out on.
     pub fn on_response(path: *Path, data: [constants.path_challenge_len]u8) bool {
         const outstanding = path.challenge orelse return false;
-        if (!std.mem.eql(u8, &outstanding.data, &data)) return false;
-        path.challenge = null;
-        path.validated = true;
-        // RFC 9000 §8.2.3: "If an endpoint sends a PATH_CHALLENGE frame in a datagram that is not
-        // expanded to at least 1200 bytes and if the response to it validates the peer address,
-        // the path is validated but not the path MTU." A later expanded challenge settles it, and
-        // an unexpanded one after does not unsettle it.
-        path.mtu_validated = path.mtu_validated or outstanding.expanded;
-        return true;
+        // Bounded by the attempts one challenge holds, a named limit.
+        for (outstanding.data[0..outstanding.count], outstanding.expanded[0..outstanding.count]) |sent, expanded| {
+            if (!std.mem.eql(u8, &sent, &data)) continue;
+            path.challenge = null;
+            path.validated = true;
+            // RFC 9000 §8.2.3: "If an endpoint sends a PATH_CHALLENGE frame in a datagram that is
+            // not expanded to at least 1200 bytes and if the response to it validates the peer
+            // address, the path is validated but not the path MTU." A later expanded challenge
+            // settles it, and an unexpanded one after does not unsettle it.
+            path.mtu_validated = path.mtu_validated or expanded;
+            return true;
+        }
+        return false;
+    }
+
+    /// When the last PATH_CHALLENGE of the outstanding attempt went out, or null while none is.
+    pub fn last_challenge_sent_ns(path: *const Path) ?u64 {
+        const outstanding = path.challenge orelse return null;
+        return outstanding.last_sent_ns;
     }
 
     /// Echoes a PATH_CHALLENGE this endpoint received (RFC 9000 §8.2.2): an endpoint MUST
@@ -227,15 +260,15 @@ pub const Path = struct {
     /// The instant RFC 9000 §8.2.4 abandons the outstanding attempt, or null while none is.
     pub fn challenge_deadline_ns(path: *const Path) ?u64 {
         const outstanding = path.challenge orelse return null;
-        return outstanding.sent_ns +| outstanding.timeout_ns;
+        return outstanding.first_sent_ns +| outstanding.timeout_ns;
     }
 
     /// Abandons an attempt whose timer has run out (RFC 9000 §8.2.4), which is the only way
     /// path validation fails. Returns whether it was abandoned now.
     pub fn on_instant(path: *Path, now_ns: u64) bool {
         const outstanding = path.challenge orelse return false;
-        assert(now_ns >= outstanding.sent_ns);
-        if (now_ns - outstanding.sent_ns < outstanding.timeout_ns) return false;
+        assert(now_ns >= outstanding.first_sent_ns);
+        if (now_ns - outstanding.first_sent_ns < outstanding.timeout_ns) return false;
         path.challenge = null;
         path.abandoned = true;
         return true;

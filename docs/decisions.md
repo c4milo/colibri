@@ -1691,3 +1691,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     and for a change of port alone. colibri would decide the same things, but the caller would
     also have to keep the previous address and map colibri's names for the two paths back to
     sockets, which is state colibri already has to hold to revert.
+
+    Amended the same day, while building it: one PATH_CHALLENGE on the new path is not enough.
+    RFC 9000 §13.3 sends one "periodically until a matching PATH_RESPONSE frame is received",
+    each with "a different payload". A NAT's old binding answers nothing, so if the one challenge
+    on the new path is lost too, both attempts run out together and the connection closes. So
+    the caller gives `path_challenge_attempts` payloads for the new path with the one for the
+    previous path. colibri sends the next each PTO without an answer, and a response to any of
+    them validates the path (§8.2.3).

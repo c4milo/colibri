@@ -55,8 +55,16 @@ const moved_address = PeerAddress.of(&other_host, client_port);
 const server_address = PeerAddress.of(&server_host, server_port);
 const new_path_octet: u8 = 0x6e;
 const previous_path_octet: u8 = 0x70;
+const second_octet: u8 = 0x72;
+const third_octet: u8 = 0x74;
 const new_path_data: [constants.path_challenge_len]u8 = @splat(new_path_octet);
 const previous_path_data: [constants.path_challenge_len]u8 = @splat(previous_path_octet);
+const second_data: [constants.path_challenge_len]u8 = @splat(second_octet);
+const third_data: [constants.path_challenge_len]u8 = @splat(third_octet);
+const challenge_data: migration.ChallengeData = .{
+    .new_path = .{ new_path_data, second_data, third_data },
+    .previous_path = previous_path_data,
+};
 
 fn parameters() Parameters {
     var held = Parameters.initial();
@@ -125,7 +133,7 @@ fn client_ping(slot: usize) !send.Sent {
 fn move_server(from: PeerAddress) !void {
     const received = try deliver(&server, try client_ping(0), 0, from, test_now_ns);
     try testing.expect(received.migrated);
-    migration.challenge(&server, new_path_data, previous_path_data);
+    migration.challenge(&server, challenge_data);
 }
 
 test "RFC 9000 §9: a client discards a datagram from an address other than its server's" {
@@ -177,15 +185,10 @@ test "RFC 9000 §9.3.3: the previous path is challenged in a datagram of its own
     // is still to go, to the new address.
     try testing.expect(server.space_at(.application).has_new_ack_eliciting());
     // The next datagram goes to the new address and carries the new path's challenge.
-    const next = try send_into(&server, 1, test_now_ns + later_ns);
+    const next = try send_into(&server, 1, test_now_ns);
     try testing.expect(next.to.eql(&moved_address));
     try testing.expect(server.path.challenge != null);
-    // The previous path's challenge went out first, so its deadline is the connection's.
-    try testing.expectEqual(server.migration.previous.?.challenge_deadline_ns(), migration.challenge_deadline_ns(&server));
 }
-
-/// How long after the previous path's probe the new path's challenge goes out. Test-only.
-const later_ns: u64 = 1_000;
 
 /// The client answers the challenges the server sent, and the server takes the answers from the
 /// client's new address.
@@ -231,10 +234,12 @@ test "RFC 9000 §9.3.2: a failed validation moves back to the last validated add
     // its own, which the last test here covers.
     migration.on_response(&server, previous_path_data);
     try testing.expect(server.migration.previous.?.challenge == null);
-    // Nothing answers at the new address, so its challenge runs out.
-    const at_ns = migration.challenge_deadline_ns(&server).?;
+    // Nothing answers at the new address, so its attempt runs out (RFC 9000 §8.2.4).
+    const at_ns = server.path.challenge_deadline_ns().?;
     const fired = try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, at_ns);
     try testing.expect(fired.path_reverted);
+    // The abandoned attempt's challenges left to send go with it.
+    try testing.expectEqual(0, server.migration.resends_len);
     try testing.expect(server.path.address.eql(&client_address));
     try testing.expect(server.path.validated);
     try testing.expectEqual(null, server.migration.previous);
@@ -245,7 +250,7 @@ test "RFC 9000 §9.3.2: with no validated address to move back to, the connectio
     try move_server(moved_address);
     try testing.expectEqual(null, server.migration.previous);
     _ = try send_into(&server, 0, test_now_ns);
-    const at_ns = migration.challenge_deadline_ns(&server).?;
+    const at_ns = server.path.challenge_deadline_ns().?;
     _ = try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, at_ns);
     try testing.expectEqual(.closed, server.termination.state);
     try testing.expectEqual(.path_failed, server.termination.reason.?);
@@ -257,8 +262,10 @@ test "RFC 9000 §9.3: moving back to the previous address skips its validation" 
     try testing.expect((try deliver(&server, try client_ping(1), 1, client_address, test_now_ns)).migrated);
     try testing.expect(server.path.address.eql(&client_address));
     try testing.expect(server.path.validated);
-    // The address left was never validated, so it is not one to move back to (§9.3.2).
+    // The address left was never validated, so it is not one to move back to (§9.3.2), and its
+    // challenges left to send go with it.
     try testing.expectEqual(null, server.migration.previous);
+    try testing.expectEqual(0, server.migration.resends_len);
 }
 
 test "RFC 9000 §9.3.3: a previous path that does not answer is dropped at its own deadline" {
@@ -287,4 +294,39 @@ test "RFC 9000 §8.2.2: a PATH_CHALLENGE in the packet that moves the path is an
     try testing.expect((try deliver(&server, sent, 0, moved_address, test_now_ns)).migrated);
     try testing.expectEqual(previous_path_data, server.path.response_owed.?);
     try testing.expectEqual(null, server.migration.previous.?.response_owed);
+}
+
+test "RFC 9000 §13.3: the new path's challenge goes again each PTO with new data, and any answer validates" {
+    open_pair(true);
+    try move_server(rebound_address);
+    _ = try send_into(&server, 0, test_now_ns);
+    _ = try send_into(&server, 1, test_now_ns);
+    const abandoned_at_ns = server.path.challenge_deadline_ns().?;
+    // The previous path answered, so only the new path's attempt is out.
+    migration.on_response(&server, previous_path_data);
+    const due_ns = migration.challenge_deadline_ns(&server).?;
+    _ = try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, due_ns - 1);
+    try testing.expectEqual(null, server.path.challenge_owed);
+    try testing.expect((try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, due_ns)).path_resent);
+    // Until it goes out, the owed one is not replaced by the next.
+    try testing.expect(!(try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, due_ns)).path_resent);
+    try testing.expectEqual(second_data, server.path.challenge_owed.?);
+    try resend_from_new_address(due_ns);
+    // §8.2.4's time still runs from the first: the attempt is one attempt.
+    try testing.expectEqual(abandoned_at_ns, server.path.challenge_deadline_ns().?);
+    const next_due_ns = migration.challenge_deadline_ns(&server).?;
+    _ = try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, next_due_ns);
+    try testing.expectEqual(third_data, server.path.challenge_owed.?);
+    try resend_from_new_address(next_due_ns);
+    // A late answer to the first challenge validates the path (§8.2.3).
+    migration.on_response(&server, new_path_data);
+    try testing.expect(server.path.validated);
+    try testing.expectEqual(null, migration.challenge_deadline_ns(&server));
+}
+
+/// The client keeps sending from its new address, which lifts §8's limit enough for the server's
+/// next challenge, and the server sends it.
+fn resend_from_new_address(now_ns: u64) !void {
+    _ = try deliver(&server, try client_ping(1), 1, rebound_address, now_ns);
+    _ = try send_into(&server, 0, now_ns);
 }
