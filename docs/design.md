@@ -3060,7 +3060,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `40723c8`: [decision 75](decisions.md). `zig build qpack-vectors` decodes the corpus, and
     `zig build test` runs it. 5 mutations, 5 CAUGHT.
 
-  Before `9f94cbb`, 353 of the corpus's 529 files failed, each at a wrapped entry. After it, the
+  Before `9f94cbb`, 353 of the corpus's 529 files failed: 352 at a wrapped entry, and the
+  corpus's examples file for the reason decision 75 gives. After it, the
   tool printed `files=528 sections=137984 lines=1820016 blocked=7342 skipped=1 failed=0` on macOS
   arm64: every file six encoders made, at capacities 0, 256, 512 and 4,096, with 0 or 100
   blocked streams, decodes to its input. 7,342 sections blocked and were decoded once their
@@ -3069,6 +3070,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **Still owed:** the encoder's use of the dynamic table, with colibri's own encoded files for
   the offline interop; the two `.qif` tools of §9; and fuzzing.
+
+  **The encoder uses the dynamic table, 2026-09-24.**
+  - `ae3199b`: `EncoderState.referenced_floor` returned the lowest Required Insert Count among
+    unacknowledged sections. That bounds a section's largest reference, not its smallest, so an
+    eviction checked against it could remove an entry a section still needed (§2.1.1). Each
+    outstanding section now records its smallest reference. 1 mutation, 1 CAUGHT.
+  - `6860016`: [decision 76](decisions.md). The encoder inserts lines over the encoder stream,
+    references them within the peer's blocked-stream limit, inserts speculatively when a stream
+    may not block, evicts only evictable entries, and reads the decoder stream. 22 mutations, 22
+    CAUGHT. Three first survived: one found a check no input could reach, now removed, and two
+    found rules no test isolated.
+  - `5c4bd0a`: `zig build qpack-vectors` also encodes every qifs input with colibri's encoder at
+    four settings, and decodes it back in two modes. In one the decoder stream flows back after
+    each section. In the other the encoder hears nothing, and the whole encoder stream arrives
+    after the last section, the latest it can. All 56 runs decode exactly. The comparison's
+    mutation is CAUGHT, and so are three encoder mutants the vectors alone catch.
+
+  The octets the encoder wrote for the seven inputs, sections and encoder stream together, with
+  acknowledgments flowing back:
+
+  | Table capacity | Blocked streams | Octets |
+  |---|---|---|
+  | none | any | 714,888 |
+  | 4,096 | 0 | 477,759 |
+  | 4,096 | 100 | 280,040 |
+
+  The inputs' names and values are 1,144,015 octets unencoded. These counts are the same on any
+  machine; timing waits for `bench/` (decision 32).
+
+  **Still owed:** the two `.qif` tools of §9, which write colibri's encoded files for other
+  decoders to read; fuzzing; and the TLA+ model of the two tables' state (issue #46).
 
 - **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
   request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,
