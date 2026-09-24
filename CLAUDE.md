@@ -216,8 +216,8 @@ tree. Design §11 holds the method and the numbers.
 
 ## Commands
 
-Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land with design §8 steps
-12 and 13. Change this section when a step adds or renames a command.
+Everything below exists but `bench/run.sh`, which lands with design §8 step 13. Change this
+section when a step adds or renames a command.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
@@ -246,8 +246,11 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   Every check is also a test inside its module, so `zig build test` runs them, silently. The QUIC
   checks have no command line of their own: `zig build test-sim-run-quic` runs them, in a module
   with no HTTP module in its graph (decision 5), and each one's census is pinned in its test.
-- Conformance: `tools/h2spec.sh`, `tools/h3spec.sh`, `tools/interop.sh` — each starts the
-  test-only endpoint of design §9 and runs the pinned suite version. `tools/h2_interop.sh [go]
+- Conformance: `tools/h2spec.sh`, `tools/h3spec.sh <checkout>`, `tools/interop.sh` — each starts
+  the test-only endpoint of design §9 and runs the pinned suite version. `tools/h3spec.sh` fetches
+  h3spec once and checks it against a pinned SHA-256; it passes nothing until chapulin's QUIC mode
+  offers AES-GCM, the only suites h3spec offers. `tools/h3load.sh <checkout>` runs `h2load --h3`
+  from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker. `tools/h2_interop.sh [go]
   [nghttpd] [h2o]` runs the test-only h2 client (`zig build h2-client`) against other
   implementations' servers; it needs `go`, `docker` and `python3`. None is part of
   `zig build test`; CI runs them, and so does a person before calling a step done.

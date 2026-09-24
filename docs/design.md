@@ -3248,6 +3248,44 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   checked against the simulator's traces, is
   [#58](https://github.com/c4milo/colibri/issues/58).
 
+  **The endpoint and three of the four checks, 2026-09-24.**
+  - `f6344f8`: design §9's h3 server and client on the UDP endpoint. The server offers h3 and
+    hq-interop by ALPN and serves whichever the client picks. Both sides advertise a QPACK table
+    of 4,096 octets and 16 blocked streams, so each peer's encoder uses one.
+  - `8accf3c`: h3's control and QPACK streams go out ahead of request streams. Without it,
+    `h2load --h3` lost 6 of 1,000 requests in about one run in ten: a response left ahead of the
+    insert it referenced, and h2load ended the blocked stream unread. The simulator's censuses
+    moved with the new order and were pinned again, in Debug and ReleaseSafe alike:
+    `h3: ... inserts=15432 acknowledged_dropped=0 datagrams=96643 dropped=4895 crc32=0xdacf68d7`
+    over 256 seeds, and `h3-long: seeds=128 ... acknowledged_dropped=176393 datagrams=313830
+    dropped=15189 crc32=0xb2ba117a`. The long check now runs 128 seeds, the fewest that catch an
+    acknowledged end that ignores the lost table.
+  - `1e1b480`: `tools/h3load.sh` and `tools/h3spec.sh`, and the server's `errors` option, which
+    keeps it serving past a connection error.
+
+  What each check printed on macOS arm64, with chapulin `989e3da`:
+  - The QUIC Interop Runner's `http3` case passed in both roles against quic-go, ngtcp2, neqo and
+    quinn, and against colibri itself.
+  - `tools/quic_udp.sh` and `tools/quic_aioquic.sh` fetched three files over h3 in both
+    directions, octet for octet. aioquic's h3 uses ls-qpack with a dynamic table.
+  - `tools/h3load.sh` printed `requests: 1000 total, 1000 started, 1000 done, 1000 succeeded,
+    0 failed` with ALPN h3, three runs out of three. It saved 84% of the header octets, which
+    shows the peer's decoder reading colibri's dynamic table.
+  - `tools/h3spec.sh` ran h3spec v0.1.13 and no case passed, because no handshake completed.
+    h3spec's client offers TLS_AES_256_GCM_SHA384, TLS_AES_128_GCM_SHA256 and
+    TLS_AES_128_CCM_SHA256 alone, and chapulin's QUIC mode protects packets with
+    ChaCha20-Poly1305 alone; its Makefile refuses `SUITE=aesgcm` with `TRANSPORT=quic`. The
+    request for AES-GCM in QUIC mode is with chapulin.
+
+  Two faults outside h3 surfaced. chapulin `274b1f5` fails every handshake with ngtcp2's client,
+  because that client reorders its extensions after a HelloRetryRequest. The bytes are with
+  chapulin, and colibri stays on `989e3da`. After any TLS alert, colibri cannot send its
+  CONNECTION_CLOSE, because chapulin no longer seals once its session fails:
+  [#59](https://github.com/c4milo/colibri/issues/59).
+
+  **Still owed:** h3spec, once chapulin's QUIC mode offers AES-GCM; with it, h3spec's TLS cases
+  also need #59's close.
+
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
   **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the
   same session, and the machine written down beside the numbers. *Medium.*
