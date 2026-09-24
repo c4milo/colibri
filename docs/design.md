@@ -3283,8 +3283,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   CONNECTION_CLOSE, because chapulin no longer seals once its session fails:
   [#59](https://github.com/c4milo/colibri/issues/59).
 
+  **The TLA+ model, 2026-09-24.**
+  - `b084ef2`: `spec/tla/h3_connection` models a colibri client and a colibri server. It covers
+    request streams, cancels, GOAWAY and the control stream, and QPACK's encoder and decoder
+    streams against the server's flow-control windows. `zig build tla` printed `holds, as
+    expected` for both scopes: `37428 distinct states` for shutdown, and `25007` for flow.
+  - Each of the seven mutant configurations printed `violated, as expected`:
+    - a stream at or above the GOAWAY is taken;
+    - the GOAWAY names the last stream taken;
+    - a GOAWAY rises;
+    - the control stream ends;
+    - a stream reports after its cancel;
+    - the encoder stream sends after request streams;
+    - an insert is made without credit.
+  - All nine ran in 26 seconds on macOS arm64.
+  - `beb782f`: the last mutant was colibri's rule. h3 gave the QPACK encoder the encoder
+    stream's buffer room, not its flow-control credit. Sections referencing an insert that had no
+    credit then blocked at the peer, and they held its whole connection window. h3 now cuts the
+    encoder's writer to quic's new `connection_stream_credit.send_credit`
+    ([decision 81](decisions.md)). 8 mutations, 8 CAUGHT.
+  - The encoder-stream order is the rule `8accf3c` added after `h2load --h3` lost requests. The
+    model shows that without it, blocked sections can hold the connection window.
+
   **Still owed:** h3spec, once chapulin's QUIC mode offers AES-GCM; with it, h3spec's TLS cases
-  also need #59's close.
+  also need #59's close. The model's trace validation against the simulator's h3 check:
+  [#58](https://github.com/c4milo/colibri/issues/58).
 
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
   **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the
