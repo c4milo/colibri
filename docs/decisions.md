@@ -1164,7 +1164,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     512 buys headroom at the cost of a larger fixed header buffer on every connection.
 
 55. **The Retry token is the caller's to mint and to check, and the instant is a parameter.**
-    Ruled by the owner on 2026-09-20.
+    Ruled by the owner on 2026-09-20, and amended on 2026-09-23: the token carries the two
+    connection IDs a server that sent a Retry needs again.
 
     RFC 9000 §8.1.1 and §8.1.4 want a token that is authenticated, bound to the client's address
     and expiring. Authenticating it needs a key, which non-negotiable 2 refuses colibri, and
@@ -1184,6 +1185,24 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     than not offering it. And a plain parameter on the server's Retry entry point rather than a
     vtable member was refused because the same key must mint and check across two connections,
     which is state colibri does not hold (decision 35).
+
+    The amendment. A server that sent a Retry puts two connection IDs in its transport parameters
+    (RFC 9000 §7.3): `original_destination_connection_id`, the Destination Connection ID of the
+    client's first Initial, and `retry_source_connection_id`, the Source Connection ID of the
+    Retry. The client's next Initial carries the second as its Destination Connection ID and
+    never the first, and colibri keeps nothing between the Retry and that Initial (decision 35).
+    So the token carries both:
+    - `retry_token_write` takes both IDs, beside the address and the instant.
+    - `retry_token_check` replaces `retry_token_valid`. A Retry token that verifies gives both IDs
+      back. A Retry token that fails is `invalid`, which §8.1.2 closes with INVALID_TOKEN. Any
+      other token is `not_retry`, which §8.1.3 has the server treat as no token.
+    - colibri refuses a token that verifies but whose Retry Source Connection ID is not the
+      Initial's Destination Connection ID: §17.2.5.2 has the client address exactly that ID, so
+      the token came from another Retry.
+
+    The alternative the amendment refused: the caller keeping a table from each Retry's Source
+    Connection ID to the first Destination Connection ID. That puts per-Retry state and its expiry
+    in every caller, and the token would no longer bind the IDs it vouches for.
 
 56. **One STREAM frame per packet, so a lost packet's stream octets are one range.** Ruled by the
     owner on 2026-09-22, and amended the same day by entry 57, which replaces its rewind on loss
