@@ -9,9 +9,12 @@ set -euo pipefail
 /setup.sh
 
 # hq-interop over one connection covers these, and a Retry both roles now handle: the server
-# sends one when asked, with a token chapulin mints (decision 55). The rest are not built.
+# sends one when asked, with a token chapulin mints (decision 55). A key update is the client's
+# to start; the runner gives the server `transfer` for it, as it does for the amplification limit
+# and IPv6 cases. The rest are not built.
 case "$TESTCASE" in
   handshake | transfer | chacha20 | multiconnect | retry) ;;
+  keyupdate) [ "$ROLE" = client ] || exit 127 ;;
   *) exit 127 ;;
 esac
 
@@ -20,7 +23,9 @@ python3 /qns_identity.py /certs /tmp/identity
 if [ "$ROLE" = server ]; then
   server_options=()
   [ "$TESTCASE" = retry ] && server_options+=(retry)
-  exec quic-udp server 0.0.0.0 443 /tmp/identity /www "${server_options[@]}"
+  # Bound to the IPv6 wildcard, the one socket takes IPv4 clients too (as IPv4-mapped addresses),
+  # because the runner gives the server no hint of which family its IPv6 case uses.
+  exec quic-udp server :: 443 /tmp/identity /www "${server_options[@]}"
 fi
 
 /wait-for-it.sh sim:57832 -s -t 30
@@ -37,12 +42,17 @@ for url in $REQUESTS; do
   paths+=("/${url#https://*/}")
 done
 
-# The endpoint speaks IPv4, so a host with no IPv4 address is a test case it does not support.
-address="$(getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }')"
+# IPv4 when the host has an IPv4 address, and IPv6 otherwise, which is the runner's IPv6 case.
+# getent exits 2 for a name with no address of the family asked, which is not a failure here.
+address="$(getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }' || true)"
+[ -n "$address" ] || address="$(getent ahostsv6 "$host" | awk 'NR == 1 { print $1 }' || true)"
 [ -n "$address" ] || exit 127
 
+client_options=()
+[ "$TESTCASE" = keyupdate ] && client_options+=(keyupdate)
+
 client() {
-  quic-udp client "$address" "$port" /tmp/identity "$host" "$(date +%s)" /downloads "$@"
+  quic-udp client "$address" "$port" /tmp/identity "$host" "$(date +%s)" /downloads "${client_options[@]}" "$@"
 }
 
 if [ "$TESTCASE" = multiconnect ]; then

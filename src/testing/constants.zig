@@ -150,8 +150,9 @@ pub const tls_receive_len: usize = 20 * 1024;
 
 /// The largest DER the TLS checks read from one file: a certificate, a Subject Name or a
 /// SubjectPublicKeyInfo. An RSA-4096 certificate runs to about 1,400 octets and an RSA-4096 SPKI
-/// to about 550, so this holds anything the peers of design §8 step 5 mint.
-pub const tls_der_len_max: usize = 2048;
+/// to about 550. The QUIC Interop Runner's amplification case pads its leaf with twenty 250-octet
+/// DNS names, to 5,514 octets, so this holds 8 KiB.
+pub const tls_der_len_max: usize = 8 * 1024;
 
 /// The octets one TLS check moves over its socket in a single pass: one record at most, which
 /// RFC 9846 §5.1 caps at 2^14 of plaintext plus its header and tag.
@@ -183,9 +184,10 @@ pub const udp_buffer_bytes: u32 = 2048;
 pub const udp_payload_len_min: u32 = 1500;
 
 /// The handshake octets the QUIC provider holds at one encryption level until colibri takes them
-/// into CRYPTO frames (RFC 9001 §4.1.3). The server's Handshake flight is the largest: its
-/// Certificate message carries two certificates of at most `tls_der_len_max` octets each.
-pub const quic_crypto_out_len: usize = 8 * 1024;
+/// into CRYPTO frames (RFC 9001 §4.1.3). The server's Handshake flight is the largest: the Go
+/// tool's Certificate message carries two certificates of at most `tls_der_len_max` octets each,
+/// and the QUIC Interop Runner's amplification case nine, 9,663 octets in all.
+pub const quic_crypto_out_len: usize = 20 * 1024;
 
 /// The peer's transport parameters the QUIC provider keeps (RFC 9001 §8.2). RFC 9000 §18 sets no
 /// bound, and this holds every parameter §18.2 defines with room for a peer's own.
@@ -208,8 +210,9 @@ pub const quic_rounds_max: u32 = 10_000;
 pub const quic_round_ns: u64 = 5_000_000;
 
 /// Certificates the QUIC server presents at most: the end-entity and every certificate above it.
-/// The QUIC Interop Runner's longest chain is a leaf under a few intermediates.
-pub const quic_chain_len_max: usize = 8;
+/// The QUIC Interop Runner's longest chain is its amplification case's, a leaf under eight
+/// intermediates.
+pub const quic_chain_len_max: usize = 16;
 
 /// The longest hq-interop request line an endpoint reads or writes: `GET `, a path and CRLF. The
 /// runner's paths are a directory and a random file name, far shorter than this.

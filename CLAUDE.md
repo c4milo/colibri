@@ -275,10 +275,11 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   colibri client and a colibri server over it in one process, through one handshake and one
   stream, and writes the secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain.
   `tools/ci.sh` runs it when it finds `bin/chapulin-quic.o`.
-- UDP QUIC endpoint: `zig build quic-udp -- server <ipv4> <port> <identity-prefix> <www> [once]
-  [retry] [connections=<n>]` and `-- client <ipv4> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> <path>...`
-  run design §9's hq-interop server and client over Rotor's UDP loop and the same chapulin
-  object. `tools/quic_udp.sh <checkout> [port]` runs a client against a server on 127.0.0.1,
+- UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www>
+  [once] [retry] [connections=<n>]` and `-- client <address> <port> <anchor-prefix> <hostname>
+  <unix-seconds> <downloads> [keyupdate] <path>...` run design §9's hq-interop server and client
+  over Rotor's UDP loop and the same chapulin object. An address is IPv4 or IPv6; a server bound
+  to `::` takes both on Linux. `tools/quic_udp.sh <checkout> [port]` runs a client against a server on 127.0.0.1,
   checks each file arrives octet for octet and that a missing one resets its stream, and
   `tools/ci.sh` runs it beside the loopback check. `tools/quic_aioquic.sh <checkout> [port]` runs
   the same endpoint against aioquic's, pinned and installed once into a cached virtual

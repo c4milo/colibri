@@ -57,8 +57,13 @@ var connection_failed: bool = false;
 /// Files the server answered, over every connection it has ended.
 var served: u64 = 0;
 
-/// The address a client binds: any, with a port the kernel picks.
-const any_address: [udp_arguments.ipv4_octets]u8 = @splat(0);
+/// The address a client binds: any address of its server's family, with a port the kernel picks.
+fn any_address(family: udp.Address.Family) udp.Address {
+    return switch (family) {
+        .ipv4 => udp.Address.ipv4(@splat(0), 0),
+        .ipv6 => udp.Address.ipv6(@splat(0), 0, 0),
+    };
+}
 
 pub fn main(init: std.process.Init.Minimal) !void {
     if (!chapulin_quic_c.available) {
@@ -69,8 +74,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try udp_identity.seed();
     for (&connections) |*connection| connection.live = false;
     const bind = switch (arguments) {
-        .server => |asked| udp.Address.ipv4(asked.address, asked.port),
-        .client => udp.Address.ipv4(any_address, 0),
+        .server => |asked| asked.address,
+        .client => |asked| any_address(asked.address.family),
     };
     try socket.open(&memory, bind);
     // Decision 63: this first tick reads the clock whose instant every turn then passes on.
@@ -95,7 +100,7 @@ fn connect() void {
         fail("cannot read the trust anchor: {t}", .{failure});
     connection.peer.init(options, udp_identity.client_ids(), client_parameters(), socket.now_ns()) catch |failure|
         fail("the client did not start: {t}", .{failure});
-    connection.outbound = outbound_to(udp.Address.ipv4(asked.address, asked.port));
+    connection.outbound = outbound_to(asked.address);
     client.init(asked.downloads, asked.paths);
     connection.live = true;
 }
@@ -117,10 +122,26 @@ fn run() void {
 /// One connection's part of a turn: its deadlines, its streams, and what it owes.
 fn turn(connection: *Connection, now_ns: u64) void {
     connection.peer.on_instant(now_ns) catch |failure| fail("a deadline failed: {t}", .{failure});
+    if (arguments == .client and arguments.client.key_update) update_keys_once(connection, now_ns);
     step_application(connection);
     flush(connection, now_ns);
     // A client's stack derives its last secrets while it writes its Finished, inside `send`.
     udp_identity.write_keylog();
+}
+
+/// Whether the client's one key update has started.
+var keys_updated: bool = false;
+
+/// Starts the client's one key update once RFC 9001 §6.1 permits it: the handshake confirmed, and
+/// a packet of the current key phase acknowledged. Until then each turn asks again.
+fn update_keys_once(connection: *Connection, now_ns: u64) void {
+    if (keys_updated) return;
+    const suite = connection.peer.session.suite();
+    quic.connection_key_update.initiate(&connection.peer.connection, suite, now_ns) catch |failure| switch (failure) {
+        error.HandshakeNotConfirmed, error.PhaseNotAcknowledged, error.PhaseNotSettled => return,
+        else => fail("the key update failed: {t}", .{failure}),
+    };
+    keys_updated = true;
 }
 
 /// How long the next tick may wait: until the soonest deadline of a live connection, and never
