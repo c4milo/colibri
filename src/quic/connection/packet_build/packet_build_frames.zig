@@ -100,7 +100,7 @@ pub fn write(
     }
     if (room.probing_only) return probing_packet(connection, level, payload[0..budget]);
     var writer = Writer.init(payload[0..budget]);
-    const ack = write_ack(connection, space, &writer, now_ns);
+    const ack = write_ack(connection, space, &writer, now_ns, room.withholding_data);
     const written_ack = writer.written().len;
     // RFC 9002 §7: "An endpoint MUST NOT send a packet if it would cause bytes_in_flight ... to
     // be larger than the congestion window", and a packet of ACK frames alone adds nothing (§2).
@@ -166,8 +166,11 @@ fn probing_packet(connection: *Connection, level: Level, payload: []u8) Framed {
     };
 }
 
-/// A packet of the ACK and path frames alone (decision 72). An ACK that is only pending goes with
-/// a path frame or not at all, as `write` has it (RFC 9000 §13.2.1).
+/// A packet of the ACK and path frames alone (decision 72). `write_ack` writes the latest ACK
+/// whether or not anything new asks for one: if the first challenge's packet carried it and was
+/// lost, a peer whose window is full of what that ACK covered cannot send its PATH_RESPONSE, and
+/// ACK frames are never sent again as such (RFC 9000 §13.3). An ACK that is only pending goes
+/// with a path frame or not at all, as `write` has it (RFC 9000 §13.2.1).
 fn path_packet(space: anytype, ack: AckWritten, written_ack: usize, len: usize, path: PathFrames) Framed {
     // RFC 9000 §13.2.1, Table 3: PATH_CHALLENGE and PATH_RESPONSE elicit an acknowledgment.
     const eliciting = path.path_challenge != null or path.carries_path_response;
@@ -270,9 +273,10 @@ const AckWritten = struct {
 /// ack-eliciting packets to acknowledge, which §13.2.1 asks for "with other frames": whether any
 /// follow is known only once they are written, so `write` takes back one that stood alone. It
 /// goes first because it is the frame a space owes soonest.
-fn write_ack(connection: *const Connection, space: anytype, writer: *Writer, now_ns: u64) AckWritten {
+/// `repeat` writes one although nothing new asks for it, which a path awaiting validation does.
+fn write_ack(connection: *const Connection, space: anytype, writer: *Writer, now_ns: u64, repeat: bool) AckWritten {
     const held: AckWritten = .{ .owed = space.owes_ack(now_ns, connection.max_ack_delay_ns()), .pending = space.ack_pending() };
-    if (!held.owed and !space.has_new_ack_eliciting()) return held;
+    if (!held.owed and !space.has_new_ack_eliciting() and !repeat) return held;
     // RFC 9000 §13.4.1: only an endpoint with "access to received ECN codepoints" reports ECN,
     // and decision 68 has the caller say whether it has.
     _ = space.write_ack(writer, now_ns, exponent_of(connection), connection.ecn_reads) catch {};

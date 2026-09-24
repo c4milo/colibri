@@ -1714,7 +1714,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     the rest, and part of the padding validates no path MTU). The octets §8 allows then go to the
     challenges §13.3 sends. The ACK frames stay because withholding them deadlocked the
     simulator: a peer whose window was full of unacknowledged data could not send its
-    PATH_RESPONSE. The cost is a pause of about one round trip in data on each move.
+    PATH_RESPONSE. Each challenge also repeats the latest ACK, whether or not anything new asks
+    for one: `spec/tla/path_validation/` found that if the first challenge's packet carried the
+    ACK and was lost, a client whose window that ACK would have freed could not answer the
+    resends. The cost is a pause of about one round trip in data on each move.
 
 73. **An endpoint that sends only ACK frames adds a PING about once a round trip, as RFC 9000
     §13.2.4 suggests.** Adopted on 2026-09-24, while building decision 72; the owner may overrule
@@ -1723,9 +1726,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     §13.2.4: "A receiver that sends only non-ack-eliciting packets, such as ACK frames, might not
     receive an acknowledgment for a long period of time ... a receiver could send a PING or other
     small ack-eliciting frame occasionally, such as once per round trip, to elicit an ACK from
-    the peer." A colibri client that only downloads sent only ACK frames. After a NAT rebinding,
-    quic-go's server in the QUIC Interop Runner kept sending to the client's old port although
-    those ACK frames arrived from the new one, and the connection reached its idle timeout.
+    the peer." A colibri client that only downloads sent only ACK frames, so it had nothing in
+    flight and no PTO armed. In the QUIC Interop Runner's rebind case, quic-go's server followed
+    the client to its new port and sent one PATH_CHALLENGE, padded to all the octets §8 allowed
+    it. The challenge was lost, and the server could send nothing more until the client sent
+    again, which a client that receives nothing and owes nothing never did. With a PING in flight
+    the client's PTO stays armed, and its probes give the server the octets to challenge again.
+    (A first reading, that quic-go ignored packets of ACK frames alone, was wrong: it was waiting
+    for a spare connection ID, RFC 9000 §9.3, which colibri's test endpoint now issues.)
 
     So at the application level colibri adds a PING to a packet carrying an ACK the space owes,
     when that packet elicits nothing else, a smoothed round trip has passed since its last

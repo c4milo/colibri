@@ -313,13 +313,13 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
 }
 
 /// The rebinding checks' censuses, pinned as the lossy check's is. The server moved once for each
-/// rebind: 277 of each in the port check and 276 in the address check.
-pub const rebind_port_census_crc32_expected: u32 = 0xbf54d857;
-pub const rebind_port_census_datagrams_expected: u64 = 14_607;
-pub const rebind_port_census_migrations_expected: u64 = 277;
-pub const rebind_address_census_crc32_expected: u32 = 0x6f20dfec;
-pub const rebind_address_census_datagrams_expected: u64 = 14_418;
-pub const rebind_address_census_migrations_expected: u64 = 276;
+/// rebind: 276 of each in the port check and 275 in the address check.
+pub const rebind_port_census_crc32_expected: u32 = 0x0fb2a063;
+pub const rebind_port_census_datagrams_expected: u64 = 14_574;
+pub const rebind_port_census_migrations_expected: u64 = 276;
+pub const rebind_address_census_crc32_expected: u32 = 0x79c5e069;
+pub const rebind_address_census_datagrams_expected: u64 = 14_380;
+pub const rebind_address_census_migrations_expected: u64 = 275;
 
 /// Runs the check under `adversary` and returns its census.
 fn run_rebinding(adversary: Adversary) !Census {

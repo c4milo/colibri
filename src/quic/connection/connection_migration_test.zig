@@ -354,3 +354,22 @@ test "decision 72: a path the peer moved to carries ACK and path frames alone un
     const after = try send_into(&server, 0, test_now_ns);
     try testing.expect(after.packets[0].ack_eliciting);
 }
+
+test "decision 72: each challenge on a path awaiting validation repeats the latest ACK" {
+    open_pair(true);
+    try move_server(rebound_address);
+    _ = try send_into(&server, 0, test_now_ns);
+    // The first challenge carried the ACK of the client's PING, and is lost.
+    _ = try send_into(&server, 1, test_now_ns);
+    migration.on_response(&server, previous_path_data);
+    const due_ns = migration.challenge_deadline_ns(&server).?;
+    _ = try timer.on_instant(&server, suite_holder.suite(), &recovery_scratch, due_ns);
+    // A datagram of the client's that asks for nothing lifts §8's limit, and brings nothing new
+    // to acknowledge.
+    server.path.on_datagram_received(constants.datagram_len_min);
+    const recorded = client.recovery.table_of(.application).count();
+    const resent = try send_into(&server, 0, due_ns);
+    _ = try deliver(&client, resent, 0, server_address, due_ns);
+    // The client's PING is acknowledged, so its window has room for the PATH_RESPONSE.
+    try testing.expect(client.recovery.table_of(.application).count() < recorded);
+}
