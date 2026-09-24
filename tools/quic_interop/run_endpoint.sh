@@ -25,12 +25,8 @@ if [ "$ROLE" = server ]; then
   server_options=()
   [ "$TESTCASE" = retry ] && server_options+=(retry)
   # Bound to the IPv6 wildcard, the one socket takes IPv4 clients too (as IPv4-mapped addresses),
-  # because the runner gives the server no hint of which family its IPv6 case uses. The ECN case
-  # is IPv4 alone and binds the IPv4 wildcard: rotor sets and reads codepoints through the IPv6
-  # socket options there, which left every datagram to an IPv4-mapped client unmarked.
-  address=::
-  [ "$TESTCASE" = ecn ] && address=0.0.0.0
-  exec quic-udp server "$address" 443 /tmp/identity /www "${server_options[@]}"
+  # because the runner gives the server no hint of which family its IPv6 case uses.
+  exec quic-udp server :: 443 /tmp/identity /www "${server_options[@]}"
 fi
 
 /wait-for-it.sh sim:57832 -s -t 30
