@@ -39,6 +39,9 @@ const Outstanding = struct {
     stream_id: u64,
     /// §4.5.1: what the decoder's insert count must reach before it can decode the section.
     required_insert_count: u64,
+    /// The smallest absolute index the section references, which no eviction may pass while it
+    /// is outstanding (§2.1.1). The Required Insert Count bounds the largest, not this.
+    smallest_reference: u64,
 };
 
 pub const EncoderState = struct {
@@ -82,17 +85,26 @@ pub const EncoderState = struct {
         return state.blocked_count() + 1 <= state.blocked_streams_max;
     }
 
-    /// Records a field section that references the dynamic table (RFC 9204 §2.1.1). A section
-    /// with a Required Insert Count of zero references nothing and is not recorded, which is
-    /// also why §2.2.2.1 has the decoder acknowledge only the ones that do.
-    pub fn on_section_sent(state: *EncoderState, stream_id: u64, required_insert_count: u64) Error!void {
+    /// Records a field section that references the dynamic table (RFC 9204 §2.1.1), and the
+    /// smallest absolute index it references. A section with a Required Insert Count of zero
+    /// references nothing and is not recorded, which is also why §2.2.2.1 has the decoder
+    /// acknowledge only the ones that do.
+    pub fn on_section_sent(state: *EncoderState, stream_id: u64, required_insert_count: u64, smallest_reference: u64) Error!void {
         if (required_insert_count == 0) return;
+        // §2.1.2: the Required Insert Count is one more than the largest reference.
+        assert(smallest_reference < required_insert_count);
         if (state.len == constants.outstanding_sections_max) return Error.TooManyOutstanding;
         state.outstanding[state.len] = .{
             .stream_id = stream_id,
             .required_insert_count = required_insert_count,
+            .smallest_reference = smallest_reference,
         };
         state.len += 1;
+    }
+
+    /// Whether another section with dynamic references can be recorded.
+    pub fn has_room(state: *const EncoderState) bool {
+        return state.len < constants.outstanding_sections_max;
     }
 
     /// RFC 9204 §4.4.1's Section Acknowledgment, which §2.2.2.1 says acknowledges the earliest
@@ -138,13 +150,13 @@ pub const EncoderState = struct {
 
     /// The oldest absolute index a reference still keeps alive, or null when none does. RFC 9204
     /// §2.1.1: an entry with an outstanding reference cannot be evicted, so this is the floor a
-    /// caller must not evict below.
+    /// caller must not evict at or above.
     pub fn referenced_floor(state: *const EncoderState) ?u64 {
         var floor: ?u64 = null;
         // Bounded by `outstanding_sections_max`, which is a named limit.
         for (state.outstanding[0..state.len]) |held| {
-            if (floor == null or held.required_insert_count < floor.?) {
-                floor = held.required_insert_count;
+            if (floor == null or held.smallest_reference < floor.?) {
+                floor = held.smallest_reference;
             }
         }
         return floor;
@@ -199,23 +211,29 @@ const stream_a: u64 = 0;
 const stream_b: u64 = 4;
 const stream_c: u64 = 8;
 
+/// Records a section whose only reference is the entry just below its Required Insert Count.
+/// Test-only.
+fn send(stream_id: u64, required_insert_count: u64) !void {
+    try test_state.on_section_sent(stream_id, required_insert_count, required_insert_count -| 1);
+}
+
 test "§2.1.4: an acknowledgment raises the Known Received Count to what the section needed" {
     test_state.init(test_blocked_max);
     try testing.expectEqual(0, test_state.known_received);
-    try test_state.on_section_sent(stream_a, 5);
+    try send(stream_a, 5);
     try testing.expectEqual(0, test_state.known_received);
     try test_state.on_section_acknowledgment(stream_a);
     try testing.expectEqual(5, test_state.known_received);
     // §2.1.4: it rises to the Required Insert Count, and never falls back to a smaller one.
-    try test_state.on_section_sent(stream_b, 3);
+    try send(stream_b, 3);
     try test_state.on_section_acknowledgment(stream_b);
     try testing.expectEqual(5, test_state.known_received);
 }
 
 test "§2.2.2.1: sections on a stream are acknowledged oldest first" {
     test_state.init(test_blocked_max);
-    try test_state.on_section_sent(stream_a, 3);
-    try test_state.on_section_sent(stream_a, 7);
+    try send(stream_a, 3);
+    try send(stream_a, 7);
     // A stream may carry several sections — interim responses, trailers — and each
     // acknowledgment takes the earliest that is still outstanding.
     try test_state.on_section_acknowledgment(stream_a);
@@ -232,10 +250,10 @@ test "§2.2.2.1: taking a section out keeps the rest in the order they were sent
     // Two sections on one stream with others interleaved. Taking one out must not move a later
     // section of a stream ahead of an earlier one, or the next acknowledgment for that stream
     // would take the wrong one and raise the Known Received Count too far.
-    try test_state.on_section_sent(stream_b, 5);
-    try test_state.on_section_sent(stream_a, 3);
-    try test_state.on_section_sent(stream_c, 6);
-    try test_state.on_section_sent(stream_a, 7);
+    try send(stream_b, 5);
+    try send(stream_a, 3);
+    try send(stream_c, 6);
+    try send(stream_a, 7);
     try test_state.on_section_acknowledgment(stream_b);
     try testing.expectEqual(5, test_state.known_received);
     // The next acknowledgment for stream A must take the section needing 3, not the one needing
@@ -250,7 +268,7 @@ test "§2.1.1: a section with no dynamic reference is not outstanding" {
     test_state.init(test_blocked_max);
     // A Required Insert Count of zero means the section references nothing in the dynamic
     // table, so §2.2.2.1 has the decoder acknowledge nothing and there is nothing to track.
-    try test_state.on_section_sent(stream_a, 0);
+    try send(stream_a, 0);
     try testing.expectEqual(0, test_state.len);
     try testing.expectEqual(null, test_state.referenced_floor());
     try testing.expectError(Error.DecoderStreamError, test_state.on_section_acknowledgment(stream_a));
@@ -260,18 +278,18 @@ test "§2.1.2: the encoder holds the number of streams that could block" {
     test_state.init(test_blocked_max);
     // Nothing is outstanding, so a section needing entries the decoder lacks may go out.
     try testing.expect(test_state.may_send(stream_a, 5));
-    try test_state.on_section_sent(stream_a, 5);
+    try send(stream_a, 5);
     try testing.expectEqual(1, test_state.blocked_count());
     // A second stream reaches the limit, and a third would pass it.
     try testing.expect(test_state.may_send(stream_b, 6));
-    try test_state.on_section_sent(stream_b, 6);
+    try send(stream_b, 6);
     try testing.expectEqual(2, test_state.blocked_count());
     try testing.expect(!test_state.may_send(stream_c, 7));
     // A section that needs nothing the decoder lacks blocks nothing, so it may always go out.
     try testing.expect(test_state.may_send(stream_c, 0));
     // A stream already counted does not count twice, so a second section on it is allowed.
     try testing.expect(test_state.may_send(stream_a, 7));
-    try test_state.on_section_sent(stream_a, 7);
+    try send(stream_a, 7);
     try testing.expectEqual(2, test_state.blocked_count());
     // Once the decoder catches up, the streams stop counting and a third may go out.
     try test_state.on_insert_count_increment(7, 10);
@@ -295,16 +313,17 @@ test "§4.4.3: an Insert Count Increment is checked against what the encoder has
 
 test "§4.4.2: cancelling a stream drops every reference it held" {
     test_state.init(test_blocked_max);
-    try test_state.on_section_sent(stream_a, 3);
-    try test_state.on_section_sent(stream_b, 5);
-    try test_state.on_section_sent(stream_a, 7);
+    try send(stream_a, 3);
+    try send(stream_b, 5);
+    try send(stream_a, 7);
     try testing.expectEqual(3, test_state.len);
     test_state.on_stream_cancellation(stream_a);
     try testing.expectEqual(1, test_state.len);
     // §4.4.2 says nothing about the Known Received Count: a cancelled section was never decoded
     // and acknowledges nothing.
     try testing.expectEqual(0, test_state.known_received);
-    try testing.expectEqual(5, test_state.referenced_floor());
+    // The section left references entry 4, one below its count of 5.
+    try testing.expectEqual(4, test_state.referenced_floor());
     // What is left is the other stream's, and it still acknowledges normally.
     try test_state.on_section_acknowledgment(stream_b);
     try testing.expectEqual(5, test_state.known_received);
@@ -314,28 +333,27 @@ test "§4.4.2: cancelling a stream drops every reference it held" {
     try testing.expectEqual(0, test_state.len);
 }
 
-test "§2.1.1: the oldest outstanding reference is the floor an eviction may not pass" {
+test "§2.1.1: the smallest outstanding reference is the floor an eviction may not pass" {
     test_state.init(test_blocked_max);
     try testing.expectEqual(null, test_state.referenced_floor());
-    try test_state.on_section_sent(stream_a, 9);
-    try test_state.on_section_sent(stream_b, 4);
-    try test_state.on_section_sent(stream_c, 6);
-    // §2.1.1: an entry with an outstanding reference cannot be evicted, so the smallest count
-    // still outstanding is the floor — whatever order the sections were sent in.
-    try testing.expectEqual(4, test_state.referenced_floor());
-    try test_state.on_section_acknowledgment(stream_b);
-    try testing.expectEqual(6, test_state.referenced_floor());
+    // A section needing 9 inserts that references entry 2 keeps entry 2, not entry 8.
+    try test_state.on_section_sent(stream_a, 9, 2);
+    try test_state.on_section_sent(stream_b, 4, 3);
+    try test_state.on_section_sent(stream_c, 6, 5);
+    try testing.expectEqual(2, test_state.referenced_floor());
+    try test_state.on_section_acknowledgment(stream_a);
+    try testing.expectEqual(3, test_state.referenced_floor());
 }
 
 test "colibri's own bound on outstanding sections fails closed" {
     test_state.init(constants.outstanding_sections_max);
     for (0..constants.outstanding_sections_max) |step| {
-        try test_state.on_section_sent(@intCast(step), 1);
+        try send(@intCast(step), 1);
     }
     // RFC 9204 bounds this at nothing, so the bound is colibri's: past it a section is refused
     // and the caller sends one that references no dynamic entry instead.
-    try testing.expectError(Error.TooManyOutstanding, test_state.on_section_sent(stream_a, 1));
+    try testing.expectError(Error.TooManyOutstanding, send(stream_a, 1));
     try testing.expectEqual(constants.outstanding_sections_max, test_state.len);
     // A section referencing nothing is still free, because it is not recorded at all.
-    try test_state.on_section_sent(stream_a, 0);
+    try send(stream_a, 0);
 }
