@@ -1749,3 +1749,41 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       never learns a client's new address.
     - A PING on a timer of its own. It would send packets when nothing needs acknowledging, and
       §10.1.2 leaves keeping a connection alive to the application.
+
+74. **The QPACK decoder hands a blocked field section back to the caller unread, and holds the
+    decoder instructions it owes until the caller asks for them.** Adopted on 2026-09-24 for
+    design §8 step 11; the owner may overrule it.
+
+    RFC 9204 §2.2.1 blocks a stream whose field section needs dynamic table entries that have not
+    arrived yet. colibri owns no I/O and no heap (non-negotiables 1 and 4), so the decoder holds
+    none of the section's octets:
+    - `read_section` reads the prefix. When the Required Insert Count is above the decoder's
+      insert count, it records the stream as blocked and returns `blocked`. The caller keeps the
+      octets, which §2.2.1 already asks it to leave in the stream's flow-control window.
+    - `ready_stream` names a blocked stream whose section can now be decoded, and the caller
+      calls `read_section` for it again. The decoder holds each blocked stream's ID and Required
+      Insert Count, at most `blocked_streams_max` of them. That limit is also the most the caller
+      may advertise as SETTINGS_QPACK_BLOCKED_STREAMS, and one blocked stream more than it
+      advertised is QPACK_DECOMPRESSION_FAILED (§2.1.2).
+    - `read_encoder_stream` applies every whole encoder instruction the caller has and leaves a
+      partial one unread. An instruction longer than `encoder_instruction_len_max` is
+      QPACK_ENCODER_STREAM_ERROR, which §7.4 permits, so the caller never holds more than that.
+    - The decoder owes Section Acknowledgments (§4.4.1), Stream Cancellations (§4.4.2) and Insert
+      Count Increments (§4.4.3). It queues the first two, at most
+      `decoder_instructions_owed_max`, and works out the increment when it writes: the insert
+      count less the Known Received Count that the queued acknowledgments leave. So every insert
+      is reported, once, in the next `write_decoder_stream`.
+    - When the queue is full, `read_section` and `abandon_stream` return `owes_instructions` and
+      do nothing, so no instruction is ever dropped. Decision 39 has h2's replies work the same
+      way.
+    - A Required Insert Count larger than the largest reference needs is refused as
+      QPACK_DECOMPRESSION_FAILED. §2.2.1 says a decoder "MAY" refuse it, and a count set too
+      high blocks a stream for nothing.
+
+    The alternatives refused:
+    - The decoder copies a blocked section's octets. That needs room for `blocked_streams_max`
+      sections, and the caller already holds the octets.
+    - A callback when a stream unblocks. Design §4 forbids colibri a call into the caller at a
+      time of its choosing.
+    - Each decoder instruction written into the caller's buffer as it arises. That crosses the
+      caller's boundary once per instruction, where one `write_decoder_stream` crosses it once.

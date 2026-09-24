@@ -437,7 +437,8 @@ past a 1-bit prefix) · `huffman_padding_bits_max` (7, RFC 7541 §5.2).
 
 **HPACK / QPACK** (`hpack`, `qpack`): `dynamic_table_capacity_max` (16,384, ruled 2026-09-16) ·
 `dynamic_table_entries_max` (the capacity over the 32-octet overhead) · `size_updates_per_block_max`
-(2, RFC 7541 §4.2) · `blocked_streams_max` · `encoder_stream_bytes_max`. Huffman data expands by up
+(2, RFC 7541 §4.2) · `blocked_streams_max` · `encoder_instruction_len_max` ·
+`decoder_instructions_owed_max` (the last three decision 74's). Huffman data expands by up
 to 1.6x, since the shortest code is 5 bits, and `wire.huffman.decoded_len_max` is that bound; a
 literal's decoded length is capped by `core`'s field-length limits (RFC 7541 §7.4).
 
