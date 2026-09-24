@@ -151,7 +151,10 @@ pub fn build(b: *std.Build) void {
         .golden_tests = golden_tests.?,
     });
 
-    vectors.add(b, .{ .test_step = test_step, .tool_test_step = tool_test_step });
+    // Decision 75: the QPACK vectors are a lazy package, fetched once and requested here, where
+    // a project that depends on colibri never reaches.
+    const qifs = b.lazyDependency("qifs", .{}) orelse return;
+    vectors.add(b, .{ .test_step = test_step, .tool_test_step = tool_test_step }, qifs.path(""));
 
     test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));

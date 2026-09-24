@@ -2,8 +2,9 @@
 //! build.zig stays short (CLAUDE.md, Layout), so this file holds the wiring.
 //!
 //! `zig build hpack-vectors` runs tools/hpack_vectors.zig over the vendored
-//! src/hpack/hpack-test-case, and `zig build h2-frames` runs tools/h2_frames.zig over the vendored
-//! src/h2/http2-frame-test-case; `zig build test` runs both steps. Each tool runs on the build host
+//! src/hpack/hpack-test-case, `zig build h2-frames` runs tools/h2_frames.zig over the vendored
+//! src/h2/http2-frame-test-case, and `zig build qpack-vectors` runs tools/qpack_vectors.zig over
+//! the qifs package (decision 75); `zig build test` runs all three steps. Each tool runs on the build host
 //! in Debug over its own host copy of the module graph: a tool never ships.
 const std = @import("std");
 
@@ -25,10 +26,11 @@ const Tool = struct {
     module_name: []const u8,
     module: *std.Build.Module,
     step_name: []const u8,
-    directory: []const u8,
+    directory: std.Build.LazyPath,
 };
 
-pub fn add(b: *std.Build, steps: Steps) void {
+/// `qifs` is the qpackers/qifs package's directory, which build.zig requests.
+pub fn add(b: *std.Build, steps: Steps, qifs: std.Build.LazyPath) void {
     const core = host_module(b, "src/core/core.zig");
     const wire = host_module(b, "src/wire/wire.zig");
     wire.addImport("core", core);
@@ -47,6 +49,11 @@ pub fn add(b: *std.Build, steps: Steps) void {
     h2.addImport("http", http);
     h2.addImport("hpack", hpack);
     h2.addImport("tls", tls);
+    // The same imports build/modules.zig gives `qpack`.
+    const qpack = host_module(b, "src/qpack/qpack.zig");
+    qpack.addImport("core", core);
+    qpack.addImport("wire", wire);
+    qpack.addImport("http", http);
 
     add_tool(b, steps, .{
         .name = "hpack_vectors",
@@ -54,7 +61,7 @@ pub fn add(b: *std.Build, steps: Steps) void {
         .module_name = "hpack",
         .module = hpack,
         .step_name = "hpack-vectors",
-        .directory = hpack_test_case_directory,
+        .directory = b.path(hpack_test_case_directory),
     });
     add_tool(b, steps, .{
         .name = "h2_frames",
@@ -62,7 +69,15 @@ pub fn add(b: *std.Build, steps: Steps) void {
         .module_name = "h2",
         .module = h2,
         .step_name = "h2-frames",
-        .directory = http2_frame_test_case_directory,
+        .directory = b.path(http2_frame_test_case_directory),
+    });
+    add_tool(b, steps, .{
+        .name = "qpack_vectors",
+        .root_source_file = "tools/qpack_vectors.zig",
+        .module_name = "qpack",
+        .module = qpack,
+        .step_name = "qpack-vectors",
+        .directory = qifs,
     });
 }
 
@@ -74,10 +89,10 @@ fn add_tool(b: *std.Build, steps: Steps, tool: Tool) void {
     const executable = b.addExecutable(.{ .name = tool.name, .root_module = tool_module });
 
     const run = b.addRunArtifact(executable);
-    run.addDirectoryArg(b.path(tool.directory));
+    run.addDirectoryArg(tool.directory);
     const step = b.step(
         tool.step_name,
-        b.fmt("Run {s} with the {s} module", .{ tool.directory, tool.module_name }),
+        b.fmt("Run {s} with the {s} module", .{ tool.root_source_file, tool.module_name }),
     );
     step.dependOn(&run.step);
     steps.test_step.dependOn(&run.step);

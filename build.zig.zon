@@ -19,6 +19,14 @@
             .hash = "rotor-0.4.0-YZkxRB4NEQD0HGJ9C9Ih29POJZbRpyOh5GUSvy_wjD2q",
             .lazy = true,
         },
+        // The QPACK vectors of qpackers/qifs, which tools/qpack_vectors.zig decodes (decisions 25
+        // and 75). Test data, never linked into anything. Lazy, and requested only when colibri
+        // is the root build, like pepegrillo.
+        .qifs = .{
+            .url = "https://github.com/qpackers/qifs/archive/da52cd936b3e34dac7ac12aa8066fc57676af106.tar.gz",
+            .hash = "N-V-__8AACPGUgeB6kOEJXkaQuKfDvAXxeXYW9wcU6TpfDty",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",

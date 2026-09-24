@@ -204,10 +204,11 @@ tree. Design §11 holds the method and the numbers.
 
 - Changing a named limit.
 - Adding a dependency. The library is meant to have none: no package, no vendored C, and no
-  allocator at all (decision 35). There are four ruled exceptions, and the library imports none:
+  allocator at all (decision 35). There are five ruled exceptions, and the library imports none:
   chapulin, which `src/testing/` links (decision 10); pepegrillo, the tooling `tools/` builds on
-  (decision 36); Rotor, the loop `src/testing/`'s UDP endpoints run on (decision 58); and TLC, the
-  TLA+ model checker `zig build tla` runs through pepegrillo (decision 67).
+  (decision 36); Rotor, the loop `src/testing/`'s UDP endpoints run on (decision 58); TLC, the
+  TLA+ model checker `zig build tla` runs through pepegrillo (decision 67); and `qpackers/qifs`,
+  the QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
@@ -236,8 +237,9 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   RFC 9204 Appendix A; `zig build test` fails when a committed table differs from what its RFC
   yields.
 - Vectors: `zig build hpack-vectors` decodes every story of the vendored
-  `src/hpack/hpack-test-case/` and round-trips `raw-data/` through the encoder (decision 38);
-  `zig build test` runs it.
+  `src/hpack/hpack-test-case/` and round-trips `raw-data/` through the encoder (decision 38).
+  `zig build qpack-vectors` decodes every encoded file of the `qifs` package, fetched on the
+  first build (decision 75). `zig build test` runs both.
 - Simulator: `zig build sim -- --<check>-seed <hex>` runs one seed and prints its trace;
   `zig build sim -- --<check>-check [seeds]` runs the check over `[0, seeds)` and prints the census.
   Every check is also a test inside its module, so `zig build test` runs them, silently. The QUIC
@@ -304,7 +306,8 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
-- Tooling: the first build on a machine fetches pepegrillo (decision 36) and Rotor (decision 58).
+- Tooling: the first build on a machine fetches pepegrillo (decision 36), Rotor (decision 58) and
+  the `qifs` vectors (decision 75).
   A Rotor bump is `zig fetch --save=rotor git+https://github.com/c4milo/rotor#<commit>`, and
   `.lazy = true` must survive it too. After a pepegrillo bump with `zig
   fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm `.lazy = true`
