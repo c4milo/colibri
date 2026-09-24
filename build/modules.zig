@@ -64,6 +64,8 @@ pub const Modules = struct {
     testing_tls_server: *std.Build.Module,
     /// The QUIC loopback check of design §8 step 9e, rooted at `src/testing/quic_loopback.zig`.
     testing_quic: *std.Build.Module,
+    /// Design §9's two QPACK command-line tools, rooted at `src/testing/qif.zig`.
+    testing_qif: *std.Build.Module,
 };
 
 pub fn add(
@@ -194,6 +196,14 @@ pub fn add(
     // A fifth root, because its object is another build: `TRANSPORT=quic` exports none of the
     // record calls the other four link, and `ROLE=both` puts both roles in one object. `KEYLOG=on`
     // imports `ch_keylog`, which the check defines, so a capture of a run can be decrypted.
+    // Design §9's QIF tools, a root of their own for their `main`. They serve `qpack`, and keep
+    // their limits in `src/testing/qif/constants.zig` rather than the shared file, which imports
+    // `h2`. Ruled by the owner on 2026-09-24. They read and write files through libc.
+    const testing_qif = create(b, "src/testing/qif.zig", target, optimize);
+    testing_qif.addImport("core", core);
+    testing_qif.addImport("qpack", qpack);
+    testing_qif.link_libc = true;
+
     const testing_quic = create(b, "src/testing/quic_loopback.zig", target, optimize);
     testing_quic.addImport("h2", h2);
     testing_quic.addImport("quic", quic);
@@ -220,6 +230,7 @@ pub fn add(
         .testing_tls = testing_tls,
         .testing_tls_server = testing_tls_server,
         .testing_quic = testing_quic,
+        .testing_qif = testing_qif,
     };
 }
 

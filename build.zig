@@ -121,6 +121,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "testing-tls", .module = graph.testing_tls },
         .{ .name = "testing-tls-server", .module = graph.testing_tls_server },
         .{ .name = "testing-quic", .module = graph.testing_quic },
+        .{ .name = "testing-qif", .module = graph.testing_qif },
         .{ .name = "testing-udp", .module = testing_udp },
     };
     var golden_tests: ?*std.Build.Step = null;
@@ -164,6 +165,7 @@ pub fn build(b: *std.Build) void {
     add_tls_handshake_step(b, graph.testing_tls);
     add_tls_accept_step(b, graph.testing_tls_server);
     add_quic_loopback_step(b, graph.testing_quic);
+    add_qif_step(b, graph.testing_qif);
     add_quic_udp_step(b, testing_udp);
     add_commit_lint_step(b, pepegrillo, install_step);
     add_tla_step(b, pepegrillo);
@@ -374,6 +376,17 @@ fn add_quic_loopback_step(b: *std.Build, testing_quic: *std.Build.Module) void {
 
 /// `zig build quic-udp -- server|client ...`: design §9's UDP QUIC endpoint, as the hq-interop
 /// server or client. It needs a chapulin checkout built `TRANSPORT=quic ROLE=both`.
+/// `zig build qif -- encode|decode ...`: design §9's two QPACK command-line tools, for the QIF
+/// interop of step 11.
+fn add_qif_step(b: *std.Build, testing_qif: *std.Build.Module) void {
+    const tool = b.addExecutable(.{ .name = "qif", .root_module = testing_qif });
+    const run = b.addRunArtifact(tool);
+    if (b.args) |args| run.addArgs(args);
+    const step = b.step("qif", "Run a QIF tool: -- encode|decode <input> <output> <capacity> <blocked> [<ack>]");
+    step.dependOn(&run.step);
+    b.installArtifact(tool);
+}
+
 fn add_quic_udp_step(b: *std.Build, testing_udp: *std.Build.Module) void {
     const endpoint = b.addExecutable(.{ .name = "quic-udp", .root_module = testing_udp });
     const run = b.addRunArtifact(endpoint);

@@ -1,4 +1,4 @@
-//! Reading a file and an exit code, shared by the two TLS checks of design §8 step 5.
+//! Reading and writing a file, and an exit code, shared by design §9's test-only entry points.
 //!
 //! The reads go through libc rather than a reader that allocates, because no source file under
 //! `src/` takes an allocator (CLAUDE.md non-negotiable 4), test-only or not. `src/testing/` is
@@ -54,3 +54,25 @@ pub fn read_file(path: []const u8, into: []u8) ![]const u8 {
     }
     return into[0..written];
 }
+
+/// Writes `octets` to `path`, creating it or replacing what it held, and answers false when it
+/// cannot.
+pub fn write_file(path: []const u8, octets: []const u8) bool {
+    if (path.len >= path_storage.len) std.process.exit(exit_usage);
+    @memcpy(path_storage[0..path.len], path);
+    path_storage[path.len] = 0;
+    const descriptor = std.c.open(&path_storage, .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, file_mode);
+    if (descriptor < 0) return false;
+    defer _ = std.c.close(descriptor);
+    var written: usize = 0;
+    // Bounded by `octets`: a write of zero or less is a failure.
+    while (written < octets.len) {
+        const wrote = std.c.write(descriptor, octets[written..].ptr, octets.len - written);
+        if (wrote <= 0) return false;
+        written += @intCast(wrote);
+    }
+    return true;
+}
+
+/// Owner read and write, group and others read.
+const file_mode: std.c.mode_t = 0o644;

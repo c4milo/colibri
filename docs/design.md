@@ -60,11 +60,12 @@ core   <- tls    <- h2, quic
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
-core, wire, sim, h2 <- sim_run
+core, wire, sim, h2, qpack <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2         <- testing, testing_client
 h2, rotor        <- testing_udp
+core, qpack      <- testing_qif
 ```
 
 | Module | Holds | Imports | RFCs |
@@ -85,6 +86,7 @@ h2, rotor        <- testing_udp
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
+| `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
 | `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over chapulin's QUIC mode in one process | `h2` for the shared constants, and `quic` | — |
 | `testing_udp` | §9's UDP QUIC endpoint, the hq-interop server and client, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)), and the one module that imports Rotor | `h2` for the shared constants, `quic`, and `rotor` | — |
 
