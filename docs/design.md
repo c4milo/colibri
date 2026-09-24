@@ -2890,8 +2890,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   Not-ECT, and its server 87 and 2.
 
   The server binds the IPv4 wildcard for `ecn`: bound to `::`, it marked no datagram to an IPv4
-  client, and read no codepoint from one. On macOS the endpoint's datagrams arrive Not-ECT, so
-  validation fails on the first ACK and the endpoint stops marking, which is what §13.4.2.2 asks.
+  client, and read no codepoint from one. Rotor 0.3.0 set no codepoint on macOS, so there the
+  endpoint's datagrams arrived Not-ECT and validation failed on the first ACK, as §13.4.2.2
+  asks. Rotor `fbe9311` fixes it: `tools/quic_udp.sh` on macOS then received 2,793 datagrams
+  ECT(0) and 67 Not-ECT, and the client's path ended capable.
 
   **Still owed:** `handshakeloss` between two colibri endpoints. It failed one run on
   2026-09-23: a burst of loss dropped every copy of the server's first flight, and decision 65's
