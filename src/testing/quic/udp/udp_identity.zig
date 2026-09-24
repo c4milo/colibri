@@ -63,6 +63,21 @@ pub fn retry_suite() quic.crypto.Suite {
     return retry.suite();
 }
 
+/// The PATH_CHALLENGE data a move owes (decision 72), drawn at random: RFC 9000 §8.2.1 wants it
+/// unpredictable.
+pub fn challenge_data() quic.connection_migration.ChallengeData {
+    var data: quic.connection_migration.ChallengeData = undefined;
+    draw(std.mem.asBytes(&data)) catch unreachable;
+    return data;
+}
+
+/// A spare connection ID and its stateless reset token (RFC 9000 §5.1.1, §10.3), drawn at random:
+/// §5.1 wants a connection ID unlinkable to the others, and §10.3 a token no one else can guess.
+pub fn spare_id(id: *[id_len]u8, token: *[quic.constants.stateless_reset_token_len]u8) void {
+    draw(id) catch unreachable;
+    draw(token) catch unreachable;
+}
+
 /// A Retry's Source Connection ID, drawn at random, which the client addresses next (RFC 9000
 /// §17.2.5.1). §5.1 wants it unpredictable, as every connection ID this endpoint chooses.
 pub fn retry_id() []const u8 {

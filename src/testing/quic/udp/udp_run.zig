@@ -38,6 +38,8 @@ const Connection = struct {
     receive: [constants.tls_receive_len]u8,
     /// Where this connection's datagrams go, which is where its client sent from.
     outbound: udp.Outbound,
+    /// Whether the spare connection IDs have been issued (`issue_spare_ids`).
+    spare_ids_issued: bool,
 };
 
 var memory: udp.Memory = undefined;
@@ -98,9 +100,10 @@ fn connect() void {
     const connection = &connections[0];
     const options = udp_identity.client_options(asked, &connection.receive) catch |failure|
         fail("cannot read the trust anchor: {t}", .{failure});
-    connection.peer.init(options, udp_identity.client_ids(), client_parameters(), socket.now_ns()) catch |failure|
+    connection.peer.init(options, udp_identity.client_ids(), client_parameters(), socket.now_ns(), asked.address) catch |failure|
         fail("the client did not start: {t}", .{failure});
     connection.outbound = outbound_to(asked.address);
+    connection.spare_ids_issued = false;
     client.init(asked.downloads, asked.paths);
     connection.live = true;
 }
@@ -171,10 +174,39 @@ fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     if (arguments == .server and answer_version(delivery)) return;
     const connection = connection_for(delivery.bytes) orelse accept(delivery, now_ns) orelse return;
     const ecn = udp_peer.received_ecn(&delivery.from);
-    _ = connection.peer.receive(delivery.bytes, ecn, now_ns) catch |failure| close_on(connection, failure);
+    const received = connection.peer.receive(delivery.bytes, ecn, delivery.from.peer, now_ns) catch |failure| {
+        close_on(connection, failure);
+        udp_identity.write_keylog();
+        return;
+    };
+    // Decision 72: the client's address changed and colibri followed it, so it owes PATH_CHALLENGE
+    // frames whose data is drawn here.
+    if (received.migrated) quic.connection_migration.challenge(&connection.peer.connection, udp_identity.challenge_data());
+    issue_spare_ids(connection);
     // The step may have derived secrets. They go out now, because a server's connections step
     // through their handshakes together and the log holds one step's lines, not a run's.
     udp_identity.write_keylog();
+}
+
+/// Issues spare connection IDs once the handshake is confirmed, as many as the peer's
+/// active_connection_id_limit allows beside the one in use (RFC 9000 §5.1.1). A peer whose
+/// address changes then has one it has not used to send on the new path: §9.3 says an endpoint
+/// with none "will not be able to send anything on the new path until the peer provides one",
+/// and §9.5 lets it wait for one rather than reuse the old.
+fn issue_spare_ids(connection: *Connection) void {
+    if (connection.spare_ids_issued) return;
+    const held = &connection.peer.connection;
+    if (!held.handshake_confirmed) return;
+    const peer = held.peer_parameters orelse return;
+    connection.spare_ids_issued = true;
+    const limit = @min(peer.active_connection_id_limit, quic.constants.connection_ids_max);
+    // Bounded by `connection_ids_max`, a named limit.
+    for (1..limit) |_| {
+        var id: [udp_identity.id_len]u8 = undefined;
+        var token: [quic.constants.stateless_reset_token_len]u8 = undefined;
+        udp_identity.spare_id(&id, &token);
+        _ = quic.connection_id_frames.issue(held, &id, &token) catch return;
+    }
 }
 
 /// The entries in use: as many as the server's `connections=<n>` option asks, or a client's one.
@@ -265,9 +297,10 @@ fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Con
     const asked = arguments.server;
     const options = udp_identity.server_options(asked, &connection.receive) catch |failure|
         fail("cannot read the identity: {t}", .{failure});
-    connection.peer.init(options, identity, server_parameters(), now_ns) catch |failure|
+    connection.peer.init(options, identity, server_parameters(), now_ns, delivery.from.peer) catch |failure|
         fail("the server did not start: {t}", .{failure});
     connection.outbound = outbound_to(delivery.from.peer);
+    connection.spare_ids_issued = false;
     connection.server.init(asked.www);
     connection.live = true;
     return connection;
@@ -308,16 +341,18 @@ fn flush(connection: *Connection, now_ns: u64) void {
         if (slot_busy[index]) continue;
         const outgoing = (connection.peer.send(provider, slot, now_ns) catch |failure|
             fail("the send failed: {t}", .{failure})) orelse return;
-        send_from(index, outgoing.octets, marked(connection.outbound, outgoing.ecn));
+        send_from(index, outgoing.octets, addressed(connection.outbound, outgoing));
     }
 }
 
-/// `to`, asking rotor to set the codepoint colibri named (decision 68). A datagram left Not-ECT
-/// asks for nothing, and the socket sends it unmarked.
-fn marked(to: udp.Outbound, ecn: udp.Ecn) udp.Outbound {
+/// `to`, sent to the address colibri named (decision 72) and asking rotor to set the codepoint it
+/// named (decision 68). A datagram left Not-ECT asks for nothing, and the socket sends it
+/// unmarked.
+fn addressed(to: udp.Outbound, outgoing: udp_peer.Outgoing) udp.Outbound {
     var held = to;
-    held.ecn = ecn;
-    held.flags.ecn = ecn != .not_ect;
+    held.peer = outgoing.to;
+    held.ecn = outgoing.ecn;
+    held.flags.ecn = outgoing.ecn != .not_ect;
     return held;
 }
 

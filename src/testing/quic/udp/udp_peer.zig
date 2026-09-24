@@ -23,12 +23,29 @@ pub const Error = quic.connection_datagram.Error || quic.connection_send.Error |
         SessionRefused,
     };
 
-/// A datagram `Peer.send` built, and the ECN codepoint colibri names for its IP header (decision
-/// 68).
+/// A datagram `Peer.send` built, the ECN codepoint colibri names for its IP header (decision
+/// 68), and the address colibri names for it (decision 72).
 pub const Outgoing = struct {
     octets: []const u8,
     ecn: udp.Ecn,
+    to: udp.Address,
 };
+
+const PeerAddress = quic.peer_address.PeerAddress;
+
+/// A socket address as colibri names a peer's (decision 72): four octets for IPv4 and sixteen for
+/// IPv6, and the port.
+pub fn peer_address(address: udp.Address) PeerAddress {
+    const len: usize = if (address.family == .ipv4) udp.Address.ipv4_bytes else address.bytes.len;
+    return PeerAddress.of(address.bytes[0..len], address.port);
+}
+
+/// The socket address colibri named, back in rotor's form.
+pub fn udp_address(address: PeerAddress) udp.Address {
+    if (address.len == udp.Address.ipv4_bytes) return udp.Address.ipv4(address.octets[0..udp.Address.ipv4_bytes].*, address.port);
+    assert(address.len == address.octets.len);
+    return udp.Address.ipv6(address.octets, address.port, 0);
+}
 
 const ReceivedEcn = quic.connection_receive.Datagram.Ecn;
 
@@ -146,6 +163,7 @@ pub const Peer = struct {
         identity: Identity,
         parameters: Parameters,
         now_ns: u64,
+        address: udp.Address,
     ) Error!void {
         const role = options.role;
         peer.connection.init(.{
@@ -162,6 +180,8 @@ pub const Peer = struct {
             // Decision 68: rotor reads each datagram's codepoint and sets the one colibri names.
             .ecn_reads = true,
             .ecn_marks = true,
+            // Decision 72: where the peer is, which a NAT may change under a client.
+            .peer_address = peer_address(address),
         });
         peer.session.init(options);
         peer.send_scratch = .{};
@@ -181,14 +201,14 @@ pub const Peer = struct {
             return error.SessionRefused;
     }
 
-    /// Takes one datagram the peer sent, which arrived with `ecn`. The suite opens it in place,
-    /// so `octets` changes.
-    pub fn receive(peer: *Peer, octets: []u8, ecn: ReceivedEcn, now_ns: u64) Error!quic.connection_datagram.Received {
+    /// Takes one datagram the peer sent from `from`, which arrived with `ecn`. The suite opens it
+    /// in place, so `octets` changes.
+    pub fn receive(peer: *Peer, octets: []u8, ecn: ReceivedEcn, from: udp.Address, now_ns: u64) Error!quic.connection_datagram.Received {
         return quic.connection_datagram.receive(
             &peer.connection,
             peer.session.suite(),
             peer.session.provider(),
-            .{ .octets = octets, .now_ns = now_ns, .ecn = ecn },
+            .{ .octets = octets, .now_ns = now_ns, .ecn = ecn, .from = peer_address(from) },
             &peer.scratch,
         );
     }
@@ -205,7 +225,7 @@ pub const Peer = struct {
             now_ns,
         ) orelse return null;
         assert(sent.len <= output.len);
-        return .{ .octets = output[0..sent.len], .ecn = sent_ecn(sent.ecn) };
+        return .{ .octets = output[0..sent.len], .ecn = sent_ecn(sent.ecn), .to = udp_address(sent.to) };
     }
 
     /// The instant this connection next wants to be called at (design §4.2), or null for none.
