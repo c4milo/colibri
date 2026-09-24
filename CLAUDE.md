@@ -290,6 +290,11 @@ Everything below exists but `tools/h3spec.sh` and `bench/run.sh`, which land wit
   `tools/ci.sh` runs it beside the loopback check. `tools/quic_aioquic.sh <checkout> [port]` runs
   the same endpoint against aioquic's, pinned and installed once into a cached virtual
   environment, in both directions; it also needs `python3`, and `tools/ci.sh` runs it too.
+- QIF tools: `zig build qif -- encode <input.qif> <output> <capacity> <blocked-streams>
+  <acknowledgment>` and `-- decode <input> <output.qif> <capacity> <blocked-streams>` are design
+  §9's two QPACK tools, over the "QPACK Offline Interop" format. `tools/qif_interop.sh` runs them
+  against ls-qpack, through the pylsqpack of the cached aioquic environment, in both directions
+  over the qifs inputs; it needs `python3`, and `tools/ci.sh` runs it.
 - QUIC Interop Runner: `tools/interop.sh <checkout> [peers] [tests]` builds the `colibri-qns` image
   from this working tree and the checkout, with chapulin built `TRUST=raw-ecdsa` because the
   runner's certificates fail the Web PKI profile, and runs it in the runner, pinned by commit, as a

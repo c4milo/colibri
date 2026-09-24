@@ -65,7 +65,7 @@ machine() {
 simulator_checks() {
   local mode
   for mode in "" "-Drelease"; do
-    for check in chunk connection tls; do
+    for check in chunk connection tls qpack; do
       zig build sim ${mode} -- "--${check}-check" 2>&1 | grep -E "^${check}:" || return 1
     done >"${scratch}/sim${mode}.txt"
   done
@@ -128,6 +128,13 @@ if [ -f "${chapulin}/bin/chapulin-quic.o" ]; then
   quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic_aioquic: " "${scratch}/last.log")"
 else
   quic_lines="No chapulin checkout with a QUIC object at ${chapulin}, so this run made no QUIC handshake."
+fi
+# Design §8 step 11: the QIF tools of design §9 against ls-qpack, through pylsqpack.
+if command -v python3 >/dev/null 2>&1; then
+  section "QIF interop, colibri against ls-qpack" tools/qif_interop.sh
+  qif_lines="$(grep -E "^qif_interop: ok" "${scratch}/last.log")"
+else
+  qif_lines="No python3 on PATH, so this run made no QIF interop."
 fi
 # Decision 67: the TLA+ specifications of spec/tla/, model-checked by TLC through pepegrillo.
 if command -v java >/dev/null 2>&1; then
@@ -197,6 +204,13 @@ fi
   echo "session of chapulin's \`TRANSPORT=quic ROLE=both\` object, finish a handshake and one stream."
   echo
   echo "${quic_lines}" | fenced
+  echo
+  echo "## QIF interop"
+  echo
+  echo "colibri's QIF tools and ls-qpack decode each other's files over the qpackers/qifs inputs"
+  echo "(docs/design.md §8 step 11)."
+  echo
+  echo "${qif_lines}" | fenced
   echo
   echo "## TLA+ models"
   echo
