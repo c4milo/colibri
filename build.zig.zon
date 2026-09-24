@@ -7,8 +7,8 @@
         // Developer tooling only, never linked into the library (decision 36). Lazy, and requested
         // only when colibri is the root build, so a project that depends on colibri never fetches it.
         .pepegrillo = .{
-            .url = "git+https://github.com/c4milo/pepegrillo#f512681ebe7bebe4967ac4d435b1b014403a241a",
-            .hash = "pepegrillo-0.0.0-axiFUBEBCACosqh8z-DdeIpRsD1B5g2_KwqZyYFeznIX",
+            .url = "git+https://github.com/c4milo/pepegrillo#49c9e9c387acfd5b62d7a7ea58b20c084e66c04c",
+            .hash = "pepegrillo-0.0.0-axiFUM-kCAC8o5-JAFYJ7bo5nSwL6aKjcxYN7ApI1HK3",
             .lazy = true,
         },
         // The event loop of `src/testing/`'s endpoints, never linked into the library
