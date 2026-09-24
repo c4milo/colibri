@@ -223,6 +223,30 @@ test "RFC 9000 §13.3: a flight larger than the window forgets only what it has 
     try testing.expectEqual(second_octet, test_stream.unsent()[0]);
 }
 
+/// A server's Handshake flight with the QUIC Interop Runner's nine-certificate chain, which RFC
+/// 9000 §13.3 and decision 64 may have it send whole again. Test-only.
+const runner_flight_len: usize = 10_240;
+/// How much of a flight one CRYPTO frame carries in the case below. Test-only.
+const frame_payload_len: usize = 1_100;
+
+test "decision 64: a 10 KB Handshake flight can be sent again from its first octet" {
+    test_stream.init();
+    var produced: usize = 0;
+    // Bounded by the flight: each pass produces and frames at least one octet.
+    while (produced < runner_flight_len) {
+        const room = test_stream.send_room();
+        const len = @min(room.len, runner_flight_len - produced, frame_payload_len);
+        try testing.expect(len > 0);
+        produce(&test_stream, first_octet, len);
+        test_stream.framed(len);
+        produced += len;
+    }
+    // A PTO declares every packet of the level lost, the first included, and the window still
+    // holds that packet's octets, so nothing is forgotten.
+    try testing.expect(test_stream.on_lost(0));
+    try testing.expectEqual(runner_flight_len, test_stream.unsent().len);
+}
+
 /// Octets the send-window cases write, distinct so a run that took the wrong one cannot pass.
 const first_octet: u8 = 0xa1;
 const second_octet: u8 = 0xb2;

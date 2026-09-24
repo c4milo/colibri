@@ -296,11 +296,12 @@ pub const receive_pool_len_default: usize = 1_048_576;
 
 /// Octets of its own handshake flow colibri keeps per encryption level, so a CRYPTO frame can be
 /// written again under a new packet number (RFC 9000 §13.3) and a client can repeat its first
-/// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it, so it is a judgement, made
-/// equal to the window §7.5 sets for the other direction: a flight that fits is never forgotten,
-/// and a longer one forgets the octets it has already framed rather than stalling. Three levels
-/// of it sit in every connection, which `Connection` pays for once.
-pub const crypto_send_buffer_len: usize = crypto_buffer_len;
+/// flight after a Retry (§17.2.5.3). Nothing in either RFC sizes it. Decision 64 has a PTO at a
+/// handshake level send that level's whole flight again, so a flight longer than this loses its
+/// early octets and closes the connection. 16 KiB holds a server's Handshake flight with a
+/// 10 KB certificate chain, the one the QUIC Interop Runner's amplification case sends. Three
+/// levels of it sit in every connection, which `Connection` pays for once.
+pub const crypto_send_buffer_len: usize = 16 * 1024;
 
 /// The smallest Stateless Reset (RFC 9000 §10.3): the 16-octet token, and five octets before it
 /// so the Unpredictable Bits field carries the 38 bits that make the datagram look like a valid
