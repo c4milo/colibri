@@ -357,6 +357,12 @@ pub const congestion_window_minimum_datagrams: u64 = 2;
 /// recommends at one half.
 pub const congestion_loss_reduction_divisor: u64 = 2;
 
+/// RFC 9000 §13.4.2: an endpoint "could set an ECT codepoint for only the first ten outgoing
+/// packets on a path, or for a period of three PTOs". Decision 69 ends a path's ECN test at
+/// whichever comes first.
+pub const ecn_testing_packets: u64 = 10;
+pub const ecn_testing_probe_timeouts: u64 = 3;
+
 /// How many packets one packet number space may hold outstanding, which bounds the table of
 /// RFC 9002 Appendix A.1.1. The RFC bounds `sent_packets` at nothing, so this bound is colibri's
 /// and a sender that reaches it waits for an acknowledgment rather than sending past it. It also

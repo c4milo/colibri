@@ -161,7 +161,7 @@ pub fn send(
     if (count == 0) return null;
     expand_last(connection, plans[0..count], planned_len, ceiling);
     var sent = try seal_all(connection, suite, scratch, plans[0..count], output);
-    sent.ecn = codepoint_of(connection);
+    sent.ecn = codepoint_of(connection, now_ns);
     const recorded = record_all(connection, plans[0..count], &sent, now_ns);
     if (window.past_window and recorded) connection.recovery.congestion.past_window_allowed = false;
     // After the records, because discarding the Initial keys discards the Initial space's records
@@ -284,7 +284,7 @@ fn record_all(connection: *Connection, plans: []const packet_build.Planned, sent
         const kind: space_module.Kind = @enumFromInt(@intFromEnum(packet.level));
         // RFC 9000 §10.2.1: a closing endpoint keeps nothing a CONNECTION_CLOSE does not need.
         if (!packet.in_flight or planned.carries_close) {
-            connection.recovery.on_packet_sent_unrecorded(kind, sent.ecn);
+            connection.recovery.on_packet_sent_unrecorded(kind, sent.ecn, now_ns);
             continue;
         }
         // `room_at` framed nothing at a level whose table was full, so the record fits.
@@ -295,12 +295,12 @@ fn record_all(connection: *Connection, plans: []const packet_build.Planned, sent
 }
 
 /// The codepoint the next datagram carries (decision 68). RFC 9000 §13.4.2: "The endpoint sets
-/// an ECT(0) codepoint in the IP header of early outgoing packets sent on a new path", and
-/// §13.4.2.2: once validation fails "It stops setting the ECT codepoint in IP packets that it
-/// sends". A caller that sets no codepoint gets Not-ECT, which is what it sends.
-fn codepoint_of(connection: *const Connection) Ecn {
+/// an ECT(0) codepoint in the IP header of early outgoing packets sent on a new path", and the
+/// path's test decides after that (decision 69). A caller that sets no codepoint gets Not-ECT,
+/// which is what it sends.
+fn codepoint_of(connection: *Connection, now_ns: u64) Ecn {
     if (!connection.ecn_marks) return .not_ect;
-    return if (connection.recovery.ecn_permitted()) .ect_0 else .not_ect;
+    return connection.recovery.ecn_codepoint(now_ns);
 }
 
 /// The record RFC 9002 Appendix A.1.1 keeps of `packet`, which went out in a datagram marked

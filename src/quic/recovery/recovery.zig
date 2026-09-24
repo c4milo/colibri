@@ -66,10 +66,10 @@ pub const Recovery = struct {
     /// this endpoint sent under each ECT codepoint. RFC 9002 Appendix B.2's `ecn_ce_counters` is
     /// `reported.ecn_ce`.
     ecn: [constants.packet_number_spaces]recovery_ecn.State,
-    /// RFC 9000 §13.4.2.2: false once validation failed, after which this endpoint "stops setting
-    /// the ECT codepoint in IP packets that it sends". §13.4.2 validates "for each network path",
-    /// and a connection holds one path here, so one answer covers the three spaces.
-    ecn_enabled: bool,
+    /// RFC 9000 Appendix A.4's state of the path, which says whether this endpoint marks ECT(0)
+    /// (decision 69). §13.4.2 validates "for each network path", and a connection holds one path
+    /// here, so one answer covers the three spaces.
+    ecn_path: recovery_ecn.Path,
 
     pub fn init(recovery: *Recovery, max_datagram_len: u64) void {
         recovery.rtt.init();
@@ -79,7 +79,7 @@ pub const Recovery = struct {
         for (&recovery.tables) |*table| table.init();
         recovery.largest_acknowledged = @splat(null);
         for (&recovery.ecn) |*state| state.init();
-        recovery.ecn_enabled = true;
+        recovery.ecn_path.init();
     }
 
     pub fn table_of(recovery: *Recovery, kind: Kind) *Table {
@@ -110,24 +110,38 @@ pub const Recovery = struct {
         return @min(recovery.congestion.available_len(recovery.in_flight_len()), recovery.pacer.credit_len);
     }
 
-    /// RFC 9000 §13.4.2.2: whether this endpoint may still set an ECT codepoint. The caller
-    /// writes the IP header, so it asks before it marks.
-    pub fn ecn_permitted(recovery: *const Recovery) bool {
-        return recovery.ecn_enabled;
+    /// RFC 9000 §13.4.2.2: whether validation failed, after which this endpoint "stops setting
+    /// the ECT codepoint in IP packets that it sends" for the rest of the connection.
+    pub fn ecn_failed(recovery: *const Recovery) bool {
+        return recovery.ecn_path.state == .failed;
+    }
+
+    /// The codepoint the next datagram carries at `now_ns`: ECT(0) while the path is testing or
+    /// capable, and Not-ECT otherwise (RFC 9000 Appendix A.4, decision 69). The caller writes the
+    /// IP header, so it asks before it marks.
+    pub fn ecn_codepoint(recovery: *Recovery, now_ns: u64) recovery_sent.Ecn {
+        const probe_timeout_ns = recovery.rtt.probe_timeout_ns(true);
+        return if (recovery.ecn_path.marks(now_ns, probe_timeout_ns)) .ect_0 else .not_ect;
     }
 
     /// A packet sent under `ecn` that no record keeps, such as one of ACK frames alone. RFC 9000
     /// §13.4.2.1 fails validation when a reported count "exceeds the total number of packets sent
     /// with each corresponding ECT codepoint", and the peer counts this packet too (§13.4.1).
-    pub fn on_packet_sent_unrecorded(recovery: *Recovery, kind: Kind, ecn: recovery_sent.Ecn) void {
+    pub fn on_packet_sent_unrecorded(recovery: *Recovery, kind: Kind, ecn: recovery_sent.Ecn, now_ns: u64) void {
+        recovery.count_marked(kind, ecn, now_ns);
+    }
+
+    /// RFC 9000 §13.4.2.1 compares what the peer reports against what this endpoint marked, and
+    /// decision 69's test counts the marked packets of the path.
+    fn count_marked(recovery: *Recovery, kind: Kind, ecn: recovery_sent.Ecn, now_ns: u64) void {
         recovery.ecn[@intFromEnum(kind)].on_packet_sent(ecn);
+        if (ecn == .ect_0 or ecn == .ect_1) recovery.ecn_path.on_marked_sent(now_ns);
     }
 
     /// RFC 9002 Appendix A.5's `OnPacketSent`.
     pub fn on_packet_sent(recovery: *Recovery, kind: Kind, sent: Record, now_ns: u64) Error!void {
         try recovery.table_of(kind).record(sent);
-        // RFC 9000 §13.4.2.1 compares what the peer reports against what this endpoint marked.
-        recovery.ecn[@intFromEnum(kind)].on_packet_sent(sent.ecn);
+        recovery.count_marked(kind, sent.ecn, now_ns);
         if (!sent.in_flight) return;
         // RFC 9002 Appendix A.5: a packet in flight sets the timer again.
         recovery.timer.armed_at_ns = now_ns;

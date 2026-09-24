@@ -171,7 +171,7 @@ test "RFC 9000 §13.4.2.2: counts that pass keep the marks, and a peer that repo
     _ = try ping_server(.ect_0);
     _ = try ping_server(.ect_0);
     _ = try acknowledge_client();
-    try testing.expect(client.recovery.ecn_permitted());
+    try testing.expect(!client.recovery.ecn_failed());
     try testing.expectEqual(Ecn.ect_0, (try ping_server(.ect_0)).ecn);
     // A server that reads no codepoint passes Not-ECT and reports no counts, so the ACK of a
     // packet sent ECT(0) fails validation (§13.4.2.1) and the client stops marking.
@@ -179,7 +179,7 @@ test "RFC 9000 §13.4.2.2: counts that pass keep the marks, and a peer that repo
     _ = try ping_server(.not_ect);
     _ = try ping_server(.not_ect);
     try testing.expectEqual(null, (try acknowledge_client()).ecn);
-    try testing.expect(!client.recovery.ecn_permitted());
+    try testing.expect(client.recovery.ecn_failed());
     try testing.expectEqual(Ecn.not_ect, (try ping_server(.not_ect)).ecn);
 }
 
@@ -195,5 +195,17 @@ test "RFC 9000 §13.4.2.1: a packet of ACK frames alone counts among the packets
     _ = try ping(&server, &client, .ect_0);
     // The client reports three ECT(0) packets, and the server sent three.
     try testing.expectEqual(3, ((try acknowledge(&client, &server)).ecn orelse return error.NoCounts).ect_0);
-    try testing.expect(server.recovery.ecn_permitted());
+    try testing.expect(!server.recovery.ecn_failed());
+}
+
+test "decision 69: past ten marked packets a datagram is Not-ECT until an ACK shows a marked one arrived" {
+    open_pair(both, reads_only);
+    // Bounded by the test's packet count.
+    for (0..constants.ecn_testing_packets) |_| {
+        try testing.expectEqual(Ecn.ect_0, (try ping_server(.ect_0)).ecn);
+    }
+    try testing.expectEqual(Ecn.not_ect, (try ping_server(.not_ect)).ecn);
+    // The server's ACK reports ten ECT(0) packets, which passes and makes the path capable.
+    try testing.expectEqual(constants.ecn_testing_packets, ((try acknowledge_client()).ecn orelse return error.NoCounts).ect_0);
+    try testing.expectEqual(Ecn.ect_0, (try ping_server(.ect_0)).ecn);
 }

@@ -27,11 +27,11 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0x8af4fcd1;
-pub const census_datagrams_expected: u64 = 13_300;
-pub const census_packets_expected: u64 = 13_343;
-pub const census_dropped_expected: u64 = 714;
-pub const census_marked_expected: u64 = 605;
+pub const census_crc32_expected: u32 = 0x1ce9af4a;
+pub const census_datagrams_expected: u64 = 13_215;
+pub const census_packets_expected: u64 = 13_242;
+pub const census_dropped_expected: u64 = 662;
+pub const census_marked_expected: u64 = 487;
 
 /// How a seed failed.
 pub const Violation = quic_invariants.Violation || error{
@@ -222,9 +222,9 @@ test "each way the driver fails is reported, so no report of it is unproved" {
 }
 
 /// The adversary check's census, pinned as the lossy check's is.
-pub const adversary_census_crc32_expected: u32 = 0x649000b0;
-pub const adversary_census_datagrams_expected: u64 = 5_216;
-pub const adversary_census_dropped_expected: u64 = 1_681;
+pub const adversary_census_crc32_expected: u32 = 0x33ea6f22;
+pub const adversary_census_datagrams_expected: u64 = 5_179;
+pub const adversary_census_dropped_expected: u64 = 1_685;
 
 test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
     check_storage.fault = .none;

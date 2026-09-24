@@ -166,13 +166,13 @@ fn process_ecn(
         // §13.4.2.2: "If validation fails, then the endpoint MUST disable ECN." The counts that
         // failed are not taken: they are what the endpoint stopped believing.
         .failed => {
-            held.ecn_enabled = false;
+            held.ecn_path.on_failed();
             return;
         },
         // §13.4.2.1: a frame that did not raise the largest acknowledged is not judged, and its
         // counts are older than what is already held.
         .not_judged => return,
-        .passed => {},
+        .passed => held.ecn_path.on_passed(removed.ect_0 +| removed.ect_1),
     }
     const counts = ack.ecn orelse return;
     const rose = counts.ecn_ce > state.reported.ecn_ce;

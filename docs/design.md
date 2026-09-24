@@ -2863,14 +2863,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `connection_timer` names the instant the pacer has earned the next one as `Kind.pacing`. A
     sender the pacer holds counts as using its window (§7.8). 6 mutations, 6 CAUGHT.
   - [Decision 68](decisions.md) gives the caller two flags. With `ecn_reads`, an ACK frame carries
-    RFC 9000 §13.4.1's counts. With `ecn_marks`, each datagram is ECT(0) until §13.4.2.1's
-    validation fails, and `Sent.ecn` names the codepoint. 11 mutations, 11 CAUGHT.
+    RFC 9000 §13.4.1's counts. With `ecn_marks`, `Sent.ecn` names the codepoint the caller sets.
+    11 mutations, 11 CAUGHT.
+  - [Decision 69](decisions.md) tests the path as RFC 9000 Appendix A.4 describes. The first ten
+    marked packets, or three PTOs, are the test. After it the endpoint sends Not-ECT until an
+    ACK frame that passes validation shows a marked packet arrived, and then marks again. A path
+    that drops marked packets therefore costs at most the test. 11 mutations, 11 CAUGHT.
 
   The QUIC check now marks, and its network sets ECN-CE on up to 100 datagrams in 1,000. Each
   seed ends with both endpoints' validation holding. Seed 0 found a defect: a packet of ACK frames
   alone was not counted as sent ECT(0), though the peer counts it, so the peer reported more
-  ECT(0) packets than the sender had counted. The census is now 13,300 datagrams, 13,343 packets,
-  714 dropped and 605 marked, crc32 `0x8af4fcd1`, in Debug and in ReleaseSafe on macOS arm64.
+  ECT(0) packets than the sender had counted. With decision 69 the census is 13,215 datagrams,
+  13,242 packets, 662 dropped and 487 marked ECN-CE, crc32 `0x1ce9af4a`, in Debug and in
+  ReleaseSafe on macOS arm64.
 
   The runner at `740c05a`, in Docker on macOS arm64, chapulin `cc88adb` built `TRUST=raw-ecdsa`:
 
@@ -2879,10 +2884,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | colibri, ngtcp2 | pass: ecn, longrtt, blackhole | pass: ecn, longrtt, blackhole |
   | quic-go | pass: longrtt, blackhole; ecn unsupported | pass: longrtt, blackhole; ecn unsupported |
 
-  In each `ecn` pass every datagram went out ECT(0), in both directions. The server binds the IPv4
-  wildcard for `ecn`: bound to `::`, it marked no datagram to an IPv4 client, and read no
-  codepoint from one. On macOS the endpoint's datagrams arrive Not-ECT, so validation fails on the
-  first ACK and the endpoint stops marking, which is what §13.4.2.2 asks.
+  In each `ecn` pass both sides marked, and no datagram carried ECN-CE. Before decision 69 every
+  datagram went out ECT(0). Now the datagrams between the test and the ACK that makes the path
+  capable go out Not-ECT: against itself, colibri's client sent 48 datagrams ECT(0) and 4
+  Not-ECT, and its server 87 and 2.
+
+  The server binds the IPv4 wildcard for `ecn`: bound to `::`, it marked no datagram to an IPv4
+  client, and read no codepoint from one. On macOS the endpoint's datagrams arrive Not-ECT, so
+  validation fails on the first ACK and the endpoint stops marking, which is what §13.4.2.2 asks.
 
   **Still owed:** `handshakeloss` between two colibri endpoints. It failed one run on
   2026-09-23: a burst of loss dropped every copy of the server's first flight, and decision 65's

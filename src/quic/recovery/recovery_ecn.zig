@@ -9,10 +9,15 @@
 //! thing the caller does and colibri only reports.
 //!
 //! **The counts are per space and the verdict is per path.** §13.4.2 validates "for each network
-//! path", and §19.3.2 carries the counts per packet number space, so the state below is one per
-//! space and the endpoint holds a single answer over them.
+//! path", and §19.3.2 carries the counts per packet number space, so `State` is one per space and
+//! `Path` is the endpoint's single answer over them.
+//!
+//! **A path is tested before it is trusted.** Decision 69 follows Appendix A.4: the first marked
+//! packets are a test, and past it the endpoint marks only once an acknowledgment shows a marked
+//! packet arrived.
 const std = @import("std");
 const assert = std.debug.assert;
+const constants = @import("../constants.zig");
 const frame_ack = @import("../frame/frame_ack.zig");
 const recovery_sent = @import("recovery_sent.zig");
 
@@ -106,6 +111,69 @@ fn remarking_verdict(state: *const State, held: EcnCounts, removed: Removed) Ver
     if (held.ect_1 -| state.reported.ect_1 +| ce_rise < removed.ect_1) return .failed;
     return .passed;
 }
+
+/// RFC 9000 Appendix A.4's states of a path: "On paths with a "testing" or "capable" state, the
+/// endpoint sends packets with an ECT marking ... otherwise, the endpoint sends unmarked packets."
+pub const PathState = enum { testing, unknown, capable, failed };
+
+/// What one path remembers of its ECN test (decision 69).
+pub const Path = struct {
+    state: PathState,
+    /// Packets sent marked while testing, which `ecn_testing_packets` bounds.
+    tested_packets: u64,
+    /// The instant the first marked packet went out, or null before one has. The test ends
+    /// `ecn_testing_probe_timeouts` PTOs after it.
+    testing_since_ns: ?u64,
+    /// Whether an ACK frame that passed validation acknowledged a packet sent marked, which is
+    /// what Appendix A.4 asks before an unknown path becomes capable.
+    marked_acknowledged: bool,
+
+    pub fn init(path: *Path) void {
+        path.* = .{ .state = .testing, .tested_packets = 0, .testing_since_ns = null, .marked_acknowledged = false };
+    }
+
+    /// Whether the next datagram carries ECT(0). The test ends at the first datagram after its
+    /// packets or its period are spent. `probe_timeout_ns` is RFC 9002 §6.2.1's period now.
+    pub fn marks(path: *Path, now_ns: u64, probe_timeout_ns: u64) bool {
+        if (path.state == .testing and path.testing_spent(now_ns, probe_timeout_ns)) {
+            // Appendix A.4: "After the testing period ends, the ECN state for the path becomes
+            // "unknown"."
+            path.state = .unknown;
+        }
+        return path.state == .testing or path.state == .capable;
+    }
+
+    /// RFC 9000 §13.4.2: "the first ten outgoing packets on a path, or ... a period of three
+    /// PTOs", whichever is spent first (decision 69).
+    fn testing_spent(path: *const Path, now_ns: u64, probe_timeout_ns: u64) bool {
+        if (path.tested_packets >= constants.ecn_testing_packets) return true;
+        const since_ns = path.testing_since_ns orelse return false;
+        return now_ns -| since_ns >= constants.ecn_testing_probe_timeouts *| probe_timeout_ns;
+    }
+
+    /// Counts one packet sent marked ECT at `now_ns`.
+    pub fn on_marked_sent(path: *Path, now_ns: u64) void {
+        assert(path.state == .testing or path.state == .capable);
+        if (path.state != .testing) return;
+        if (path.testing_since_ns == null) path.testing_since_ns = now_ns;
+        path.tested_packets +|= 1;
+    }
+
+    /// An ACK frame whose counts passed §13.4.2.1, which newly acknowledged `marked` packets
+    /// sent with an ECT codepoint.
+    pub fn on_passed(path: *Path, marked: u64) void {
+        if (marked > 0) path.marked_acknowledged = true;
+        // Appendix A.4: "From the "unknown" state, successful validation of the ECN counts in an
+        // ACK frame ... causes the ECN state for the path to become "capable", unless no marked
+        // packet has been acknowledged."
+        if (path.state == .unknown and path.marked_acknowledged) path.state = .capable;
+    }
+
+    /// §13.4.2.2: "If validation fails, then the endpoint MUST disable ECN." No state leaves it.
+    pub fn on_failed(path: *Path) void {
+        path.state = .failed;
+    }
+};
 
 test {
     _ = @import("recovery_ecn_test.zig");

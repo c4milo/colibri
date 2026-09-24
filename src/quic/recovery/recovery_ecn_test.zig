@@ -1,5 +1,7 @@
-//! The tests of `recovery_ecn.zig`: RFC 9000 §13.4.2.1's checks, one case per sentence.
+//! The tests of `recovery_ecn.zig`: RFC 9000 §13.4.2.1's checks, one case per sentence, and the
+//! path's test of decision 69.
 const std = @import("std");
+const constants = @import("../constants.zig");
 const frame_ack = @import("../frame/frame_ack.zig");
 const recovery_sent = @import("recovery_sent.zig");
 const recovery_ecn = @import("recovery_ecn.zig");
@@ -113,4 +115,68 @@ test "RFC 9000 §13.4.2.1: counts larger than what was acknowledged are permitte
     // ECN counts are permitted to be larger than the total number of packets that are
     // acknowledged."
     try testing.expectEqual(Verdict.passed, recovery_ecn.validate(&test_state, counts_of(4, 0, 0), acknowledged(1, 0), true));
+}
+
+var test_path: recovery_ecn.Path = undefined;
+
+/// A Probe Timeout the path tests use, and the instant their first marked packet goes out.
+/// Test-only.
+const test_probe_timeout_ns: u64 = 1_000_000_000;
+const test_start_ns: u64 = 5_000;
+
+/// Sends `count` marked packets at `now_ns`, each after asking whether it may mark. Test-only.
+fn send_marked(count: u64, now_ns: u64) !void {
+    for (0..count) |_| {
+        try testing.expect(test_path.marks(now_ns, test_probe_timeout_ns));
+        test_path.on_marked_sent(now_ns);
+    }
+}
+
+test "decision 69: the test ends after ten marked packets, and the path marks again once one is acknowledged" {
+    test_path.init();
+    try send_marked(constants.ecn_testing_packets, test_start_ns);
+    // RFC 9000 Appendix A.4: past the test the path is unknown, which sends unmarked packets.
+    try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
+    try testing.expectEqual(recovery_ecn.PathState.unknown, test_path.state);
+    // "unless no marked packet has been acknowledged": a frame that passed and acknowledged no
+    // marked packet leaves the path unknown.
+    test_path.on_passed(0);
+    try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
+    test_path.on_passed(1);
+    try testing.expectEqual(recovery_ecn.PathState.capable, test_path.state);
+    try testing.expect(test_path.marks(test_start_ns, test_probe_timeout_ns));
+}
+
+test "decision 69: the test ends three PTOs after the first marked packet" {
+    test_path.init();
+    // No marked packet has gone out, so no period has started, however late the first one is.
+    try testing.expect(test_path.marks(test_start_ns, test_probe_timeout_ns));
+    try send_marked(1, test_start_ns);
+    const end_ns = test_start_ns + constants.ecn_testing_probe_timeouts * test_probe_timeout_ns;
+    try testing.expect(test_path.marks(end_ns - 1, test_probe_timeout_ns));
+    try testing.expect(!test_path.marks(end_ns, test_probe_timeout_ns));
+}
+
+test "decision 69: a marked packet acknowledged during the test makes the path capable at the next frame that passes" {
+    test_path.init();
+    try send_marked(1, test_start_ns);
+    test_path.on_passed(1);
+    // Still testing: Appendix A.4 makes a path capable from unknown, which comes after the test.
+    try testing.expectEqual(recovery_ecn.PathState.testing, test_path.state);
+    try send_marked(constants.ecn_testing_packets - 1, test_start_ns);
+    try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
+    test_path.on_passed(0);
+    try testing.expect(test_path.marks(test_start_ns, test_probe_timeout_ns));
+}
+
+test "RFC 9000 §13.4.2.2: a failed path never marks again" {
+    test_path.init();
+    try send_marked(constants.ecn_testing_packets, test_start_ns);
+    try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
+    test_path.on_passed(1);
+    try testing.expect(test_path.marks(test_start_ns, test_probe_timeout_ns));
+    test_path.on_failed();
+    try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
+    test_path.on_passed(1);
+    try testing.expect(!test_path.marks(test_start_ns, test_probe_timeout_ns));
 }

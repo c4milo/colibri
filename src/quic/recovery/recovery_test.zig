@@ -394,7 +394,7 @@ test "A.7: the backoff starts again only once the peer has validated the address
 test "RFC 9000 §13.4.2.2: validation failing disables ECN and takes no counts" {
     test_recovery.init(test_datagram_len);
     try send_marked(.application, 0, 2, test_start_ns);
-    try testing.expect(test_recovery.ecn_permitted());
+    try testing.expect(!test_recovery.ecn_failed());
     const at_ns = test_start_ns + test_round_trip_ns * 2;
     const window = test_recovery.congestion.window;
 
@@ -403,7 +403,7 @@ test "RFC 9000 §13.4.2.2: validation failing disables ECN and takes no counts" 
     forged.ecn = .{ .ect_0 = 2, .ect_1 = 1, .ecn_ce = 0 };
     _ = recovery_ack.on_ack_received(&test_recovery, .application, forged, .full, at_ns, &test_acknowledged, &test_lost);
     // §13.4.2.2: "If validation fails, then the endpoint MUST disable ECN."
-    try testing.expect(!test_recovery.ecn_permitted());
+    try testing.expect(test_recovery.ecn_failed());
     // §13.4.2.1 validates "before using them", so a frame that failed leaves nothing behind and
     // RFC 9002 Appendix B.7's congestion event does not follow from counts nobody believed.
     try testing.expectEqual(0, test_recovery.ecn[@intFromEnum(Kind.application)].reported.ect_0);
@@ -421,7 +421,7 @@ test "RFC 9000 §13.4.2.1: an increase smaller than the packets acknowledged fai
     var short = ack_of(0, 1);
     short.ecn = .{ .ect_0 = 1, .ect_1 = 0, .ecn_ce = 0 };
     _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_acknowledged, &test_lost);
-    try testing.expect(!test_recovery.ecn_permitted());
+    try testing.expect(test_recovery.ecn_failed());
 }
 
 /// RFC 9000 §19.3.1 encodes each range after the first as a gap and a length, where
@@ -454,7 +454,7 @@ test "RFC 9000 §13.4.2.1: the markings are counted over the frame, not over one
     var short = ack_of_two(3);
     short.ecn = .{ .ect_0 = 1, .ect_1 = 0, .ecn_ce = 0 };
     _ = recovery_ack.on_ack_received(&test_recovery, .application, short, .full, at_ns, &test_acknowledged, &test_lost);
-    try testing.expect(!test_recovery.ecn_permitted());
+    try testing.expect(test_recovery.ecn_failed());
 }
 
 test "decision 66: a PTO takes the oldest ack-eliciting packets in flight, and no more" {

@@ -83,7 +83,7 @@ fn draw_schedule(random: *Random) Schedule {
 fn check_ecn(storage: *const Storage) Violation!void {
     // Bounded by the two sides.
     for (&storage.endpoints) |*endpoint| {
-        if (!endpoint.connection.recovery.ecn_permitted()) return Violation.EcnValidationFailed;
+        if (endpoint.connection.recovery.ecn_failed()) return Violation.EcnValidationFailed;
     }
 }
 
