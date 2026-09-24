@@ -170,7 +170,8 @@ fn on_event(event: udp.Event, now_ns: u64) void {
 fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     if (arguments == .server and answer_version(delivery)) return;
     const connection = connection_for(delivery.bytes) orelse accept(delivery, now_ns) orelse return;
-    _ = connection.peer.receive(delivery.bytes, now_ns) catch |failure| close_on(connection, failure);
+    const ecn = udp_peer.received_ecn(&delivery.from);
+    _ = connection.peer.receive(delivery.bytes, ecn, now_ns) catch |failure| close_on(connection, failure);
     // The step may have derived secrets. They go out now, because a server's connections step
     // through their handshakes together and the log holds one step's lines, not a run's.
     udp_identity.write_keylog();
@@ -305,10 +306,19 @@ fn flush(connection: *Connection, now_ns: u64) void {
     const provider = stream_provider(connection);
     for (&slots, 0..) |*slot, index| {
         if (slot_busy[index]) continue;
-        const datagram = (connection.peer.send(provider, slot, now_ns) catch |failure|
+        const outgoing = (connection.peer.send(provider, slot, now_ns) catch |failure|
             fail("the send failed: {t}", .{failure})) orelse return;
-        send_from(index, datagram, connection.outbound);
+        send_from(index, outgoing.octets, marked(connection.outbound, outgoing.ecn));
     }
+}
+
+/// `to`, asking rotor to set the codepoint colibri named (decision 68). A datagram left Not-ECT
+/// asks for nothing, and the socket sends it unmarked.
+fn marked(to: udp.Outbound, ecn: udp.Ecn) udp.Outbound {
+    var held = to;
+    held.ecn = ecn;
+    held.flags.ecn = ecn != .not_ect;
+    return held;
 }
 
 /// Hands one slot's datagram to Rotor, bound for `to`.

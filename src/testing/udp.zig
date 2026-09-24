@@ -18,7 +18,10 @@ const constants = @import("constants.zig");
 pub const Address = rotor.Address;
 pub const Event = rotor.Event;
 pub const Outbound = rotor.datagram.Outbound;
+pub const Received = rotor.datagram.Received;
 pub const Delivery = rotor.Delivery;
+/// A datagram's ECN codepoint, as rotor reads and sets it in the IP header.
+pub const Ecn = rotor.datagram.Ecn;
 
 /// The loop's options. One multishot receive and the sends in flight.
 const loop_options: rotor.Loop.Options = .{ .operations = constants.udp_operations_max };

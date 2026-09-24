@@ -23,6 +23,37 @@ pub const Error = quic.connection_datagram.Error || quic.connection_send.Error |
         SessionRefused,
     };
 
+/// A datagram `Peer.send` built, and the ECN codepoint colibri names for its IP header (decision
+/// 68).
+pub const Outgoing = struct {
+    octets: []const u8,
+    ecn: udp.Ecn,
+};
+
+const ReceivedEcn = quic.connection_receive.Datagram.Ecn;
+
+/// The codepoint rotor read off a datagram's IP header, as colibri names it (RFC 9000 §13.4), or
+/// Not-ECT when the kernel reported none.
+pub fn received_ecn(from: *const udp.Received) ReceivedEcn {
+    if (!from.flags.ecn) return .not_ect;
+    return switch (from.ecn) {
+        .not_ect => .not_ect,
+        .ect0 => .ect_0,
+        .ect1 => .ect_1,
+        .ce => .ecn_ce,
+    };
+}
+
+/// The codepoint colibri named for a datagram, as rotor sets it (RFC 9000 §13.4).
+fn sent_ecn(ecn: quic.connection_send.Ecn) udp.Ecn {
+    return switch (ecn) {
+        .not_ect => .not_ect,
+        .ect_0 => .ect0,
+        .ect_1 => .ect1,
+        .ecn_ce => .ce,
+    };
+}
+
 /// The connection IDs a connection starts from (RFC 9000 §7.2, §7.3).
 pub const Identity = struct {
     /// The Source Connection ID this endpoint puts in its Initial packets.
@@ -128,6 +159,9 @@ pub const Peer = struct {
                 .retry_source = identity.retry_source,
             },
             .receive = peer.pool.storage(),
+            // Decision 68: rotor reads each datagram's codepoint and sets the one colibri names.
+            .ecn_reads = true,
+            .ecn_marks = true,
         });
         peer.session.init(options);
         peer.send_scratch = .{};
@@ -147,19 +181,20 @@ pub const Peer = struct {
             return error.SessionRefused;
     }
 
-    /// Takes one datagram the peer sent. The suite opens it in place, so `octets` changes.
-    pub fn receive(peer: *Peer, octets: []u8, now_ns: u64) Error!quic.connection_datagram.Received {
+    /// Takes one datagram the peer sent, which arrived with `ecn`. The suite opens it in place,
+    /// so `octets` changes.
+    pub fn receive(peer: *Peer, octets: []u8, ecn: ReceivedEcn, now_ns: u64) Error!quic.connection_datagram.Received {
         return quic.connection_datagram.receive(
             &peer.connection,
             peer.session.suite(),
             peer.session.provider(),
-            .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect },
+            .{ .octets = octets, .now_ns = now_ns, .ecn = ecn },
             &peer.scratch,
         );
     }
 
     /// Builds the next datagram into `output` and returns it, or null when nothing is owed.
-    pub fn send(peer: *Peer, stream_provider: StreamProvider, output: []u8, now_ns: u64) Error!?[]const u8 {
+    pub fn send(peer: *Peer, stream_provider: StreamProvider, output: []u8, now_ns: u64) Error!?Outgoing {
         const sent = try quic.connection_send.send(
             &peer.connection,
             peer.session.suite(),
@@ -170,7 +205,7 @@ pub const Peer = struct {
             now_ns,
         ) orelse return null;
         assert(sent.len <= output.len);
-        return output[0..sent.len];
+        return .{ .octets = output[0..sent.len], .ecn = sent_ecn(sent.ecn) };
     }
 
     /// The instant this connection next wants to be called at (design §4.2), or null for none.
