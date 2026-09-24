@@ -1542,8 +1542,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     loss pattern its seeds never produced: a network that drops every packet of ACK frames alone.
     Random loss rarely drops every acknowledgment in a row. TLC explores every behavior of a
     model, so it finds such a pattern at once. `spec/tla/probe_timeout/ProbeTimeout.tla` models
-    what the probes of a PTO carry. With PING probes, TLC finds a lost frame never sent again. With entries 64
-    and 66, it finds every frame delivered.
+    what the probes of a PTO carry. With PING probes, TLC finds a lost frame never sent again.
+    With entries 64 and 66, it finds every frame delivered.
 
     `zig build tla` runs pepegrillo's `tla` tool, configured in `tools/tla.zig`. It fetches
     `tla2tools.jar` from tlaplus's v1.7.4 release, the last one not marked prerelease, once into
@@ -1565,3 +1565,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     pinned hash already fixes. Running the models by hand alone lets a specification fall out of
     date with no one noticing.
 
+68. **A caller says, with two flags, whether it reads received ECN codepoints and whether it sets
+    them on what it sends.** Ruled by the owner on 2026-09-24.
+
+    RFC 9000 §13.4 splits ECN into two halves, and each needs something only a socket has.
+    Reporting ECN counts in ACK frames (§13.4.1) needs the codepoint of every received datagram,
+    and "If an endpoint does not implement ECN support or does not have access to received ECN
+    codepoints, it does not process or report ECN". Marking packets ECT(0) and validating the path
+    (§13.4.2) needs the codepoint set on every sent datagram. colibri owns no socket
+    (non-negotiable 1), so the caller says which halves it can do:
+    - `ecn_reads`: the caller passes each datagram's real codepoint, and colibri reports the counts
+      in its ACK frames.
+    - `ecn_marks`: colibri names in `Sent` the codepoint the caller sets on the datagram. It is
+      ECT(0) while §13.4.2's validation holds, and Not-ECT once validation fails (§13.4.2.2).
+
+    Both default to false, which is what colibri did before: no report and no mark.
+
+    The alternative refused: one flag for both halves. A caller whose socket can do only one half
+    would then get neither, though the RFC treats the two as separate.
