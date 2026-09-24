@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# A colibri hq-interop client fetches files from a colibri hq-interop server over real UDP on
-# 127.0.0.1, both over chapulin's QUIC mode and Rotor's loop. Part of design §8 step 9e. Each
-# file must arrive octet for octet, and a client with `resumption` must resume its first
-# connection's session on its second (RFC 9846 §2.2).
+# A colibri client fetches files from a colibri server over real UDP on 127.0.0.1, over
+# hq-interop and over h3, both over chapulin's QUIC mode and Rotor's loop. Part of design §8 steps
+# 9e and 12. Each file must arrive octet for octet, and a client with `resumption` must resume its
+# first connection's session on its second (RFC 9846 §2.2).
 #
 # It needs a Go toolchain, for the identity, and a chapulin checkout whose QUIC object was built
 # with `make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib` and copied to
@@ -98,6 +98,48 @@ fi
 if ! grep -q StreamReset "$scratch/missing.log"; then
   echo "quic_udp: a missing file did not reset its stream:" >&2
   cat "$scratch/missing.log" >&2
+  exit 1
+fi
+kill "$server_pid" 2>/dev/null || true
+server_pid=""
+# The same three files over h3 (design §8 step 12): the server serves h3 to a client that asks
+# for it by ALPN, and a path it does not hold is answered 404, which the client reports.
+rm -f "$scratch/downloads/small" "$scratch/downloads/medium" "$scratch/downloads/large"
+start_server once
+if ! client h3 /small /medium /large >"$scratch/h3.log" 2>&1; then
+  echo "quic_udp: the h3 client failed:" >&2
+  cat "$scratch/h3.log" "$scratch/server.log" >&2
+  exit 1
+fi
+cat "$scratch/h3.log"
+grep -q "alpn=h3" "$scratch/h3.log" || {
+  echo "quic_udp: the h3 client did not negotiate h3" >&2
+  exit 1
+}
+for file in small medium large; do
+  if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
+    echo "quic_udp: $file arrived over h3 different from what the server holds" >&2
+    exit 1
+  fi
+done
+# The client's close, with H3_NO_ERROR (RFC 9114 §5.2), ends the server's connection too.
+for _ in $(seq 1 50); do
+  kill -0 "$server_pid" 2>/dev/null || break
+  sleep 0.1
+done
+if kill -0 "$server_pid" 2>/dev/null; then
+  echo "quic_udp: the server never saw the h3 client's close" >&2
+  exit 1
+fi
+server_pid=""
+start_server once
+if client h3 /small /missing >"$scratch/h3_missing.log" 2>&1; then
+  echo "quic_udp: the h3 client fetched a file the server does not hold" >&2
+  exit 1
+fi
+if ! grep -q ResponseRefused "$scratch/h3_missing.log"; then
+  echo "quic_udp: a missing file was not refused over h3:" >&2
+  cat "$scratch/h3_missing.log" >&2
   exit 1
 fi
 kill "$server_pid" 2>/dev/null || true

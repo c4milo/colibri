@@ -64,7 +64,7 @@ core, wire, sim, h2, qpack, h3, quic <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2         <- testing, testing_client
-h2, rotor        <- testing_udp
+h2, h3, rotor    <- testing_udp
 core, qpack      <- testing_qif
 ```
 
@@ -88,7 +88,7 @@ core, qpack      <- testing_qif
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
 | `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
 | `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over chapulin's QUIC mode in one process | `h2` for the shared constants, and `quic` | — |
-| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop server and client, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)), and the one module that imports Rotor | `h2` for the shared constants, `quic`, and `rotor` | — |
+| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)), and the one module that imports Rotor | `h2` for the shared constants, `h3` from step 12, `quic`, and `rotor` | — |
 
 The architecture depends on three of these edges and forbids one.
 

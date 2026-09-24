@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# colibri's hq-interop endpoint against aioquic's, in both directions, over UDP on 127.0.0.1.
-# Part of design §8 step 9e. It is the first check in which colibri's QUIC connection, and
-# chapulin's QUIC mode beneath it, meet another implementation: a shared misreading of an RFC
-# passes the loopback and tools/quic_udp.sh, and fails here.
+# colibri's UDP QUIC endpoint against aioquic's, in both directions, over UDP on 127.0.0.1: over
+# hq-interop, design §8 step 9e, and over h3, step 12. It is the first check in which colibri's
+# QUIC connection, and chapulin's QUIC mode beneath it, meet another implementation: a shared
+# misreading of an RFC passes the loopback and tools/quic_udp.sh, and fails here. Over h3 both
+# ends advertise a QPACK dynamic table, so colibri's QPACK meets ls-qpack's too.
 #
 # It needs python3, a Go toolchain for the identity, and a chapulin checkout whose QUIC object
 # was built with `make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib` and copied
@@ -37,9 +38,11 @@ if [ ! -x "$venv/bin/python" ]; then
   "$venv/bin/pip" install -q "aioquic==${aioquic_version}"
 fi
 peer=("$venv/bin/python" tools/quic_interop/hq_peer.py)
+h3_peer=("$venv/bin/python" tools/quic_interop/h3_peer.py)
 export HQ_PEER_SCRATCH="$scratch"
 
-mkdir -p "$scratch/www" "$scratch/from_aioquic" "$scratch/from_colibri"
+mkdir -p "$scratch/www" "$scratch/from_aioquic" "$scratch/from_colibri" "$scratch/h3_from_aioquic" \
+  "$scratch/h3_from_colibri"
 head -c 1000 /dev/urandom >"$scratch/www/small"
 head -c 100000 /dev/urandom >"$scratch/www/medium"
 head -c 3000000 /dev/urandom >"$scratch/www/large"
@@ -68,45 +71,59 @@ compare() {
   echo "quic_aioquic: $direction: every file arrived octet for octet"
 }
 
-# colibri's client against aioquic's server.
-"${peer[@]}" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" >"$scratch/aioquic.log" 2>&1 &
-server_pid=$!
-await_listening "$scratch/aioquic.log"
-if ! ./zig-out/bin/quic-udp client 127.0.0.1 "$port" "$scratch/identity" "$hostname" "$(date +%s)" \
-  "$scratch/from_aioquic" /small /medium /large; then
-  echo "quic_aioquic: colibri's client failed; aioquic's server said:" >&2
-  cat "$scratch/aioquic.log" >&2
-  exit 1
-fi
-kill "$server_pid" 2>/dev/null || true
-server_pid=""
-compare "$scratch/from_aioquic" "colibri client, aioquic server"
+# colibri's client against aioquic's `server` program, into `into`, with the client's options.
+against_aioquic_server() {
+  local into="$1" direction="$2"
+  shift 2
+  "${active_peer[@]}" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" >"$scratch/aioquic.log" 2>&1 &
+  server_pid=$!
+  await_listening "$scratch/aioquic.log"
+  if ! ./zig-out/bin/quic-udp client 127.0.0.1 "$port" "$scratch/identity" "$hostname" "$(date +%s)" \
+    "$into" "$@" /small /medium /large; then
+    echo "quic_aioquic: $direction: colibri's client failed; aioquic's server said:" >&2
+    cat "$scratch/aioquic.log" >&2
+    exit 1
+  fi
+  kill "$server_pid" 2>/dev/null || true
+  server_pid=""
+  compare "$into" "$direction"
+}
 
-# aioquic's client against colibri's server, which exits once its connection ends.
-./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" once \
-  >"$scratch/colibri.log" 2>&1 &
-server_pid=$!
-await_listening "$scratch/colibri.log"
-if ! "${peer[@]}" client 127.0.0.1 "$port" "$scratch/identity" "$hostname" "$scratch/from_colibri" \
-  /small /medium /large; then
-  echo "quic_aioquic: aioquic's client failed; colibri's server said:" >&2
-  cat "$scratch/colibri.log" >&2
-  exit 1
-fi
-# aioquic's CONNECTION_CLOSE ends colibri's connection (RFC 9000 §10.2.2).
-for _ in $(seq 1 50); do
-  kill -0 "$server_pid" 2>/dev/null || break
-  sleep 0.1
-done
-if kill -0 "$server_pid" 2>/dev/null; then
-  echo "quic_aioquic: colibri's server never saw aioquic's close" >&2
-  exit 1
-fi
-if ! wait "$server_pid"; then
-  echo "quic_aioquic: colibri's server failed:" >&2
-  cat "$scratch/colibri.log" >&2
-  exit 1
-fi
-server_pid=""
-compare "$scratch/from_colibri" "aioquic client, colibri server"
+# aioquic's `client` program against colibri's server, which exits once its connection ends.
+against_colibri_server() {
+  local into="$1" direction="$2"
+  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" once \
+    >"$scratch/colibri.log" 2>&1 &
+  server_pid=$!
+  await_listening "$scratch/colibri.log"
+  if ! "${active_peer[@]}" client 127.0.0.1 "$port" "$scratch/identity" "$hostname" "$into" \
+    /small /medium /large; then
+    echo "quic_aioquic: $direction: aioquic's client failed; colibri's server said:" >&2
+    cat "$scratch/colibri.log" >&2
+    exit 1
+  fi
+  # aioquic's CONNECTION_CLOSE ends colibri's connection (RFC 9000 §10.2.2).
+  for _ in $(seq 1 50); do
+    kill -0 "$server_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$server_pid" 2>/dev/null; then
+    echo "quic_aioquic: $direction: colibri's server never saw aioquic's close" >&2
+    exit 1
+  fi
+  if ! wait "$server_pid"; then
+    echo "quic_aioquic: $direction: colibri's server failed:" >&2
+    cat "$scratch/colibri.log" >&2
+    exit 1
+  fi
+  server_pid=""
+  compare "$into" "$direction"
+}
+
+active_peer=("${peer[@]}")
+against_aioquic_server "$scratch/from_aioquic" "colibri client, aioquic server"
+against_colibri_server "$scratch/from_colibri" "aioquic client, colibri server"
+active_peer=("${h3_peer[@]}")
+against_aioquic_server "$scratch/h3_from_aioquic" "h3, colibri client, aioquic server" h3
+against_colibri_server "$scratch/h3_from_colibri" "h3, aioquic client, colibri server"
 echo "quic_aioquic: ok, aioquic ${aioquic_version}"

@@ -12,6 +12,8 @@ pub const hq = @import("quic/hq/hq.zig");
 pub const hq_file = @import("quic/hq/hq_file.zig");
 pub const hq_server = @import("quic/hq/hq_server.zig");
 pub const hq_client = @import("quic/hq/hq_client.zig");
+pub const h3_server = @import("quic/h3/h3_server.zig");
+pub const h3_client = @import("quic/h3/h3_client.zig");
 pub const udp_peer = @import("quic/udp/udp_peer.zig");
 pub const udp_arguments = @import("quic/udp/udp_arguments.zig");
 pub const udp_identity = @import("quic/udp/udp_identity.zig");
@@ -34,6 +36,8 @@ test {
     _ = hq;
     _ = hq_server;
     _ = hq_client;
+    _ = h3_server;
+    _ = h3_client;
     _ = udp_peer;
     _ = udp_arguments;
     _ = udp_identity;

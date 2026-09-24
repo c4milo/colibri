@@ -247,12 +247,12 @@ pub const Peer = struct {
         return peer.connection.termination.state == .closed;
     }
 
-    /// Ends the connection with the application's NO_ERROR (RFC 9000 §10.2), which hq-interop
-    /// sends once every file has arrived.
-    pub fn close(peer: *Peer) void {
+    /// Ends the connection with the application's `code` (RFC 9000 §10.2): 0 for hq-interop once
+    /// every file has arrived, and h3's H3_NO_ERROR, which RFC 9114 §5.2 has a graceful close use.
+    pub fn close(peer: *Peer, code: u64) void {
         quic.connection_close.owe(&peer.connection, .{
             .layer = .application,
-            .error_code = 0,
+            .error_code = code,
             // RFC 9000 §19.19: only a transport close (type 0x1c) carries the Frame Type field.
             .frame_type = null,
             .reason = "",

@@ -254,6 +254,8 @@ pub fn add_testing_udp(
     const module = create(b, "src/testing/quic_udp.zig", target, optimize);
     module.addImport("h2", graph.h2);
     module.addImport("quic", graph.quic);
+    // The h3 server and client of design §9, ruled by the owner on 2026-09-24.
+    module.addImport("h3", graph.h3);
     module.addImport("rotor", rotor);
     module.link_libc = true;
     link_chapulin(b, module, chapulin.quic, "chapulin-quic.o", chapulin_quic_defines(chapulin.quic_trust));

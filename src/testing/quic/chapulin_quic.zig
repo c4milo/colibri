@@ -100,8 +100,9 @@ pub const Trust = union(enum) {
 
 pub const Options = struct {
     role: Role,
-    /// The one protocol offered or accepted (RFC 9001 §8.1 makes ALPN mandatory in QUIC).
-    alpn: []const u8,
+    /// The protocols offered, or accepted, in the order this endpoint prefers them (RFC 9001 §8.1
+    /// makes ALPN mandatory in QUIC). A server serves whichever it and its client share.
+    alpn: []const []const u8,
     /// chapulin's receive buffer, which bounds the largest handshake message it takes.
     receive: []u8,
     /// A client's trust, or null for a server.
@@ -128,7 +129,7 @@ pub const Session = struct {
     quic: c.ch_quic,
     config: c.ch_cfg,
     role: Role,
-    alpn: [1]c.ch_alpn_protocol,
+    alpn: [constants.quic_alpn_protocols_max]c.ch_alpn_protocol,
     chain: [constants.quic_chain_len_max]c.ch_cert,
     /// This endpoint's transport parameters. chapulin copies the pointer, not the octets.
     local_parameters: [c.CH_TRANSPORT_PARAMS_MAX]u8,
@@ -166,12 +167,15 @@ pub const Session = struct {
         session.keylog = options.keylog;
         session.ticket_store = options.ticket_store;
         session.code = ok;
-        session.alpn[0] = .{ .name = options.alpn.ptr, .name_len = options.alpn.len };
+        assert(options.alpn.len > 0 and options.alpn.len <= session.alpn.len);
+        for (options.alpn, session.alpn[0..options.alpn.len]) |name, *protocol| {
+            protocol.* = .{ .name = name.ptr, .name_len = name.len };
+        }
         session.config.buf = options.receive.ptr;
         session.config.buf_len = options.receive.len;
         session.config.io = @ptrCast(session);
         session.config.alpn_protocols = &session.alpn;
-        session.config.alpn_count = session.alpn.len;
+        session.config.alpn_count = options.alpn.len;
         session.config.on_level_ready = on_level_ready;
         session.config.on_transport_params = on_transport_params;
         if (options.ticket_store != null) session.config.on_ticket = on_ticket;

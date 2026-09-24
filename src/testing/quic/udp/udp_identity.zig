@@ -12,6 +12,7 @@ const chapulin_quic_suite = @import("../chapulin_quic_suite.zig");
 const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
 const hq = @import("../hq/hq.zig");
+const h2 = @import("h2");
 
 const c = chapulin_quic_c.c;
 
@@ -76,6 +77,20 @@ pub fn challenge_data() quic.connection_migration.ChallengeData {
     return data;
 }
 
+/// The value an h3 connection's reserved setting and error codes are drawn from (RFC 9114
+/// §7.2.4.1, §8.1), drawn at random, so each connection greases with its own.
+pub fn grease() u64 {
+    var value: u64 = undefined;
+    draw(std.mem.asBytes(&value)) catch unreachable;
+    return value;
+}
+
+/// The ALPN protocols a server offers: h3 first, then hq-interop, and it serves whichever its
+/// client asks for (RFC 9001 §8.1).
+const server_alpn = [_][]const u8{ &h2.tls.constants.alpn_h3, hq.alpn };
+const client_alpn_h3 = [_][]const u8{&h2.tls.constants.alpn_h3};
+const client_alpn_hq = [_][]const u8{hq.alpn};
+
 /// A spare connection ID and its stateless reset token (RFC 9000 §5.1.1, §10.3), drawn at random:
 /// §5.1 wants a connection ID unlinkable to the others, and §10.3 a token no one else can guess.
 pub fn spare_id(id: *[id_len]u8, token: *[quic.constants.stateless_reset_token_len]u8) void {
@@ -126,7 +141,7 @@ pub fn client_options(
 ) !chapulin_quic.Options {
     return .{
         .role = .client,
-        .alpn = hq.alpn,
+        .alpn = if (asked.h3) &client_alpn_h3 else &client_alpn_hq,
         .receive = receive,
         .trust = try client_trust(asked),
         .keylog = &keylog,
@@ -154,7 +169,7 @@ pub fn server_options(asked: udp_arguments.Server, receive: []u8, now_seconds: u
     const prefix = asked.identity_prefix;
     return .{
         .role = .server,
-        .alpn = hq.alpn,
+        .alpn = &server_alpn,
         .receive = receive,
         .identity = .{
             .chain = try read_chain(prefix),

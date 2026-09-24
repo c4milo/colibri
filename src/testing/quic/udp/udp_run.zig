@@ -1,5 +1,6 @@
-//! The loop of design §9's UDP QUIC endpoints (design §8 step 9e, piece 11): one Rotor socket, a
-//! table of connections, and the hq-interop server or client on top.
+//! The loop of design §9's UDP QUIC endpoints (design §8 step 9e, piece 11, and step 12): one
+//! Rotor socket, a table of connections, and on top the h3 or hq-interop server, whichever the
+//! client's ALPN asked for, or the client.
 //!
 //! Each turn waits in Rotor's `tick` until a datagram arrives or a connection's next deadline
 //! passes, then reads the instant that tick read (decision 63). It hands each datagram to the
@@ -23,17 +24,27 @@ const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
 const udp_identity = @import("udp_identity.zig");
 const hq_server = @import("../hq/hq_server.zig");
+const h3_server = @import("../h3/h3_server.zig");
+const h2 = @import("h2");
+const h3 = @import("h3");
 const udp_run_client = @import("udp_run_client.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
 const StreamProvider = quic.stream.stream_provider.StreamProvider;
 
+/// The application a server's connection runs, which its ALPN decides (RFC 9001 §8.1).
+const Application = enum { undecided, hq, h3 };
+
 /// One connection, and what the endpoint keeps beside it.
 pub const Connection = struct {
     live: bool,
     peer: udp_peer.Peer,
+    /// Which of the two a server's connection runs, once its handshake completed.
+    application: Application,
     /// A server's hq-interop state for this connection.
     server: hq_server.Server,
+    /// A server's h3 state for this connection.
+    h3_server: h3_server.Server,
     /// chapulin's buffer for this connection's handshake messages.
     receive: [constants.tls_receive_len]u8,
     /// Where this connection's datagrams go, which is where its client sent from.
@@ -211,6 +222,8 @@ fn connection_for(datagram: []const u8) ?*Connection {
 /// so the peer learns why, and the run is marked failed.
 fn close_on(connection: *Connection, failure: udp_peer.Error) void {
     std.debug.print("quic-udp: the connection failed: {t}\n", .{failure});
+    // RFC 9001 §4.8: a handshake the TLS stack failed names its alert, which the close carries.
+    if (connection.peer.connection.tls_alert) |alert| std.debug.print("quic-udp: the TLS alert was {t}\n", .{alert});
     // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR.
     const code = if (quic.connection_frames.member_of(quic.connection_datagram.Error, failure)) |held|
         quic.connection_datagram.connection_error_code(&connection.peer.connection, held)
@@ -279,6 +292,8 @@ fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Con
     connection.outbound = outbound_to(delivery.from.peer);
     connection.spare_ids_issued = false;
     connection.server.init(asked.www);
+    connection.h3_server.init(asked.www, udp_identity.grease());
+    connection.application = .undecided;
     connection.live = true;
     return connection;
 }
@@ -300,17 +315,29 @@ fn free_connection() ?*Connection {
 
 /// Frees a server's connection, counting what it served.
 fn end(connection: *Connection) void {
-    served += connection.server.served;
+    served += connection.server.served + connection.h3_server.served;
+    connection.h3_server.deinit();
     if (connection.peer.session.resumed()) resumed += 1;
     connection.live = false;
 }
 
 fn step_application(connection: *Connection) void {
     const held = &connection.peer.connection;
-    switch (arguments) {
-        .server => connection.server.step(held) catch |failure| fail("the server's streams failed: {t}", .{failure}),
-        .client => udp_run_client.step(connection),
+    if (arguments == .client) return udp_run_client.step(connection);
+    if (connection.application == .undecided) connection.application = application_of(connection);
+    switch (connection.application) {
+        .undecided => {},
+        .hq => connection.server.step(held) catch |failure| fail("the server's streams failed: {t}", .{failure}),
+        .h3 => connection.h3_server.step(held) catch |failure| fail("the h3 server failed: {t}", .{failure}),
     }
+}
+
+/// The application a server's connection runs: h3 when the client picked "h3", and hq-interop
+/// otherwise, once the handshake has settled which (RFC 9001 §8.1).
+fn application_of(connection: *Connection) Application {
+    if (!connection.peer.connection.handshake_complete) return .undecided;
+    const selected = connection.peer.session.provider().negotiated_alpn() orelse return .hq;
+    return if (std.mem.eql(u8, selected, &h2.tls.constants.alpn_h3)) .h3 else .hq;
 }
 
 /// Sends every datagram `connection` owes now, each from a free slot.
@@ -355,9 +382,11 @@ fn answer_version(delivery: udp.Delivery) bool {
 }
 
 fn stream_provider(connection: *Connection) StreamProvider {
-    return switch (arguments) {
-        .server => connection.server.provider(),
-        .client => udp_run_client.provider(),
+    if (arguments == .client) return udp_run_client.provider();
+    return switch (connection.application) {
+        .h3 => connection.h3_server.provider(),
+        // Before the handshake completes no stream carries anything.
+        .hq, .undecided => connection.server.provider(),
     };
 }
 
@@ -390,15 +419,24 @@ fn report() void {
     }
 }
 
-/// What the server grants (RFC 9000 §18.2): a request line per stream, `hq_requests_max`
-/// streams at once, and a connection window as large as its receive pool (decision 61).
-fn server_parameters() Parameters {
+/// What the server grants (RFC 9000 §18.2), which serves hq-interop and h3 alike because the
+/// parameters go out before ALPN settles which: `hq_requests_max` request streams at once, room
+/// on each for an h3 request with content, h3's unidirectional streams (RFC 9114 §6.2), and a
+/// connection window as large as its receive pool (decision 61).
+pub fn server_parameters() Parameters {
     var held = Parameters.initial();
     held.initial_max_data = quic.constants.receive_pool_len_default;
-    held.initial_max_stream_data_bidi_remote = constants.hq_request_len_max;
+    held.initial_max_stream_data_bidi_remote = constants.h3_stream_window;
+    held.initial_max_stream_data_uni = constants.h3_stream_window;
     held.initial_max_streams_bidi = constants.hq_requests_max;
+    held.initial_max_streams_uni = h3.constants.uni_streams_max;
     held.max_idle_timeout_ms = constants.quic_idle_timeout_ms;
     return held;
+}
+
+comptime {
+    // A server never grants more request streams than an h3 connection holds (RFC 9114 §6.1).
+    std.debug.assert(constants.hq_requests_max <= h3.constants.request_streams_max);
 }
 
 pub fn fail(comptime format: []const u8, values: anytype) noreturn {

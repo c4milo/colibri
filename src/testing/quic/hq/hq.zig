@@ -40,9 +40,10 @@ pub fn read_request(request: []const u8) Error![]const u8 {
 }
 
 /// Refuses a path with an empty, a "." or a ".." segment, a backslash, or an octet that is not
-/// visible ASCII, so joining it to the served directory names a file inside it.
-fn check_path(path: []const u8) Error!void {
-    assert(path.len > 0 and path[0] == '/');
+/// visible ASCII, so joining it to the served directory names a file inside it. The h3 server
+/// holds its paths to the same rule.
+pub fn check_path(path: []const u8) Error!void {
+    if (path.len == 0 or path[0] != '/') return error.RequestMalformed;
     for (path) |octet| {
         if (!std.ascii.isGraphical(octet) or octet == '\\') return error.PathRefused;
     }

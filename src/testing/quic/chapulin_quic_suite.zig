@@ -334,7 +334,7 @@ fn start_test_client() !quic.crypto.Suite {
         .{ .webpki = .{ .anchors = &anchors, .hostname = "localhost", .now_seconds = test_now_seconds } }
     else
         .{ .pinned = .{ .public_point = &placeholder_point } };
-    test_session.init(.{ .role = .client, .alpn = "hq-interop", .receive = &test_receive, .trust = trust });
+    test_session.init(.{ .role = .client, .alpn = &.{"hq-interop"}, .receive = &test_receive, .trust = trust });
     // chapulin copies the parameters into its ClientHello unread (RFC 9001 §8.2).
     try test_session.provider().set_transport_params(&placeholder);
     const suite = test_session.suite();

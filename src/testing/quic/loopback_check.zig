@@ -112,7 +112,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     };
     server.init(.{
         .role = .server,
-        .alpn = alpn,
+        .alpn = &.{alpn},
         .receive = &server_receive,
         .identity = identity,
         .keylog = &keylog,
@@ -120,7 +120,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     if (!server.session.check_identity()) fail("chapulin refused the server's identity", .{});
     client.init(.{
         .role = .client,
-        .alpn = alpn,
+        .alpn = &.{alpn},
         .receive = &client_receive,
         .trust = trust_of(&anchors, asked),
         .keylog = &keylog,

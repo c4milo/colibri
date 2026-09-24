@@ -217,6 +217,27 @@ pub const quic_chain_len_max: usize = 16;
 /// The longest hq-interop request line an endpoint reads or writes: `GET `, a path and CRLF. The
 /// runner's paths are a directory and a random file name, far shorter than this.
 pub const hq_request_len_max: usize = 1024;
+/// The frames the h3 endpoint keeps for one request stream until it closes (decision 79): a
+/// response's HEADERS frame and its DATA frame's header at a server, and a request's HEADERS frame
+/// at a client, whose `:authority` is the host name.
+pub const h3_response_prefix_len_max: usize = 256;
+pub const h3_request_prefix_len_max: usize = 1024;
+/// The window each endpoint grants a peer's stream beyond the request lines hq-interop sends:
+/// an h3 request's content and the peer's h3 control and QPACK streams. RFC 9114 §6.2 asks for "at
+/// least 1,024 bytes" on each unidirectional stream.
+pub const h3_stream_window: u64 = 65_536;
+
+/// The QPACK settings the h3 endpoint's decoder advertises (RFC 9204 §5), so its peer's encoder
+/// uses a dynamic table toward it: the most blocked streams colibri holds, and a table that size.
+pub const h3_qpack_capacity: u64 = 4096;
+pub const h3_qpack_blocked_streams: u64 = 16;
+
+/// The body the h3 server answers `/` with, as design §9's h2 server answers `GET /`.
+pub const h3_root_body = "colibri\n";
+
+/// The protocols one QUIC session offers at most: a server offers h3 and hq-interop, and serves
+/// whichever its client picked (RFC 9001 §8.1).
+pub const quic_alpn_protocols_max: usize = 2;
 
 /// Requests the hq-interop server answers at once, which is the `initial_max_streams_bidi` it
 /// grants: one slot, with its request line, per stream the client may have open.
