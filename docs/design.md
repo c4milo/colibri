@@ -3126,6 +3126,38 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   never exercises: a decoder stream written in part, and a dynamic name inside an insert. The unit
   tests catch all ten.
 
+  **The QIF tools, the TLA+ model and fuzzing, 2026-09-24.** Every check this step names now
+  exists.
+  - `66b4133`: §9's two QIF tools. `zig build qif -- encode` writes a QIF text as a file in the
+    QPACK Offline Interop format with colibri's encoder, in either acknowledgment mode, and
+    `decode` reads such a file back into QIF with colibri's decoder. 11 mutations, 11 CAUGHT.
+  - `916be43`: `tools/qif_interop.sh` runs the tools against ls-qpack, through aioquic's
+    pylsqpack, in both directions. It takes three qifs inputs at three settings, with ls-qpack's
+    sections ahead of their encoder stream where streams may block. All 45 runs decode exactly.
+  - `ca6cccb`: `spec/tla/qpack_tables` models the encoder stream, the sections and the decoder
+    stream, each able to fall behind the others, with cancellations. It checks that no referenced
+    entry is evicted, no section reads a missing entry, no stream blocks past the limit, and every
+    section finishes. `zig build tla` printed `holds, as expected, 192555 distinct states` with
+    blocked streams allowed and `52633` with none. The three mutant configurations are violated
+    as expected: an eviction of a referenced entry, an ignored blocked limit, and a ready stream
+    counted as blocked.
+  - `d83f157`: the last mutant was colibri's decoder. A stream whose entries had arrived, but
+    whose section was not yet read again, still counted against the blocked-stream limit, while
+    the encoder had stopped counting it (§2.2.1). [Decision 74](decisions.md) is amended. 2
+    mutations, 2 CAUGHT.
+  - `1f6e297`: fuzz property functions for the three inputs a peer controls: a field section, the
+    encoder stream and the decoder stream. As in step 1, `zig build test` runs each over its
+    corpus and every input of up to two octets, because the fuzzer does not build with Zig
+    0.16.0. Two octets never reach a field line or a whole insert, so
+    `src/sim/qpack_input_check.zig` also edits what the encoder writes, up to eight changed,
+    inserted or removed octets or a cut end, and hands it to the reader under test. Every input
+    must be read or refused with an error, never halt, and each seed must replay.
+
+  `zig build sim -- --qpack-input-check` printed, in Debug and in ReleaseSafe on macOS arm64:
+  `seeds=256 inputs=8192 taken=3935 blocked=86 refused=4171 crc32=0x0452f651`. 200,000 seeds, 6.4
+  million inputs, ran in ReleaseSafe with none halted. 4 mutations, each removing one check on
+  peer input: each is CAUGHT by its fuzz property and by the input check at 256 seeds.
+
 - **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
   request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,
   with every case accounted for; the interop runner's `http3` case; `h2load --h3`; and the h2
