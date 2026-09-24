@@ -373,3 +373,16 @@ test "decision 72: each challenge on a path awaiting validation repeats the late
     // The client's PING is acknowledged, so its window has room for the PATH_RESPONSE.
     try testing.expect(client.recovery.table_of(.application).count() < recorded);
 }
+
+test "RFC 9000 §9.4: what is in flight to the old address holds back no challenge on the new one" {
+    open_pair(true);
+    try move_server(moved_address);
+    _ = try send_into(&server, 0, test_now_ns);
+    // The window is spent on packets the old path has in flight, and the pacer has nothing left.
+    server.recovery.congestion.window = 0;
+    server.recovery.pacer.credit_len = 0;
+    const first = try send_into(&server, 1, test_now_ns);
+    try testing.expect(first.to.eql(&moved_address));
+    try testing.expect(first.packets[0].ack_eliciting);
+    try testing.expect(server.path.challenge != null);
+}

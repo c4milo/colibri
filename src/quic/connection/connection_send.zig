@@ -269,9 +269,12 @@ pub fn pacing_deadline_ns(connection: *const Connection) ?u64 {
 /// moved to is validated, §8 limits what may go there to three times what arrived, and the
 /// PATH_CHALLENGE frames §13.3 sends until one is answered need those octets more than data.
 fn room_on_path(connection: *const Connection, level: Level, window_len: u64, room: usize) ?packet_build.Room {
-    var held = room_at(connection, level, window_len, room) orelse return null;
-    if (connection.migration.awaiting_validation) held.withholding_data = true;
-    return held;
+    if (!connection.migration.awaiting_validation or level != .application) return room_at(connection, level, window_len, room);
+    // RFC 9000 §9.4: "Packets sent on the old path MUST NOT contribute to congestion control or
+    // RTT estimation for the new path", and "A sender can make exceptions for probe packets". So
+    // the octets still in flight to the old address hold back nothing here: the packet carries ACK
+    // and path frames alone, and §8's limit is what bounds it.
+    return .{ .len = room, .withholding_data = true };
 }
 
 /// What `level`'s packet may hold, given the octets `window_len` the congestion window leaves and
