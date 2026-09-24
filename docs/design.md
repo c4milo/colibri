@@ -60,7 +60,7 @@ core   <- tls    <- h2, quic
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
-core, wire, sim, h2, qpack <- sim_run
+core, wire, sim, h2, qpack, h3, quic <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2         <- testing, testing_client
@@ -81,7 +81,7 @@ core, qpack      <- testing_qif
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
-| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11 | — |
+| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12 | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |

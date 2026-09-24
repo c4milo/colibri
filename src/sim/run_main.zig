@@ -8,6 +8,8 @@
 //!     sim --qpack-seed <hex>           the same, over a QPACK encoder and decoder (step 11)
 //!     sim --qpack-check [seeds]
 //!     sim --qpack-input-check [seeds]  edited QPACK input, taken or refused (step 11)
+//!     sim --h3-check [seeds]           h3 exchanges over a lossy network (step 12)
+//!     sim --h3-long-check [seeds]      long h3 connections, which outgrow h3's buffers
 //!
 //! It is the one file under `src/sim/` that reads its arguments and writes to the terminal, and
 //! `tools/lint/io.zig` exempts it by path for that reason. Nothing reaches it but `zig build sim`.
@@ -18,6 +20,7 @@ const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
 const qpack_check = @import("qpack_check.zig");
 const qpack_input_check = @import("qpack_input_check.zig");
+const h3_check = @import("h3_check.zig");
 
 const constants = sim.constants;
 
@@ -34,7 +37,7 @@ const hex_prefix = "0x";
 
 const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --connection-seed <hex> | --connection-check [seeds] | --tls-check [seeds]" ++
-    " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds]\n";
+    " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -45,6 +48,8 @@ pub const Command = union(enum) {
     qpack_seed: u64,
     qpack_check: u64,
     qpack_input_check: u64,
+    h3_check: u64,
+    h3_long_check: u64,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -53,6 +58,7 @@ var connection_storage: connection_check.Storage = .zeroed;
 var tls_storage: tls_check.Storage = .zeroed;
 var qpack_storage: qpack_check.Storage = undefined;
 var qpack_input_storage: qpack_input_check.Storage = undefined;
+var h3_storage: h3_check.Storage = undefined;
 
 pub fn main(init: std.process.Init) !void {
     var arguments: [arguments_max][]const u8 = @splat("");
@@ -77,6 +83,8 @@ pub fn main(init: std.process.Init) !void {
         .qpack_seed => |seed| try qpack_seed(seed),
         .qpack_check => |seeds| try qpack_check_seeds(seeds),
         .qpack_input_check => |seeds| try qpack_input_check_seeds(seeds),
+        .h3_check => |seeds| try h3_check_seeds(seeds, .normal),
+        .h3_long_check => |seeds| try h3_check_seeds(seeds, .long),
     }
 }
 
@@ -96,9 +104,18 @@ pub fn parse(arguments: []const []const u8) error{Usage}!Command {
     // The TLS check writes no trace, so it has no single-seed form: what it compares is the
     // events of three runs of one seed, which the check itself prints when they differ.
     if (std.mem.eql(u8, flag, "--tls-check")) return .{ .tls_check = try parse_seeds(value) };
+    return parse_step_eleven_on(flag, value);
+}
+
+/// The commands of the checks from design §8 step 11 on.
+fn parse_step_eleven_on(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--qpack-seed")) return .{ .qpack_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--qpack-check")) return .{ .qpack_check = try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--qpack-input-check")) return .{ .qpack_input_check = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--h3-check")) return .{ .h3_check = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--h3-long-check")) {
+        return .{ .h3_long_check = if (value == null) constants.h3_long_check_seeds else try parse_seeds(value) };
+    }
     return error.Usage;
 }
 
@@ -278,4 +295,24 @@ fn qpack_input_check_seeds(seeds: u64) !void {
     std.debug.print("qpack-input: seeds={d} inputs={d} taken={d} blocked={d} refused={d} crc32=0x{x:0>8}\n", .{
         census.seeds, counts.inputs, counts.taken, counts.blocked, counts.refused, census.crc32.final(),
     });
+}
+
+/// The h3 check of design §8 step 12, over `[0, seeds)`, in the normal or the long shape.
+fn h3_check_seeds(seeds: u64, shape: h3_check.Shape) !void {
+    h3_storage.shape = shape;
+    var census: h3_check.Census = .{};
+    var failed_seed: ?u64 = null;
+    h3_check.run_check(&h3_storage, seeds, &census, &failed_seed) catch |failure| {
+        std.debug.print("{s}: seed 0x{x} failed: {t}\n", .{ label_of(shape), failed_seed.?, failure });
+        return failure;
+    };
+    std.debug.print("{s}: seeds={d} exchanges={d} content={d} inserts={d} acknowledged_dropped={d} datagrams={d} dropped={d} crc32=0x{x:0>8}\n", .{
+        label_of(shape),             census.seeds,     census.exchanges, census.content_len,   census.inserts,
+        census.acknowledged_dropped, census.datagrams, census.dropped,   census.crc32.final(),
+    });
+}
+
+/// The name a census line starts with, which `tools/ci.sh` looks for.
+fn label_of(shape: h3_check.Shape) []const u8 {
+    return if (shape.exchanges_max == h3_check.Shape.long.exchanges_max) "h3-long" else "h3";
 }

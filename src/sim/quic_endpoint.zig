@@ -91,12 +91,20 @@ pub const Endpoint = struct {
     /// endpoint has drawn, which is also the next one's value.
     migrations: u64,
     challenges_drawn: u64,
+    /// The stream provider of an application protocol that runs over this endpoint, such as h3's.
+    /// With one, the endpoint sends and reads no stream of its own: the application does.
+    application: ?StreamProvider,
 
     pub fn init(endpoint: *Endpoint, role: Role, now_ns: u64) void {
+        endpoint.init_with(role, now_ns, parameters());
+    }
+
+    /// `init` with the transport parameters an application protocol needs (RFC 9000 §18.2).
+    pub fn init_with(endpoint: *Endpoint, role: Role, now_ns: u64, local_parameters: Parameters) void {
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
         endpoint.connection.init(.{
             .role = role,
-            .local_parameters = parameters(),
+            .local_parameters = local_parameters,
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = local_source, .original_destination = &original_id },
             .receive = endpoint.pool.storage(),
@@ -117,6 +125,7 @@ pub const Endpoint = struct {
         endpoint.supplies_wrong_octet = false;
         endpoint.migrations = 0;
         endpoint.challenges_drawn = 0;
+        endpoint.application = null;
         // RFC 9001 §5.2: both endpoints derive the Initial keys from the Destination Connection ID
         // of the client's first Initial packet.
         const suite = endpoint.suite.suite();
@@ -142,7 +151,7 @@ pub const Endpoint = struct {
         );
         if (received.migrated) endpoint.answer_move();
         if (received.completed_streams > 0) endpoint.transfer_done = true;
-        if (endpoint.connection.role == .server) try endpoint.read_transfer();
+        if (endpoint.connection.role == .server and endpoint.application == null) try endpoint.read_transfer();
     }
 
     /// Decision 72: the path moved, so colibri owes PATH_CHALLENGE frames whose data the caller
@@ -193,7 +202,7 @@ pub const Endpoint = struct {
             &endpoint.connection,
             suite,
             provider,
-            endpoint.stream_provider(),
+            endpoint.application orelse endpoint.stream_provider(),
             &endpoint.send_scratch,
             &endpoint.output,
             now_ns,
@@ -225,6 +234,7 @@ pub const Endpoint = struct {
     /// The client opens its one stream and hands colibri all of it once the handshake completes.
     fn start_transfer(endpoint: *Endpoint) Error!void {
         if (endpoint.connection.role != .client or endpoint.transfer_started) return;
+        if (endpoint.application != null) return;
         if (!endpoint.connection.handshake_complete) return;
         const id = try quic.connection_stream_send.open(&endpoint.connection, .bidirectional);
         try quic.connection_stream_send.supply(&endpoint.connection, id, endpoint.transfer_len, true);

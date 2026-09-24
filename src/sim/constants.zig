@@ -321,6 +321,43 @@ pub const qpack_check_steps_max: u32 = 4096;
 /// The trace one seed writes: a record per step.
 pub const qpack_check_trace_len_max: u32 = qpack_check_steps_max * 64;
 
+/// The h3 check (design §8 step 12): the exchanges one seed draws, sent in rounds of
+/// `h3_check_round_len`, the regular lines of one message beyond its pseudo-header fields, and its
+/// longest content. A seed's lines repeat across its exchanges, drawn from `h3_check_values`
+/// values of up to `h3_check_value_len_max` octets, so a table the peer allows is used, and over
+/// many rounds fills and evicts, and h3's own streams outgrow their buffers (decision 78).
+pub const h3_check_exchanges_max: u32 = 64;
+pub const h3_check_round_len: u32 = 8;
+pub const h3_check_lines_max: u32 = 6;
+pub const h3_check_content_len_max: u32 = 3000;
+/// The long h3 check: fewer seeds, each one connection of up to `h3_long_check_exchanges_max`
+/// exchanges with short content, so QPACK's encoder stream outgrows its buffer and h3 drops the
+/// octets its peer acknowledged (decision 78). A normal seed's connection never gets that far.
+pub const h3_long_check_seeds: u64 = 64;
+pub const h3_long_check_exchanges_max: u32 = 512;
+pub const h3_long_check_content_len_max: u32 = 256;
+pub const h3_check_values: u32 = 8;
+pub const h3_check_value_len_max: u32 = 100;
+/// The QPACK settings a seed draws each endpoint's decoder from (RFC 9204 §5).
+pub const h3_check_capacities = [_]u64{ 0, 256, 1024, 4096 };
+pub const h3_check_blocked_counts = [_]u64{ 0, 16 };
+/// One in this many exchanges has an interim response, and one in this many messages trailers.
+pub const h3_check_interim_one_in: u64 = 4;
+pub const h3_check_trailers_one_in: u64 = 4;
+/// The frames a caller keeps for one message: its header sections and DATA frame header before
+/// the content, and its trailer section after. The content is made from its offset, as a file
+/// server reads a file, and kept nowhere.
+pub const h3_check_prefix_len_max: u32 = 2048;
+pub const h3_check_suffix_len_max: u32 = 128;
+/// The steps one run may take, the steps it may take to settle once the client read every
+/// response, the datagrams one endpoint may send in a step, and the highest drop and duplicate
+/// rates a seed draws, out of `schedule_denominator`.
+pub const h3_check_steps_max: u32 = 100_000;
+pub const h3_check_settle_steps_max: u32 = 1_000;
+pub const h3_check_sends_per_step_max: u32 = 64;
+pub const h3_check_drop_max: u64 = 100;
+pub const h3_check_duplicate_max: u64 = 100;
+
 /// The QPACK input check: inputs per seed, the most edits made to one, and the longest input.
 pub const qpack_input_check_inputs: u32 = 32;
 pub const qpack_input_check_edits_max: u64 = 8;
