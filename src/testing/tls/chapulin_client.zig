@@ -72,6 +72,8 @@ pub const Options = struct {
 pub const client_suite = tls.constants.cipher_suite_chacha20_poly1305_sha256;
 
 pub const Client = struct {
+    /// chapulin's session, which `held` points at.
+    session: c.ch_tls,
     /// Everything the record phase touches, whose address is the provider's context.
     held: Held,
     config: c.ch_cfg,
@@ -84,7 +86,8 @@ pub const Client = struct {
     pub fn init(client: *Client, options: Options) Error!void {
         // The two chapulin structs are zeroed field by field, because a union has no zero and
         // chapulin reads every field it declares.
-        client.held.session = std.mem.zeroes(c.ch_tls);
+        client.session = std.mem.zeroes(c.ch_tls);
+        client.held.session = &client.session;
         client.config = std.mem.zeroes(c.ch_cfg);
         client.held.io = .{ .socket = options.socket };
         client.held.closed = false;
@@ -112,7 +115,7 @@ pub const Client = struct {
 
     /// Runs the handshake to completion (phase 1). It blocks, so one connection at a time.
     pub fn handshake(client: *Client) Error!void {
-        client.code = c.ch_connect(&client.held.session, &client.config);
+        client.code = c.ch_connect(&client.session, &client.config);
         if (client.code != ok) return Error.HandshakeFailed;
         // Phase 2 from here: nothing below this line touches the descriptor again.
         client.held.suite = client_suite;

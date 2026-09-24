@@ -213,7 +213,9 @@ test "a peer's close_notify is reported with its description, not as a failure" 
     test_client.held.session.state = c.CH_ST_CLOSED;
 
     const held = test_client.provider();
-    var record = [_]u8{ 0x17, 0x03, 0x03, 0x00, 0x11 };
+    // A whole record: a header naming 17 octets, and the 17. `decrypt_record` hands chapulin
+    // whole records only (RFC 9846 §5.1).
+    var record = [_]u8{ 0x17, 0x03, 0x03, 0x00, 0x11 } ++ [_]u8{0} ** 0x11;
     var plaintext: [64]u8 = @splat(0);
     const opened = try held.vtable.decrypt_record(held.context, &record, &plaintext);
     // RFC 9846 §6.1: the record is an alert and carries no application data.

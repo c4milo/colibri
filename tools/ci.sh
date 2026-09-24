@@ -106,8 +106,14 @@ section "Format" zig fmt --check build.zig build src tools
 section "Lint and tests" zig build test --summary all
 tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
 section "Simulator checks, Debug and ReleaseSafe" simulator_checks
-section "h2spec" tools/h2spec.sh
-h2spec_lines="$(grep -E "^h2spec.sh: [0-9]+ passed" "${scratch}/last.log")"
+# h2spec runs over TLS too when the checkout carries the record-mode server object (design §8
+# step 5, https://github.com/c4milo/colibri/issues/20).
+if [ -f "${chapulin}/bin/chapulin-server.o" ]; then
+  section "h2spec, cleartext and TLS" tools/h2spec.sh 18443 "${chapulin}"
+else
+  section "h2spec, cleartext" tools/h2spec.sh
+fi
+h2spec_lines="$(grep -E "^h2spec.sh: [a-z]+: [0-9]+ passed" "${scratch}/last.log")"
 section "Interop, client direction" tools/h2_interop.sh
 interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|every exchange)|^h2-client:" "${scratch}/last.log")"
 if [ -f "${chapulin}/bin/chapulin-client.o" ] && [ -f "${chapulin}/bin/chapulin-server.o" ]; then

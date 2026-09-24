@@ -12,6 +12,11 @@ pub const read_buffer_len: u32 = h2.constants.frame_header_len + h2.constants.fr
 /// response body after it.
 pub const write_buffer_len: u32 = h2.constants.send_block_len_max + read_buffer_len;
 
+/// Octets a connection of the server reads from its socket at once. A cleartext connection reads
+/// an h2 frame, and a TLS connection a whole record, which is what chapulin opens (RFC 9846
+/// §5.1), so this is the larger of the two.
+pub const wire_read_len: u32 = @max(read_buffer_len, h2.tls.constants.record_write_len_min);
+
 /// The instant one step of the server reports, in nanoseconds, and how far the next one is. The
 /// server reads no clock: design §4.2 makes time a value the caller passes, and
 /// `tools/lint/determinism.zig` holds `src/testing/` to it too. A fixed step keeps the rate limits
@@ -157,6 +162,22 @@ pub const tls_der_len_max: usize = 8 * 1024;
 /// The octets one TLS check moves over its socket in a single pass: one record at most, which
 /// RFC 9846 §5.1 caps at 2^14 of plaintext plus its header and tag.
 pub const tls_record_buffer_len: usize = 18 * 1024;
+
+/// h2's byte stream one TLS connection of the server holds: a frame the session has not finished
+/// reading, and one more record's plaintext after it. The record adapter asks for room for the
+/// record's whole ciphertext, which its plaintext never exceeds (RFC 9846 §5.2).
+pub const tls_plaintext_in_len: usize = read_buffer_len + h2.tls.constants.record_ciphertext_len_max;
+
+/// The most octets the server's handshake flight takes. chapulin writes a flight whole or fails
+/// the handshake (`srv_cfg.h`), so the server's output holds this much before a handshake step
+/// runs. It is the chain's two certificates, at most `tls_der_len_max` each, and the rest.
+pub const tls_flight_len_max: usize = 2 * tls_der_len_max + tls_flight_rest_len;
+
+/// The rest of the flight: ServerHello, the compatibility ChangeCipherSpec, EncryptedExtensions,
+/// CertificateVerify and Finished, and a header and tag around every record. chapulin seals at
+/// most 512 octets of plaintext per record, so two 8 KiB certificates alone take 32 records and
+/// 704 octets of overhead; the other messages are a few hundred more.
+pub const tls_flight_rest_len: usize = 4 * 1024;
 
 /// The label, context and length both TLS checks export under (RFC 9846 §7.5). The Go peers in
 /// `tools/h2_interop/` export under the same three, and the scripts require the two values to
@@ -307,4 +328,8 @@ comptime {
     assert(tls_receive_len > tls_record_buffer_len);
     assert(tls_record_buffer_len > 1 << 14);
     assert(tls_der_len_max > 0);
+    // The server's output holds a whole flight, and its input a whole record.
+    assert(write_buffer_len >= tls_flight_len_max);
+    assert(wire_read_len >= h2.tls.constants.record_write_len_min);
+    assert(tls_plaintext_in_len > read_buffer_len + h2.tls.constants.record_plaintext_len_max);
 }

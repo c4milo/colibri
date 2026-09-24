@@ -1,27 +1,30 @@
 //! chapulin's TLS 1.3 server behind colibri's `tls.Provider`, for `src/testing/` alone
 //! ([decision 10](../../../docs/decisions.md)). The other half of design §8 step 5's TLS work.
 //!
-//! This file is phase 1 — building the configuration and running `ch_srv_accept` over the
-//! accepted socket. Phase 2, the record phase colibri drives through the vtable, is
-//! `chapulin_record.zig` and is shared with the client: `ch_read`, `ch_write` and `ch_close` are
-//! the three calls both roles export and they read the same `ch_tls`.
+//! This file is phase 1: building the configuration and driving chapulin's `TRANSPORT=record`
+//! handshake. The caller reads octets from its socket and passes them to `handshake`, which runs
+//! `ch_srv_record_in` over them and returns the server's flight in the caller's output. No call
+//! here touches a descriptor or waits, so the h2 endpoint drives a handshake from inside its one
+//! `poll` call ([decision 46](../../../docs/decisions.md),
+//! https://github.com/c4milo/colibri/issues/20). Phase 2, the record phase colibri drives through
+//! the vtable, is `chapulin_record.zig` and is shared with the client.
 //!
 //! What differs from the client is the configuration. A server proves an identity instead of
 //! judging one, so it carries a certificate chain and a signing key rather than trust anchors and
 //! a hostname, and `ch_srv_check` tests at boot that the build can sign with each provisioned
 //! key. A server also needs RFC 9846 §4.3.2's cookie key, which chapulin requires on every
-//! `ch_srv_accept` and not only when it mints a HelloRetryRequest.
+//! handshake and not only when it sends a HelloRetryRequest.
 //!
 //! One thing the server reads that the client cannot: `session.suite`. chapulin declares the
 //! field under `CH_ROLE_SERVER` alone, so this side reports the suite it selected rather than the
 //! one its build offers.
 const std = @import("std");
+const assert = std.debug.assert;
 const tls = @import("tls");
 const chapulin = @import("chapulin.zig");
 const chapulin_record = @import("chapulin_record.zig");
 
 const c = chapulin.c;
-const posix = std.posix;
 
 /// The record phase is the same on both sides, so its names are re-exported rather than
 /// duplicated. One name per thing: these are aliases, not copies.
@@ -37,10 +40,13 @@ pub const Error = error{
     /// `ch_srv_check` refused the identities at boot: none provisioned, or a key whose signature
     /// its own verifier rejected. Nothing was served.
     IdentityRefused,
-    /// `ch_srv_accept` refused the configuration before reading a byte.
+    /// `ch_srv_record_init` refused the configuration before reading a byte.
     ConfigRefused,
-    /// The handshake did not complete (RFC 9846 §6).
+    /// The handshake did not complete (RFC 9846 §6). `alert` names what chapulin chose.
     HandshakeFailed,
+    /// The output could not hold a record of the flight. chapulin's sink takes a whole record or
+    /// fails the handshake, so the session is dead; the caller's output was too small.
+    FlightTooLong,
 };
 
 /// How many certificates this server presents: the end-entity and the one root above it.
@@ -70,15 +76,26 @@ pub const Options = struct {
     /// RFC 9846 §4.3.2: one key per deployment, so a second ClientHello that lands on another
     /// session still verifies. chapulin refuses a configuration without it.
     cookie_key: []const u8,
-    /// chapulin's receive buffer, which bounds the ClientHello it will accept. A Go client offers
-    /// a post-quantum key share by default, whose ClientHello runs past a kilobyte, so this is
-    /// sized well above chapulin's own floor.
+    /// chapulin's receive buffer. In record mode the handshake reads records in place, and this
+    /// holds the records `ch_read` opens afterwards; chapulin advertises its size, less record
+    /// overhead, as `record_size_limit`.
     receive: []u8,
-    /// The accepted socket. It stays the caller's.
-    socket: posix.socket_t,
+};
+
+/// What one call to `handshake` did.
+pub const Progress = struct {
+    /// Octets of the input chapulin took: whole records only (`srv_rec.h`).
+    consumed: usize,
+    /// Octets of the flight written into the output, to be sent in order.
+    written: usize,
+    /// Whether the handshake completed, so the provider is ready for `attach_tls`.
+    complete: bool,
 };
 
 pub const Server = struct {
+    /// chapulin's record-mode handshake, whose `t` is the session. It is not copyable, because
+    /// chapulin keeps a pointer into it (`rec.h`).
+    record: c.ch_record,
     /// Everything the record phase touches, whose address is the provider's context.
     held: Held,
     config: c.ch_cfg,
@@ -90,9 +107,10 @@ pub const Server = struct {
     code: c_int,
 
     pub fn init(server: *Server, options: Options) void {
-        server.held.session = std.mem.zeroes(c.ch_tls);
+        server.record = std.mem.zeroes(c.ch_record);
+        server.held.session = &server.record.t;
         server.config = std.mem.zeroes(c.ch_cfg);
-        server.held.io = .{ .socket = options.socket };
+        server.held.io = .{ .handshake = .{} };
         server.held.closed = false;
         server.held.pending_alert = null;
         server.held.suite = 0;
@@ -102,6 +120,8 @@ pub const Server = struct {
         server.alpn[0] = .{ .name = alpn_h2.ptr, .name_len = alpn_h2.len };
         server.config.buf = options.receive.ptr;
         server.config.buf_len = options.receive.len;
+        // chapulin requires both, though a record-mode handshake calls neither: `ch_read` and
+        // `ch_write` call them once the session is connected (`rec.h`).
         server.config.send = chapulin_record.send;
         server.config.recv = chapulin_record.recv;
         server.config.io = @ptrCast(&server.held.io);
@@ -116,6 +136,7 @@ pub const Server = struct {
             .pub_len = options.identity.public_point.len,
         };
         server.config.srv.cookie_key = options.cookie_key.ptr;
+        server.config.srv.on_record_out = chapulin_record.flight_out;
     }
 
     /// `ch_srv_check`'s boot-time self-test: every provisioned key signs, and the signature
@@ -126,14 +147,42 @@ pub const Server = struct {
         if (c.ch_srv_check(&server.config) != ok) return Error.IdentityRefused;
     }
 
-    /// Runs one handshake to completion. It blocks, so one connection at a time.
-    pub fn accept(server: *Server) Error!void {
-        server.code = c.ch_srv_accept(&server.held.session, &server.config);
+    /// Prepares the session to read a ClientHello. A server speaks second, so nothing is written.
+    pub fn start(server: *Server) Error!void {
+        server.code = c.ch_srv_record_init(&server.record, &server.config);
+        if (server.code != ok) return Error.ConfigRefused;
+        // `ch_srv_record_init` placed a new session at the same address.
+        assert(server.held.session == &server.record.t);
+    }
+
+    /// Runs the handshake over the octets the caller read, and writes the server's flight into
+    /// `output`. chapulin takes whole records and runs the handshake as far as they carry it; a
+    /// trailing partial record stays for the caller to pass again with what follows it
+    /// (`srv_rec.h`). The input is mutable because chapulin unprotects a record in place; the
+    /// octets up to `consumed` are rewritten.
+    pub fn handshake(server: *Server, input: []u8, output: []u8) Error!Progress {
+        assert(server.held.io == .handshake);
+        server.held.io = .{ .handshake = .{ .output = output } };
+        var consumed: usize = 0;
+        server.code = c.ch_srv_record_in(&server.record, input.ptr, input.len, &consumed);
+        const written = server.held.io.handshake.written;
+        if (server.held.io.handshake.short) return Error.FlightTooLong;
         if (server.code != ok) return Error.HandshakeFailed;
-        // Phase 2 from here: nothing below this line touches the descriptor again.
-        // chapulin declares `suite` under `CH_ROLE_SERVER`, so this side reports what it selected.
-        server.held.suite = server.held.session.suite;
-        server.held.io = .{ .records = .{} };
+        assert(consumed <= input.len and written <= output.len);
+        const complete = c.ch_record_state(&server.record) == c.CH_ST_CONNECTED;
+        if (complete) {
+            // Phase 2 from here. chapulin declares `suite` under `CH_ROLE_SERVER`, so this side
+            // reports what it selected.
+            server.held.suite = server.record.t.suite;
+            server.held.io = .{ .records = .{} };
+        }
+        return .{ .consumed = consumed, .written = written, .complete = complete };
+    }
+
+    /// The alert a failed handshake chose, for the caller to send before it closes (`rec.h`), or
+    /// 0 when nothing failed.
+    pub fn alert(server: *const Server) u8 {
+        return c.ch_record_alert(&server.record);
     }
 
     /// The session colibri drives, and the calls it makes on it.
@@ -150,3 +199,32 @@ pub const Server = struct {
 
 /// The calls colibri makes on this session, which the record phase writes once for both roles.
 pub const vtable = chapulin_record.vtable;
+
+const testing = std.testing;
+
+/// A server the test drives, and an identity of the right lengths that nothing signs with. The
+/// handshake fails before chapulin reads a key. Test-only.
+var test_server: if (chapulin.available) Server else void = undefined;
+var test_receive: [tls.constants.record_write_len_min]u8 = undefined;
+var test_output: [tls.constants.record_write_len_min]u8 = undefined;
+/// Each certificate is an empty DER SEQUENCE. Test-only.
+const test_der = [_]u8{ der_sequence_tag, 0 };
+const der_sequence_tag: u8 = 0x30;
+const test_scalar: [private_scalar_len]u8 = @splat(1);
+const test_point: [public_point_len]u8 = @splat(1);
+const test_cookie: [cookie_key_len]u8 = @splat(1);
+
+test "RFC 9846 §6: a ClientHello chapulin refuses fails the handshake, and nothing completes" {
+    if (!chapulin.available) return error.SkipZigTest;
+    test_server.init(.{
+        .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
+        .cookie_key = &test_cookie,
+        .receive = &test_receive,
+    });
+    try test_server.start();
+    // A handshake record holding a ClientHello whose body is empty (RFC 9846 §4.1.2).
+    var hello = [_]u8{ 0x16, 0x03, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00 };
+    try testing.expectError(Error.HandshakeFailed, test_server.handshake(&hello, &test_output));
+    try testing.expect(test_server.alert() != 0);
+    try testing.expect(!test_server.provider().is_complete());
+}

@@ -32,7 +32,17 @@ pub const c = if (available) @cImport({
     // the role, because chapulin guards the whole header with `#ifdef CH_ROLE_SERVER`: in a
     // client build it expands to nothing and declares no symbol the linker would look for.
     @cInclude("srv.h");
+    // The record-mode server driver and the calls a record-mode session shares with a client
+    // (`ch_record_state`, `ch_record_alert`). chapulin guards both headers with
+    // `CH_TRANSPORT_RECORD`, so a `TRANSPORT=tls` client build reads nothing from them.
+    @cInclude("srv_rec.h");
 }) else struct {};
+
+/// Whether the linked object is a `TRANSPORT=record` build. The server's is (decision 46,
+/// https://github.com/c4milo/colibri/issues/20) and the client's is not yet. The two differ in
+/// what `ch_read` does when the caller holds no record: record mode answers `CH_RECORD_AGAIN` and
+/// the session stays live, while the TLS transport fails the read.
+pub const record_transport: bool = available and @hasDecl(c, "ch_record_state");
 
 comptime {
     if (available) check_alpn();

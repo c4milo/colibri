@@ -246,8 +246,10 @@ section when a step adds or renames a command.
   Every check is also a test inside its module, so `zig build test` runs them, silently. The QUIC
   checks have no command line of their own: `zig build test-sim-run-quic` runs them, in a module
   with no HTTP module in its graph (decision 5), and each one's census is pinned in its test.
-- Conformance: `tools/h2spec.sh`, `tools/h3spec.sh <checkout>`, `tools/interop.sh` — each starts
-  the test-only endpoint of design §9 and runs the pinned suite version. `tools/h3spec.sh` fetches
+- Conformance: `tools/h2spec.sh [port] [checkout]`, `tools/h3spec.sh <checkout>`,
+  `tools/interop.sh` — each starts the test-only endpoint of design §9 and runs the pinned suite
+  version. Given a chapulin checkout, `tools/h2spec.sh` also runs `h2spec -t -k` against the h2
+  server's `--tls` mode, which needs Go to mint the identity. `tools/h3spec.sh` fetches
   h3spec once and checks it against a pinned SHA-256; it passes nothing until chapulin's QUIC mode
   offers AES-GCM, the only suites h3spec offers. `tools/h3load.sh <checkout>` runs `h2load --h3`
   from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker. `tools/h2_interop.sh [go]
@@ -262,8 +264,10 @@ section when a step adds or renames a command.
 - TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin
   into `src/testing/` and nowhere else (decision 10). colibri vendors none of its C: build the
   checkout yourself with `make RAND=drbg TRUST=webpki EXPORTER=on lib && cp bin/chapulin.o
-  bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none EXPORTER=on lib && cp
-  bin/chapulin.o bin/chapulin-server.o`, and colibri reads the headers from it in place. The client's
+  bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none TRANSPORT=record EXPORTER=on
+  lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri reads the headers from it in place.
+  The server's `TRANSPORT=record` drives the handshake from octets the caller read, so the h2
+  server runs it inside its `poll` loop (decision 46). The client's
   `TRUST=webpki` is not a preference: chapulin compiles its ALPN fields out for `TRUST=raw` and
   `TRUST=ca`, and without ALPN no client can negotiate h2 (RFC 9113 §3.1), so colibri refuses
   such a build at compile time. Without the options the TLS endpoints compile to nothing, so a

@@ -320,7 +320,7 @@ fn add_h2_server_step(b: *std.Build, testing: *std.Build.Module) void {
     const server = b.addExecutable(.{ .name = "h2-server", .root_module = testing });
     const run = b.addRunArtifact(server);
     if (b.args) |args| run.addArgs(args);
-    const step = b.step("h2-server", "Run the test-only cleartext h2 server: -- --port <port>");
+    const step = b.step("h2-server", "Run the test-only h2 server: -- --port <port> [--tls <identity-prefix>]");
     step.dependOn(&run.step);
     b.installArtifact(server);
 }

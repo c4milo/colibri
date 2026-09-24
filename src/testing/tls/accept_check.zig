@@ -13,10 +13,11 @@ const std = @import("std");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
+const chapulin_record = @import("chapulin_record.zig");
 const chapulin_server = @import("chapulin_server.zig");
 const check_file = @import("check_file.zig");
+const server_identity = @import("server_identity.zig");
 
-const c = chapulin.c;
 const Server = chapulin_server.Server;
 const exit_usage = check_file.exit_usage;
 const exit_failed = check_file.exit_failed;
@@ -26,13 +27,12 @@ const exit_failed = check_file.exit_failed;
 var server: Server = undefined;
 /// chapulin's receive buffer, which bounds the ClientHello this server will accept.
 var receive_storage: [constants.tls_receive_len]u8 = undefined;
-var leaf_storage: [constants.tls_der_len_max]u8 = undefined;
-var issuer_storage: [constants.tls_der_len_max]u8 = undefined;
-var private_storage: [chapulin_server.private_scalar_len]u8 = undefined;
-var public_storage: [chapulin_server.public_point_len]u8 = undefined;
-var cookie_storage: [chapulin_server.cookie_key_len]u8 = undefined;
-/// The octets this run moves over the socket, and the plaintext it opens them into.
+/// The identity and the cookie key the server loads once.
+var identity_storage: server_identity.Storage = undefined;
+/// The octets this run reads from the socket, of which the first `input_len` are not yet used, and
+/// the plaintext it opens them into.
 var input_storage: [constants.tls_record_buffer_len]u8 = undefined;
+var input_len: usize = 0;
 var plaintext_storage: [constants.tls_record_buffer_len]u8 = undefined;
 var output_storage: [constants.tls_record_buffer_len]u8 = undefined;
 
@@ -52,25 +52,6 @@ fn parse(init: std.process.Init.Minimal) Arguments {
         .port = std.fmt.parseUnsigned(u16, port_text, decimal) catch usage(),
         .identity_prefix = identity_prefix,
     };
-}
-
-/// Seeds chapulin's DRBG and draws the cookie key. A `RAND=drbg` build requires the seed before
-/// any handshake, and `ch_srv_check` draws entropy of its own to salt an RSA signature. This
-/// endpoint may read the operating system's entropy; the library may not, and does not.
-fn seed_chapulin() !void {
-    var seed: [chapulin.seed_len]u8 = undefined;
-    const drawn = try check_file.read_file("/dev/urandom", &seed);
-    if (drawn.len != seed.len) {
-        std.debug.print("tls-accept: could not draw a seed\n", .{});
-        std.process.exit(exit_failed);
-    }
-    c.ch_drbg_seed(&seed);
-    // RFC 9846 §4.3.2: one key per deployment. A run is one deployment, so it draws its own.
-    const cookie = try check_file.read_file("/dev/urandom", &cookie_storage);
-    if (cookie.len != cookie_storage.len) {
-        std.debug.print("tls-accept: could not draw a cookie key\n", .{});
-        std.process.exit(exit_failed);
-    }
 }
 
 /// Reports what the handshake negotiated, and refuses anything but h2.
@@ -128,28 +109,25 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     }
     const asked = parse(init);
-    try seed_chapulin();
+    try server_identity.seed(&identity_storage);
     const socket = try accept_one(asked.port);
     defer _ = std.c.close(socket);
 
     server.init(.{
-        .identity = try read_identity(asked.identity_prefix),
-        .cookie_key = &cookie_storage,
+        .identity = try server_identity.load(asked.identity_prefix, &identity_storage),
+        .cookie_key = &identity_storage.cookie_key,
         .receive = &receive_storage,
-        .socket = socket,
     });
     // The boot-time self-test: every provisioned key signs and verifies under its own public key.
     server.check() catch {
         std.debug.print("tls-accept: ch_srv_check refused the identity\n", .{});
         std.process.exit(exit_failed);
     };
-    server.accept() catch {
-        std.debug.print("tls-accept: {s} (code {d})\n", .{
-            chapulin_server.reason(server.code),
-            server.code,
-        });
+    server.start() catch {
+        std.debug.print("tls-accept: ch_srv_record_init refused the configuration\n", .{});
         std.process.exit(exit_failed);
     };
+    try run_handshake(socket);
     report();
     report_exporter();
     try echo_once(socket);
@@ -157,21 +135,49 @@ pub fn main(init: std.process.Init.Minimal) !void {
     std.debug.print("tls-accept: records ok, peer closed cleanly\n", .{});
 }
 
-/// Reads the four parts of the identity the peer minted, each raw DER or raw octets.
-fn read_identity(prefix: []const u8) !chapulin_server.Identity {
-    return .{
-        .leaf = try check_file.read_part(prefix, ".leaf.der", &leaf_storage),
-        .issuer = try check_file.read_part(prefix, ".ca.der", &issuer_storage),
-        .private_scalar = try check_file.read_part(prefix, ".priv", &private_storage),
-        .public_point = try check_file.read_part(prefix, ".pub", &public_storage),
-    };
+/// Hands what the peer sends to chapulin's record-mode handshake and writes back the server's
+/// flight, until the handshake completes. The socket blocks, which decision 46 permits here: this
+/// check serves one connection and exits, and is not one of design §9's endpoints.
+fn run_handshake(socket: std.c.fd_t) !void {
+    // Bounded: each pass reads at least one octet, and a handshake is a few records.
+    for (0..handshake_reads_max) |_| {
+        try read_more(socket);
+        const progress = server.handshake(input_storage[0..input_len], &output_storage) catch |failure| {
+            std.debug.print("tls-accept: {t}: {s} (code {d}, alert {d})\n", .{
+                failure,
+                chapulin_server.reason(server.code),
+                server.code,
+                server.alert(),
+            });
+            std.process.exit(exit_failed);
+        };
+        try write_all(socket, output_storage[0..progress.written]);
+        take_input(progress.consumed);
+        if (progress.complete) return;
+    }
+    std.debug.print("tls-accept: the handshake did not complete in {d} reads\n", .{handshake_reads_max});
+    std.process.exit(exit_failed);
+}
+
+/// The reads a handshake may take: a ClientHello, a second one after a HelloRetryRequest, and the
+/// client's Finished, each possibly split across reads.
+const handshake_reads_max: usize = 16;
+
+/// Reads until the input holds one whole record, which is what `decrypt_record` opens.
+fn read_record(socket: std.c.fd_t) ![]const u8 {
+    // Bounded: each pass reads at least one octet, and a record fits the buffer.
+    for (0..input_storage.len) |_| {
+        if (chapulin_record.whole_record_len(input_storage[0..input_len]) != null) break;
+        try read_more(socket);
+    }
+    return input_storage[0..input_len];
 }
 
 /// Opens one record the peer sealed and seals the same octets back (RFC 9846 §5.2). It is the
 /// smallest exchange that drives both halves of the record phase.
 fn echo_once(socket: std.c.fd_t) !void {
     const held = server.provider();
-    const input = try read_some(socket, &input_storage);
+    const input = try read_record(socket);
     const opened = held.vtable.decrypt_record(held.context, input, &plaintext_storage) catch {
         std.debug.print("tls-accept: the peer's record did not open\n", .{});
         std.process.exit(exit_failed);
@@ -180,6 +186,7 @@ fn echo_once(socket: std.c.fd_t) !void {
         std.debug.print("tls-accept: the peer's record held no application data\n", .{});
         std.process.exit(exit_failed);
     }
+    take_input(opened.consumed);
     const sealed = try held.vtable.encrypt_record(
         held.context,
         plaintext_storage[0..opened.plaintext_len],
@@ -193,7 +200,7 @@ fn echo_once(socket: std.c.fd_t) !void {
 /// description, which is what colibri's `connection_tls.on_alert` relies on.
 fn await_close(socket: std.c.fd_t) !void {
     const held = server.provider();
-    const input = try read_some(socket, &input_storage);
+    const input = try read_record(socket);
     const opened = held.vtable.decrypt_record(held.context, input, &plaintext_storage) catch {
         std.debug.print("tls-accept: the peer's close did not open\n", .{});
         std.process.exit(exit_failed);
@@ -216,11 +223,21 @@ fn await_close(socket: std.c.fd_t) !void {
     }
 }
 
-/// Reads at least one octet, which is what a peer that owes a record always sends.
-fn read_some(socket: std.c.fd_t, into: []u8) ![]const u8 {
-    const read = std.c.recv(socket, into.ptr, into.len, 0);
+/// Reads at least one octet after the ones not yet used, which is what a peer that owes a record
+/// always sends.
+fn read_more(socket: std.c.fd_t) !void {
+    const room = input_storage[input_len..];
+    if (room.len == 0) return error.RecordTooLong;
+    const read = std.c.recv(socket, room.ptr, room.len, 0);
     if (read <= 0) return error.PeerClosed;
-    return into[0..@intCast(read)];
+    input_len += @intCast(read);
+}
+
+/// Drops the `consumed` octets used, keeping what follows at the front.
+fn take_input(consumed: usize) void {
+    std.debug.assert(consumed <= input_len);
+    std.mem.copyForwards(u8, &input_storage, input_storage[consumed..input_len]);
+    input_len -= consumed;
 }
 
 /// Writes every octet, looping because a blocking send may still move fewer than it was asked.
@@ -234,9 +251,8 @@ fn write_all(socket: std.c.fd_t, octets: []const u8) !void {
     }
 }
 
-/// Listens on `port` and takes the one connection this run serves. The socket stays blocking:
-/// chapulin drives the handshake itself and none of its callbacks can report "nothing yet"
-/// (decision 46).
+/// Listens on `port` and takes the one connection this run serves. The socket stays blocking,
+/// because this check serves one connection and exits.
 fn accept_one(port: u16) !std.c.fd_t {
     const listener = std.c.socket(std.c.AF.INET, std.c.SOCK.STREAM, 0);
     if (listener < 0) return error.SocketFailed;

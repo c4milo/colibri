@@ -1,6 +1,8 @@
-//! The socket around `h2_session.zig`: the cleartext prior-knowledge h2 server of design §9, which
-//! `tools/h2spec.sh` runs the pinned h2spec against and h2load measures. `zig build h2-server --
-//! --port <port>` runs it.
+//! The socket around `h2_session.zig`: the h2 server of design §9, which `tools/h2spec.sh` runs
+//! the pinned h2spec against and h2load measures. `zig build h2-server -- --port <port>` runs it
+//! in cleartext with prior knowledge (RFC 9113 §3.3). With `--tls <identity-prefix>` it serves h2
+//! over TLS (§3.2) instead, through chapulin's record-mode server and `h2_tls.zig`, which needs a
+//! build given `-Dchapulin-server` (design §8 step 5).
 //!
 //! One worker per core, sharing nothing. Each worker opens its own listening socket on the same
 //! port, which `reuse_address` gives it by setting SO_REUSEPORT, so the kernel hands each new
@@ -20,11 +22,16 @@
 //! Nothing here allocates: every worker, connection and buffer is in static storage sized by
 //! `constants.zig`, and each worker's `Io` is given a failing allocator, because no call here
 //! starts an asynchronous task.
+//!
+//! The TLS mode runs one worker. chapulin's generator is one process-wide state with no lock
+//! (its `drbg.h`), so two threads must not run handshakes at once.
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
 const constants = @import("../constants.zig");
 const h2_session = @import("h2_session.zig");
+const h2_tls = @import("h2_tls.zig");
+const server_identity = @import("../tls/server_identity.zig");
 
 const Io = std.Io;
 const Session = h2_session.Session;
@@ -35,7 +42,10 @@ const posix = std.posix;
 const Connection = struct {
     stream: Io.net.Stream,
     session: Session,
-    input: [constants.read_buffer_len]u8,
+    /// The TLS layer the connection runs over, or null in cleartext. Its octets are records, and
+    /// `input` and `output` hold them as they cross the socket.
+    layer: ?*h2_tls.Layer,
+    input: [constants.wire_read_len]u8,
     input_len: usize,
     output: [constants.write_buffer_len]u8,
     /// Octets of `output` the session has produced.
@@ -72,6 +82,12 @@ const padding_len = constants.cache_line_bytes - worker_body_len % constants.cac
 /// The workers, in static storage: each is large, and there is one per core at most.
 var workers: [constants.workers_max]Worker align(constants.cache_line_bytes) = undefined;
 
+/// The TLS mode's shared state, which `main` loads when `--tls` names an identity, and one TLS
+/// layer per connection slot of the one worker the mode runs.
+var tls_shared: ?h2_tls.Shared = null;
+var tls_identity: server_identity.Storage = undefined;
+var tls_layers: [constants.connections_per_worker_max]h2_tls.Layer = undefined;
+
 comptime {
     assert(@sizeOf(Worker) % constants.cache_line_bytes == 0);
 }
@@ -79,7 +95,8 @@ comptime {
 /// Runs one worker per core until the process is stopped, every one listening on `port`.
 pub fn listen_and_serve(port: u16) !void {
     const cores = std.Thread.getCpuCount() catch 1;
-    const count = @max(1, @min(cores, constants.workers_max));
+    // One worker in the TLS mode: see the header.
+    const count = if (tls_shared != null) 1 else @max(1, @min(cores, constants.workers_max));
     var threads: [constants.workers_max]?std.Thread = @splat(null);
     for (1..count) |index| {
         threads[index] = std.Thread.spawn(.{}, run_worker, .{ index, port }) catch null;
@@ -162,8 +179,23 @@ fn accept_connection(worker: *Worker, io: Io) void {
         connection.output_len = 0;
         connection.output_sent = 0;
         connection.closing = false;
+        connection.layer = null;
         connection.live = true;
+        if (tls_shared) |*shared| {
+            connection.layer = start_tls(index, shared) catch {
+                close_connection(connection, io);
+                return;
+            };
+        }
     }
+}
+
+/// Gives a new connection the TLS layer of its slot, ready to read a ClientHello.
+fn start_tls(index: usize, shared: *const h2_tls.Shared) !*h2_tls.Layer {
+    if (comptime !h2_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
+    const layer = &tls_layers[index];
+    try h2_tls.start(layer, shared);
+    return layer;
 }
 
 /// The index of a slot this worker can put a connection in.
@@ -178,7 +210,7 @@ fn free_slot(worker: *Worker) ?usize {
 fn serve_connection(connection: *Connection, events: i16) !void {
     if (events & (posix.POLL.HUP | posix.POLL.ERR | posix.POLL.NVAL) != 0) return error.PeerClosed;
     if (events & posix.POLL.IN != 0) try read_input(connection);
-    step_session(connection);
+    if (connection.layer) |layer| try step_tls(connection, layer) else step_session(connection);
     // The write does not wait, so it is worth trying whatever `poll` said: what the socket cannot
     // take now stays in the buffer and goes out when it says POLLOUT.
     try write_output(connection);
@@ -212,6 +244,20 @@ fn step_session(connection: *Connection) void {
         }
         if (step.consumed == 0 and step.written == 0) return;
     }
+}
+
+/// Steps a TLS connection: records in from `input`, records out into `output` (`h2_tls.zig`).
+fn step_tls(connection: *Connection, layer: *h2_tls.Layer) !void {
+    if (comptime !h2_tls.available) unreachable; // No layer exists without chapulin.
+    const stepped = try h2_tls.step(
+        layer,
+        &connection.session,
+        connection.input[0..connection.input_len],
+        connection.output[connection.output_len..],
+    );
+    connection.output_len += stepped.written;
+    consume(connection, stepped.consumed);
+    if (stepped.done) connection.closing = true;
 }
 
 /// Writes what the session produced, taking what the socket will hold and keeping the rest. The
@@ -253,25 +299,57 @@ fn close_connection(connection: *Connection, io: Io) void {
 /// The address the server listens on: the loopback, because it serves tests alone.
 const loopback_address = "127.0.0.1";
 
-/// The command-line option that names the port, as `tools/h2spec.sh` passes it.
+/// The command-line options, as `tools/h2spec.sh` passes them: the port, and the prefix of the
+/// identity files `tools/h2_interop/tls_identity.go` wrote, which turns the TLS mode on.
 const port_option = "--port";
+const tls_option = "--tls";
 
-/// Runs the server: `zig build h2-server -- --port <port>`, or `default_port` when none is given.
+/// What the command line asked for.
+const Options = struct {
+    port: u16 = constants.default_port,
+    identity_prefix: ?[]const u8 = null,
+};
+
+/// Runs the server: `zig build h2-server -- --port <port> [--tls <identity-prefix>]`.
 pub fn main(init: std.process.Init.Minimal) !void {
     var arguments = std.process.Args.Iterator.init(init.args);
     _ = arguments.skip();
-    try listen_and_serve(read_port(&arguments));
+    const options = read_options(&arguments);
+    if (options.identity_prefix) |prefix| try load_tls(prefix);
+    try listen_and_serve(options.port);
 }
 
-/// The port `--port` names, or `default_port`.
-fn read_port(arguments: *std.process.Args.Iterator) u16 {
-    var wanted = false;
+/// Reads `--port` and `--tls`, each followed by its value. An unreadable port is the default.
+fn read_options(arguments: *std.process.Args.Iterator) Options {
+    var options: Options = .{};
     for (0..constants.arguments_max) |_| {
         const argument = arguments.next() orelse break;
-        if (wanted) {
-            return std.fmt.parseInt(u16, argument, constants.port_radix) catch constants.default_port;
+        const value = arguments.next() orelse break;
+        if (std.mem.eql(u8, argument, port_option)) {
+            options.port = std.fmt.parseInt(u16, value, constants.port_radix) catch constants.default_port;
         }
-        wanted = std.mem.eql(u8, argument, port_option);
+        if (std.mem.eql(u8, argument, tls_option)) options.identity_prefix = value;
     }
-    return constants.default_port;
+    return options;
 }
+
+/// Loads what every TLS connection shares, and runs chapulin's boot check on the identity once.
+fn load_tls(prefix: []const u8) !void {
+    if (comptime !h2_tls.available) {
+        std.debug.print("h2-server: built without chapulin; pass -Dchapulin-server=<checkout>\n", .{});
+        std.process.exit(exit_usage);
+    }
+    try server_identity.seed(&tls_identity);
+    const shared: h2_tls.Shared = .{
+        .identity = try server_identity.load(prefix, &tls_identity),
+        .cookie_key = &tls_identity.cookie_key,
+    };
+    // `ch_srv_check` reads the configuration alone, so the first slot's server carries it.
+    const probe = &tls_layers[0];
+    probe.server.init(.{ .identity = shared.identity, .cookie_key = shared.cookie_key, .receive = &probe.receive });
+    try probe.server.check();
+    tls_shared = shared;
+}
+
+/// The exit status of a run asked for something this build cannot do.
+const exit_usage: u8 = 2;
