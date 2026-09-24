@@ -111,6 +111,21 @@ pub const insert_count_increment_prefix_bits: u4 = 6;
 /// representation that references nothing rather than losing track of one.
 pub const outstanding_sections_max: usize = 64;
 
+/// The most streams the decoder holds as blocked (RFC 9204 §2.1.2), and so the most it may
+/// advertise as `SETTINGS_QPACK_BLOCKED_STREAMS` (§5). Decision 74: the decoder keeps each one's
+/// stream ID and Required Insert Count, and the caller keeps its octets.
+pub const blocked_streams_max: u64 = 100;
+
+/// Section Acknowledgments and Stream Cancellations the decoder may owe before the caller writes
+/// its decoder stream (decision 74). A decoder whose queue is full decodes nothing more until the
+/// caller writes, so no instruction is dropped.
+pub const decoder_instructions_owed_max: usize = 64;
+
+/// The longest encoder instruction the decoder waits for (decision 74), which is also the most
+/// encoder stream octets a caller must hold. An instruction whose entry fits the largest table
+/// fits here when its strings are sent raw; RFC 9204 §7.4 lets a decoder refuse a longer one.
+pub const encoder_instruction_len_max: usize = dynamic_table_capacity_max;
+
 /// The error codes of RFC 9204 §6, which HTTP/3 carries when QPACK cannot continue.
 pub const error_decompression_failed: u64 = 0x0200;
 pub const error_encoder_stream: u64 = 0x0201;

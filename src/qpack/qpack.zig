@@ -10,6 +10,8 @@ pub const representation = @import("representation.zig");
 pub const representation_write = @import("representation_write.zig");
 pub const encoder = @import("encoder.zig");
 pub const decoder = @import("decoder.zig");
+pub const decoder_table = @import("decoder_table.zig");
+pub const decoder_stream = @import("decoder_stream.zig");
 pub const dynamic_table = @import("dynamic_table.zig");
 pub const instruction = @import("instruction.zig");
 pub const insert_count = @import("insert_count.zig");
@@ -23,6 +25,8 @@ test {
     _ = representation_write;
     _ = encoder;
     _ = decoder;
+    _ = decoder_table;
+    _ = decoder_stream;
     _ = dynamic_table;
     _ = instruction;
     _ = insert_count;
