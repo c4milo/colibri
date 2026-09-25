@@ -15,6 +15,16 @@ pub const start_line_len_max: u32 = 8192;
 /// answer 4xx, so this is policy. It bounds how far `message_scan` looks for the end of a head.
 pub const head_len_max: u32 = 32768;
 
+/// Longest line colibri reads before a chunk's data, in octets, not counting its CRLF: the
+/// chunk-size and its chunk extensions (RFC 9112 §7.1). RFC 9112 §7.1.1 says a server ought to
+/// limit the total length of chunk extensions it accepts and answer 4xx past it, so this is policy.
+pub const chunk_line_len_max: u32 = 4096;
+
+/// Longest trailer section colibri reads, in octets, its closing empty line included
+/// (RFC 9112 §7.1.2). A trailer section holds field lines as a head does, so it is bounded as a
+/// head is, less the start line.
+pub const trailer_len_max: u32 = head_len_max - start_line_len_max;
+
 /// The octets RFC 9112 §2.3 gives an HTTP-version: `HTTP-name "/" DIGIT "." DIGIT`.
 pub const version_len: u32 = 8;
 

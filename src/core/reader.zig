@@ -72,6 +72,13 @@ pub const Reader = struct {
         return self.bytes[start..self.offset];
     }
 
+    /// Every octet not yet consumed, without consuming them. A parser that must find where a
+    /// structure ends before it reads it looks here first.
+    pub fn peek_rest(self: *const Reader) []const u8 {
+        assert(self.offset <= self.bytes.len);
+        return self.bytes[self.offset..];
+    }
+
     /// Every octet not yet consumed. Never fails: an empty remainder is an empty slice.
     pub fn take_rest(self: *Reader) []const u8 {
         return self.take(self.remaining_len()) catch unreachable;
@@ -91,6 +98,15 @@ pub const Reader = struct {
 };
 
 const testing = std.testing;
+
+test "peek_rest shows what remains and consumes none of it" {
+    var reader = Reader.init(&.{ 0x01, 0x02, 0x03 });
+    _ = try reader.read_byte();
+    try testing.expectEqualSlices(u8, &.{ 0x02, 0x03 }, reader.peek_rest());
+    try testing.expectEqual(2, reader.remaining_len());
+    _ = reader.take_rest();
+    try testing.expectEqual(0, reader.peek_rest().len);
+}
 
 test "a read inside the slice returns the octets and moves the cursor" {
     var reader = Reader.init(&.{ 0x01, 0x02, 0x03, 0x04, 0x05 });

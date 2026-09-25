@@ -7,6 +7,7 @@ const std = @import("std");
 
 pub const constants = @import("constants.zig");
 pub const message = @import("message/message.zig");
+pub const chunked = @import("chunked/chunked.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -15,4 +16,5 @@ test {
     _ = @import("message/message_fields.zig");
     _ = @import("message/message_target.zig");
     _ = @import("message/message_body.zig");
+    _ = @import("chunked/chunked_line.zig");
 }
