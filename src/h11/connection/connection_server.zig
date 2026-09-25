@@ -86,6 +86,8 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     const writer = response_body(target, code, fields);
     // RFC 9112 §6.3 rule 8: a response with no declared length ends with the connection.
     if (writer.kind == .close_delimited) target.close_after = true;
+    // RFC 9112 §9.6: a server that sends the close option closes after this response.
+    if (connection.fields_ask_close(fields)) target.close_after = true;
     const written = try write_final_head(target, output, status, reason, fields);
     target.answered = true;
     target.writer = writer;

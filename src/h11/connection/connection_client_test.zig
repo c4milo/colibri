@@ -91,6 +91,15 @@ test "RFC 9112 §9.6: the close option ends the connection, and the unanswered r
     var target = client(.{});
     _ = try target.write_request(&test_output, "GET", "/", &.{ host[0], .{ .name = "Connection", .value = "close" } });
     try testing.expectError(error.ConnectionClosed, target.write_request(&test_output, "GET", "/", host));
+    // The client closes after the final response to its close, not before, though the response
+    // lacks one.
+    target = client(.{});
+    try get(target, "GET");
+    _ = try target.write_request(&test_output, "GET", "/", &.{ host[0], .{ .name = "Connection", .value = "close" } });
+    _ = try expect_status(target, "HTTP/1.1 204 \r\n\r\n", 204);
+    try testing.expect(!target.should_close());
+    _ = try expect_status(target, "HTTP/1.1 204 \r\n\r\n", 204);
+    try testing.expect(target.should_close());
     target = client(.{});
     try get(target, "GET");
     try get(target, "GET");

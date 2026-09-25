@@ -125,6 +125,9 @@ fn read_body(target: *Connection, input: []const u8) connection.Error!Received {
 fn complete_response(target: *Connection) void {
     pop(target);
     target.retrying = false;
+    // RFC 9112 §9.6: a client that sent the close option closes after the final response to that
+    // request, which is the last one it sent.
+    if (target.close_sent and target.outstanding_len == 0) target.close_after = true;
     target.phase = if (target.close_after) .closed else .head;
 }
 

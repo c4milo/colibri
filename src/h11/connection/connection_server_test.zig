@@ -78,6 +78,16 @@ test "RFC 9112 §9.3 and §9.6: the close option or HTTP/1.0 ends the connection
     }
 }
 
+test "RFC 9112 §9.6: a response that carries the close option ends the connection" {
+    const target = server();
+    const input = "GET / HTTP/1.1\r\nHost: h\r\n\r\nGET / HTTP/1.1\r\nHost: h\r\n\r\n";
+    const first = try expect_request(target, input, "GET");
+    _ = try target.write_response(&test_output, 204, "", &.{.{ .name = "Connection", .value = "close" }});
+    try testing.expect(target.should_close());
+    // The server processes no further request received on the connection.
+    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..]));
+}
+
 test "decision 92: a malformed request owes an error response with the close, by its status" {
     const cases = [_]struct { input: []const u8, status: []const u8 }{
         .{ .input = "GET / HTTP/1.1\r\n\r\n", .status = "400 Bad Request" },
