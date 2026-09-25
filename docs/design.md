@@ -3615,6 +3615,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   exchange seeded requests, pipelined, with chunked and length-delimited bodies and early closes,
   in pieces, and a seed replays byte for byte (invariant 5). Golden cases and mutations.
 
+  **Check passed, 2026-09-25**, `60cd6f6` to `199a52d`, on macOS arm64 with Zig 0.16.0.
+  - `60cd6f6`: the connection. A server reads one request at a time and writes the error response
+    a refused request owes. A client pipelines as decision 88 rules and gives each response to
+    its oldest request.
+  - `eda6c24`: the close option ends the connection after the response it names, at both ends
+    (RFC 9112 §9.6). Writing the simulator check found the server's half.
+  - `aa11d3f`: the simulator check, `src/sim/h11_exchange_check.zig`. It does not use
+    `sim.pipe.run`, which feeds one stream fixed before the run to one subject. A client's
+    requests depend on the responses it has read, so the check keeps one stream each way and cuts
+    each into chunks of 1 to `chunk_len_max` octets, as the pipe does.
+  - `199a52d`: 14 golden cases of the `h11_server` format, request streams a server reads, each
+    with the error response it owes as its verdict. A 414 and a 431 need a head longer than
+    `case_len_max`, so the connection's unit tests hold those two.
+
+  What each check printed:
+  - `zig build test`: 1752 of 1816 tests passed, 64 skipped.
+  - `zig build sim -- --h11-connection-check`, in Debug and in ReleaseSafe: `h11-connection:
+    seeds=256 answered=828 unanswered=82 steps=10864 trace_octets=122134 crc32=0x701b34cd`.
+    Each seed's exchanges were the same in seeded chunks as delivered whole, every body matched
+    the plan's, and the 82 requests pipelined past a close went unanswered.
+  - Mutations: 62 CAUGHT and 1 NOT CAUGHT. 38 were caught by the connection's unit tests, 3 in the
+    close fix, 13 by the simulator check alone and 8 by the golden cases alone. The NOT CAUGHT
+    mutant passes the simulator check: a client that ignores its own close option. colibri's
+    server always answers that request with the close, so the check cannot reach the rule, and
+    the client's unit test catches it.
+
 - **Step 15c — the `gzip` and `deflate` codings.** stdx's decoders from a pool the caller owns,
   under decision 91. It follows https://github.com/c4milo/stdx/issues/1. **Check:** step 15b's
   simulator check with coded bodies, the corrupt and refused verdicts each with a case, and
