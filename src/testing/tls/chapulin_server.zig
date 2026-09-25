@@ -23,6 +23,7 @@ const assert = std.debug.assert;
 const tls = @import("tls");
 const chapulin = @import("chapulin.zig");
 const chapulin_record = @import("chapulin_record.zig");
+const constants = @import("../constants.zig");
 
 const c = chapulin.c;
 
@@ -80,6 +81,9 @@ pub const Options = struct {
     /// holds the records `ch_read` opens afterwards; chapulin advertises its size, less record
     /// overhead, as `record_size_limit`.
     receive: []u8,
+    /// The protocols to offer through ALPN, most preferred first: chapulin selects the first of
+    /// them the client offers too (RFC 7301 §3.2).
+    protocols: []const []const u8 = &.{alpn_h2},
 };
 
 /// What one call to `handshake` did.
@@ -101,8 +105,8 @@ pub const Server = struct {
     config: c.ch_cfg,
     /// The chain, end-entity first then the root that signed it (RFC 9846 §4.5.1).
     chain: [chain_len]c.ch_cert,
-    /// The one protocol this server offers (RFC 9113 §3.1).
-    alpn: [1]c.ch_alpn_protocol,
+    /// The protocols this server offers (`Options.protocols`).
+    alpn: [constants.alpn_offered_max]c.ch_alpn_protocol,
     /// What chapulin last answered, which `reason` names.
     code: c_int,
 
@@ -118,7 +122,9 @@ pub const Server = struct {
         server.code = ok;
         server.chain[0] = .{ .der = options.identity.leaf.ptr, .len = options.identity.leaf.len };
         server.chain[1] = .{ .der = options.identity.issuer.ptr, .len = options.identity.issuer.len };
-        server.alpn[0] = .{ .name = alpn_h2.ptr, .name_len = alpn_h2.len };
+        assert(options.protocols.len > 0 and options.protocols.len <= server.alpn.len);
+        for (options.protocols, 0..) |name, index| server.alpn[index] = .{ .name = name.ptr, .name_len = name.len };
+        server.held.alpn = server.alpn[0..options.protocols.len];
         server.config.buf = options.receive.ptr;
         server.config.buf_len = options.receive.len;
         // chapulin requires both, though a record-mode handshake calls neither: `ch_read` and
@@ -127,7 +133,7 @@ pub const Server = struct {
         server.config.recv = chapulin_record.recv;
         server.config.io = @ptrCast(&server.held.io);
         server.config.alpn_protocols = &server.alpn;
-        server.config.alpn_count = server.alpn.len;
+        server.config.alpn_count = options.protocols.len;
         server.config.srv.ecdsa_p256 = .{
             .chain = &server.chain,
             .chain_count = server.chain.len,

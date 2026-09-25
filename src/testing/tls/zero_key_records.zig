@@ -42,12 +42,15 @@ pub fn connect(held: *Held, session: *c.ch_tls, receive: []u8) void {
     session.cfg.io = @ptrCast(&held.io);
     session.cfg.buf = receive.ptr;
     session.cfg.buf_len = receive.len;
+    // The protocols the role's `init` offered, which a finished handshake indexes.
+    const alpn = held.alpn;
     held.* = .{
         .session = session,
         .io = .{ .records = .{} },
         .closed = false,
         .pending_alert = null,
         .suite = tls.constants.cipher_suite_chacha20_poly1305_sha256,
+        .alpn = alpn,
     };
 }
 

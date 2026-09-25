@@ -60,13 +60,15 @@ test "a record-mode server's flight goes into the output whole, or the call fail
 }
 
 /// A zeroed session and the state around it, for the calls that refuse before chapulin reads the
-/// session. Test-only.
+/// session. A zeroed session's `alpn_selected` is 0, which names the one protocol offered here.
+/// Test-only.
+const test_alpn = if (chapulin.available) [_]c.ch_alpn_protocol{.{ .name = chapulin_record.alpn_h2.ptr, .name_len = chapulin_record.alpn_h2.len }} else [_]u8{};
 var test_session: if (chapulin.available) c.ch_tls else void = undefined;
 var test_held: Held = undefined;
 
 fn test_provider() tls.Provider {
     test_session = std.mem.zeroes(c.ch_tls);
-    test_held = .{ .session = &test_session, .io = .{ .records = .{} }, .closed = false, .pending_alert = null, .suite = 0 };
+    test_held = .{ .session = &test_session, .io = .{ .records = .{} }, .closed = false, .pending_alert = null, .suite = 0, .alpn = &test_alpn };
     return .{ .context = @ptrCast(&test_held), .vtable = &chapulin_record.vtable };
 }
 

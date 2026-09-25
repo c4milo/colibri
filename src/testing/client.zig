@@ -8,7 +8,7 @@ pub const chapulin_client = @import("tls/chapulin_client.zig");
 pub const client_loop = @import("client/client_loop.zig");
 pub const client_options = @import("client/client_options.zig");
 pub const client_session = @import("client/client_session.zig");
-pub const h2_client_tls = @import("h2/h2_client_tls.zig");
+pub const client_tls = @import("tls/client_tls.zig");
 
 comptime {
     // The chapulin object is linked whenever the build was given a checkout, and it imports
@@ -27,5 +27,5 @@ test {
     _ = client_loop;
     _ = client_options;
     _ = client_session;
-    _ = h2_client_tls;
+    _ = client_tls;
 }

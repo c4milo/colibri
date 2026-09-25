@@ -1,9 +1,10 @@
 //! The socket around `session.zig`: the server of design §9, which `tools/h2spec.sh` runs the
 //! pinned h2spec against and h2load measures. `zig build http-server -- --port <port>` runs it in
 //! cleartext, speaking h2 with prior knowledge (RFC 9113 §3.3), or h11 with `--h11` (design §8
-//! step 15d). With `--tls <identity-prefix>` it serves h2 over TLS (§3.2) instead, through
-//! chapulin's record-mode server and `h2/h2_tls.zig`, which needs a build given
-//! `-Dchapulin-server` (design §8 step 5).
+//! step 15d). With `--tls <identity-prefix>` it serves TLS instead, through chapulin's
+//! record-mode server and `tls/server_tls.zig`, which needs a build given `-Dchapulin-server`
+//! (design §8 step 5). Over TLS it offers `h2` and `http/1.1` through ALPN, or `http/1.1` alone
+//! with `--h11`, and each connection speaks what its handshake selected (decision 88).
 //!
 //! One worker per core, sharing nothing. Each worker has its own Rotor loop and its own listening
 //! socket on the same port, bound with SO_REUSEPORT, so the kernel hands each new connection to
@@ -32,7 +33,7 @@ const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const session_module = @import("session.zig");
-const h2_tls = @import("h2/h2_tls.zig");
+const server_tls = @import("tls/server_tls.zig");
 const server_identity = @import("tls/server_identity.zig");
 const chapulin = @import("tls/chapulin.zig");
 const chapulin_server = @import("tls/chapulin_server.zig");
@@ -62,7 +63,7 @@ const Connection = struct {
     session: Session,
     /// The TLS layer the connection runs over, or null in cleartext. Its octets are records, and
     /// `input` and `output` hold them as they cross the socket.
-    layer: ?*h2_tls.Layer,
+    layer: ?*server_tls.Layer,
     /// Where the receive in flight writes (see the header).
     received: [constants.wire_read_len]u8,
     input: [constants.wire_read_len]u8,
@@ -110,9 +111,9 @@ comptime {
 
 /// The TLS mode's shared state, which `main` loads when `--tls` names an identity, and one TLS
 /// layer per connection slot of the one worker the mode runs.
-var tls_shared: ?h2_tls.Shared = null;
+var tls_shared: ?server_tls.Shared = null;
 var tls_identity: server_identity.Storage = undefined;
-var tls_layers: [constants.connections_per_worker_max]h2_tls.Layer = undefined;
+var tls_layers: [constants.connections_per_worker_max]server_tls.Layer = undefined;
 
 /// Runs one worker per core until the process is stopped, every one listening on `port`.
 pub fn listen_and_serve(port: u16) !void {
@@ -187,8 +188,8 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     const slot = free_slot(worker) orelse unreachable; // `arm_accept` waits for one.
     const connection = &worker.connections[slot];
     connection.descriptor = descriptor;
-    // The TLS mode serves h2 alone until ALPN chooses between h2 and h11 (design §8 step 15d).
-    connection.session.init(if (tls_shared != null) .h2 else cleartext_protocol);
+    // Over TLS, `server_tls.step` sets the protocol again once ALPN has selected one.
+    connection.session.init(cleartext_protocol);
     connection.input_len = 0;
     connection.output_len = 0;
     connection.output_sent = 0;
@@ -210,17 +211,17 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
 }
 
 /// Gives a new connection the TLS layer of its slot, ready to read a ClientHello.
-fn start_tls(index: usize, shared: *const h2_tls.Shared) !*h2_tls.Layer {
-    if (comptime !h2_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
+fn start_tls(index: usize, shared: *const server_tls.Shared) !*server_tls.Layer {
+    if (comptime !server_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
     const layer = &tls_layers[index];
-    try h2_tls.start(layer, shared);
+    try server_tls.start(layer, shared);
     return layer;
 }
 
 /// Wipes what a TLS connection's session still holds, once its slot is free again.
-fn finish_tls(layer: *h2_tls.Layer) void {
-    if (comptime !h2_tls.available) unreachable; // No layer exists without chapulin.
-    h2_tls.finish(layer);
+fn finish_tls(layer: *server_tls.Layer) void {
+    if (comptime !server_tls.available) unreachable; // No layer exists without chapulin.
+    server_tls.finish(layer);
 }
 
 /// The index of a slot this worker can put a connection in.
@@ -327,12 +328,12 @@ fn step_session(connection: *Connection) void {
     }
 }
 
-/// Steps a TLS connection: records in from `input`, records out into `output` (`h2_tls.zig`).
-fn step_tls(connection: *Connection, layer: *h2_tls.Layer) !void {
-    if (comptime !h2_tls.available) unreachable; // No layer exists without chapulin.
-    const stepped = try h2_tls.step(
+/// Steps a TLS connection: records in from `input`, records out into `output` (`server_tls.zig`).
+fn step_tls(connection: *Connection, layer: *server_tls.Layer) !void {
+    if (comptime !server_tls.available) unreachable; // No layer exists without chapulin.
+    const stepped = try server_tls.step(
         layer,
-        &connection.session.h2,
+        &connection.session,
         connection.input[0..connection.input_len],
         connection.output[connection.output_len..],
     );
@@ -356,7 +357,8 @@ const loopback_first: u8 = 127;
 
 /// The command-line options, as `tools/h2spec.sh` passes them: the port, the prefix of the
 /// identity files `tools/h2_interop/tls_identity.go` wrote, which turns the TLS mode on, and
-/// `--h11`, which takes no value and makes a cleartext connection speak h11.
+/// `--h11`, which takes no value and makes a cleartext connection speak h11, or a TLS server offer
+/// `http/1.1` alone.
 const port_option = "--port";
 const tls_option = "--tls";
 const h11_option = "--h11";
@@ -371,17 +373,13 @@ const Options = struct {
 /// The protocol every cleartext connection speaks, which `main` sets from the command line.
 var cleartext_protocol: Protocol = .h2;
 
-/// Runs the server: `zig build http-server -- --port <port> [--h11 | --tls <identity-prefix>]`.
+/// Runs the server: `zig build http-server -- --port <port> [--h11] [--tls <identity-prefix>]`.
 pub fn main(init: std.process.Init.Minimal) !void {
     var arguments = std.process.Args.Iterator.init(init.args);
     _ = arguments.skip();
     const options = read_options(&arguments);
-    if (options.protocol == .h11 and options.identity_prefix != null) {
-        std.debug.print("http-server: --h11 chooses the cleartext protocol; over TLS the server speaks h2\n", .{});
-        std.process.exit(exit_usage);
-    }
     cleartext_protocol = options.protocol;
-    if (options.identity_prefix) |prefix| try load_tls(prefix);
+    if (options.identity_prefix) |prefix| try load_tls(prefix, options.protocol);
     try listen_and_serve(options.port);
 }
 
@@ -405,21 +403,22 @@ fn read_options(arguments: *std.process.Args.Iterator) Options {
 }
 
 /// Checks the linked object's build, loads what every TLS connection shares, and runs chapulin's
-/// boot check on the identity once.
-fn load_tls(prefix: []const u8) !void {
-    if (comptime !h2_tls.available) {
+/// boot check on the identity once. With `--h11` the server offers `http/1.1` alone.
+fn load_tls(prefix: []const u8, protocol: Protocol) !void {
+    if (comptime !server_tls.available) {
         std.debug.print("http-server: built without chapulin; pass -Dchapulin-server=<checkout>\n", .{});
         std.process.exit(exit_usage);
     }
     try chapulin.check_build();
     try server_identity.seed(&tls_identity);
-    const shared: h2_tls.Shared = .{
+    const shared: server_tls.Shared = .{
         .identity = try server_identity.load(prefix, &tls_identity),
         .cookie_key = &tls_identity.cookie_key,
+        .protocols = if (protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both,
     };
     // `ch_srv_check` reads the configuration alone, so the first slot's server carries it.
     const probe = &tls_layers[0];
-    probe.server.init(.{ .identity = shared.identity, .cookie_key = shared.cookie_key, .receive = &probe.receive });
+    probe.server.init(.{ .identity = shared.identity, .cookie_key = shared.cookie_key, .receive = &probe.receive, .protocols = shared.protocols });
     try probe.server.check();
     tls_shared = shared;
 }
@@ -438,8 +437,8 @@ const test_point: [chapulin_server.public_point_len]u8 = @splat(1);
 const test_cookie: [chapulin_server.cookie_key_len]u8 = @splat(1);
 
 test "a TLS connection's session is wiped when its slot is freed" {
-    if (!h2_tls.available) return error.SkipZigTest;
-    const shared: h2_tls.Shared = .{
+    if (!server_tls.available) return error.SkipZigTest;
+    const shared: server_tls.Shared = .{
         .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
         .cookie_key = &test_cookie,
     };
@@ -456,5 +455,5 @@ test "a TLS connection's session is wiped when its slot is freed" {
     const user_data = (@as(u64, slot) << kind_bits) | @intFromEnum(Kind.close);
     on_event(worker, .{ .user_data = user_data, .result = 0, .flags = .{} });
     try testing.expect(!connection.live);
-    try testing.expectEqual(h2_tls.chapulin_closed, h2_tls.session_state(&tls_layers[slot]));
+    try testing.expectEqual(server_tls.chapulin_closed, server_tls.session_state(&tls_layers[slot]));
 }

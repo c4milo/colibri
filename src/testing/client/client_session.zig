@@ -3,6 +3,7 @@
 //! socket around it, steps either the same way and reports its exchanges the same way.
 const std = @import("std");
 const assert = std.debug.assert;
+const constants = @import("../constants.zig");
 const session = @import("../session.zig");
 const client_exchange = @import("client_exchange.zig");
 const h2_client_session = @import("../h2/h2_client_session.zig");
@@ -37,6 +38,26 @@ pub const Session = union(Protocol) {
                 client.h11.init(authority, plans);
             },
         }
+        assert(std.meta.activeTag(client.*) == protocol);
+    }
+
+    /// Speaks `protocol` from here on, with the same plan. A TLS client calls it once the
+    /// handshake has selected a protocol (RFC 7301 §3.2), before the session has stepped.
+    pub fn choose(client: *Session, protocol: Protocol, scheme: []const u8) void {
+        if (std.meta.activeTag(client.*) == protocol) return;
+        // `init` rewrites the storage the exchanges and the authority are read from, so both are
+        // copied out first. The plans' own slices are the command line's, which outlive the run.
+        var plans: [constants.exchanges_max]Plan = undefined;
+        const current = client.exchanges();
+        for (current, 0..) |exchange, index| {
+            assert(exchange.outcome == .pending and exchange.content_sent == 0);
+            plans[index] = exchange.plan;
+        }
+        const count = current.len;
+        const authority = switch (client.*) {
+            inline else => |*protocol_session| protocol_session.authority,
+        };
+        client.init(protocol, scheme, authority, plans[0..count]);
         assert(std.meta.activeTag(client.*) == protocol);
     }
 
@@ -85,3 +106,26 @@ pub const Session = union(Protocol) {
         }
     }
 };
+
+/// A session the test switches, outside any stack frame. Test-only.
+var test_session: Session = undefined;
+
+test "RFC 7301 §3.2: a session switched to the protocol ALPN chose keeps its plan" {
+    const plans = [_]Plan{
+        .{ .method = "GET", .path = "/a", .content_len = 0 },
+        .{ .method = "POST", .path = "/b", .content_len = 3 },
+    };
+    test_session.init(.h2, "https", "example.com", &plans);
+    test_session.choose(.h11, "https");
+    try std.testing.expectEqual(Protocol.h11, std.meta.activeTag(test_session));
+    try std.testing.expectEqualStrings("example.com", test_session.h11.authority);
+    const switched = test_session.exchanges();
+    try std.testing.expectEqual(plans.len, switched.len);
+    for (plans, switched) |plan, exchange| {
+        try std.testing.expectEqualStrings(plan.path, exchange.plan.path);
+        try std.testing.expectEqual(plan.content_len, exchange.plan.content_len);
+    }
+    test_session.choose(.h2, "https");
+    try std.testing.expectEqualStrings("https", test_session.h2.scheme);
+    try std.testing.expectEqual(plans.len, test_session.exchanges().len);
+}

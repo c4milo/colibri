@@ -275,9 +275,21 @@ test "once the handshake is done the session reports what it chose" {
     const negotiated = held.vtable.negotiated_parameters(held.context).?;
     try testing.expectEqual(tls_1_3, negotiated.version);
     try testing.expectEqual(tls.constants.cipher_suite_chacha20_poly1305_sha256, negotiated.cipher_suite);
-    // A server that selected nothing leaves colibri with no protocol, which `attach_tls` refuses.
+    // A server that selected nothing leaves colibri with no protocol, which h2's `attach_tls`
+    // refuses and h11's takes (decision 88).
     test_client.held.session.alpn_selected = c.CH_ALPN_NONE;
     try testing.expectEqual(null, held.vtable.negotiated_alpn(held.context));
+}
+
+test "RFC 7301 §3.2: the protocol reported is the one at the index the server selected" {
+    if (!chapulin.available) return error.SkipZigTest;
+    const offered = [_][]const u8{ "h2", "http/1.1" };
+    test_client.init(.{ .anchors = &test_anchors, .hostname = "localhost", .receive = &test_receive, .now_seconds = test_now_seconds, .protocols = &offered });
+    test_client.held.io = .{ .records = .{} };
+    test_client.held.session.alpn_selected = 1;
+    const held = test_client.provider();
+    try testing.expectEqualStrings("http/1.1", held.vtable.negotiated_alpn(held.context).?);
+    try testing.expectEqual(offered.len, test_client.config.alpn_count);
 }
 
 test "a peer's close_notify is reported with its description, not as a failure" {

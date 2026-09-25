@@ -3673,8 +3673,10 @@ only place in the tree permitted to touch a socket
    exchanges against another implementation's server and reports how each ended. For h2spec,
    h2load and `tools/h2_interop.sh`. They landed as `h2-server` and `h2-client` with step 4
    (cleartext) and step 5 (TLS), and the owner renamed them on 2026-09-25, when step 15d gave
-   them h11 as well: a command-line option chooses h11 in cleartext, and over TLS the server
-   serves whichever of `h2` and `http/1.1` ALPN selects (decision 88).
+   them h11 as well. In cleartext, `--h11` makes either speak h11 instead of h2 with prior
+   knowledge. Over TLS, both offer `h2` and then `http/1.1` through ALPN, or `http/1.1` alone
+   with `--h11`, and each connection speaks what the handshake selected: h2 for `h2`, and h11
+   for `http/1.1` or for no selection (decision 88).
 2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
    `h2load --h3`. Lands with step 12.
 3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a

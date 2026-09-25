@@ -3,7 +3,7 @@
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
 //! It speaks cleartext h2 with prior knowledge (RFC 9113 §3.3), or with `--tls` h2 over TLS
-//! through chapulin's record-mode client (RFC 9113 §3.2, decision 82, `h2_client_tls.zig`).
+//! through chapulin's record-mode client (RFC 9113 §3.2, decision 82, `client_tls.zig`).
 //!
 //! No call here waits but the loop's `tick` (decisions 46 and 58,
 //! https://github.com/c4milo/colibri/issues/61). One thread holds every connection of a run on
@@ -23,7 +23,8 @@ const rotor = @import("rotor");
 const constants = @import("../constants.zig");
 const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
-const h2_client_tls = @import("../h2/h2_client_tls.zig");
+const client_tls = @import("../tls/client_tls.zig");
+const session_module = @import("../session.zig");
 
 const Run = client_options.Run;
 const Session = client_session.Session;
@@ -49,7 +50,7 @@ const Connection = struct {
     session: Session,
     /// The TLS layer the connection runs over, or null in cleartext. Its octets are records, and
     /// `input` and `output` hold them as they cross the socket, so each holds a whole record.
-    layer: ?*h2_client_tls.Layer,
+    layer: ?*client_tls.Layer,
     received: [constants.wire_read_len]u8,
     input: [constants.wire_read_len]u8,
     input_len: usize,
@@ -73,9 +74,9 @@ var connections: [constants.client_connections_max]Connection = undefined;
 
 /// The TLS mode's shared state, which `main` loads when `--tls` names a root, and one TLS layer per
 /// connection.
-var tls_shared: ?h2_client_tls.Shared = null;
-var tls_anchors: h2_client_tls.Anchors = undefined;
-var tls_layers: [constants.client_connections_max]h2_client_tls.Layer = undefined;
+var tls_shared: ?client_tls.Shared = null;
+var tls_anchors: client_tls.Anchors = undefined;
+var tls_layers: [constants.client_connections_max]client_tls.Layer = undefined;
 
 /// Opens every connection of `run`, serves them until each is closed, and returns how many
 /// finished with every exchange answered.
@@ -239,16 +240,16 @@ fn step_session(connection: *Connection, index: usize) void {
 }
 
 /// Steps a TLS connection: records in from `input`, records out into `output`
-/// (`h2_client_tls.zig`).
-fn step_tls(connection: *Connection, index: usize, layer: *h2_client_tls.Layer) void {
-    if (comptime !h2_client_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
-    const stepped = h2_client_tls.step(
+/// (`client_tls.zig`).
+fn step_tls(connection: *Connection, index: usize, layer: *client_tls.Layer) void {
+    if (comptime !client_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
+    const stepped = client_tls.step(
         layer,
-        &connection.session.h2,
+        &connection.session,
         connection.input[0..connection.input_len],
         connection.output[connection.output_len..],
     ) catch |failure| {
-        h2_client_tls.print_failure(layer, index, failure);
+        client_tls.print_failure(layer, index, failure);
         return close_connection(connection, index, .tls_failed);
     };
     connection.output_len += stepped.written;
@@ -270,17 +271,17 @@ fn consume(connection: *Connection, consumed: usize) void {
 }
 
 /// Gives a connection the TLS layer of its index, with its ClientHello staged.
-fn start_tls(index: usize, shared: *const h2_client_tls.Shared) !*h2_client_tls.Layer {
-    if (comptime !h2_client_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
+fn start_tls(index: usize, shared: *const client_tls.Shared) !*client_tls.Layer {
+    if (comptime !client_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
     const layer = &tls_layers[index];
-    try h2_client_tls.start(layer, shared);
+    try client_tls.start(layer, shared);
     return layer;
 }
 
 /// Wipes what a TLS connection's session still holds, once its connection is closed.
-fn finish_tls(layer: *h2_client_tls.Layer) void {
-    if (comptime !h2_client_tls.available) unreachable; // No layer exists without chapulin.
-    h2_client_tls.finish(layer);
+fn finish_tls(layer: *client_tls.Layer) void {
+    if (comptime !client_tls.available) unreachable; // No layer exists without chapulin.
+    client_tls.finish(layer);
 }
 
 /// Closes a connection and records why: Rotor's close cancels its receive and send first. A
@@ -338,13 +339,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
 }
 
 /// Loads what every TLS connection of the run shares. The name the server's certificate must carry
-/// is the authority the requests name.
+/// is the authority the requests name, and `--h11` offers `http/1.1` alone.
 fn load_tls(prefix: []const u8, run: *const Run) !void {
-    if (comptime !h2_client_tls.available) {
+    if (comptime !client_tls.available) {
         std.debug.print("http-client: built without chapulin; pass -Dchapulin-client=<checkout>\n", .{});
         std.process.exit(exit_usage);
     }
-    tls_shared = try h2_client_tls.load(&tls_anchors, prefix, run.authority, run.now_seconds);
+    const protocols: []const []const u8 = if (run.protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both;
+    tls_shared = try client_tls.load(&tls_anchors, prefix, run.authority, run.now_seconds, protocols);
 }
 
 const testing = std.testing;
@@ -358,32 +360,32 @@ const der_sequence_tag: u8 = 0x30;
 const test_now_seconds: u64 = 1_780_000_000;
 
 test "a TLS connection's session is wiped when its connection closes" {
-    if (!h2_client_tls.available) return error.SkipZigTest;
-    const anchors = [_]h2_client_tls.Anchor{.{
+    if (!client_tls.available) return error.SkipZigTest;
+    const anchors = [_]client_tls.Anchor{.{
         .name = &test_der,
         .name_len = test_der.len,
         .spki = &test_der,
         .spki_len = test_der.len,
     }};
-    const shared: h2_client_tls.Shared = .{ .anchors = &anchors, .hostname = "localhost", .now_seconds = test_now_seconds };
+    const shared: client_tls.Shared = .{ .anchors = &anchors, .hostname = "localhost", .now_seconds = test_now_seconds };
     const connection = &connections[0];
     connection.* = undefined;
     connection.state = .closing;
     connection.layer = try start_tls(0, &shared);
-    try testing.expect(h2_client_tls.session_state(&tls_layers[0]) != h2_client_tls.chapulin_closed);
+    try testing.expect(client_tls.session_state(&tls_layers[0]) != client_tls.chapulin_closed);
     // Rotor's close of the connection is its last operation.
     on_event(connections[0..1], .{ .user_data = user_data(0, .close), .result = 0, .flags = .{} });
     try testing.expectEqual(.closed, connection.state);
-    try testing.expectEqual(h2_client_tls.chapulin_closed, h2_client_tls.session_state(&tls_layers[0]));
+    try testing.expectEqual(client_tls.chapulin_closed, client_tls.session_state(&tls_layers[0]));
 }
 
 test "RFC 9113 §8.3.1: a run's requests name https over TLS and http in cleartext" {
-    if (!h2_client_tls.available) return error.SkipZigTest;
+    if (!client_tls.available) return error.SkipZigTest;
     const saved = tls_shared;
     defer tls_shared = saved;
     tls_shared = null;
     try testing.expectEqualStrings("http", request_scheme());
-    const anchors = [_]h2_client_tls.Anchor{.{
+    const anchors = [_]client_tls.Anchor{.{
         .name = &test_der,
         .name_len = test_der.len,
         .spki = &test_der,

@@ -45,6 +45,8 @@ pub const Held = struct {
     /// server reads `session.suite`; a client has no such field and reports the one its build
     /// offers. `negotiated_parameters` reads it here either way.
     suite: u16,
+    /// The protocols the role offered through ALPN, which chapulin's `alpn_selected` indexes.
+    alpn: []const c.ch_alpn_protocol,
     /// What chapulin sent from inside `ch_read`, which `handshake_write` hands over: the reply to
     /// a KeyUpdate that asked for one (RFC 9846 §4.7.3), or the alert a failed read raised.
     owed: [owed_len_max]u8 = undefined,
@@ -89,6 +91,9 @@ pub const Records = struct {
 
 /// RFC 9113 §3.1's identifier, which is the two octets 0x68 0x32.
 pub const alpn_h2 = "h2";
+
+/// RFC 7301 §6's identifier for HTTP/1.1, which h11 runs under (decision 88).
+pub const alpn_http_1_1 = tls.constants.alpn_http_1_1;
 
 /// RFC 9846 Appendix B.1: the TLS 1.3 codepoint. chapulin speaks 1.3 and nothing else, so a
 /// completed handshake negotiated it.
@@ -312,8 +317,11 @@ fn negotiated_alpn(context: *const anyopaque) ?[]const u8 {
     // zeroed `alpn_selected` reads as index 0 — the protocol colibri offered. Asking the phase
     // first is what keeps an untouched session from reporting a selection.
     if (role.io != .records) return null;
-    if (role.session.alpn_selected == c.CH_ALPN_NONE) return null;
-    return alpn_h2;
+    const selected = role.session.alpn_selected;
+    if (selected == c.CH_ALPN_NONE) return null;
+    // chapulin's index names one of the protocols this role offered (`cfg.h`).
+    const protocol = role.alpn[selected];
+    return protocol.name[0..protocol.name_len];
 }
 
 /// RFC 9846 §4.7.3 and §4.7.1: after the handshake, a peer's KeyUpdate and NewSessionTicket ride

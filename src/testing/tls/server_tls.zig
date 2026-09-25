@@ -1,12 +1,14 @@
-//! The TLS layer of design §9's h2 server, which `h2spec -t -k` runs against (design §8 step 5):
-//! one connection's records in, h2's byte stream to `h2_session.zig`, and its frames back out as
-//! records. `server.zig` reads and writes the socket around it.
+//! The TLS layer of design §9's server, which `h2spec -t -k` runs against (design §8 step 5):
+//! one connection's records in, the byte stream to its session (`session.zig`), and what the
+//! session writes back out as records. `server.zig` reads and writes the socket around it.
 //!
 //! chapulin's server runs in record mode (https://github.com/c4milo/colibri/issues/20): the
 //! handshake takes the octets the socket read and returns the flight, so no call here waits and
-//! the connection stays one of the worker's loop's connections (decision 46). Once the handshake
-//! completes, `attach_tls` checks what RFC 9113 §3.2 and §9.2 require of it, and every octet
-//! after that crosses the record half the client shares, `h2_tls_records.zig`.
+//! the connection stays one of the worker's loop's connections (decision 46). The server offers
+//! `h2` and `http/1.1` through ALPN, or `http/1.1` alone, and once the handshake completes the
+//! session speaks the protocol it selected (design §8 step 15d). That protocol's `attach_tls`
+//! checks the handshake, and every octet after that crosses the record half the client shares,
+//! `records.zig`.
 //!
 //! A handshake or a record that fails ends the connection without an alert: chapulin names the
 //! alert (`alert`), and this test-only endpoint closes the socket instead of sending it.
@@ -14,26 +16,28 @@ const std = @import("std");
 const h2 = @import("h2");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
-const chapulin = @import("../tls/chapulin.zig");
-const chapulin_server = @import("../tls/chapulin_server.zig");
-const h2_session = @import("h2_session.zig");
-const h2_tls_records = @import("h2_tls_records.zig");
-const zero_key_records = @import("../tls/zero_key_records.zig");
+const chapulin = @import("chapulin.zig");
+const chapulin_server = @import("chapulin_server.zig");
+const session_module = @import("../session.zig");
+const tls_records = @import("records.zig");
+const zero_key_records = @import("zero_key_records.zig");
+const chapulin_record = @import("chapulin_record.zig");
 
-const Session = h2_session.Session;
-const connection_tls = h2.connection_tls;
+const Session = session_module.Session;
 
 /// Whether the build linked chapulin's server. Without it `Layer` holds nothing, and the server
 /// refuses `--tls`.
 pub const available = chapulin.available;
 
 /// Why a connection ends here. The socket around it closes it either way.
-pub const Error = chapulin_server.Error || connection_tls.AttachError || h2_tls_records.Error;
+pub const Error = chapulin_server.Error || tls_records.AttachError || tls_records.Error;
 
-/// What every connection's server shares: the identity it proves and the cookie key, loaded once.
+/// What every connection's server shares, loaded once: the identity it proves, the cookie key,
+/// and the protocols it offers through ALPN (`session.alpn_both` or `session.alpn_h11`).
 pub const Shared = struct {
     identity: chapulin_server.Identity,
     cookie_key: []const u8,
+    protocols: []const []const u8 = &session_module.alpn_both,
 };
 
 /// One connection's TLS state, in static storage `server.zig` places.
@@ -41,17 +45,22 @@ pub const Layer = if (available) struct {
     server: chapulin_server.Server,
     /// chapulin's receive buffer (`chapulin_server.Options.receive`).
     receive: [constants.tls_receive_len]u8,
-    /// h2's byte stream in both directions, once the handshake completes.
-    records: h2_tls_records.Records,
+    /// The protocol's byte stream in both directions, once the handshake completes.
+    records: tls_records.Records,
     /// Whether `attach_tls` accepted the finished handshake.
     attached: bool,
 } else struct {};
 
-pub const Step = h2_tls_records.Step;
+pub const Step = tls_records.Step;
 
 /// Prepares a layer for a connection the listener just accepted.
 pub fn start(layer: *Layer, shared: *const Shared) Error!void {
-    layer.server.init(.{ .identity = shared.identity, .cookie_key = shared.cookie_key, .receive = &layer.receive });
+    layer.server.init(.{
+        .identity = shared.identity,
+        .cookie_key = shared.cookie_key,
+        .receive = &layer.receive,
+        .protocols = shared.protocols,
+    });
     try layer.server.start();
     layer.records.reset();
     layer.attached = false;
@@ -80,8 +89,12 @@ pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!S
         taken.consumed = progress.consumed;
         taken.written = progress.written;
         if (!progress.complete) return taken;
-        // RFC 9113 §3.2, §9.2: the handshake is checked before any h2 octet moves.
-        try session.connection.attach_tls(layer.server.provider());
+        // RFC 7301 §3.2: the protocol ALPN selected is definitive for the connection, and a
+        // selection of none is h11 (decision 88).
+        session.init(session_module.protocol_of(layer.server.negotiated_alpn()));
+        // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet
+        // moves.
+        try tls_records.attach(session, layer.server.provider());
         layer.attached = true;
     }
     const stepped = try layer.records.step(session, input[taken.consumed..], output[taken.written..]);
@@ -111,17 +124,19 @@ const test_point: [chapulin_server.public_point_len]u8 = @splat(1);
 const test_cookie: [chapulin_server.cookie_key_len]u8 = @splat(1);
 
 /// Connects the test layer as a finished handshake would, with both directions keyed with zeros
-/// (`zero_key_records.zig`), and attaches the session. Test-only.
-fn connect_test_layer() !void {
-    test_session.init();
+/// (`zero_key_records.zig`), and attaches the session as `step` does. The zeroed session selected
+/// the first protocol offered, so offering `protocols` picks the protocol. Test-only.
+fn connect_test_layer(protocols: []const []const u8) !void {
     test_layer.server.init(.{
         .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
         .cookie_key = &test_cookie,
         .receive = &test_layer.receive,
+        .protocols = protocols,
     });
     zero_key_records.connect(&test_layer.server.held, &test_layer.server.record.t, &test_layer.receive);
     test_layer.records.reset();
-    try test_session.connection.attach_tls(test_layer.server.provider());
+    test_session.init(session_module.protocol_of(test_layer.server.negotiated_alpn()));
+    try tls_records.attach(&test_session, test_layer.server.provider());
     test_layer.attached = true;
 }
 
@@ -137,7 +152,7 @@ fn empty_records(count: usize) ![]u8 {
 
 test "a record with no room in the byte stream waits for the session to read" {
     if (!available) return error.SkipZigTest;
-    try connect_test_layer();
+    try connect_test_layer(&session_module.alpn_both);
     // Leave less room than a record's ciphertext: the record stays in the socket's input.
     test_layer.records.plain_in_len = test_layer.records.plain_in.len - 1;
     const input = try empty_records(1);
@@ -147,18 +162,18 @@ test "a record with no room in the byte stream waits for the session to read" {
 
 test "RFC 9113 §10.5: a run of records carrying nothing ends h2 with a GOAWAY, not the socket" {
     if (!available) return error.SkipZigTest;
-    try connect_test_layer();
+    try connect_test_layer(&session_module.alpn_both);
     // One past `records_without_data_max` is ENHANCE_YOUR_CALM, an h2 connection error.
     const input = try empty_records(h2.core.constants.records_without_data_max + 1);
     const stepped = try step(&test_layer, &test_session, input, &test_output);
-    try testing.expect(test_session.finished);
+    try testing.expect(test_session.h2.finished);
     // The GOAWAY is sealed, then the close_notify, and the connection is done.
     try testing.expect(stepped.done);
 }
 
 test "RFC 9846 §6.1: after the peer's close_notify this side still writes, then closes once" {
     if (!available) return error.SkipZigTest;
-    try connect_test_layer();
+    try connect_test_layer(&session_module.alpn_both);
     // The peer closes before the server has written anything. §6.1: its close_notify "does not
     // have any effect on" this side's writing, so the server's SETTINGS still go out.
     const input = try zero_key_records.seal(0, zero_key_records.content_alert, &zero_key_records.close_notify, &test_input);
@@ -189,7 +204,7 @@ const handshake_key_update: u8 = 24;
 
 test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before anything else is read or sealed" {
     if (!available) return error.SkipZigTest;
-    try connect_test_layer();
+    try connect_test_layer(&session_module.alpn_both);
     // The server's SETTINGS go out first, as this side's record 0.
     _ = try step(&test_layer, &test_session, &.{}, &test_output);
     try testing.expectEqual(0, test_layer.records.plain_out_len);
@@ -206,4 +221,27 @@ test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before anything else is r
     try testing.expectEqual(zero_key_records.content_handshake, reply.content_type);
     try testing.expectEqual(handshake_key_update, reply.content[0]);
     try testing.expect(!stepped.done);
+}
+
+test "decision 88: a handshake that selected http/1.1 runs h11, and RFC 9112 §9.8's close follows" {
+    if (!available) return error.SkipZigTest;
+    try connect_test_layer(&session_module.alpn_h11);
+    try testing.expectEqual(.h11, std.meta.activeTag(test_session));
+    const request = "GET / HTTP/1.1\r\nHost: a\r\nConnection: close\r\n\r\n";
+    const input = try zero_key_records.seal(0, zero_key_records.content_application_data, request, &test_input);
+    const stepped = try step(&test_layer, &test_session, @constCast(input), &test_output);
+    try testing.expectEqual(input.len, stepped.consumed);
+    const written = test_output[0..stepped.written];
+    const first_len = chapulin_record.whole_record_len(written) orelse return error.TestUnexpectedResult;
+    var inner: [tls.constants.record_plaintext_len_max + 1]u8 = undefined;
+    const response = zero_key_records.open(0, written[0..first_len], &inner) orelse
+        return error.TestUnexpectedResult;
+    try testing.expectEqual(zero_key_records.content_application_data, response.content_type);
+    try testing.expect(std.mem.startsWith(u8, response.content, "HTTP/1.1 200 OK\r\n"));
+    // RFC 9112 §9.8: a server attempts the exchange of closure alerts before it closes, so the
+    // response is followed by this side's close_notify, and the connection is done.
+    const alert = zero_key_records.open(1, written[first_len..], &inner) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(zero_key_records.content_alert, alert.content_type);
+    try testing.expectEqualSlices(u8, &zero_key_records.close_notify, alert.content);
+    try testing.expect(stepped.done);
 }

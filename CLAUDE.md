@@ -260,8 +260,9 @@ section when a step adds or renames a command.
   over TLS too, through the client's `--tls <anchor-prefix> --seconds <unix-seconds>` mode; it
   needs `go`, `docker` and `python3`. `tools/h2_server_interop.sh [--tls <checkout>] [curl]
   [nghttp] [go]` runs curl, nghttp and Go's client against the test-only h2 server the same way;
-  it needs `go` and `docker`. None is part of `zig build test`; CI runs them, and so does a person
-  before calling a step done.
+  it needs `go` and `docker`. Both endpoints take `--h11`: in cleartext it makes them speak h11,
+  and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`. None is
+  part of `zig build test`; CI runs them, and so does a person before calling a step done.
 - CI: `tools/ci.sh [report.md]` runs every check above that exists and writes the report;
   `.github/workflows/main.yml` runs it on each push to main (decision 47). A new check joins
   `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.

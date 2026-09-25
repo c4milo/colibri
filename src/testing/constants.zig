@@ -23,6 +23,10 @@ pub const wire_read_len: u32 = @max(read_buffer_len, h2.tls.constants.record_wri
 /// of RFC 9113 §10.5 advancing without a clock, and keeps one run byte-identical to the next.
 pub const tick_ns: u64 = 1_000_000;
 
+/// Most application protocols an endpoint offers through ALPN (RFC 7301 §3.1): `h2` and
+/// `http/1.1`, in decision 88's order.
+pub const alpn_offered_max: u32 = 2;
+
 /// The port the server listens on when the caller names none.
 pub const default_port: u16 = 8080;
 

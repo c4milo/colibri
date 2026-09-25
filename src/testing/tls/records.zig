@@ -1,21 +1,23 @@
-//! The record half of h2 over TLS, which design §9's h2 server (`h2_tls.zig`) and h2 client
-//! (`h2_client_tls.zig`) share once their handshakes complete. Part of design §8 step 5.
+//! The record half of HTTP over TLS, which design §9's server (`server_tls.zig`) and client
+//! (`client_tls.zig`) share once their handshakes complete, in h2 (design §8 step 5) or in h11
+//! (step 15d).
 //!
 //! `step` does three things in order, each bounded by the buffers:
-//!   1. opens whole records into h2's byte stream while there is room for one;
+//!   1. opens whole records into the protocol's byte stream while there is room for one;
 //!   2. steps the session over the byte stream, as the cleartext endpoint does;
 //!   3. seals what the session wrote, as much as the socket's output holds, and once the session
 //!      is done and every octet is sealed, the `close_notify` RFC 9846 §6.1 requires.
 //!
-//! Every octet crosses `connection_tls`'s `decrypt` and `encrypt`, so what the provider does with
-//! a record is the provider's, and the endpoint around this file never sees plaintext.
+//! Every octet crosses the protocol's `connection_tls`, h2's or h11's, so what the provider does
+//! with a record is the provider's, and the endpoint around this file never sees plaintext. The
+//! session is either endpoint's union of the two protocols (`session.zig`,
+//! `client/client_session.zig`), and the calls below pick the protocol's rules by its tag.
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
+const h11 = @import("h11");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
-
-const connection_tls = h2.connection_tls;
 
 pub const Error = error{
     /// A record did not open or did not seal (RFC 9846 §6).
@@ -32,11 +34,68 @@ pub const Step = struct {
     done: bool,
 };
 
-/// The record half of one connection. Its methods take the session as `anytype`: either of design
-/// §9's h2 sessions, each of which has a `connection`, a `now_ns` and a `step` that answers the
-/// octets it consumed and wrote and whether it is done.
+/// Why `attach` refused a finished handshake, in either protocol.
+pub const AttachError = h2.connection_tls.AttachError || h11.connection_tls.AttachError;
+
+/// Why a record did not open or go out, in either protocol. Both name the same five.
+const RecordError = h2.connection_tls.RecordError || h11.connection_tls.RecordError;
+
+/// Attaches the provider to the connection of whichever protocol the session speaks, after that
+/// protocol's checks of the finished handshake.
+pub fn attach(session: anytype, provider: tls.Provider) AttachError!void {
+    switch (session.*) {
+        inline else => |*protocol_session| try protocol_session.connection.attach_tls(provider),
+    }
+}
+
+/// What one opened record gave, in either protocol.
+const Opened = struct {
+    consumed: usize,
+    plaintext_len: usize,
+    end_of_data: bool,
+    owes_handshake: bool,
+};
+
+/// The instant h11's sealing passes the provider. h11 keeps no instant, and the one handshake
+/// write a provider owes after the handshake is a KeyUpdate's reply (RFC 9846 §4.7.3), which
+/// needs none.
+const h11_now_ns: u64 = 0;
+
+fn decrypt(session: anytype, input: []const u8, plaintext: []u8) RecordError!Opened {
+    switch (session.*) {
+        .h2 => |*h2_session| return opened(try h2.connection_tls.decrypt(&h2_session.connection, input, plaintext, h2_session.now_ns)),
+        .h11 => |*h11_session| return opened(try h11.connection_tls.decrypt(&h11_session.connection, input, plaintext)),
+    }
+}
+
+fn opened(decrypted: anytype) Opened {
+    return .{
+        .consumed = decrypted.consumed,
+        .plaintext_len = decrypted.plaintext_len,
+        .end_of_data = decrypted.end_of_data,
+        .owes_handshake = decrypted.owes_handshake,
+    };
+}
+
+fn encrypt(session: anytype, plaintext: []const u8, output: []u8) RecordError!tls.provider.Sealed {
+    switch (session.*) {
+        .h2 => |*h2_session| return h2.connection_tls.encrypt(&h2_session.connection, plaintext, output, h2_session.now_ns),
+        .h11 => |*h11_session| return h11.connection_tls.encrypt(&h11_session.connection, plaintext, output, h11_now_ns),
+    }
+}
+
+fn close_notify(session: anytype, output: []u8) RecordError!usize {
+    switch (session.*) {
+        .h2 => |*h2_session| return h2.connection_tls.close_notify(&h2_session.connection, output),
+        .h11 => |*h11_session| return h11.connection_tls.close_notify(&h11_session.connection, output),
+    }
+}
+
+/// The record half of one connection. Its methods take the session as `anytype`: either
+/// endpoint's union of the two protocols, whose `step` answers the octets it consumed and wrote
+/// and whether it is done.
 pub const Records = struct {
-    /// h2's byte stream, opened from records and not yet consumed by the session.
+    /// The protocol's byte stream, opened from records and not yet consumed by the session.
     plain_in: [constants.tls_plaintext_in_len]u8,
     plain_in_len: usize,
     /// What the session wrote that the seal has not taken yet.
@@ -80,28 +139,23 @@ pub const Records = struct {
         // Bounded: every pass takes a whole record, or stops.
         for (0..input.len + 1) |_| {
             if (records.finished()) return consumed;
-            const opened = connection_tls.decrypt(
-                &session.connection,
-                input[consumed..],
-                records.plain_in[records.plain_in_len..],
-                session.now_ns,
-            ) catch |failure| switch (failure) {
+            const record = decrypt(session, input[consumed..], records.plain_in[records.plain_in_len..]) catch |failure| switch (failure) {
                 // The byte stream has no room for another record until the session reads it.
                 error.NoSpaceLeft => return consumed,
-                // RFC 9113 §5.4.1: an h2 connection error. The session's next step reads the
-                // failure from the connection and writes the GOAWAY it queued.
+                // The connection failed on its records: in h2 the session's next step writes the
+                // GOAWAY it queued (RFC 9113 §5.4.1), and in h11 it finds the connection closed.
                 error.ConnectionFailed => return consumed,
                 error.TlsFailed, error.HandshakeIncomplete, error.NoProvider => return Error.TlsFailed,
             };
             // No whole record is left.
-            if (opened.consumed == 0) return consumed;
-            consumed += opened.consumed;
-            records.plain_in_len += opened.plaintext_len;
+            if (record.consumed == 0) return consumed;
+            consumed += record.consumed;
+            records.plain_in_len += record.plaintext_len;
             // RFC 9846 §6.1: the peer's close_notify ends its data.
-            if (opened.end_of_data) records.peer_closed = true;
+            if (record.end_of_data) records.peer_closed = true;
             // RFC 9846 §4.7.3: a KeyUpdate may leave a reply owed, which goes out before the
             // next record is opened, so at most one is owed at a time.
-            if (opened.owes_handshake) return consumed;
+            if (record.owes_handshake) return consumed;
         }
         unreachable; // Each record takes at least its header, so the input ends first.
     }
@@ -127,9 +181,9 @@ pub const Records = struct {
     /// `close_notify` once the connection is finished and nothing is left to seal.
     fn seal(records: *Records, session: anytype, output: []u8) Error!usize {
         // Called with no plaintext too: `encrypt` writes what the provider owes first, such as
-        // the reply to a KeyUpdate (RFC 9846 §4.7.3), and that does not wait for h2 to write.
+        // the reply to a KeyUpdate (RFC 9846 §4.7.3), and that does not wait for HTTP to write.
         const plaintext = records.plain_out[0..records.plain_out_len];
-        const sealed = connection_tls.encrypt(&session.connection, plaintext, output, session.now_ns) catch |failure| switch (failure) {
+        const sealed = encrypt(session, plaintext, output) catch |failure| switch (failure) {
             // The socket has not taken what it holds; the rest waits.
             error.NoSpaceLeft => return 0,
             else => return Error.TlsFailed,
@@ -140,7 +194,7 @@ pub const Records = struct {
         if (output.len - written < close_notify_len_max) return written;
         // RFC 9846 §6.1: "Each party MUST send a "close_notify" alert before closing its write
         // side of the connection".
-        written += connection_tls.close_notify(&session.connection, output[written..]) catch return written;
+        written += close_notify(session, output[written..]) catch return written;
         records.close_sent = true;
         return written;
     }
@@ -168,7 +222,7 @@ const close_notify_len_max: usize = tls.constants.record_header_len + alert_len 
 const alert_len: usize = 2;
 
 const testing = std.testing;
-const h2_session = @import("h2_session.zig");
+const session_module = @import("../session.zig");
 
 /// A provider for this file's tests that seals at most `record_plaintext_len` octets a call, which
 /// the vtable permits (`tls.provider`), and copies rather than protects. chapulin's adapter fills
@@ -179,7 +233,7 @@ const OneRecordProvider = struct {
     /// RFC 9846 §5.1's content types, and §6's close_notify alert.
     const content_alert: u8 = 21;
     const content_application_data: u8 = 23;
-    const close_notify = [_]u8{ 1, 0 };
+    const close_notify_alert = [_]u8{ 1, 0 };
 
     const vtable: tls.VTable = .{
         .handshake_read = handshake_read,
@@ -212,7 +266,7 @@ const OneRecordProvider = struct {
     }
 
     fn send_close_notify(_: *anyopaque, output: []u8) tls.provider.CloseError!usize {
-        return write_record(output, content_alert, &close_notify);
+        return write_record(output, content_alert, &close_notify_alert);
     }
 
     fn decrypt_record(_: *anyopaque, _: []const u8, _: []u8) tls.provider.OpenError!tls.provider.Opened {
@@ -247,15 +301,15 @@ const OneRecordProvider = struct {
 /// The records half, the session and the output the test drives, outside any stack frame.
 /// Test-only.
 var test_records: Records = undefined;
-var test_session: h2_session.Session = undefined;
+var test_session: session_module.Session = undefined;
 var test_output: [constants.write_buffer_len]u8 = undefined;
 var test_context: u8 = 0;
 /// More steps than the session's frames take records. Test-only.
 const test_steps_max: usize = 64;
 
 test "RFC 9846 §6.1: the close_notify follows every record of what the session wrote" {
-    test_session.init();
-    try test_session.connection.attach_tls(.{ .context = &test_context, .vtable = &OneRecordProvider.vtable });
+    test_session.init(.h2);
+    try attach(&test_session, .{ .context = &test_context, .vtable = &OneRecordProvider.vtable });
     test_records.reset();
     // Octets that are not the client preface fail the connection (RFC 9113 §3.4), so the session
     // writes its SETTINGS and a GOAWAY and is done in its first step: more than one record holds.

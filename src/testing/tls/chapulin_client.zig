@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 const tls = @import("tls");
 const chapulin = @import("chapulin.zig");
 const chapulin_record = @import("chapulin_record.zig");
+const constants = @import("../constants.zig");
 
 const c = chapulin.c;
 
@@ -52,6 +53,8 @@ pub const Options = struct {
     /// parameter because no file under `src/` may read a clock (non-negotiable 3), this one
     /// included: the caller reads it and passes it in.
     now_seconds: u64,
+    /// The protocols to offer through ALPN, most preferred first (RFC 7301 §3.1).
+    protocols: []const []const u8 = &.{alpn_h2},
 };
 
 /// What one call to `handshake` did.
@@ -84,8 +87,8 @@ pub const Client = struct {
     /// Everything the record phase touches, whose address is the provider's context.
     held: Held,
     config: c.ch_cfg,
-    /// The one protocol colibri offers. RFC 9113 §3.1: "h2" identifies HTTP/2 over TLS.
-    alpn: [1]c.ch_alpn_protocol,
+    /// The protocols colibri offers (`Options.protocols`).
+    alpn: [constants.alpn_offered_max]c.ch_alpn_protocol,
     /// What chapulin last answered. It is one of its `CH_E*` codes, which `reason` names.
     code: c_int,
 
@@ -101,9 +104,11 @@ pub const Client = struct {
         client.held.suite = 0;
         client.held.owed_len = 0;
         client.code = ok;
-        // RFC 9113 §3.1: h2 over TLS is selected by ALPN, and colibri offers that and nothing
-        // else, so a server that will not speak h2 fails the handshake rather than the request.
-        client.alpn[0] = .{ .name = alpn_h2.ptr, .name_len = alpn_h2.len };
+        // RFC 9113 §3.1: h2 over TLS is selected by ALPN, and so is http/1.1 (RFC 7301 §6),
+        // offered in decision 88's order.
+        assert(options.protocols.len > 0 and options.protocols.len <= client.alpn.len);
+        for (options.protocols, 0..) |name, index| client.alpn[index] = .{ .name = name.ptr, .name_len = name.len };
+        client.held.alpn = client.alpn[0..options.protocols.len];
         client.config = std.mem.zeroes(c.ch_cfg);
         client.config.buf = options.receive.ptr;
         client.config.buf_len = options.receive.len;
@@ -117,7 +122,7 @@ pub const Client = struct {
         client.config.hostname = options.hostname.ptr;
         client.config.hostname_len = options.hostname.len;
         client.config.alpn_protocols = &client.alpn;
-        client.config.alpn_count = client.alpn.len;
+        client.config.alpn_count = options.protocols.len;
         client.config.now_seconds = options.now_seconds;
     }
 
