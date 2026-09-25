@@ -47,6 +47,19 @@ rule or none at all.
 | [9846](rfc9846.txt) | The Transport Layer Security (TLS) Protocol Version 1.3 | The semantics of the TLS provider (decision 8); obsoletes RFC 8446 |
 | [7301](rfc7301.txt) | Transport Layer Security (TLS) Application-Layer Protocol Negotiation Extension | Negotiating `h2` and `h3`; the ask to chapulin (decision 10) |
 
+## Compression
+
+These three are in `compression/`, copied unmodified on 2026-09-25 from the same address. RFC 9112
+§7.2 defines the `deflate` and `gzip` transfer codings through RFC 9110 §8.4.1, and each coding
+names one of these formats. h11 decodes both, as the owner ruled in
+https://github.com/c4milo/colibri/issues/60.
+
+| RFC | Title | What colibri uses it for |
+|---|---|---|
+| [1951](compression/rfc1951.txt) | DEFLATE Compressed Data Format Specification version 1.3 | The compressed stream inside both codings |
+| [1950](compression/rfc1950.txt) | ZLIB Compressed Data Format Specification version 3.3 | The wrapper of the `deflate` coding, with its Adler-32 check |
+| [1952](compression/rfc1952.txt) | GZIP file format specification version 4.3 | The wrapper of the `gzip` coding, with its CRC-32 check |
+
 ## Extensions colibri declines
 
 Each is read so that saying no is done correctly on the wire.
