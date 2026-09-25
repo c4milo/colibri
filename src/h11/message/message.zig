@@ -22,6 +22,7 @@ const constants = @import("../constants.zig");
 const message_scan = @import("message_scan.zig");
 const message_start = @import("message_start.zig");
 const message_fields = @import("message_fields.zig");
+const message_target = @import("message_target.zig");
 
 const FieldSection = http.FieldSection;
 const Reader = core.reader.Reader;
@@ -31,14 +32,18 @@ pub const Role = message_scan.Role;
 pub const Version = message_start.Version;
 pub const RequestLine = message_start.RequestLine;
 pub const StatusLine = message_start.StatusLine;
+pub const Form = message_target.Form;
 
-pub const Error = message_scan.Error || message_start.Error || message_fields.Error;
+pub const Error = message_scan.Error || message_start.Error || message_fields.Error ||
+    message_target.Error;
 
 /// A request head read whole. `head_len` octets of the caller's input belong to it, a skipped
 /// leading empty line and the empty line that ends it included.
 pub const Request = struct {
     head_len: u32,
     line: RequestLine,
+    /// The request-target's form (RFC 9112 §3.2).
+    form: Form,
 };
 
 /// A response head read whole. `head_len` octets of the caller's input belong to it.
@@ -58,7 +63,8 @@ pub fn read_request(scanner: *Scanner, input: []const u8, section: *FieldSection
     const start_line, const fields = std.mem.cut(u8, head, line_end) orelse unreachable;
     const line = try message_start.parse_request_line(start_line);
     try message_fields.parse(.request, fields, section);
-    return .{ .head_len = head_len, .line = line };
+    const form = try message_target.check(line, section);
+    return .{ .head_len = head_len, .line = line, .form = form };
 }
 
 /// Reads one response head from the start of `input`, as `read_request` reads a request head.
@@ -98,6 +104,7 @@ test "a request head reads into its request line and field section, and says how
     try testing.expectEqual(input.len - 2, request.head_len);
     try testing.expectEqualStrings("POST", request.line.method);
     try testing.expectEqualStrings("/upload", request.line.target);
+    try testing.expectEqual(.origin, request.form);
     try testing.expectEqual(2, test_section.len());
     try testing.expectEqualStrings("example.org", test_section.find("host").?.value);
     try testing.expectEqual(0, scanner.scanned);
@@ -131,4 +138,5 @@ test "a refused head resets the scanner, and each layer's refusal reaches the ca
     try testing.expectError(error.ObsFold, read_request(&scanner, "GET / HTTP/1.1\r\nX: a\r\n b\r\n\r\n", &test_section));
     try testing.expectError(error.StatusInvalid, read_response(&scanner, "HTTP/1.1 700 X\r\n\r\n", &test_section));
     try testing.expectError(error.StartLineEmpty, read_response(&scanner, "\r\nHTTP/1.1 200 X\r\n\r\n", &test_section));
+    try testing.expectError(error.HostMissing, read_request(&scanner, "GET / HTTP/1.1\r\n\r\n", &test_section));
 }
