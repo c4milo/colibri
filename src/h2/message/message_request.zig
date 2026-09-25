@@ -3,8 +3,8 @@
 //! themselves live in `http.message_request` ([decision 51](../../../docs/decisions.md)); this
 //! file names h2's errors for the reasons that module returns.
 //!
-//! Every one of the ten maps to an error of the same name, because RFC 9113 and RFC 9114 state
-//! all ten and differ only in the error a violation carries. What RFC 9114 adds and RFC 9113 does
+//! Every one of the eleven maps to an error of the same name, because RFC 9113 and RFC 9114 state
+//! all eleven and differ only in the error a violation carries. What RFC 9114 adds and RFC 9113 does
 //! not state — the four MUSTs binding `:authority` to `Host` (§4.3.1) — is in neither module:
 //! RFC 9113 §8.3.1 has one SHOULD there, and meeting it needs URI normalization colibri's h2 does
 //! not implement.
@@ -37,6 +37,8 @@ pub fn check(seen: Seen) Error!bool {
         error.PathMissing => error.PathMissing,
         error.PathEmpty => error.PathEmpty,
         error.PathInvalid => error.PathInvalid,
+        // RFC 9113 §8.3.1: :authority carries no userinfo for an http or https URI.
+        error.AuthorityUserinfo => error.AuthorityUserinfo,
     };
 }
 
@@ -157,6 +159,21 @@ test "a CONNECT :authority without a host, a colon or a decimal port is ConnectA
     }
     const accepted = [_][]const u8{ "a:0", "a:9", "[::1]:443", "a:b:0123456789", "a:65536" };
     for (accepted) |authority| try expect_accepted(try request_of("CONNECT", null, authority, null));
+}
+
+test "an http or https :authority holding userinfo is AuthorityUserinfo, and other schemes are not held to it" {
+    const refused = [_][]const u8{ "user@example.org", "user:password@example.org:443", "@example.org", "example.org@", "a@[::1]:443" };
+    for (refused) |authority| {
+        try expect_request(error.AuthorityUserinfo, try request_of("GET", "https", authority, "/"));
+        try expect_request(error.AuthorityUserinfo, try request_of("GET", "HTTP", authority, "/"));
+    }
+    // The :path rules come first, and a scheme outside http and https is not held to the rule.
+    try expect_request(error.PathInvalid, try request_of("GET", "https", "user@example.org", "x"));
+    try expect_accepted(try request_of("GET", "ftp", "user@example.org", "/"));
+    try expect_accepted(try request_of("GET", "https", "example.org:443", "/"));
+    try expect_accepted(try request_of("GET", "https", "[::1]:443", "/"));
+    // A CONNECT :authority takes RFC 9113 §8.5's rules, which the rule above does not reach.
+    try expect_accepted(try request_of("CONNECT", null, "user@example.org:443", null));
 }
 
 test "check reports whether a request is CONNECT, over a record walk filled" {

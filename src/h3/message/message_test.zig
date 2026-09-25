@@ -146,6 +146,7 @@ test "the shared rules reach h3 under h3's own error names" {
             .{ .name = ":authority", .value = "example.com" },
             .{ .name = ":protocol", .value = "websocket" },
         }, .reason = error.PseudoHeaderUndefined },
+        .{ .lines = &request_lines("user@example.com", "user@example.com"), .reason = error.AuthorityUserinfo },
     };
     for (cases) |case| {
         try testing.expectError(case.reason, message.validate_request(try section_of(case.lines)));

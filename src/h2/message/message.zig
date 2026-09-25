@@ -45,6 +45,8 @@
 //!      - a `:path` of `*` in a request other than OPTIONS is `PathInvalid` (RFC 9110 §7.1);
 //!      - for an http or https scheme, an empty `:path` is `PathEmpty`, and a `:path` that is not
 //!        `*` and does not start with `/` is `PathInvalid` (§8.3.1, RFC 9110 §4.1);
+//!      - for an http or https scheme, an `:authority` that holds `@`, the delimiter that ends
+//!        userinfo, is `AuthorityUserinfo` (§8.3.1, RFC 9110 §4.2.4);
 //!      - a response without `:status` is `StatusMissing` (§8.3.2), one whose status is not three
 //!        digits from 100 to 599 is `StatusInvalid`, and an interim one with END_STREAM set is
 //!        `InterimWithEndStream` (§8.1).
@@ -68,8 +70,7 @@
 //!   - a 101 status. §8.6 says h2 does not support 101 but does not make the response malformed,
 //!     so this file returns it as interim and the connection decides what to do with it;
 //!   - whether a Host field names the entity `:authority` names, a SHOULD of §8.3.1;
-//!   - whether `:authority` holds the userinfo subcomponent §8.3.1 forbids, and the syntax of
-//!     `:authority` outside CONNECT;
+//!   - the syntax of `:authority` outside CONNECT, beyond the `@` of userinfo;
 //!   - the RFC 3986 grammar of a scheme, a host, a path segment and a query, which §8.3.1 and
 //!     RFC 9110 §4.1 cite and docs/rfcs does not carry; the leading `/` of `:path` for a scheme
 //!     other than http and https; and the range of a CONNECT port;
@@ -133,6 +134,9 @@ pub const Error = error{
     /// A CONNECT `:authority` that is not a non-empty host, a colon and a non-empty decimal port
     /// (RFC 9113 §8.5, RFC 9110 §9.3.6).
     ConnectAuthorityInvalid,
+    /// An `:authority` holding the userinfo subcomponent, for an http or https URI (RFC 9113
+    /// §8.3.1).
+    AuthorityUserinfo,
     /// A response without `:status` (RFC 9113 §8.3.2).
     StatusMissing,
     /// A `:status` that is not three digits from 100 to 599 (RFC 9113 §8.3, RFC 9110 §15).

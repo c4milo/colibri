@@ -86,6 +86,9 @@ pub const Error = error{
     /// A CONNECT `:authority` that is not a non-empty host, a colon and a non-empty decimal port
     /// (RFC 9114 §4.4, RFC 9110 §9.3.6).
     ConnectAuthorityInvalid,
+    /// An `:authority` holding the userinfo subcomponent, for an http or https URI (RFC 9114
+    /// §4.3.1).
+    AuthorityUserinfo,
     /// A request in a scheme with a mandatory authority component carrying neither `:authority`
     /// nor `Host` (RFC 9114 §4.3.1).
     AuthorityMissing,
@@ -222,6 +225,8 @@ fn target(seen: Seen) Error!bool {
         error.PathMissing => error.PathMissing,
         error.PathEmpty => error.PathEmpty,
         error.PathInvalid => error.PathInvalid,
+        // RFC 9114 §4.3.1: :authority carries no userinfo for an http or https URI.
+        error.AuthorityUserinfo => error.AuthorityUserinfo,
     };
 }
 

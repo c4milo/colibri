@@ -46,6 +46,9 @@ pub const Error = error{
     /// A CONNECT `:authority` that is not a non-empty host, a colon and a non-empty decimal port
     /// (RFC 9113 §8.5, RFC 9114 §4.4, RFC 9110 §9.3.6).
     ConnectAuthorityInvalid,
+    /// An `:authority` that holds the userinfo subcomponent, in a request for an http or https
+    /// URI (RFC 9113 §8.3.1, RFC 9114 §4.3.1).
+    AuthorityUserinfo,
 };
 
 /// The two schemes RFC 9113 §8.3.1 and RFC 9114 §4.3.1 state the `:path` rules for.
@@ -60,6 +63,9 @@ const path_separator = "/";
 
 /// The octet between the host and the port of a CONNECT target (RFC 9110 §9.3.6).
 const port_separator = ':';
+
+/// The delimiter that ends the userinfo subcomponent of an authority (RFC 9110 §4.2.4).
+const userinfo_delimiter = '@';
 
 /// The rules of the kind, for a request whose lines `walk` accepted. Returns true for CONNECT.
 pub fn check(seen: Seen) Error!bool {
@@ -119,6 +125,7 @@ fn check_target(seen: Seen, method: []const u8) Error!void {
     // request is CONNECT.
     const path = seen.path orelse return error.PathMissing;
     try check_path(method, scheme, path);
+    if (seen.authority) |authority| try check_authority(scheme, authority);
 }
 
 /// The `:path` rules of RFC 9113 §8.3.1, RFC 9114 §4.3.1 and RFC 9110 §7.1, for a non-empty
@@ -137,6 +144,18 @@ fn check_path(method: []const u8, scheme: []const u8, path: []const u8) Error!vo
     // RFC 9110 §4.1 defines
     // absolute-path = 1*( "/" segment ).
     if (!std.mem.startsWith(u8, path, path_separator)) return error.PathInvalid;
+}
+
+/// The `:authority` rule RFC 9113 §8.3.1 and RFC 9114 §4.3.1 state for an http or https URI,
+/// for a non-empty `scheme`. colibri parses no authority: RFC 3986 is not in docs/rfcs. So it
+/// refuses any `@`, which is the strict side of a rule about the userinfo that `@` ends.
+fn check_authority(scheme: []const u8, authority: []const u8) Error!void {
+    assert(scheme.len > 0);
+    assert(authority.len <= core.constants.field_value_len_max);
+    if (!is_http_scheme(scheme)) return;
+    // RFC 9113 §8.3.1 and RFC 9114 §4.3.1: :authority must not include the deprecated userinfo
+    // subcomponent for "http" or "https" URIs, and userinfo ends with its "@" (RFC 9110 §4.2.4).
+    if (std.mem.indexOfScalar(u8, authority, userinfo_delimiter) != null) return error.AuthorityUserinfo;
 }
 
 /// True for the two schemes both RFCs name, in any case: RFC 9110 §4.2.3 makes the scheme
