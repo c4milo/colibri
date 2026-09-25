@@ -415,6 +415,24 @@ pub const h11_split_stream_len_max: u32 = h11_split_messages_max * h11_split_mes
 /// and the first and last lines.
 pub const h11_split_trace_len_max: u32 = (2 * h11_split_messages_max + 3) * trace_record_len_max;
 
+/// The h11 connection check (design §8 step 15b): the exchanges one seed plans, the longest body
+/// each way, one seed in this many ending the connection early, one closing response or last
+/// request in this many that runs until the close or carries the close, the most steps a server
+/// holds a request before answering it, and the octets each direction's stream holds.
+pub const h11_exchange_count_max: u32 = 6;
+pub const h11_exchange_body_len_max: u32 = 40;
+pub const h11_exchange_close_one_in: u64 = 3;
+pub const h11_exchange_last_close_one_in: u64 = 2;
+pub const h11_exchange_response_delay_max: u32 = 2;
+pub const h11_exchange_stream_len_max: u32 = h11_exchange_count_max * h11_split_message_len_max;
+/// Each step delivers an octet one way or the other, moves a held request closer to its answer,
+/// or is the last.
+pub const h11_exchange_steps_max: u32 = 2 * h11_exchange_stream_len_max +
+    h11_exchange_count_max * h11_exchange_response_delay_max + 1;
+/// Most octets one h11 connection-check trace holds: a record per exchange, one for the close, and
+/// the first and last lines.
+pub const h11_exchange_trace_len_max: u32 = (h11_exchange_count_max + 3) * trace_record_len_max;
+
 /// The QPACK input check: inputs per seed, the most edits made to one, and the longest input.
 pub const qpack_input_check_inputs: u32 = 32;
 pub const qpack_input_check_edits_max: u64 = 8;

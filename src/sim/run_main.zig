@@ -14,6 +14,8 @@
 //!     sim --h3-trace-write <directory> each seed's trace as TLA+, for tools/h3_trace.sh
 //!     sim --h11-split-seed <hex>       one seed's h11 messages read after a split (step 15a)
 //!     sim --h11-split-check [seeds]
+//!     sim --h11-connection-seed <hex>  one seed's h11 exchanges between a client and a server
+//!     sim --h11-connection-check [seeds] (step 15b)
 //!
 //! It is the one file under `src/sim/` that reads its arguments and writes to the terminal, and
 //! `tools/lint/io.zig` exempts it by path for that reason. Nothing reaches it but `zig build sim`.
@@ -21,6 +23,7 @@ const std = @import("std");
 const sim = @import("sim");
 const chunk_check = @import("chunk_check.zig");
 const h11_split_check = @import("h11_split_check.zig");
+const h11_exchange_check = @import("h11_exchange_check.zig");
 const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
 const qpack_check = @import("qpack_check.zig");
@@ -48,7 +51,8 @@ const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --connection-seed <hex> | --connection-check [seeds] | --tls-check [seeds]" ++
     " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]" ++
     " | --h3-trace-check [seeds] | --h3-trace-write <directory>" ++
-    " | --h11-split-seed <hex> | --h11-split-check [seeds]\n";
+    " | --h11-split-seed <hex> | --h11-split-check [seeds]" ++
+    " | --h11-connection-seed <hex> | --h11-connection-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -65,6 +69,8 @@ pub const Command = union(enum) {
     h3_trace_write: []const u8,
     h11_split_seed: u64,
     h11_split_check: u64,
+    h11_connection_seed: u64,
+    h11_connection_check: u64,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -77,6 +83,7 @@ var h3_storage: h3_check.Storage = undefined;
 var h3_trace_storage: h3_trace_check.Storage = undefined;
 var h3_trace_module: [constants.h3_trace_module_len_max]u8 = undefined;
 var h11_split_storage: h11_split_check.Storage = undefined;
+var h11_exchange_storage: h11_exchange_check.Storage = undefined;
 
 pub fn main(init: std.process.Init) !void {
     var arguments: [arguments_max][]const u8 = @splat("");
@@ -107,6 +114,8 @@ pub fn main(init: std.process.Init) !void {
         .h3_trace_write => |directory| try h3_trace_write(init.io, directory),
         .h11_split_seed => |seed| try h11_split_seed(seed),
         .h11_split_check => |seeds| try h11_split_check_seeds(seeds),
+        .h11_connection_seed => |seed| try h11_connection_seed(seed),
+        .h11_connection_check => |seeds| try h11_connection_check_seeds(seeds),
     }
 }
 
@@ -142,6 +151,8 @@ fn parse_step_eleven_on(flag: []const u8, value: ?[]const u8) error{Usage}!Comma
     if (std.mem.eql(u8, flag, "--h3-trace-write")) return .{ .h3_trace_write = value orelse return error.Usage };
     if (std.mem.eql(u8, flag, "--h11-split-seed")) return .{ .h11_split_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--h11-split-check")) return .{ .h11_split_check = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--h11-connection-seed")) return .{ .h11_connection_seed = try parse_seed(value) };
+    if (std.mem.eql(u8, flag, "--h11-connection-check")) return .{ .h11_connection_check = try parse_seeds(value) };
     return error.Usage;
 }
 
@@ -255,6 +266,36 @@ fn h11_split_check_seeds(seeds: u64) !void {
         census.rejected,
         census.messages,
         census.chunks,
+        census.trace_octets,
+        census.crc32.final(),
+    });
+}
+
+fn h11_connection_seed(seed: u64) !void {
+    const result = h11_exchange_check.run_seed(&h11_exchange_storage, seed) catch |failure| {
+        std.debug.print("h11-connection: seed 0x{x} failed: {t}\n", .{ seed, failure });
+        return failure;
+    };
+    std.debug.print("{s}h11-connection: seed 0x{x} sent={d} steps={d}\n", .{ result.trace, seed, result.sent, result.steps });
+}
+
+fn h11_connection_check_seeds(seeds: u64) !void {
+    var census: h11_exchange_check.Census = .{};
+    var failed_seed: ?u64 = null;
+    h11_exchange_check.run_check(&h11_exchange_storage, seeds, &census, &failed_seed) catch |failure| {
+        std.debug.print("h11-connection: seed 0x{x} failed: {t}; rerun it with --h11-connection-seed\n", .{
+            failed_seed.?,
+            failure,
+        });
+        return failure;
+    };
+    const census_format = "h11-connection: seeds={d} answered={d} unanswered={d} steps={d}" ++
+        " trace_octets={d} crc32=0x{x:0>8}\n";
+    std.debug.print(census_format, .{
+        census.seeds,
+        census.answered,
+        census.unanswered,
+        census.steps,
         census.trace_octets,
         census.crc32.final(),
     });
