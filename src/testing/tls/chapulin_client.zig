@@ -5,9 +5,9 @@
 //! Phase 2, the record phase colibri drives through the vtable, is `chapulin_record.zig` and is
 //! shared with the server, because nothing about `ch_read`, `ch_write` and `ch_close` is a role.
 //!
-//! The handshake blocks, so an endpoint using this drives **one connection at a time**. The
-//! 64-connection poll loop stays cleartext until chapulin's callbacks can report "nothing yet"
-//! ([decision 46](../../../docs/decisions.md)).
+//! The handshake blocks, so an endpoint using this drives **one connection at a time**. The h2
+//! client's loop stays cleartext until it links chapulin's record-mode client, as the server links
+//! the record-mode server ([decision 46](../../../docs/decisions.md), decision 82).
 const std = @import("std");
 const tls = @import("tls");
 const chapulin = @import("chapulin.zig");

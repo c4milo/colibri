@@ -1,7 +1,7 @@
 //! The root of `zig build quic-udp` and of the `testing_udp` module: design §9's UDP QUIC
 //! endpoint, which runs as the hq-interop server or client over one Rotor socket (decision 58),
 //! with chapulin's QUIC mode behind colibri's two vtables (decision 10). Part of design §8 step
-//! 9e, piece 11. It is the one module that imports Rotor, through `udp.zig`.
+//! 9e, piece 11. It reaches Rotor through `udp.zig`.
 const std = @import("std");
 
 pub const udp = @import("udp.zig");

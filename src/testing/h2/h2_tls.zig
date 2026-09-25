@@ -4,7 +4,7 @@
 //!
 //! chapulin's server runs in record mode (https://github.com/c4milo/colibri/issues/20): the
 //! handshake takes the octets the socket read and returns the flight, so no call here waits and
-//! the connection stays one entry of the worker's `poll` set (decision 46). Once the handshake
+//! the connection stays one of the worker's loop's connections (decision 46). Once the handshake
 //! completes, `attach_tls` checks what RFC 9113 §3.2 and §9.2 require of it, and every octet
 //! after that crosses `connection_tls`'s `decrypt` and `encrypt`.
 //!

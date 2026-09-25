@@ -159,8 +159,8 @@ exists — never propose a second one.
 - Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
   library and is the only directory permitted to open a socket. Every endpoint there does its I/O
-  without blocking: one `poll` call over a fixed array of connections, or Rotor's one system call
-  per tick for the UDP endpoints, and no other call that waits (decisions 46 and 58).
+  without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
+  58 and 83).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
@@ -206,7 +206,7 @@ tree. Design §11 holds the method and the numbers.
 - Adding a dependency. The library is meant to have none: no package, no vendored C, and no
   allocator at all (decision 35). There are six ruled exceptions, and the library imports none:
   chapulin, which `src/testing/` links (decision 10); pepegrillo, the tooling `tools/` builds on
-  (decision 36); Rotor, the loop `src/testing/`'s UDP endpoints run on (decision 58); TLC, the
+  (decision 36); Rotor, the loop `src/testing/`'s endpoints run on (decisions 58 and 83); TLC, the
   TLA+ model checker `zig build tla` runs through pepegrillo (decision 67); `qpackers/qifs`, the
   QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75); and the Lean toolchain, which
   `zig build lean` runs through pepegrillo (decision 77).

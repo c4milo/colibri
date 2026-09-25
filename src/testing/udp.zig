@@ -1,6 +1,6 @@
 //! The UDP socket of design §9's QUIC endpoints, on rotor's loop (decision 58). Nothing here is
-//! packaged: `src/testing/` is excluded from the library, and this is the only module in the tree
-//! that imports rotor.
+//! packaged: `src/testing/` is excluded from the library. The h2 endpoints run on Rotor's loop too
+//! (decision 83), each with its own socket code.
 //!
 //! An endpoint is one loop, one bound datagram socket and one multishot receive into a group of
 //! buffers the loop owns. rotor allocates nothing, so every block of memory it runs on is a field

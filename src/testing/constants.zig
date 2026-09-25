@@ -107,28 +107,33 @@ pub const content_length_digits_max: u32 = 8;
 /// The `user-agent` every request names (RFC 9110 §10.1.5).
 pub const user_agent = "colibri";
 
-/// Connections one client run holds at once, all in one `poll` call on one thread. Every one runs
+/// Connections one client run holds at once, all on one Rotor loop on one thread. Every one runs
 /// the whole plan, so a run with several is the same exchanges on several connections.
 pub const client_connections_max: u32 = 64;
 
 /// Most command-line arguments the client reads: its options, and two per exchange.
 pub const client_arguments_max: u32 = 16 + 2 * exchanges_max;
 
-/// Milliseconds the client waits in `poll` for any of its sockets before it gives the run up. A
-/// peer that stops answering ends the run with a failure instead of holding it forever. The
-/// waiting is the kernel's: no source file here reads a clock (design §4.2).
-pub const client_poll_timeout_ms: i32 = 10_000;
+/// Nanoseconds the client's loop waits for any event before it gives the run up: ten seconds,
+/// the most one Rotor tick waits. A peer that stops answering ends the run with a failure instead
+/// of holding it forever. The waiting is the kernel's: no source file here reads a clock (design
+/// §4.2).
+pub const client_wait_ns: u64 = 10 * ns_per_s;
 
-/// Most `poll` calls one client run makes, which bounds its loop.
-pub const client_polls_max: u32 = 1 << 20;
+/// Nanoseconds in a second, named here because `src/testing/` reads nothing from `std.time`
+/// (decision 63).
+const ns_per_s: u64 = 1_000_000_000;
+
+/// Most ticks one client run makes, which bounds its loop.
+pub const client_ticks_max: u32 = 1 << 20;
 
 comptime {
-    assert(exchanges_max > 0 and client_connections_max > 0 and client_polls_max > 0);
+    assert(exchanges_max > 0 and client_connections_max > 0 and client_ticks_max > 0);
     assert(request_content_pattern_len % request_content_period == 0);
     assert(request_content_pattern_len >= h2.constants.frame_size_max);
     // The digits hold the largest length a plan may name.
     assert(std.math.pow(u64, port_radix, content_length_digits_max) > request_content_len_max);
-    assert(client_poll_timeout_ms > 0 and client_arguments_max > arguments_max);
+    assert(client_wait_ns > 0 and client_arguments_max > arguments_max);
 }
 
 comptime {

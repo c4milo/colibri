@@ -9,7 +9,7 @@
 //!      and `recv` callbacks and runs to completion. The server is a `TRANSPORT=record` build: it
 //!      takes octets the caller read through `ch_srv_record_in` and hands its flight to
 //!      `flight_out`, which writes into the caller's output. It never touches a descriptor, so the
-//!      h2 endpoint drives it inside its one `poll` call
+//!      h2 endpoint drives it from its loop's events
 //!      ([decision 46](../../../docs/decisions.md), https://github.com/c4milo/colibri/issues/20).
 //!   2. **Records.** The callbacks serve slices colibri passed in, so `ch_write` seals into
 //!      colibri's output and `ch_read` opens from colibri's input. No descriptor is touched.

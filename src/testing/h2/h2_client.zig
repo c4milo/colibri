@@ -2,49 +2,68 @@
 //! `tools/h2_interop.sh` runs against other implementations' servers. `zig build h2-client --
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
-//! It speaks cleartext h2 with prior knowledge (RFC 9113 §3.3). h2 over TLS joins when a provider
-//! that takes octets in and returns octets fills `tls.Provider`; the one colibri's checks link
-//! (decision 10) reads its socket through a callback that must block, so it cannot sit under this
-//! loop yet. Design §8 step 5 records what is owed.
+//! It speaks cleartext h2 with prior knowledge (RFC 9113 §3.3). h2 over TLS joins when colibri's
+//! client links chapulin's record-mode client, as its server links the record-mode server
+//! (decision 82). Design §8 step 5 records what is owed.
 //!
-//! No call here blocks but `poll`. Every socket is O_NONBLOCK from before it connects: `connect`
-//! answers EINPROGRESS and `poll` says when it finished, a read takes what the socket holds and a
-//! write takes what it has room for. One thread holds every connection of a run in one `poll` set,
-//! so a slow peer holds up nothing but its own connection, and the thread sleeps only when no
-//! socket is ready. The one wait that ends a run is `client_poll_timeout_ms` with no socket ready.
+//! No call here waits but the loop's `tick` (decisions 46 and 58,
+//! https://github.com/c4milo/colibri/issues/61). One thread holds every connection of a run on
+//! one Rotor loop: a connect, then at most one receive and one send in flight, and a close at the
+//! end. A slow peer holds up nothing but its own connection. The one wait that ends a run is
+//! `client_wait_ns` with no event.
 //!
-//! Nothing here allocates: every connection and buffer is in static storage sized by
-//! `constants.zig`. Nothing here reads a clock: the timeout is the kernel's.
+//! As in the server, a receive writes into `received` and its octets are appended to `input` when
+//! its event arrives, because the session moves what is left of `input` and Rotor owns a receive's
+//! buffer until its final event.
+//!
+//! Nothing here allocates: the loop and every connection and buffer are in static storage sized by
+//! `constants.zig`. Nothing here reads a clock: the timeout is the loop's.
 const std = @import("std");
 const assert = std.debug.assert;
+const rotor = @import("rotor");
 const constants = @import("../constants.zig");
 const h2_client_exchange = @import("h2_client_exchange.zig");
 const h2_client_session = @import("h2_client_session.zig");
 
 const Plan = h2_client_exchange.Plan;
 const Session = h2_client_session.Session;
-const posix = std.posix;
 
 /// Why a connection ended without its session finishing.
 const Failure = enum { none, connect_refused, peer_closed, socket_error, timed_out };
 
+/// What an operation a connection has in flight does. It rides in the operation's user data,
+/// below the connection's index.
+const Kind = enum(u8) { connect, receive, send, close };
+const kind_bits = @bitSizeOf(Kind);
+
+const loop_options: rotor.Loop.Options = .{
+    .operations = constants.client_connections_max * @typeInfo(Kind).@"enum".fields.len,
+};
+
 /// One connection of a run: the session, the octets read but not consumed, and the octets the
 /// session produced that the socket has not taken yet.
 const Connection = struct {
-    socket: posix.socket_t,
+    descriptor: rotor.Descriptor,
+    /// The peer, which the connect in flight reads until its event (Rotor's rule 3).
+    address: rotor.Address,
     session: Session,
+    received: [constants.read_buffer_len]u8,
     input: [constants.read_buffer_len]u8,
     input_len: usize,
     output: [constants.write_buffer_len]u8,
     output_len: usize,
     output_sent: usize,
-    state: enum { connecting, open, closed },
+    state: enum { connecting, open, closing, closed },
+    /// The operations in flight, which must all end before the loop does.
+    connecting: bool,
+    receiving: bool,
+    sending: bool,
     failure: Failure,
 };
 
 /// What the command line asked for.
 const Run = struct {
-    address: []const u8,
+    address: [ipv4_octets]u8,
     port: u16,
     authority: []const u8,
     connections_count: u32,
@@ -52,181 +71,181 @@ const Run = struct {
     plans_count: u32,
 };
 
-/// The connections, in static storage: each is large, and a run holds up to the limit of them.
+/// The loop and the connections, in static storage: each connection is large, and a run holds up
+/// to the limit of them.
+var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
+var loop: rotor.Loop = undefined;
+var events: [loop_options.operations]rotor.Event = undefined;
 var connections: [constants.client_connections_max]Connection = undefined;
-var poll_set: [constants.client_connections_max]posix.pollfd = undefined;
-/// Which connection each poll entry belongs to.
-var polled: [constants.client_connections_max]usize = undefined;
 
 /// Opens every connection of `run`, serves them until each is closed, and returns how many
 /// finished with every exchange answered.
-fn run_connections(run: *const Run) u32 {
+fn run_connections(run: *const Run) !u32 {
     assert(run.connections_count > 0 and run.connections_count <= constants.client_connections_max);
     assert(run.plans_count > 0);
+    try loop.init(&loop_memory, loop_options);
+    defer loop.deinit();
     const live = connections[0..run.connections_count];
-    for (live) |*connection| open_connection(connection, run);
-    for (0..constants.client_polls_max) |_| {
-        if (!poll_once(live)) break;
+    for (live, 0..) |*connection, index| open_connection(connection, index, run);
+    for (0..constants.client_ticks_max) |_| {
+        if (!try turn(live)) break;
     }
+    // A run that ends with a connection still open ran out of time or of ticks.
+    for (live, 0..) |*connection, index| {
+        if (connection.state == .open or connection.state == .connecting) close_connection(connection, index, .timed_out);
+    }
+    loop.cancel_all();
+    try loop.drain(&events);
     var succeeded: u32 = 0;
     for (live) |*connection| {
-        // A run that ends with a connection still open ran out of `poll` calls.
-        close_connection(connection, .timed_out);
         if (connection.failure == .none and connection.session.succeeded()) succeeded += 1;
     }
     return succeeded;
 }
 
-/// Waits for any socket, then does what each ready one asks for. False when no connection is left
-/// open, or none moved for the whole timeout, which means the peers left are not answering.
-fn poll_once(live: []Connection) bool {
-    const entries = build_poll_set(live);
-    if (entries == 0) return false;
-    const ready = posix.poll(poll_set[0..entries], constants.client_poll_timeout_ms) catch 0;
-    if (ready == 0) return false;
-    for (poll_set[0..entries], polled[0..entries]) |entry, index| {
-        if (entry.revents != 0) serve_connection(&live[index], entry.revents);
+/// Waits for events and does what each asks. False when every connection is closed, or none
+/// moved for the whole wait, which means the peers left are not answering.
+fn turn(live: []Connection) !bool {
+    var open: usize = 0;
+    for (live) |*connection| {
+        if (connection.state != .closed) open += 1;
     }
+    if (open == 0) return false;
+    const count = try loop.tick(&events, constants.client_wait_ns);
+    if (count == 0) return false;
+    for (events[0..count]) |event| on_event(live, event);
     return true;
 }
 
-/// Fills the poll set with every connection still open, each asking for what it can use.
-fn build_poll_set(live: []Connection) usize {
-    var entries: usize = 0;
-    for (live, 0..) |*connection, index| {
-        if (connection.state == .closed) continue;
-        var events: i16 = 0;
-        const has_output = connection.output_sent < connection.output_len;
-        // A socket that is still connecting says so by becoming writable.
-        if (connection.state == .connecting or has_output) events |= posix.POLL.OUT;
-        if (connection.state == .open and connection.input_len < connection.input.len) {
-            events |= posix.POLL.IN;
-        }
-        poll_set[entries] = .{ .fd = connection.socket, .events = events, .revents = 0 };
-        polled[entries] = index;
-        entries += 1;
+fn on_event(live: []Connection, event: rotor.Event) void {
+    const index: usize = @intCast(event.user_data >> kind_bits);
+    const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data)));
+    const connection = &live[index];
+    switch (kind) {
+        .connect => on_connected(connection, index, event),
+        .receive => on_received(connection, index, event),
+        .send => on_sent(connection, index, event),
+        .close => connection.state = .closed,
     }
-    return entries;
+    if (connection.state == .open) arm(connection, index);
 }
 
-/// Makes a non-blocking socket and starts its connect, which `poll` reports the end of.
-fn open_connection(connection: *Connection, run: *const Run) void {
+/// Makes a socket and starts its connect, whose event the loop delivers.
+fn open_connection(connection: *Connection, index: usize, run: *const Run) void {
     connection.session.init("http", run.authority, run.plans[0..run.plans_count]);
     connection.input_len = 0;
     connection.output_len = 0;
     connection.output_sent = 0;
+    connection.connecting = false;
+    connection.receiving = false;
+    connection.sending = false;
     connection.state = .closed;
     connection.failure = .socket_error;
-    const address = std.Io.net.IpAddress.parseIp4(run.address, run.port) catch return;
-    const socket = std.c.socket(std.c.AF.INET, std.c.SOCK.STREAM, 0);
-    if (socket < 0) return;
-    connection.socket = socket;
+    connection.address = rotor.Address.ipv4(run.address, run.port);
+    connection.descriptor = rotor.sync.open_socket(.ipv4) catch return;
     connection.state = .connecting;
-    const nonblocking: c_int = @bitCast(@as(u32, @bitCast(std.c.O{ .NONBLOCK = true })));
-    if (std.c.fcntl(socket, std.c.F.SETFL, nonblocking) < 0) return close_connection(connection, .socket_error);
-    const peer: std.c.sockaddr.in = .{
-        // The wire is network byte order whatever the host's is.
-        .port = std.mem.nativeToBig(u16, address.ip4.port),
-        .addr = @bitCast(address.ip4.bytes),
-    };
-    const started = std.c.connect(socket, @ptrCast(&peer), @sizeOf(std.c.sockaddr.in));
-    if (started < 0 and !in_progress()) return close_connection(connection, .connect_refused);
     connection.failure = .none;
+    connection.connecting = true;
+    submit(rotor.Operation.connect(user_data(index, .connect), connection.descriptor, &connection.address));
 }
 
-/// Does what a ready socket asks for: finishes the connect, reads, steps the session, writes.
-fn serve_connection(connection: *Connection, events: i16) void {
-    assert(connection.state != .closed);
-    if (connection.state == .connecting) {
-        if (!connect_finished(connection)) return close_connection(connection, .connect_refused);
-        connection.state = .open;
-    } else if (events & (posix.POLL.ERR | posix.POLL.NVAL) != 0) {
-        return close_connection(connection, .socket_error);
+/// The connect finished: the session writes its preface once it succeeded.
+fn on_connected(connection: *Connection, index: usize, event: rotor.Event) void {
+    connection.connecting = false;
+    _ = event.outcome() catch return close_connection(connection, index, .connect_refused);
+    connection.state = .open;
+    step_session(connection, index);
+}
+
+/// Appends what a receive read to the input and steps the session. A receive of no octets is the
+/// peer closing its side.
+fn on_received(connection: *Connection, index: usize, event: rotor.Event) void {
+    connection.receiving = false;
+    if (connection.state != .open) return;
+    const read = event.outcome() catch return close_connection(connection, index, .socket_error);
+    if (read == 0) return close_connection(connection, index, .peer_closed);
+    assert(read <= connection.input.len - connection.input_len);
+    @memcpy(connection.input[connection.input_len..][0..read], connection.received[0..read]);
+    connection.input_len += read;
+    step_session(connection, index);
+}
+
+/// Counts what a send took, and steps the session, which may have waited for the room.
+fn on_sent(connection: *Connection, index: usize, event: rotor.Event) void {
+    connection.sending = false;
+    if (connection.state != .open) return;
+    const sent = event.outcome() catch return close_connection(connection, index, .socket_error);
+    connection.output_sent += sent;
+    assert(connection.output_sent <= connection.output_len);
+    // Every octet is gone and no send is in flight, so the buffer starts again at its front.
+    if (connection.output_sent == connection.output_len) {
+        connection.output_len = 0;
+        connection.output_sent = 0;
     }
-    const readable = events & (posix.POLL.IN | posix.POLL.HUP) != 0;
-    const peer_open = !readable or read_input(connection);
-    const done = step_session(connection);
-    // The write does not wait, so it is worth trying whatever `poll` said: what the socket cannot
-    // take now stays in the buffer and goes out when it says POLLOUT.
-    if (!write_output(connection)) return close_connection(connection, .socket_error);
-    const flushed = connection.output_sent == connection.output_len;
-    if (done and flushed) return close_connection(connection, .none);
-    if (!peer_open) close_connection(connection, .peer_closed);
+    step_session(connection, index);
 }
 
-/// Whether the connect `poll` reported the end of succeeded, which SO_ERROR says.
-fn connect_finished(connection: *Connection) bool {
-    var failure: c_int = 0;
-    var failure_len: std.c.socklen_t = @sizeOf(c_int);
-    const got = std.c.getsockopt(connection.socket, std.c.SOL.SOCKET, std.c.SO.ERROR, &failure, &failure_len);
-    return got == 0 and failure == 0;
+/// Submits a send of what is owed and a receive while there is room for more.
+fn arm(connection: *Connection, index: usize) void {
+    if (!connection.sending and connection.output_sent < connection.output_len) {
+        connection.sending = true;
+        const owed = connection.output[connection.output_sent..connection.output_len];
+        submit(rotor.Operation.send(user_data(index, .send), connection.descriptor, owed));
+    }
+    const room = connection.input.len - connection.input_len;
+    if (!connection.receiving and room > 0) {
+        connection.receiving = true;
+        const into = connection.received[0..@min(room, connection.received.len)];
+        submit(rotor.Operation.receive(user_data(index, .receive), connection.descriptor, into));
+    }
 }
 
-/// Reads once into the room the input buffer has left, without waiting. False when the peer has
-/// closed its side or the socket failed.
-fn read_input(connection: *Connection) bool {
-    const room = connection.input[connection.input_len..];
-    if (room.len == 0) return true;
-    const read = std.c.recv(connection.socket, room.ptr, room.len, std.c.MSG.DONTWAIT);
-    if (read < 0) return would_block();
-    // A read of no octets is the peer closing its side.
-    if (read == 0) return false;
-    connection.input_len += @intCast(read);
-    return true;
+fn user_data(index: usize, kind: Kind) u64 {
+    return (@as(u64, index) << kind_bits) | @intFromEnum(kind);
 }
 
-/// Steps the session until it stops moving, appending what it writes to the output buffer.
-/// True when the session is finished.
-fn step_session(connection: *Connection) bool {
+/// Submits one operation. The loop holds one of each kind for every connection, so it always has
+/// room.
+fn submit(operation: rotor.Operation) void {
+    const taken = loop.submit(&.{operation}, &.{});
+    assert(taken == 1);
+}
+
+/// Steps the session until it stops moving, appending what it writes to the output buffer. A
+/// session that finished with every octet written closes its connection.
+fn step_session(connection: *Connection, index: usize) void {
     for (0..constants.steps_per_read_max) |_| {
         const room = connection.output[connection.output_len..];
-        if (room.len == 0) return false;
+        if (room.len == 0) return;
         const step = connection.session.step(connection.input[0..connection.input_len], room);
         connection.output_len += step.written;
         const rest = connection.input_len - step.consumed;
         std.mem.copyForwards(u8, connection.input[0..rest], connection.input[step.consumed..connection.input_len]);
         connection.input_len = rest;
-        if (step.done) return true;
-        if (step.consumed == 0 and step.written == 0) return false;
+        if (step.done) {
+            if (connection.output_sent == connection.output_len and !connection.sending) close_connection(connection, index, .none);
+            return;
+        }
+        if (step.consumed == 0 and step.written == 0) return;
     }
-    return false;
 }
 
-/// Writes what the session produced, taking what the socket will hold and keeping the rest. False
-/// when the socket failed.
-fn write_output(connection: *Connection) bool {
-    for (0..constants.steps_per_read_max) |_| {
-        if (connection.output_sent == connection.output_len) break;
-        const rest = connection.output[connection.output_sent..connection.output_len];
-        const sent = std.c.send(connection.socket, rest.ptr, rest.len, std.c.MSG.DONTWAIT);
-        if (sent < 0) return would_block();
-        connection.output_sent += @intCast(sent);
-    }
-    if (connection.output_sent < connection.output_len) return true;
-    // Every octet is gone, so the buffer starts again at its front.
-    connection.output_len = 0;
-    connection.output_sent = 0;
-    return true;
-}
-
-/// Closes a connection and records why. A connection already closed keeps its reason.
-fn close_connection(connection: *Connection, failure: Failure) void {
-    if (connection.state == .closed) return;
-    _ = std.c.close(connection.socket);
-    connection.state = .closed;
+/// Closes a connection and records why: Rotor's close cancels its receive and send first. A
+/// connection already closing keeps its reason.
+fn close_connection(connection: *Connection, index: usize, failure: Failure) void {
+    if (connection.state == .closing or connection.state == .closed) return;
+    connection.state = .closing;
     connection.failure = failure;
+    submit(rotor.Operation.close(user_data(index, .close), connection.descriptor));
 }
 
-/// Whether the last call failed only because the socket had nothing to give or no room to take.
-/// POSIX lets EWOULDBLOCK equal EAGAIN, and on the hosts colibri runs on it does.
-fn would_block() bool {
-    return std.c._errno().* == @intFromEnum(std.c.E.AGAIN);
-}
+/// How many octets an IPv4 address has (RFC 791 §3.1).
+const ipv4_octets: usize = 4;
 
-/// Whether the last `connect` is still under way, which is how a non-blocking one starts.
-fn in_progress() bool {
-    return std.c._errno().* == @intFromEnum(std.c.E.INPROGRESS);
-}
+/// The address a run connects to unless `--address` names another: the loopback, which RFC 1122
+/// §3.2.1.3 reserves for the local host.
+const loopback_octets = [ipv4_octets]u8{ loopback_first, 0, 0, 1 };
+const loopback_first: u8 = 127;
 
 /// Prints one line per exchange of every connection, then the count of each ending.
 fn report(run: *const Run, succeeded: u32) void {
@@ -273,7 +292,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.debug.print(usage, .{});
         std.process.exit(exit_usage);
     };
-    const succeeded = run_connections(&run);
+    const succeeded = try run_connections(&run);
     report(&run, succeeded);
     if (succeeded != run.connections_count) std.process.exit(exit_failed);
 }
@@ -281,7 +300,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// Reads the command line, or returns null when it names nothing to do or something unreadable.
 fn read_run(arguments: *std.process.Args.Iterator) ?Run {
     var run: Run = .{
-        .address = "127.0.0.1",
+        .address = loopback_octets,
         .port = constants.default_port,
         .authority = "localhost",
         .connections_count = 1,
@@ -308,7 +327,7 @@ fn read_option(run: *Run, option: []const u8, value: []const u8, arguments: *std
         return add_plan(run, .{ .method = "POST", .path = value, .content_len = content_len });
     }
     if (eql(u8, option, "--address")) {
-        run.address = value;
+        run.address = read_address(value) orelse return null;
     } else if (eql(u8, option, "--authority")) {
         run.authority = value;
     } else if (eql(u8, option, "--port")) {
@@ -316,6 +335,12 @@ fn read_option(run: *Run, option: []const u8, value: []const u8, arguments: *std
     } else if (eql(u8, option, "--connections")) {
         run.connections_count = read_number(value) orelse return null;
     } else return null;
+}
+
+/// An IPv4 address from the command line, or null when it is not one.
+fn read_address(text: []const u8) ?[ipv4_octets]u8 {
+    const address = std.Io.net.IpAddress.parseIp4(text, 0) catch return null;
+    return address.ip4.bytes;
 }
 
 /// A decimal number from the command line, or null when it is not one.

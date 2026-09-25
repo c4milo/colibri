@@ -4,47 +4,63 @@
 //! over TLS (§3.2) instead, through chapulin's record-mode server and `h2_tls.zig`, which needs a
 //! build given `-Dchapulin-server` (design §8 step 5).
 //!
-//! One worker per core, sharing nothing. Each worker opens its own listening socket on the same
-//! port, which `reuse_address` gives it by setting SO_REUSEPORT, so the kernel hands each new
-//! connection to one worker and no worker reads another's memory: no lock, no atomic and no queue
-//! between cores (CLAUDE.md, Performance). A worker holds its connections in a fixed array and
-//! waits on its listener and all of them in one `poll` call.
+//! One worker per core, sharing nothing. Each worker has its own Rotor loop and its own listening
+//! socket on the same port, bound with SO_REUSEPORT, so the kernel hands each new connection to
+//! one worker and no worker reads another's memory: no lock, no atomic and no queue between cores
+//! (CLAUDE.md, Performance). A worker holds its connections in a fixed array.
 //!
-//! No call here blocks. `poll` says which sockets are ready, and every read and write carries
-//! MSG_DONTWAIT, so a peer that stops reading takes back only what it has room for and the octets
-//! left over wait in that connection's buffer. One slow peer cannot hold up the other connections
-//! its worker serves, and no worker can hold up another.
+//! No call here waits but the loop's `tick`, one system call per turn (decisions 46 and 58). A
+//! worker keeps one accept in flight while it has a free slot, and each connection at most one
+//! receive, one send and, at its end, one close. A peer that stops reading holds up only its own
+//! connection: its octets wait in that connection's buffer.
 //!
-//! This is the only file in the tree that opens a socket, and it holds no protocol rule: it reads
-//! octets into a buffer, hands them to a session, writes back what the session produced, and closes
-//! when the session says it is done (RFC 9113 §5.4.1).
+//! A receive writes into `received`, and its octets are appended to `input` when its event
+//! arrives. The session consumes `input` from the front, which moves what is left, and Rotor owns
+//! a receive's buffer until its final event (its rule 3), so a receive never targets `input`.
+//! A send reads `output[output_sent..output_len]`, and the session only appends after that.
 //!
-//! Nothing here allocates: every worker, connection and buffer is in static storage sized by
-//! `constants.zig`, and each worker's `Io` is given a failing allocator, because no call here
-//! starts an asynchronous task.
+//! This file holds no protocol rule: it reads octets into a buffer, hands them to a session,
+//! writes back what the session produced, and closes when the session says it is done (RFC 9113
+//! §5.4.1). Nothing here allocates: every worker, connection and buffer is in static storage
+//! sized by `constants.zig`, and each loop runs on memory its worker holds.
 //!
 //! The TLS mode runs one worker. chapulin's generator is one process-wide state with no lock
 //! (its `drbg.h`), so two threads must not run handshakes at once.
 const std = @import("std");
 const assert = std.debug.assert;
-const h2 = @import("h2");
+const rotor = @import("rotor");
 const constants = @import("../constants.zig");
 const h2_session = @import("h2_session.zig");
 const h2_tls = @import("h2_tls.zig");
 const server_identity = @import("../tls/server_identity.zig");
 
-const Io = std.Io;
 const Session = h2_session.Session;
-const posix = std.posix;
+
+/// What an operation a connection has in flight does. It rides in the operation's user data,
+/// below the connection's slot.
+const Kind = enum(u8) { receive, send, close };
+const kind_bits = @bitSizeOf(Kind);
+
+/// The user data of the one accept a worker keeps in flight. No slot's user data reaches it.
+const accept_user_data: u64 = std.math.maxInt(u64);
+
+/// The operations a worker's loop holds in flight: an accept, and for each connection a receive,
+/// a send and a close.
+const operations_per_connection: u32 = @typeInfo(Kind).@"enum".fields.len;
+const loop_options: rotor.Loop.Options = .{
+    .operations = constants.connections_per_worker_max * operations_per_connection + 1,
+};
 
 /// One connection a worker serves: the session, the octets read but not consumed, and the octets
 /// the session produced that the socket has not taken yet.
 const Connection = struct {
-    stream: Io.net.Stream,
+    descriptor: rotor.Descriptor,
     session: Session,
     /// The TLS layer the connection runs over, or null in cleartext. Its octets are records, and
     /// `input` and `output` hold them as they cross the socket.
     layer: ?*h2_tls.Layer,
+    /// Where the receive in flight writes (see the header).
+    received: [constants.wire_read_len]u8,
     input: [constants.wire_read_len]u8,
     input_len: usize,
     output: [constants.write_buffer_len]u8,
@@ -52,45 +68,47 @@ const Connection = struct {
     output_len: usize,
     /// Octets of `output` the socket has taken, which are always the first ones.
     output_sent: usize,
+    /// The operations in flight. A slot is free again once it is closed and none is.
+    receiving: bool,
+    sending: bool,
+    close_submitted: bool,
+    closed: bool,
     /// Whether this slot holds a connection.
     live: bool,
     /// Whether the session is done, so the octets left are the last the peer gets.
     closing: bool,
+    /// Whether the connection ends now, with nothing more sent: the peer left or a call failed.
+    failed: bool,
 };
 
-/// One worker: a core's listener, its connections, and the poll set covering both. One thread
-/// touches these fields, and `padding` keeps the next worker off this one's last cache line.
+/// One worker: a core's loop, listener and connections. One thread touches these fields, and the
+/// loop's memory, aligned to a cache line or more, keeps the next worker off this one's lines.
 const Worker = struct {
-    threaded: Io.Threaded,
-    listener: Io.net.Server,
+    loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(@max(rotor.memory_alignment, constants.cache_line_bytes)),
+    loop: rotor.Loop,
+    listener: rotor.Descriptor,
+    accepting: bool,
     connections: [constants.connections_per_worker_max]Connection,
-    /// The listener first, then one entry per live connection, rebuilt before every `poll`.
-    poll_set: [constants.connections_per_worker_max + 1]posix.pollfd,
-    /// Which connection each poll entry after the first belongs to.
-    polled: [constants.connections_per_worker_max]usize,
-    polled_len: usize,
-    padding: [padding_len]u8,
+    events: [loop_options.operations]rotor.Event,
 };
-
-/// What a worker holds before its padding, and the padding that rounds it to a cache line.
-const worker_body_len = @sizeOf(Io.Threaded) + @sizeOf(Io.net.Server) +
-    constants.connections_per_worker_max * @sizeOf(Connection) +
-    (constants.connections_per_worker_max + 1) * @sizeOf(posix.pollfd) +
-    constants.connections_per_worker_max * @sizeOf(usize) + @sizeOf(usize);
-const padding_len = constants.cache_line_bytes - worker_body_len % constants.cache_line_bytes;
 
 /// The workers, in static storage: each is large, and there is one per core at most.
-var workers: [constants.workers_max]Worker align(constants.cache_line_bytes) = undefined;
+var workers: [constants.workers_max]Worker = undefined;
+
+comptime {
+    // The loop's memory leads the struct, so its alignment is the struct's, and every worker
+    // starts and ends on a cache line.
+    assert(@alignOf(Worker) >= constants.cache_line_bytes);
+    assert(@sizeOf(Worker) % constants.cache_line_bytes == 0);
+    assert(loop_options.operations <= rotor.constants.batch_max);
+    assert(constants.connections_per_worker_max < accept_user_data >> kind_bits);
+}
 
 /// The TLS mode's shared state, which `main` loads when `--tls` names an identity, and one TLS
 /// layer per connection slot of the one worker the mode runs.
 var tls_shared: ?h2_tls.Shared = null;
 var tls_identity: server_identity.Storage = undefined;
 var tls_layers: [constants.connections_per_worker_max]h2_tls.Layer = undefined;
-
-comptime {
-    assert(@sizeOf(Worker) % constants.cache_line_bytes == 0);
-}
 
 /// Runs one worker per core until the process is stopped, every one listening on `port`.
 pub fn listen_and_serve(port: u16) !void {
@@ -111,83 +129,78 @@ pub fn listen_and_serve(port: u16) !void {
 /// Serves connections on `workers[index]` until the process is stopped.
 fn run_worker(index: usize, port: u16) !void {
     const worker = &workers[index];
-    worker.threaded = .init(std.mem.Allocator.failing, .{});
-    defer worker.threaded.deinit();
-    const io = worker.threaded.io();
-    const address = try Io.net.IpAddress.parseIp4(loopback_address, port);
-    // `reuse_address` sets SO_REUSEPORT on POSIX, which is what lets every worker hold a listener
-    // on one port and leaves the kernel to pick the worker a connection lands on.
-    worker.listener = try address.listen(io, .{
-        .reuse_address = true,
-        .kernel_backlog = constants.kernel_backlog,
-    });
-    defer worker.listener.deinit(io);
+    // Rotor's rule: the loop belongs to the thread that starts it.
+    try worker.loop.init(&worker.loop_memory, loop_options);
+    defer worker.loop.deinit();
+    const address = rotor.Address.ipv4(loopback_octets, port);
+    worker.listener = try rotor.sync.listen(&address, .{ .backlog = constants.kernel_backlog, .reuse_port = true });
+    defer rotor.sync.close_now(worker.listener);
+    if (index == 0) std.debug.print("h2-server: listening on port {d}, rotor backend {t}\n", .{ port, rotor.backend() });
     for (&worker.connections) |*connection| connection.live = false;
-    worker.polled_len = 0;
-    while (true) poll_once(worker, io);
+    worker.accepting = false;
+    while (true) try turn(worker);
 }
 
-/// Waits for the listener or a connection, then does what each ready socket asks for.
-fn poll_once(worker: *Worker, io: Io) void {
-    build_poll_set(worker);
-    _ = posix.poll(worker.poll_set[0 .. worker.polled_len + 1], -1) catch return;
-    for (0..worker.polled_len) |entry| {
-        const events = worker.poll_set[entry + 1].revents;
-        if (events == 0) continue;
-        const connection = &worker.connections[worker.polled[entry]];
-        serve_connection(connection, events) catch close_connection(connection, io);
+/// One turn of the loop: an accept when a slot is free, then one tick and its events.
+fn turn(worker: *Worker) !void {
+    arm_accept(worker);
+    const count = try worker.loop.tick(&worker.events, rotor.constants.wait_ns_max);
+    for (worker.events[0..count]) |event| on_event(worker, event);
+}
+
+fn on_event(worker: *Worker, event: rotor.Event) void {
+    if (event.user_data == accept_user_data) return on_accept(worker, event);
+    const slot: usize = @intCast(event.user_data >> kind_bits);
+    const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data)));
+    const connection = &worker.connections[slot];
+    assert(connection.live);
+    switch (kind) {
+        .receive => on_received(connection, event),
+        .send => on_sent(connection, event),
+        .close => connection.closed = true,
     }
-    if (worker.poll_set[0].revents != 0) accept_connection(worker, io);
+    if (connection.closed and !connection.receiving and !connection.sending) {
+        connection.live = false;
+        return;
+    }
+    arm(worker, slot);
 }
 
-/// Fills the poll set: the listener, then every live connection, each asking for what it can use.
-fn build_poll_set(worker: *Worker) void {
-    worker.poll_set[0] = .{
-        .fd = worker.listener.socket.handle,
-        .events = if (free_slot(worker) != null) posix.POLL.IN else 0,
-        .revents = 0,
-    };
-    var entries: usize = 0;
-    for (&worker.connections, 0..) |*connection, index| {
-        if (!connection.live) continue;
-        var events: i16 = 0;
-        if (connection.output_sent < connection.output_len) events |= posix.POLL.OUT;
-        if (!connection.closing and connection.input_len < connection.input.len) {
-            events |= posix.POLL.IN;
-        }
-        worker.poll_set[entries + 1] = .{
-            .fd = connection.stream.socket.handle,
-            .events = events,
-            .revents = 0,
+/// Keeps one accept in flight while a slot is free. A worker with every slot taken leaves new
+/// connections in the kernel's backlog until one frees.
+fn arm_accept(worker: *Worker) void {
+    if (worker.accepting or free_slot(worker) == null) return;
+    const taken = worker.loop.submit(&.{rotor.Operation.accept(accept_user_data, worker.listener, false)}, &.{});
+    assert(taken == 1);
+    worker.accepting = true;
+}
+
+/// Takes the connection an accept delivered into a free slot.
+fn on_accept(worker: *Worker, event: rotor.Event) void {
+    worker.accepting = false;
+    const descriptor: rotor.Descriptor = @intCast(event.outcome() catch return);
+    const slot = free_slot(worker) orelse unreachable; // `arm_accept` waits for one.
+    const connection = &worker.connections[slot];
+    connection.descriptor = descriptor;
+    connection.session.init();
+    connection.input_len = 0;
+    connection.output_len = 0;
+    connection.output_sent = 0;
+    connection.receiving = false;
+    connection.sending = false;
+    connection.close_submitted = false;
+    connection.closed = false;
+    connection.closing = false;
+    connection.failed = false;
+    connection.layer = null;
+    connection.live = true;
+    if (tls_shared) |*shared| {
+        connection.layer = start_tls(slot, shared) catch blk: {
+            connection.failed = true;
+            break :blk null;
         };
-        worker.polled[entries] = index;
-        entries += 1;
     }
-    worker.polled_len = entries;
-}
-
-/// Takes one connection from the listener. One per wakeup: the listening socket waits for a peer
-/// when none is there, and `poll` says so again while the kernel holds more.
-fn accept_connection(worker: *Worker, io: Io) void {
-    {
-        const index = free_slot(worker) orelse return;
-        const stream = worker.listener.accept(io) catch return;
-        const connection = &worker.connections[index];
-        connection.stream = stream;
-        connection.session.init();
-        connection.input_len = 0;
-        connection.output_len = 0;
-        connection.output_sent = 0;
-        connection.closing = false;
-        connection.layer = null;
-        connection.live = true;
-        if (tls_shared) |*shared| {
-            connection.layer = start_tls(index, shared) catch {
-                close_connection(connection, io);
-                return;
-            };
-        }
-    }
+    arm(worker, slot);
 }
 
 /// Gives a new connection the TLS layer of its slot, ready to read a ClientHello.
@@ -206,28 +219,84 @@ fn free_slot(worker: *Worker) ?usize {
     return null;
 }
 
-/// Reads what the socket has, steps the session over it, and writes what the socket will take.
-fn serve_connection(connection: *Connection, events: i16) !void {
-    if (events & (posix.POLL.HUP | posix.POLL.ERR | posix.POLL.NVAL) != 0) return error.PeerClosed;
-    if (events & posix.POLL.IN != 0) try read_input(connection);
-    if (connection.layer) |layer| try step_tls(connection, layer) else step_session(connection);
-    // The write does not wait, so it is worth trying whatever `poll` said: what the socket cannot
-    // take now stays in the buffer and goes out when it says POLLOUT.
-    try write_output(connection);
-    if (connection.closing and connection.output_sent == connection.output_len) {
-        return error.SessionDone;
+/// Appends what a receive read to the input and steps the session over it. A receive of no
+/// octets is the peer closing its side, which ends the connection.
+fn on_received(connection: *Connection, event: rotor.Event) void {
+    connection.receiving = false;
+    const read = event.outcome() catch 0;
+    if (read == 0) {
+        connection.failed = true;
+        return;
     }
+    assert(read <= connection.input.len - connection.input_len);
+    @memcpy(connection.input[connection.input_len..][0..read], connection.received[0..read]);
+    connection.input_len += read;
+    step(connection);
 }
 
-/// Reads once into the room the input buffer has left, without waiting.
-fn read_input(connection: *Connection) !void {
-    const room = connection.input[connection.input_len..];
-    assert(room.len > 0);
-    const read = std.c.recv(connection.stream.socket.handle, room.ptr, room.len, std.c.MSG.DONTWAIT);
-    if (read < 0) return if (would_block()) {} else error.PeerClosed;
-    // A read of no octets is the peer closing its side, which ends this connection.
-    if (read == 0) return error.PeerClosed;
-    connection.input_len += @intCast(read);
+/// Counts what a send took, and steps the session: the room the send freed may be what it
+/// waited for.
+fn on_sent(connection: *Connection, event: rotor.Event) void {
+    connection.sending = false;
+    const sent = event.outcome() catch {
+        connection.failed = true;
+        return;
+    };
+    connection.output_sent += sent;
+    assert(connection.output_sent <= connection.output_len);
+    // Every octet is gone and no send is in flight, so the buffer starts again at its front.
+    if (connection.output_sent == connection.output_len) {
+        connection.output_len = 0;
+        connection.output_sent = 0;
+    }
+    step(connection);
+}
+
+/// Submits what the connection needs next: its close once it is failed or finished and drained,
+/// otherwise a send of what is owed and a receive while there is room for more.
+fn arm(worker: *Worker, slot: usize) void {
+    const connection = &worker.connections[slot];
+    if (connection.close_submitted) return;
+    const drained = connection.output_sent == connection.output_len;
+    if (connection.failed or (connection.closing and drained)) return submit(worker, slot, .close);
+    if (!connection.sending and !drained) submit(worker, slot, .send);
+    const room = connection.input.len - connection.input_len;
+    if (!connection.receiving and !connection.closing and room > 0) submit(worker, slot, .receive);
+}
+
+/// Submits one operation for the connection in `slot`. The loop holds one of each kind for every
+/// connection, so it always has room.
+fn submit(worker: *Worker, slot: usize, kind: Kind) void {
+    const connection = &worker.connections[slot];
+    const user_data = (@as(u64, slot) << kind_bits) | @intFromEnum(kind);
+    const operation = switch (kind) {
+        .receive => blk: {
+            const room = connection.input.len - connection.input_len;
+            connection.receiving = true;
+            break :blk rotor.Operation.receive(user_data, connection.descriptor, connection.received[0..@min(room, connection.received.len)]);
+        },
+        .send => blk: {
+            connection.sending = true;
+            break :blk rotor.Operation.send(user_data, connection.descriptor, connection.output[connection.output_sent..connection.output_len]);
+        },
+        // Rotor's close cancels the connection's receive and send first.
+        .close => blk: {
+            connection.close_submitted = true;
+            break :blk rotor.Operation.close(user_data, connection.descriptor);
+        },
+    };
+    const taken = worker.loop.submit(&.{operation}, &.{});
+    assert(taken == 1);
+}
+
+/// Steps the connection's session over its input, cleartext or through its TLS layer.
+fn step(connection: *Connection) void {
+    if (connection.failed or connection.close_submitted) return;
+    if (connection.layer) |layer| {
+        step_tls(connection, layer) catch {
+            connection.failed = true;
+        };
+    } else step_session(connection);
 }
 
 /// Steps the session until it stops moving, appending what it writes to the output buffer.
@@ -235,14 +304,14 @@ fn step_session(connection: *Connection) void {
     for (0..constants.steps_per_read_max) |_| {
         const room = connection.output[connection.output_len..];
         if (room.len == 0) return;
-        const step = connection.session.step(connection.input[0..connection.input_len], room);
-        connection.output_len += step.written;
-        consume(connection, step.consumed);
-        if (step.done) {
+        const stepped = connection.session.step(connection.input[0..connection.input_len], room);
+        connection.output_len += stepped.written;
+        consume(connection, stepped.consumed);
+        if (stepped.done) {
             connection.closing = true;
             return;
         }
-        if (step.consumed == 0 and step.written == 0) return;
+        if (stepped.consumed == 0 and stepped.written == 0) return;
     }
 }
 
@@ -260,44 +329,18 @@ fn step_tls(connection: *Connection, layer: *h2_tls.Layer) !void {
     if (stepped.done) connection.closing = true;
 }
 
-/// Writes what the session produced, taking what the socket will hold and keeping the rest. The
-/// call does not wait, so a peer that has stopped reading holds up nothing else.
-fn write_output(connection: *Connection) !void {
-    while (connection.output_sent < connection.output_len) {
-        const rest = connection.output[connection.output_sent..connection.output_len];
-        const sent = std.c.send(connection.stream.socket.handle, rest.ptr, rest.len, std.c.MSG.DONTWAIT);
-        if (sent < 0) return if (would_block()) {} else error.PeerClosed;
-        connection.output_sent += @intCast(sent);
-    }
-    // Every octet is gone, so the buffer starts again at its front.
-    connection.output_len = 0;
-    connection.output_sent = 0;
-}
-
-/// Whether the last call failed only because the socket had nothing to give or no room to take.
-/// POSIX lets EWOULDBLOCK equal EAGAIN, and on the hosts colibri runs on it does.
-fn would_block() bool {
-    return std.c._errno().* == @intFromEnum(std.c.E.AGAIN);
-}
-
 /// Drops the `consumed` octets the session took, moving what is left to the front.
 fn consume(connection: *Connection, consumed: usize) void {
     assert(consumed <= connection.input_len);
     if (consumed == 0) return;
-    const rest = connection.input_len - consumed;
-    for (0..rest) |index| connection.input[index] = connection.input[consumed + index];
-    connection.input_len = rest;
+    std.mem.copyForwards(u8, &connection.input, connection.input[consumed..connection.input_len]);
+    connection.input_len -= consumed;
 }
 
-/// Closes a connection and frees its slot.
-fn close_connection(connection: *Connection, io: Io) void {
-    if (!connection.live) return;
-    connection.stream.close(io);
-    connection.live = false;
-}
-
-/// The address the server listens on: the loopback, because it serves tests alone.
-const loopback_address = "127.0.0.1";
+/// The address the server listens on: the loopback, because it serves tests alone. RFC 1122
+/// §3.2.1.3 reserves 127.0.0.0/8 for the local host.
+const loopback_octets = [_]u8{ loopback_first, 0, 0, 1 };
+const loopback_first: u8 = 127;
 
 /// The command-line options, as `tools/h2spec.sh` passes them: the port, and the prefix of the
 /// identity files `tools/h2_interop/tls_identity.go` wrote, which turns the TLS mode on.

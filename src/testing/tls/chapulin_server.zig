@@ -4,8 +4,8 @@
 //! This file is phase 1: building the configuration and driving chapulin's `TRANSPORT=record`
 //! handshake. The caller reads octets from its socket and passes them to `handshake`, which runs
 //! `ch_srv_record_in` over them and returns the server's flight in the caller's output. No call
-//! here touches a descriptor or waits, so the h2 endpoint drives a handshake from inside its one
-//! `poll` call ([decision 46](../../../docs/decisions.md),
+//! here touches a descriptor or waits, so the h2 endpoint drives a handshake from its loop's
+//! events ([decision 46](../../../docs/decisions.md),
 //! https://github.com/c4milo/colibri/issues/20). Phase 2, the record phase colibri drives through
 //! the vtable, is `chapulin_record.zig` and is shared with the client.
 //!

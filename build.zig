@@ -85,6 +85,10 @@ pub fn build(b: *std.Build) void {
     const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
     const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
     const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), chapulin, target, optimize);
+    // https://github.com/c4milo/colibri/issues/61 amends decision 58: the h2 endpoints run on
+    // Rotor's loop too.
+    graph.testing.addImport("rotor", rotor_dependency.module("rotor"));
+    graph.testing_client.addImport("rotor", rotor_dependency.module("rotor"));
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");

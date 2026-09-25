@@ -63,7 +63,7 @@ core, tls, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
-core, h2         <- testing, testing_client
+core, h2, rotor  <- testing, testing_client
 h2, h3, rotor    <- testing_udp
 core, qpack      <- testing_qif
 ```
@@ -84,11 +84,11 @@ core, qpack      <- testing_qif
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12 | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
-| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves | — |
+| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, and `rotor` ([decision 83](decisions.md)) | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
 | `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
 | `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over chapulin's QUIC mode in one process | `h2` for the shared constants, and `quic` | — |
-| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)), and the one module that imports Rotor | `h2` for the shared constants, `h3` from step 12, `quic`, and `rotor` | — |
+| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)) | `h2` for the shared constants, `h3` from step 12, `quic`, and `rotor` | — |
 
 The architecture depends on three of these edges and forbids one.
 
