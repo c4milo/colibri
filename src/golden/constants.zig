@@ -18,18 +18,20 @@ pub const frozen_marker_name = "FROZEN";
 /// The extension every corpus case file carries.
 pub const case_file_extension = ".bin";
 
-/// Most octets one corpus case holds.
-pub const case_len_max: u32 = 64;
+/// Most octets one corpus case holds. A whole HTTP/1.1 message with a chunked body and a trailer
+/// section needs a few hundred, which the owner raised it to on 2026-09-25 (design §8 step 15a).
+pub const case_len_max: u32 = 256;
 
 /// Most octets a case decodes to: the decoder's output buffer for the Huffman and string-literal
-/// formats.
-pub const decoded_len_max: u32 = 128;
+/// formats. Twice `case_len_max`, the ratio it had when `case_len_max` was 64.
+pub const decoded_len_max: u32 = 512;
 
 /// Most cases one format holds.
 pub const cases_per_format_max: u32 = 32;
 
-/// Most octets one format's manifest holds.
-pub const manifest_len_max: u32 = 8192;
+/// Most octets one format's manifest holds. A manifest line writes a case's octets in hex, so this
+/// grew fourfold with `case_len_max`.
+pub const manifest_len_max: u32 = 32768;
 
 /// Most corpus mutations.
 pub const mutations_max: u32 = 64;

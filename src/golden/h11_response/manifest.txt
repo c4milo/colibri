@@ -1,0 +1,13 @@
+colibri-golden-manifest version=1 format=h11_response cases=12
+h11_response_length len=40 crc32=0x4c45a8f4 verdict=accept construction=literal
+h11_response_no_content len=17 crc32=0x1cb06f92 verdict=accept construction=literal
+h11_response_not_modified_length len=48 crc32=0xaf257054 verdict=accept construction=literal
+h11_response_chunked_trailer len=65 crc32=0x678d711d verdict=accept construction=literal
+h11_response_until_close len=45 crc32=0x5859d645 verdict=accept construction=literal
+h11_response_obs_fold_joined len=48 crc32=0x5be8cfc8 verdict=accept construction=literal
+h11_response_length_and_chunked len=66 crc32=0x8fd852fa verdict=TransferEncodingWithContentLength construction=literal
+h11_response_http10_chunked len=47 crc32=0x83876750 verdict=TransferEncodingInHttp10 construction=literal
+h11_response_status_short len=18 crc32=0x469354d4 verdict=StatusInvalid construction=literal
+h11_response_no_space_after_status len=16 crc32=0xa0d644bf verdict=StartLineInvalid construction=literal
+h11_response_lone_lf len=17 crc32=0x8825cc02 verdict=BareLineFeed construction=literal
+h11_response_leading_empty_line len=21 crc32=0x4d59fba0 verdict=StartLineEmpty construction=literal

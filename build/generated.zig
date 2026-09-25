@@ -137,11 +137,16 @@ fn add_golden(b: *std.Build, steps: Steps) void {
     quic.addImport("wire", wire);
     quic.addImport("crypto", crypto);
     quic.addImport("tls", tls);
+    const h11 = host_module(b, "src/h11/h11.zig");
+    h11.addImport("core", core);
+    h11.addImport("http", http);
     const corpus = host_module(b, "src/golden/corpus.zig");
     corpus.addImport("core", core);
     corpus.addImport("wire", wire);
     corpus.addImport("hpack", hpack);
     corpus.addImport("quic", quic);
+    corpus.addImport("http", http);
+    corpus.addImport("h11", h11);
 
     const tool_module = host_module(b, "tools/golden.zig");
     tool_module.addImport("golden_corpus", corpus);

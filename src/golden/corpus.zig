@@ -19,6 +19,7 @@ const quic = @import("quic");
 pub const constants = @import("constants.zig");
 pub const cases = @import("corpus_cases.zig");
 const corpus_receive = @import("corpus_receive.zig");
+const corpus_h11 = @import("corpus_h11.zig");
 
 const Reader = core.Reader;
 const Writer = core.Writer;
@@ -31,7 +32,7 @@ const string_prefix_bits_min = wire.constants.string_prefix_bits_min;
 
 /// Every error a corpus decode can return. A rejection outside this set does not compile.
 pub const DecodeError = core.reader.Error || wire.string_literal.DecodeError || hpack.decoder.Error ||
-    quic.packet.header.Error || corpus_receive.Error || error{
+    quic.packet.header.Error || corpus_receive.Error || corpus_h11.Error || error{
     /// The decoder succeeded without consuming every octet of the case.
     TrailingOctets,
 };
@@ -113,6 +114,8 @@ pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError
     if (format == .quic_invariant) return decode_quic_invariant(octets);
     if (format == .quic_packet) return decode_quic_packets(case.connection_id_len, octets);
     if (format == .quic_receive) return corpus_receive.decode(case.receive_state, octets);
+    if (format == .h11_request) return corpus_h11.decode_request(octets);
+    if (format == .h11_response) return corpus_h11.decode_response(octets);
     var reader = Reader.init(octets);
     var buffer: [constants.decoded_len_max]u8 = @splat(0);
     var output = Writer.init(&buffer);
@@ -130,7 +133,7 @@ pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError
             else => unreachable,
         },
         // Returned above: none of the four is one value read through `reader`.
-        .hpack, .quic_invariant, .quic_packet, .quic_receive => unreachable,
+        .hpack, .quic_invariant, .quic_packet, .quic_receive, .h11_request, .h11_response => unreachable,
     }
     if (reader.remaining_len() != 0) return error.TrailingOctets;
 }

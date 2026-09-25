@@ -7,6 +7,7 @@
 //! decode error, and RFC 9000 Appendix A.1's sample decodings. The published vectors of RFC 7541
 //! Appendix C are here beside them (decision 25).
 const wire = @import("wire");
+const corpus_h11 = @import("corpus_h11.zig");
 
 pub const Format = enum {
     varint,
@@ -26,6 +27,11 @@ pub const Format = enum {
     /// `receive_state` (`corpus_receive.zig`). Its verdict is the first packet's discard, or the
     /// connection error the walk returns.
     quic_receive,
+    /// A whole HTTP/1.1 request, read by an h11 server: its head, then the body its length names
+    /// (`corpus_h11.zig`, design §8 step 15a).
+    h11_request,
+    /// A whole HTTP/1.1 response, read by an h11 client that asked nothing special.
+    h11_response,
 };
 
 /// The client a `quic_receive` case's datagram arrives at (`corpus_receive.zig`).
@@ -468,4 +474,6 @@ pub const all = [_]struct { format: Format, cases: []const Case }{
     .{ .format = .quic_invariant, .cases = &quic_invariant },
     .{ .format = .quic_packet, .cases = &quic_packet },
     .{ .format = .quic_receive, .cases = &quic_receive },
+    .{ .format = .h11_request, .cases = &corpus_h11.request },
+    .{ .format = .h11_response, .cases = &corpus_h11.response },
 };

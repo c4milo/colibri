@@ -153,6 +153,8 @@ pub fn add(
     golden.addImport("core", core);
     golden.addImport("wire", wire);
     golden.addImport("hpack", hpack);
+    golden.addImport("http", http);
+    golden.addImport("h11", h11);
     // Design §3: the corpus imports what it checks, and step 7 adds the packet readers.
     golden.addImport("quic", quic);
 
