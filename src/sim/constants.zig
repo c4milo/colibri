@@ -358,6 +358,27 @@ pub const h3_check_sends_per_step_max: u32 = 64;
 pub const h3_check_drop_max: u64 = 100;
 pub const h3_check_duplicate_max: u64 = 100;
 
+/// The h3 trace run (https://github.com/c4milo/colibri/issues/58), inside the scope of
+/// `spec/tla/h3_connection`: the requests one seed opens, the DATA frames each carries, the GOAWAY
+/// frames the server sends, and the server decoder's blocked-stream limit and table capacity. The
+/// client opens, cancels and the server shuts down within `h3_trace_act_steps` steps, and one
+/// request in `h3_trace_cancel_one_in` is cancelled. Each DATA frame carries
+/// `h3_trace_data_len` octets.
+pub const h3_trace_requests_max: u32 = 3;
+pub const h3_trace_content_max: u32 = 2;
+pub const h3_trace_goaways_max: u32 = 2;
+pub const h3_trace_blocked_max: u64 = 2;
+pub const h3_trace_capacity: u64 = 256;
+pub const h3_trace_act_steps: u64 = 16;
+pub const h3_trace_cancel_one_in: u64 = 3;
+pub const h3_trace_data_len: u32 = 4;
+/// The frames the trace run keeps for one message, the steps one run may take, and the highest
+/// drop and duplicate rates a seed draws, out of `schedule_denominator`.
+pub const h3_trace_prefix_len_max: u32 = 2048;
+pub const h3_trace_steps_max: u32 = 10_000;
+pub const h3_trace_drop_max: u64 = 50;
+pub const h3_trace_duplicate_max: u64 = 50;
+
 /// The QPACK input check: inputs per seed, the most edits made to one, and the longest input.
 pub const qpack_input_check_inputs: u32 = 32;
 pub const qpack_input_check_edits_max: u64 = 8;

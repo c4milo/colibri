@@ -10,6 +10,7 @@
 //!     sim --qpack-input-check [seeds]  edited QPACK input, taken or refused (step 11)
 //!     sim --h3-check [seeds]           h3 exchanges over a lossy network (step 12)
 //!     sim --h3-long-check [seeds]      long h3 connections, which outgrow h3's buffers
+//!     sim --h3-trace-check [seeds]     the h3 model's actions acted out (#58)
 //!
 //! It is the one file under `src/sim/` that reads its arguments and writes to the terminal, and
 //! `tools/lint/io.zig` exempts it by path for that reason. Nothing reaches it but `zig build sim`.
@@ -21,6 +22,7 @@ const tls_check = @import("tls_check.zig");
 const qpack_check = @import("qpack_check.zig");
 const qpack_input_check = @import("qpack_input_check.zig");
 const h3_check = @import("h3_check.zig");
+const h3_trace_check = @import("h3_trace_check.zig");
 
 const constants = sim.constants;
 
@@ -37,7 +39,8 @@ const hex_prefix = "0x";
 
 const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --connection-seed <hex> | --connection-check [seeds] | --tls-check [seeds]" ++
-    " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]\n";
+    " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]" ++
+    " | --h3-trace-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -50,6 +53,7 @@ pub const Command = union(enum) {
     qpack_input_check: u64,
     h3_check: u64,
     h3_long_check: u64,
+    h3_trace_check: u64,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -59,6 +63,7 @@ var tls_storage: tls_check.Storage = .zeroed;
 var qpack_storage: qpack_check.Storage = undefined;
 var qpack_input_storage: qpack_input_check.Storage = undefined;
 var h3_storage: h3_check.Storage = undefined;
+var h3_trace_storage: h3_trace_check.Storage = undefined;
 
 pub fn main(init: std.process.Init) !void {
     var arguments: [arguments_max][]const u8 = @splat("");
@@ -85,6 +90,7 @@ pub fn main(init: std.process.Init) !void {
         .qpack_input_check => |seeds| try qpack_input_check_seeds(seeds),
         .h3_check => |seeds| try h3_check_seeds(seeds, .normal),
         .h3_long_check => |seeds| try h3_check_seeds(seeds, .long),
+        .h3_trace_check => |seeds| try h3_trace_check_seeds(seeds),
     }
 }
 
@@ -116,6 +122,7 @@ fn parse_step_eleven_on(flag: []const u8, value: ?[]const u8) error{Usage}!Comma
     if (std.mem.eql(u8, flag, "--h3-long-check")) {
         return .{ .h3_long_check = if (value == null) constants.h3_long_check_seeds else try parse_seeds(value) };
     }
+    if (std.mem.eql(u8, flag, "--h3-trace-check")) return .{ .h3_trace_check = try parse_seeds(value) };
     return error.Usage;
 }
 
@@ -309,6 +316,20 @@ fn h3_check_seeds(seeds: u64, shape: h3_check.Shape) !void {
     std.debug.print("{s}: seeds={d} exchanges={d} content={d} inserts={d} acknowledged_dropped={d} datagrams={d} dropped={d} crc32=0x{x:0>8}\n", .{
         label_of(shape),             census.seeds,     census.exchanges, census.content_len,   census.inserts,
         census.acknowledged_dropped, census.datagrams, census.dropped,   census.crc32.final(),
+    });
+}
+
+/// The h3 trace run of https://github.com/c4milo/colibri/issues/58, over `[0, seeds)`.
+fn h3_trace_check_seeds(seeds: u64) !void {
+    var census: h3_trace_check.Census = .{};
+    var failed_seed: ?u64 = null;
+    h3_trace_check.run_check(&h3_trace_storage, seeds, &census, &failed_seed) catch |failure| {
+        std.debug.print("h3-trace: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
+        return failure;
+    };
+    std.debug.print("h3-trace: seeds={d} requests={d} responses={d} rejections={d} cancels={d} goaways={d} inserts={d}\n", .{
+        census.seeds,   census.requests, census.responses, census.rejections,
+        census.cancels, census.goaways,  census.inserts,
     });
 }
 

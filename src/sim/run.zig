@@ -23,6 +23,8 @@ pub const qpack_check = @import("qpack_check.zig");
 pub const qpack_input_check = @import("qpack_input_check.zig");
 pub const h3_plan = @import("h3_plan.zig");
 pub const h3_check = @import("h3_check.zig");
+pub const h3_trace_plan = @import("h3_trace_plan.zig");
+pub const h3_trace_check = @import("h3_trace_check.zig");
 const run_main = @import("run_main.zig");
 
 pub const main = run_main.main;
@@ -41,5 +43,7 @@ test {
     _ = qpack_input_check;
     _ = h3_plan;
     _ = h3_check;
+    _ = h3_trace_plan;
+    _ = h3_trace_check;
     _ = run_main;
 }
