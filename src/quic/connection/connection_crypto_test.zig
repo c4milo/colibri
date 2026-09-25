@@ -253,6 +253,8 @@ test "RFC 9001 §4.8: an alert becomes a CRYPTO_ERROR code, and each failure nam
     try testing.expectEqual(0x0128, connection_crypto.alert_error_code(.handshake_failure));
     // The connection kept the description the provider raised, so the close carries its code.
     try testing.expectEqual(0x0128, connection_crypto.close_code(&test_connection, error.TlsAlert));
+    // Decision 84: from here the suite says which levels still seal the close.
+    try testing.expect(test_connection.tls_failed);
     // A provider that fails and names no description is still a connection error.
     var silent: Fake = .{ .failure = error.TlsFailed };
     fresh(.client);
@@ -262,6 +264,7 @@ test "RFC 9001 §4.8: an alert becomes a CRYPTO_ERROR code, and each failure nam
         connection_crypto.provide_handshake(&test_connection, silent.provider()),
     );
     try testing.expectEqual(error_code.internal_error, connection_crypto.close_code(&test_connection, error.TlsFailed));
+    try testing.expect(test_connection.tls_failed);
 }
 
 test "each failure carries the code RFC 9000 §20.1 gives it" {

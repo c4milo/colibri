@@ -31,12 +31,17 @@ const test_identity: identity_module.Options = .{
 };
 
 /// A `crypto.Suite` that holds no key and records which levels colibri discarded. Decision 48
-/// leaves the keys with the caller, so what a test of timing needs is only the call.
+/// leaves the keys with the caller, so what a test of timing needs is only the call. `holds` is
+/// what `keys_available` answers, which a test sets, and `asked` counts the questions.
 const Recorder = struct {
     discarded: [core.levels_count]usize,
+    holds: [core.levels_count][crypto.suite.directions_count]bool,
+    asked: usize,
 
     fn init(held: *Recorder) void {
         held.discarded = @splat(0);
+        held.holds = @splat(@splat(false));
+        held.asked = 0;
     }
 
     fn suite(held: *Recorder) crypto.Suite {
@@ -52,9 +57,15 @@ const Recorder = struct {
         held.discarded[@intFromEnum(level)] += 1;
     }
 
+    fn keys_available(context: *const anyopaque, level: Level, direction: crypto.suite.Direction) bool {
+        const held: *Recorder = @ptrCast(@alignCast(@constCast(context)));
+        held.asked += 1;
+        return held.holds[@intFromEnum(level)][@intFromEnum(direction)];
+    }
+
     const vtable: crypto.suite.VTable = .{
         .install_initial_keys = unreachable_install,
-        .keys_available = unreachable_available,
+        .keys_available = keys_available,
         .seal = unreachable_seal,
         .open = unreachable_open,
         .retry_tag_valid = unreachable_tag_valid,
@@ -68,12 +79,10 @@ const Recorder = struct {
     };
 };
 
-/// Every member but `discard_keys` is unreached: this file tests when colibri discards a level,
-/// and a call to any other member would mean the test drove something it does not cover.
+/// Every member but `discard_keys` and `keys_available` is unreached: this file tests when colibri
+/// discards or loses a level, and a call to any other member would mean the test drove something
+/// it does not cover.
 fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
-    unreachable;
-}
-fn unreachable_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
     unreachable;
 }
 fn unreachable_seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {
@@ -236,4 +245,51 @@ test "RFC 9001 §4.9: with every level discarded there is nowhere to send" {
     // Both handshake levels are gone and the application level never arrived, which is the state
     // a connection that failed before 1-RTT is left in.
     try testing.expectEqual(null, keys.highest_sendable(&test_connection));
+}
+
+/// Installs every level in both directions, as a connection whose handshake produced all of them.
+/// Test-only.
+fn install_every_level() void {
+    for ([_]Level{ .handshake, .application }) |level| {
+        keys.on_keys_installed(&test_connection, level, .read);
+        keys.on_keys_installed(&test_connection, level, .write);
+    }
+}
+
+test "decision 84: before the TLS provider fails, colibri's record of the keys is not the suite's to change" {
+    open_as(.server);
+    install_every_level();
+    // The suite answers that it holds nothing, which before a failure would be its defect.
+    keys.take_lost(&test_connection, recorder.suite());
+    try testing.expectEqual(0, recorder.asked);
+    try testing.expect(keys.can_seal(&test_connection, .initial));
+    try testing.expectEqual(keys.State.available, test_connection.keys.at(.application, .read));
+}
+
+test "decision 84: after the TLS provider fails, only the levels the suite still holds seal a close" {
+    open_as(.server);
+    install_every_level();
+    // RFC 9001 §4.8: the failed stack keeps the write keys of the levels a close can go out at,
+    // here Initial and Handshake, and wipes every read key.
+    recorder.holds[@intFromEnum(Level.initial)][@intFromEnum(crypto.suite.Direction.write)] = true;
+    recorder.holds[@intFromEnum(Level.handshake)][@intFromEnum(crypto.suite.Direction.write)] = true;
+    test_connection.tls_failed = true;
+    keys.take_lost(&test_connection, recorder.suite());
+    try testing.expect(keys.can_seal(&test_connection, .initial));
+    try testing.expect(keys.can_seal(&test_connection, .handshake));
+    try testing.expect(!keys.can_seal(&test_connection, .application));
+    try testing.expectEqual(keys.State.lost, test_connection.keys.at(.application, .write));
+    for ([_]Level{ .initial, .handshake, .application }) |level| {
+        try testing.expect(!keys.can_open(&test_connection, level, true));
+    }
+    // The stack sealed its close at Handshake and wiped that key, so the next close goes out at
+    // Initial alone, and after that one nowhere.
+    recorder.holds[@intFromEnum(Level.handshake)][@intFromEnum(crypto.suite.Direction.write)] = false;
+    keys.take_lost(&test_connection, recorder.suite());
+    try testing.expectEqual(Level.initial, keys.highest_sendable(&test_connection).?);
+    recorder.holds[@intFromEnum(Level.initial)][@intFromEnum(crypto.suite.Direction.write)] = false;
+    keys.take_lost(&test_connection, recorder.suite());
+    try testing.expectEqual(null, keys.highest_sendable(&test_connection));
+    // A lost level is not discarded: colibri told the suite to forget nothing.
+    try testing.expectEqual(0, recorder.count(.handshake));
 }

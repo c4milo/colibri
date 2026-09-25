@@ -3329,9 +3329,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The encoder-stream order is the rule `8accf3c` added after `h2load --h3` lost requests. The
     model shows that without it, blocked sections can hold the connection window.
 
-  **Still owed:** h3spec, once chapulin's QUIC mode offers AES-GCM; with it, h3spec's TLS cases
-  also need #59's close. The model's trace validation against the simulator's h3 check:
-  [#58](https://github.com/c4milo/colibri/issues/58).
+  **The close after a failed handshake, 2026-09-24.** colibri's UDP server now sends the
+  CONNECTION_CLOSE RFC 9001 §4.8 owes when its TLS stack refuses a handshake, and serves the next
+  connection ([#59](https://github.com/c4milo/colibri/issues/59), [decision 84](decisions.md)).
+  - After the provider fails, colibri asks the suite which levels can still seal. chapulin
+    (`0e6fd15`, `6a4c5eb`) seals one close per level through `ch_quic_seal_close`.
+  - Against chapulin `6a4c5eb`, an aioquic client offering an ALPN colibri does not serve read
+    `close carried 0x178 after 0.61s` twice in a row: CRYPTO_ERROR for no_application_protocol.
+    Before, it waited out its 20-second idle timeout, and colibri's server exited.
+  - `tools/quic_aioquic.sh` now checks this, and `tools/quic_loopback.sh`, `tools/quic_udp.sh` and
+    the rest of `tools/quic_aioquic.sh` still pass.
+  - 7 mutations, all CAUGHT.
+
+  **Still owed:** h3spec, once chapulin's QUIC mode offers AES-GCM. The model's trace validation
+  against the simulator's h3 check: [#58](https://github.com/c4milo/colibri/issues/58).
 
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
   **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the

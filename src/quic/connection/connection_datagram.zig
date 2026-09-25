@@ -136,6 +136,7 @@ pub fn receive(
     migration.on_datagram_received(connection, arrived, datagram.octets.len);
     // Decision 62: keys the caller's code gave the suite since the last call open packets here.
     keys_module.take_available(connection, suite);
+    keys_module.take_lost(connection, suite);
     if (try take_whole(connection, suite, datagram.octets, scratch, &received)) return received;
     try walk_packets(connection, suite, provider, datagram, scratch, &received);
     if (connection.termination.state != .active) return received;
@@ -259,6 +260,7 @@ fn advance_handshake(
     // RFC 9001 §4.1.4: "The availability of new keys is always a result of providing inputs to
     // TLS", so this is the moment to ask.
     keys_module.take_available(connection, suite);
+    keys_module.take_lost(connection, suite);
 }
 
 test {

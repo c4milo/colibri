@@ -120,6 +120,27 @@ against_colibri_server() {
   compare "$into" "$direction"
 }
 
+# RFC 9001 §4.8: a handshake colibri's server refuses still ends with its CONNECTION_CLOSE, and the
+# server serves the next connection (https://github.com/c4milo/colibri/issues/59).
+refused_handshake() {
+  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" connections=2 \
+    >"$scratch/refused.log" 2>&1 &
+  server_pid=$!
+  await_listening "$scratch/refused.log"
+  for attempt in 1 2; do
+    if ! "$venv/bin/python" tools/quic_interop/wrong_alpn.py 127.0.0.1 "$port" \
+      "$scratch/identity" "$hostname"; then
+      echo "quic_aioquic: refused handshake $attempt: no CRYPTO_ERROR close in time; colibri said:" >&2
+      cat "$scratch/refused.log" >&2
+      exit 1
+    fi
+  done
+  kill "$server_pid" 2>/dev/null || true
+  wait "$server_pid" 2>/dev/null || true
+  server_pid=""
+}
+
+refused_handshake
 active_peer=("${peer[@]}")
 against_aioquic_server "$scratch/from_aioquic" "colibri client, aioquic server"
 against_colibri_server "$scratch/from_colibri" "aioquic client, colibri server"

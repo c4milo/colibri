@@ -35,6 +35,10 @@ pub const State = enum {
     available,
     /// RFC 9001 §4.9: colibri told the suite to forget it. Nothing is sent or opened here again.
     discarded,
+    /// The suite no longer holds it, after the provider failed (decision 84). A failed TLS stack
+    /// keeps only the write keys its CONNECTION_CLOSE needs (RFC 9001 §4.8), and drops each once
+    /// the close is sealed there. Nothing is sent or opened here again.
+    lost,
 };
 
 /// One state per level and direction, which is what invariant 21 names.
@@ -57,6 +61,14 @@ pub const Keys = struct {
         // defect. §4.1.4 gives each level's secrets once, so installing twice is one too.
         assert(keys.at(level, direction) == .none);
         keys.state[@intFromEnum(level)][@intFromEnum(direction)] = .available;
+    }
+
+    /// Records that the suite dropped `level` in `direction` after the provider failed.
+    pub fn mark_lost(keys: *Keys, level: Level, direction: Direction) void {
+        // Only a level colibri still counted on can be lost: one never installed will not be,
+        // and a discarded one is already gone.
+        assert(keys.at(level, direction) == .available);
+        keys.state[@intFromEnum(level)][@intFromEnum(direction)] = .lost;
     }
 
     /// Records that `level` is gone in both directions (RFC 9001 §4.9).
@@ -122,6 +134,24 @@ pub fn take_available(connection: *Connection, suite: Suite) void {
     }
 }
 
+/// Marks lost each level and direction the suite no longer holds, once the provider has failed
+/// (decision 84). RFC 9001 §4.8 still owes the peer a CONNECTION_CLOSE, and the suite is what
+/// knows where it can seal one: a TLS stack that failed keeps only the write keys the close needs,
+/// and drops each once it has sealed the close there. Before a failure a level the suite drops is
+/// its defect, which invariant 21's assertions at `seal` and `open` still catch.
+pub fn take_lost(connection: *Connection, suite: Suite) void {
+    if (!connection.tls_failed) return;
+    // Bounded by the three levels RFC 9001 §4.1.4 names and the two directions.
+    for (0..core.levels_count) |level_index| {
+        const level: Level = @enumFromInt(level_index);
+        for (0..crypto.suite.directions_count) |direction_index| {
+            const direction: Direction = @enumFromInt(direction_index);
+            if (connection.keys.at(level, direction) != .available) continue;
+            if (!suite.vtable.keys_available(suite.context, level, direction)) connection.keys.mark_lost(level, direction);
+        }
+    }
+}
+
 /// The first Handshake packet this endpoint sent. RFC 9001 §4.9.1: "a client MUST discard Initial
 /// keys when it first sends a Handshake packet". A server's Initial keys go on §4.9.1's other
 /// trigger, so this does nothing for it.
@@ -159,8 +189,8 @@ fn discard(connection: *Connection, suite: Suite, level: Level) void {
 }
 
 comptime {
-    // RFC 9001 §4.9 moves a level from none to available to discarded and never back, so the
-    // three states are ordered and `highest_sendable` may walk the levels by their numbers.
+    // RFC 9001 §4.9 moves a level from none to available to discarded, or to lost after the
+    // provider failed, and never back. `highest_sendable` walks the levels by their numbers.
     assert(@intFromEnum(Level.initial) < @intFromEnum(Level.handshake));
     assert(@intFromEnum(Level.handshake) < @intFromEnum(Level.application));
 }

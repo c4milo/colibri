@@ -72,8 +72,13 @@ fn keys_available(context: *const anyopaque, level: Level, direction: suite_modu
 fn seal(context: *anyopaque, sealing: suite_module.Sealing, output: []u8) suite_module.SealError!usize {
     const session = held(context);
     const level: u8 = @intFromEnum(sealing.level);
+    // RFC 9001 §4.8: a handshake that failed still owes the peer a CONNECTION_CLOSE. chapulin
+    // seals one close per level after a failure, through its own call, and then drops that
+    // level's write keys, which `keys_available` reports and decision 84's `take_lost` reads.
+    const failed = session.quic.t.state == c.CH_ST_FAILED;
+    const seal_call = if (failed) &c.ch_quic_seal_close else &c.ch_quic_seal;
     var written: usize = 0;
-    const code = c.ch_quic_seal(
+    const code = seal_call(
         &session.quic,
         level,
         sealing.packet_number,
@@ -88,6 +93,8 @@ fn seal(context: *anyopaque, sealing: suite_module.Sealing, output: []u8) suite_
     );
     if (code == ok) return written;
     if (code == c.CH_ECAP) return error.NoSpaceLeft;
+    // `quic.h`: after a failure, CH_EINVAL is a close chapulin does not seal at this level.
+    if (failed) return error.KeysUnavailable;
     // chapulin answers CH_EINVAL for keys it does not hold, and at the Initial level also for the
     // packet past RFC 9001 §6.6's confidentiality limit. colibri's own framing it asserts.
     if (!keys_available(context, sealing.level, .write)) return error.KeysUnavailable;

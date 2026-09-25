@@ -342,6 +342,18 @@ test "decision 62: send marks the keys the suite holds, and never a level colibr
     try testing.expectEqual(keys.State.discarded, client.keys.at(.application, .write));
 }
 
+test "decision 84: after the TLS provider fails, a packet at a level the suite dropped is not opened" {
+    open_pair(&.{.handshake});
+    send.owe_probes(&client, .handshake, 1);
+    const sent = try send_from(&client);
+    // RFC 9001 §4.8: the server's stack failed and wiped every read key, which its suite reports.
+    server.tls_failed = true;
+    suite_holder.available = @splat(@splat(false));
+    const received = try receive(&server, sent.len);
+    try testing.expectEqual(0, received.processed);
+    try testing.expectEqual(keys.State.lost, server.keys.at(.handshake, .read));
+}
+
 test "RFC 9000 §6.2: a Version Negotiation packet is the whole datagram and goes to its function" {
     open_pair(&.{.initial});
     var writer = Writer.init(&datagram);

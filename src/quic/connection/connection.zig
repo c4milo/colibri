@@ -166,6 +166,9 @@ pub const Connection = struct {
     /// The alert the provider raised when the handshake failed, which RFC 9001 §4.8 turns into
     /// the CRYPTO_ERROR code the close carries. Null while none was raised.
     tls_alert: ?tls.Alert,
+    /// Whether the TLS provider failed (RFC 9001 §4.8). From then on the suite, and not
+    /// colibri's own record, says which levels still seal (decision 84, `take_lost`).
+    tls_failed: bool,
     /// RFC 9001 §6's key phase, which is packet numbers and instants and no key at all. The
     /// application level alone: §6.1's Note says no other level's keys are ever updated.
     key_phase: key_update.Phase,
@@ -200,6 +203,7 @@ pub const Connection = struct {
         connection.retry_token.init();
         connection.pending_close = null;
         connection.tls_alert = null;
+        connection.tls_failed = false;
         connection.receive_storage = options.receive;
         if (options.receive) |storage| storage.reset();
         connection.ecn_reads = options.ecn_reads;

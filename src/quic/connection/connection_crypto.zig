@@ -246,6 +246,7 @@ fn provider_failure(connection: *Connection, provider: tls.QuicProvider, failure
         error.NoSpaceLeft => Error.NoSpaceLeft,
         // RFC 9001 §4.8: TLS generates an alert, and a QUIC endpoint treats every one as fatal.
         error.TlsFailed => {
+            connection.tls_failed = true;
             connection.tls_alert = provider.take_alert();
             return if (connection.tls_alert != null) Error.TlsAlert else Error.TlsFailed;
         },

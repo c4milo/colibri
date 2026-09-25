@@ -142,6 +142,7 @@ pub fn send(
     // Decision 62: a level whose keys the caller's code gave the suite since the last call can
     // carry a packet in this datagram.
     keys_module.take_available(connection, suite);
+    keys_module.take_lost(connection, suite);
     if (migration.owes_previous_probe(connection)) {
         if (try send_previous_probe(connection, suite, provider, stream_provider, scratch, output, now_ns)) |sent| return sent;
     }

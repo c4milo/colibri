@@ -394,3 +394,18 @@ test "RFC 9000 §8.1, §10.2.1: a server that has received nothing sends no clos
     try testing.expect(sent.len <= allowance);
     try testing.expect(sent.count > 0);
 }
+
+test "decision 84: after the TLS provider fails, the close goes out only where the suite still seals" {
+    open_pair();
+    install_application();
+    // RFC 9001 §4.8: the failed stack kept only its Initial write keys, so of the three levels
+    // §10.2.3 would close at, one can carry the close.
+    server.tls_failed = true;
+    suite_holder.available[@intFromEnum(Level.initial)][@intFromEnum(crypto.suite.Direction.write)] = true;
+    close_module.owe(&server, close_module.transport(test_error_code, test_frame_type));
+    const sent = (try send_from(&server)).?;
+    try testing.expectEqual(1, sent.count);
+    const read = try walk_back(&client, sent);
+    try testing.expectEqual(1, read.closes);
+    try testing.expect(read.levels[@intFromEnum(Level.initial)]);
+}

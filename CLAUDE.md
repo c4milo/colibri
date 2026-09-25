@@ -290,15 +290,17 @@ section when a step adds or renames a command.
   [once] [retry] [connections=<n>] [seconds=<unix-seconds>]` and `-- client <address> <port>
   <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] <path>...`
   run design §9's servers and clients over Rotor's UDP loop and the same chapulin object, which
-  must be chapulin `2262eee` or later for its session tickets. The server serves h3 or
+  must be chapulin `0e6fd15` or later: its session tickets, and `ch_quic_seal_close` for the
+  close a failed handshake owes (decision 84). The server serves h3 or
   hq-interop, whichever its client's ALPN asks for, and a client with `h3` fetches over h3. An
   address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh
   <checkout> [port]` runs a client against a server on 127.0.0.1 over both protocols, checks
   each file arrives octet for octet, that a missing one is refused, and that a second connection
   resumes the first one's session, and `tools/ci.sh` runs it beside the loopback check.
   `tools/quic_aioquic.sh <checkout> [port]` runs the same endpoint against aioquic's, pinned and
-  installed once into a cached virtual environment, over both protocols in both directions; it
-  also needs `python3`, and `tools/ci.sh` runs it too.
+  installed once into a cached virtual environment, over both protocols in both directions, and
+  checks that a handshake colibri's server refuses ends with its CONNECTION_CLOSE; it also needs
+  `python3`, and `tools/ci.sh` runs it too.
 - QIF tools: `zig build qif -- encode <input.qif> <output> <capacity> <blocked-streams>
   <acknowledgment>` and `-- decode <input> <output.qif> <capacity> <blocked-streams>` are design
   §9's two QPACK tools, over the "QPACK Offline Interop" format. `tools/qif_interop.sh` runs them

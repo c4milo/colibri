@@ -351,9 +351,12 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 - **Claim.** colibri calls `seal` and `open` at an encryption level only after the suite said that
   level's keys are available in that direction, and never after colibri discarded them. Once a
-  level is discarded nothing is sent at it and nothing received at it is opened.
+  level is discarded nothing is sent at it and nothing received at it is opened. After the TLS
+  provider fails, the suite may drop a level's keys itself, and colibri asks it before every
+  `send` and `receive` ([decision 84](decisions.md)): a level it no longer holds is lost, and
+  nothing is sent or opened there either.
 - **Mechanism.** The connection holds one state per level and direction: none, available,
-  discarded. Both call sites assert it. RFC 9001 §4.9 says when the state moves to discarded: the
+  discarded, lost. Both call sites assert it. RFC 9001 §4.9 says when the state moves to discarded: the
   Initial keys when a client first sends a Handshake packet and when a server first processes
   one (§4.9.1), the Handshake keys when the handshake is confirmed (§4.9.2).
   [Decision 48](decisions.md#what-the-caller-supplies) leaves every key with the suite, so this
