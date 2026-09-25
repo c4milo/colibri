@@ -15,6 +15,7 @@ pub const status = @import("status.zig");
 pub const content_length = @import("content_length.zig");
 pub const message_lines = @import("message_lines.zig");
 pub const message_request = @import("message_request.zig");
+pub const uri = @import("uri.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -27,4 +28,5 @@ test {
     _ = content_length;
     _ = message_lines;
     _ = message_request;
+    _ = uri;
 }
