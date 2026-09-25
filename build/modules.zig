@@ -175,6 +175,7 @@ pub fn add(
     const testing_client = create(b, "src/testing/client.zig", target, optimize);
     testing_client.addImport("core", core);
     testing_client.addImport("h2", h2);
+    testing_client.addImport("h11", h11);
     testing_client.addImport("tls", tls);
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;

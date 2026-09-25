@@ -23,6 +23,7 @@ comptime {
 
 pub const h2_session = @import("h2/h2_session.zig");
 pub const h11_session = @import("h11/h11_session.zig");
+pub const h11_client_session = @import("h11/h11_client_session.zig");
 pub const session = @import("session.zig");
 pub const Session = session.Session;
 pub const server = @import("server.zig");
@@ -41,6 +42,7 @@ test {
     _ = constants;
     _ = h2_session;
     _ = h11_session;
+    _ = h11_client_session;
     _ = session;
     _ = server;
     _ = h2_tls;

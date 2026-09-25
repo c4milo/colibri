@@ -4,8 +4,10 @@
 const std = @import("std");
 const constants = @import("../constants.zig");
 const client_exchange = @import("client_exchange.zig");
+const session = @import("../session.zig");
 
 const Plan = client_exchange.Plan;
+const Protocol = session.Protocol;
 
 /// What the command line asked for.
 pub const Run = struct {
@@ -20,6 +22,8 @@ pub const Run = struct {
     /// Seconds since 1970-01-01T00:00:00Z, the instant chapulin judges the server's chain at. No
     /// file under `src/` reads a clock (non-negotiable 3), so the caller passes it.
     now_seconds: u32,
+    /// The protocol every connection speaks: h2 with prior knowledge unless `--h11` says h11.
+    protocol: Protocol,
 };
 
 /// How many octets an IPv4 address has (RFC 791 §3.1).
@@ -32,7 +36,7 @@ const loopback_first: u8 = 127;
 
 pub const usage =
     \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
-    \\                 [--tls <anchor-prefix> --seconds <unix-seconds>]
+    \\                 [--h11 | --tls <anchor-prefix> --seconds <unix-seconds>]
     \\                 [--connections <count>] (--get <path> | --post <path> <octets>)...
     \\
 ;
@@ -48,15 +52,22 @@ pub fn read_run(arguments: *std.process.Args.Iterator) ?Run {
         .plans_count = 0,
         .anchor_prefix = null,
         .now_seconds = 0,
+        .protocol = .h2,
     };
     for (0..constants.client_arguments_max) |_| {
         const option = arguments.next() orelse break;
+        // `--h11` alone takes no value.
+        if (std.mem.eql(u8, option, "--h11")) {
+            run.protocol = .h11;
+            continue;
+        }
         const value = arguments.next() orelse return null;
         read_option(&run, option, value, arguments) orelse return null;
     }
     const connections_ok = run.connections_count > 0 and run.connections_count <= constants.client_connections_max;
-    // A webpki chain is valid only at an instant, so the TLS mode needs one.
-    const tls_ok = run.anchor_prefix == null or run.now_seconds > 0;
+    // A webpki chain is valid only at an instant, so the TLS mode needs one. Over TLS the client
+    // speaks h2 alone until ALPN offers both (design §8 step 15d).
+    const tls_ok = run.anchor_prefix == null or (run.now_seconds > 0 and run.protocol == .h2);
     return if (run.plans_count > 0 and connections_ok and tls_ok) run else null;
 }
 

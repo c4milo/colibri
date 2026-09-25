@@ -1,4 +1,4 @@
-//! The socket around `h2/h2_client_session.zig`: the test-only client of design §9, which
+//! The socket around `client_session.zig`: the test-only client of design §9, which
 //! `tools/h2_interop.sh` runs against other implementations' servers. `zig build http-client --
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
@@ -22,11 +22,11 @@ const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("../constants.zig");
 const client_options = @import("client_options.zig");
-const h2_client_session = @import("../h2/h2_client_session.zig");
+const client_session = @import("client_session.zig");
 const h2_client_tls = @import("../h2/h2_client_tls.zig");
 
 const Run = client_options.Run;
-const Session = h2_client_session.Session;
+const Session = client_session.Session;
 
 /// Why a connection ended without its session finishing.
 const Failure = enum { none, connect_refused, peer_closed, socket_error, timed_out, tls_failed };
@@ -134,7 +134,7 @@ fn on_event(live: []Connection, event: rotor.Event) void {
 
 /// Makes a socket and starts its connect, whose event the loop delivers.
 fn open_connection(connection: *Connection, index: usize, run: *const Run) void {
-    connection.session.init(request_scheme(), run.authority, run.plans[0..run.plans_count]);
+    connection.session.init(run.protocol, request_scheme(), run.authority, run.plans[0..run.plans_count]);
     connection.layer = null;
     connection.input_len = 0;
     connection.output_len = 0;
@@ -175,7 +175,7 @@ fn on_received(connection: *Connection, index: usize, event: rotor.Event) void {
     connection.receiving = false;
     if (connection.state != .open) return;
     const read = event.outcome() catch return close_connection(connection, index, .socket_error);
-    if (read == 0) return close_connection(connection, index, .peer_closed);
+    if (read == 0) return close_connection(connection, index, if (connection.session.peer_closed()) .none else .peer_closed);
     assert(read <= connection.input.len - connection.input_len);
     @memcpy(connection.input[connection.input_len..][0..read], connection.received[0..read]);
     connection.input_len += read;
@@ -244,7 +244,7 @@ fn step_tls(connection: *Connection, index: usize, layer: *h2_client_tls.Layer) 
     if (comptime !h2_client_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
     const stepped = h2_client_tls.step(
         layer,
-        &connection.session,
+        &connection.session.h2,
         connection.input[0..connection.input_len],
         connection.output[connection.output_len..],
     ) catch |failure| {
@@ -296,7 +296,7 @@ fn close_connection(connection: *Connection, index: usize, failure: Failure) voi
 fn report(run: *const Run, succeeded: u32) void {
     for (connections[0..run.connections_count], 0..) |*connection, index| {
         const session = &connection.session;
-        for (session.exchanges[0..session.exchanges_count]) |*exchange| {
+        for (session.exchanges()) |*exchange| {
             std.debug.print(exchange_format, .{
                 index,                     exchange.stream_id,
                 exchange.plan.method,      exchange.plan.path,
@@ -306,8 +306,8 @@ fn report(run: *const Run, succeeded: u32) void {
                 exchange.outcome,          exchange.error_code,
             });
         }
-        if (connection.failure != .none or session.failed) {
-            std.debug.print("connection={d} failure={t} h2_failed={}\n", .{ index, connection.failure, session.failed });
+        if (connection.failure != .none or session.failed()) {
+            std.debug.print("connection={d} failure={t} protocol_failed={}\n", .{ index, connection.failure, session.failed() });
         }
     }
     std.debug.print("http-client: connections={d} succeeded={d} failed={d}\n", .{

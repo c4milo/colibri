@@ -7,6 +7,7 @@ pub const chapulin = @import("tls/chapulin.zig");
 pub const chapulin_client = @import("tls/chapulin_client.zig");
 pub const client_loop = @import("client/client_loop.zig");
 pub const client_options = @import("client/client_options.zig");
+pub const client_session = @import("client/client_session.zig");
 pub const h2_client_tls = @import("h2/h2_client_tls.zig");
 
 comptime {
@@ -25,5 +26,6 @@ test {
     _ = chapulin_client;
     _ = client_loop;
     _ = client_options;
+    _ = client_session;
     _ = h2_client_tls;
 }
