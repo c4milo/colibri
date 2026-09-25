@@ -32,6 +32,10 @@ pub const Format = enum {
     h11_request,
     /// A whole HTTP/1.1 response, read by an h11 client that asked nothing special.
     h11_response,
+    /// A stream of HTTP/1.1 requests, read by an h11 server connection that answers each with a
+    /// 204 (`corpus_h11.zig`, design §8 step 15b). Its verdict is the error response the
+    /// connection owes, named for its status, or `Truncated`.
+    h11_server,
 };
 
 /// The client a `quic_receive` case's datagram arrives at (`corpus_receive.zig`).
@@ -476,4 +480,5 @@ pub const all = [_]struct { format: Format, cases: []const Case }{
     .{ .format = .quic_receive, .cases = &quic_receive },
     .{ .format = .h11_request, .cases = &corpus_h11.request },
     .{ .format = .h11_response, .cases = &corpus_h11.response },
+    .{ .format = .h11_server, .cases = &corpus_h11.server },
 };

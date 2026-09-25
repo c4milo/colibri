@@ -116,6 +116,7 @@ pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError
     if (format == .quic_receive) return corpus_receive.decode(case.receive_state, octets);
     if (format == .h11_request) return corpus_h11.decode_request(octets);
     if (format == .h11_response) return corpus_h11.decode_response(octets);
+    if (format == .h11_server) return corpus_h11.decode_server(octets);
     var reader = Reader.init(octets);
     var buffer: [constants.decoded_len_max]u8 = @splat(0);
     var output = Writer.init(&buffer);
@@ -132,8 +133,8 @@ pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError
             => |size| _ = try wire.string_literal.decode(size, &reader, &output),
             else => unreachable,
         },
-        // Returned above: none of the four is one value read through `reader`.
-        .hpack, .quic_invariant, .quic_packet, .quic_receive, .h11_request, .h11_response => unreachable,
+        // Returned above: none of these is one value read through `reader`.
+        .hpack, .quic_invariant, .quic_packet, .quic_receive, .h11_request, .h11_response, .h11_server => unreachable,
     }
     if (reader.remaining_len() != 0) return error.TrailingOctets;
 }

@@ -1,0 +1,15 @@
+colibri-golden-manifest version=1 format=h11_server cases=14
+h11_server_pipelined len=106 crc32=0x7fd9320c verdict=accept construction=literal
+h11_server_chunked_then_get len=101 crc32=0x7c6bc69a verdict=accept construction=literal
+h11_server_empty_line_between len=56 crc32=0xf3318b3c verdict=accept construction=literal
+h11_server_close_stops_reading len=64 crc32=0xeb4a22d8 verdict=accept construction=literal
+h11_server_http10_stops_reading len=60 crc32=0xfa33b427 verdict=accept construction=literal
+h11_server_second_without_host len=45 crc32=0x7a49f431 verdict=BadRequest construction=literal
+h11_server_length_and_chunked len=80 crc32=0xbc73d72e verdict=BadRequest construction=literal
+h11_server_obs_fold len=37 crc32=0xdec28b86 verdict=BadRequest construction=literal
+h11_server_chunk_size_invalid len=60 crc32=0x5cd55636 verdict=BadRequest construction=literal
+h11_server_coding_unknown len=60 crc32=0xe1795afe verdict=NotImplemented construction=literal
+h11_server_codings_stacked len=71 crc32=0x73082e2e verdict=NotImplemented construction=literal
+h11_server_version_two len=27 crc32=0x4562d097 verdict=HttpVersionNotSupported construction=literal
+h11_server_body_short len=50 crc32=0x60f82545 verdict=Truncated construction=literal
+h11_server_head_short len=104 crc32=0x3c2e0a9a verdict=Truncated construction=truncated of=h11_server_pipelined drop=2
