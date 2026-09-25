@@ -5,6 +5,8 @@
 //! it takes when a part uses them.
 const std = @import("std");
 
+pub const core = @import("core");
+pub const http = @import("http");
 pub const constants = @import("constants.zig");
 pub const message = @import("message/message.zig");
 pub const chunked = @import("chunked/chunked.zig");

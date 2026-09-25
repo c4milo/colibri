@@ -141,6 +141,7 @@ pub fn add(
     // on 2026-09-24. `quic` comes with it: the endpoint names it, and `h3` imports it already.
     sim_run.addImport("h3", h3);
     sim_run.addImport("quic", quic);
+    sim_run.addImport("h11", h11);
 
     // Decision 5: the QUIC checks are driven with no HTTP module in the graph, so they are not
     // in `sim_run`, which imports `h2`.

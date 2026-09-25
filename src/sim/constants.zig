@@ -397,6 +397,24 @@ pub const h3_trace_units_max: u32 = h3_trace_units_per_request_max * h3_trace_re
 /// before it (RFC 9114 §7.2.8).
 pub const h3_trace_control_frames_per_unit_max: u32 = 2;
 
+/// The h11 split check (design §8 step 15a): the messages one seed pipelines, the field lines a
+/// message carries besides Host and its framing, the longest fixed body, the chunks of a chunked
+/// body and the longest chunk, the trailer fields a chunked body carries, and one seed in this many
+/// planting a defect.
+pub const h11_split_messages_max: u32 = 4;
+pub const h11_split_extra_fields_max: u32 = 3;
+pub const h11_split_body_len_max: u32 = 48;
+pub const h11_split_chunks_max: u32 = 4;
+pub const h11_split_chunk_len_max: u32 = 16;
+pub const h11_split_trailers_max: u32 = 2;
+pub const h11_split_defect_one_in: u64 = 3;
+/// The longest message the plan writes, and the longest stream: every message at its longest.
+pub const h11_split_message_len_max: u32 = 512;
+pub const h11_split_stream_len_max: u32 = h11_split_messages_max * h11_split_message_len_max;
+/// Most octets one h11 split-check trace holds: a head and an end record per message, a refusal,
+/// and the first and last lines.
+pub const h11_split_trace_len_max: u32 = (2 * h11_split_messages_max + 3) * trace_record_len_max;
+
 /// The QPACK input check: inputs per seed, the most edits made to one, and the longest input.
 pub const qpack_input_check_inputs: u32 = 32;
 pub const qpack_input_check_edits_max: u64 = 8;
