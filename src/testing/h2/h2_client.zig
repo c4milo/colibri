@@ -1,5 +1,5 @@
 //! The socket around `h2_client_session.zig`: the test-only h2 client of design §9, which
-//! `tools/h2_interop.sh` runs against other implementations' servers. `zig build h2-client --
+//! `tools/h2_interop.sh` runs against other implementations' servers. `zig build http-client --
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
 //! It speaks cleartext h2 with prior knowledge (RFC 9113 §3.3), or with `--tls` h2 over TLS
@@ -333,7 +333,7 @@ fn report(run: *const Run, succeeded: u32) void {
             std.debug.print("connection={d} failure={t} h2_failed={}\n", .{ index, connection.failure, session.failed });
         }
     }
-    std.debug.print("h2-client: connections={d} succeeded={d} failed={d}\n", .{
+    std.debug.print("http-client: connections={d} succeeded={d} failed={d}\n", .{
         run.connections_count, succeeded, run.connections_count - succeeded,
     });
 }
@@ -342,7 +342,7 @@ const exchange_format = "connection={d} stream={d} {s} {s} status={d} interim={d
     "sent_crc32=0x{x:0>8} received={d} received_crc32=0x{x:0>8} outcome={t} error_code={d}\n";
 
 const usage =
-    \\usage: h2-client [--address <ipv4>] [--port <port>] [--authority <name>]
+    \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
     \\                 [--tls <anchor-prefix> --seconds <unix-seconds>]
     \\                 [--connections <count>] (--get <path> | --post <path> <octets>)...
     \\
@@ -371,7 +371,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// is the authority the requests name.
 fn load_tls(prefix: []const u8, run: *const Run) !void {
     if (comptime !h2_client_tls.available) {
-        std.debug.print("h2-client: built without chapulin; pass -Dchapulin-client=<checkout>\n", .{});
+        std.debug.print("http-client: built without chapulin; pass -Dchapulin-client=<checkout>\n", .{});
         std.process.exit(exit_usage);
     }
     tls_shared = try h2_client_tls.load(&tls_anchors, prefix, run.authority, run.now_seconds);

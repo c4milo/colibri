@@ -256,7 +256,7 @@ section when a step adds or renames a command.
   not parse an ACK frame that carries ECN counts. `tools/h3load.sh <checkout>` runs `h2load --h3`
   from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker.
   `tools/h2_interop.sh [--tls <checkout>] [go] [nghttpd] [h2o]` runs the test-only h2 client
-  (`zig build h2-client`) against other implementations' servers in cleartext, and with `--tls`
+  (`zig build http-client`) against other implementations' servers in cleartext, and with `--tls`
   over TLS too, through the client's `--tls <anchor-prefix> --seconds <unix-seconds>` mode; it
   needs `go`, `docker` and `python3`. `tools/h2_server_interop.sh [--tls <checkout>] [curl]
   [nghttp] [go]` runs curl, nghttp and Go's client against the test-only h2 server the same way;

@@ -15,7 +15,7 @@ readonly h2spec_version="2.6.0"
 readonly port="${1:-18443}"
 readonly checkout="${2:-}"
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly server="${repository_root}/zig-out/bin/h2-server"
+readonly server="${repository_root}/zig-out/bin/http-server"
 
 # The cases colibri does not pass, and why. Each one tests a rule RFC 7540 §5.3.1 stated and
 # RFC 9113 dropped with the rest of the priority scheme: §5.3.2 deprecates the signalling and §6.3

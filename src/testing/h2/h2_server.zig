@@ -1,5 +1,5 @@
 //! The socket around `h2_session.zig`: the h2 server of design §9, which `tools/h2spec.sh` runs
-//! the pinned h2spec against and h2load measures. `zig build h2-server -- --port <port>` runs it
+//! the pinned h2spec against and h2load measures. `zig build http-server -- --port <port>` runs it
 //! in cleartext with prior knowledge (RFC 9113 §3.3). With `--tls <identity-prefix>` it serves h2
 //! over TLS (§3.2) instead, through chapulin's record-mode server and `h2_tls.zig`, which needs a
 //! build given `-Dchapulin-server` (design §8 step 5).
@@ -137,7 +137,7 @@ fn run_worker(index: usize, port: u16) !void {
     const address = rotor.Address.ipv4(loopback_octets, port);
     worker.listener = try rotor.sync.listen(&address, .{ .backlog = constants.kernel_backlog, .reuse_port = true });
     defer rotor.sync.close_now(worker.listener);
-    if (index == 0) std.debug.print("h2-server: listening on port {d}, rotor backend {t}\n", .{ port, rotor.backend() });
+    if (index == 0) std.debug.print("http-server: listening on port {d}, rotor backend {t}\n", .{ port, rotor.backend() });
     for (&worker.connections) |*connection| connection.live = false;
     worker.accepting = false;
     while (true) try turn(worker);
@@ -362,7 +362,7 @@ const Options = struct {
     identity_prefix: ?[]const u8 = null,
 };
 
-/// Runs the server: `zig build h2-server -- --port <port> [--tls <identity-prefix>]`.
+/// Runs the server: `zig build http-server -- --port <port> [--tls <identity-prefix>]`.
 pub fn main(init: std.process.Init.Minimal) !void {
     var arguments = std.process.Args.Iterator.init(init.args);
     _ = arguments.skip();
@@ -389,7 +389,7 @@ fn read_options(arguments: *std.process.Args.Iterator) Options {
 /// boot check on the identity once.
 fn load_tls(prefix: []const u8) !void {
     if (comptime !h2_tls.available) {
-        std.debug.print("h2-server: built without chapulin; pass -Dchapulin-server=<checkout>\n", .{});
+        std.debug.print("http-server: built without chapulin; pass -Dchapulin-server=<checkout>\n", .{});
         std.process.exit(exit_usage);
     }
     try chapulin.check_build();

@@ -14,7 +14,7 @@
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly client="${repository_root}/zig-out/bin/h2-client"
+readonly client="${repository_root}/zig-out/bin/http-client"
 readonly peer_directory="${repository_root}/tools/h2_interop"
 # The image is tagged with a checksum of what it is built from, so a run builds it only when one
 # of those files changed, and CI can keep it between runs under the same name.
@@ -76,7 +76,7 @@ run_client() {
   many="$("${client}" --port "${port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1 | tail -1)" ||
     fail "64 connections: ${many}"
   echo "${many}"
-  [ "${many}" = "h2-client: connections=64 succeeded=64 failed=0" ] || fail "64 connections did not all succeed"
+  [ "${many}" = "http-client: connections=64 succeeded=64 failed=0" ] || fail "64 connections did not all succeed"
 }
 
 # expect <path> <text>: the report's line for <path> carries <text>.

@@ -88,13 +88,13 @@ h2load_once() {
 
 throughput() {
   zig build install -Drelease || return 1
-  zig-out/bin/h2-server --port "${h2load_port}" 2>"${scratch}/h2-server.log" &
+  zig-out/bin/http-server --port "${h2load_port}" 2>"${scratch}/http-server.log" &
   server_pid=$!
   sleep 1
   # Decision 83: the server runs on Rotor, whose backend on Linux is io_uring or, where the kernel
   # refuses it, epoll. The report names which one this number came from.
   local backend
-  backend="$(grep -o "rotor backend [a-z]*" "${scratch}/h2-server.log" || echo "rotor backend unknown")"
+  backend="$(grep -o "rotor backend [a-z]*" "${scratch}/http-server.log" || echo "rotor backend unknown")"
   h2load_once >/dev/null # Warmup, discarded (decision 33).
   for _ in $(seq "${h2load_runs}"); do h2load_once; done | sort -n >"${scratch}/rates"
   kill "${server_pid}" 2>/dev/null
@@ -125,7 +125,7 @@ if [ -f "${chapulin}/bin/chapulin-client.o" ]; then
 else
   section "Interop, client direction, cleartext" tools/h2_interop.sh
 fi
-interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|over TLS|every exchange)|^h2-client:" "${scratch}/last.log")"
+interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|over TLS|every exchange)|^http-client:" "${scratch}/last.log")"
 # The server direction runs over TLS too when the checkout carries the record-mode server object.
 if [ -f "${chapulin}/bin/chapulin-server.o" ]; then
   section "Interop, server direction, cleartext and TLS" tools/h2_server_interop.sh --tls "${chapulin}"

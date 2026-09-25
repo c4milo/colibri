@@ -3,7 +3,7 @@
 //! (invariant 2 is scoped to `src/` outside it).
 //!
 //! `h2_session` is one connection of the cleartext h2 server, with no socket in it, and
-//! `h2_server` is the socket around it: `zig build h2-server` runs the pair for h2spec and
+//! `h2_server` is the socket around it: `zig build http-server` runs the pair for h2spec and
 //! h2load (design §8 step 4).
 const std = @import("std");
 
@@ -29,7 +29,7 @@ pub const h2_tls_records = @import("h2/h2_tls_records.zig");
 pub const h2_client_exchange = @import("h2/h2_client_exchange.zig");
 pub const h2_client_session = @import("h2/h2_client_session.zig");
 
-/// The entry point of `zig build h2-server`, which is this module's executable form.
+/// The entry point of `zig build http-server`, which is this module's executable form.
 pub const main = h2_server.main;
 
 test {

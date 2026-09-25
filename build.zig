@@ -165,8 +165,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
-    add_h2_server_step(b, graph.testing);
-    add_h2_client_step(b, graph.testing_client);
+    add_http_server_step(b, graph.testing);
+    add_http_client_step(b, graph.testing_client);
     add_tls_handshake_step(b, graph.testing_tls);
     add_tls_accept_step(b, graph.testing_tls_server);
     add_quic_loopback_step(b, graph.testing_quic);
@@ -319,25 +319,24 @@ fn add_sim_step(b: *std.Build, sim_run: *std.Build.Module) void {
     step.dependOn(&run.step);
 }
 
-/// The cleartext h2 server of design §9, which `tools/h2spec.sh` runs the pinned suite against.
-/// It is built from the `testing` module and is never part of the library.
-fn add_h2_server_step(b: *std.Build, testing: *std.Build.Module) void {
-    const server = b.addExecutable(.{ .name = "h2-server", .root_module = testing });
+/// The server of design §9, which `tools/h2spec.sh` runs the pinned suite against. It is built
+/// from the `testing` module and is never part of the library.
+fn add_http_server_step(b: *std.Build, testing: *std.Build.Module) void {
+    const server = b.addExecutable(.{ .name = "http-server", .root_module = testing });
     const run = b.addRunArtifact(server);
     if (b.args) |args| run.addArgs(args);
-    const step = b.step("h2-server", "Run the test-only h2 server: -- --port <port> [--tls <identity-prefix>]");
+    const step = b.step("http-server", "Run the test-only server: -- --port <port> [--tls <identity-prefix>]");
     step.dependOn(&run.step);
     b.installArtifact(server);
 }
 
-/// The cleartext h2 client of design §9, which `tools/h2_interop.sh` runs against other
-/// implementations' servers. It is built from the `testing_client` module and is never part of
-/// the library.
-fn add_h2_client_step(b: *std.Build, testing_client: *std.Build.Module) void {
-    const client = b.addExecutable(.{ .name = "h2-client", .root_module = testing_client });
+/// The client of design §9, which `tools/h2_interop.sh` runs against other implementations'
+/// servers. It is built from the `testing_client` module and is never part of the library.
+fn add_http_client_step(b: *std.Build, testing_client: *std.Build.Module) void {
+    const client = b.addExecutable(.{ .name = "http-client", .root_module = testing_client });
     const run = b.addRunArtifact(client);
     if (b.args) |args| run.addArgs(args);
-    const step = b.step("h2-client", "Run the test-only cleartext h2 client: -- --port <port> --get <path>");
+    const step = b.step("http-client", "Run the test-only client: -- --port <port> --get <path>");
     step.dependOn(&run.step);
     b.installArtifact(client);
 }

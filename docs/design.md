@@ -3668,10 +3668,13 @@ packaged library, does its I/O without blocking ([decisions 46 and 58](decisions
 only place in the tree permitted to touch a socket
 ([invariant 2](invariants.md#inv-2--colibri-performs-no-io) is scoped to `src/` outside it).
 
-1. **An h2 server** answering `GET /` and `POST /` with 200 and a non-empty body, in both
-   cleartext and TLS modes, and **an h2 client** that runs a plan of exchanges against another
-   implementation's server and reports how each ended. For h2spec, h2load and
-   `tools/h2_interop.sh`. Land with step 4 (cleartext) and step 5 (TLS).
+1. **A server**, `http-server`, answering `GET /` and `POST /` with 200 and a non-empty body,
+   in both cleartext and TLS modes, and **a client**, `http-client`, that runs a plan of
+   exchanges against another implementation's server and reports how each ended. For h2spec,
+   h2load and `tools/h2_interop.sh`. They landed as `h2-server` and `h2-client` with step 4
+   (cleartext) and step 5 (TLS), and the owner renamed them on 2026-09-25, when step 15d gave
+   them h11 as well: a command-line option chooses h11 in cleartext, and over TLS the server
+   serves whichever of `h2` and `http/1.1` ALPN selects (decision 88).
 2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
    `h2load --h3`. Lands with step 12.
 3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a
