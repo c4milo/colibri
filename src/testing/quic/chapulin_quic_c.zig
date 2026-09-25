@@ -2,9 +2,9 @@
 //! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 9e.
 //!
 //! `-Dchapulin-quic=<checkout>` names a checkout whose `bin/chapulin-quic.o` was built
-//! `TRANSPORT=quic ROLE=both KEYLOG=on SUITE=aesgcm AES=hw`. The headers are read from it in place,
-//! and `check_build` refuses an object built otherwise. Without the option `available` is false
-//! and everything below compiles to nothing.
+//! `TRANSPORT=quic-nonblocking ROLE=both KEYLOG=on SUITE=aesgcm AES=hw`. The headers are read from
+//! it in place, and `check_build` refuses an object built otherwise. Without the option `available`
+//! is false and everything below compiles to nothing.
 //!
 //! **Three suites.** `SUITE=aesgcm` holds TLS_AES_128_GCM_SHA256 and TLS_AES_256_GCM_SHA384
 //! beside TLS_CHACHA20_POLY1305_SHA256. RFC 9846 §9.1 makes the first mandatory, and it is the only
@@ -50,7 +50,7 @@ pub const BuildError = error{
 pub fn check_build() BuildError!void {
     // chapulin names the record after the object's transport, so one image can link a QUIC object
     // beside a record one, and translate-c cannot follow `build.h`'s `ch_build` alias to it.
-    if (c.ch_build_matches(&c.ch_build_quic) != 0) return;
+    if (c.ch_build_matches(&c.ch_build_info_quic_nonblocking) != 0) return;
     std.debug.print("chapulin: the linked QUIC object was built with other defines than colibri " ++
         "reads its headers under; CLAUDE.md's Commands section names the make line.\n", .{});
     return BuildError.ObjectMismatch;
@@ -152,7 +152,7 @@ test "the linked QUIC object was built with the defines colibri reads the header
     if (!available) return error.SkipZigTest;
     try check_build();
     // RFC 9846 §9.1's mandatory suite, which h3spec offers, is in the object.
-    try testing.expect(c.ch_build_quic.axes & c.CH_BUILD_SUITE_AES_GCM != 0);
+    try testing.expect(c.ch_build_info_quic_nonblocking.axes & c.CH_BUILD_SUITE_AES_GCM != 0);
 }
 
 test "the checkout the build was given links, and carries both roles" {

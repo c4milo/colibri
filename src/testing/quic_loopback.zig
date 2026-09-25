@@ -1,7 +1,7 @@
 //! The root of `zig build quic-loopback`: design §8 step 9e's check that a colibri QUIC client and
 //! a colibri QUIC server complete a handshake and move a stream over chapulin. It is a root of its
-//! own because an executable has one `main`, and because it links chapulin's `TRANSPORT=quic`
-//! object, which the other roots do not (decision 10).
+//! own because an executable has one `main`, and because it links chapulin's
+//! `TRANSPORT=quic-nonblocking` object, which the other roots do not (decision 10).
 const std = @import("std");
 
 pub const chapulin_quic_c = @import("quic/chapulin_quic_c.zig");

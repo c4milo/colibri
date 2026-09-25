@@ -196,10 +196,6 @@ pub fn add(
     testing_tls_server.link_libc = true;
     link_chapulin(b, testing_tls_server, chapulin.server, "chapulin-server.o", chapulin_server_defines);
 
-    // Step 9e's QUIC check fills `tls.QuicProvider` and `crypto.Suite` from chapulin's QUIC mode.
-    // A fifth root, because its object is another build: `TRANSPORT=quic` exports none of the
-    // record calls the other four link, and `ROLE=both` puts both roles in one object. `KEYLOG=on`
-    // imports `ch_keylog`, which the check defines, so a capture of a run can be decrypted.
     // Design §9's QIF tools, a root of their own for their `main`. They serve `qpack`, and keep
     // their limits in `src/testing/qif/constants.zig` rather than the shared file, which imports
     // `h2`. Ruled by the owner on 2026-09-24. They read and write files through libc.
@@ -208,6 +204,11 @@ pub fn add(
     testing_qif.addImport("qpack", qpack);
     testing_qif.link_libc = true;
 
+    // Step 9e's QUIC check fills `tls.QuicProvider` and `crypto.Suite` from chapulin's QUIC mode.
+    // A fifth root, because its object is another build: `TRANSPORT=quic-nonblocking` exports none
+    // of the record calls the other four link, and `ROLE=both` puts both roles in one object.
+    // `KEYLOG=on` imports `ch_keylog`, which the check defines, so a capture of a run can be
+    // decrypted.
     const testing_quic = create(b, "src/testing/quic_loopback.zig", target, optimize);
     testing_quic.addImport("h2", h2);
     testing_quic.addImport("quic", quic);
@@ -292,15 +293,16 @@ fn create(
     });
 }
 
-/// The axes chapulin's client object is built with. `TRANSPORT=record`, as the server's is: the
-/// handshake runs from octets the endpoint read, and a record that carries no data leaves the
-/// session live, which the TLS transport's blocking driver could not do.
-const chapulin_client_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_RECORD", "CH_EXPORTER" };
+/// The axes chapulin's client object is built with. `TRANSPORT=tcp-nonblocking`, as the server's
+/// is: the handshake runs from octets the endpoint read, and a record that carries no data leaves
+/// the session live, which the blocking driver of `TRANSPORT=tcp-blocking` could not do.
+const chapulin_client_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_TCP_NONBLOCKING", "CH_EXPORTER" };
 
-/// The axes chapulin's server object is built with. `TRANSPORT=record` drives the handshake from
-/// octets the caller read and sends the flight through a callback, so the h2 endpoint runs it
-/// inside its one `poll` call (decision 46, https://github.com/c4milo/colibri/issues/20).
-const chapulin_server_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER", "CH_TRANSPORT_RECORD", "CH_EXPORTER" };
+/// The axes chapulin's server object is built with. `TRANSPORT=tcp-nonblocking` drives the
+/// handshake from octets the caller read and sends the flight through a callback, so the h2
+/// endpoint runs it inside its Rotor loop (decisions 46 and 83,
+/// https://github.com/c4milo/colibri/issues/20).
+const chapulin_server_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER", "CH_TRANSPORT_TCP_NONBLOCKING", "CH_EXPORTER" };
 
 /// The axes chapulin's QUIC object is built with, which its headers need to parse the same way.
 /// The trust mode is the one axis a checkout chooses: `TRUST=webpki` for the checks on this
@@ -308,8 +310,8 @@ const chapulin_server_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_ROLE
 /// extended key usage and so fail the Web PKI profile.
 fn chapulin_quic_defines(trust: QuicTrust) []const []const u8 {
     return switch (trust) {
-        .webpki => &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
-        .@"raw-ecdsa" => &.{ "CH_RAND_DRBG", "CH_PIN_ECDSA", "CH_TRANSPORT_QUIC", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
+        .webpki => &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC_NONBLOCKING", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
+        .@"raw-ecdsa" => &.{ "CH_RAND_DRBG", "CH_PIN_ECDSA", "CH_TRANSPORT_QUIC_NONBLOCKING", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
     };
 }
 
@@ -321,7 +323,7 @@ pub const QuicTrust = enum { webpki, @"raw-ecdsa" };
 pub const Chapulin = struct {
     client: ?[]const u8 = null,
     server: ?[]const u8 = null,
-    /// A checkout whose `bin/chapulin-quic.o` was built `TRANSPORT=quic ROLE=both`.
+    /// A checkout whose `bin/chapulin-quic.o` was built `TRANSPORT=quic-nonblocking ROLE=both`.
     quic: ?[]const u8 = null,
     /// The trust mode that object was built with.
     quic_trust: QuicTrust = .webpki,

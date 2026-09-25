@@ -1118,7 +1118,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - nghttp 1.52.0: the same, in both modes.
   - Go 1.27.1: `requests=65 failed=0`, in both modes.
 
-  **Still owed for the step:** nghttpd over TLS, which waits on chapulin offering secp256r1.
+  **nghttpd over TLS, 2026-09-25** ([#7](https://github.com/c4milo/colibri/issues/7)).
+  - chapulin `ca80351` renames its transports for what TLS runs over and who does the I/O:
+    `TRANSPORT=tls` is now `tcp-blocking`, `record` is `tcp-nonblocking`, and `quic` is
+    `quic-nonblocking`. The defines and the build records follow, so colibri reads
+    `ch_build_info_tcp_nonblocking` and `ch_build_info_quic_nonblocking`. `build/modules.zig`, the
+    endpoints, the interop image and CLAUDE.md's make lines take the new names. 2 mutations, 2
+    CAUGHT: the client's and the QUIC object's headers read under the old define no longer
+    compile.
+  - chapulin `b32ad68` adds secp256r1 key exchange to its webpki client and its server, which RFC
+    9846 §9.1 makes a MUST. The client lists the group last, and sends a P-256 share only when a
+    HelloRetryRequest asks for one. nghttpd accepts no other group.
+
+  What each check printed on macOS arm64, with chapulin `b32ad68` built as CLAUDE.md gives it:
+  - `tools/h2_interop.sh --tls <checkout>`: `every exchange ended as planned, in cleartext and TLS,
+    against: go nghttpd h2o`, with Go 1.27.1, nghttpd 1.52.0 and h2o 2.2.5. Each ran one
+    connection and then 64 at once.
+  - `tools/h2_server_interop.sh --tls <checkout>`: `every request ended with 200, in cleartext
+    and TLS, from: curl nghttp go`, with curl 7.88.1 (OpenSSL 3.0.22), nghttp 1.52.0 and Go
+    1.27.1.
+  - `tools/h2spec.sh 18443 <checkout>`: 144 passed in cleartext and over TLS, and 2 skipped by
+    name, the RFC 7540 §5.3.1 cases that RFC 9113 §5.3.2 dropped.
+  - `tools/tls_handshake.sh` and `tools/tls_accept.sh`: `tls_handshake: ok` and `tls_accept: ok`.
+  - `zig build test` with all three objects linked: 1760 of 1760 tests passed.
+  - The QUIC object under its new name: `tools/quic_loopback.sh`, `tools/quic_udp.sh` and
+    `tools/quic_aioquic.sh` passed, `tools/h3spec.sh` printed `49 examples, 0 failures`, and
+    `tools/interop.sh <checkout> quic-go,ngtcp2 handshake,transfer,retry,resumption,keyupdate,http3`
+    passed every case in both roles against both peers.
+
+  Every check step 5 names has passed, and the step owes nothing more.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not

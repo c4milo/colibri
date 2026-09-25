@@ -11,12 +11,12 @@
 //! and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
 //!
 //! **The client must be built `TRUST=webpki`**, which the comptime block below enforces and
-//! explains. **Both roles must be built `TRANSPORT=record`** (decisions 46 and 82): a
-//! `TRANSPORT=tls` object exports none of the `ch_record_*` calls, so it does not link. Its
-//! blocking handshake fails the session when a read runs dry, so the first record that carries no
-//! data would end the connection (https://github.com/c4milo/colibri/issues/62). Nothing else here
-//! is a protocol rule: what a record means is RFC 9846's and chapulin's, and colibri's side of the
-//! boundary is `tls.Provider`.
+//! explains. **Both roles must be built `TRANSPORT=tcp-nonblocking`** (decisions 46 and 82): a
+//! `TRANSPORT=tcp-blocking` object exports none of the `ch_record_*` calls, so it does not link.
+//! Its blocking handshake fails the session when a read runs dry, so the first record that carries
+//! no data would end the connection (https://github.com/c4milo/colibri/issues/62). Nothing else
+//! here is a protocol rule: what a record means is RFC 9846's and chapulin's, and colibri's side of
+//! the boundary is `tls.Provider`.
 const std = @import("std");
 const build_options = @import("build_options");
 const check_file = @import("check_file.zig");
@@ -38,8 +38,8 @@ pub const c = if (available) @cImport({
     // client build it expands to nothing and declares no symbol the linker would look for.
     @cInclude("srv.h");
     // The record-mode drivers: the client's in `rec.h`, the server's in `srv_rec.h`, which also
-    // brings `rec.h`. chapulin guards both with `CH_TRANSPORT_RECORD`, and a server build compiles
-    // the client's driver out.
+    // brings `rec.h`. chapulin guards both with `CH_TRANSPORT_TCP_NONBLOCKING`, and a server build
+    // compiles the client's driver out.
     @cInclude("rec.h");
     @cInclude("srv_rec.h");
     // The record of the defines the linked object was built with, and the comparison with the
@@ -60,7 +60,7 @@ pub const BuildError = error{
 pub fn check_build() BuildError!void {
     // chapulin names the record after the object's transport, and translate-c cannot follow
     // `build.h`'s `ch_build` alias to it.
-    if (c.ch_build_matches(&c.ch_build_record) != 0) return;
+    if (c.ch_build_matches(&c.ch_build_info_tcp_nonblocking) != 0) return;
     std.debug.print("chapulin: the linked object was built with other defines than colibri reads " ++
         "its headers under; CLAUDE.md's Commands section names the make lines.\n", .{});
     return BuildError.ObjectMismatch;
@@ -72,10 +72,10 @@ comptime {
 
 /// RFC 9113 §3.1 selects h2 over TLS by ALPN, and colibri's `attach_tls` refuses a handshake that
 /// selected anything but "h2". chapulin compiles its ALPN fields out unless the build defines
-/// `CH_TRUST_WEBPKI`, `CH_TRANSPORT_QUIC` or `CH_ROLE_SERVER` (its `cfg.h`), so a `TRUST=raw` or
-/// `TRUST=ca` client offers no ALPN extension at all and can never negotiate h2. Saying so here
-/// costs one compile error; leaving it unsaid costs a handshake that completes and then refuses
-/// every connection for a reason nothing names.
+/// `CH_TRUST_WEBPKI`, `CH_TRANSPORT_QUIC_NONBLOCKING` or `CH_ROLE_SERVER` (its `cfg.h`), so a
+/// `TRUST=raw` or `TRUST=ca` client offers no ALPN extension at all and can never negotiate h2.
+/// Saying so here costs one compile error; leaving it unsaid costs a handshake that completes and
+/// then refuses every connection for a reason nothing names.
 fn check_alpn() void {
     if (!@hasField(c.ch_cfg, "alpn_protocols")) {
         @compileError("this chapulin was built without ALPN, so it cannot negotiate h2 " ++
@@ -134,7 +134,7 @@ test "the linked object was built with the defines colibri reads the headers und
     if (!available) return error.SkipZigTest;
     try check_build();
     // Both roles drive chapulin's record-mode handshake, and the object says so.
-    try testing.expect(c.ch_build_record.axes & c.CH_BUILD_TRANSPORT_RECORD != 0);
+    try testing.expect(c.ch_build_info_tcp_nonblocking.axes & c.CH_BUILD_TRANSPORT_TCP_NONBLOCKING != 0);
 }
 
 test "the chapulin that is linked can negotiate h2" {

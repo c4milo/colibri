@@ -1,11 +1,11 @@
 //! chapulin's TLS 1.3 server behind colibri's `tls.Provider`, for `src/testing/` alone
 //! ([decision 10](../../../docs/decisions.md)). The other half of design §8 step 5's TLS work.
 //!
-//! This file is phase 1: building the configuration and driving chapulin's `TRANSPORT=record`
-//! handshake. The caller reads octets from its socket and passes them to `handshake`, which runs
-//! `ch_srv_record_in` over them and returns the server's flight in the caller's output. No call
-//! here touches a descriptor or waits, so the h2 endpoint drives a handshake from its loop's
-//! events ([decision 46](../../../docs/decisions.md),
+//! This file is phase 1: building the configuration and driving chapulin's
+//! `TRANSPORT=tcp-nonblocking` handshake. The caller reads octets from its socket and passes them
+//! to `handshake`, which runs `ch_srv_record_in` over them and returns the server's flight in the
+//! caller's output. No call here touches a descriptor or waits, so the h2 endpoint drives a
+//! handshake from its loop's events ([decision 46](../../../docs/decisions.md),
 //! https://github.com/c4milo/colibri/issues/20). Phase 2, the record phase colibri drives through
 //! the vtable, is `chapulin_record.zig` and is shared with the client.
 //!

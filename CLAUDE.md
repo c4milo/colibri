@@ -270,21 +270,22 @@ section when a step adds or renames a command.
   produces no published number (decision 32).
 - TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin
   into `src/testing/` and nowhere else (decision 10). colibri vendors none of its C: build the
-  checkout yourself with `make RAND=drbg TRUST=webpki TRANSPORT=record EXPORTER=on lib && cp
-  bin/chapulin.o bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none
-  TRANSPORT=record EXPORTER=on lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri reads
-  the headers from it in place. `TRANSPORT=record` drives the handshake from octets the caller
-  read, so the h2 server runs it inside its loop (decisions 46 and 82), and a record that carries
-  no data leaves the session live. An object of another transport does not link, and one built
-  with other defines than `build/modules.zig` reads the headers under is refused when an endpoint
-  starts (chapulin's `build.h`). It needs chapulin `0c201b7` or later: `b20f0ac` keeps the write
-  side open after a peer's `close_notify` (RFC 9846 §6.1), and `0c201b7` names the build record
-  after the object's transport (`ch_build_record`), which colibri reads by that name. The
-  client's `TRUST=webpki` is not a preference: chapulin compiles its ALPN fields out for
-  `TRUST=raw` and `TRUST=ca`, and without ALPN no client can negotiate h2 (RFC 9113 §3.1), so
-  colibri refuses such a build at compile time. Without the options the TLS endpoints compile to
-  nothing, so a clone with no chapulin still builds and still runs every other check. Copy each
-  role's object out before building the other: `make clean` removes the one already written.
+  checkout yourself with `make RAND=drbg TRUST=webpki TRANSPORT=tcp-nonblocking EXPORTER=on lib &&
+  cp bin/chapulin.o bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none
+  TRANSPORT=tcp-nonblocking EXPORTER=on lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri
+  reads the headers from it in place. `TRANSPORT=tcp-nonblocking` drives the handshake from octets
+  the caller read, so the h2 server runs it inside its loop (decisions 46 and 82), and a record that
+  carries no data leaves the session live. An object of another transport does not link, and one
+  built with other defines than `build/modules.zig` reads the headers under is refused when an
+  endpoint starts (chapulin's `build.h`). It needs chapulin `b32ad68` or later: `b20f0ac` keeps the
+  write side open after a peer's `close_notify` (RFC 9846 §6.1), `ca80351` names the transports and
+  the build record colibri reads (`ch_build_info_tcp_nonblocking`), and `b32ad68` adds the secp256r1
+  key exchange nghttpd requires (RFC 9846 §9.1). The client's `TRUST=webpki` is not a preference:
+  chapulin compiles its ALPN fields out for `TRUST=raw` and `TRUST=ca`, and without ALPN no client
+  can negotiate h2 (RFC 9113 §3.1), so colibri refuses such a build at compile time. Without the
+  options the TLS endpoints compile to nothing, so a clone with no chapulin still builds and still
+  runs every other check. Copy each role's object out before building the other: `make clean`
+  removes the one already written.
 - TLS checks: `tools/tls_handshake.sh <checkout> [port]` runs one handshake with colibri as the
   client against a Go server, and `tools/tls_accept.sh <checkout> [port]` one with colibri as the
   server against a Go client, which also moves a record each way and ends on the client's
@@ -293,45 +294,44 @@ section when a step adds or renames a command.
   does not.
 - QUIC check: `-Dchapulin-quic=<checkout>` links chapulin's QUIC object into `src/testing/` and
   nowhere else. Build it with `CFLAGS="-Wall -Wextra -Wpedantic -Werror -std=c11 -O2
-  -D_DEFAULT_SOURCE -DCH_NATIVE_AES" make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both
-  KEYLOG=on SUITE=aesgcm AES=hw lib && cp bin/chapulin.o bin/chapulin-quic.o`, adding `-maes
-  -mpclmul` to `CFLAGS` on x86-64 and `-march=armv8-a+crypto` on an Arm compiler that does not
-  turn the AES instructions on by itself (decision 85). `ROLE=both` puts both roles in one
+  -D_DEFAULT_SOURCE -DCH_NATIVE_AES" make RAND=drbg TRUST=webpki TRANSPORT=quic-nonblocking
+  ROLE=both KEYLOG=on SUITE=aesgcm AES=hw lib && cp bin/chapulin.o bin/chapulin-quic.o`, adding
+  `-maes -mpclmul` to `CFLAGS` on x86-64 and `-march=armv8-a+crypto` on an Arm compiler that does
+  not turn the AES instructions on by itself (decision 85). `ROLE=both` puts both roles in one
   object, `KEYLOG=on` hands the check the traffic secrets, `SUITE=aesgcm` adds RFC 9846 §9.1's
-  mandatory TLS_AES_128_GCM_SHA256, and `-DCH_NATIVE_AES` is the builder's statement that the
-  part's AES instructions run in constant time (chapulin's INV-26). Every QUIC endpoint refuses
-  an object built otherwise (chapulin's `build.h`). `tools/quic_loopback.sh <checkout>` runs a
-  colibri client and a colibri server over it in one process, through one handshake and one
-  stream, and writes the secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain.
-  `tools/ci.sh` runs it when it finds `bin/chapulin-quic.o`.
-- UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www>
-  [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]` and `-- client
-  <address> <port>
-  <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] <path>...`
-  run design §9's servers and clients over Rotor's UDP loop and the same chapulin object, which
-  must be chapulin `0c201b7` or later: its session tickets, `ch_quic_seal_close` for the close a
-  failed handshake owes (decision 84), the AES-GCM suites (decision 85), the KeyUpdate refusal
-  h3spec checks, and the build record named `ch_build_quic`. The server serves h3 or
-  hq-interop, whichever its client's ALPN asks for, and a client with `h3` fetches over h3. An
-  address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh
-  <checkout> [port]` runs a client against a server on 127.0.0.1 over both protocols, checks
-  each file arrives octet for octet, that a missing one is refused, and that a second connection
-  resumes the first one's session, and `tools/ci.sh` runs it beside the loopback check.
-  `tools/quic_aioquic.sh <checkout> [port]` runs the same endpoint against aioquic's, pinned and
-  installed once into a cached virtual environment, over both protocols in both directions, and
-  checks that a handshake colibri's server refuses ends with its CONNECTION_CLOSE; it also needs
-  `python3`, and `tools/ci.sh` runs it too.
+  mandatory TLS_AES_128_GCM_SHA256, and `-DCH_NATIVE_AES` is the builder's statement that the part's
+  AES instructions run in constant time (chapulin's INV-26). Every QUIC endpoint refuses an object
+  built otherwise (chapulin's `build.h`). `tools/quic_loopback.sh <checkout>` runs a colibri client
+  and a colibri server over it in one process, through one handshake and one stream, and writes the
+  secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain. `tools/ci.sh` runs it when it
+  finds `bin/chapulin-quic.o`.
+- UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
+  [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]` and `-- client <address>
+  <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3]
+  <path>...` run design §9's servers and clients over Rotor's UDP loop and the same chapulin object,
+  which must be chapulin `ca80351` or later: its session tickets, `ch_quic_seal_close` for the close
+  a failed handshake owes (decision 84), the AES-GCM suites (decision 85), the KeyUpdate refusal
+  h3spec checks, and the build record named `ch_build_info_quic_nonblocking`. The server serves h3
+  or hq-interop, whichever its client's ALPN asks for, and a client with `h3` fetches over h3. An
+  address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh <checkout>
+  [port]` runs a client against a server on 127.0.0.1 over both protocols, checks each file arrives
+  octet for octet, that a missing one is refused, and that a second connection resumes the first
+  one's session, and `tools/ci.sh` runs it beside the loopback check. `tools/quic_aioquic.sh
+  <checkout> [port]` runs the same endpoint against aioquic's, pinned and installed once into a
+  cached virtual environment, over both protocols in both directions, and checks that a handshake
+  colibri's server refuses ends with its CONNECTION_CLOSE; it also needs `python3`, and
+  `tools/ci.sh` runs it too.
 - QIF tools: `zig build qif -- encode <input.qif> <output> <capacity> <blocked-streams>
   <acknowledgment>` and `-- decode <input> <output.qif> <capacity> <blocked-streams>` are design
   §9's two QPACK tools, over the "QPACK Offline Interop" format. `tools/qif_interop.sh` runs them
   against ls-qpack, through the pylsqpack of the cached aioquic environment, in both directions
   over the qifs inputs; it needs `python3`, and `tools/ci.sh` runs it.
-- QUIC Interop Runner: `tools/interop.sh <checkout> [peers] [tests]`, whose tests include `http3`, builds the `colibri-qns` image
-  from this working tree and the checkout, with chapulin built `TRUST=raw-ecdsa` because the
-  runner's certificates fail the Web PKI profile, and runs it in the runner, pinned by commit, as a
-  server and as a client against each peer. It needs Docker with docker compose, `python3` and
-  `tshark` from Wireshark 4.5.0 or newer. `-Dchapulin-quic-trust=raw-ecdsa` builds against such an
-  object here.
+- QUIC Interop Runner: `tools/interop.sh <checkout> [peers] [tests]`, whose tests include `http3`,
+  builds the `colibri-qns` image from this working tree and the checkout, with chapulin built
+  `TRUST=raw-ecdsa` because the runner's certificates fail the Web PKI profile, and runs it in the
+  runner, pinned by commit, as a server and as a client against each peer. It needs Docker with
+  docker compose, `python3` and `tshark` from Wireshark 4.5.0 or newer.
+  `-Dchapulin-quic-trust=raw-ecdsa` builds against such an object here.
 - Models: `zig build tla [-- <configuration>...]` model-checks the TLA+ specifications in
   `spec/tla/` with TLC, through pepegrillo's `tla` tool. `tools/tla.zig` pins TLC by release and
   SHA-256, and the jar is cached on first use; it needs Java. The first line of each

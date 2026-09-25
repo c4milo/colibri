@@ -227,7 +227,8 @@ fi
   echo "## QUIC over chapulin"
   echo
   echo "Design §8 step 9e's loopback check: a colibri client and a colibri server, each over one"
-  echo "session of chapulin's \`TRANSPORT=quic ROLE=both\` object, finish a handshake and one stream."
+  echo "session of chapulin's \`TRANSPORT=quic-nonblocking ROLE=both\` object, finish a handshake"
+  echo "and one stream."
   echo
   echo "${quic_lines}" | fenced
   echo

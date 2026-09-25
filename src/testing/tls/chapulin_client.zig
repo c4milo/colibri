@@ -1,12 +1,12 @@
 //! chapulin's TLS 1.3 client behind colibri's `tls.Provider`, for `src/testing/` alone
 //! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 5's TLS half.
 //!
-//! This file is phase 1: building the configuration and driving chapulin's `TRANSPORT=record`
-//! client handshake. `start` stages the ClientHello, and each call to `handshake` passes what the
-//! caller read to `ch_record_in` and collects what chapulin owes the server from `ch_record_out`
-//! into the caller's output. No call here touches a descriptor or waits (decision 46). Phase 2, the
-//! record phase colibri drives through the vtable, is `chapulin_record.zig` and is shared with
-//! the server.
+//! This file is phase 1: building the configuration and driving chapulin's
+//! `TRANSPORT=tcp-nonblocking` client handshake. `start` stages the ClientHello, and each call to
+//! `handshake` passes what the caller read to `ch_record_in` and collects what chapulin owes the
+//! server from `ch_record_out` into the caller's output. No call here touches a descriptor or waits
+//! (decision 46). Phase 2, the record phase colibri drives through the vtable, is
+//! `chapulin_record.zig` and is shared with the server.
 const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");

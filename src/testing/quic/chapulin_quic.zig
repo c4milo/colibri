@@ -470,7 +470,7 @@ fn take_alert(context: *anyopaque) ?tls.Alert {
 }
 
 /// chapulin's exporter is a record-layer call and its Makefile refuses `EXPORTER=on` with
-/// `TRANSPORT=quic`.
+/// `TRANSPORT=quic-nonblocking`.
 fn export_keying_material(
     context: *anyopaque,
     label: []const u8,

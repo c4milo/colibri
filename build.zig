@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) void {
     const chapulin: modules.Chapulin = .{
         .client = b.option([]const u8, "chapulin-client", "A chapulin checkout built ROLE=client (decision 10)"),
         .server = b.option([]const u8, "chapulin-server", "A chapulin checkout built ROLE=server (decision 10)"),
-        .quic = b.option([]const u8, "chapulin-quic", "A chapulin checkout built TRANSPORT=quic ROLE=both (decision 10)"),
+        .quic = b.option([]const u8, "chapulin-quic", "A chapulin checkout built TRANSPORT=quic-nonblocking ROLE=both (decision 10)"),
         .quic_trust = b.option(modules.QuicTrust, "chapulin-quic-trust", "The TRUST that object was built with") orelse .webpki,
     };
     const graph = modules.add(b, target, optimize, chapulin);
@@ -366,9 +366,9 @@ fn add_tls_accept_step(b: *std.Build, testing_tls_server: *std.Build.Module) voi
     b.installArtifact(check);
 }
 
-/// `zig build quic-loopback -- <identity-prefix> <hostname> <unix-seconds>`: one QUIC handshake
-/// and one stream between two colibri connections over chapulin, in one process. It needs a
-/// chapulin checkout built `TRANSPORT=quic ROLE=both`, so it is never part of `zig build test`.
+/// `zig build quic-loopback -- <identity-prefix> <hostname> <unix-seconds>`: one QUIC handshake and
+/// one stream between two colibri connections over chapulin, in one process. It needs a chapulin
+/// checkout built `TRANSPORT=quic-nonblocking ROLE=both`, so it is never part of `zig build test`.
 fn add_quic_loopback_step(b: *std.Build, testing_quic: *std.Build.Module) void {
     const check = b.addExecutable(.{ .name = "quic-loopback", .root_module = testing_quic });
     const run = b.addRunArtifact(check);
@@ -379,7 +379,7 @@ fn add_quic_loopback_step(b: *std.Build, testing_quic: *std.Build.Module) void {
 }
 
 /// `zig build quic-udp -- server|client ...`: design §9's UDP QUIC endpoint, as the hq-interop
-/// server or client. It needs a chapulin checkout built `TRANSPORT=quic ROLE=both`.
+/// server or client. It needs a chapulin checkout built `TRANSPORT=quic-nonblocking ROLE=both`.
 /// `zig build qif -- encode|decode ...`: design §9's two QPACK command-line tools, for the QIF
 /// interop of step 11.
 fn add_qif_step(b: *std.Build, testing_qif: *std.Build.Module) void {

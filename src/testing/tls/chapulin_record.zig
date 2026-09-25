@@ -3,7 +3,7 @@
 //!
 //! **Two phases.** colibri's vtable is buffer in and buffer out: it never reads a descriptor, and
 //! `attach_tls` refuses a handshake that has not already completed. Both roles are
-//! `TRANSPORT=record` builds (decisions 46 and 82), so neither touches a descriptor:
+//! `TRANSPORT=tcp-nonblocking` builds (decisions 46 and 82), so neither touches a descriptor:
 //!
 //!   1. **Handshake.** The caller passes the octets it read. The client's driver answers through
 //!      `ch_record_out`, which the caller pulls from. The server's hands its flight to
