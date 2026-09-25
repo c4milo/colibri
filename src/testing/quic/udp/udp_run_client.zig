@@ -52,7 +52,7 @@ fn start(
 ) void {
     const options = udp_identity.client_options(asked, &connection.receive, ticket_store, resumption) catch |failure|
         udp_run.fail("cannot read the trust anchor: {t}", .{failure});
-    connection.peer.init(options, udp_identity.client_ids(), parameters(), now_ns, asked.address) catch |failure|
+    connection.peer.init(options, udp_identity.client_ids(), parameters(), now_ns, asked.address, true) catch |failure|
         udp_run.fail("the client did not start: {t}", .{failure});
     connection.outbound = udp_run.outbound_to(asked.address);
     connection.spare_ids_issued = false;

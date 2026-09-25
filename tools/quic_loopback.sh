@@ -5,10 +5,8 @@
 # connection drives a real TLS 1.3 handshake through `tls.QuicProvider` and protects real packets
 # through `crypto.Suite`.
 #
-# It needs a Go toolchain, for the identity, and a chapulin checkout whose object was built with
-#
-#   make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib
-#   cp bin/chapulin.o bin/chapulin-quic.o
+# It needs a Go toolchain, for the identity, and a chapulin checkout whose object was built as
+# CLAUDE.md's QUIC check line says and copied to bin/chapulin-quic.o.
 #
 # It is not part of `zig build test`, which runs without either.
 #

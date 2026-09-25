@@ -220,7 +220,8 @@ pub const quic_crypto_out_len: usize = 20 * 1024;
 pub const quic_peer_params_len_max: usize = 1024;
 
 /// The NSS key log the QUIC check writes to SSLKEYLOGFILE: four lines per endpoint, each a label
-/// of at most 31 octets and two 32-octet values in hex, so 162 octets.
+/// of at most 31 octets, a 32-octet client random and a secret of at most 48 octets in hex, so
+/// 194 octets.
 pub const quic_keylog_len: usize = 2048;
 
 /// The largest datagram the QUIC check moves between its two endpoints: RFC 9000 §14's 1,200

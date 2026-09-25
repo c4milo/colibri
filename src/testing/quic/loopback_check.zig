@@ -74,9 +74,10 @@ fn parse(init: std.process.Init.Minimal) Arguments {
     };
 }
 
-/// Seeds chapulin's DRBG and draws the cookie key. The check may read the operating system's
-/// entropy; the library may not, and does not.
+/// Checks the linked object, then seeds chapulin's DRBG and draws the cookie key. The check may
+/// read the operating system's entropy; the library may not, and does not.
 fn seed_chapulin() !void {
+    try chapulin_quic_c.check_build();
     var seed: [chapulin_quic_c.seed_len]u8 = undefined;
     const drawn = try check_file.read_file("/dev/urandom", &seed);
     const cookie = try check_file.read_file("/dev/urandom", &cookie_storage);

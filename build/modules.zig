@@ -291,8 +291,8 @@ const chapulin_server_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_ROLE
 /// extended key usage and so fail the Web PKI profile.
 fn chapulin_quic_defines(trust: QuicTrust) []const []const u8 {
     return switch (trust) {
-        .webpki => &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
-        .@"raw-ecdsa" => &.{ "CH_RAND_DRBG", "CH_PIN_ECDSA", "CH_TRANSPORT_QUIC", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
+        .webpki => &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
+        .@"raw-ecdsa" => &.{ "CH_RAND_DRBG", "CH_PIN_ECDSA", "CH_TRANSPORT_QUIC", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
     };
 }
 

@@ -7,9 +7,8 @@
 # ends advertise a QPACK dynamic table, so colibri's QPACK meets ls-qpack's too.
 #
 # It needs python3, a Go toolchain for the identity, and a chapulin checkout whose QUIC object
-# was built with `make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib` and copied
-# to bin/chapulin-quic.o. aioquic is pinned and installed once into a cached virtual environment.
-# It is not part of `zig build test`.
+# was built as CLAUDE.md's QUIC check line says and copied to bin/chapulin-quic.o. aioquic is
+# pinned and installed once into a cached virtual environment. It is not part of `zig build test`.
 #
 #   tools/quic_aioquic.sh <chapulin-checkout> [port]
 #

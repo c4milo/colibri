@@ -8,9 +8,13 @@
 # tools/quic_udp.sh says. The server runs with `errors`, because h3spec breaks a rule on purpose
 # on every connection it opens. It is not part of `zig build test`.
 #
-# h3spec's client offers AES-GCM and AES-CCM suites alone, and chapulin's QUIC mode protects
-# packets with ChaCha20-Poly1305 alone, so today every handshake fails with handshake_failure and
-# no case passes (design §8 step 12). The check runs once chapulin's QUIC mode offers AES-GCM.
+# h3spec's client offers AES-GCM and AES-CCM suites alone, so the chapulin object must be built
+# SUITE=aesgcm, as CLAUDE.md's QUIC make line says.
+#
+# The server runs with `no-ecn` too. h3spec 0.1.13's client does not parse an ACK frame of type
+# 0x03, the one that carries ECN counts (RFC 9000 §19.3), and closes with FRAME_ENCODING_ERROR
+# on the first. colibri's ACK frames are what RFC 9000 permits, and quic-go, ngtcp2 and aioquic
+# read them, so the check turns ECN off rather than change colibri.
 #
 #   tools/h3spec.sh <chapulin-checkout> [port]
 set -euo pipefail
@@ -62,7 +66,7 @@ echo "h3spec.sh: building the endpoint"
 zig build -Dchapulin-quic="$checkout"
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 mkdir -p "$scratch/www"
-./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" errors \
+./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" errors no-ecn \
   >"$scratch/server.log" 2>&1 &
 server_pid=$!
 for _ in $(seq 1 100); do
@@ -76,8 +80,11 @@ status=0
 "$h3spec" 127.0.0.1 "$port" --no-validate >"$scratch/report" 2>&1 || status=$?
 sed -n '/^QUIC servers/,/^Failures:/p' "$scratch/report"
 grep -E "examples, [0-9]+ failure" "$scratch/report" || true
-if grep -q handshake_failure "$scratch/server.log"; then
-  echo "h3spec.sh: handshakes failed: h3spec offers AES suites alone, and chapulin's QUIC mode ChaCha20-Poly1305 alone" >&2
+# A server that exits mid-run fails every case after it, so say so rather than leave the reader to
+# find it among the failures.
+if ! kill -0 "$server_pid" 2>/dev/null; then
+  echo "h3spec.sh: the server exited during the run:" >&2
+  tail -20 "$scratch/server.log" >&2
 fi
 [ "$status" -eq 0 ] || fail "h3spec reported failures"
 echo "h3spec.sh: ok, every case passed"

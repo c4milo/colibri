@@ -250,8 +250,9 @@ section when a step adds or renames a command.
   `tools/interop.sh` — each starts the test-only endpoint of design §9 and runs the pinned suite
   version. Given a chapulin checkout, `tools/h2spec.sh` also runs `h2spec -t -k` against the h2
   server's `--tls` mode, which needs Go to mint the identity. `tools/h3spec.sh` fetches
-  h3spec once and checks it against a pinned SHA-256; it passes nothing until chapulin's QUIC mode
-  offers AES-GCM, the only suites h3spec offers. `tools/h3load.sh <checkout>` runs `h2load --h3`
+  h3spec once and checks it against a pinned SHA-256. It needs the `SUITE=aesgcm` object, because
+  h3spec offers AES suites alone, and runs the server with `no-ecn`, because h3spec's client does
+  not parse an ACK frame that carries ECN counts. `tools/h3load.sh <checkout>` runs `h2load --h3`
   from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker.
   `tools/h2_interop.sh [--tls <checkout>] [go] [nghttpd] [h2o]` runs the test-only h2 client
   (`zig build h2-client`) against other implementations' servers in cleartext, and with `--tls`
@@ -288,18 +289,26 @@ section when a step adds or renames a command.
   finds a checkout carrying both objects, at `$CHAPULIN` or `../chapulin`, and says so when it
   does not.
 - QUIC check: `-Dchapulin-quic=<checkout>` links chapulin's QUIC object into `src/testing/` and
-  nowhere else. Build it with `make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib
-  && cp bin/chapulin.o bin/chapulin-quic.o`; `ROLE=both` puts both roles in one object, and
-  `KEYLOG=on` hands the check the traffic secrets. `tools/quic_loopback.sh <checkout>` runs a
+  nowhere else. Build it with `CFLAGS="-Wall -Wextra -Wpedantic -Werror -std=c11 -O2
+  -D_DEFAULT_SOURCE -DCH_NATIVE_AES" make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both
+  KEYLOG=on SUITE=aesgcm AES=hw lib && cp bin/chapulin.o bin/chapulin-quic.o`, adding `-maes
+  -mpclmul` to `CFLAGS` on x86-64 and `-march=armv8-a+crypto` on an Arm compiler that does not
+  turn the AES instructions on by itself (decision 85). `ROLE=both` puts both roles in one
+  object, `KEYLOG=on` hands the check the traffic secrets, `SUITE=aesgcm` adds RFC 9846 §9.1's
+  mandatory TLS_AES_128_GCM_SHA256, and `-DCH_NATIVE_AES` is the builder's statement that the
+  part's AES instructions run in constant time (chapulin's INV-26). Every QUIC endpoint refuses
+  an object built otherwise (chapulin's `build.h`). `tools/quic_loopback.sh <checkout>` runs a
   colibri client and a colibri server over it in one process, through one handshake and one
   stream, and writes the secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain.
   `tools/ci.sh` runs it when it finds `bin/chapulin-quic.o`.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www>
-  [once] [retry] [connections=<n>] [seconds=<unix-seconds>]` and `-- client <address> <port>
+  [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]` and `-- client
+  <address> <port>
   <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] <path>...`
   run design §9's servers and clients over Rotor's UDP loop and the same chapulin object, which
-  must be chapulin `0e6fd15` or later: its session tickets, and `ch_quic_seal_close` for the
-  close a failed handshake owes (decision 84). The server serves h3 or
+  must be chapulin `37bebc5` or later: its session tickets, `ch_quic_seal_close` for the close a
+  failed handshake owes (decision 84), the AES-GCM suites (decision 85), and the KeyUpdate refusal
+  h3spec checks. The server serves h3 or
   hq-interop, whichever its client's ALPN asks for, and a client with `h3` fetches over h3. An
   address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh
   <checkout> [port]` runs a client against a server on 127.0.0.1 over both protocols, checks

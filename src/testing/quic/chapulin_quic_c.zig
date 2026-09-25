@@ -2,8 +2,13 @@
 //! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 9e.
 //!
 //! `-Dchapulin-quic=<checkout>` names a checkout whose `bin/chapulin-quic.o` was built
-//! `TRANSPORT=quic ROLE=both KEYLOG=on`. The headers are read from it in place. Without the
-//! option `available` is false and everything below compiles to nothing.
+//! `TRANSPORT=quic ROLE=both KEYLOG=on SUITE=aesgcm AES=hw`. The headers are read from it in place,
+//! and `check_build` refuses an object built otherwise. Without the option `available` is false
+//! and everything below compiles to nothing.
+//!
+//! **Three suites.** `SUITE=aesgcm` holds TLS_AES_128_GCM_SHA256 and TLS_AES_256_GCM_SHA384
+//! beside TLS_CHACHA20_POLY1305_SHA256. RFC 9846 §9.1 makes the first mandatory, and it is the only
+//! kind of suite h3spec offers.
 //!
 //! **One object serves both roles.** `ROLE=both` compiles the client's `ch_quic_init` and the
 //! server's `ch_srv_quic_init` into one object, and the packet calls of `quic.h` serve either.
@@ -28,7 +33,26 @@ pub const c = if (available) @cImport({
     @cInclude("srv_ticket.h");
     @cInclude("drbg.h");
     @cInclude("keylog.h");
+    // The record of the defines the linked object was built with (`check_build`).
+    @cInclude("build.h");
 }) else struct {};
+
+pub const BuildError = error{
+    /// The linked object was built with other defines than the ones `build/modules.zig` reads
+    /// the headers under, so the two disagree about struct sizes and bounds.
+    ObjectMismatch,
+};
+
+/// Refuses an object built with other defines than `build/modules.zig` reads the headers under,
+/// which a QUIC endpoint calls once before any other chapulin call (chapulin's `build.h`). The
+/// link does not catch it: an object without the AES-GCM suites exports the same calls, and the
+/// program would run with the wrong struct sizes.
+pub fn check_build() BuildError!void {
+    if (c.ch_build_matches(&c.ch_build) != 0) return;
+    std.debug.print("chapulin: the linked QUIC object was built with other defines than colibri " ++
+        "reads its headers under; CLAUDE.md's Commands section names the make line.\n", .{});
+    return BuildError.ObjectMismatch;
+}
 
 /// The seed a `RAND=drbg` build takes, which chapulin's `drbg.h` fixes at 32 octets.
 pub const seed_len: usize = 32;
@@ -120,6 +144,13 @@ test "a key log line is the label and two hex values, and a full log refuses rat
     // Bounded by the log's size: every line is the same length.
     while (!keylog.overflowed) keylog.append(label, &random, &secret);
     try testing.expectEqual(0, keylog.len % line_len);
+}
+
+test "the linked QUIC object was built with the defines colibri reads the headers under" {
+    if (!available) return error.SkipZigTest;
+    try check_build();
+    // RFC 9846 §9.1's mandatory suite, which h3spec offers, is in the object.
+    try testing.expect(c.ch_build.axes & c.CH_BUILD_SUITE_AES_GCM != 0);
 }
 
 test "the checkout the build was given links, and carries both roles" {

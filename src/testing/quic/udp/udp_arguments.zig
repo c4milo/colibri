@@ -1,6 +1,6 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
-//!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors]
+//!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
 //!         [connections=<n>] [seconds=<unix-seconds>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] <path>...
@@ -12,6 +12,8 @@
 //!   that returns the token (RFC 9000 §8.1.2).
 //! - `errors` makes a connection error end that connection alone, where without it the run
 //!   fails: a suite such as h3spec breaks a rule on purpose on every connection it opens.
+//! - `no-ecn` turns decision 68's two flags off: the server reads no ECN codepoint, so its ACK
+//!   frames carry no counts (RFC 9000 §13.4.1), and marks none.
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
@@ -45,6 +47,8 @@ pub const Server = struct {
     retry: bool = false,
     /// Whether a connection error ends that connection alone rather than the run.
     errors: bool = false,
+    /// Whether the server reads and marks ECN codepoints (decision 68).
+    ecn: bool = true,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
     /// The Unix seconds the server started at, or 0 for none.
@@ -113,6 +117,8 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
             server.retry = true;
         } else if (std.mem.eql(u8, word, "errors")) {
             server.errors = true;
+        } else if (std.mem.eql(u8, word, "no-ecn")) {
+            server.ecn = false;
         } else if (parse_seconds(word)) |seconds| {
             server.now_seconds = seconds;
         } else {
@@ -133,8 +139,8 @@ const client_options_count: usize = 3;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `connections=<n>` and `seconds=<unix-seconds>`.
-const server_options_count: usize = 5;
+/// `once`, `retry`, `errors`, `no-ecn`, `connections=<n>` and `seconds=<unix-seconds>`.
+const server_options_count: usize = 6;
 
 const connections_prefix = "connections=";
 const seconds_prefix = "seconds=";
@@ -221,7 +227,7 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [connections=<n>] [seconds=<unix-seconds>]\n" ++
+        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]\n" ++
             "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] <path>...\n",
         .{},
     );

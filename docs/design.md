@@ -3432,8 +3432,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `tools/interop.sh <checkout> ngtcp2` passed all 17 cases in both roles: H, DC, C20, M, L1, L2,
   S, U, A, 6, E, LR, B, BP, BA, R and 3.
 
-  **Still owed:** h3spec, once chapulin's QUIC mode offers AES-GCM. The model's trace validation
-  against the simulator's h3 check: [#58](https://github.com/c4milo/colibri/issues/58).
+  **h3spec, 2026-09-25.** chapulin `1558099` adds the AES-GCM suites to its QUIC mode, so h3spec's
+  handshakes now complete ([decision 85](decisions.md)).
+  - The QUIC object is built `SUITE=aesgcm AES=hw`. Every chapulin endpoint checks it against the
+    headers with `ch_build_matches` before it starts.
+  - h3spec 0.1.13 found two colibri defects, both fixed:
+    - `5c25f1b`: a STOP_SENDING, STREAM, MAX_STREAM_DATA or RESET_STREAM frame naming a stream the
+      server initiated but had not opened reached an assertion, so any peer could crash the
+      server. It is now STREAM_STATE_ERROR (RFC 9000 §19.5, §19.8, §19.10), and
+      STREAM_DATA_BLOCKED now follows §19.13 through the same lookup. 3 mutations, 3 CAUGHT.
+    - `d6c686d`: the receive walk never called the reserved-bit check, so packets with those bits
+      set were processed. It now closes with PROTOCOL_VIOLATION (RFC 9000 §17.2, §17.3.1). 3
+      mutations, 3 CAUGHT.
+  - h3spec's client does not parse an ACK frame of type 0x03, and colibri's server sends one
+    whenever it reads ECN codepoints. `tools/h3spec.sh` runs the server with the new `no-ecn`
+    word. quic-go, ngtcp2 and aioquic read those frames.
+
+  - On `1558099`, the last case failed. chapulin's server dropped a KeyUpdate that followed the
+    client Finished in one Handshake-level delivery, where RFC 9001 §6 requires error 0x010a.
+    chapulin fixed it in `37bebc5`, and colibri added no workaround.
+
+  What each check printed on macOS arm64, with chapulin `37bebc5`:
+  - `tools/h3spec.sh <checkout>`: `49 examples, 0 failures` and `ok, every case passed`.
+  - `tools/quic_loopback.sh`, `tools/quic_udp.sh` and `tools/quic_aioquic.sh` passed. Against
+    aioquic's server, colibri's client ran TLS_AES_256_GCM_SHA384, so its key log held 48-octet
+    secrets.
+  - `tools/interop.sh <checkout> quic-go,ngtcp2`, whose image built chapulin `1558099` with the
+    new make line: every case passed in both roles against both peers. quic-go reports its own
+    side of the ECN case as unsupported.
+  - 3 mutations of the switch, all CAUGHT: a define the object lacks, which `check_build`
+    refuses; the resumption PSK's length ignored; and `no-ecn` ignored.
+
+  **Still owed:** the model's trace validation against the simulator's h3 check:
+  [#58](https://github.com/c4milo/colibri/issues/58).
 
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
   **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the

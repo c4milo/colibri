@@ -49,8 +49,10 @@ fn draw(into: []u8) !void {
     if (drawn.len != into.len) return error.EntropyShort;
 }
 
-/// Seeds chapulin's generator and draws the cookie key, before any session starts.
+/// Checks the linked object, then seeds chapulin's generator and draws the cookie key, before any
+/// session starts.
 pub fn seed() !void {
+    try chapulin_quic_c.check_build();
     var seed_octets: [chapulin_quic_c.seed_len]u8 = undefined;
     try draw(&seed_octets);
     c.ch_drbg_seed(&seed_octets);

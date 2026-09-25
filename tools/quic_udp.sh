@@ -6,8 +6,8 @@
 # first connection's session on its second (RFC 9846 §2.2).
 #
 # It needs a Go toolchain, for the identity, and a chapulin checkout whose QUIC object was built
-# with `make RAND=drbg TRUST=webpki TRANSPORT=quic ROLE=both KEYLOG=on lib` and copied to
-# bin/chapulin-quic.o. It is not part of `zig build test`.
+# as CLAUDE.md's QUIC check line says and copied to bin/chapulin-quic.o. It is not part of `zig
+# build test`.
 #
 #   tools/quic_udp.sh <chapulin-checkout> [port]
 #

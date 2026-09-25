@@ -50,19 +50,23 @@ pub const Identity = struct {
     now_seconds: u64 = 0,
 };
 
-/// The octets of a resumption PSK: chapulin's one suite, TLS_CHACHA20_POLY1305_SHA256, hashes
-/// with SHA-256 (RFC 9846 §4.6.1).
-const psk_len = std.crypto.hash.sha2.Sha256.digest_length;
+/// The most octets of a resumption PSK, which is as long as the suite's hash (RFC 9846 §4.6.1):
+/// 48 under TLS_AES_256_GCM_SHA384, 32 under the other two.
+const psk_len_max = std.crypto.hash.sha2.Sha384.digest_length;
+/// The binding a Web PKI build seals a ticket to, which chapulin hashes with SHA-256 whatever the
+/// suite (`webpki_ticket.h`).
+const binding_len = std.crypto.hash.sha2.Sha256.digest_length;
 
 /// A NewSessionTicket a client kept (RFC 9846 §4.6.1), which its next connection presents to
 /// resume (RFC 9846 §2.2). chapulin hands a ticket over during `on_ticket` alone, so it is copied.
 pub const Ticket = struct {
     identity: [constants.quic_ticket_identity_len_max]u8 = undefined,
     identity_len: usize = 0,
-    psk: [psk_len]u8 = undefined,
+    psk: [psk_len_max]u8 = undefined,
+    psk_len: usize = 0,
     age_add: u32 = 0,
     /// A Web PKI build binds the ticket to the host name and the anchors (`webpki_ticket.h`).
-    binding: [psk_len]u8 = undefined,
+    binding: [binding_len]u8 = undefined,
     /// Whether a ticket arrived.
     held: bool = false,
     /// Whether a ticket arrived whose identity is longer than `identity` holds.
@@ -209,7 +213,7 @@ pub const Session = struct {
         const presented = resumption orelse return;
         assert(presented.ticket.held);
         session.config.psk = &presented.ticket.psk;
-        session.config.psk_len = presented.ticket.psk.len;
+        session.config.psk_len = presented.ticket.psk_len;
         session.config.psk_id = &presented.ticket.identity;
         session.config.psk_id_len = presented.ticket.identity_len;
         session.config.resumption = 1;
@@ -320,7 +324,11 @@ fn on_ticket(io: ?*anyopaque, issued: [*c]const c.ch_ticket) callconv(.c) void {
     }
     @memcpy(store.identity[0..ticket.identity_len], ticket.identity[0..ticket.identity_len]);
     store.identity_len = ticket.identity_len;
+    comptime assert(@sizeOf(@TypeOf(ticket.psk)) == psk_len_max);
+    // RFC 9846 §4.6.1: the PSK is the suite's hash length, which chapulin reports.
+    assert(ticket.psk_len > 0 and ticket.psk_len <= psk_len_max);
     store.psk = ticket.psk;
+    store.psk_len = ticket.psk_len;
     store.age_add = ticket.age_add;
     if (webpki) store.binding = ticket.binding;
     store.held = true;
@@ -345,10 +353,13 @@ fn keylog_hook(
     label: [*c]const u8,
     client_random: [*c]const u8,
     secret: [*c]const u8,
+    secret_len: usize,
 ) callconv(.c) void {
     const session = session_of(io);
     const keylog = session.keylog orelse return;
-    keylog.append(std.mem.span(label), client_random[0..c.CH_KEYLOG_RANDOM_LEN], secret[0..c.SHA256_LEN]);
+    // `keylog.h`: the secret is as long as the suite's hash, 32 or 48 octets.
+    assert(secret_len == c.SHA256_LEN or secret_len == c.SHA384_LEN);
+    keylog.append(std.mem.span(label), client_random[0..c.CH_KEYLOG_RANDOM_LEN], secret[0..secret_len]);
 }
 
 comptime {

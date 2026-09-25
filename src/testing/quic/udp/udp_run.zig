@@ -295,7 +295,7 @@ fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Con
     const asked = arguments.server;
     const options = udp_identity.server_options(asked, &connection.receive, asked.seconds_at(started_ns, now_ns)) catch |failure|
         fail("cannot read the identity: {t}", .{failure});
-    connection.peer.init(options, identity, server_parameters(), now_ns, delivery.from.peer) catch |failure|
+    connection.peer.init(options, identity, server_parameters(), now_ns, delivery.from.peer, arguments.server.ecn) catch |failure|
         fail("the server did not start: {t}", .{failure});
     connection.outbound = outbound_to(delivery.from.peer);
     connection.spare_ids_issued = false;

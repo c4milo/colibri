@@ -15,9 +15,15 @@ RUN arch="$(uname -m)" \
     | tar -xJ -C /opt \
   && ln -s "/opt/zig-${arch}-linux-${ZIG_VERSION}/zig" /usr/local/bin/zig
 
+# SUITE=aesgcm is CLAUDE.md's QUIC check line (decision 85). chapulin's lib rule adds no flag for
+# the AES instructions, so this names them for the image's architecture, and -DCH_NATIVE_AES is
+# the statement that they run in constant time (chapulin's INV-26).
 COPY chapulin /src/chapulin
 RUN cd /src/chapulin \
-  && make RAND=drbg TRUST=raw-ecdsa TRANSPORT=quic ROLE=both KEYLOG=on lib \
+  && case "$(uname -m)" in x86_64) aes="-maes -mpclmul" ;; *) aes="-march=armv8-a+crypto" ;; esac \
+  && CFLAGS="-Wall -Wextra -Wpedantic -Werror -std=c11 -O2 -D_DEFAULT_SOURCE" \
+  && CFLAGS="${CFLAGS} -DCH_NATIVE_AES ${aes}" \
+    make RAND=drbg TRUST=raw-ecdsa TRANSPORT=quic ROLE=both KEYLOG=on SUITE=aesgcm AES=hw lib \
   && cp bin/chapulin.o bin/chapulin-quic.o
 
 COPY colibri /src/colibri

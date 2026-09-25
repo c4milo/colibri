@@ -43,9 +43,6 @@ pub const vtable: suite_module.VTable = .{
 /// once header protection is removed (RFC 9000 §17.2, §17.3.1).
 const packet_number_len_mask: u8 = 0x03;
 
-/// chapulin's AEAD limits, past which `ch_quic_seal` refuses the Initial keys (RFC 9001 §6.6).
-const initial_level: u8 = @intFromEnum(Level.initial);
-
 fn held(context: *anyopaque) *Session {
     return @ptrCast(@alignCast(context));
 }
@@ -95,10 +92,11 @@ fn seal(context: *anyopaque, sealing: suite_module.Sealing, output: []u8) suite_
     if (code == c.CH_ECAP) return error.NoSpaceLeft;
     // `quic.h`: after a failure, CH_EINVAL is a close chapulin does not seal at this level.
     if (failed) return error.KeysUnavailable;
-    // chapulin answers CH_EINVAL for keys it does not hold, and at the Initial level also for the
-    // packet past RFC 9001 §6.6's confidentiality limit. colibri's own framing it asserts.
+    // chapulin answers CH_EINVAL for keys it does not hold, and at any level for the packet past
+    // RFC 9001 §6.6's confidentiality limit, which an AES-GCM key set meets at 2^23 packets.
+    // colibri's own framing it asserts. The connection answers the limit with a key update at
+    // 1-RTT, and with AEAD_LIMIT_REACHED where no update is possible.
     if (!keys_available(context, sealing.level, .write)) return error.KeysUnavailable;
-    assert(level == initial_level);
     return error.ConfidentialityLimitReached;
 }
 

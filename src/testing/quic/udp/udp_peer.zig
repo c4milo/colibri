@@ -156,7 +156,8 @@ pub const Peer = struct {
     scratch: quic.connection_datagram.Scratch,
     pool: quic.stream.stream_incoming.DefaultPool,
 
-    /// Starts the connection and its session. `options` is the session's.
+    /// Starts the connection and its session. `options` is the session's, and `ecn` says whether
+    /// the connection reads and marks ECN codepoints (decision 68).
     pub fn init(
         peer: *Peer,
         options: chapulin_quic.Options,
@@ -164,6 +165,7 @@ pub const Peer = struct {
         parameters: Parameters,
         now_ns: u64,
         address: udp.Address,
+        ecn: bool,
     ) Error!void {
         const role = options.role;
         peer.connection.init(.{
@@ -177,9 +179,10 @@ pub const Peer = struct {
                 .retry_source = identity.retry_source,
             },
             .receive = peer.pool.storage(),
-            // Decision 68: rotor reads each datagram's codepoint and sets the one colibri names.
-            .ecn_reads = true,
-            .ecn_marks = true,
+            // Decision 68: rotor reads each datagram's codepoint and sets the one colibri names,
+            // unless the run asked for neither.
+            .ecn_reads = ecn,
+            .ecn_marks = ecn,
             // Decision 72: where the peer is, which a NAT may change under a client.
             .peer_address = peer_address(address),
         });
