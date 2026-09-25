@@ -189,7 +189,7 @@ fn run_handshake(socket: std.c.fd_t) !void {
 }
 
 /// Opens what the server sends after its handshake until a record carries application data. Go's h2
-/// server sends a NewSessionTicket (RFC 9846 §4.6.1) and then its SETTINGS. A record that carries
+/// server sends a NewSessionTicket (RFC 9846 §4.7.1) and then its SETTINGS. A record that carries
 /// no data must leave the session live, which chapulin's `TRANSPORT=tcp-blocking` client could not
 /// (https://github.com/c4milo/colibri/issues/62).
 fn read_until_data(socket: std.c.fd_t) !void {

@@ -50,14 +50,14 @@ pub const Identity = struct {
     now_seconds: u64 = 0,
 };
 
-/// The most octets of a resumption PSK, which is as long as the suite's hash (RFC 9846 §4.6.1):
+/// The most octets of a resumption PSK, which is as long as the suite's hash (RFC 9846 §4.7.1):
 /// 48 under TLS_AES_256_GCM_SHA384, 32 under the other two.
 const psk_len_max = std.crypto.hash.sha2.Sha384.digest_length;
 /// The binding a Web PKI build seals a ticket to, which chapulin hashes with SHA-256 whatever the
 /// suite (`webpki_ticket.h`).
 const binding_len = std.crypto.hash.sha2.Sha256.digest_length;
 
-/// A NewSessionTicket a client kept (RFC 9846 §4.6.1), which its next connection presents to
+/// A NewSessionTicket a client kept (RFC 9846 §4.7.1), which its next connection presents to
 /// resume (RFC 9846 §2.2). chapulin hands a ticket over during `on_ticket` alone, so it is copied.
 pub const Ticket = struct {
     identity: [constants.quic_ticket_identity_len_max]u8 = undefined,
@@ -312,7 +312,7 @@ fn on_transport_params(io: ?*anyopaque, body: [*c]const u8, len: usize) callconv
     session.peer_parameters_len = len;
 }
 
-/// A NewSessionTicket the server sent (RFC 9846 §4.6.1), which chapulin hands over for the length
+/// A NewSessionTicket the server sent (RFC 9846 §4.7.1), which chapulin hands over for the length
 /// of the call alone. A later ticket replaces an earlier one.
 fn on_ticket(io: ?*anyopaque, issued: [*c]const c.ch_ticket) callconv(.c) void {
     const session = session_of(io);
@@ -325,7 +325,7 @@ fn on_ticket(io: ?*anyopaque, issued: [*c]const c.ch_ticket) callconv(.c) void {
     @memcpy(store.identity[0..ticket.identity_len], ticket.identity[0..ticket.identity_len]);
     store.identity_len = ticket.identity_len;
     comptime assert(@sizeOf(@TypeOf(ticket.psk)) == psk_len_max);
-    // RFC 9846 §4.6.1: the PSK is the suite's hash length, which chapulin reports.
+    // RFC 9846 §4.7.1: the PSK is the suite's hash length, which chapulin reports.
     assert(ticket.psk_len > 0 and ticket.psk_len <= psk_len_max);
     store.psk = ticket.psk;
     store.psk_len = ticket.psk_len;

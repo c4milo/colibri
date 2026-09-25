@@ -98,7 +98,7 @@ pub const Decrypted = struct {
     /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
     /// sends afterwards is read.
     end_of_data: bool,
-    /// The record was a KeyUpdate, and the provider may now owe its reply (RFC 9846 §4.6.3).
+    /// The record was a KeyUpdate, and the provider may now owe its reply (RFC 9846 §4.7.3).
     /// `encrypt` writes the reply ahead of any record it seals, so a caller seals before it opens
     /// the next record, and at most one reply is owed at a time.
     owes_handshake: bool = false,
@@ -130,7 +130,7 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
         // RFC 9113 §9.2.3: a NewSessionTicket and a KeyUpdate are permitted after the handshake,
         // and h2 does nothing with either.
         .new_session_ticket => try without_data(target, opened.consumed),
-        // RFC 9846 §4.6.3 makes the answering KeyUpdate the provider's, which `handshake_write`
+        // RFC 9846 §4.7.3 makes the answering KeyUpdate the provider's, which `handshake_write`
         // carries and `encrypt` writes first.
         .key_update => owing(target, try without_data(target, opened.consumed)),
         // RFC 9113 §9.2.3: HTTP/2 clients MUST treat a post-handshake CertificateRequest as a
@@ -194,7 +194,7 @@ fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) Record
 /// handshake octets the provider owes. Both buffers are the caller's, and a caller with no
 /// plaintext calls it too, so an owed reply does not wait for h2 to have something to say.
 ///
-/// RFC 9846 §4.6.3: a KeyUpdate's reply is protected under the keys it replaces, and every record
+/// RFC 9846 §4.7.3: a KeyUpdate's reply is protected under the keys it replaces, and every record
 /// after it under the new ones, so the reply is written first. When the output cannot hold it,
 /// nothing is written and nothing is sealed.
 pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls.provider.Sealed {

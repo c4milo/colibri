@@ -46,7 +46,7 @@ pub const Held = struct {
     /// offers. `negotiated_parameters` reads it here either way.
     suite: u16,
     /// What chapulin sent from inside `ch_read`, which `handshake_write` hands over: the reply to
-    /// a KeyUpdate that asked for one (RFC 9846 §4.6.3), or the alert a failed read raised.
+    /// a KeyUpdate that asked for one (RFC 9846 §4.7.3), or the alert a failed read raised.
     owed: [owed_len_max]u8 = undefined,
     owed_len: usize = 0,
 };
@@ -324,7 +324,7 @@ fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls.provi
     return 0;
 }
 
-/// What chapulin sent from inside `ch_read` (`owed`), whole: RFC 9846 §4.6.3's KeyUpdate reply is
+/// What chapulin sent from inside `ch_read` (`owed`), whole: RFC 9846 §4.7.3's KeyUpdate reply is
 /// protected under the keys it replaces, so none of it may follow a record sealed after it. An
 /// output that cannot hold all of it takes none.
 fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) tls.provider.HandshakeWriteError!usize {

@@ -146,7 +146,7 @@ test "a record that carries no data is taken whole, and chapulin never reads the
     try testing.expectEqual(0, try held.vtable.handshake_write(held.context, &output, 0));
 }
 
-/// RFC 9846 §4.6.1 and §4.6.3: a KeyUpdate whose `request_update` is `update_requested`, as a
+/// RFC 9846 §4 and §4.7.3: a KeyUpdate whose `request_update` is `update_requested`, as a
 /// handshake message: type 24, a length of 1, and the one octet. Test-only.
 const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, update_requested };
 const key_update_not_requested = [_]u8{ handshake_key_update, 0, 0, 1, update_not_requested };
@@ -154,7 +154,7 @@ const handshake_key_update: u8 = 24;
 const update_not_requested: u8 = 0;
 const update_requested: u8 = 1;
 
-test "RFC 9846 §4.6.3: a KeyUpdate that asks for one is answered, under the keys it replaces" {
+test "RFC 9846 §4.7.3: a KeyUpdate that asks for one is answered, under the keys it replaces" {
     if (!chapulin.available) return error.SkipZigTest;
     const held = keyed_provider();
     const update = try zero_key_records.seal(0, zero_key_records.content_handshake, &key_update_requested, &keyed_input);

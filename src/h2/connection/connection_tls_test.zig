@@ -184,7 +184,7 @@ test "§9.2.3: a NewSessionTicket and a KeyUpdate are consumed and yield no plai
         try testing.expectEqual(0, opened.plaintext_len);
         try testing.expect(!opened.end_of_data);
         try testing.expect(!connection.test_connection.has_failed());
-        // RFC 9846 §4.6.3: only a KeyUpdate may leave a reply owed.
+        // RFC 9846 §4.7.3: only a KeyUpdate may leave a reply owed.
         try testing.expectEqual(content == .key_update, opened.owes_handshake);
     }
 }
@@ -201,7 +201,7 @@ fn key_update_owing(state: *Fake, reply: []const u8) !void {
     try testing.expect(opened.owes_handshake);
 }
 
-test "RFC 9846 §4.6.3: a KeyUpdate's reply goes out ahead of every record sealed after it" {
+test "RFC 9846 §4.7.3: a KeyUpdate's reply goes out ahead of every record sealed after it" {
     Fake.init_table();
     var state: Fake = .{};
     connection.test_connection.init(.server);

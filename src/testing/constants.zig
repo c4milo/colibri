@@ -301,7 +301,7 @@ pub const nanoseconds_per_second: u64 = 1_000_000_000;
 /// RFC 9846 §4.2.11 counts a ticket's age in milliseconds, and Rotor's instant is in nanoseconds.
 pub const nanoseconds_per_millisecond: u64 = 1_000_000;
 
-/// The longest ticket identity a UDP QUIC client keeps (RFC 9846 §4.6.1). chapulin's server issues
+/// The longest ticket identity a UDP QUIC client keeps (RFC 9846 §4.7.1). chapulin's server issues
 /// 104 octets and other servers a few hundred; a longer ticket is not kept, and the client says so.
 pub const quic_ticket_identity_len_max: usize = 1024;
 

@@ -99,7 +99,7 @@ pub const Records = struct {
             records.plain_in_len += opened.plaintext_len;
             // RFC 9846 §6.1: the peer's close_notify ends its data.
             if (opened.end_of_data) records.peer_closed = true;
-            // RFC 9846 §4.6.3: a KeyUpdate may leave a reply owed, which goes out before the
+            // RFC 9846 §4.7.3: a KeyUpdate may leave a reply owed, which goes out before the
             // next record is opened, so at most one is owed at a time.
             if (opened.owes_handshake) return consumed;
         }
@@ -127,7 +127,7 @@ pub const Records = struct {
     /// `close_notify` once the connection is finished and nothing is left to seal.
     fn seal(records: *Records, session: anytype, output: []u8) Error!usize {
         // Called with no plaintext too: `encrypt` writes what the provider owes first, such as
-        // the reply to a KeyUpdate (RFC 9846 §4.6.3), and that does not wait for h2 to write.
+        // the reply to a KeyUpdate (RFC 9846 §4.7.3), and that does not wait for h2 to write.
         const plaintext = records.plain_out[0..records.plain_out_len];
         const sealed = connection_tls.encrypt(&session.connection, plaintext, output, session.now_ns) catch |failure| switch (failure) {
             // The socket has not taken what it holds; the rest waits.

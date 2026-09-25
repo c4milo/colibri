@@ -1048,7 +1048,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     rules are not met.
 
   **A peer's KeyUpdate is answered, 2026-09-24** ([#62](https://github.com/c4milo/colibri/issues/62)).
-  RFC 9846 §4.6.3 has a KeyUpdate that asks for one get a reply, protected under the keys it
+  RFC 9846 §4.7.3 has a KeyUpdate that asks for one get a reply, protected under the keys it
   replaces. chapulin sends that reply from inside `ch_read`. Before this fix, the adapter gave it
   nowhere to go, so the session failed, and h2 never called the provider's `handshake_write`,
   which its contract says it calls for the life of the connection.

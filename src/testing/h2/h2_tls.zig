@@ -183,11 +183,11 @@ test "RFC 9846 §6.1: after the peer's close_notify this side still writes, then
 /// chapulin's `REC_OVERHEAD` less the header. Test-only.
 const record_overhead_after_header: usize = chapulin.c.REC_OVERHEAD - tls.constants.record_header_len;
 
-/// RFC 9846 §4.6.3's KeyUpdate asking for one back, as a handshake message. Test-only.
+/// RFC 9846 §4.7.3's KeyUpdate asking for one back, as a handshake message. Test-only.
 const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, 1 };
 const handshake_key_update: u8 = 24;
 
-test "RFC 9846 §4.6.3: a peer's KeyUpdate is answered before anything else is read or sealed" {
+test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before anything else is read or sealed" {
     if (!available) return error.SkipZigTest;
     try connect_test_layer();
     // The server's SETTINGS go out first, as this side's record 0.

@@ -25,7 +25,7 @@ esac
 python3 /qns_identity.py /certs /tmp/identity
 
 if [ "$ROLE" = server ]; then
-  # The Unix time the server starts at, which its session tickets carry (RFC 9846 §4.6.1).
+  # The Unix time the server starts at, which its session tickets carry (RFC 9846 §4.7.1).
   server_options=("seconds=$(date +%s)")
   [ "$TESTCASE" = retry ] && server_options+=(retry)
   # Bound to the IPv6 wildcard, the one socket takes IPv4 clients too (as IPv4-mapped addresses),

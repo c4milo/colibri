@@ -176,7 +176,7 @@ pub const Connection = struct {
     /// Records in a row that carried no application data, counted by `connection_tls.zig`. A
     /// peer chooses how many it sends, so the run is bounded (`records_without_data_max`).
     records_without_data: u32,
-    /// Whether a KeyUpdate may have left the provider owing its reply (RFC 9846 §4.6.3), which
+    /// Whether a KeyUpdate may have left the provider owing its reply (RFC 9846 §4.7.3), which
     /// `encrypt` asks `handshake_write` for before it seals. Without one it asks nothing, so the
     /// common record costs one crossing of the vtable.
     handshake_owed: bool,

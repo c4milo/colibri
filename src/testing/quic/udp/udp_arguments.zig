@@ -17,7 +17,7 @@
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
-//!   tickets carry (RFC 9846 §4.6.1). Without it the server issues no ticket and accepts none.
+//!   tickets carry (RFC 9846 §4.7.1). Without it the server issues no ticket and accepts none.
 //!
 //! The client sends to `<address>:<port>` and fetches each path into `<downloads>`:
 //! - `keyupdate` updates its keys once, as soon as RFC 9001 §6.1 permits.
