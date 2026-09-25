@@ -1,6 +1,6 @@
 //! One connection of the test-only h2 client, with no socket in it: octets in, octets out, and a
-//! plan of exchanges it runs to the end (design §9). `h2_client.zig` is the socket around it, and
-//! these tests drive the same code the socket does, against `h2_session.zig` in the same process.
+//! plan of exchanges it runs to the end (design §9). `client/client_loop.zig` is its socket, and
+//! these tests drive the same code the socket does, against `h2_session.zig` in one process.
 //!
 //! `step` does four things in order, each bounded by the caller's buffers:
 //!   1. writes what the connection owes: its preface, the acknowledgments, the window updates and
@@ -23,12 +23,12 @@ const assert = std.debug.assert;
 const h2 = @import("h2");
 const constants = @import("../constants.zig");
 
-const h2_client_exchange = @import("h2_client_exchange.zig");
+const client_exchange = @import("../client/client_exchange.zig");
 
 const Connection = h2.Connection;
 const Event = h2.Event;
-const Exchange = h2_client_exchange.Exchange;
-const Plan = h2_client_exchange.Plan;
+const Exchange = client_exchange.Exchange;
+const Plan = client_exchange.Plan;
 const Crc32 = std.hash.Crc32;
 
 /// What one step did.
@@ -234,7 +234,7 @@ pub const Session = struct {
         for (0..exchange.plan.content_len / constants.request_content_period + 1) |_| {
             const left = exchange.plan.content_len - exchange.content_sent;
             if (left == 0) return written;
-            const chunk = h2_client_exchange.content_from(exchange.content_sent, left);
+            const chunk = client_exchange.content_from(exchange.content_sent, left);
             const sent = session.connection.write_data(
                 output[written..],
                 exchange.stream_id,
@@ -337,7 +337,7 @@ test "three exchanges share the connection, and content past the window waits fo
     try testing.expect(test_client.succeeded());
     const upload = &test_client.exchanges[1];
     try testing.expectEqual(content_len, upload.content_sent);
-    try testing.expectEqual(h2_client_exchange.content_crc32(content_len), upload.sent_crc32.final());
+    try testing.expectEqual(client_exchange.content_crc32(content_len), upload.sent_crc32.final());
     try testing.expectEqual(constants.response_status, upload.status);
 }
 

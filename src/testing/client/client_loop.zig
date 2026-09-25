@@ -1,4 +1,4 @@
-//! The socket around `h2_client_session.zig`: the test-only h2 client of design §9, which
+//! The socket around `h2/h2_client_session.zig`: the test-only client of design §9, which
 //! `tools/h2_interop.sh` runs against other implementations' servers. `zig build http-client --
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
@@ -21,11 +21,11 @@ const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("../constants.zig");
-const h2_client_exchange = @import("h2_client_exchange.zig");
-const h2_client_session = @import("h2_client_session.zig");
-const h2_client_tls = @import("h2_client_tls.zig");
+const client_options = @import("client_options.zig");
+const h2_client_session = @import("../h2/h2_client_session.zig");
+const h2_client_tls = @import("../h2/h2_client_tls.zig");
 
-const Plan = h2_client_exchange.Plan;
+const Run = client_options.Run;
 const Session = h2_client_session.Session;
 
 /// Why a connection ended without its session finishing.
@@ -62,21 +62,6 @@ const Connection = struct {
     receiving: bool,
     sending: bool,
     failure: Failure,
-};
-
-/// What the command line asked for.
-const Run = struct {
-    address: [ipv4_octets]u8,
-    port: u16,
-    authority: []const u8,
-    connections_count: u32,
-    plans: [constants.exchanges_max]Plan,
-    plans_count: u32,
-    /// The prefix of the root's files, which turns the TLS mode on.
-    anchor_prefix: ?[]const u8,
-    /// Seconds since 1970-01-01T00:00:00Z, the instant chapulin judges the server's chain at. No
-    /// file under `src/` reads a clock (non-negotiable 3), so the caller passes it.
-    now_seconds: u32,
 };
 
 /// The loop and the connections, in static storage: each connection is large, and a run holds up
@@ -307,14 +292,6 @@ fn close_connection(connection: *Connection, index: usize, failure: Failure) voi
     submit(rotor.Operation.close(user_data(index, .close), connection.descriptor));
 }
 
-/// How many octets an IPv4 address has (RFC 791 §3.1).
-const ipv4_octets: usize = 4;
-
-/// The address a run connects to unless `--address` names another: the loopback, which RFC 1122
-/// §3.2.1.3 reserves for the local host.
-const loopback_octets = [ipv4_octets]u8{ loopback_first, 0, 0, 1 };
-const loopback_first: u8 = 127;
-
 /// Prints one line per exchange of every connection, then the count of each ending.
 fn report(run: *const Run, succeeded: u32) void {
     for (connections[0..run.connections_count], 0..) |*connection, index| {
@@ -341,13 +318,6 @@ fn report(run: *const Run, succeeded: u32) void {
 const exchange_format = "connection={d} stream={d} {s} {s} status={d} interim={d} sent={d} " ++
     "sent_crc32=0x{x:0>8} received={d} received_crc32=0x{x:0>8} outcome={t} error_code={d}\n";
 
-const usage =
-    \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
-    \\                 [--tls <anchor-prefix> --seconds <unix-seconds>]
-    \\                 [--connections <count>] (--get <path> | --post <path> <octets>)...
-    \\
-;
-
 /// The exit status of a run in which a connection did not finish, and of a command line the
 /// client could not read.
 const exit_failed: u8 = 1;
@@ -357,8 +327,8 @@ const exit_usage: u8 = 2;
 pub fn main(init: std.process.Init.Minimal) !void {
     var arguments = std.process.Args.Iterator.init(init.args);
     _ = arguments.skip();
-    const run = read_run(&arguments) orelse {
-        std.debug.print(usage, .{});
+    const run = client_options.read_run(&arguments) orelse {
+        std.debug.print(client_options.usage, .{});
         std.process.exit(exit_usage);
     };
     if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
@@ -375,78 +345,6 @@ fn load_tls(prefix: []const u8, run: *const Run) !void {
         std.process.exit(exit_usage);
     }
     tls_shared = try h2_client_tls.load(&tls_anchors, prefix, run.authority, run.now_seconds);
-}
-
-/// Reads the command line, or returns null when it names nothing to do or something unreadable.
-fn read_run(arguments: *std.process.Args.Iterator) ?Run {
-    var run: Run = .{
-        .address = loopback_octets,
-        .port = constants.default_port,
-        .authority = "localhost",
-        .connections_count = 1,
-        .plans = undefined,
-        .plans_count = 0,
-        .anchor_prefix = null,
-        .now_seconds = 0,
-    };
-    for (0..constants.client_arguments_max) |_| {
-        const option = arguments.next() orelse break;
-        const value = arguments.next() orelse return null;
-        read_option(&run, option, value, arguments) orelse return null;
-    }
-    const connections_ok = run.connections_count > 0 and run.connections_count <= constants.client_connections_max;
-    // A webpki chain is valid only at an instant, so the TLS mode needs one.
-    const tls_ok = run.anchor_prefix == null or run.now_seconds > 0;
-    return if (run.plans_count > 0 and connections_ok and tls_ok) run else null;
-}
-
-/// Applies one option and its value, or returns null when the client does not know the option.
-fn read_option(run: *Run, option: []const u8, value: []const u8, arguments: *std.process.Args.Iterator) ?void {
-    const eql = std.mem.eql;
-    if (eql(u8, option, "--get")) return add_plan(run, .{ .method = "GET", .path = value, .content_len = 0 });
-    if (eql(u8, option, "--post")) {
-        const octets = arguments.next() orelse return null;
-        const content_len = read_number(octets) orelse return null;
-        if (content_len > constants.request_content_len_max) return null;
-        return add_plan(run, .{ .method = "POST", .path = value, .content_len = content_len });
-    }
-    return read_setting(run, option, value);
-}
-
-/// Applies one option that sets how the run connects, or returns null when it is not one.
-fn read_setting(run: *Run, option: []const u8, value: []const u8) ?void {
-    const eql = std.mem.eql;
-    if (eql(u8, option, "--address")) {
-        run.address = read_address(value) orelse return null;
-    } else if (eql(u8, option, "--authority")) {
-        run.authority = value;
-    } else if (eql(u8, option, "--port")) {
-        run.port = std.math.cast(u16, read_number(value) orelse return null) orelse return null;
-    } else if (eql(u8, option, "--connections")) {
-        run.connections_count = read_number(value) orelse return null;
-    } else if (eql(u8, option, "--tls")) {
-        run.anchor_prefix = value;
-    } else if (eql(u8, option, "--seconds")) {
-        run.now_seconds = read_number(value) orelse return null;
-    } else return null;
-}
-
-/// An IPv4 address from the command line, or null when it is not one.
-fn read_address(text: []const u8) ?[ipv4_octets]u8 {
-    const address = std.Io.net.IpAddress.parseIp4(text, 0) catch return null;
-    return address.ip4.bytes;
-}
-
-/// A decimal number from the command line, or null when it is not one.
-fn read_number(text: []const u8) ?u32 {
-    return std.fmt.parseInt(u32, text, constants.port_radix) catch null;
-}
-
-/// Appends one exchange to the plan, or returns null when the plan is full or the path is empty.
-fn add_plan(run: *Run, plan: Plan) ?void {
-    if (run.plans_count == constants.exchanges_max or plan.path.len == 0) return null;
-    run.plans[run.plans_count] = plan;
-    run.plans_count += 1;
 }
 
 const testing = std.testing;

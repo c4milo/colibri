@@ -1,11 +1,12 @@
 //! The root of `zig build http-client`: the test-only client of docs/design.md §9, which is
-//! `h2/h2_client.zig` and the session it drives. It is a module of its own, `testing_client`,
+//! `client/client_loop.zig` and the session it drives. It is a module of its own, `testing_client`,
 //! because an executable has one `main` and `testing.zig` gives its to the server.
 const std = @import("std");
 
 pub const chapulin = @import("tls/chapulin.zig");
 pub const chapulin_client = @import("tls/chapulin_client.zig");
-pub const h2_client = @import("h2/h2_client.zig");
+pub const client_loop = @import("client/client_loop.zig");
+pub const client_options = @import("client/client_options.zig");
 pub const h2_client_tls = @import("h2/h2_client_tls.zig");
 
 comptime {
@@ -16,12 +17,13 @@ comptime {
     _ = chapulin;
 }
 
-pub const main = h2_client.main;
+pub const main = client_loop.main;
 
 test {
     std.testing.refAllDecls(@This());
     _ = chapulin;
     _ = chapulin_client;
-    _ = h2_client;
+    _ = client_loop;
+    _ = client_options;
     _ = h2_client_tls;
 }

@@ -28,7 +28,7 @@ pub const Session = session.Session;
 pub const server = @import("server.zig");
 pub const h2_tls = @import("h2/h2_tls.zig");
 pub const h2_tls_records = @import("h2/h2_tls_records.zig");
-pub const h2_client_exchange = @import("h2/h2_client_exchange.zig");
+pub const client_exchange = @import("client/client_exchange.zig");
 pub const h2_client_session = @import("h2/h2_client_session.zig");
 
 /// The entry point of `zig build http-server`, which is this module's executable form.
@@ -45,6 +45,6 @@ test {
     _ = server;
     _ = h2_tls;
     _ = h2_tls_records;
-    _ = h2_client_exchange;
+    _ = client_exchange;
     _ = h2_client_session;
 }

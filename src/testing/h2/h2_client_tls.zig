@@ -1,7 +1,7 @@
 //! The TLS layer of design §9's h2 client, which `tools/h2_interop.sh` runs against other
 //! implementations' servers over TLS (design §8 step 5): the handshake over chapulin's
 //! record-mode client, then the record half the server shares, `h2_tls_records.zig`.
-//! `h2_client.zig` reads and writes the socket around it.
+//! `client/client_loop.zig` reads and writes the socket around it.
 //!
 //! No call here waits: `handshake` takes the octets the socket read and writes what the client
 //! owes the server, so the connection stays one of the loop's connections (decision 46).
@@ -60,7 +60,7 @@ pub fn load(storage: *Anchors, prefix: []const u8, hostname: []const u8, now_sec
     return .{ .anchors = &storage.anchors, .hostname = hostname, .now_seconds = now_seconds };
 }
 
-/// One connection's TLS state, in static storage `h2_client.zig` places.
+/// One connection's TLS state, in static storage `client/client_loop.zig` places.
 pub const Layer = if (available) struct {
     client: chapulin_client.Client,
     /// chapulin's receive buffer (`chapulin_client.Options.receive`).
@@ -132,13 +132,13 @@ const testing = std.testing;
 const tls = @import("tls");
 const zero_key_records = @import("../tls/zero_key_records.zig");
 const chapulin_record = @import("../tls/chapulin_record.zig");
-const h2_client_exchange = @import("h2_client_exchange.zig");
+const client_exchange = @import("../client/client_exchange.zig");
 
 /// A layer and a session the tests drive, outside any stack frame. Test-only.
 var test_layer: Layer = undefined;
 var test_session: Session = undefined;
 var test_output: [constants.write_buffer_len]u8 = undefined;
-const test_plans = [_]h2_client_exchange.Plan{.{ .method = "GET", .path = "/", .content_len = 0 }};
+const test_plans = [_]client_exchange.Plan{.{ .method = "GET", .path = "/", .content_len = 0 }};
 
 /// One anchor whose name and key are each an empty DER SEQUENCE. chapulin refuses a configuration
 /// with no anchor, and no test here reaches a certificate. Test-only.
