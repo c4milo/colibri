@@ -1,8 +1,9 @@
-//! The socket around `h2_session.zig`: the h2 server of design §9, which `tools/h2spec.sh` runs
-//! the pinned h2spec against and h2load measures. `zig build http-server -- --port <port>` runs it
-//! in cleartext with prior knowledge (RFC 9113 §3.3). With `--tls <identity-prefix>` it serves h2
-//! over TLS (§3.2) instead, through chapulin's record-mode server and `h2_tls.zig`, which needs a
-//! build given `-Dchapulin-server` (design §8 step 5).
+//! The socket around `session.zig`: the server of design §9, which `tools/h2spec.sh` runs the
+//! pinned h2spec against and h2load measures. `zig build http-server -- --port <port>` runs it in
+//! cleartext, speaking h2 with prior knowledge (RFC 9113 §3.3), or h11 with `--h11` (design §8
+//! step 15d). With `--tls <identity-prefix>` it serves h2 over TLS (§3.2) instead, through
+//! chapulin's record-mode server and `h2/h2_tls.zig`, which needs a build given
+//! `-Dchapulin-server` (design §8 step 5).
 //!
 //! One worker per core, sharing nothing. Each worker has its own Rotor loop and its own listening
 //! socket on the same port, bound with SO_REUSEPORT, so the kernel hands each new connection to
@@ -29,14 +30,15 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
-const constants = @import("../constants.zig");
-const h2_session = @import("h2_session.zig");
-const h2_tls = @import("h2_tls.zig");
-const server_identity = @import("../tls/server_identity.zig");
-const chapulin = @import("../tls/chapulin.zig");
-const chapulin_server = @import("../tls/chapulin_server.zig");
+const constants = @import("constants.zig");
+const session_module = @import("session.zig");
+const h2_tls = @import("h2/h2_tls.zig");
+const server_identity = @import("tls/server_identity.zig");
+const chapulin = @import("tls/chapulin.zig");
+const chapulin_server = @import("tls/chapulin_server.zig");
 
-const Session = h2_session.Session;
+const Session = session_module.Session;
+const Protocol = session_module.Protocol;
 
 /// What an operation a connection has in flight does. It rides in the operation's user data,
 /// below the connection's slot.
@@ -185,7 +187,8 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     const slot = free_slot(worker) orelse unreachable; // `arm_accept` waits for one.
     const connection = &worker.connections[slot];
     connection.descriptor = descriptor;
-    connection.session.init();
+    // The TLS mode serves h2 alone until ALPN chooses between h2 and h11 (design §8 step 15d).
+    connection.session.init(if (tls_shared != null) .h2 else cleartext_protocol);
     connection.input_len = 0;
     connection.output_len = 0;
     connection.output_sent = 0;
@@ -329,7 +332,7 @@ fn step_tls(connection: *Connection, layer: *h2_tls.Layer) !void {
     if (comptime !h2_tls.available) unreachable; // No layer exists without chapulin.
     const stepped = try h2_tls.step(
         layer,
-        &connection.session,
+        &connection.session.h2,
         connection.input[0..connection.input_len],
         connection.output[connection.output_len..],
     );
@@ -351,31 +354,47 @@ fn consume(connection: *Connection, consumed: usize) void {
 const loopback_octets = [_]u8{ loopback_first, 0, 0, 1 };
 const loopback_first: u8 = 127;
 
-/// The command-line options, as `tools/h2spec.sh` passes them: the port, and the prefix of the
-/// identity files `tools/h2_interop/tls_identity.go` wrote, which turns the TLS mode on.
+/// The command-line options, as `tools/h2spec.sh` passes them: the port, the prefix of the
+/// identity files `tools/h2_interop/tls_identity.go` wrote, which turns the TLS mode on, and
+/// `--h11`, which takes no value and makes a cleartext connection speak h11.
 const port_option = "--port";
 const tls_option = "--tls";
+const h11_option = "--h11";
 
 /// What the command line asked for.
 const Options = struct {
     port: u16 = constants.default_port,
     identity_prefix: ?[]const u8 = null,
+    protocol: Protocol = .h2,
 };
 
-/// Runs the server: `zig build http-server -- --port <port> [--tls <identity-prefix>]`.
+/// The protocol every cleartext connection speaks, which `main` sets from the command line.
+var cleartext_protocol: Protocol = .h2;
+
+/// Runs the server: `zig build http-server -- --port <port> [--h11 | --tls <identity-prefix>]`.
 pub fn main(init: std.process.Init.Minimal) !void {
     var arguments = std.process.Args.Iterator.init(init.args);
     _ = arguments.skip();
     const options = read_options(&arguments);
+    if (options.protocol == .h11 and options.identity_prefix != null) {
+        std.debug.print("http-server: --h11 chooses the cleartext protocol; over TLS the server speaks h2\n", .{});
+        std.process.exit(exit_usage);
+    }
+    cleartext_protocol = options.protocol;
     if (options.identity_prefix) |prefix| try load_tls(prefix);
     try listen_and_serve(options.port);
 }
 
-/// Reads `--port` and `--tls`, each followed by its value. An unreadable port is the default.
+/// Reads `--port` and `--tls`, each followed by its value, and `--h11`. An unreadable port is the
+/// default.
 fn read_options(arguments: *std.process.Args.Iterator) Options {
     var options: Options = .{};
     for (0..constants.arguments_max) |_| {
         const argument = arguments.next() orelse break;
+        if (std.mem.eql(u8, argument, h11_option)) {
+            options.protocol = .h11;
+            continue;
+        }
         const value = arguments.next() orelse break;
         if (std.mem.eql(u8, argument, port_option)) {
             options.port = std.fmt.parseInt(u16, value, constants.port_radix) catch constants.default_port;

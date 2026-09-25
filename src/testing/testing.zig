@@ -2,9 +2,9 @@
 //! imports this module, and it is the only place in the tree permitted to touch a socket
 //! (invariant 2 is scoped to `src/` outside it).
 //!
-//! `h2_session` is one connection of the cleartext h2 server, with no socket in it, and
-//! `h2_server` is the socket around it: `zig build http-server` runs the pair for h2spec and
-//! h2load (design §8 step 4).
+//! `session` is one connection of the server, with no socket in it, speaking h2 (`h2_session`) or
+//! h11 (`h11_session`), and `server` is the socket around it: `zig build http-server` runs the
+//! pair for h2spec and h2load (design §8 steps 4 and 15d).
 const std = @import("std");
 
 pub const chapulin = @import("tls/chapulin.zig");
@@ -22,15 +22,17 @@ comptime {
 }
 
 pub const h2_session = @import("h2/h2_session.zig");
-pub const Session = h2_session.Session;
-pub const h2_server = @import("h2/h2_server.zig");
+pub const h11_session = @import("h11/h11_session.zig");
+pub const session = @import("session.zig");
+pub const Session = session.Session;
+pub const server = @import("server.zig");
 pub const h2_tls = @import("h2/h2_tls.zig");
 pub const h2_tls_records = @import("h2/h2_tls_records.zig");
 pub const h2_client_exchange = @import("h2/h2_client_exchange.zig");
 pub const h2_client_session = @import("h2/h2_client_session.zig");
 
 /// The entry point of `zig build http-server`, which is this module's executable form.
-pub const main = h2_server.main;
+pub const main = server.main;
 
 test {
     std.testing.refAllDecls(@This());
@@ -38,7 +40,9 @@ test {
     _ = chapulin_server;
     _ = constants;
     _ = h2_session;
-    _ = h2_server;
+    _ = h11_session;
+    _ = session;
+    _ = server;
     _ = h2_tls;
     _ = h2_tls_records;
     _ = h2_client_exchange;

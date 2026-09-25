@@ -164,6 +164,7 @@ pub fn add(
     const testing = create(b, "src/testing/testing.zig", target, optimize);
     testing.addImport("core", core);
     testing.addImport("h2", h2);
+    testing.addImport("h11", h11);
     // Step 5's TLS half: the endpoint fills `tls.Provider` from chapulin, so it needs the vtable
     // the library declares. The library still links no TLS stack; this module is not in it.
     testing.addImport("tls", tls);

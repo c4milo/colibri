@@ -1,5 +1,5 @@
 //! One connection of the test-only h2 server, with no socket in it: octets in, octets out, and
-//! a 200 response to every request that ends (design §9). `h2_server.zig` is the socket around it,
+//! a 200 response to every request that ends (design §9). `server.zig` is the socket around it,
 //! and these tests drive the same code the socket does.
 //!
 //! `step` does three things in order, each bounded by the caller's buffers:

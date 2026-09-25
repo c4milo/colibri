@@ -1,6 +1,6 @@
 //! The TLS layer of design §9's h2 server, which `h2spec -t -k` runs against (design §8 step 5):
 //! one connection's records in, h2's byte stream to `h2_session.zig`, and its frames back out as
-//! records. `h2_server.zig` reads and writes the socket around it.
+//! records. `server.zig` reads and writes the socket around it.
 //!
 //! chapulin's server runs in record mode (https://github.com/c4milo/colibri/issues/20): the
 //! handshake takes the octets the socket read and returns the flight, so no call here waits and
@@ -36,7 +36,7 @@ pub const Shared = struct {
     cookie_key: []const u8,
 };
 
-/// One connection's TLS state, in static storage `h2_server.zig` places.
+/// One connection's TLS state, in static storage `server.zig` places.
 pub const Layer = if (available) struct {
     server: chapulin_server.Server,
     /// chapulin's receive buffer (`chapulin_server.Options.receive`).
