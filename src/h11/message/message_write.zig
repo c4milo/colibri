@@ -103,6 +103,26 @@ fn check_fields(fields: []const Field) Error!void {
     const both = find(fields, content_length_name) != null and find(fields, transfer_encoding_name) != null;
     // RFC 9112 §6.2: a sender MUST NOT send Content-Length in a message with Transfer-Encoding.
     if (both) return error.FramingInvalid;
+    try check_framing(fields);
+}
+
+/// The framing fields colibri writes: one Content-Length of 1*DIGIT that fits a u64, and a
+/// Transfer-Encoding of chunked alone, since colibri encodes no other coding (decision 91).
+fn check_framing(fields: []const Field) Error!void {
+    // RFC 9110 §8.6: one Content-Length value; colibri writes no list of repeats.
+    if (count_named(fields, content_length_name) > 1) return error.FramingInvalid;
+    if (find(fields, content_length_name)) |value| {
+        // RFC 9110 §8.6: Content-Length = 1*DIGIT.
+        if (value.len == 0 or !http.uri.is_port(value)) return error.FramingInvalid;
+        // RFC 9110 §8.6: a length colibri can count, which a u64 holds.
+        _ = std.fmt.parseUnsigned(u64, value, http.constants.content_length_radix) catch return error.FramingInvalid;
+    }
+    // RFC 9112 §6.1: colibri applies chunked, once, as the only coding it writes.
+    if (count_named(fields, transfer_encoding_name) > 1) return error.FramingInvalid;
+    if (find(fields, transfer_encoding_name)) |value| {
+        // RFC 9112 §7.1: the chunked coding's name, compared case-insensitively (§7).
+        if (!std.ascii.eqlIgnoreCase(value, "chunked")) return error.FramingInvalid;
+    }
 }
 
 /// The start line's parts, a CRLF, each field line and the empty line.
@@ -200,6 +220,25 @@ test "field lines are checked, and framing fields go where RFC 9112 and RFC 9110
     try testing.expectError(error.FramingInvalid, write_response_head(&test_output, 204, "", &.{.{ .name = "Content-Length", .value = "0" }}));
     try testing.expectError(error.FramingInvalid, write_response_head(&test_output, 101, "", &.{.{ .name = "Transfer-Encoding", .value = "chunked" }}));
     _ = try write_response_head(&test_output, 304, "", &.{.{ .name = "Content-Length", .value = "5" }});
+}
+
+test "framing fields are one digit-only Content-Length or a Transfer-Encoding of chunked" {
+    for ([_][]const u8{ "", "-1", "+5", "1_0", "0x5", "5,5", "99999999999999999999" }) |value| {
+        try testing.expectError(error.FramingInvalid, write_response_head(&test_output, 200, "", &.{.{ .name = "Content-Length", .value = value }}));
+    }
+    try testing.expectError(error.FramingInvalid, write_response_head(&test_output, 200, "", &.{
+        .{ .name = "Content-Length", .value = "1" },
+        .{ .name = "Content-Length", .value = "1" },
+    }));
+    try testing.expectError(error.FramingInvalid, write_response_head(&test_output, 200, "", &.{
+        .{ .name = "Transfer-Encoding", .value = "chunked" },
+        .{ .name = "Transfer-Encoding", .value = "chunked" },
+    }));
+    for ([_][]const u8{ "gzip, chunked", "gzip", "chunked, chunked" }) |value| {
+        try testing.expectError(error.FramingInvalid, write_response_head(&test_output, 200, "", &.{.{ .name = "Transfer-Encoding", .value = value }}));
+    }
+    _ = try write_response_head(&test_output, 200, "", &.{.{ .name = "transfer-encoding", .value = "Chunked" }});
+    _ = try write_response_head(&test_output, 200, "", &.{.{ .name = "Content-Length", .value = "0" }});
 }
 
 test "a head that does not fit is not written, and one that fits exactly is" {

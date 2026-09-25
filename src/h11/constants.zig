@@ -25,6 +25,11 @@ pub const chunk_line_len_max: u32 = 4096;
 /// head is, less the start line.
 pub const trailer_len_max: u32 = head_len_max - start_line_len_max;
 
+/// Most requests a client connection has outstanding at once: sent, with no final response yet
+/// (RFC 9112 §9.3.2). RFC 9112 places no limit on a pipeline, so this is policy, and it sets the
+/// size of the queue `connection_client` keeps (RFC 9112 §9.2).
+pub const pipeline_depth_max: u32 = 16;
+
 /// The octets RFC 9112 §2.3 gives an HTTP-version: `HTTP-name "/" DIGIT "." DIGIT`.
 pub const version_len: u32 = 8;
 

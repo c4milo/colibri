@@ -10,6 +10,7 @@ pub const http = @import("http");
 pub const constants = @import("constants.zig");
 pub const message = @import("message/message.zig");
 pub const chunked = @import("chunked/chunked.zig");
+pub const connection = @import("connection/connection.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -22,4 +23,6 @@ test {
     _ = @import("message/message_write.zig");
     _ = @import("chunked/chunked_write.zig");
     _ = @import("message/message_fuzz.zig");
+    _ = @import("connection/connection_server_test.zig");
+    _ = @import("connection/connection_client_test.zig");
 }
