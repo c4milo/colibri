@@ -56,7 +56,8 @@ pub fn check(line: RequestLine, section: *const FieldSection) Error!Form {
     return form;
 }
 
-fn target_form(line: RequestLine) Error!Form {
+/// The form of `line`'s request-target, checked against its method (RFC 9112 §3.2).
+pub fn target_form(line: RequestLine) Error!Form {
     const method = http.method.standard(line.method);
     if (method == .connect) {
         try check_authority_form(line.target);

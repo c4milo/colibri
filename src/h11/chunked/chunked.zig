@@ -19,6 +19,11 @@ const constants = @import("../constants.zig");
 const chunked_line = @import("chunked_line.zig");
 const message_scan = @import("../message/message_scan.zig");
 const message_fields = @import("../message/message_fields.zig");
+const chunked_write = @import("chunked_write.zig");
+
+pub const WriteError = chunked_write.Error;
+pub const write_chunk = chunked_write.write_chunk;
+pub const write_last_chunk = chunked_write.write_last_chunk;
 
 const FieldSection = http.FieldSection;
 const Reader = core.reader.Reader;

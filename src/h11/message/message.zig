@@ -24,6 +24,7 @@ const message_start = @import("message_start.zig");
 const message_fields = @import("message_fields.zig");
 const message_target = @import("message_target.zig");
 const message_body = @import("message_body.zig");
+const message_write = @import("message_write.zig");
 
 const FieldSection = http.FieldSection;
 const Reader = core.reader.Reader;
@@ -38,6 +39,10 @@ pub const Body = message_body.Body;
 pub const Length = message_body.Length;
 pub const Coding = message_body.Coding;
 pub const Asked = message_body.Asked;
+
+pub const WriteError = message_write.Error;
+pub const write_request_head = message_write.write_request_head;
+pub const write_response_head = message_write.write_response_head;
 
 pub const Error = message_scan.Error || message_start.Error || message_fields.Error ||
     message_target.Error || message_body.Error;

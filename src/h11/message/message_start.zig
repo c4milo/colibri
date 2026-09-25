@@ -146,7 +146,7 @@ fn check_target(target: []const u8) Error!void {
 
 /// `reason-phrase = 1*( HTAB / SP / VCHAR / obs-text )` (RFC 9112 §4). The phrase may be empty,
 /// because the status line's grammar makes it optional.
-fn check_reason(reason: []const u8) Error!void {
+pub fn check_reason(reason: []const u8) Error!void {
     for (reason) |octet| {
         const allowed = octet == '\t' or octet == ' ' or is_visible(octet) or is_obs_text(octet);
         // RFC 9112 §4: nothing but HTAB, SP, VCHAR and obs-text.

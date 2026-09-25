@@ -17,4 +17,6 @@ test {
     _ = @import("message/message_target.zig");
     _ = @import("message/message_body.zig");
     _ = @import("chunked/chunked_line.zig");
+    _ = @import("message/message_write.zig");
+    _ = @import("chunked/chunked_write.zig");
 }
