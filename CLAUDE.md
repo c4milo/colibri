@@ -256,8 +256,10 @@ section when a step adds or renames a command.
   `tools/h2_interop.sh [--tls <checkout>] [go] [nghttpd] [h2o]` runs the test-only h2 client
   (`zig build h2-client`) against other implementations' servers in cleartext, and with `--tls`
   over TLS too, through the client's `--tls <anchor-prefix> --seconds <unix-seconds>` mode; it
-  needs `go`, `docker` and `python3`. None is part of `zig build test`; CI runs them, and so does
-  a person before calling a step done.
+  needs `go`, `docker` and `python3`. `tools/h2_server_interop.sh [--tls <checkout>] [curl]
+  [nghttp] [go]` runs curl, nghttp and Go's client against the test-only h2 server the same way;
+  it needs `go` and `docker`. None is part of `zig build test`; CI runs them, and so does a person
+  before calling a step done.
 - CI: `tools/ci.sh [report.md]` runs every check above that exists and writes the report;
   `.github/workflows/main.yml` runs it on each push to main (decision 47). A new check joins
   `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.

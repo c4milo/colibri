@@ -126,6 +126,13 @@ else
   section "Interop, client direction, cleartext" tools/h2_interop.sh
 fi
 interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|over TLS|every exchange)|^h2-client:" "${scratch}/last.log")"
+# The server direction runs over TLS too when the checkout carries the record-mode server object.
+if [ -f "${chapulin}/bin/chapulin-server.o" ]; then
+  section "Interop, server direction, cleartext and TLS" tools/h2_server_interop.sh --tls "${chapulin}"
+else
+  section "Interop, server direction, cleartext" tools/h2_server_interop.sh
+fi
+server_interop_lines="$(grep -E "^h2_server_interop.sh: (curl|nghttp|go|over TLS|every request)" "${scratch}/last.log")"
 if [ -f "${chapulin}/bin/chapulin-client.o" ] && [ -f "${chapulin}/bin/chapulin-server.o" ]; then
   section "TLS handshake, colibri as client" tools/tls_handshake.sh "${chapulin}"
   tls_lines="$(grep -E "^tls-handshake:" "${scratch}/last.log")"
@@ -205,7 +212,7 @@ fi
   echo
   echo "## Conformance and interop"
   echo
-  { echo "${h2spec_lines}"; echo "${interop_lines}"; } | fenced
+  { echo "${h2spec_lines}"; echo "${interop_lines}"; echo "${server_interop_lines}"; } | fenced
   echo
   echo "## TLS, both directions"
   echo

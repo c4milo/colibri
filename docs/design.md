@@ -1101,8 +1101,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     client offers X25519MLKEM768 and x25519. RFC 9846 §9.1 says a client "MUST support key
     exchange with secp256r1". chapulin has the report, and colibri adds no workaround.
 
-  **Still owed for the step:** nghttpd over TLS, which waits on chapulin offering secp256r1, and
-  the server direction against curl, nghttp and Go's client, in cleartext and over TLS.
+  **The server direction, 2026-09-24.** `tools/h2_server_interop.sh [--tls <checkout>]` runs
+  curl, nghttp and Go's client against `h2-server`, in cleartext and then over TLS 1.3. Each sends
+  64 GETs and a 300,000-octet POST. The run requires 200 and the server's body for each.
+  - curl 7.88.1 cannot reuse a prior-knowledge connection. Its second request on one fails with
+    "Error in the HTTP2 framing layer", against Go's server as against colibri's. So in cleartext
+    each curl GET gets its own connection, 64 at once. Over TLS they share one.
+  - 9 mutations, all CAUGHT: every client catches a status of 201 and a body one octet shorter,
+    and a body with one octet changed. nghttp at first checked only the size, so the script now
+    counts its bodies too.
+
+  What `tools/h2_server_interop.sh --tls <checkout>` printed on macOS arm64, with chapulin
+  `6a4c5eb`, Docker Desktop reaching the server through `host.docker.internal`:
+  - curl 7.88.1 (OpenSSL 3.0.22, nghttp2 1.52.0): `64 GETs and a 300000-octet POST ended with
+    200`, in cleartext and over TLS.
+  - nghttp 1.52.0: the same, in both modes.
+  - Go 1.27.1: `requests=65 failed=0`, in both modes.
+
+  **Still owed for the step:** nghttpd over TLS, which waits on chapulin offering secp256r1.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not
