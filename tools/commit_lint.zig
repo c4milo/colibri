@@ -29,8 +29,9 @@ const pepegrillo = @import("pepegrillo");
 
 /// The scopes CLAUDE.md names, one per module of docs/design.md §3.
 pub const module_scopes = [_][]const u8{
-    "h2",  "h3",     "quic", "hpack", "qpack",  "wire",  "http",
-    "tls", "crypto", "core", "sim",   "golden", "bench",
+    "h2",      "h3",     "quic", "hpack", "qpack",  "wire",  "http",
+    "tls",     "crypto", "core", "sim",   "golden", "bench", "h11",
+    "deflate",
 };
 
 /// First words that describe the commit instead of commanding it.
@@ -66,7 +67,7 @@ const commit = pepegrillo.commit;
 
 /// The module scopes as the scope warning prints them, written out rather than built from
 /// `module_scopes`, so a scope added to or dropped from that list fails this file.
-const module_scope_list = "h2, h3, quic, hpack, qpack, wire, http, tls, crypto, core, sim, golden, bench";
+const module_scope_list = "h2, h3, quic, hpack, qpack, wire, http, tls, crypto, core, sim, golden, bench, h11, deflate";
 
 /// Lints `text` under colibri's configuration and checks each finding, in order, as
 /// `severity: rule: message`.
@@ -88,8 +89,8 @@ fn expect_findings(text: []const u8, expected: []const []const u8) !void {
 test "every scope CLAUDE.md names passes, digits included" {
     // Written out rather than read from `module_scopes`, so a scope dropped from that list fails.
     const scopes = [_][]const u8{
-        "h2",     "h3",    "quic", "hpack", "qpack", "wire", "http", "tls", "crypto", "core", "sim",
-        "golden", "bench",
+        "h2",     "h3",    "quic", "hpack",   "qpack", "wire", "http", "tls", "crypto", "core", "sim",
+        "golden", "bench", "h11",  "deflate",
     };
     try testing.expectEqual(scopes.len, module_scopes.len);
     for (scopes) |scope| {

@@ -1,8 +1,7 @@
 # colibri rules
 
-colibri is an HTTP/2 and HTTP/3 library — client and server — written from the RFCs, named for
-the hummingbird. Home:
-github.com/c4milo/colibri.
+colibri is an HTTP/1.1, HTTP/2 and HTTP/3 library — client and server — written from the RFCs,
+named for the hummingbird. Home: github.com/c4milo/colibri.
 
 It is a standalone library. stompy is its first consumer and will vendor it the way it vendors
 chapulin. colibri must never depend on stompy, must never name stompy in its source, and must
@@ -84,11 +83,11 @@ exists — never propose a second one.
 ## Conventions
 
 - Zig 0.16. One library, no binary, plus test-only entry points named in design §9.
-- Names are settled — use them exactly: **h2** and **h3** for the protocols (never "HTTP2"),
-  **field section** and **field line**, the terms RFC 9110 §5.2 uses (never "headers" as a noun
-  for the section), **stream** for both h2 streams and QUIC streams with the protocol always
-  named when both are in scope, **provider** for a caller-supplied vtable, **endpoint** for one
-  side of a connection.
+- Names are settled — use them exactly: **h11**, **h2** and **h3** for the protocols (never
+  "HTTP2"), **field section** and **field line**, the terms RFC 9110 §5.2 uses (never "headers" as a
+  noun for the section), **stream** for both h2 streams and QUIC streams with the protocol always
+  named when both are in scope, **provider** for a caller-supplied vtable, **endpoint** for one side
+  of a connection.
 - Names spell words out. `field_section_size`, not `fss`. No vowel-dropping. Domain vocabulary
   the RFCs use stays as the RFCs spell it (`alpn`, `aead`, `hkdf`, `psk`, `dcid`, `scid`,
   `pto`, `rtt`, `ack`). One-letter names only for loop indices. `_len` always counts bytes.
@@ -131,7 +130,8 @@ exists — never propose a second one.
   `perf`, `build`, `ci`, `chore` — and a scope, when present, holds lowercase letters, digits and
   hyphens. The scope allows digits because `h2` and `h3` are the two commonest scopes, and a rule
   admitting letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`,
-  `hpack`, `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`. A scope
+  `hpack`, `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`, `h11`,
+  `deflate`. A scope
   outside that set is a warning rather than a refusal, because the set grows when the graph does
   and docs/design.md §3 is the authority on it, not the linter.
 - The description is imperative, starts with a lowercase letter, and ends without a period: write
@@ -153,9 +153,9 @@ exists — never propose a second one.
   `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not
   by review. The graph is design §3 and the rest of the design depends on it — read it before
   adding a module or an edge.
-- The one edge that must never exist: **`quic` may not import `http`, `h2`, `h3`, `hpack` or
-  `qpack`.** QUIC knows nothing about HTTP (decision 5). The QUIC simulator runs with no HTTP
-  module in the graph at all, and that is the check that proves the boundary.
+- The one edge that must never exist: **`quic` may not import `http`, `h2`, `h3`, `h11`, `hpack` or
+  `qpack`.** QUIC knows nothing about HTTP (decision 5). The QUIC simulator runs with no HTTP module
+  in the graph at all, and that is the check that proves the boundary.
 - Each module owns its `constants.zig`. A limit two modules share belongs in
   `src/core/constants.zig`. A comptime assert stays with the constant it pins.
 - Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.

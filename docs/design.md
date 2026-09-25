@@ -10,21 +10,21 @@ Every section is cited by number in commits and comments ("§8 step 4").
 
 ## 1. Thesis and scope
 
-colibri is an HTTP/2 and HTTP/3 library, client and server, written from the RFCs. It owns no
-I/O, no crypto and no clock: bytes, keys and time all arrive from the caller. What it owns is the
+colibri is an HTTP/1.1, HTTP/2 and HTTP/3 library, client and server, written from the RFCs. It owns
+no I/O, no crypto and no clock: bytes, keys and time all arrive from the caller. What it owns is the
 part that is hard to get right and easy to get wrong — framing, field compression, stream state,
-flow control, loss recovery — and it owns it with no heap, bounded loops and assertions that stay
-on in production.
+flow control, loss recovery — and it owns it with no heap, bounded loops and assertions that stay on
+in production.
 
 The narrowness is the point. A library that owns no sockets can be driven by a deterministic
 simulator, replayed from a seed, and embedded in a runtime whose I/O model it never heard of.
 stompy is the first consumer and will vendor colibri the way it vendors chapulin; colibri never
 depends on stompy and never names it in source.
 
-**Deliberately excluded:** HTTP/1.1, caching, server push, priority scheduling, extended CONNECT,
-0-RTT, active connection migration, QUIC datagrams and multipath.
-[Decisions 2, 16 to 23](decisions.md) give each one a reason and state what saying no still costs
-on the wire.
+**Deliberately excluded:** caching, server push, priority scheduling, extended CONNECT, 0-RTT,
+active connection migration, QUIC datagrams and multipath. [Decisions 16 to 23](decisions.md)
+give each one a reason and state what saying no still costs on the wire. HTTP/1.1 was excluded
+too, until [decision 88](decisions.md) amended decision 2 to build it as h11.
 
 ## 2. What the two protocols actually are
 
@@ -55,8 +55,9 @@ build and not by review. An arrow reads "imports".
 ```text
 core   <- wire   <- hpack <- h2
                  <- qpack <- h3
-core   <- http   <- h2, h3
-core   <- tls    <- h2, quic
+core   <- http   <- h2, h3, h11
+core   <- tls    <- h2, h11, quic
+core   <- deflate <- h11
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
@@ -80,6 +81,8 @@ core, qpack      <- testing_qif
 | `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls` | 8999, 9000, 9001, 9002 |
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
+| `deflate` | the decoder of the `gzip` and `deflate` codings, with their checksums ([decision 89](decisions.md)) | `core` | 1950, 1951, 1952 |
+| `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls`, `deflate` | 9112 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12 | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
@@ -92,7 +95,7 @@ core, qpack      <- testing_qif
 
 The architecture depends on three of these edges and forbids one.
 
-- **`quic` does not import `http`, `h2`, `h3`, `hpack` or `qpack`.** This is
+- **`quic` does not import `http`, `h2`, `h3`, `h11`, `hpack` or `qpack`.** This is
   [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) and
   [decision 5](decisions.md#scope-and-shape). The check that proves it is that the QUIC simulator
   builds and runs with no HTTP module in the graph at all — not a lint rule, a link.
@@ -108,7 +111,7 @@ The architecture depends on three of these edges and forbids one.
 - **`wire` is shared by both families and holds two different integer codecs.**
   [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why the split is *field
   compression against framing* and not h2 against h3.
-- **Nothing imports `h2` or `h3`.** They are the roots. A consumer picks one or both, and
+- **Nothing imports `h2`, `h3` or `h11`.** They are the roots. A consumer picks any of them, and
   `testing` is a consumer like any other: the library it drives cannot use the socket it opens,
   because the edge runs one way and nothing imports `testing` back.
 

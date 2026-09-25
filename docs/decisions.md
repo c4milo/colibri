@@ -35,6 +35,9 @@ and is re-argued, not edited.
    Upgrade mechanism "was never widely deployed and is deprecated". Prior-knowledge cleartext h2
    stays, and entry 8 explains why colibri depends on it rather than offering it as a convenience.
 
+   Entry 88 amends this entry: colibri builds HTTP/1.1 as h11, client and server. The h2c upgrade
+   stays out.
+
 3. **QUIC is a module inside colibri, not its own library.** Ruled by the owner on 2026-09-16. A
    module, `src/quic/`, that imports `core`, `wire`, `crypto` and `tls` and nothing else, and that
    may never import `http`, `h2`, `h3`, `hpack` or `qpack`. Cost: colibri's repository carries the
@@ -2145,3 +2148,57 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       time per trace also grows with the choices the model leaves open.
     - Check only the flow scope, from the existing h3 check's QPACK counts. The GOAWAY and cancel
       rules would stay checked by the model alone.
+
+88. **colibri builds HTTP/1.1 as h11, client and server.** Ruled by the owner on 2026-09-24 and
+    2026-09-25, for https://github.com/c4milo/colibri/issues/60. It amends entry 2.
+    - Both roles, for completeness. The server takes on the request smuggling surface of RFC 9112
+      §11.2, so every request-parsing check has a test proved by mutation.
+    - The name is h11, as h2 and h3 name the other two, in prose, in the module name `src/h11/`
+      and as a commit scope.
+    - The order is h3, then h2, then h11. RFC 9114 §3.1 lets a client try QUIC with ALPN `h3`
+      first, and says clients "SHOULD attempt to use TCP-based versions of HTTP" when that fails.
+      The TCP connection's ClientHello offers `h2` and then `http/1.1` (RFC 7301). colibri opens no
+      connection, so the caller follows the order, and the test-only client of `src/testing/`
+      does.
+    - The client pipelines (RFC 9112 §9.3.2). The connection keeps its requests in order and gives
+      each response to the oldest one. It does not pipeline after a non-idempotent method until
+      that method's final status arrives. When the connection closes, colibri reports which
+      requests went unanswered, and the caller opens the next connection, on which the client
+      does not pipeline at once.
+    - `h11` imports `core`, `http`, `tls` and `deflate`. `tls` lets it attach to a finished
+      handshake and check that ALPN chose `http/1.1`, as h2 does for `h2`.
+    - h11 decodes three transfer codings: `chunked` (RFC 9112 §7.1), `gzip` and `deflate` (§7.2).
+      A server answers 501 to any other coding, `compress` included (§6.1). It answers 400 and
+      closes the connection when a request's last coding is not `chunked` (§6.3).
+    - The test-only endpoints run on Rotor from their first commit (entry 83).
+
+    The alternatives refused for transfer codings, both offered on 2026-09-25:
+    - `chunked` alone, refusing the rest. It is the smallest surface, and needs no decoder.
+    - `chunked` removed and the other codings passed to the caller still encoded. It moves the
+      decoding into every caller, and the server still needs the caller to accept or refuse.
+
+89. **colibri writes its own decoder for the `gzip` and `deflate` codings, in `src/deflate/`.**
+    Ruled by the owner on 2026-09-25, for https://github.com/c4milo/colibri/issues/60.
+    - The module holds RFC 1951's inflate, the zlib wrapper of RFC 1950 with its Adler-32 check,
+      and the gzip wrapper of RFC 1952 with its CRC-32 check. It imports `core` alone, and `h11`
+      imports it. The three RFCs are in `docs/rfcs/compression/`.
+    - It decodes input that arrives in pieces. Each call takes the octets the caller has, writes
+      what it can into the caller's output, and says whether it needs more input or more room. It
+      keeps its state and its window of 32,768 octets in storage the caller owns, because a
+      deflate distance reaches that far back (RFC 1951 §2).
+    - zlib and Wuffs may serve as test oracles and benchmark baselines in `tools/` and `bench/`.
+      Neither is linked into the library.
+
+    A survey of the existing decoders is in the issue. Each alternative refused:
+    - Zig's `std.compress.flate`. It cannot resume when its input runs out mid-stream, and it
+      never compares the checksums it reads, so colibri would hold the whole coded body and check
+      the checksums itself.
+    - Wuffs, compiled into the library. It fits the model best and decodes at 1.5 to 1.9 times
+      zlib's speed in its own benchmark. But it is C, every consumer would compile it, and the
+      release colibri would need is an alpha.
+    - zlib or zlib-ng, fed from a fixed pool. Both are mature and fuzzed, but they are C, and zlib
+      has four CVEs in its decoder or its checksums.
+    - zlib-rs or miniz_oxide. Both are Rust, so every consumer would need a Rust toolchain, and
+      miniz_oxide has no gzip.
+    - libdeflate, tinf and puff. Each needs the whole coded body at once.
+
