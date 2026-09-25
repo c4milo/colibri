@@ -1030,6 +1030,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   write side, which RFC 9846 §6.1 no longer asks for, and in record mode its own `close_notify` is
   lost.
 
+  **The h2 endpoints on Rotor, 2026-09-24.** `2315384` moves `h2-server`, cleartext and TLS, and
+  `h2-client` from their `poll` loops to Rotor ([decision 83](decisions.md),
+  [#61](https://github.com/c4milo/colibri/issues/61)). 11 mutations, all CAUGHT.
+  - On macOS arm64 (kqueue), h2spec printed 144 passed in both modes, and `tools/h2_interop.sh`
+    printed `every exchange ended as planned against: go nghttpd h2o`.
+  - Throughput did not move measurably. In an OrbStack Linux VM on the same Mac, with io_uring
+    allowed, both servers ran at once and h2load alternated between them, ten runs each. The
+    medians were `poll` 427,476 and Rotor 403,606 req/s at one h2load thread, and 881,525 and
+    861,608 at four. Every pair of ranges overlaps.
+  - CI's hosted runners agree. The `poll` server's medians were 293,178, 294,412, 301,501 and
+    561,046 req/s over four runs, and Rotor's first was 503,620: runner variance is larger than
+    any difference. `tools/ci.sh` now prints which Rotor backend ran.
+  - Nothing here is a published number: the VM shares its cores with h2load, and entry 33's
+    rules are not met.
+
   **Still owed for the step:** interop over TLS in both directions, which needs chapulin's
   record-mode client in colibri's client, and the server direction against curl, nghttp and Go's
   client.

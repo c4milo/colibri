@@ -88,15 +88,20 @@ h2load_once() {
 
 throughput() {
   zig build install -Drelease || return 1
-  zig-out/bin/h2-server --port "${h2load_port}" &
+  zig-out/bin/h2-server --port "${h2load_port}" 2>"${scratch}/h2-server.log" &
   server_pid=$!
   sleep 1
+  # Decision 83: the server runs on Rotor, whose backend on Linux is io_uring or, where the kernel
+  # refuses it, epoll. The report names which one this number came from.
+  local backend
+  backend="$(grep -o "rotor backend [a-z]*" "${scratch}/h2-server.log" || echo "rotor backend unknown")"
   h2load_once >/dev/null # Warmup, discarded (decision 33).
   for _ in $(seq "${h2load_runs}"); do h2load_once; done | sort -n >"${scratch}/rates"
   kill "${server_pid}" 2>/dev/null
   [ "$(wc -l <"${scratch}/rates")" -eq "${h2load_runs}" ] || return 1
   echo "h2load -n ${h2load_requests} -c ${h2load_clients} -m ${h2load_streams}, ${h2load_runs} runs after one warmup, requests per second:"
   echo "median $(sed -n "$(((h2load_runs + 1) / 2))p" "${scratch}/rates"), lowest $(head -1 "${scratch}/rates"), highest $(tail -1 "${scratch}/rates")"
+  echo "the server ran on ${backend}"
 }
 
 : >"${scratch}/verdicts"
@@ -158,7 +163,7 @@ else
 fi
 if command -v h2load >/dev/null 2>&1; then
   section "Throughput, indicative" throughput
-  throughput_lines="$(tail -2 "${scratch}/last.log")"
+  throughput_lines="$(tail -3 "${scratch}/last.log")"
 else
   throughput_lines="h2load is not installed, so this run measured nothing."
 fi
