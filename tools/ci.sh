@@ -65,7 +65,7 @@ machine() {
 simulator_checks() {
   local mode
   for mode in "" "-Drelease"; do
-    for check in chunk connection tls qpack qpack-input h3 h3-long; do
+    for check in chunk connection tls qpack qpack-input h3 h3-long h3-trace; do
       zig build sim ${mode} -- "--${check}-check" 2>&1 | grep -E "^${check}:" || return 1
     done >"${scratch}/sim${mode}.txt"
   done
@@ -163,6 +163,9 @@ fi
 if command -v java >/dev/null 2>&1; then
   section "TLA+ models" zig build tla
   tla_lines="$(grep -E "\[tla\]" "${scratch}/last.log")"
+  # https://github.com/c4milo/colibri/issues/58: the h3 trace run's logs against the h3 model.
+  section "h3 traces against the TLA+ model" tools/h3_trace.sh
+  tla_lines="${tla_lines}"$'\n'"$(grep -E "^h3_trace.sh: " "${scratch}/last.log")"
 else
   tla_lines="No Java runtime on PATH, so this run checked no TLA+ model."
 fi
@@ -238,7 +241,8 @@ fi
   echo "## TLA+ models"
   echo
   echo "Each configuration of spec/tla/ states whether TLC must find its properties holding or"
-  echo "violated (docs/decisions.md entry 67)."
+  echo "violated (docs/decisions.md entry 67). The last line counts the seeds of the simulator's h3"
+  echo "trace run whose logs TLC found to be behaviors of spec/tla/h3_connection (entry 87)."
   echo
   echo "${tla_lines}" | fenced
   echo

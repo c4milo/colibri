@@ -69,6 +69,12 @@ pub const Endpoint = struct {
     /// At a client, the requests opened and how each ended.
     opened: u32,
     outcome: [constants.h3_trace_requests_max]Outcome,
+    /// At a client, where each request's HEADERS frame ends on its stream, the Required Insert
+    /// Count its section got (RFC 9204 §4.5.1.1), and whether the client read the server's
+    /// answer: the response's end, or the rejection.
+    headers_end: [constants.h3_trace_requests_max]u64,
+    required: [constants.h3_trace_requests_max]u64,
+    answer_read: [constants.h3_trace_requests_max]bool,
     /// At a server, what it read of each request and the GOAWAY frames it sent.
     read: [constants.h3_trace_requests_max]Read,
     goaways_sent: u32,
@@ -84,6 +90,9 @@ pub const Endpoint = struct {
         endpoint.started = false;
         endpoint.opened = 0;
         endpoint.outcome = @splat(.none);
+        endpoint.headers_end = @splat(0);
+        endpoint.required = @splat(0);
+        endpoint.answer_read = @splat(false);
         endpoint.read = @splat(.{});
         endpoint.goaways_sent = 0;
         endpoint.kept = @splat(.{});
@@ -151,11 +160,23 @@ pub const Endpoint = struct {
                 else => return failure,
             };
             assert(id == r * request_stream_step);
+            endpoint.headers_end[r] = writer.written().len;
+            endpoint.required[r] = endpoint.outstanding_required(id);
             try write_content(endpoint.plan.content, &writer);
             kept.len = writer.written().len;
             try quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len, true);
             endpoint.opened += 1;
         }
+    }
+
+    /// The Required Insert Count of the section on `id` the encoder has not seen acknowledged, or
+    /// 0 when it has none, which a section that references no dynamic entry never has.
+    pub fn outstanding_required(endpoint: *const Endpoint, id: u64) u64 {
+        const state = &endpoint.h3.encoder.state;
+        for (state.outstanding[0..state.len]) |held| {
+            if (held.stream_id == id) return held.required_insert_count;
+        }
+        return 0;
     }
 
     /// RFC 9114 §4.1.1: the client cancels a request that has not ended by resetting its stream.
@@ -181,10 +202,14 @@ pub const Endpoint = struct {
             .settings, .goaway => {},
             // The model's server answers with a final response and nothing else.
             .response => |held| if (held.response.status.is_interim()) return error.UnexpectedEvent,
-            .end => |id| endpoint.settle(id, .response),
+            .end => |id| {
+                endpoint.answer_read[index_of(id)] = true;
+                endpoint.settle(id, .response);
+            },
             // RFC 9114 §4.1.1: a request the server refused after its GOAWAY is rejected.
             .reset => |held| {
                 if (held.error_code != h3.constants.error_request_rejected) return error.UnexpectedEvent;
+                endpoint.answer_read[index_of(held.stream_id)] = true;
                 endpoint.settle(held.stream_id, .rejected);
             },
             .request, .data, .trailers, .refused => return error.UnexpectedEvent,

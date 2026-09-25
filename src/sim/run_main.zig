@@ -11,6 +11,7 @@
 //!     sim --h3-check [seeds]           h3 exchanges over a lossy network (step 12)
 //!     sim --h3-long-check [seeds]      long h3 connections, which outgrow h3's buffers
 //!     sim --h3-trace-check [seeds]     the h3 model's actions acted out (#58)
+//!     sim --h3-trace-write <directory> each seed's trace as TLA+, for tools/h3_trace.sh
 //!
 //! It is the one file under `src/sim/` that reads its arguments and writes to the terminal, and
 //! `tools/lint/io.zig` exempts it by path for that reason. Nothing reaches it but `zig build sim`.
@@ -23,6 +24,9 @@ const qpack_check = @import("qpack_check.zig");
 const qpack_input_check = @import("qpack_input_check.zig");
 const h3_check = @import("h3_check.zig");
 const h3_trace_check = @import("h3_trace_check.zig");
+const h3_trace_state = @import("h3_trace_state.zig");
+const h3_trace_tla = @import("h3_trace_tla.zig");
+const quic = @import("quic");
 
 const constants = sim.constants;
 
@@ -40,7 +44,7 @@ const hex_prefix = "0x";
 const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --connection-seed <hex> | --connection-check [seeds] | --tls-check [seeds]" ++
     " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]" ++
-    " | --h3-trace-check [seeds]\n";
+    " | --h3-trace-check [seeds] | --h3-trace-write <directory>\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -54,6 +58,7 @@ pub const Command = union(enum) {
     h3_check: u64,
     h3_long_check: u64,
     h3_trace_check: u64,
+    h3_trace_write: []const u8,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -64,6 +69,7 @@ var qpack_storage: qpack_check.Storage = undefined;
 var qpack_input_storage: qpack_input_check.Storage = undefined;
 var h3_storage: h3_check.Storage = undefined;
 var h3_trace_storage: h3_trace_check.Storage = undefined;
+var h3_trace_module: [constants.h3_trace_module_len_max]u8 = undefined;
 
 pub fn main(init: std.process.Init) !void {
     var arguments: [arguments_max][]const u8 = @splat("");
@@ -91,6 +97,7 @@ pub fn main(init: std.process.Init) !void {
         .h3_check => |seeds| try h3_check_seeds(seeds, .normal),
         .h3_long_check => |seeds| try h3_check_seeds(seeds, .long),
         .h3_trace_check => |seeds| try h3_trace_check_seeds(seeds),
+        .h3_trace_write => |directory| try h3_trace_write(init.io, directory),
     }
 }
 
@@ -123,6 +130,7 @@ fn parse_step_eleven_on(flag: []const u8, value: ?[]const u8) error{Usage}!Comma
         return .{ .h3_long_check = if (value == null) constants.h3_long_check_seeds else try parse_seeds(value) };
     }
     if (std.mem.eql(u8, flag, "--h3-trace-check")) return .{ .h3_trace_check = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--h3-trace-write")) return .{ .h3_trace_write = value orelse return error.Usage };
     return error.Usage;
 }
 
@@ -331,6 +339,33 @@ fn h3_trace_check_seeds(seeds: u64) !void {
         census.seeds,   census.requests, census.responses, census.rejections,
         census.cancels, census.goaways,  census.inserts,
     });
+}
+
+/// Writes seeds `[0, h3_trace_written_seeds)` of the h3 trace run into `directory`: a TLA+ module
+/// holding each seed's trace, and the TLC configuration that checks it.
+fn h3_trace_write(io: std.Io, directory: []const u8) !void {
+    for (0..constants.h3_trace_written_seeds) |seed| {
+        _ = h3_trace_check.run_seed(&h3_trace_storage, seed) catch |failure| {
+            std.debug.print("h3-trace: seed 0x{x} failed: {t}\n", .{ seed, failure });
+            return failure;
+        };
+        const scope: h3_trace_state.Scope = .of(&h3_trace_storage.plan);
+        var name_storage: [constants.check_name_len_max]u8 = undefined;
+        const name = h3_trace_tla.module_name(seed, &name_storage);
+        var module = quic.core.Writer.init(&h3_trace_module);
+        try h3_trace_tla.write_module(&module, name, scope, h3_trace_storage.trace());
+        try write_file(io, directory, name, ".tla", module.written());
+        var config = quic.core.Writer.init(&h3_trace_module);
+        try h3_trace_tla.write_config(&config, scope, constants.h3_trace_steps_between_max);
+        try write_file(io, directory, name, ".cfg", config.written());
+    }
+    std.debug.print("h3-trace: wrote {d} seeds to {s}\n", .{ constants.h3_trace_written_seeds, directory });
+}
+
+fn write_file(io: std.Io, directory: []const u8, name: []const u8, extension: []const u8, data: []const u8) !void {
+    var path_storage: [std.fs.max_path_bytes]u8 = undefined;
+    const path = try std.fmt.bufPrint(&path_storage, "{s}/{s}{s}", .{ directory, name, extension });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = data });
 }
 
 /// The name a census line starts with, which `tools/ci.sh` looks for.

@@ -38,6 +38,13 @@
 (* window that never binds. The flow configurations run QPACK against flow *)
 (* control, with no GOAWAY and no cancels (ClientCancels).                 *)
 (*                                                                         *)
+(* H3ConnectionTrace checks colibri against this model                    *)
+(* (tools/h3_trace.sh, https://github.com/c4milo/colibri/issues/58). The  *)
+(* simulator's h3 trace run logs this model's variables from a colibri    *)
+(* client and server, and TLC must find each seed's log to be a behavior  *)
+(* of Next. DecoderTable is FALSE for a seed whose server decoder allows  *)
+(* no dynamic table.                                                      *)
+(*                                                                        *)
 (* Each rule constant is a rule colibri keeps. A configuration that turns  *)
 (* one off must find a violation:                                          *)
 (*   RejectAboveGoaway  the server refuses a stream at or above the ID its *)
@@ -66,12 +73,13 @@ CONSTANTS
     EncoderWindow,      \* the server's receive window on the client's encoder stream
     MaxGoaways,         \* GOAWAY frames the server sends at most
     ClientCancels,      \* whether the client may cancel requests
+    DecoderTable,       \* whether the server's decoder allows a dynamic table (RFC 9204 §3.2.3)
     RejectAboveGoaway, GoawayNamesUntaken, GoawayNeverRises, KeepControlOpen,
     SilentAfterCancel, EncoderFirst, InsertNeedsCredit
 
 ASSUME N \in Nat \ {0} /\ Content \in Nat /\ MaxInserts \in Nat /\ BlockedStreams \in Nat
 ASSUME ConnectionWindow \in Nat \ {0} /\ EncoderWindow \in Nat \ {0} /\ MaxGoaways \in Nat
-ASSUME ClientCancels \in BOOLEAN
+ASSUME ClientCancels \in BOOLEAN /\ DecoderTable \in BOOLEAN
 ASSUME \A rule \in {RejectAboveGoaway, GoawayNamesUntaken, GoawayNeverRises, KeepControlOpen,
                     SilentAfterCancel, EncoderFirst, InsertNeedsCredit} : rule \in BOOLEAN
 
@@ -203,7 +211,7 @@ Open ==
     /\ goawayReceived = NoGoaway
     /\ \E insert \in BOOLEAN, required \in 0..MaxInserts :
         \* RFC 9204 §3.2.3: the dynamic table is used only once the peer's SETTINGS allow one.
-        /\ insert => (settingsReceived /\ inserted < MaxInserts /\ (InsertNeedsCredit => InsertCredit))
+        /\ insert => (DecoderTable /\ settingsReceived /\ inserted < MaxInserts /\ (InsertNeedsCredit => InsertCredit))
         /\ required <= inserted + (IF insert THEN 1 ELSE 0)
         /\ required > known => Cardinality(CouldBlock) < BlockedStreams
         /\ inserted' = inserted + (IF insert THEN 1 ELSE 0)
@@ -295,15 +303,24 @@ ReadAnswer(r) ==
             /\ UNCHANGED broken
        ELSE /\ UNCHANGED outcome
             /\ IF SilentAfterCancel THEN UNCHANGED broken ELSE Break("a request ended two ways")
-    \* RFC 9000 §3.5: the server's STOP_SENDING makes the client's quic reset its side.
-    /\ IF toClient[r] = "rejected" /\ reset[r] = "none"
-       THEN /\ reset' = [reset EXCEPT ![r] = "sent"]
-            /\ requestQueued' = [requestQueued EXCEPT ![r] = 0]
-       ELSE UNCHANGED <<reset, requestQueued>>
-    /\ UNCHANGED <<opened, inserted, known, ric, outstanding, encoderQueued, encoderSent,
-                   requestSent, connectionLimit, encoderLimit, settingsReceived, goawayReceived>>
+    /\ UNCHANGED <<opened, inserted, known, ric, outstanding, encoderQueued, requestQueued,
+                   encoderSent, requestSent, connectionLimit, encoderLimit, settingsReceived,
+                   goawayReceived, reset>>
     /\ UNCHANGED <<taken, phase, processed, consumed, encoderConsumed, decoderKnown,
                    decoderStream, goawaySent, goawayCount, control, controlEnded>>
+
+(* The server's STOP_SENDING on a stream it refused arrives, and the       *)
+(* client's quic resets its side (RFC 9000 §3.5). It may arrive before or *)
+(* after the client reads the refusal, and a quic that has had every octet *)
+(* acknowledged sends no reset, so the action may never happen.            *)
+StopSending(r) ==
+    /\ phase[r] = "abandoned" /\ reset[r] = "none"
+    /\ reset' = [reset EXCEPT ![r] = "sent"]
+    /\ requestQueued' = [requestQueued EXCEPT ![r] = 0]
+    /\ UNCHANGED <<opened, inserted, known, ric, outstanding, encoderQueued, encoderSent,
+                   requestSent, connectionLimit, encoderLimit, settingsReceived, goawayReceived,
+                   outcome>>
+    /\ UNCHANGED server
 
 (* The encoder reads the next decoder instruction (RFC 9204 §4.4).         *)
 ReadDecoder ==
@@ -373,6 +390,10 @@ CreditEncoder ==
 (* stream of its type, arrives.                                            *)
 Live(r) == \E q \in r..(N - 1) : requestSent[q] > 0 \/ reset[q] \in {"arrived", "read"}
 
+(* RFC 9204 §2.2.2.2: the decoder cancels a stream it abandons. A decoder *)
+(* with no dynamic table MAY omit it, and colibri's does.                  *)
+Cancelled(r) == IF DecoderTable THEN Append(decoderStream, Cancellation(r)) ELSE decoderStream
+
 (* The server takes the next stream (`accept`). After its GOAWAY, a stream *)
 (* at or above the ID it named is rejected (RFC 9114 §5.2), with           *)
 (* H3_REQUEST_REJECTED (§4.1.1), and the decoder cancels it (RFC 9204      *)
@@ -382,7 +403,7 @@ Accept ==
     /\ IF RejectAboveGoaway /\ taken >= goawaySent
        THEN /\ phase' = [phase EXCEPT ![taken] = "abandoned"]
             /\ toClient' = [toClient EXCEPT ![taken] = "rejected"]
-            /\ decoderStream' = Append(decoderStream, Cancellation(taken))
+            /\ decoderStream' = Cancelled(taken)
        ELSE /\ phase' = [phase EXCEPT ![taken] = "head"]
             /\ UNCHANGED <<toClient, decoderStream>>
     /\ taken' = taken + 1
@@ -466,7 +487,7 @@ ReadReset(r) ==
     /\ reset' = [reset EXCEPT ![r] = "read"]
     /\ consumed' = [consumed EXCEPT ![r] = requestSent[r]]
     /\ phase' = [phase EXCEPT ![r] = "abandoned"]
-    /\ decoderStream' = Append(decoderStream, Cancellation(r))
+    /\ decoderStream' = Cancelled(r)
     /\ UNCHANGED <<opened, inserted, known, ric, outstanding, encoderQueued, requestQueued,
                    encoderSent, requestSent, connectionLimit, encoderLimit, settingsReceived,
                    goawayReceived, outcome>>
@@ -508,7 +529,7 @@ Next ==
     \/ CreditConnection \/ CreditEncoder
     \/ Accept \/ ReadInsert \/ ReportInserts \/ Shutdown
     \/ \E r \in Requests :
-        \/ SendFrame(r) \/ Cancel(r) \/ ReadAnswer(r) \/ DeliverReset(r)
+        \/ SendFrame(r) \/ Cancel(r) \/ ReadAnswer(r) \/ StopSending(r) \/ DeliverReset(r)
         \/ ReadHeaders(r) \/ Unblock(r) \/ ReadContent(r) \/ Respond(r) \/ ReadReset(r)
         \/ Discard(r)
 

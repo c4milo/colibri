@@ -338,6 +338,10 @@ section when a step adds or renames a command.
   configuration says whether TLC must find its properties holding or violated, and a file in a
   model's `mutants/` must find them violated. `tools/ci.sh` runs it where Java is installed
   (decision 67).
+- Traces: `tools/h3_trace.sh` writes 64 seeds of the simulator's h3 trace run as TLA+ with `zig
+  build sim -- --h3-trace-write <directory>`, and TLC checks that each is a behavior of
+  `spec/tla/h3_connection` (decision 87). It needs Java, and `tools/ci.sh` runs it beside `zig
+  build tla`.
 - Proofs: `zig build lean` builds the Lean proofs in `spec/lean/` with lake, through pepegrillo's
   `lean` tool, and checks that the vector files the Zig tests read (such as
   `src/qpack/insert_count_vectors.txt`) are what the proved definitions give; `zig build lean --

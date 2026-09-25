@@ -378,6 +378,24 @@ pub const h3_trace_prefix_len_max: u32 = 2048;
 pub const h3_trace_steps_max: u32 = 10_000;
 pub const h3_trace_drop_max: u64 = 50;
 pub const h3_trace_duplicate_max: u64 = 50;
+/// The model's states one trace run keeps, each one differing from the last, and the octets of
+/// the TLA+ module one seed's trace is written as.
+pub const h3_trace_states_max: u32 = 1024;
+pub const h3_trace_module_len_max: u32 = 1 << 20;
+/// The seeds `sim --h3-trace-write` writes for TLC, and the model's steps TLC may take between two
+/// logged states.
+pub const h3_trace_written_seeds: u64 = 64;
+pub const h3_trace_steps_between_max: u64 = 24;
+/// The units the trace run logs from one of h3's own streams, at most. A request causes at most
+/// one insert, and at most three decoder instructions: a Section Acknowledgment, a Stream
+/// Cancellation and an Insert Count Increment. Four per request leaves one to spare. The last
+/// term adds the control stream's SETTINGS and one more to spare.
+pub const h3_trace_units_per_request_max: u32 = 4;
+pub const h3_trace_units_max: u32 = h3_trace_units_per_request_max * h3_trace_requests_max +
+    h3_trace_goaways_max + 2;
+/// The frames the control stream may carry for each unit logged: the unit and a reserved frame
+/// before it (RFC 9114 §7.2.8).
+pub const h3_trace_control_frames_per_unit_max: u32 = 2;
 
 /// The QPACK input check: inputs per seed, the most edits made to one, and the longest input.
 pub const qpack_input_check_inputs: u32 = 32;

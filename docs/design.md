@@ -3463,8 +3463,48 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 3 mutations of the switch, all CAUGHT: a define the object lacks, which `check_build`
     refuses; the resumption PSK's length ignored; and `no-ecn` ignored.
 
-  **Still owed:** the model's trace validation against the simulator's h3 check:
-  [#58](https://github.com/c4milo/colibri/issues/58).
+  **Trace validation, 2026-09-25**
+  ([#58](https://github.com/c4milo/colibri/issues/58), [decision 87](decisions.md)).
+  - `src/sim/h3_trace_check.zig`: a colibri client and server act out a seed's plan over step
+    8's network. The plan draws requests of whole frames, cancels, GOAWAYs and QPACK inserts.
+    After each step, `h3_trace_state.zig` computes the 28 variables of
+    `spec/tla/h3_connection` from both endpoints, and the run keeps each state that differs from
+    the one before.
+  - `zig build sim -- --h3-trace-write <directory>` writes 64 seeds' states as TLA+ modules and
+    TLC configurations. `tools/h3_trace.sh` runs TLC over them with `H3ConnectionTrace.tla`.
+    Between two logged states the model takes up to 24 steps. A seed passes when TLC reaches its
+    last logged state.
+  - The run found two places where the model refused what colibri does and the RFCs allow. The
+    model changed in both:
+    - A decoder with no dynamic table sends no Stream Cancellation, which RFC 9204 §2.2.2.2
+      allows. The new constant `DecoderTable` says whether the server's decoder allows a table.
+    - The client's quic resets a refused stream when the server's STOP_SENDING arrives (RFC 9000
+      §3.5). That can happen before or after the client reads the refusal, and never when every
+      octet is already acknowledged. It is now its own action, `StopSending`, and no longer part
+      of `ReadAnswer`.
+  - TLC stops a path once a variable that only grows has passed the next logged state
+    (`Toward`). Without that, one seed took 5.7 million states and 49 seconds. With it, the seed
+    took 32 states and one second.
+
+  What each check printed on macOS arm64:
+  - `zig build sim -- --h3-trace-check`, in Debug and in ReleaseSafe: `h3-trace: seeds=256
+    requests=428 responses=155 rejections=162 cancels=111 goaways=235 inserts=59`.
+  - `tools/h3_trace.sh`: `64 of 64 traces are behaviors of the model`, in 54 seconds. The 64
+    logs hold 507 states. Of the logs, 33 hold an answered request, 31 a rejected one, 24 a
+    cancelled one, 40 a GOAWAY, 25 a Stream Cancellation, 8 an Insert Count Increment, 4 a
+    Section Acknowledgment and 3 a blocked field section. 15 seeds' servers allow no table.
+  - `zig build tla`: both scopes hold, shutdown in 90005 distinct states and flow in 25007, and
+    all seven mutant configurations are violated, as before.
+  - A log edited by hand to hold a state the model cannot reach left `Unfinished` holding, and
+    the script failed.
+  - 4 mutations of colibri, 4 CAUGHT:
+    - the GOAWAY names the last stream taken: 54 of 64 traces pass;
+    - the server takes a stream at or above its GOAWAY: 37 of 64 pass;
+    - a decoder with a table owes no Stream Cancellation: 60 of 64 pass;
+    - a later GOAWAY names a higher ID. colibri's own client catches this before TLC runs, and
+      closes the connection with H3_ID_ERROR (RFC 9114 §5.2).
+
+  Every check step 12 names has passed, and the step owes nothing more.
 
 - **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
   **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the

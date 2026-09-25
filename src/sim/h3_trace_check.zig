@@ -4,6 +4,10 @@
 //! could open, and the connection then settles: no request stream holds a slot, no section waits
 //! on the dynamic table, and no decoder owes an instruction.
 //!
+//! After each step the run computes the state of `spec/tla/h3_connection`'s model from both
+//! endpoints (`h3_trace_state.zig`) and keeps it when it differs from the last one kept, which is
+//! the trace `h3_trace_tla.zig` writes for TLC.
+//!
 //! Each seed runs twice and must send the same datagrams, which is invariant 5.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -11,6 +15,8 @@ const sim = @import("sim");
 const quic = @import("quic");
 const h3_trace_plan = @import("h3_trace_plan.zig");
 const h3_trace_endpoint = @import("h3_trace_endpoint.zig");
+const h3_trace_tracker = @import("h3_trace_tracker.zig");
+const h3_trace_state = @import("h3_trace_state.zig");
 const quic_endpoint = @import("quic_endpoint.zig");
 
 const Random = sim.random.Random;
@@ -26,6 +32,8 @@ pub const Violation = h3_trace_endpoint.Error || error{
     StepsExhausted,
     /// The seed's second run sent different datagrams from its first (invariant 5).
     ReplayDiverged,
+    /// The run went through more of the model's states than `h3_trace_states_max`.
+    TraceFull,
 };
 
 /// The storage one seed runs in, outside any stack frame (decision 35).
@@ -33,6 +41,15 @@ pub const Storage = struct {
     plan: h3_trace_plan.Plan,
     network: sim.Network,
     endpoints: [Side.count]h3_trace_endpoint.Endpoint,
+    tracker: h3_trace_tracker.Tracker,
+    /// The model's states the last run went through, each one differing from the one before.
+    states: [constants.h3_trace_states_max]h3_trace_state.State,
+    states_len: usize,
+
+    /// The last run's trace.
+    pub fn trace(storage: *const Storage) []const h3_trace_state.State {
+        return storage.states[0..storage.states_len];
+    }
 };
 
 /// One seed's counts.
@@ -93,7 +110,10 @@ fn run_once(storage: *Storage, seed: u64) Violation!Result {
         const role: quic.connection.Role = if (side == .client) .client else .server;
         storage.endpoints[@intFromEnum(side)].init(role, &storage.plan, start_ns);
     }
+    storage.tracker = .{};
+    storage.states_len = 0;
     var run: Run = .{ .storage = storage, .now_ns = start_ns, .digest = .init() };
+    try run.record();
     // Bounded by a named limit.
     for (0..constants.h3_trace_steps_max) |_| {
         try run.step();
@@ -117,11 +137,26 @@ const Run = struct {
     /// on.
     fn step(run: *Run) Violation!void {
         for (std.enums.values(Side)) |side| try run.deliver(side);
+        run.storage.tracker.observe_arrivals(run.endpoint(.server));
         for (std.enums.values(Side)) |side| try run.endpoint(side).transport.on_instant(run.now_ns);
         for (std.enums.values(Side)) |side| try run.endpoint(side).step(run.steps);
         for (std.enums.values(Side)) |side| try run.send_owed(side);
         run.now_ns = run.next_instant();
         run.steps += 1;
+        try run.record();
+    }
+
+    /// Keeps the model's state after the step when it differs from the last one kept.
+    fn record(run: *Run) Violation!void {
+        const storage = run.storage;
+        const client = run.endpoint(.client);
+        const server = run.endpoint(.server);
+        storage.tracker.observe(client, server);
+        const state = h3_trace_state.compute(&storage.tracker, .of(&storage.plan), client, server);
+        if (storage.states_len > 0 and std.meta.eql(storage.states[storage.states_len - 1], state)) return;
+        if (storage.states_len == storage.states.len) return error.TraceFull;
+        storage.states[storage.states_len] = state;
+        storage.states_len += 1;
     }
 
     fn deliver(run: *Run, side: Side) Violation!void {

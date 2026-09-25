@@ -26,7 +26,11 @@ pub const Line = enum {
 };
 
 /// One seed in this many gives the server's decoder no dynamic table.
-const capacity_one_in: u64 = 2;
+const capacity_one_in: u64 = 4;
+/// A line is drawn from `line_draws` outcomes: `new_line_draws` of them new, one none, the rest a
+/// repeat.
+const line_draws: u64 = 4;
+const new_line_draws: u64 = 2;
 /// How many spans of `h3_trace_act_steps` the first request's step is drawn from.
 const first_open_spans: u64 = 2;
 
@@ -80,10 +84,12 @@ pub const Plan = struct {
         assert(plan.requests > 0 and plan.requests <= constants.h3_trace_requests_max);
     }
 
-    /// A line may repeat only one an earlier request made new.
+    /// A line may repeat only one an earlier request made new. Half the lines are new, so the
+    /// encoder inserts often enough for sections to block and be acknowledged.
     fn draw_line(plan: *const Plan, random: *Random, r: usize) Line {
-        const drawn: Line = @enumFromInt(random.below(@typeInfo(Line).@"enum".fields.len));
-        if (drawn != .repeat) return drawn;
+        const drawn = random.below(line_draws);
+        if (drawn < new_line_draws) return .new;
+        if (drawn == new_line_draws) return .none;
         return if (plan.last_new(r) == null) .new else .repeat;
     }
 
