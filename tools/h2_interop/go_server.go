@@ -1,11 +1,15 @@
-// The Go peer of tools/h2_interop.sh: a cleartext h2 server on net/http, standard library alone.
-// It serves what the client's plan asks for, and nothing here is colibri's code, which is the
-// point: the run says whether colibri's client and Go's server read RFC 9113 the same way.
+// The Go peer of tools/h2_interop.sh: an h2 server on net/http, standard library alone, in
+// cleartext or over TLS 1.3. It serves what the client's plan asks for, and nothing here is
+// colibri's code, which is the point: the run says whether colibri's client and Go's server read
+// RFC 9113 the same way.
 //
-//	go run tools/h2_interop/go_server.go <port>
+//	go run tools/h2_interop/go_server.go <port> [<identity-prefix>]
+//
+// With a prefix it serves TLS with the chain and key tools/h2_interop/tls_identity.go wrote there.
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -21,8 +25,8 @@ const largeLen = 1 << 20
 const period = 251
 
 func main() {
-	if len(os.Args) != 2 {
-		log.Fatal("usage: go_server <port>")
+	if len(os.Args) != 2 && len(os.Args) != 3 {
+		log.Fatal("usage: go_server <port> [<identity-prefix>]")
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -59,7 +63,15 @@ func main() {
 	mux.HandleFunc("/missing", http.NotFound)
 
 	protocols := new(http.Protocols)
-	protocols.SetUnencryptedHTTP2(true)
 	server := &http.Server{Addr: "127.0.0.1:" + os.Args[1], Handler: mux, Protocols: protocols}
-	log.Fatal(server.ListenAndServe())
+	if len(os.Args) == 2 {
+		// RFC 9113 §3.3: cleartext h2 with prior knowledge.
+		protocols.SetUnencryptedHTTP2(true)
+		log.Fatal(server.ListenAndServe())
+	}
+	// RFC 9113 §3.2: h2 over TLS, selected by ALPN, which this server offers alone.
+	protocols.SetHTTP2(true)
+	server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS13}
+	prefix := os.Args[2]
+	log.Fatal(server.ListenAndServeTLS(prefix+".chain.pem", prefix+".key.pem"))
 }

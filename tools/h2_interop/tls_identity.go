@@ -1,4 +1,5 @@
-// Mints the signing identity colibri's TLS server hands chapulin, for tools/h2spec.sh's TLS mode.
+// Mints the signing identity colibri's TLS server hands chapulin, for tools/h2spec.sh's TLS mode,
+// and the same identity for the servers tools/h2_interop.sh runs colibri's client against.
 //
 //	go run tools/h2_interop/tls_identity.go <prefix>
 //
@@ -6,7 +7,7 @@
 // ecdsa_secp256r1_sha256 one, which srv_cfg.h describes as a 32-byte big-endian private scalar
 // and a 64-byte uncompressed public point, with the end-entity certificate first in the chain.
 //
-// Six files, all raw DER or raw octets, never PEM, because chapulin reads bytes and parses no
+// Six files are raw DER or raw octets, never PEM, because chapulin reads bytes and parses no
 // container:
 //
 //	<prefix>.leaf.der   the end-entity certificate
@@ -15,6 +16,11 @@
 //	<prefix>.pub        the 64-byte uncompressed point X||Y
 //	<prefix>.name       the root's Subject Name DER, for a client that pins it
 //	<prefix>.spki       the root's SubjectPublicKeyInfo DER, likewise
+//
+// Two are PEM, for Go, nghttpd and h2o, which read nothing else:
+//
+//	<prefix>.chain.pem  the end-entity certificate, then the root
+//	<prefix>.key.pem    the end-entity's private key, as PKCS #8
 package main
 
 import (
@@ -23,6 +29,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"log"
 	"math/big"
 	"net"
@@ -73,6 +80,15 @@ func main() {
 	write(prefix+".pub", pub)
 	write(prefix+".name", caCert.RawSubject)
 	write(prefix+".spki", spki)
+
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(leafKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	chain := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})
+	chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})...)
+	write(prefix+".chain.pem", chain)
+	write(prefix+".key.pem", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}))
 }
 
 // Mints one certificate. With no parent it is a self-signed root.

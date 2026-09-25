@@ -252,10 +252,12 @@ section when a step adds or renames a command.
   server's `--tls` mode, which needs Go to mint the identity. `tools/h3spec.sh` fetches
   h3spec once and checks it against a pinned SHA-256; it passes nothing until chapulin's QUIC mode
   offers AES-GCM, the only suites h3spec offers. `tools/h3load.sh <checkout>` runs `h2load --h3`
-  from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker. `tools/h2_interop.sh [go]
-  [nghttpd] [h2o]` runs the test-only h2 client (`zig build h2-client`) against other
-  implementations' servers; it needs `go`, `docker` and `python3`. None is part of
-  `zig build test`; CI runs them, and so does a person before calling a step done.
+  from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker.
+  `tools/h2_interop.sh [--tls <checkout>] [go] [nghttpd] [h2o]` runs the test-only h2 client
+  (`zig build h2-client`) against other implementations' servers in cleartext, and with `--tls`
+  over TLS too, through the client's `--tls <anchor-prefix> --seconds <unix-seconds>` mode; it
+  needs `go`, `docker` and `python3`. None is part of `zig build test`; CI runs them, and so does
+  a person before calling a step done.
 - CI: `tools/ci.sh [report.md]` runs every check above that exists and writes the report;
   `.github/workflows/main.yml` runs it on each push to main (decision 47). A new check joins
   `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.

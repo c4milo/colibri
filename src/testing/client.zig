@@ -6,6 +6,7 @@ const std = @import("std");
 pub const chapulin = @import("tls/chapulin.zig");
 pub const chapulin_client = @import("tls/chapulin_client.zig");
 pub const h2_client = @import("h2/h2_client.zig");
+pub const h2_client_tls = @import("h2/h2_client_tls.zig");
 
 comptime {
     // The chapulin object is linked whenever the build was given a checkout, and it imports
@@ -22,4 +23,5 @@ test {
     _ = chapulin;
     _ = chapulin_client;
     _ = h2_client;
+    _ = h2_client_tls;
 }

@@ -162,6 +162,13 @@ pub const Client = struct {
         return collected;
     }
 
+    /// Wipes every secret the session still holds and marks it dead (`rec.h`). The caller calls
+    /// it once the connection is over, after its `close_notify` or after a failure.
+    pub fn close(client: *Client) void {
+        c.ch_record_close(&client.record);
+        assert(c.ch_record_state(&client.record) != c.CH_ST_CONNECTED);
+    }
+
     /// The alert a failed handshake chose, for the caller to send before it closes (`rec.h`), or
     /// 0 when nothing failed.
     pub fn alert(client: *const Client) u8 {

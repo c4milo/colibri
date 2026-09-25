@@ -74,18 +74,6 @@ fn parse(init: std.process.Init.Minimal) Arguments {
     };
 }
 
-/// Seeds chapulin's DRBG, which a `RAND=drbg` build requires before any handshake. This endpoint
-/// may read the operating system's entropy; the library may not, and does not.
-fn seed_chapulin() !void {
-    var seed: [chapulin.seed_len]u8 = undefined;
-    const drawn = try check_file.read_file("/dev/urandom", &seed);
-    if (drawn.len != seed.len) {
-        std.debug.print("tls-handshake: could not draw a seed\n", .{});
-        std.process.exit(exit_failed);
-    }
-    c.ch_drbg_seed(&seed);
-}
-
 /// Reports what the handshake negotiated, and refuses anything but h2.
 fn report(receive_len: usize) void {
     const held = client.provider();
@@ -144,7 +132,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const anchor_name = try check_file.read_part(asked.anchor_prefix, ".name", &name_storage);
     const spki = try check_file.read_part(asked.anchor_prefix, ".spki", &spki_storage);
     try chapulin.check_build();
-    try seed_chapulin();
+    try chapulin.seed_from_entropy();
 
     const socket = try connect(asked.port);
     defer _ = std.c.close(socket);

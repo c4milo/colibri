@@ -1081,9 +1081,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/h2spec.sh 18443 <checkout>`: `146 tests, 144 passed, 0 skipped, 2 failed`, in both
     modes.
 
-  **Still owed for the step:** interop over TLS in both directions. That needs a TLS mode in
-  `h2-client` over the record-mode client, and the server direction against curl, nghttp and Go's
-  client.
+  **The client direction over TLS, 2026-09-24.** `h2-client --tls <anchor-prefix> --seconds
+  <unix-seconds>` runs each connection's handshake through chapulin's record-mode client, inside
+  the same Rotor loop, and then speaks h2 over the records.
+  - `h2_tls_records.zig` holds the record half, which the server's `h2_tls.zig` and the client's
+    `h2_client_tls.zig` now share. Each keeps only its own handshake.
+  - `tools/h2_interop.sh --tls <checkout>` runs every peer's plan in cleartext, then over TLS 1.3.
+    Each peer serves the identity `tls_identity.go` mints, whose root the client pins.
+  - 13 mutations, all CAUGHT. Two survived at first and now have tests: a TLS run whose requests
+    named `:scheme` "http", which Go's server ignores, and a `close_notify` sealed while plaintext
+    still waited. chapulin's adapter fills its output, so the second shows only with a test
+    provider that seals one small record a call, as the vtable permits.
+
+  What `tools/h2_interop.sh --tls <checkout>` printed on macOS arm64, with chapulin `6a4c5eb`:
+  - Go 1.27.1 and h2o 2.2.5: `connections=1 succeeded=1` and `connections=64 succeeded=64` in both
+    modes, and `every exchange ended as planned, in cleartext and TLS, against: go h2o`.
+  - nghttpd 1.52.0 passed in cleartext and failed over TLS: it answered the ClientHello with a
+    fatal handshake_failure. nghttpd accepts secp256r1 key exchange alone, and chapulin's webpki
+    client offers X25519MLKEM768 and x25519. RFC 9846 §9.1 says a client "MUST support key
+    exchange with secp256r1". chapulin has the report, and colibri adds no workaround.
+
+  **Still owed for the step:** nghttpd over TLS, which waits on chapulin offering secp256r1, and
+  the server direction against curl, nghttp and Go's client, in cleartext and over TLS.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not

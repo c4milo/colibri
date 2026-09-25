@@ -10,3 +10,4 @@ RUN mkdir -p /www \
  && printf 'colibri\n' > /www/index.html \
  && python3 -c "open('/www/large','wb').write(bytes(i % 251 for i in range(1 << 20)))"
 COPY h2o.conf /etc/h2o/colibri.conf
+COPY h2o_tls.conf /etc/h2o/colibri_tls.conf

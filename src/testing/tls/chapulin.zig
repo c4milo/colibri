@@ -19,6 +19,7 @@
 //! boundary is `tls.Provider`.
 const std = @import("std");
 const build_options = @import("build_options");
+const check_file = @import("check_file.zig");
 
 /// Whether a checkout was given. Every declaration below is guarded on it, so a build without one
 /// never references a symbol the linker would have to find.
@@ -83,6 +84,23 @@ fn check_alpn() void {
 
 /// The seed a `RAND=drbg` build takes, which chapulin's `drbg.h` fixes at 32 octets.
 pub const seed_len: usize = 32;
+
+/// Where an endpoint draws random octets from.
+pub const entropy_path = "/dev/urandom";
+
+pub const SeedError = error{
+    /// The operating system gave fewer random octets than asked for.
+    EntropyShort,
+};
+
+/// Seeds chapulin's generator, which a `RAND=drbg` build requires before any handshake, from the
+/// operating system's entropy. An endpoint may read it; the library may not, and does not.
+pub fn seed_from_entropy() !void {
+    var seed: [seed_len]u8 = undefined;
+    const drawn = try check_file.read_file(entropy_path, &seed);
+    if (drawn.len != seed.len) return SeedError.EntropyShort;
+    c.ch_drbg_seed(&seed);
+}
 
 /// chapulin routes every failed assertion here, and `ch_assert.h` leaves the handler to the
 /// image: its failure domain is the caller's. colibri's panics, naming the condition and the
