@@ -3576,6 +3576,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and obs-fold in a request. The step 2 byte pipe feeds every parser at seeded splits, and each
   split must give what the whole input gives. Fuzzing and mutations.
 
+  **Check passed, 2026-09-25**, `91316b0` to `df09b96`, on macOS arm64 with Zig 0.16.0.
+  - `91316b0`: the head. A resumable scanner finds a head's end, scanning each octet once however
+    the head arrives, and refuses a bare CR and a lone LF. The start line and the field lines are
+    read into `http.FieldSection`, and a client joins obs-fold with SP (RFC 9112 §5.2).
+  - `c6257c2` and `6b8e1ca`: RFC 3986 in `docs/rfcs/`, and its grammar for host, port, authority,
+    origin-form and absolute-URI in `http.uri`.
+  - `694f1c8`: the request-target's form and the Host rules of RFC 9112 §3.2.
+  - `1be3578`: §6.3's eight rules for the length of a body, and decision 91's codings.
+  - `043d357`: the chunked decoder, which returns data as slices of the caller's octets.
+  - `f55aa0b`: the request, response and chunk writers, which refuse what colibri would refuse
+    to read.
+  - `d42b181`: the golden corpus, 32 request and 12 response cases. The owner raised
+    `case_len_max` to 256 and `manifest_len_max` to 32,768, and `decoded_len_max` doubled with them.
+  - `bdeb891`: the split check, below.
+  - `df09b96`: fuzz properties for the head and chunked parsers.
+
+  What each check printed:
+  - `zig build test`: 1730 of 1794 tests passed, 64 skipped. That run includes `golden-check`,
+    which decodes every h11 case to its verdict.
+  - `zig build sim -- --h11-split-check`, in Debug and in ReleaseSafe: `h11-split: seeds=256
+    passed=170 rejected=86 messages=522 chunks=7161 trace_octets=69565 crc32=0x793d2f38`. Every
+    seed read in seeded chunks what it read in one piece, every body matched the plan's, and each
+    of the 86 planted defects was refused with its error.
+  - `zig build test-h11 --fuzz=1M` does not build: Zig 0.16.0's own test runner fails to compile
+    in fuzz mode, as it does for every module
+    ([#53](https://github.com/c4milo/colibri/issues/53)). The fuzz properties run over their corpus
+    and every input of up to two octets.
+  - Mutations: 121 CAUGHT and 1 equivalent. By commit: 19 in the head, 17 of 18 in the URI
+    grammar, 16 in the target and Host rules, 23 in the body rules, 18 in the chunked decoder, 17
+    in the writers, 6 caught by the corpus alone, 3 caught by the split check alone, and 2 in the
+    fuzz properties. The equivalent mutant lets userinfo hold "@", which the first "@" always
+    ends.
+
 - **Step 15b — the connection.** Persistence (§9.3), the client's pipelining with responses
   matched to requests in order (§9.3.2), a server that reads one request at a time, and closing
   (§9.6). **Check:** a simulator check over step 2's byte pipe. A colibri client and server
