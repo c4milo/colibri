@@ -2122,6 +2122,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternative refused: a dependent that imports colibri's source files by path. It would
     bypass the module graph that keeps `quic` from importing any HTTP module (decision 5).
 
+    `h11` joined them on 2026-09-25, when design §8 step 15a created it, so eleven are exported.
+
 87. **The simulator's h3 trace run logs every variable of `spec/tla/h3_connection`, and TLC checks
     each seed's log is a behavior of the model.** Ruled by the owner on 2026-09-25, for
     https://github.com/c4milo/colibri/issues/58.

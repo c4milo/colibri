@@ -146,7 +146,7 @@ exists — never propose a second one.
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The ten
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The eleven
   library modules are exported by name, so a dependent reaches them with `dependency.module`
   (decision 86); the simulator, the corpus and `src/testing/` are not. A module can only
   `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not

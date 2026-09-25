@@ -116,6 +116,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "quic", .module = graph.quic },
         .{ .name = "h2", .module = graph.h2 },
         .{ .name = "h3", .module = graph.h3 },
+        .{ .name = "h11", .module = graph.h11 },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "sim-run-quic", .module = graph.sim_run_quic },
@@ -218,9 +219,9 @@ fn tool_module(
 /// `tools/graph_check.zig` first compiles the control `tools/fixtures/quic_imports_core.zig` as a
 /// module of the `quic` shape and requires it to compile, then compiles one fixture per forbidden
 /// module, `quic_imports_http.zig`, `quic_imports_h2.zig`, `quic_imports_h3.zig`,
-/// `quic_imports_hpack.zig` and `quic_imports_qpack.zig`, and requires each compile to fail with
-/// an unknown-module error. A check that
-/// asserted the rule in a linter would only be checking what the source says; this checks what
+/// `quic_imports_h11.zig`, `quic_imports_hpack.zig` and `quic_imports_qpack.zig`, and requires each
+/// compile to fail with an unknown-module error. A check that asserted the rule in a linter would
+/// only be checking what the source says; this checks what
 /// the build does.
 fn add_graph_check_step(b: *std.Build) *std.Build.Step {
     const check = b.addExecutable(.{

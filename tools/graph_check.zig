@@ -27,7 +27,7 @@ const quic_imports = [_]Import{
 };
 
 /// Every module name `quic` must not be able to import. Each gets a fixture and each must fail.
-const forbidden = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
+const forbidden = [_][]const u8{ "http", "h2", "h3", "h11", "hpack", "qpack" };
 
 /// The module name the positive control imports: one `quic` really does have.
 const control = "core";
@@ -127,7 +127,7 @@ fn compile(
 test "the forbidden list names every HTTP module of the graph" {
     // docs/design.md §3: these five are the HTTP side. A module added to the graph that `quic`
     // must not import is added here, or the check stops covering it.
-    const expected = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
+    const expected = [_][]const u8{ "http", "h2", "h3", "h11", "hpack", "qpack" };
     try std.testing.expectEqual(expected.len, forbidden.len);
     for (expected, forbidden) |want, got| {
         try std.testing.expectEqualStrings(want, got);

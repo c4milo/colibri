@@ -132,6 +132,29 @@ pub const FieldSection = struct {
         section.check_accounting();
     }
 
+    /// Adds `octets` to the end of the last line's value, or refuses them and changes nothing. h11
+    /// joins a field value folded over several lines this way (RFC 9112 §5.2). The last line's
+    /// value is the last thing in `octets`, so it stays one slice.
+    ///
+    /// The caller guarantees a line exists, and that the joined value stays within
+    /// `field_value_len_max`, as `append` requires of any value.
+    pub fn extend_last(section: *FieldSection, octets: []const u8) AppendError!void {
+        assert(section.count > 0);
+        const line = &section.lines[section.count - 1];
+        assert(line.offset + line.name_len + line.value_len == section.octets_len);
+        assert(line.value_len + octets.len <= limits.field_value_len_max);
+        const added: u32 = @intCast(octets.len);
+        // RFC 9113 §6.5.2 and RFC 9114 §4.2.2 measure a section by its unencoded octets, and a
+        // joined value counts every octet it holds, as `append` counts them.
+        if (section.size + added > limits.field_section_size_max) return error.SectionTooLarge;
+        const end = section.octets_len + added;
+        @memcpy(section.octets[section.octets_len..end], octets);
+        line.value_len += @intCast(added);
+        section.octets_len = end;
+        section.size += added;
+        section.check_accounting();
+    }
+
     /// The line at `index`: 0 for the first line that arrived and `len() - 1` for the last. The
     /// index is the caller's, so it is asserted, never checked.
     pub fn get(section: *const FieldSection, index: u32) Field {
@@ -315,6 +338,28 @@ test "the iterator yields every line in order and then null, and an empty sectio
     try testing.expectEqualStrings("2", second.value);
     try testing.expectEqual(null, lines.next());
     try testing.expectEqual(null, lines.next());
+}
+
+test "extend_last joins octets to the last line's value and counts them, or refuses and changes nothing" {
+    test_section.init();
+    try test_section.append("a", "1");
+    try test_section.append("b", "first");
+    try test_section.extend_last(" second");
+    try expect_line(0, "a", "1");
+    try expect_line(1, "b", "first second");
+    try expect_state(2, 1 + 1 + 32 + 1 + 12 + 32, 2 + 13);
+    // A value may reach field_value_len_max by joining, and the size limit still refuses.
+    test_section.init();
+    try test_section.append("c", test_value[0 .. limits.field_value_len_max - 1]);
+    try test_section.extend_last("v");
+    try testing.expectEqual(limits.field_value_len_max, test_section.get(0).value.len);
+    const room = limits.field_section_size_max - test_section.size;
+    try test_section.append("d", test_value[0 .. room - 1 - 32 - 1]);
+    const before = test_section.size;
+    try testing.expectError(error.SectionTooLarge, test_section.extend_last("vv"));
+    try testing.expectEqual(before, test_section.size);
+    try test_section.extend_last("v");
+    try testing.expectEqual(limits.field_section_size_max, test_section.size);
 }
 
 test "clear empties the section, and it accepts lines again" {

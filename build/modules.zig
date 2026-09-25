@@ -5,8 +5,8 @@
 //! The one edge that must never exist is `quic` importing anything of HTTP. RFC 9000 defines a
 //! transport that carries streams and never interprets their payloads; decision 5 keeps it that
 //! way: `quic` receives `core`, `wire`, `crypto` and `tls`, and nothing else. `src/quic/` naming
-//! `http`, `h2`, `h3`, `hpack` or `qpack` does not compile, which is invariant 26 and the check of
-//! design §8 step 0.
+//! `http`, `h2`, `h3`, `h11`, `hpack` or `qpack` does not compile, which is invariant 26 and the
+//! check of design §8 step 0.
 //!
 //! `sim` receives `core`, `tls` and `crypto` because it implements the two caller-supplied
 //! vtables (decisions 8 and 9) and passes its own null providers to the protocol modules in place
@@ -44,6 +44,8 @@ pub const Modules = struct {
     quic: *std.Build.Module,
     h2: *std.Build.Module,
     h3: *std.Build.Module,
+    /// HTTP/1.1 (decisions 88 and 91, design §8 step 15).
+    h11: *std.Build.Module,
     /// The deterministic harness: clock, byte pipe, datagram network, and null providers for both
     /// vtables. Design §10.
     sim: *std.Build.Module,
@@ -118,6 +120,10 @@ pub fn add(
     h3.addImport("http", http);
     h3.addImport("qpack", qpack);
     h3.addImport("quic", quic);
+
+    const h11 = library(b, "h11", target, optimize);
+    h11.addImport("core", core);
+    h11.addImport("http", http);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
@@ -226,6 +232,7 @@ pub fn add(
         .quic = quic,
         .h2 = h2,
         .h3 = h3,
+        .h11 = h11,
         .sim = sim,
         .sim_run = sim_run,
         .sim_run_quic = sim_run_quic,

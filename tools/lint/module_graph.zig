@@ -1,7 +1,8 @@
 //! module-graph: `quic` receives `core`, `wire`, `crypto` and `tls`, and nothing else
 //! (docs/design.md §3, decision 5, invariant 26). QUIC is a transport with streams and no opinion
 //! about payloads, and the way that is held is the build: `src/quic/` naming `http`, `h2`, `h3`,
-//! `hpack` or `qpack` does not compile, because build/modules.zig never gave `quic` those modules.
+//! `h11`, `hpack` or `qpack` does not compile, because build/modules.zig never gave `quic` those
+//! modules.
 //!
 //! The rule reads two files and requires both to agree with `expected_quic_imports`:
 //!   1. `build/modules.zig` — every `quic.addImport("<name>", ...)` call, which is what the

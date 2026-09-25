@@ -469,8 +469,8 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 
 ### INV-26 — `quic` imports no HTTP module
 
-- **Claim.** `src/quic/` never imports `http`, `h2`, `h3`, `hpack` or `qpack`, and contains no
-  identifier naming an HTTP concept.
+- **Claim.** `src/quic/` never imports `http`, `h2`, `h3`, `h11`, `hpack` or `qpack`, and contains
+  no identifier naming an HTTP concept.
 - **Mechanism.** The module graph in `build.zig` gives `quic` only `core`, `wire`, `crypto` and
   `tls`. A module can import only what the build gives it, so a forbidden import does not
   compile.
