@@ -74,45 +74,45 @@ pub fn add(
     optimize: std.builtin.OptimizeMode,
     chapulin: Chapulin,
 ) Modules {
-    const core = create(b, "src/core/core.zig", target, optimize);
+    const core = library(b, "core", target, optimize);
 
-    const wire = create(b, "src/wire/wire.zig", target, optimize);
+    const wire = library(b, "wire", target, optimize);
     wire.addImport("core", core);
 
-    const http = create(b, "src/http/http.zig", target, optimize);
+    const http = library(b, "http", target, optimize);
     http.addImport("core", core);
 
-    const tls = create(b, "src/tls/tls.zig", target, optimize);
+    const tls = library(b, "tls", target, optimize);
     tls.addImport("core", core);
 
-    const crypto = create(b, "src/crypto/crypto.zig", target, optimize);
+    const crypto = library(b, "crypto", target, optimize);
     crypto.addImport("core", core);
 
-    const hpack = create(b, "src/hpack/hpack.zig", target, optimize);
+    const hpack = library(b, "hpack", target, optimize);
     hpack.addImport("core", core);
     hpack.addImport("wire", wire);
     hpack.addImport("http", http);
 
-    const qpack = create(b, "src/qpack/qpack.zig", target, optimize);
+    const qpack = library(b, "qpack", target, optimize);
     qpack.addImport("core", core);
     qpack.addImport("wire", wire);
     qpack.addImport("http", http);
 
     // Decision 5: no HTTP module is given to `quic`, at any point, for any reason.
-    const quic = create(b, "src/quic/quic.zig", target, optimize);
+    const quic = library(b, "quic", target, optimize);
     quic.addImport("core", core);
     quic.addImport("wire", wire);
     quic.addImport("crypto", crypto);
     quic.addImport("tls", tls);
 
-    const h2 = create(b, "src/h2/h2.zig", target, optimize);
+    const h2 = library(b, "h2", target, optimize);
     h2.addImport("core", core);
     h2.addImport("wire", wire);
     h2.addImport("http", http);
     h2.addImport("hpack", hpack);
     h2.addImport("tls", tls);
 
-    const h3 = create(b, "src/h3/h3.zig", target, optimize);
+    const h3 = library(b, "h3", target, optimize);
     h3.addImport("core", core);
     h3.addImport("wire", wire);
     h3.addImport("http", http);
@@ -260,6 +260,23 @@ pub fn add_testing_udp(
     module.link_libc = true;
     link_chapulin(b, module, chapulin.quic, "chapulin-quic.o", chapulin_quic_defines(chapulin.quic_trust));
     return module;
+}
+
+/// One module of the packaged library, exported by name so a project that depends on colibri
+/// reaches it with `dependency.module("<name>")`, carrying the imports given here. Its root is
+/// `src/<name>/<name>.zig`. The simulator, the corpus and the test-only endpoints stay
+/// unexported: they are not the library.
+fn library(
+    b: *std.Build,
+    comptime name: []const u8,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    return b.addModule(name, .{
+        .root_source_file = b.path("src/" ++ name ++ "/" ++ name ++ ".zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 }
 
 fn create(

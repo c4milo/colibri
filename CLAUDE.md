@@ -147,9 +147,11 @@ exists — never propose a second one.
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. A module can
-  only `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and
-  not by review. The graph is design §3 and the rest of the design depends on it — read it before
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The ten
+  library modules are exported by name, so a dependent reaches them with `dependency.module`
+  (decision 86); the simulator, the corpus and `src/testing/` are not. A module can only
+  `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not
+  by review. The graph is design §3 and the rest of the design depends on it — read it before
   adding a module or an edge.
 - The one edge that must never exist: **`quic` may not import `http`, `h2`, `h3`, `hpack` or
   `qpack`.** QUIC knows nothing about HTTP (decision 5). The QUIC simulator runs with no HTTP
