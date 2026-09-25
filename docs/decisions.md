@@ -2274,3 +2274,31 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       about 400 MB on decoders it rarely uses.
     - Offering the codings on every client connection, or on none.
 
+92. **How an h11 connection runs.** Ruled by the owner on 2026-09-25, for design §8 step 15b.
+    - colibri writes a server's error responses itself, as h2 writes its own GOAWAY and
+      RST_STREAM. The response carries `Connection: close` and no content, and the connection
+      closes after it. The statuses:
+      - 400 for a malformed request (RFC 9112 §2.2, §3.2, §5.1, §6.3; RFC 9110 §15.5.1);
+      - 414 for a request line longer than `start_line_len_max` (RFC 9112 §3, RFC 9110 §15.5.15);
+      - 431 for a head, field section or trailer section past colibri's limits (RFC 6585 §5, now in
+        `docs/rfcs/`);
+      - 501 for a transfer coding h11 does not decode (RFC 9112 §6.1, RFC 9110 §15.6.2, decision
+        91);
+      - 505 for a major version other than 1 (RFC 9110 §15.6.6).
+    - HTTP/1.0 keep-alive is not honoured. An HTTP/1.0 exchange closes after its response, which
+      RFC 9112 §9.3 allows. HTTP/1.1 connections persist unless either side sends
+      `Connection: close`.
+    - A server reads one request at a time. It reads the next request only after it has written
+      the final response to the current one, so later pipelined requests stay unread in the
+      caller's buffer. Responses go out in order with no queue (RFC 9112 §9.3.2).
+
+    The alternatives refused:
+    - The application writes the error response. It gains control of the content, but every
+      application would have to handle every refusal the same way.
+    - Honouring HTTP/1.0 keep-alive. RFC 9112 Appendix C.2.2 describes how often HTTP/1.0
+      implementations get it wrong.
+    - Reading pipelined requests ahead, up to a named limit. It allows parallel processing of safe
+      methods, at the cost of a queue of pending requests on every connection.
+    - Answering an oversized field section with 400, which RFC 9110 §5.4's "appropriate 4xx"
+      allows. 431 tells the client which limit it passed.
+

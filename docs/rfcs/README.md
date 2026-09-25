@@ -26,6 +26,7 @@ rule or none at all.
 | [5234](rfc5234.txt) | Augmented BNF for Syntax Specifications: ABNF | The core rules RFC 9110 §2.1 includes, and case-insensitive quoted strings (decision 15) |
 | [9111](rfc9111.txt) | HTTP Caching | Not implemented; its conformance bar is zero (decision 16) |
 | [9112](rfc9112.txt) | HTTP/1.1 | `h11` (decisions 88 and 91) |
+| [6585](rfc6585.txt) | Additional HTTP Status Codes | The 431 an h11 server answers a field section too large with (decision 92), copied on 2026-09-25 |
 | [3986](rfc3986.txt) | Uniform Resource Identifier (URI): Generic Syntax | The grammar of Host and of the request-target that RFC 9110 §4 and RFC 9112 §3.2 cite, copied on 2026-09-25 |
 | [9113](rfc9113.txt) | HTTP/2 | `h2` |
 | [7541](rfc7541.txt) | HPACK: Header Compression for HTTP/2 | `hpack`, and the Huffman code and prefixed integer in `wire` (decision 11) |
