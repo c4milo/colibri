@@ -21,4 +21,5 @@ test {
     _ = @import("chunked/chunked_line.zig");
     _ = @import("message/message_write.zig");
     _ = @import("chunked/chunked_write.zig");
+    _ = @import("message/message_fuzz.zig");
 }
