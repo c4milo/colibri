@@ -275,13 +275,14 @@ section when a step adds or renames a command.
   read, so the h2 server runs it inside its loop (decisions 46 and 82), and a record that carries
   no data leaves the session live. An object of another transport does not link, and one built
   with other defines than `build/modules.zig` reads the headers under is refused when an endpoint
-  starts (chapulin's `build.h`). It needs chapulin `b20f0ac` or later, which keeps the write side
-  open after a peer's `close_notify` (RFC 9846 §6.1). The client's `TRUST=webpki` is not a
-  preference: chapulin compiles its ALPN fields out for `TRUST=raw` and `TRUST=ca`, and without
-  ALPN no client can negotiate h2 (RFC 9113 §3.1), so colibri refuses such a build at compile
-  time. Without the options the TLS endpoints compile to nothing, so a
-  clone with no chapulin still builds and still runs every other check. Copy each role's object
-  out before building the other: `make clean` removes the one already written.
+  starts (chapulin's `build.h`). It needs chapulin `0c201b7` or later: `b20f0ac` keeps the write
+  side open after a peer's `close_notify` (RFC 9846 §6.1), and `0c201b7` names the build record
+  after the object's transport (`ch_build_record`), which colibri reads by that name. The
+  client's `TRUST=webpki` is not a preference: chapulin compiles its ALPN fields out for
+  `TRUST=raw` and `TRUST=ca`, and without ALPN no client can negotiate h2 (RFC 9113 §3.1), so
+  colibri refuses such a build at compile time. Without the options the TLS endpoints compile to
+  nothing, so a clone with no chapulin still builds and still runs every other check. Copy each
+  role's object out before building the other: `make clean` removes the one already written.
 - TLS checks: `tools/tls_handshake.sh <checkout> [port]` runs one handshake with colibri as the
   client against a Go server, and `tools/tls_accept.sh <checkout> [port]` one with colibri as the
   server against a Go client, which also moves a record each way and ends on the client's
@@ -306,9 +307,9 @@ section when a step adds or renames a command.
   <address> <port>
   <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] <path>...`
   run design §9's servers and clients over Rotor's UDP loop and the same chapulin object, which
-  must be chapulin `37bebc5` or later: its session tickets, `ch_quic_seal_close` for the close a
-  failed handshake owes (decision 84), the AES-GCM suites (decision 85), and the KeyUpdate refusal
-  h3spec checks. The server serves h3 or
+  must be chapulin `0c201b7` or later: its session tickets, `ch_quic_seal_close` for the close a
+  failed handshake owes (decision 84), the AES-GCM suites (decision 85), the KeyUpdate refusal
+  h3spec checks, and the build record named `ch_build_quic`. The server serves h3 or
   hq-interop, whichever its client's ALPN asks for, and a client with `h3` fetches over h3. An
   address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh
   <checkout> [port]` runs a client against a server on 127.0.0.1 over both protocols, checks

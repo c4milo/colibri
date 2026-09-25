@@ -48,7 +48,9 @@ pub const BuildError = error{
 /// link does not catch it: an object without the AES-GCM suites exports the same calls, and the
 /// program would run with the wrong struct sizes.
 pub fn check_build() BuildError!void {
-    if (c.ch_build_matches(&c.ch_build) != 0) return;
+    // chapulin names the record after the object's transport, so one image can link a QUIC object
+    // beside a record one, and translate-c cannot follow `build.h`'s `ch_build` alias to it.
+    if (c.ch_build_matches(&c.ch_build_quic) != 0) return;
     std.debug.print("chapulin: the linked QUIC object was built with other defines than colibri " ++
         "reads its headers under; CLAUDE.md's Commands section names the make line.\n", .{});
     return BuildError.ObjectMismatch;
@@ -150,7 +152,7 @@ test "the linked QUIC object was built with the defines colibri reads the header
     if (!available) return error.SkipZigTest;
     try check_build();
     // RFC 9846 §9.1's mandatory suite, which h3spec offers, is in the object.
-    try testing.expect(c.ch_build.axes & c.CH_BUILD_SUITE_AES_GCM != 0);
+    try testing.expect(c.ch_build_quic.axes & c.CH_BUILD_SUITE_AES_GCM != 0);
 }
 
 test "the checkout the build was given links, and carries both roles" {
