@@ -2168,8 +2168,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       requests went unanswered, and the caller opens the next connection, on which the client
       does not pipeline at once.
     - `h11` imports `core`, `http`, `tls` and `deflate`. `tls` lets it attach to a finished
-      handshake and check that ALPN chose `http/1.1`, as h2 does for `h2`. Entry 90 moves
-      `deflate` to stdx.
+      handshake and check what ALPN selected. Entry 90 moves `deflate` to stdx.
+    - Amended by the owner on 2026-09-25, for design §8 step 15d: h11 runs when ALPN selected
+      `http/1.1` or selected nothing, and refuses any other selection (RFC 7301 §3.2). RFC 9846
+      §4.2.2 has a server ignore an extension it does not recognise, so a server without ALPN
+      answers with none, and RFC 9112 §9.7 asks for no ALPN. curl, Go's `net/http`, browsers,
+      nginx and h2o all speak HTTP/1.1 on such a connection. The alternative refused: h11 runs
+      only when ALPN selected `http/1.1`, as h2 runs only on `h2`. It is the strict side, but h2
+      has RFC 9113 §3.3's MUST behind it and h11 has none, and it would refuse every peer that
+      does not negotiate ALPN.
     - h11 decodes three transfer codings: `chunked` (RFC 9112 §7.1), `gzip` and `deflate` (§7.2).
       A server answers 501 to any other coding, `compress` included (§6.1). It answers 400 and
       closes the connection when a request's last coding is not `chunked` (§6.3).

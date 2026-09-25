@@ -48,6 +48,9 @@ pub const alpn_h2: [2]u8 = .{ 0x68, 0x32 };
 /// RFC 9001 §8.1 makes ALPN mandatory in QUIC, so a connection carrying h3 always names it.
 pub const alpn_h3: [2]u8 = .{ 0x68, 0x33 };
 
+/// RFC 7301 §6: the "http/1.1" protocol identifier, which h11 runs under (decision 88).
+pub const alpn_http_1_1 = "http/1.1";
+
 comptime {
     // RFC 9113 §3.1 and RFC 9114 §3.1 spell the two tokens, which differ in their last octet.
     assert(alpn_h2[0] == 'h' and alpn_h2[1] == '2');

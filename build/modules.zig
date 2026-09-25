@@ -124,6 +124,8 @@ pub fn add(
     const h11 = library(b, "h11", target, optimize);
     h11.addImport("core", core);
     h11.addImport("http", http);
+    // Decision 88: h11 attaches to a finished handshake and checks what ALPN selected.
+    h11.addImport("tls", tls);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);

@@ -17,16 +17,21 @@
 //! method is not idempotent until that request has its final response, and not at all on a
 //! connection opened to retry until the first response arrives.
 //!
+//! Over TLS, the caller attaches the provider once the handshake completes (`attach_tls`), and
+//! passes every record through `connection_tls.zig`'s `decrypt` and `encrypt`.
+//!
 //! The caller owns the struct, which holds the head's and the trailers' field sections, and
 //! colibri allocates nothing (decision 35).
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
+const tls = @import("tls");
 const constants = @import("../constants.zig");
 const message = @import("../message/message.zig");
 const connection_body = @import("connection_body.zig");
 const connection_server = @import("connection_server.zig");
 const connection_client = @import("connection_client.zig");
+const connection_tls = @import("connection_tls.zig");
 
 pub const Role = enum { server, client };
 
@@ -153,6 +158,17 @@ pub const Connection = struct {
     retrying: bool,
     /// A client sent `Connection: close`, and sends nothing more (RFC 9112 §9.6).
     close_sent: bool,
+    /// The TLS provider the connection runs over, or null in cleartext.
+    provider: ?tls.Provider,
+    /// Records in a row that carried no application data. The peer chooses how many it sends, so
+    /// the run is bounded (`core.constants.records_without_data_max`).
+    records_without_data: u32,
+    /// Whether a KeyUpdate may have left the provider owing its reply (RFC 9846 §4.7.3), which
+    /// `connection_tls.encrypt` writes first.
+    handshake_owed: bool,
+    /// Whether the peer's `close_notify` arrived (RFC 9846 §6.1). Over TLS it alone ends a body
+    /// that runs until the close (RFC 9112 §9.8).
+    close_notify_received: bool,
 
     pub fn init(connection: *Connection, role: Role, options: Options) void {
         connection.role = role;
@@ -173,8 +189,18 @@ pub const Connection = struct {
         connection.outstanding_len = 0;
         connection.retrying = options.retrying;
         connection.close_sent = false;
+        connection.provider = null;
+        connection.records_without_data = 0;
+        connection.handshake_owed = false;
+        connection.close_notify_received = false;
         assert(connection.phase == .head and connection.failure == null);
         assert(role == .client or !options.retrying);
+    }
+
+    /// Attaches the TLS provider h11 runs over, after checking the finished handshake
+    /// (`connection_tls.zig`). Called once, before any octet of HTTP moves.
+    pub fn attach_tls(connection: *Connection, provider: tls.Provider) connection_tls.AttachError!void {
+        return connection_tls.attach(connection, provider);
     }
 
     /// Consumes the octets of at most one event from the start of `input`.
@@ -242,11 +268,15 @@ pub const Connection = struct {
     /// The transport closed: the peer closed it, or it failed.
     pub fn transport_closed(connection: *Connection) Closed {
         const close_delimited = connection.phase == .body and connection.reader.kind == .close_delimited;
-        const mid_message = !close_delimited and (connection.phase == .body or connection.scanner.scanned > 0);
-        const unanswered = if (close_delimited) connection.outstanding_len - 1 else connection.outstanding_len;
+        // RFC 9112 §9.8: over TLS, a response with neither chunked nor Content-Length is complete
+        // only if a valid closure alert has been received.
+        const secure_close = connection.provider == null or connection.close_notify_received;
+        const ended = close_delimited and secure_close;
+        const mid_message = !ended and (connection.phase == .body or connection.scanner.scanned > 0);
+        const unanswered = if (ended) connection.outstanding_len - 1 else connection.outstanding_len;
         connection.phase = .closed;
         connection.reader = .{};
-        return .{ .ended_body = close_delimited, .incomplete = mid_message, .unanswered = if (connection.role == .client) unanswered else 0 };
+        return .{ .ended_body = ended, .incomplete = mid_message, .unanswered = if (connection.role == .client) unanswered else 0 };
     }
 
     /// Ends the connection on `failure`: nothing more is read, and a server owes `status` when it

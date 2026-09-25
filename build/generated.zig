@@ -140,6 +140,7 @@ fn add_golden(b: *std.Build, steps: Steps) void {
     const h11 = host_module(b, "src/h11/h11.zig");
     h11.addImport("core", core);
     h11.addImport("http", http);
+    h11.addImport("tls", tls);
     const corpus = host_module(b, "src/golden/corpus.zig");
     corpus.addImport("core", core);
     corpus.addImport("wire", wire);
