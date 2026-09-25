@@ -73,9 +73,10 @@ pub fn apply(connection: *Connection, frame: frame_module.Frame) Error!void {
         // RFC 9000 §19.11: MAX_STREAMS raises how many this endpoint may open, and §4.6 makes a
         // value below the current one something to ignore rather than an error.
         .max_streams => |held| _ = connection.streams.raise_local_limit(directionality_of(held.directionality), held.maximum),
-        // RFC 9000 §19.13, §19.14: the BLOCKED frames say the peer wants to send and cannot.
-        // They oblige nothing; §4.1 has a receiver use them to tune, which colibri does not.
-        .stream_data_blocked, .streams_blocked => {},
+        .stream_data_blocked => |held| try take_stream_data_blocked(connection, held.stream_id),
+        // RFC 9000 §19.14: STREAMS_BLOCKED says the peer wants to open a stream and cannot. It
+        // obliges nothing; §4.6 has a receiver use it to tune, which colibri does not.
+        .streams_blocked => {},
         else => {},
     }
 }
@@ -159,6 +160,16 @@ fn take_stop_sending(connection: *Connection, stream_id: u64, application_error_
     _ = connection.streams.reset(stream, application_error_code);
 }
 
+/// A STREAM_DATA_BLOCKED frame (RFC 9000 §19.13): the peer wants to send on a stream and cannot.
+/// It obliges nothing, and §4.1 has a receiver use it to tune, which colibri does not. §3.2 makes
+/// it one of the frames that create a peer's stream.
+fn take_stream_data_blocked(connection: *Connection, stream_id: u64) Error!void {
+    const id: StreamId = .{ .value = stream_id };
+    // RFC 9000 §19.13: "An endpoint that receives a STREAM_DATA_BLOCKED frame for a send-only
+    // stream MUST terminate the connection with error STREAM_STATE_ERROR."
+    _ = try receivable_stream(connection, id);
+}
+
 /// A MAX_STREAM_DATA frame (RFC 9000 §19.10): the peer raised what this endpoint may send.
 fn take_max_stream_data(connection: *Connection, stream_id: u64, maximum: u64) Error!void {
     const id: StreamId = .{ .value = stream_id };
@@ -199,6 +210,11 @@ fn open_or_find(connection: *Connection, id: StreamId) Error!?*Stream {
         .closed => return null,
         .unopened => {},
     }
+    // RFC 9000 §3.2: a peer's frame creates a stream the peer initiated, never one this endpoint
+    // initiates. §19.5, §19.8 and §19.10 make a STOP_SENDING, STREAM or MAX_STREAM_DATA frame
+    // "for a locally initiated stream that has not yet been created" STREAM_STATE_ERROR, and a
+    // RESET_STREAM or STREAM_DATA_BLOCKED frame names a sending part that does not exist either.
+    if (id.is_initiated_by(initiator_of(connection))) return Error.StreamState;
     // RFC 9000 §3.2: "An endpoint that receives a frame for a stream that it has not created
     // creates that stream", and §4.6's limit is what refuses one past what was advertised.
     const first_index = connection.streams.lowest_unopened(id);

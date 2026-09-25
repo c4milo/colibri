@@ -58,6 +58,8 @@ const client_bidi_second: u64 = 4;
 const client_uni_first: u64 = 2;
 /// A unidirectional stream a server opens, which a server may send on and never receive on.
 const server_uni_first: u64 = 3;
+/// The first bidirectional stream a server opens (§2.1's two low bits are 01).
+const server_bidi_first: u64 = 1;
 
 fn parameters() Parameters {
     var held = Parameters.initial();
@@ -139,6 +141,34 @@ test "RFC 9000 §19.8: a STREAM frame on a send-only stream is STREAM_STATE_ERRO
         error_code.stream_state_error,
         stream_frames.connection_error_code(stream_frames.Error.StreamState),
     );
+}
+
+test "RFC 9000 §19.5, §19.8, §19.10: a frame for a stream this endpoint has not opened is refused" {
+    // Each frame names the server's first bidirectional stream, which the server never opened.
+    // §3.2 has a peer's frame create only a stream the peer initiated.
+    const refused = [_]Frame{
+        stream_frame(server_bidi_first, 0, data_len, false),
+        .{ .stop_sending = .{ .stream_id = server_bidi_first, .error_code = 0 } },
+        .{ .max_stream_data = .{ .stream_id = server_bidi_first, .maximum = test_max_stream_data } },
+        .{ .reset_stream = .{ .stream_id = server_bidi_first, .error_code = 0, .final_size = 0 } },
+        .{ .stream_data_blocked = .{ .stream_id = server_bidi_first, .limit = 0 } },
+    };
+    for (refused) |held| {
+        open_server();
+        try testing.expectError(error.StreamState, run(&.{held}));
+        try testing.expectEqual(0, test_connection.streams.len());
+    }
+}
+
+test "RFC 9000 §19.13: STREAM_DATA_BLOCKED is refused on a send-only stream, and creates a peer's" {
+    open_server();
+    const on_send_only: Frame = .{ .stream_data_blocked = .{ .stream_id = server_uni_first, .limit = 0 } };
+    try testing.expectError(error.StreamState, run(&.{on_send_only}));
+    open_server();
+    // §3.2: STREAM_DATA_BLOCKED is one of the frames that create the stream a peer initiated.
+    const on_peer_stream: Frame = .{ .stream_data_blocked = .{ .stream_id = client_uni_first, .limit = 0 } };
+    _ = try run(&.{on_peer_stream});
+    try testing.expectEqual(1, test_connection.streams.len());
 }
 
 test "RFC 9000 §4.6: a stream past the advertised limit is STREAM_LIMIT_ERROR" {
