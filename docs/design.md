@@ -3392,6 +3392,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the rest of `tools/quic_aioquic.sh` still pass.
   - 7 mutations, all CAUGHT.
 
+  **The runner against ngtcp2 on chapulin `6a4c5eb`, 2026-09-24.** chapulin fixed the
+  HelloRetryRequest fault above, and colibri leaves `989e3da`. On macOS arm64,
+  `tools/interop.sh <checkout> ngtcp2` passed all 17 cases in both roles: H, DC, C20, M, L1, L2,
+  S, U, A, 6, E, LR, B, BP, BA, R and 3.
+
   **Still owed:** h3spec, once chapulin's QUIC mode offers AES-GCM. The model's trace validation
   against the simulator's h3 check: [#58](https://github.com/c4milo/colibri/issues/58).
 
