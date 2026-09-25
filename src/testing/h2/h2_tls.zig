@@ -149,7 +149,7 @@ test "RFC 9113 §10.5: a run of records carrying nothing ends h2 with a GOAWAY, 
     if (!available) return error.SkipZigTest;
     try connect_test_layer();
     // One past `records_without_data_max` is ENHANCE_YOUR_CALM, an h2 connection error.
-    const input = try empty_records(h2.constants.records_without_data_max + 1);
+    const input = try empty_records(h2.core.constants.records_without_data_max + 1);
     const stepped = try step(&test_layer, &test_session, input, &test_output);
     try testing.expect(test_session.finished);
     // The GOAWAY is sealed, then the close_notify, and the connection is done.

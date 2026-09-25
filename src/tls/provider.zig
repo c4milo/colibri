@@ -136,6 +136,14 @@ pub const Negotiated = struct {
     cipher_suite: u16,
 };
 
+/// Whether `suite` is one of the three colibri admits (RFC 9846 Appendix B.4, decision 45).
+pub fn cipher_suite_admitted(suite: u16) bool {
+    for (constants.cipher_suites_admitted) |admitted| {
+        if (suite == admitted) return true;
+    }
+    return false;
+}
+
 /// Whether the peer is asked to update its own keys in turn (RFC 9846 §4.7.3). The values are
 /// the RFC's.
 pub const KeyUpdateRequest = enum(u8) {

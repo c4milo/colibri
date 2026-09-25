@@ -2,6 +2,7 @@
 //! under 500 lines with its tests included (CLAUDE.md). Every function they drive is already
 //! `pub`, so nothing was widened to make the split.
 const std = @import("std");
+const core = @import("core");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const connection = @import("connection.zig");
@@ -334,7 +335,7 @@ test "a run of records carrying no data is bounded, and one past it is ENHANCE_Y
     try attach(&connection.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     // The bound is what a peer may send, so the last permitted record still succeeds.
-    for (0..constants.records_without_data_max) |_| {
+    for (0..core.constants.records_without_data_max) |_| {
         const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
         try testing.expectEqual(0, opened.plaintext_len);
     }
@@ -357,7 +358,7 @@ test "a record carrying data ends the run, so an interleaved stream never reache
     for (0..interleaved_runs) |_| {
         state.content = .new_session_ticket;
         state.body = "";
-        for (0..constants.records_without_data_max) |_| {
+        for (0..core.constants.records_without_data_max) |_| {
             _ = try decrypt(&connection.test_connection, "record", &plaintext, 0);
         }
         state.content = .application_data;

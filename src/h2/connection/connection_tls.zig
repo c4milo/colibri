@@ -10,6 +10,7 @@
 //! on: RFC 7301 §3.2 makes it the provider's fatal `no_application_protocol` alert, value 120.
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const connection = @import("connection.zig");
@@ -66,15 +67,7 @@ pub fn check(provider: tls.Provider) AttachError!void {
     // RFC 9846 Appendix B.4: the suite is a codepoint, and colibri admits the three of §9.1
     // (decision 45). Refusing here needs no part of RFC 9113 Appendix A, whose prohibited suites
     // are TLS 1.2's and are listed by name with no codepoint.
-    if (!admits_cipher_suite(negotiated.cipher_suite)) return error.CipherSuiteRefused;
-}
-
-/// True when the suite is one colibri admits (RFC 9846 Appendix B.4, decision 45).
-fn admits_cipher_suite(suite: u16) bool {
-    for (tls.constants.cipher_suites_admitted) |admitted| {
-        if (suite == admitted) return true;
-    }
-    return false;
+    if (!tls.provider.cipher_suite_admitted(negotiated.cipher_suite)) return error.CipherSuiteRefused;
 }
 
 /// Why a record did not open or did not go out. `ConnectionFailed` is an HTTP/2 connection error
@@ -165,7 +158,7 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
     target.records_without_data += 1;
     // RFC 9113 §10.5: a peer generating excessive load is a connection error of
     // ENHANCE_YOUR_CALM, which is what a run of records carrying nothing is.
-    if (target.records_without_data > constants.records_without_data_max) {
+    if (target.records_without_data > core.constants.records_without_data_max) {
         return target.fail(constants.error_enhance_your_calm);
     }
     return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = false };

@@ -34,6 +34,15 @@ pub const field_line_overhead: u32 = 32;
 /// decoder must still consume every octet (invariant 10).
 pub const field_section_size_max: u32 = 16384;
 
+/// Most TLS records in a row that may carry no application data, in h2 and in h11. A
+/// NewSessionTicket, a KeyUpdate and a `user_canceled` alert each yield none and each is
+/// legitimate (RFC 9846 §4.7.1, §4.7.3, §6.1), and RFC 9846 §6.1 obliges a receiver to keep
+/// reading past a `user_canceled` rather than close. So the peer chooses how much work colibri
+/// does for nothing, and one past this bound fails the connection: in h2 with ENHANCE_YOUR_CALM
+/// (RFC 9113 §10.5), and in h11 with a close. The owner set it at 32 on 2026-09-20 to match h2's
+/// `continuation_count_max`, which bounds the same kind of peer-chosen run.
+pub const records_without_data_max: u32 = 32;
+
 /// Most connections one endpoint holds at once. The caller owns every connection struct and places
 /// it where it chooses; colibri exposes the struct's size as a comptime constant, allocates none
 /// of them and grows nothing (decision 35, invariant 1).
