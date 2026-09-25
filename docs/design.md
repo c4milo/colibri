@@ -3557,8 +3557,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     requests from curl and Go.
   - The HTTP Garden (https://github.com/narfindustries/http-garden), a differential fuzzer for
     HTTP/1.1 request streams, with colibri's server as one of its origins. Each discrepancy is
-    judged against RFC 9112 before it counts as colibri's defect. It is GPL-3.0 and needs Docker,
-    so it runs from `tools/` alone, and it needs its own dependency ruling.
+    judged against RFC 9112 before it counts as colibri's defect. The owner ruled it in on
+    2026-09-25 ([decision 88](decisions.md)). It is GPL-3.0 and needs Docker, so it runs from
+    `tools/` alone, cloned at a pinned commit.
   - Mutations for every request-parsing check (decision 88). *Large.*
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks

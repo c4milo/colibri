@@ -2172,6 +2172,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       A server answers 501 to any other coding, `compress` included (§6.1). It answers 400 and
       closes the connection when a request's last coding is not `chunked` (§6.3).
     - The test-only endpoints run on Rotor from their first commit (entry 83).
+    - The HTTP Garden (https://github.com/narfindustries/http-garden) checks h11's server, ruled
+      by the owner on 2026-09-25. It is a differential fuzzer of HTTP/1.1 request streams. It runs
+      from `tools/` alone, cloned at a pinned commit into a cache as `tools/interop.sh` clones the
+      QUIC Interop Runner, and nothing of it is linked or shipped. Its license is GPL-3.0, which
+      reaches no colibri code, because colibri only runs it. It needs Docker.
 
     The alternatives refused for transfer codings, both offered on 2026-09-25:
     - `chunked` alone, refusing the rest. It is the smallest surface, and needs no decoder.
