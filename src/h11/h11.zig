@@ -14,4 +14,5 @@ test {
     _ = @import("message/message_start.zig");
     _ = @import("message/message_fields.zig");
     _ = @import("message/message_target.zig");
+    _ = @import("message/message_body.zig");
 }

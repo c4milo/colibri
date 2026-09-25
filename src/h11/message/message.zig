@@ -23,6 +23,7 @@ const message_scan = @import("message_scan.zig");
 const message_start = @import("message_start.zig");
 const message_fields = @import("message_fields.zig");
 const message_target = @import("message_target.zig");
+const message_body = @import("message_body.zig");
 
 const FieldSection = http.FieldSection;
 const Reader = core.reader.Reader;
@@ -33,9 +34,13 @@ pub const Version = message_start.Version;
 pub const RequestLine = message_start.RequestLine;
 pub const StatusLine = message_start.StatusLine;
 pub const Form = message_target.Form;
+pub const Body = message_body.Body;
+pub const Length = message_body.Length;
+pub const Coding = message_body.Coding;
+pub const Asked = message_body.Asked;
 
 pub const Error = message_scan.Error || message_start.Error || message_fields.Error ||
-    message_target.Error;
+    message_target.Error || message_body.Error;
 
 /// A request head read whole. `head_len` octets of the caller's input belong to it, a skipped
 /// leading empty line and the empty line that ends it included.
@@ -44,12 +49,16 @@ pub const Request = struct {
     line: RequestLine,
     /// The request-target's form (RFC 9112 §3.2).
     form: Form,
+    /// How the body is delimited and coded (RFC 9112 §6.3).
+    body: Body,
 };
 
 /// A response head read whole. `head_len` octets of the caller's input belong to it.
 pub const Response = struct {
     head_len: u32,
     line: StatusLine,
+    /// How the body is delimited and coded (RFC 9112 §6.3).
+    body: Body,
 };
 
 /// The CR and LF that end every line (RFC 9112 §2.1).
@@ -64,16 +73,20 @@ pub fn read_request(scanner: *Scanner, input: []const u8, section: *FieldSection
     const line = try message_start.parse_request_line(start_line);
     try message_fields.parse(.request, fields, section);
     const form = try message_target.check(line, section);
-    return .{ .head_len = head_len, .line = line, .form = form };
+    const body = try message_body.request_body(line.version, section);
+    return .{ .head_len = head_len, .line = line, .form = form, .body = body };
 }
 
 /// Reads one response head from the start of `input`, as `read_request` reads a request head.
-pub fn read_response(scanner: *Scanner, input: []const u8, section: *FieldSection) Error!?Response {
+/// `asked` is what the request it answers asked, which decides what its body can be (RFC 9112
+/// §6.3).
+pub fn read_response(scanner: *Scanner, asked: Asked, input: []const u8, section: *FieldSection) Error!?Response {
     const head, const head_len = try read_head(scanner, .response, input) orelse return null;
     const start_line, const fields = std.mem.cut(u8, head, line_end) orelse unreachable;
     const line = try message_start.parse_status_line(start_line);
     try message_fields.parse(.response, fields, section);
-    return .{ .head_len = head_len, .line = line };
+    const body = try message_body.response_body(asked, line.status, line.version, section);
+    return .{ .head_len = head_len, .line = line, .body = body };
 }
 
 /// The octets of a whole head from its start line through the empty line that ends it, and the
@@ -105,6 +118,7 @@ test "a request head reads into its request line and field section, and says how
     try testing.expectEqualStrings("POST", request.line.method);
     try testing.expectEqualStrings("/upload", request.line.target);
     try testing.expectEqual(.origin, request.form);
+    try testing.expectEqual(Length{ .fixed = 2 }, request.body.length);
     try testing.expectEqual(2, test_section.len());
     try testing.expectEqualStrings("example.org", test_section.find("host").?.value);
     try testing.expectEqual(0, scanner.scanned);
@@ -113,10 +127,14 @@ test "a request head reads into its request line and field section, and says how
 test "a response head reads into its status line, and a folded value is joined" {
     const input = "HTTP/1.1 200 OK\r\nX: a\r\n b\r\n\r\n";
     var scanner: Scanner = .{};
-    const response = (try read_response(&scanner, input, &test_section)).?;
+    const response = (try read_response(&scanner, .other, input, &test_section)).?;
     try testing.expectEqual(input.len, response.head_len);
     try testing.expectEqual(200, response.line.status.code);
     try testing.expectEqualStrings("a b", test_section.find("x").?.value);
+    try testing.expectEqual(Length.close_delimited, response.body.length);
+    var head_scanner: Scanner = .{};
+    const head_response = (try read_response(&head_scanner, .head, input, &test_section)).?;
+    try testing.expectEqual(Length.none, head_response.body.length);
 }
 
 test "a head in pieces is read once whole, and every split reads what the whole does" {
@@ -136,7 +154,9 @@ test "a refused head resets the scanner, and each layer's refusal reaches the ca
     try testing.expectEqual(0, scanner.scanned);
     try testing.expectError(error.VersionInvalid, read_request(&scanner, "GET / http/1.1\r\n\r\n", &test_section));
     try testing.expectError(error.ObsFold, read_request(&scanner, "GET / HTTP/1.1\r\nX: a\r\n b\r\n\r\n", &test_section));
-    try testing.expectError(error.StatusInvalid, read_response(&scanner, "HTTP/1.1 700 X\r\n\r\n", &test_section));
-    try testing.expectError(error.StartLineEmpty, read_response(&scanner, "\r\nHTTP/1.1 200 X\r\n\r\n", &test_section));
+    try testing.expectError(error.StatusInvalid, read_response(&scanner, .other, "HTTP/1.1 700 X\r\n\r\n", &test_section));
+    try testing.expectError(error.StartLineEmpty, read_response(&scanner, .other, "\r\nHTTP/1.1 200 X\r\n\r\n", &test_section));
     try testing.expectError(error.HostMissing, read_request(&scanner, "GET / HTTP/1.1\r\n\r\n", &test_section));
+    try testing.expectError(error.ChunkedNotLast, read_request(&scanner, "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip\r\n\r\n", &test_section));
+    try testing.expectError(error.TransferEncodingWithContentLength, read_response(&scanner, .other, "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n", &test_section));
 }
