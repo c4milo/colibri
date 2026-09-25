@@ -314,7 +314,7 @@ const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, 1 };
 const handshake_key_update: u8 = 24;
 
 test "RFC 9846 §4.6.3: a peer's KeyUpdate is answered before anything else is read or sealed" {
-    if (!available or !chapulin.record_transport) return error.SkipZigTest;
+    if (!available) return error.SkipZigTest;
     try connect_test_layer();
     // The server's SETTINGS go out first, as this side's record 0.
     _ = try step(&test_layer, &test_session, &.{}, &test_output);

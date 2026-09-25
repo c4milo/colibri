@@ -1,10 +1,12 @@
 //! The tests of `chapulin_client.zig`, split out because a hand-written source file stays at or
 //! under 500 lines with its tests included (CLAUDE.md).
 const std = @import("std");
+const core = @import("core");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
 const chapulin_client = @import("chapulin_client.zig");
+const zero_key_records = @import("zero_key_records.zig");
 
 const c = chapulin.c;
 const testing = std.testing;
@@ -22,19 +24,33 @@ const test_hostname = "localhost";
 /// An instant inside any certificate a test would use. A constant because no file under `src/`
 /// may read a clock.
 const test_now_seconds: u64 = 1_780_000_000;
-/// The receive buffer the tests lend the client.
+/// The receive buffer the tests lend the client, and the room its flight is written into.
 var test_receive: [constants.tls_receive_len]u8 = undefined;
+var test_output: [constants.tls_record_buffer_len]u8 = undefined;
+/// One anchor whose name and key are each an empty DER SEQUENCE. chapulin refuses a configuration
+/// with no anchor, and every test here ends before a certificate is judged.
+const test_anchors = [_]c.ch_trust_anchor{.{
+    .name = &test_der,
+    .name_len = test_der.len,
+    .spki = &test_der,
+    .spki_len = test_der.len,
+}};
+const test_der = [_]u8{ der_sequence_tag, 0 };
+const der_sequence_tag: u8 = 0x30;
 
-test "the configuration colibri builds is the one chapulin is given" {
-    if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{
-        .anchors = &anchors,
+/// Builds the client's configuration over the test's storage, as every test starts.
+fn init_test_client() void {
+    test_client.init(.{
+        .anchors = &test_anchors,
         .hostname = test_hostname,
-        .socket = 0,
         .now_seconds = test_now_seconds,
         .receive = &test_receive,
     });
+}
+
+test "the configuration colibri builds is the one chapulin is given" {
+    if (!chapulin.available) return error.SkipZigTest;
+    init_test_client();
     // RFC 9113 §3.1: one protocol is offered, and it is "h2".
     try testing.expectEqual(1, test_client.config.alpn_count);
     try testing.expectEqual(alpn_h2.len, test_client.config.alpn_protocols[0].name_len);
@@ -44,23 +60,112 @@ test "the configuration colibri builds is the one chapulin is given" {
     try testing.expectEqual(@intFromPtr(&test_receive), @intFromPtr(test_client.config.buf));
     // The hostname is the one the certificate must carry.
     try testing.expectEqual(test_hostname.len, test_client.config.hostname_len);
-    // The callbacks point at this file, and their state at the phase.
+    // The callbacks point at this file, and their state at the phase. chapulin's record-mode
+    // handshake calls neither, but `ch_record_init` refuses a configuration without them.
     try testing.expect(test_client.config.send != null);
     try testing.expect(test_client.config.recv != null);
-    try testing.expectEqual(Io.socket, std.meta.activeTag(test_client.held.io));
+    try testing.expectEqual(Io.handshake, std.meta.activeTag(test_client.held.io));
 }
 
-test "the record phase serves colibri's buffers and never the socket" {
+/// Seeds chapulin's generator the same way before each handshake, so two runs stage the same
+/// ClientHello.
+fn seed_for_test() void {
+    const seed: [chapulin.seed_len]u8 = @splat(0);
+    c.ch_drbg_seed(&seed);
+}
+
+/// RFC 9846 §4: the HandshakeType of a ClientHello.
+const handshake_client_hello: u8 = 1;
+/// A record whose header is whole and whose body is not: the first three octets of five.
+const partial_header_len: usize = 3;
+/// An output smaller than any ClientHello, so collecting one takes many calls.
+const small_output_len: usize = 7;
+/// The ClientHello of the first run, which the second must write unchanged.
+var test_expected: [constants.tls_record_buffer_len]u8 = undefined;
+
+test "start stages a ClientHello, and the first call writes it as one handshake record" {
     if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{
-        .anchors = &anchors,
+    seed_for_test();
+    init_test_client();
+    try test_client.start();
+    const progress = try test_client.handshake(&.{}, &test_output);
+    try testing.expectEqual(0, progress.consumed);
+    try testing.expect(!progress.complete);
+    // RFC 9846 §5.1: one plaintext handshake record, whose header names the rest of what was
+    // written, and RFC 9846 §4.1.2: it carries the ClientHello.
+    var reader = core.Reader.init(test_output[0..progress.written]);
+    try testing.expectEqual(zero_key_records.content_handshake, try reader.read_byte());
+    _ = try reader.read_int(u16);
+    try testing.expectEqual(reader.remaining_len() - @sizeOf(u16), try reader.read_int(u16));
+    try testing.expectEqual(handshake_client_hello, try reader.read_byte());
+    // Nothing more is owed until the server answers.
+    const again = try test_client.handshake(&.{}, &test_output);
+    try testing.expectEqual(0, again.written);
+    try testing.expect(!test_client.provider().is_complete());
+}
+
+test "a ClientHello longer than the output is written over several calls, unchanged" {
+    if (!chapulin.available) return error.SkipZigTest;
+    seed_for_test();
+    init_test_client();
+    try test_client.start();
+    const whole = try test_client.handshake(&.{}, &test_output);
+    @memcpy(test_expected[0..whole.written], test_output[0..whole.written]);
+    seed_for_test();
+    init_test_client();
+    try test_client.start();
+    // An output with no room collects nothing, and the handshake goes on.
+    try testing.expectEqual(0, (try test_client.handshake(&.{}, test_output[0..0])).written);
+    var collected: usize = 0;
+    // Bounded: every call but the last writes at least one octet.
+    for (0..whole.written + 1) |_| {
+        const progress = try test_client.handshake(&.{}, test_output[collected..][0..small_output_len]);
+        try testing.expect(progress.written <= small_output_len);
+        if (progress.written == 0) break;
+        collected += progress.written;
+    }
+    try testing.expectEqualSlices(u8, test_expected[0..whole.written], test_output[0..collected]);
+}
+
+test "a configuration chapulin refuses stages no ClientHello" {
+    if (!chapulin.available) return error.SkipZigTest;
+    // chapulin's webpki build requires at least one anchor (its `webpki_cfg.c`).
+    const none = [_]c.ch_trust_anchor{};
+    test_client.init(.{
+        .anchors = &none,
         .hostname = test_hostname,
-        .socket = 0,
         .now_seconds = test_now_seconds,
         .receive = &test_receive,
     });
-    // Moving to phase 2 is what `handshake` does on success; the descriptor is never used again.
+    try testing.expectError(chapulin_client.Error.ConfigRefused, test_client.start());
+    try testing.expectEqual(c.CH_ST_FAILED, c.ch_record_state(&test_client.record));
+}
+
+test "a partial record is left for the next call, and a refused one fails the handshake" {
+    if (!chapulin.available) return error.SkipZigTest;
+    seed_for_test();
+    init_test_client();
+    try test_client.start();
+    _ = try test_client.handshake(&.{}, &test_output);
+    // RFC 9846 §4.1.3: a handshake record holding a ServerHello whose body is empty.
+    var hello = [_]u8{ 0x16, 0x03, 0x03, 0x00, 0x04, 0x02, 0x00, 0x00, 0x00 };
+    // chapulin takes whole records only (`rec.h`), so a header cut short is not taken.
+    const partial = try test_client.handshake(hello[0..partial_header_len], &test_output);
+    try testing.expectEqual(0, partial.consumed);
+    try testing.expectEqual(0, partial.written);
+    try testing.expect(!partial.complete);
+    // RFC 9846 §6: the whole record is malformed, so the handshake fails and names its alert.
+    try testing.expectError(chapulin_client.Error.HandshakeFailed, test_client.handshake(&hello, &test_output));
+    try testing.expect(test_client.alert() != 0);
+    // The code names what `ch_record_in` met, not a later call's refusal of a dead session.
+    try testing.expect(test_client.code != c.CH_EINVAL);
+    try testing.expect(!test_client.provider().is_complete());
+}
+
+test "the record phase serves colibri's buffers" {
+    if (!chapulin.available) return error.SkipZigTest;
+    init_test_client();
+    // Moving to phase 2 is what `handshake` does on success.
     var input = [_]u8{ 1, 2, 3, 4 };
     var output: [8]u8 = @splat(0);
     test_client.held.io = .{ .records = .{ .input = &input, .output = &output } };
@@ -70,9 +175,9 @@ test "the record phase serves colibri's buffers and never the socket" {
     try testing.expectEqualSlices(u8, &.{ 1, 2 }, taken[0..2]);
     try testing.expectEqual(2, recv(@ptrCast(&test_client.held.io), &taken, 4));
     try testing.expectEqualSlices(u8, &.{ 3, 4 }, taken[0..2]);
-    // Past the end it fails rather than blocking, because no callback of chapulin's can say
-    // "nothing yet" and colibri only ever passes a whole record.
-    try testing.expectEqual(-1, recv(@ptrCast(&test_client.held.io), &taken, 1));
+    // Past the end it answers 0, which `ch_read` reads as `CH_RECORD_AGAIN` (`rec.h`).
+    try testing.expectEqual(0, recv(@ptrCast(&test_client.held.io), &taken, 1));
+    try testing.expect(test_client.held.io.records.ran_dry);
     // `send` fills colibri's output and refuses to write part of a record into a short one.
     // `send` answers 0 for success, never a count: chapulin reads a positive value as failure.
     const sealed = [_]u8{ 9, 9, 9 };
@@ -81,19 +186,11 @@ test "the record phase serves colibri's buffers and never the socket" {
     try testing.expectEqual(3, test_client.held.io.records.written);
     try testing.expectEqual(-1, send(@ptrCast(&test_client.held.io), &sealed, 6));
     try testing.expectEqual(3, test_client.held.io.records.written);
-    try testing.expectEqual(3, test_client.held.io.records.written);
 }
 
 test "the vtable colibri gets answers every member" {
     if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{
-        .anchors = &anchors,
-        .hostname = test_hostname,
-        .socket = 0,
-        .now_seconds = test_now_seconds,
-        .receive = &test_receive,
-    });
+    init_test_client();
     const held = test_client.provider();
     var room: [64]u8 = @splat(0);
 
@@ -123,14 +220,7 @@ test "the vtable colibri gets answers every member" {
 
 test "the exporter answers inside chapulin's bounds and refuses outside them" {
     if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{
-        .anchors = &anchors,
-        .hostname = test_hostname,
-        .socket = 0,
-        .now_seconds = test_now_seconds,
-        .receive = &test_receive,
-    });
+    init_test_client();
     // What a completed handshake leaves. The live exporter is compared with a Go peer's by
     // `tools/tls_handshake.sh`; this pins the bounds the adapter enforces.
     test_client.held.io = .{ .records = .{} };
@@ -172,14 +262,7 @@ test "the exporter answers inside chapulin's bounds and refuses outside them" {
 
 test "once the handshake is done the session reports what it chose" {
     if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{
-        .anchors = &anchors,
-        .hostname = test_hostname,
-        .socket = 0,
-        .now_seconds = test_now_seconds,
-        .receive = &test_receive,
-    });
+    init_test_client();
     // What `handshake` does on success. The live handshake is a separate check; this pins what
     // colibri reads afterwards.
     test_client.held.io = .{ .records = .{} };
@@ -199,14 +282,7 @@ test "once the handshake is done the session reports what it chose" {
 
 test "a peer's close_notify is reported with its description, not as a failure" {
     if (!chapulin.available) return error.SkipZigTest;
-    const anchors = [_]c.ch_trust_anchor{};
-    try test_client.init(.{
-        .anchors = &anchors,
-        .hostname = test_hostname,
-        .socket = 0,
-        .now_seconds = test_now_seconds,
-        .receive = &test_receive,
-    });
+    init_test_client();
     test_client.held.io = .{ .records = .{} };
     // chapulin's `ch_read` answers 0 for a session the peer closed cleanly, which is the one
     // description this adapter can name.

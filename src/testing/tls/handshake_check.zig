@@ -16,6 +16,7 @@ const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
 const chapulin_client = @import("chapulin_client.zig");
 const check_file = @import("check_file.zig");
+const check_socket = @import("check_socket.zig");
 
 const c = chapulin.c;
 const Client = chapulin_client.Client;
@@ -32,6 +33,11 @@ var spki_storage: [spki_len_max]u8 = undefined;
 var receive_storage: [constants.tls_receive_len]u8 = undefined;
 /// The root's Subject Name DER, which the anchor carries beside the key.
 var name_storage: [spki_len_max]u8 = undefined;
+/// What this run reads from the socket, the plaintext it opens it into, and the room chapulin
+/// writes what it owes the server into.
+var input: check_socket.Input = .{};
+var plaintext_storage: [constants.tls_record_buffer_len]u8 = undefined;
+var output_storage: [constants.tls_record_buffer_len]u8 = undefined;
 
 /// What the run was asked to do.
 const Arguments = struct {
@@ -137,6 +143,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const asked = parse(init);
     const anchor_name = try check_file.read_part(asked.anchor_prefix, ".name", &name_storage);
     const spki = try check_file.read_part(asked.anchor_prefix, ".spki", &spki_storage);
+    try chapulin.check_build();
     try seed_chapulin();
 
     const socket = try connect(asked.port);
@@ -150,26 +157,88 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .spki = spki.ptr,
         .spki_len = spki.len,
     }};
-    try client.init(.{
+    client.init(.{
         .anchors = &anchors,
         .hostname = asked.hostname,
-        .socket = socket,
         .now_seconds = asked.now_seconds,
         .receive = receive_storage[0..asked.receive_len],
     });
-    client.handshake() catch {
-        std.debug.print("tls-handshake: {s} (code {d})\n", .{
-            chapulin_client.reason(client.code),
-            client.code,
-        });
+    client.start() catch {
+        std.debug.print("tls-handshake: ch_record_init refused the configuration\n", .{});
         std.process.exit(exit_failed);
     };
+    try run_handshake(socket);
     report(asked.receive_len);
     report_exporter();
+    try read_until_data(socket);
 }
 
-/// Opens one connection to the peer. The socket stays blocking: chapulin drives the handshake
-/// itself and none of its callbacks can report "nothing yet" (decision 46).
+/// Writes what chapulin owes the server and hands it what the server sends, until the handshake
+/// completes. The socket blocks, which decision 46 permits here: this check serves one connection
+/// and exits, and is not one of design §9's endpoints.
+fn run_handshake(socket: std.c.fd_t) !void {
+    // Bounded: each pass reads at least one octet after it writes, and a handshake is a few
+    // records.
+    for (0..check_socket.handshake_reads_max) |_| {
+        const progress = client.handshake(input.unread(), &output_storage) catch |failure| {
+            std.debug.print("tls-handshake: {t}: {s} (code {d}, alert {d})\n", .{
+                failure,
+                chapulin_client.reason(client.code),
+                client.code,
+                client.alert(),
+            });
+            std.process.exit(exit_failed);
+        };
+        try check_socket.write_all(socket, output_storage[0..progress.written]);
+        input.take(progress.consumed);
+        if (progress.complete) return;
+        try input.read_more(socket);
+    }
+    std.debug.print("tls-handshake: the handshake did not complete in {d} reads\n", .{
+        check_socket.handshake_reads_max,
+    });
+    std.process.exit(exit_failed);
+}
+
+/// Opens what the server sends after its handshake until a record carries application data. Go's
+/// h2 server sends a NewSessionTicket (RFC 9846 §4.6.1) and then its SETTINGS. A record that
+/// carries no data must leave the session live, which chapulin's `TRANSPORT=tls` client could not
+/// (https://github.com/c4milo/colibri/issues/62).
+fn read_until_data(socket: std.c.fd_t) !void {
+    const held = client.provider();
+    var messages: usize = 0;
+    for (0..post_handshake_records_max) |_| {
+        const record = try input.read_record(socket);
+        const opened = held.vtable.decrypt_record(held.context, record, &plaintext_storage) catch |failure| {
+            std.debug.print("tls-handshake: a record after the handshake did not open: {t}\n", .{failure});
+            std.process.exit(exit_failed);
+        };
+        input.take(opened.consumed);
+        switch (opened.content) {
+            .new_session_ticket, .key_update => messages += 1,
+            .application_data => {
+                std.debug.print("tls-handshake: records ok, {d} carried no data, then {d} octets of data\n", .{
+                    messages,
+                    opened.plaintext_len,
+                });
+                return;
+            },
+            else => {
+                std.debug.print("tls-handshake: a record after the handshake held {t}\n", .{opened.content});
+                std.process.exit(exit_failed);
+            },
+        }
+    }
+    std.debug.print("tls-handshake: no data in the first {d} records\n", .{post_handshake_records_max});
+    std.process.exit(exit_failed);
+}
+
+/// The records the check opens after the handshake before it expects data: a server's tickets,
+/// with room to spare.
+const post_handshake_records_max: usize = 8;
+
+/// Opens one connection to the peer. The socket stays blocking: this check serves one connection
+/// and exits.
 fn connect(port: u16) !std.c.fd_t {
     const socket = std.c.socket(std.c.AF.INET, std.c.SOCK.STREAM, 0);
     if (socket < 0) return error.SocketFailed;

@@ -33,6 +33,7 @@ const constants = @import("../constants.zig");
 const h2_session = @import("h2_session.zig");
 const h2_tls = @import("h2_tls.zig");
 const server_identity = @import("../tls/server_identity.zig");
+const chapulin = @import("../tls/chapulin.zig");
 const chapulin_server = @import("../tls/chapulin_server.zig");
 
 const Session = h2_session.Session;
@@ -384,12 +385,14 @@ fn read_options(arguments: *std.process.Args.Iterator) Options {
     return options;
 }
 
-/// Loads what every TLS connection shares, and runs chapulin's boot check on the identity once.
+/// Checks the linked object's build, loads what every TLS connection shares, and runs chapulin's
+/// boot check on the identity once.
 fn load_tls(prefix: []const u8) !void {
     if (comptime !h2_tls.available) {
         std.debug.print("h2-server: built without chapulin; pass -Dchapulin-server=<checkout>\n", .{});
         std.process.exit(exit_usage);
     }
+    try chapulin.check_build();
     try server_identity.seed(&tls_identity);
     const shared: h2_tls.Shared = .{
         .identity = try server_identity.load(prefix, &tls_identity),

@@ -2,23 +2,18 @@
 //! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 5's TLS work.
 //!
 //! **Two phases.** colibri's vtable is buffer in and buffer out: it never reads a descriptor, and
-//! `attach_tls` refuses a handshake that has not already completed. The handshake is chapulin's,
-//! and each role drives it its own way:
+//! `attach_tls` refuses a handshake that has not already completed. Both roles are
+//! `TRANSPORT=record` builds (decisions 46 and 82), so neither touches a descriptor:
 //!
-//!   1. **Handshake.** The client's `ch_connect` reads and writes the socket through the `send`
-//!      and `recv` callbacks and runs to completion. The server is a `TRANSPORT=record` build: it
-//!      takes octets the caller read through `ch_srv_record_in` and hands its flight to
-//!      `flight_out`, which writes into the caller's output. It never touches a descriptor, so the
-//!      h2 endpoint drives it from its loop's events
-//!      ([decision 46](../../../docs/decisions.md), https://github.com/c4milo/colibri/issues/20).
+//!   1. **Handshake.** The caller passes the octets it read. The client's driver answers through
+//!      `ch_record_out`, which the caller pulls from. The server's hands its flight to
+//!      `flight_out`, which writes into the caller's output.
 //!   2. **Records.** The callbacks serve slices colibri passed in, so `ch_write` seals into
-//!      colibri's output and `ch_read` opens from colibri's input. No descriptor is touched.
+//!      colibri's output and `ch_read` opens from colibri's input.
 //!
-//! Phase 2 is what lets a socket-owning TLS stack fill a vtable that owns no I/O. chapulin reads a
-//! record whole or fails the session, so `decrypt_record` hands it only whole records and reports
-//! a partial one as incomplete. Past the last whole record, the `recv` callback answers what the
-//! transport expects: record mode's `CH_RECORD_AGAIN` for a 0 (`rec.h`), and a failure otherwise,
-//! because the TLS transport's `io.c` turns any `recv` of zero or less into `CH_EIO`.
+//! chapulin reads a record whole or fails the session, so `decrypt_record` hands it one whole
+//! record at a time and reports a partial one as incomplete. Past that record the `recv` callback
+//! answers 0, which record mode reads as no record yet (`rec.h`), and the session stays live.
 //!
 //! Nothing in phase 2 is a role: `ch_read`, `ch_write` and `ch_close` are the three calls both a
 //! `ROLE=client` and a `ROLE=server` object export, and they read the same `ch_tls`. So one
@@ -31,14 +26,12 @@ const tls = @import("tls");
 const chapulin = @import("chapulin.zig");
 
 const c = chapulin.c;
-const posix = std.posix;
 
 /// Everything the record phase touches. `Client` and `Server` each hold one and pass its address
 /// as the provider's context, so every member of the vtable below reads this and nothing else.
 pub const Held = struct {
-    /// chapulin's session, which its three record calls read and write. A client holds it
-    /// itself; a record-mode server's lives inside chapulin's `ch_record`, which cannot be
-    /// copied, so this points at it.
+    /// chapulin's session, which its three record calls read and write. Each role's lives inside
+    /// chapulin's `ch_record`, which cannot be copied, so this points at it.
     session: *c.ch_tls,
     /// Where the callbacks read and write, which is the phase.
     io: Io,
@@ -66,9 +59,8 @@ pub const owed_len_max: usize = 64;
 /// Where chapulin's callbacks read and write. The phase moves once, when the handshake ends, and
 /// never moves back.
 pub const Io = union(enum) {
-    /// Phase 1 of the client: the socket the caller connected.
-    socket: posix.socket_t,
-    /// Phase 1 of the record-mode server: where `flight_out` writes the flight.
+    /// Phase 1: where the server's `flight_out` writes its flight. The client's driver writes
+    /// through `ch_record_out` and leaves this empty.
     handshake: Flight,
     /// Phase 2: the slices colibri passed into `encrypt_record` or `decrypt_record`.
     records: Records,
@@ -121,14 +113,13 @@ pub fn reason(code: c_int) []const u8 {
     };
 }
 
-/// chapulin's `send`: in phase 1 the socket, in phase 2 colibri's output buffer.
+/// chapulin's `send`: in phase 2, colibri's output buffer.
 ///
 /// It moves every octet and answers 0. chapulin's `cfg.h` is explicit that anything else,
 /// "including a positive byte count, is failure", so this must not report what it wrote.
 pub fn send(io: ?*anyopaque, octets: [*c]const u8, len: usize) callconv(.c) c_int {
     const state: *Io = @ptrCast(@alignCast(io.?));
     switch (state.*) {
-        .socket => |descriptor| return send_socket(descriptor, octets, len),
         // chapulin's INV-28: a record-mode handshake calls neither `send` nor `recv`.
         .handshake => return failed,
         .records => |*records| {
@@ -143,40 +134,19 @@ pub fn send(io: ?*anyopaque, octets: [*c]const u8, len: usize) callconv(.c) c_in
     }
 }
 
-/// Phase 1's half of `send`. Blocking, with no MSG_DONTWAIT: chapulin's callbacks cannot report
-/// "nothing yet", so the handshake waits here rather than answering short (decision 46). A
-/// blocking send may still move fewer octets than asked, so this loops until all are gone.
-fn send_socket(descriptor: posix.socket_t, octets: [*c]const u8, len: usize) c_int {
-    var sent: usize = 0;
-    // Bounded by `len`, and every pass moves at least one octet or returns.
-    while (sent < len) {
-        const wrote = std.c.send(descriptor, octets + sent, len - sent, 0);
-        if (wrote <= 0) return failed;
-        sent += @intCast(wrote);
-    }
-    return ok;
-}
-
-/// chapulin's `recv`: in phase 1 the socket, in phase 2 the record colibri passed in.
+/// chapulin's `recv`: in phase 2, the record colibri passed in.
 pub fn recv(io: ?*anyopaque, out: [*c]u8, len: usize) callconv(.c) c_int {
     const state: *Io = @ptrCast(@alignCast(io.?));
     switch (state.*) {
-        .socket => |descriptor| {
-            // `recv` is the other convention: 1 to n octets, or a negative for failure.
-            const read = std.c.recv(descriptor, out, len, 0);
-            if (read <= 0) return failed;
-            return @intCast(read);
-        },
         .handshake => return failed,
         .records => |*records| {
             const left = records.input.len - records.taken;
-            // `decrypt_record` passes whole records, so chapulin runs dry only between two. In
-            // record mode a 0 there answers `CH_RECORD_AGAIN` and the session stays live
-            // (`rec.h`); the TLS transport has no such answer and fails the read.
+            // `decrypt_record` passes whole records, so chapulin runs dry only after one, where a 0
+            // answers `CH_RECORD_AGAIN` and the session stays live (`rec.h`).
             const take = @min(len, left);
             if (take == 0) {
                 records.ran_dry = true;
-                return if (chapulin.record_transport) 0 else failed;
+                return 0;
             }
             @memcpy(out[0..take], records.input[records.taken..][0..take]);
             records.taken += take;
@@ -193,7 +163,7 @@ pub fn flight_out(io: ?*anyopaque, octets: [*c]const u8, len: usize) callconv(.c
     return switch (state.*) {
         .handshake => |*flight| append_flight(flight, octets, len),
         // chapulin sends the flight only during the handshake call, which sets this phase.
-        .socket, .records => failed,
+        .records => failed,
     };
 }
 
@@ -251,7 +221,7 @@ fn held_const(context: *const anyopaque) *const Held {
 /// chapulin's `ch_read` handles NewSessionTicket and KeyUpdate itself and returns only
 /// application data, so a record holding one of those produces no plaintext and `ch_read` reads
 /// on for more. It is given one record, so there is no more, and `ch_read` answers
-/// `CH_RECORD_AGAIN` in record mode or fails in the TLS transport. That is not a failure, and
+/// `CH_RECORD_AGAIN` (`rec.h`). That is not a failure, and
 /// treating it as one would close a healthy connection the first time a peer sent a ticket, which
 /// servers do routinely. So a call that took the whole record and produced no plaintext is
 /// reported as a post-handshake message.
@@ -284,21 +254,12 @@ fn decrypt_record(
         .content = .application_data,
     };
     if (read == 0) return closed_by_peer(role, records.taken);
-    if (records.ran_dry and records.taken == record_len and ran_out_cleanly(read)) {
+    if (records.ran_dry and records.taken == record_len and read == c.CH_RECORD_AGAIN) {
         // A record that made chapulin send was a KeyUpdate asking for one back.
         const content: tls.Content = if (records.written > 0) .key_update else .new_session_ticket;
         return .{ .consumed = records.taken, .plaintext_len = 0, .content = content };
     }
     return tls.provider.OpenError.TlsFailed;
-}
-
-/// Whether `ch_read`'s answer after the one record it was given means only that no record was left.
-/// Record mode says so by name (`rec.h`, `cfg.h`), and the session stays live. The TLS transport
-/// has no such answer: running dry fails its session, with an alert, so a record that carries no
-/// data ends it there, and this reports the failure it is.
-fn ran_out_cleanly(read: c_int) bool {
-    if (comptime chapulin.record_transport) return read == c.CH_RECORD_AGAIN;
-    return false;
 }
 
 /// RFC 9846 §6.1: chapulin answers 0 for a clean peer close, which is a `close_notify`. colibri's

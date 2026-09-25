@@ -263,15 +263,18 @@ section when a step adds or renames a command.
   produces no published number (decision 32).
 - TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin
   into `src/testing/` and nowhere else (decision 10). colibri vendors none of its C: build the
-  checkout yourself with `make RAND=drbg TRUST=webpki EXPORTER=on lib && cp bin/chapulin.o
-  bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none TRANSPORT=record EXPORTER=on
-  lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri reads the headers from it in place.
-  The server's `TRANSPORT=record` drives the handshake from octets the caller read, so the h2
-  server runs it inside its loop (decisions 46 and 82); it needs chapulin `b20f0ac` or later,
-  which keeps the write side open after a peer's `close_notify` (RFC 9846 §6.1). The client's
-  `TRUST=webpki` is not a preference: chapulin compiles its ALPN fields out for `TRUST=raw` and
-  `TRUST=ca`, and without ALPN no client can negotiate h2 (RFC 9113 §3.1), so colibri refuses
-  such a build at compile time. Without the options the TLS endpoints compile to nothing, so a
+  checkout yourself with `make RAND=drbg TRUST=webpki TRANSPORT=record EXPORTER=on lib && cp
+  bin/chapulin.o bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none
+  TRANSPORT=record EXPORTER=on lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri reads
+  the headers from it in place. `TRANSPORT=record` drives the handshake from octets the caller
+  read, so the h2 server runs it inside its loop (decisions 46 and 82), and a record that carries
+  no data leaves the session live. An object of another transport does not link, and one built
+  with other defines than `build/modules.zig` reads the headers under is refused when an endpoint
+  starts (chapulin's `build.h`). It needs chapulin `b20f0ac` or later, which keeps the write side
+  open after a peer's `close_notify` (RFC 9846 §6.1). The client's `TRUST=webpki` is not a
+  preference: chapulin compiles its ALPN fields out for `TRUST=raw` and `TRUST=ca`, and without
+  ALPN no client can negotiate h2 (RFC 9113 §3.1), so colibri refuses such a build at compile
+  time. Without the options the TLS endpoints compile to nothing, so a
   clone with no chapulin still builds and still runs every other check. Copy each role's object
   out before building the other: `make clean` removes the one already written.
 - TLS checks: `tools/tls_handshake.sh <checkout> [port]` runs one handshake with colibri as the

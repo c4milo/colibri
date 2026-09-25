@@ -8,8 +8,8 @@
 const std = @import("std");
 
 pub const chapulin = @import("tls/chapulin.zig");
-// The server adapter lives here and not in the client roots: `ch_srv_accept` and `ch_srv_check`
-// are exported by a `ROLE=server` object alone.
+// The server adapter lives here and not in the client roots: `ch_srv_record_init` and
+// `ch_srv_check` are exported by a `ROLE=server` object alone.
 pub const chapulin_server = @import("tls/chapulin_server.zig");
 pub const constants = @import("constants.zig");
 

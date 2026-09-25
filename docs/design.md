@@ -1061,9 +1061,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     adapter now reports that as the failure it is.
   - 11 mutations, all CAUGHT.
 
-  **Still owed for the step:** interop over TLS in both directions, which needs chapulin's
-  record-mode client in colibri's client, and the server direction against curl, nghttp and Go's
-  client. The client's move to record mode also fixes its `TRANSPORT=tls` failure above.
+  **The client drives chapulin's record-mode handshake, 2026-09-24.** The client object is now
+  built `TRANSPORT=record`, like the server's ([decision 82](decisions.md)). That fixes the
+  failure above: a record that carries no data now leaves the session live.
+  - `chapulin_client.zig` stages the ClientHello with `ch_record_init`, passes what the caller
+    read to `ch_record_in`, and collects what it owes from `ch_record_out`. No call touches a
+    descriptor.
+  - A `TRANSPORT=tls` object does not link. Every TLS endpoint calls chapulin's
+    `ch_build_matches` at start, so an object built with other defines than colibri reads the
+    headers under is refused before it runs.
+  - `tools/tls_handshake.sh` now opens the records Go's server sends after the handshake. It
+    requires one that carries no data, the NewSessionTicket, before the SETTINGS.
+  - 14 mutations, all CAUGHT.
+
+  What each check printed on macOS arm64, with chapulin `6a4c5eb`:
+  - `tools/tls_handshake.sh`: `complete alpn=h2 version=0x0304 suite=0x1303`, the same exporter
+    on both ends, and `records ok, 1 carried no data, then 45 octets of data`.
+  - `tools/tls_accept.sh`: `records ok, peer closed cleanly`.
+  - `tools/h2spec.sh 18443 <checkout>`: `146 tests, 144 passed, 0 skipped, 2 failed`, in both
+    modes.
+
+  **Still owed for the step:** interop over TLS in both directions. That needs a TLS mode in
+  `h2-client` over the record-mode client, and the server direction against curl, nghttp and Go's
+  client.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not

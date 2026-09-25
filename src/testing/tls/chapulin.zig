@@ -11,8 +11,12 @@
 //! and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
 //!
 //! **The client must be built `TRUST=webpki`**, which the comptime block below enforces and
-//! explains. Nothing else here is a protocol rule: what a record means is RFC 9846's and
-//! chapulin's, and colibri's side of the boundary is `tls.Provider`.
+//! explains. **Both roles must be built `TRANSPORT=record`** (decisions 46 and 82): a
+//! `TRANSPORT=tls` object exports none of the `ch_record_*` calls, so it does not link. Its
+//! blocking handshake fails the session when a read runs dry, so the first record that carries no
+//! data would end the connection (https://github.com/c4milo/colibri/issues/62). Nothing else here
+//! is a protocol rule: what a record means is RFC 9846's and chapulin's, and colibri's side of the
+//! boundary is `tls.Provider`.
 const std = @import("std");
 const build_options = @import("build_options");
 
@@ -28,21 +32,36 @@ pub const c = if (available) @cImport({
     @cInclude("tls.h");
     // The entropy a `RAND=drbg` build packages, which the endpoint seeds before any handshake.
     @cInclude("drbg.h");
-    // The two calls a server adds, `ch_srv_accept` and `ch_srv_check`. It is included whatever
+    // The server's configuration and its boot-time self-test, `ch_srv_check`. It is included whatever
     // the role, because chapulin guards the whole header with `#ifdef CH_ROLE_SERVER`: in a
     // client build it expands to nothing and declares no symbol the linker would look for.
     @cInclude("srv.h");
-    // The record-mode server driver and the calls a record-mode session shares with a client
-    // (`ch_record_state`, `ch_record_alert`). chapulin guards both headers with
-    // `CH_TRANSPORT_RECORD`, so a `TRANSPORT=tls` client build reads nothing from them.
+    // The record-mode drivers: the client's in `rec.h`, the server's in `srv_rec.h`, which also
+    // brings `rec.h`. chapulin guards both with `CH_TRANSPORT_RECORD`, and a server build compiles
+    // the client's driver out.
+    @cInclude("rec.h");
     @cInclude("srv_rec.h");
+    // The record of the defines the linked object was built with, and the comparison with the
+    // defines these headers were read under.
+    @cInclude("build.h");
 }) else struct {};
 
-/// Whether the linked object is a `TRANSPORT=record` build. The server's is (decision 46,
-/// https://github.com/c4milo/colibri/issues/20) and the client's is not yet. The two differ in
-/// what `ch_read` does when the caller holds no record: record mode answers `CH_RECORD_AGAIN` and
-/// the session stays live, while the TLS transport fails the read.
-pub const record_transport: bool = available and @hasDecl(c, "ch_record_state");
+pub const BuildError = error{
+    /// The linked object was built with other defines than the ones `build/modules.zig` reads
+    /// the headers under, so the two disagree about struct sizes and bounds.
+    ObjectMismatch,
+};
+
+/// Refuses an object built with other defines than `build/modules.zig` reads the headers under,
+/// which an endpoint calls once before any other chapulin call (chapulin's `build.h`). The link
+/// does not catch it when the two export the same calls: the program links and runs with the
+/// wrong struct sizes.
+pub fn check_build() BuildError!void {
+    if (c.ch_build_matches(&c.ch_build) != 0) return;
+    std.debug.print("chapulin: the linked object was built with other defines than colibri reads " ++
+        "its headers under; CLAUDE.md's Commands section names the make lines.\n", .{});
+    return BuildError.ObjectMismatch;
+}
 
 comptime {
     if (available) check_alpn();
@@ -89,6 +108,13 @@ test "the checkout the build was given is the one that is linked" {
     // chapulin's definition agree well enough to run. A seed of zeros is a seed.
     const seed: [seed_len]u8 = @splat(0);
     c.ch_drbg_seed(&seed);
+}
+
+test "the linked object was built with the defines colibri reads the headers under" {
+    if (!available) return error.SkipZigTest;
+    try check_build();
+    // Both roles drive chapulin's record-mode handshake, and the object says so.
+    try testing.expect(c.ch_build.axes & c.CH_BUILD_TRANSPORT_RECORD != 0);
 }
 
 test "the chapulin that is linked can negotiate h2" {

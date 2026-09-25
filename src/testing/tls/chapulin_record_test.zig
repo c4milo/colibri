@@ -103,7 +103,7 @@ test "RFC 9846 §5.2: an output that cannot hold one sealed octet takes no plain
 }
 
 test "in record mode, `recv` answers 0 between records, which `ch_read` reads as no record yet" {
-    if (!chapulin.record_transport) return error.SkipZigTest;
+    if (!chapulin.available) return error.SkipZigTest;
     var io: Io = .{ .records = .{} };
     var into: [8]u8 = undefined;
     try testing.expectEqual(0, chapulin_record.recv(@ptrCast(&io), &into, into.len));
@@ -137,11 +137,6 @@ test "a record that carries no data is taken whole, and chapulin never reads the
     @memcpy(keyed_input[empty_len..][0..next.len], &next);
     var plaintext: [tls.constants.record_ciphertext_len_max]u8 = undefined;
     const input = keyed_input[0 .. empty_len + next.len];
-    // The TLS transport cannot survive a read that runs dry: chapulin fails the session.
-    if (comptime !chapulin.record_transport) {
-        try testing.expectError(error.TlsFailed, held.vtable.decrypt_record(held.context, input, &plaintext));
-        return;
-    }
     const opened = try held.vtable.decrypt_record(held.context, input, &plaintext);
     try testing.expectEqual(empty_len, opened.consumed);
     try testing.expectEqual(0, opened.plaintext_len);
@@ -160,7 +155,7 @@ const update_not_requested: u8 = 0;
 const update_requested: u8 = 1;
 
 test "RFC 9846 §4.6.3: a KeyUpdate that asks for one is answered, under the keys it replaces" {
-    if (!chapulin.record_transport) return error.SkipZigTest;
+    if (!chapulin.available) return error.SkipZigTest;
     const held = keyed_provider();
     const update = try zero_key_records.seal(0, zero_key_records.content_handshake, &key_update_requested, &keyed_input);
     var plaintext: [tls.constants.record_ciphertext_len_max]u8 = undefined;

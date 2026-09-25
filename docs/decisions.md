@@ -2016,6 +2016,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     colibri's checks found two chapulin defects on the way, and chapulin fixed both (`8e556ca`,
     `24301d1`). colibri did not work around either.
 
+    The client followed on 2026-09-24, under the owner's ruling on
+    https://github.com/c4milo/colibri/issues/62 to leave no known bug in place. Its
+    `TRANSPORT=tls` object failed the session on any record that carries no data, a
+    NewSessionTicket or a KeyUpdate, because its blocking `recv` cannot answer "no record yet".
+    `chapulin_client.zig` now drives `ch_record_init`, `ch_record_in` and `ch_record_out`, and
+    every TLS endpoint checks the linked object against the headers with chapulin's
+    `ch_build_matches` before its first call.
+
     The alternatives refused, both offered in the issue on 2026-09-20:
     - A separate serial TLS endpoint, one blocking handshake at a time. It passes h2spec, which
       opens one connection per case, but it is not how a consumer runs colibri.

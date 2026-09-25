@@ -63,4 +63,11 @@ if [ -z "$client_exporter" ] || [ "$client_exporter" != "$server_exporter" ]; th
   exit 1
 fi
 
+# RFC 9846 §4.6.1: Go's server sends a NewSessionTicket before its SETTINGS, and the client must
+# open it and stay live (https://github.com/c4milo/colibri/issues/62).
+if ! grep -q "records ok, [1-9][0-9]* carried no data" "$scratch/client.log"; then
+  echo "tls_handshake: no record without data reached the client's record phase" >&2
+  exit 1
+fi
+
 echo "tls_handshake: ok"

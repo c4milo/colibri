@@ -173,7 +173,7 @@ pub fn add(
     // and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
     // The server endpoint links the `ROLE=server` object and the client endpoint the client one.
     link_chapulin(b, testing, chapulin.server, "chapulin-server.o", chapulin_server_defines);
-    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_EXPORTER" });
+    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o", chapulin_client_defines);
 
     // Design §8 step 5's check runs one handshake against a server that is not colibri's. It is
     // a third root because an executable has one `main`, and the other two are the h2 server's
@@ -185,7 +185,7 @@ pub fn add(
     testing_tls.addImport("h2", h2);
     testing_tls.addImport("tls", tls);
     testing_tls.link_libc = true;
-    link_chapulin(b, testing_tls, chapulin.client, "chapulin-client.o", &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_EXPORTER" });
+    link_chapulin(b, testing_tls, chapulin.client, "chapulin-client.o", chapulin_client_defines);
 
     // The other half of step 5's check, and a fourth root for the same reason as the third: one
     // `main` per executable, and one role per chapulin object (decision 10). This one accepts.
@@ -274,6 +274,11 @@ fn create(
         .optimize = optimize,
     });
 }
+
+/// The axes chapulin's client object is built with. `TRANSPORT=record`, as the server's is: the
+/// handshake runs from octets the endpoint read, and a record that carries no data leaves the
+/// session live, which the TLS transport's blocking driver could not do.
+const chapulin_client_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_RECORD", "CH_EXPORTER" };
 
 /// The axes chapulin's server object is built with. `TRANSPORT=record` drives the handshake from
 /// octets the caller read and sends the flight through a callback, so the h2 endpoint runs it

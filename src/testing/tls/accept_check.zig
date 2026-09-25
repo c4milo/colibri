@@ -13,10 +13,10 @@ const std = @import("std");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
-const chapulin_record = @import("chapulin_record.zig");
 const chapulin_server = @import("chapulin_server.zig");
 const check_file = @import("check_file.zig");
 const server_identity = @import("server_identity.zig");
+const check_socket = @import("check_socket.zig");
 
 const Server = chapulin_server.Server;
 const exit_usage = check_file.exit_usage;
@@ -29,10 +29,8 @@ var server: Server = undefined;
 var receive_storage: [constants.tls_receive_len]u8 = undefined;
 /// The identity and the cookie key the server loads once.
 var identity_storage: server_identity.Storage = undefined;
-/// The octets this run reads from the socket, of which the first `input_len` are not yet used, and
-/// the plaintext it opens them into.
-var input_storage: [constants.tls_record_buffer_len]u8 = undefined;
-var input_len: usize = 0;
+/// The octets this run reads from the socket, and the plaintext it opens them into.
+var input: check_socket.Input = .{};
 var plaintext_storage: [constants.tls_record_buffer_len]u8 = undefined;
 var output_storage: [constants.tls_record_buffer_len]u8 = undefined;
 
@@ -109,6 +107,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     }
     const asked = parse(init);
+    try chapulin.check_build();
     try server_identity.seed(&identity_storage);
     const socket = try accept_one(asked.port);
     defer _ = std.c.close(socket);
@@ -140,9 +139,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// check serves one connection and exits, and is not one of design §9's endpoints.
 fn run_handshake(socket: std.c.fd_t) !void {
     // Bounded: each pass reads at least one octet, and a handshake is a few records.
-    for (0..handshake_reads_max) |_| {
-        try read_more(socket);
-        const progress = server.handshake(input_storage[0..input_len], &output_storage) catch |failure| {
+    for (0..check_socket.handshake_reads_max) |_| {
+        try input.read_more(socket);
+        const progress = server.handshake(input.unread(), &output_storage) catch |failure| {
             std.debug.print("tls-accept: {t}: {s} (code {d}, alert {d})\n", .{
                 failure,
                 chapulin_server.reason(server.code),
@@ -151,34 +150,22 @@ fn run_handshake(socket: std.c.fd_t) !void {
             });
             std.process.exit(exit_failed);
         };
-        try write_all(socket, output_storage[0..progress.written]);
-        take_input(progress.consumed);
+        try check_socket.write_all(socket, output_storage[0..progress.written]);
+        input.take(progress.consumed);
         if (progress.complete) return;
     }
-    std.debug.print("tls-accept: the handshake did not complete in {d} reads\n", .{handshake_reads_max});
+    std.debug.print("tls-accept: the handshake did not complete in {d} reads\n", .{
+        check_socket.handshake_reads_max,
+    });
     std.process.exit(exit_failed);
-}
-
-/// The reads a handshake may take: a ClientHello, a second one after a HelloRetryRequest, and the
-/// client's Finished, each possibly split across reads.
-const handshake_reads_max: usize = 16;
-
-/// Reads until the input holds one whole record, which is what `decrypt_record` opens.
-fn read_record(socket: std.c.fd_t) ![]const u8 {
-    // Bounded: each pass reads at least one octet, and a record fits the buffer.
-    for (0..input_storage.len) |_| {
-        if (chapulin_record.whole_record_len(input_storage[0..input_len]) != null) break;
-        try read_more(socket);
-    }
-    return input_storage[0..input_len];
 }
 
 /// Opens one record the peer sealed and seals the same octets back (RFC 9846 §5.2). It is the
 /// smallest exchange that drives both halves of the record phase.
 fn echo_once(socket: std.c.fd_t) !void {
     const held = server.provider();
-    const input = try read_record(socket);
-    const opened = held.vtable.decrypt_record(held.context, input, &plaintext_storage) catch {
+    const record = try input.read_record(socket);
+    const opened = held.vtable.decrypt_record(held.context, record, &plaintext_storage) catch {
         std.debug.print("tls-accept: the peer's record did not open\n", .{});
         std.process.exit(exit_failed);
     };
@@ -186,13 +173,13 @@ fn echo_once(socket: std.c.fd_t) !void {
         std.debug.print("tls-accept: the peer's record held no application data\n", .{});
         std.process.exit(exit_failed);
     }
-    take_input(opened.consumed);
+    input.take(opened.consumed);
     const sealed = try held.vtable.encrypt_record(
         held.context,
         plaintext_storage[0..opened.plaintext_len],
         &output_storage,
     );
-    try write_all(socket, output_storage[0..sealed.written]);
+    try check_socket.write_all(socket, output_storage[0..sealed.written]);
 }
 
 /// Reads what the peer sends next and requires it to be the `close_notify` RFC 9846 §6.1 makes
@@ -200,8 +187,8 @@ fn echo_once(socket: std.c.fd_t) !void {
 /// description, which is what colibri's `connection_tls.on_alert` relies on.
 fn await_close(socket: std.c.fd_t) !void {
     const held = server.provider();
-    const input = try read_record(socket);
-    const opened = held.vtable.decrypt_record(held.context, input, &plaintext_storage) catch {
+    const record = try input.read_record(socket);
+    const opened = held.vtable.decrypt_record(held.context, record, &plaintext_storage) catch {
         std.debug.print("tls-accept: the peer's close did not open\n", .{});
         std.process.exit(exit_failed);
     };
@@ -220,34 +207,6 @@ fn await_close(socket: std.c.fd_t) !void {
             @tagName(report_held.description),
         });
         std.process.exit(exit_failed);
-    }
-}
-
-/// Reads at least one octet after the ones not yet used, which is what a peer that owes a record
-/// always sends.
-fn read_more(socket: std.c.fd_t) !void {
-    const room = input_storage[input_len..];
-    if (room.len == 0) return error.RecordTooLong;
-    const read = std.c.recv(socket, room.ptr, room.len, 0);
-    if (read <= 0) return error.PeerClosed;
-    input_len += @intCast(read);
-}
-
-/// Drops the `consumed` octets used, keeping what follows at the front.
-fn take_input(consumed: usize) void {
-    std.debug.assert(consumed <= input_len);
-    std.mem.copyForwards(u8, &input_storage, input_storage[consumed..input_len]);
-    input_len -= consumed;
-}
-
-/// Writes every octet, looping because a blocking send may still move fewer than it was asked.
-fn write_all(socket: std.c.fd_t, octets: []const u8) !void {
-    var sent: usize = 0;
-    // Bounded by the slice, and every pass moves at least one octet or returns.
-    while (sent < octets.len) {
-        const wrote = std.c.send(socket, octets.ptr + sent, octets.len - sent, 0);
-        if (wrote <= 0) return error.SendFailed;
-        sent += @intCast(wrote);
     }
 }
 
