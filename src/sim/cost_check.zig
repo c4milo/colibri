@@ -201,7 +201,7 @@ pub fn measure_server_tls(storage: *Storage) !Cost {
     cost.write_calls += 1;
     cost.octets_out += @intCast(written);
     // The response leaves as one record, which is one more crossing of the vtable.
-    _ = try h2.connection_tls.encrypt(&storage.connection, storage.output[0..written], &record);
+    _ = try h2.connection_tls.encrypt(&storage.connection, storage.output[0..written], &record, 0);
     cost.provider_calls += 1;
     return cost;
 }

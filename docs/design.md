@@ -1045,9 +1045,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Nothing here is a published number: the VM shares its cores with h2load, and entry 33's
     rules are not met.
 
+  **A peer's KeyUpdate is answered, 2026-09-24** ([#62](https://github.com/c4milo/colibri/issues/62)).
+  RFC 9846 §4.6.3 has a KeyUpdate that asks for one get a reply, protected under the keys it
+  replaces. chapulin sends that reply from inside `ch_read`. Before this fix, the adapter gave it
+  nowhere to go, so the session failed, and h2 never called the provider's `handshake_write`,
+  which its contract says it calls for the life of the connection.
+  - The adapter keeps what chapulin sends during a read, and reports that record as `.key_update`.
+  - `connection_tls.encrypt` writes what the provider owes before any record it seals. It asks
+    only after a KeyUpdate, so the common record still crosses the vtable once, and the cost check
+    did not move.
+  - The endpoint seals on every step, and opens no record while a reply is owed.
+  - A zero-key test sends a KeyUpdate through chapulin and reads the reply, under the old keys,
+    ahead of anything else. The same work found that the client's `TRANSPORT=tls` object cannot
+    survive a record carrying no data: the read runs dry and chapulin fails the session. The
+    adapter now reports that as the failure it is.
+  - 11 mutations, all CAUGHT.
+
   **Still owed for the step:** interop over TLS in both directions, which needs chapulin's
   record-mode client in colibri's client, and the server direction against curl, nghttp and Go's
-  client.
+  client. The client's move to record mode also fixes its `TRANSPORT=tls` failure above.
 
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not

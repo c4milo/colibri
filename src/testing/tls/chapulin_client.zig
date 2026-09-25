@@ -93,6 +93,7 @@ pub const Client = struct {
         client.held.closed = false;
         client.held.pending_alert = null;
         client.held.suite = 0;
+        client.held.owed_len = 0;
         client.code = ok;
         // RFC 9113 §3.1: h2 over TLS is selected by ALPN, and colibri offers that and nothing
         // else, so a server that will not speak h2 fails the handshake rather than the request.

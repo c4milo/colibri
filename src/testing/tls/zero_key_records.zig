@@ -18,6 +18,7 @@ const Held = chapulin_record.Held;
 
 /// RFC 9846 §5.1's content types this file seals.
 pub const content_alert: u8 = 21;
+pub const content_handshake: u8 = 22;
 pub const content_application_data: u8 = 23;
 /// RFC 9846 §5.1: `legacy_record_version` is 0x0303 on every protected record.
 const legacy_record_version: u16 = 0x0303;
@@ -76,6 +77,30 @@ pub fn seal(sequence: u64, content_type: u8, content: []const u8, output: []u8) 
     try writer.write_bytes(sealed[0..inner_len]);
     try writer.write_bytes(&tag);
     return writer.written();
+}
+
+/// What `open` found in a record: its real content type and its content.
+pub const Opened = struct {
+    content_type: u8,
+    content: []const u8,
+};
+
+/// Opens `record`, the `sequence`th this side sealed under the zero key, into `output`, or answers
+/// null when it does not authenticate under that key (RFC 9846 §5.2).
+pub fn open(sequence: u64, record: []const u8, output: []u8) ?Opened {
+    var reader = core.Reader.init(record);
+    const header = reader.take(tls.constants.record_header_len) catch return null;
+    const sealed = reader.take_rest();
+    if (sealed.len < Aead.tag_length + 1) return null;
+    const inner_len = sealed.len - Aead.tag_length;
+    if (inner_len > output.len) return null;
+    var nonce: [Aead.nonce_length]u8 = @splat(0);
+    std.mem.writeInt(u64, nonce[Aead.nonce_length - @sizeOf(u64) ..], sequence, .big);
+    const key: [Aead.key_length]u8 = @splat(0);
+    const tag = sealed[inner_len..][0..Aead.tag_length];
+    Aead.decrypt(output[0..inner_len], sealed[0..inner_len], tag.*, header, nonce, key) catch return null;
+    // RFC 9846 §5.2: the real type is the last octet that is not padding, and this side pads none.
+    return .{ .content_type = output[inner_len - 1], .content = output[0 .. inner_len - 1] };
 }
 
 const testing = std.testing;

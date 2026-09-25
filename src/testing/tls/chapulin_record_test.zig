@@ -136,10 +136,52 @@ test "a record that carries no data is taken whole, and chapulin never reads the
     const next = [_]u8{ 0x17, 0x03, 0x03 };
     @memcpy(keyed_input[empty_len..][0..next.len], &next);
     var plaintext: [tls.constants.record_ciphertext_len_max]u8 = undefined;
-    const opened = try held.vtable.decrypt_record(held.context, keyed_input[0 .. empty_len + next.len], &plaintext);
+    const input = keyed_input[0 .. empty_len + next.len];
+    // The TLS transport cannot survive a read that runs dry: chapulin fails the session.
+    if (comptime !chapulin.record_transport) {
+        try testing.expectError(error.TlsFailed, held.vtable.decrypt_record(held.context, input, &plaintext));
+        return;
+    }
+    const opened = try held.vtable.decrypt_record(held.context, input, &plaintext);
     try testing.expectEqual(empty_len, opened.consumed);
     try testing.expectEqual(0, opened.plaintext_len);
     try testing.expectEqual(tls.Content.new_session_ticket, opened.content);
+    // chapulin sent nothing from inside the read, so nothing is owed.
+    var output: [chapulin_record.owed_len_max]u8 = undefined;
+    try testing.expectEqual(0, try held.vtable.handshake_write(held.context, &output, 0));
+}
+
+/// RFC 9846 §4.6.1 and §4.6.3: a KeyUpdate whose `request_update` is `update_requested`, as a
+/// handshake message: type 24, a length of 1, and the one octet. Test-only.
+const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, update_requested };
+const key_update_not_requested = [_]u8{ handshake_key_update, 0, 0, 1, update_not_requested };
+const handshake_key_update: u8 = 24;
+const update_not_requested: u8 = 0;
+const update_requested: u8 = 1;
+
+test "RFC 9846 §4.6.3: a KeyUpdate that asks for one is answered, under the keys it replaces" {
+    if (!chapulin.record_transport) return error.SkipZigTest;
+    const held = keyed_provider();
+    const update = try zero_key_records.seal(0, zero_key_records.content_handshake, &key_update_requested, &keyed_input);
+    var plaintext: [tls.constants.record_ciphertext_len_max]u8 = undefined;
+    const opened = try held.vtable.decrypt_record(held.context, update, &plaintext);
+    try testing.expectEqual(update.len, opened.consumed);
+    try testing.expectEqual(tls.Content.key_update, opened.content);
+    // An output too short for the reply takes none of it.
+    var short: [1]u8 = undefined;
+    try testing.expectError(error.NoSpaceLeft, held.vtable.handshake_write(held.context, &short, 0));
+    // The reply is this side's first record, under the zero keys it held before the update.
+    var output: [chapulin_record.owed_len_max]u8 = undefined;
+    const reply_len = try held.vtable.handshake_write(held.context, &output, 0);
+    var inner: [16]u8 = undefined;
+    const reply = zero_key_records.open(0, output[0..reply_len], &inner).?;
+    try testing.expectEqual(zero_key_records.content_handshake, reply.content_type);
+    try testing.expectEqualSlices(u8, &key_update_not_requested, reply.content);
+    // Nothing more is owed, and the next record is sealed under the new keys, which is why the
+    // reply must go first.
+    try testing.expectEqual(0, try held.vtable.handshake_write(held.context, &output, 0));
+    const sealed = try held.vtable.encrypt_record(held.context, "after", &output);
+    try testing.expectEqual(null, zero_key_records.open(1, output[0..sealed.written], &inner));
 }
 
 /// A record limit below chapulin's own, as a peer's record_size_limit sets it (RFC 8449 §4),

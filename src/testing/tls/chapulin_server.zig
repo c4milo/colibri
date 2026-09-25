@@ -114,6 +114,7 @@ pub const Server = struct {
         server.held.closed = false;
         server.held.pending_alert = null;
         server.held.suite = 0;
+        server.held.owed_len = 0;
         server.code = ok;
         server.chain[0] = .{ .der = options.identity.leaf.ptr, .len = options.identity.leaf.len };
         server.chain[1] = .{ .der = options.identity.issuer.ptr, .len = options.identity.issuer.len };

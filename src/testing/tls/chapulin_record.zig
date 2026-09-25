@@ -52,7 +52,16 @@ pub const Held = struct {
     /// server reads `session.suite`; a client has no such field and reports the one its build
     /// offers. `negotiated_parameters` reads it here either way.
     suite: u16,
+    /// What chapulin sent from inside `ch_read`, which `handshake_write` hands over: the reply to
+    /// a KeyUpdate that asked for one (RFC 9846 §4.6.3), or the alert a failed read raised.
+    owed: [owed_len_max]u8 = undefined,
+    owed_len: usize = 0,
 };
+
+/// Room for what one `ch_read` sends: a KeyUpdate reply is a record of 27 octets and an alert one
+/// of 24, each a header of 5, the message, an inner content type and a tag of 16 (RFC 9846 §5.2).
+/// h2 seals before it opens another record after a KeyUpdate, so one reply is owed at a time.
+pub const owed_len_max: usize = 64;
 
 /// Where chapulin's callbacks read and write. The phase moves once, when the handshake ends, and
 /// never moves back.
@@ -264,9 +273,11 @@ fn decrypt_record(
     // A record's plaintext is shorter than what follows its header, so a buffer that long holds
     // it, and chapulin never keeps plaintext back for a call that brings no record.
     if (plaintext.len < record_len - tls.constants.record_header_len) return tls.provider.OpenError.NoSpaceLeft;
-    role.io = .{ .records = .{ .input = input[0..record_len] } };
+    // chapulin may send from inside `ch_read`, and what it sends waits in `owed`.
+    role.io = .{ .records = .{ .input = input[0..record_len], .output = role.owed[role.owed_len..] } };
     const read = c.ch_read(role.session, plaintext.ptr, plaintext.len);
     const records = role.io.records;
+    role.owed_len += records.written;
     if (read > 0) return .{
         .consumed = records.taken,
         .plaintext_len = @intCast(read),
@@ -274,17 +285,20 @@ fn decrypt_record(
     };
     if (read == 0) return closed_by_peer(role, records.taken);
     if (records.ran_dry and records.taken == record_len and ran_out_cleanly(read)) {
-        return .{ .consumed = records.taken, .plaintext_len = 0, .content = .new_session_ticket };
+        // A record that made chapulin send was a KeyUpdate asking for one back.
+        const content: tls.Content = if (records.written > 0) .key_update else .new_session_ticket;
+        return .{ .consumed = records.taken, .plaintext_len = 0, .content = content };
     }
     return tls.provider.OpenError.TlsFailed;
 }
 
 /// Whether `ch_read`'s answer after the one record it was given means only that no record was left.
+/// Record mode says so by name (`rec.h`, `cfg.h`), and the session stays live. The TLS transport
+/// has no such answer: running dry fails its session, with an alert, so a record that carries no
+/// data ends it there, and this reports the failure it is.
 fn ran_out_cleanly(read: c_int) bool {
-    // Record mode says so by name (`rec.h`, `cfg.h`); the TLS transport answers any error, and the
-    // call ran dry at the record's end, which `decrypt_record` checked.
     if (comptime chapulin.record_transport) return read == c.CH_RECORD_AGAIN;
-    return true;
+    return false;
 }
 
 /// RFC 9846 §6.1: chapulin answers 0 for a clean peer close, which is a `close_notify`. colibri's
@@ -342,16 +356,24 @@ fn negotiated_alpn(context: *const anyopaque) ?[]const u8 {
 }
 
 /// RFC 9846 §4.7.3 and §4.7.1: after the handshake, a peer's KeyUpdate and NewSessionTicket ride
-/// records, and chapulin answers both inside `ch_read`. So colibri owes no handshake octets here
-/// and consumes none: both members answer 0 for the life of the connection.
+/// records, and chapulin reads both inside `ch_read`. So colibri hands over no handshake octets
+/// here, and this answers 0 for the life of the connection.
 fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls.provider.HandshakeReadError!usize {
     _ = .{ context, input, now_ns };
     return 0;
 }
 
+/// What chapulin sent from inside `ch_read` (`owed`), whole: RFC 9846 §4.6.3's KeyUpdate reply is
+/// protected under the keys it replaces, so none of it may follow a record sealed after it. An
+/// output that cannot hold all of it takes none.
 fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) tls.provider.HandshakeWriteError!usize {
-    _ = .{ context, output, now_ns };
-    return 0;
+    _ = now_ns;
+    const role = held(context);
+    if (role.owed_len > output.len) return tls.provider.HandshakeWriteError.NoSpaceLeft;
+    const written = role.owed_len;
+    @memcpy(output[0..written], role.owed[0..written]);
+    role.owed_len = 0;
+    return written;
 }
 
 /// The alert colibri has not collected, which the call clears. chapulin's record mode keeps no

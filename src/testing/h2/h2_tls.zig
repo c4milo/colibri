@@ -150,6 +150,9 @@ fn open_records(layer: *Layer, session: *Session, input: []const u8) Error!usize
         layer.plain_in_len += opened.plaintext_len;
         // RFC 9846 §6.1: the peer's close_notify ends its data.
         if (opened.end_of_data) layer.peer_closed = true;
+        // RFC 9846 §4.6.3: a KeyUpdate may leave a reply owed, which goes out before the next
+        // record is opened, so at most one is owed at a time.
+        if (opened.owes_handshake) return consumed;
     }
     unreachable; // Each record takes at least its header, so the input ends first.
 }
@@ -171,16 +174,16 @@ fn step_session(layer: *Layer, session: *Session) void {
 /// Seals as much of the plaintext output as the socket's output holds, then the `close_notify`
 /// once the connection is finished and nothing is left to seal.
 fn seal(layer: *Layer, session: *Session, output: []u8) Error!usize {
-    var written: usize = 0;
-    if (layer.plain_out_len > 0) {
-        const sealed = connection_tls.encrypt(&session.connection, layer.plain_out[0..layer.plain_out_len], output) catch |failure| switch (failure) {
-            // The socket has not taken what it holds; the rest waits.
-            error.NoSpaceLeft => return 0,
-            else => return error.TlsFailed,
-        };
-        take_plain_out(layer, sealed.consumed);
-        written = sealed.written;
-    }
+    // Called with no plaintext too: `encrypt` writes what the provider owes first, such as the
+    // reply to a KeyUpdate (RFC 9846 §4.6.3), and that does not wait for h2 to write.
+    const plaintext = layer.plain_out[0..layer.plain_out_len];
+    const sealed = connection_tls.encrypt(&session.connection, plaintext, output, session.now_ns) catch |failure| switch (failure) {
+        // The socket has not taken what it holds; the rest waits.
+        error.NoSpaceLeft => return 0,
+        else => return error.TlsFailed,
+    };
+    take_plain_out(layer, sealed.consumed);
+    var written = sealed.written;
     if (!finished(layer, session) or layer.plain_out_len > 0 or layer.close_sent) return written;
     if (output.len - written < close_notify_len_max) return written;
     // RFC 9846 §6.1: "Each party MUST send a "close_notify" alert before closing its write side
@@ -305,3 +308,28 @@ test "RFC 9846 §6.1: after the peer's close_notify this side still writes, then
 /// What a sealed record adds after its header: the inner content type and the AEAD tag, which is
 /// chapulin's `REC_OVERHEAD` less the header. Test-only.
 const record_overhead_after_header: usize = chapulin.c.REC_OVERHEAD - tls.constants.record_header_len;
+
+/// RFC 9846 §4.6.3's KeyUpdate asking for one back, as a handshake message. Test-only.
+const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, 1 };
+const handshake_key_update: u8 = 24;
+
+test "RFC 9846 §4.6.3: a peer's KeyUpdate is answered before anything else is read or sealed" {
+    if (!available or !chapulin.record_transport) return error.SkipZigTest;
+    try connect_test_layer();
+    // The server's SETTINGS go out first, as this side's record 0.
+    _ = try step(&test_layer, &test_session, &.{}, &test_output);
+    try testing.expectEqual(0, test_layer.plain_out_len);
+    // The KeyUpdate, then a record the peer sealed after it, which the layer does not open until
+    // the reply is out.
+    const update = try zero_key_records.seal(0, zero_key_records.content_handshake, &key_update_requested, &test_input);
+    const update_len = update.len;
+    const next = try zero_key_records.seal(1, zero_key_records.content_application_data, "later", test_input[update_len..]);
+    const stepped = try step(&test_layer, &test_session, test_input[0 .. update_len + next.len], &test_output);
+    try testing.expectEqual(update_len, stepped.consumed);
+    // What went out is the reply alone, this side's record 1 under the keys it replaced.
+    var inner: [16]u8 = undefined;
+    const reply = zero_key_records.open(1, test_output[0..stepped.written], &inner).?;
+    try testing.expectEqual(zero_key_records.content_handshake, reply.content_type);
+    try testing.expectEqual(handshake_key_update, reply.content[0]);
+    try testing.expect(!stepped.done);
+}

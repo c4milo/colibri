@@ -105,6 +105,10 @@ pub const Decrypted = struct {
     /// RFC 9846 §6.1: the peer sent `close_notify`, so its data has ended. No octet the peer
     /// sends afterwards is read.
     end_of_data: bool,
+    /// The record was a KeyUpdate, and the provider may now owe its reply (RFC 9846 §4.6.3).
+    /// `encrypt` writes the reply ahead of any record it seals, so a caller seals before it opens
+    /// the next record, and at most one reply is owed at a time.
+    owes_handshake: bool = false,
 };
 
 /// Opens one record the peer sent and applies the rules RFC 9113 places on what it holds. The
@@ -131,9 +135,11 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
         .incomplete => .{ .consumed = 0, .plaintext_len = 0, .end_of_data = false },
         .application_data => with_data(target, opened),
         // RFC 9113 §9.2.3: a NewSessionTicket and a KeyUpdate are permitted after the handshake,
-        // and h2 does nothing with either. RFC 9846 §4.7.3 makes the answering KeyUpdate the
-        // provider's, which `handshake_write` carries.
-        .new_session_ticket, .key_update => try without_data(target, opened.consumed),
+        // and h2 does nothing with either.
+        .new_session_ticket => try without_data(target, opened.consumed),
+        // RFC 9846 §4.6.3 makes the answering KeyUpdate the provider's, which `handshake_write`
+        // carries and `encrypt` writes first.
+        .key_update => owing(target, try without_data(target, opened.consumed)),
         // RFC 9113 §9.2.3: HTTP/2 clients MUST treat a post-handshake CertificateRequest as a
         // connection error of type PROTOCOL_ERROR.
         .certificate_request => return target.fail(constants.error_protocol_error),
@@ -165,6 +171,14 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
     return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = false };
 }
 
+/// A record that carried no data and may have left the provider owing a reply.
+fn owing(target: *Connection, decrypted: Decrypted) Decrypted {
+    target.handshake_owed = true;
+    var owed = decrypted;
+    owed.owes_handshake = true;
+    return owed;
+}
+
 /// What an alert record means to the connection (RFC 9846 §6).
 fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) RecordError!Decrypted {
     // RFC 9846 §6: an alert record carries a description, so a provider that classified this
@@ -183,21 +197,43 @@ fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) Record
     };
 }
 
-/// Protects what `write_pending` produced, as one or more records (RFC 9846 §5.2). Both buffers
-/// are the caller's.
-pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8) RecordError!tls.provider.Sealed {
+/// Protects what `write_pending` produced, as one or more records (RFC 9846 §5.2), after the
+/// handshake octets the provider owes. Both buffers are the caller's, and a caller with no
+/// plaintext calls it too, so an owed reply does not wait for h2 to have something to say.
+///
+/// RFC 9846 §4.6.3: a KeyUpdate's reply is protected under the keys it replaces, and every record
+/// after it under the new ones, so the reply is written first. When the output cannot hold it,
+/// nothing is written and nothing is sealed.
+pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls.provider.Sealed {
     // RFC 9113 §3.3: a cleartext connection writes its frames straight to the transport.
     const provider = target.provider orelse return error.NoProvider;
-    assert(plaintext.ptr != output.ptr);
-    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output) catch |failure| {
+    assert(plaintext.len == 0 or plaintext.ptr != output.ptr);
+    const owed = if (target.handshake_owed) try write_owed(target, provider, output, now_ns) else 0;
+    assert(owed <= output.len);
+    if (plaintext.len == 0) return .{ .consumed = 0, .written = owed };
+    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output[owed..]) catch |failure| {
+        // What the provider owed is written, and goes out whether or not a record fits after it.
+        if (failure == error.NoSpaceLeft and owed > 0) return .{ .consumed = 0, .written = owed };
         return switch (failure) {
             error.TlsFailed, error.KeyExhausted => error.TlsFailed,
             error.NoSpaceLeft => error.NoSpaceLeft,
             error.HandshakeIncomplete => error.HandshakeIncomplete,
         };
     };
-    assert(sealed.consumed <= plaintext.len and sealed.written <= output.len);
-    return sealed;
+    assert(sealed.consumed <= plaintext.len and owed + sealed.written <= output.len);
+    return .{ .consumed = sealed.consumed, .written = owed + sealed.written };
+}
+
+/// Writes what the provider owes after a KeyUpdate, whole, and clears the debt once it is out.
+fn write_owed(target: *Connection, provider: tls.Provider, output: []u8, now_ns: u64) RecordError!usize {
+    const written = provider.vtable.handshake_write(provider.context, output, now_ns) catch |failure| {
+        return switch (failure) {
+            error.TlsFailed => error.TlsFailed,
+            error.NoSpaceLeft => error.NoSpaceLeft,
+        };
+    };
+    target.handshake_owed = false;
+    return written;
 }
 
 /// Writes the `close_notify` RFC 9846 §6.1 requires before the write side closes.

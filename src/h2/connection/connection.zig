@@ -176,6 +176,10 @@ pub const Connection = struct {
     /// Records in a row that carried no application data, counted by `connection_tls.zig`. A
     /// peer chooses how many it sends, so the run is bounded (`records_without_data_max`).
     records_without_data: u32,
+    /// Whether a KeyUpdate may have left the provider owing its reply (RFC 9846 §4.6.3), which
+    /// `encrypt` asks `handshake_write` for before it seals. Without one it asks nothing, so the
+    /// common record costs one crossing of the vtable.
+    handshake_owed: bool,
     /// RST_STREAM frames colibri has sent since `rst_stream_period_start_ns` (§10.5).
     rst_stream_sent: u32,
     /// The instant the current RST_STREAM rate period began.
@@ -206,6 +210,7 @@ pub const Connection = struct {
         connection.send_block = @splat(0);
         connection.provider = null;
         connection.records_without_data = 0;
+        connection.handshake_owed = false;
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
         assert(!connection.has_failed());
