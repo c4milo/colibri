@@ -33,6 +33,7 @@ const constants = @import("../constants.zig");
 const h2_session = @import("h2_session.zig");
 const h2_tls = @import("h2_tls.zig");
 const server_identity = @import("../tls/server_identity.zig");
+const chapulin_server = @import("../tls/chapulin_server.zig");
 
 const Session = h2_session.Session;
 
@@ -160,6 +161,7 @@ fn on_event(worker: *Worker, event: rotor.Event) void {
         .close => connection.closed = true,
     }
     if (connection.closed and !connection.receiving and !connection.sending) {
+        if (connection.layer) |layer| finish_tls(layer);
         connection.live = false;
         return;
     }
@@ -209,6 +211,12 @@ fn start_tls(index: usize, shared: *const h2_tls.Shared) !*h2_tls.Layer {
     const layer = &tls_layers[index];
     try h2_tls.start(layer, shared);
     return layer;
+}
+
+/// Wipes what a TLS connection's session still holds, once its slot is free again.
+fn finish_tls(layer: *h2_tls.Layer) void {
+    if (comptime !h2_tls.available) unreachable; // No layer exists without chapulin.
+    h2_tls.finish(layer);
 }
 
 /// The index of a slot this worker can put a connection in.
@@ -396,3 +404,35 @@ fn load_tls(prefix: []const u8) !void {
 
 /// The exit status of a run asked for something this build cannot do.
 const exit_usage: u8 = 2;
+
+const testing = std.testing;
+
+/// An identity of the right lengths that nothing signs with: the test's handshake never runs.
+/// Test-only.
+const test_der = [_]u8{ der_sequence_tag, 0 };
+const der_sequence_tag: u8 = 0x30;
+const test_scalar: [chapulin_server.private_scalar_len]u8 = @splat(1);
+const test_point: [chapulin_server.public_point_len]u8 = @splat(1);
+const test_cookie: [chapulin_server.cookie_key_len]u8 = @splat(1);
+
+test "a TLS connection's session is wiped when its slot is freed" {
+    if (!h2_tls.available) return error.SkipZigTest;
+    const shared: h2_tls.Shared = .{
+        .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
+        .cookie_key = &test_cookie,
+    };
+    const worker = &workers[0];
+    const slot: usize = 0;
+    const connection = &worker.connections[slot];
+    connection.* = undefined;
+    connection.live = true;
+    connection.receiving = false;
+    connection.sending = false;
+    connection.closed = false;
+    connection.layer = try start_tls(slot, &shared);
+    // Rotor's close of the connection is its last operation: the slot is freed on it.
+    const user_data = (@as(u64, slot) << kind_bits) | @intFromEnum(Kind.close);
+    on_event(worker, .{ .user_data = user_data, .result = 0, .flags = .{} });
+    try testing.expect(!connection.live);
+    try testing.expectEqual(h2_tls.chapulin_closed, h2_tls.session_state(&tls_layers[slot]));
+}

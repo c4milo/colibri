@@ -179,6 +179,13 @@ pub const Server = struct {
         return .{ .consumed = consumed, .written = written, .complete = complete };
     }
 
+    /// Wipes every secret the session still holds and marks it dead (`rec.h`). The caller calls
+    /// it once the connection is over, after its `close_notify` or after a failure.
+    pub fn close(server: *Server) void {
+        c.ch_record_close(&server.record);
+        assert(c.ch_record_state(&server.record) != c.CH_ST_CONNECTED);
+    }
+
     /// The alert a failed handshake chose, for the caller to send before it closes (`rec.h`), or
     /// 0 when nothing failed.
     pub fn alert(server: *const Server) u8 {
@@ -227,4 +234,19 @@ test "RFC 9846 §6: a ClientHello chapulin refuses fails the handshake, and noth
     try testing.expectError(Error.HandshakeFailed, test_server.handshake(&hello, &test_output));
     try testing.expect(test_server.alert() != 0);
     try testing.expect(!test_server.provider().is_complete());
+}
+
+test "a session closed after its handshake failed holds nothing and stays dead" {
+    if (!chapulin.available) return error.SkipZigTest;
+    test_server.init(.{
+        .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
+        .cookie_key = &test_cookie,
+        .receive = &test_receive,
+    });
+    try test_server.start();
+    test_server.close();
+    try testing.expectEqual(c.CH_ST_CLOSED, c.ch_record_state(&test_server.record));
+    // A closed session takes no more of the handshake.
+    var hello = [_]u8{ 0x16, 0x03, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00 };
+    try testing.expectError(Error.HandshakeFailed, test_server.handshake(&hello, &test_output));
 }

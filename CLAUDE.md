@@ -267,7 +267,8 @@ section when a step adds or renames a command.
   bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none TRANSPORT=record EXPORTER=on
   lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri reads the headers from it in place.
   The server's `TRANSPORT=record` drives the handshake from octets the caller read, so the h2
-  server runs it inside its `poll` loop (decision 46). The client's
+  server runs it inside its loop (decisions 46 and 82); it needs chapulin `b20f0ac` or later,
+  which keeps the write side open after a peer's `close_notify` (RFC 9846 §6.1). The client's
   `TRUST=webpki` is not a preference: chapulin compiles its ALPN fields out for `TRUST=raw` and
   `TRUST=ca`, and without ALPN no client can negotiate h2 (RFC 9113 §3.1), so colibri refuses
   such a build at compile time. Without the options the TLS endpoints compile to nothing, so a

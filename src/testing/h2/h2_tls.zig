@@ -86,6 +86,18 @@ pub fn start(layer: *Layer, shared: *const Shared) Error!void {
     layer.close_sent = false;
 }
 
+/// Wipes what the layer's session still holds, once its connection is over, whether it closed or
+/// failed (chapulin's `rec.h`).
+pub fn finish(layer: *Layer) void {
+    layer.server.close();
+}
+
+/// The state of the layer's session, and the one `finish` leaves, for the server's tests.
+pub fn session_state(layer: *const Layer) u8 {
+    return chapulin.c.ch_record_state(&layer.server.record);
+}
+pub const chapulin_closed = if (available) chapulin.c.CH_ST_CLOSED else 0;
+
 /// Runs the four parts of the header over what the socket read, writing into its output.
 pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!Step {
     var taken: Step = .{ .consumed = 0, .written = 0, .done = false };
@@ -267,21 +279,29 @@ test "RFC 9113 §10.5: a run of records carrying nothing ends h2 with a GOAWAY, 
     try testing.expect(stepped.done);
 }
 
-test "RFC 9846 §6.1: the peer's close_notify ends the connection, and this side closes once" {
+test "RFC 9846 §6.1: after the peer's close_notify this side still writes, then closes once" {
     if (!available) return error.SkipZigTest;
     try connect_test_layer();
-    // The server's SETTINGS go out first, so nothing is left to seal when the peer closes.
-    const preface = try step(&test_layer, &test_session, &.{}, &test_output);
-    try testing.expect(preface.written > 0);
-    try testing.expectEqual(0, test_layer.plain_out_len);
+    // The peer closes before the server has written anything. §6.1: its close_notify "does not
+    // have any effect on" this side's writing, so the server's SETTINGS still go out.
     const input = try zero_key_records.seal(0, zero_key_records.content_alert, &zero_key_records.close_notify, &test_input);
     const stepped = try step(&test_layer, &test_session, @constCast(input), &test_output);
     try testing.expectEqual(input.len, stepped.consumed);
     try testing.expect(test_layer.peer_closed);
     try testing.expect(test_layer.close_sent);
     try testing.expect(stepped.done);
-    // The close is not written again.
+    // What went out is the SETTINGS record, then this side's close_notify: a record whose
+    // plaintext is the alert's two octets.
+    const close_len = tls.constants.record_header_len + zero_key_records.close_notify.len + record_overhead_after_header;
+    try testing.expect(stepped.written > close_len);
+    const last_header = test_output[stepped.written - close_len ..][0..tls.constants.record_header_len];
+    try testing.expectEqual(zero_key_records.content_application_data, last_header[0]);
+    // The close goes out once.
     const again = try step(&test_layer, &test_session, &.{}, &test_output);
     try testing.expectEqual(0, again.written);
     try testing.expect(again.done);
 }
+
+/// What a sealed record adds after its header: the inner content type and the AEAD tag, which is
+/// chapulin's `REC_OVERHEAD` less the header. Test-only.
+const record_overhead_after_header: usize = chapulin.c.REC_OVERHEAD - tls.constants.record_header_len;
