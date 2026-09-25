@@ -3545,26 +3545,62 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
   **Check:** colibri pins a stdx commit whose gzip and deflate decoders have passed that check,
   and CLAUDE.md lists stdx among the ruled dependencies. *Small.*
-- **Step 15 — h11.** RFC 9112 as [decision 88](decisions.md) rules it: the start line and the
-  field section, §6.3's rules for the length of a body, `chunked` and the §7.2 codings through
-  stdx's decoders, persistence and the client's pipelining (§9.3), the request smuggling defenses of
-  §11.2, and ALPN `http/1.1` through `tls`. **Check:**
-  - A simulator check before the protocol code (non-negotiable 7). A colibri client and server
-    exchange seeded requests over step 2's byte pipe, pipelined, with `chunked` and coded bodies,
-    in pieces. A seed replays byte for byte (invariant 5).
-  - Interop in both directions, in cleartext and over chapulin with ALPN `http/1.1`, with the
-    versions recorded. The client runs against Go's `net/http` and h2o, and the server takes
-    requests from curl and Go.
+- **Step 15 — h11.** RFC 9112 as [decisions 88 and 91](decisions.md) rule it. The owner cut it
+  into four parts on 2026-09-25, in the order h2's steps 1 to 4 took: the parsers first, then the
+  connection over step 2's byte pipe, which already exists. Each part names its own check, and
+  every request-parsing check has a mutation (decision 88). *Large.*
+
+- **Step 15a — the message parsers and writers.** What RFC 9112 §2 to §7 put on the wire:
+  - the request line (§3) and the status line (§4), with each element separated by one SP, and
+    HTTP-version case-sensitive (§2.3);
+  - the request-target in its four forms (§3.2), and the Host rules a server holds a request to
+    (§3.2): 400 for none, for more than one, or for an invalid value;
+  - field lines (§5): a field name and a colon with no whitespace between, which a server refuses
+    with 400 (§5.1), and OWS trimmed from the value;
+  - obs-fold (§5.2): a server refuses it with 400, and a client replaces each one with SP, which
+    §5.2 makes a user agent's MUST;
+  - a bare CR is invalid (§2.2), and so is whitespace between the start line and the first field
+    line (§2.2);
+  - §6.3's eight rules for the length of a body, with `http.content_length` for the list rule
+    of item 5, and §6.1's rules for Transfer-Encoding with Content-Length and in HTTP/1.0;
+  - the chunked coding (§7.1): the chunk size with no overflow, chunk extensions skipped within a
+    named limit, the last chunk, and the trailer section.
+
+  A parser reads a start line and field section only when the whole of it is in the caller's
+  slice, up to a named limit, as h2 reads a whole frame (§4.1). Where RFC 9112 leaves a choice,
+  such as a lone LF as a line end (§2.2) or whitespace other than SP between elements (§3, §4),
+  colibri takes the strict side and refuses, because §11.2 traces request smuggling to parsers
+  that differ in what they forgive. **Check:** a golden corpus with a manifest, valid and invalid,
+  carrying one case per refusal and the smuggling shapes: Content-Length with Transfer-Encoding,
+  `Transfer-Encoding: chunked` hidden behind whitespace or repeated, a chunk size that overflows,
+  and obs-fold in a request. The step 2 byte pipe feeds every parser at seeded splits, and each
+  split must give what the whole input gives. Fuzzing and mutations.
+
+- **Step 15b — the connection.** Persistence (§9.3), the client's pipelining with responses
+  matched to requests in order (§9.3.2), a server that reads one request at a time, and closing
+  (§9.6). **Check:** a simulator check over step 2's byte pipe. A colibri client and server
+  exchange seeded requests, pipelined, with chunked and length-delimited bodies and early closes,
+  in pieces, and a seed replays byte for byte (invariant 5). Golden cases and mutations.
+
+- **Step 15c — the `gzip` and `deflate` codings.** stdx's decoders from a pool the caller owns,
+  under decision 91. It follows https://github.com/c4milo/stdx/issues/1. **Check:** step 15b's
+  simulator check with coded bodies, the corrupt and refused verdicts each with a case, and
+  mutations.
+
+- **Step 15d — the endpoints and conformance.**
+  - The test-only h11 server and client on Rotor.
+  - TLS over chapulin, with ALPN `http/1.1`, and the server choosing `h2` or `http/1.1`.
+  - Interop in both directions, in cleartext and over TLS, with the versions recorded. The client
+    runs against Go's `net/http` and h2o, and the server takes requests from curl and Go.
   - The HTTP Garden (https://github.com/narfindustries/http-garden), a differential fuzzer for
     HTTP/1.1 request streams, with colibri's server as one of its origins. Each discrepancy is
     judged against RFC 9112 before it counts as colibri's defect. The owner ruled it in on
     2026-09-25 ([decision 88](decisions.md)). It is GPL-3.0 and needs Docker, so it runs from
     `tools/` alone, cloned at a pinned commit.
-  - Mutations for every request-parsing check (decision 88). *Large.*
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
-both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists where it
-does on purpose: the cheap regression check is in place before the larger half begins.
+both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
+where it does on purpose: the cheap regression check is in place before the larger half begins.
 
 ## 9. Test-only entry points
 
