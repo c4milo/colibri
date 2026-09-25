@@ -71,7 +71,7 @@ pub const Discarded = enum {
 /// rather than an error, so the rules reached here are §6's: the key update ones a packet that
 /// opened can break, and §6.6's integrity limit, which is the one failure to open that is not a
 /// discard.
-pub const Error = key_update.Error || error{
+pub const Error = key_update.Error || header.UnprotectedError || error{
     /// RFC 9001 §6.6: more packets have failed authentication than the AEAD's integrity limit
     /// permits, counted "across all keys" over the connection's lifetime.
     AeadLimitReached,
@@ -83,6 +83,9 @@ pub fn connection_error_code(failure: Error) u64 {
         // RFC 9001 §6.6: "the endpoint MUST immediately close the connection with a connection
         // error of type AEAD_LIMIT_REACHED and not process any more packets."
         error.AeadLimitReached => error_code.aead_limit_reached,
+        // RFC 9000 §17.2 and §17.3.1: Reserved Bits that are set once protection is removed are "a
+        // connection error of type PROTOCOL_VIOLATION".
+        error.ReservedBitsSet => error_code.protocol_violation,
         else => |key_failure| key_update.connection_error_code(key_failure),
     };
 }
@@ -257,6 +260,11 @@ fn open_at(
         // authenticate, so it is dropped and the walk goes on to the next.
         else => return advance(walk, packet_len, .would_not_open),
     };
+    // RFC 9000 §17.2 and §17.3.1: an endpoint MUST treat Reserved Bits that are not zero "after
+    // removing both packet and header protection" as PROTOCOL_VIOLATION. Only now is byte 0
+    // unprotected, and only now has the AEAD vouched for it (RFC 9001 §9.5). 0-RTT is refused
+    // before `open`, so the application level is a short header here.
+    if (level == .application) _ = try header.unprotected_short(packet[0]) else _ = try header.unprotected_long(packet[0]);
     // RFC 9001 §6.1's Note: "Keys of packets other than the 1-RTT packets are never updated", so
     // the key phase is the application level's alone. It sits before §12.3's duplicate check
     // because §6.4 refuses a packet whose protection was removed, which has happened by here, and

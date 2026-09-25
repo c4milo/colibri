@@ -22,9 +22,9 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-var test_connection: Connection = undefined;
-var opener: Opener = undefined;
-var walk: receive.Walk = undefined;
+pub var test_connection: Connection = undefined;
+pub var opener: Opener = undefined;
+pub var walk: receive.Walk = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
@@ -34,7 +34,7 @@ const local_octet: u8 = 0xc1;
 const peer_octet: u8 = 0x51;
 const other_octet: u8 = 0x77;
 const id_len: usize = 4;
-const local_id: [id_len]u8 = @splat(local_octet);
+pub const local_id: [id_len]u8 = @splat(local_octet);
 const peer_id: [id_len]u8 = @splat(peer_octet);
 const other_id: [id_len]u8 = @splat(other_octet);
 
@@ -45,10 +45,10 @@ const payload_octet: u8 = 0x33;
 const payload_len: usize = 8;
 const tag_len: usize = constants.aead_tag_len;
 const protected_len: usize = payload_len + tag_len;
-const test_payload: [protected_len]u8 = @splat(payload_octet);
+pub const test_payload: [protected_len]u8 = @splat(payload_octet);
 
 const datagram_len: usize = 512;
-var datagram: [datagram_len]u8 = undefined;
+pub var datagram: [datagram_len]u8 = undefined;
 
 /// A `crypto.Suite` that performs no cryptography. `open` reports the Packet Number field as one
 /// octet, the payload as everything after it less a tag, and the number as that octet's value —
@@ -56,6 +56,9 @@ var datagram: [datagram_len]u8 = undefined;
 const Opener = struct {
     /// Packet numbers this opener refuses, modelling RFC 9001 §5.5's failure. Test-only.
     refuses: ?u64,
+    /// Bits of byte 0 that removing header protection reveals set (RFC 9001 §5.4.1), which a
+    /// real suite would read out of the mask. Test-only.
+    revealed_bits: u8,
     /// Makes every packet answer RFC 9001 §6.6's integrity limit, which a real suite reaches
     /// after counting more failures than the AEAD permits.
     reached_integrity_limit: bool,
@@ -64,7 +67,7 @@ const Opener = struct {
     discarded: usize,
 
     fn init(held: *Opener) void {
-        held.* = .{ .refuses = null, .reached_integrity_limit = false, .opened = 0, .discarded = 0 };
+        held.* = .{ .refuses = null, .revealed_bits = 0, .reached_integrity_limit = false, .opened = 0, .discarded = 0 };
     }
 
     fn discard(context: *anyopaque, _: Level) void {
@@ -72,7 +75,7 @@ const Opener = struct {
         held.discarded += 1;
     }
 
-    fn suite(held: *Opener) crypto.Suite {
+    pub fn suite(held: *Opener) crypto.Suite {
         return .{ .context = held, .vtable = &vtable };
     }
 
@@ -92,6 +95,8 @@ const Opener = struct {
             if (number == refused) return error.Discarded;
         }
         held.opened += 1;
+        // RFC 9001 §5.4.1: removing header protection rewrites byte 0 in place.
+        opening.packet[0] |= held.revealed_bits;
         return .{
             .packet_number = number,
             .packet_number_len = 1,
@@ -164,7 +169,7 @@ fn parameters() Parameters {
 
 /// A connection with every level installed for reading and the handshake complete, so a test that
 /// is about the walk is never stopped by RFC 9001 §4.9 or §5.7.
-fn open_connection() void {
+pub fn open_connection() void {
     opener.init();
     test_connection.init(.{
         .role = .client,
@@ -194,7 +199,7 @@ fn open_server() void {
 
 /// Writes one long-header packet into `writer` and returns nothing: the payload is made up and
 /// the opener strips a tag off it.
-fn write_packet(writer: *Writer, long_type: anytype, dcid: []const u8, number: u8) !void {
+pub fn write_packet(writer: *Writer, long_type: anytype, dcid: []const u8, number: u8) !void {
     try write_packet_from(writer, long_type, dcid, &peer_id, number);
 }
 
@@ -210,7 +215,7 @@ fn write_packet_from(writer: *Writer, long_type: anytype, dcid: []const u8, scid
     try writer.write_bytes(&test_payload);
 }
 
-fn start(len: usize) void {
+pub fn start(len: usize) void {
     walk.init(.{ .octets = datagram[0..len], .now_ns = test_now_ns, .ecn = .not_ect });
 }
 
@@ -461,4 +466,8 @@ test "RFC 9001 §4.9.1: a server discards its Initial keys once it processes a H
     try testing.expectEqual(Level.handshake, processed.opened.level);
     try testing.expectEqual(keys.State.discarded, test_connection.keys.at(.initial, .read));
     try testing.expectEqual(1, opener.discarded);
+}
+
+test {
+    _ = @import("connection_receive_reserved_test.zig");
 }
