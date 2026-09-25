@@ -125,15 +125,14 @@ exists — never propose a second one.
 
 ### Commits
 
-- A commit message is a Conventional Commit: `type(scope)!: description`, with the scope and the
-  `!` optional. The type is one of a closed set — `feat`, `fix`, `docs`, `test`, `refactor`,
-  `perf`, `build`, `ci`, `chore` — and a scope, when present, holds lowercase letters, digits and
-  hyphens. The scope allows digits because `h2` and `h3` are the two commonest scopes, and a rule
-  admitting letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`,
-  `hpack`, `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`, `h11`,
-  `deflate`. A scope
-  outside that set is a warning rather than a refusal, because the set grows when the graph does
-  and docs/design.md §3 is the authority on it, not the linter.
+- A commit message is a Conventional Commit: `type(scope)!: description`, with the scope and the `!`
+  optional. The type is one of a closed set — `feat`, `fix`, `docs`, `test`, `refactor`, `perf`,
+  `build`, `ci`, `chore` — and a scope, when present, holds lowercase letters, digits and hyphens.
+  The scope allows digits because `h2` and `h3` are the two commonest scopes, and a rule admitting
+  letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`, `hpack`,
+  `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`, `h11`. A scope outside
+  that set is a warning rather than a refusal, because the set grows when the graph does and
+  docs/design.md §3 is the authority on it, not the linter.
 - The description is imperative, starts with a lowercase letter, and ends without a period: write
   `add the huffman decoder`, never `Adds the Huffman decoder.` The subject line stays at or under
   72 columns.

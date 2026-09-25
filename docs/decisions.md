@@ -2166,7 +2166,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       requests went unanswered, and the caller opens the next connection, on which the client
       does not pipeline at once.
     - `h11` imports `core`, `http`, `tls` and `deflate`. `tls` lets it attach to a finished
-      handshake and check that ALPN chose `http/1.1`, as h2 does for `h2`.
+      handshake and check that ALPN chose `http/1.1`, as h2 does for `h2`. Entry 90 moves
+      `deflate` to stdx.
     - h11 decodes three transfer codings: `chunked` (RFC 9112 §7.1), `gzip` and `deflate` (§7.2).
       A server answers 501 to any other coding, `compress` included (§6.1). It answers 400 and
       closes the connection when a request's last coding is not `chunked` (§6.3).
@@ -2201,4 +2202,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - zlib-rs or miniz_oxide. Both are Rust, so every consumer would need a Rust toolchain, and
       miniz_oxide has no gzip.
     - libdeflate, tinf and puff. Each needs the whole coded body at once.
+
+    Entry 90 moves this decoder, and the check that proves it, to stdx.
+
+90. **The compression codecs live in stdx, a repository of their own, and colibri imports it.**
+    Ruled by the owner on 2026-09-25. It amends entry 89, which put the decoder in `src/deflate/`,
+    and entry 35, under which the library imports no package.
+    - stdx (https://github.com/c4milo/stdx) holds compression codecs, each with an encoder and a
+      decoder: deflate with its zlib and gzip wrappers, zstd and brotli. Other projects want them
+      without HTTP, which is entry 3's condition for moving code into a repository of its own.
+    - colibri takes stdx as a Zig package pinned by hash. It is the first package the library
+      imports, and h11 imports stdx's gzip and deflate decoders for the transfer codings of entry
+      88. The package joins CLAUDE.md's list of ruled dependencies in the commit that adds it.
+    - stdx keeps colibri's rules: no I/O, no heap, no clock, bounded work per call, a check cited
+      to its RFC, and mutations. It never depends on colibri.
+    - Design §8 step 14 moves to stdx (https://github.com/c4milo/stdx/issues/1), with zlib and
+      Wuffs as its oracles and baselines.
+
+    The alternatives refused:
+    - The decoder inside colibri, as entry 89 had it. Another project would have to take an HTTP
+      library to get a codec, and encoders and more codecs are coming.
+    - stdx holding colibri's `core` as well. Every colibri module would change its imports before
+      any codec work, and stdx would carry limits that belong to HTTP.
 

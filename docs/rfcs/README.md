@@ -51,8 +51,8 @@ rule or none at all.
 
 These three are in `compression/`, copied unmodified on 2026-09-25 from the same address. RFC 9112
 §7.2 defines the `deflate` and `gzip` transfer codings through RFC 9110 §8.4.1, and each coding
-names one of these formats. h11 decodes both, as the owner ruled in
-https://github.com/c4milo/colibri/issues/60.
+names one of these formats. h11 decodes both through stdx's decoders (decision 90), as the owner
+ruled in https://github.com/c4milo/colibri/issues/60.
 
 | RFC | Title | What colibri uses it for |
 |---|---|---|

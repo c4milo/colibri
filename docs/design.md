@@ -57,7 +57,7 @@ core   <- wire   <- hpack <- h2
                  <- qpack <- h3
 core   <- http   <- h2, h3, h11
 core   <- tls    <- h2, h11, quic
-core   <- deflate <- h11
+stdx   <- h11
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls, crypto <- sim
@@ -81,8 +81,7 @@ core, qpack      <- testing_qif
 | `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls` | 8999, 9000, 9001, 9002 |
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
-| `deflate` | the decoder of the `gzip` and `deflate` codings, with their checksums ([decision 89](decisions.md)) | `core` | 1950, 1951, 1952 |
-| `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls`, `deflate` | 9112 |
+| `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12 | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
@@ -3541,30 +3540,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the
   same session, and the machine written down beside the numbers. *Medium.*
 
-- **Step 14 — `deflate`.** The decoder of [decision 89](decisions.md): RFC 1951's stored, fixed
-  and dynamic blocks, and the Huffman tables built from their code lengths, over a window of
-  32,768 octets the caller owns. Around it, the zlib wrapper of RFC 1950 with its Adler-32, and
-  the gzip wrapper of RFC 1952 with its header fields, its CRC-32 and its length. Every call
-  takes the octets the caller has, and ends by asking for more input or more room. **Check:**
-  - `tools/deflate_compare.zig` decodes the same inputs with colibri, zlib and Wuffs, and the
-    three must write the same octets. zlib compresses each input at every level and strategy, in
-    all three containers. The inputs are seeded octets and the RFC texts of `docs/rfcs/`.
-    colibri reads each coded input in pieces whose sizes a seed draws.
-  - Seeded corruptions of those inputs: flipped bits, cut ends and wrong checksums. colibri must
-    refuse every input zlib refuses. Where zlib and Wuffs disagree, the case is recorded against
-    RFC 1952 §2.3.1.2, which lets a decoder skip most of the header, and is not a failure. Wuffs
-    skips the header CRC, for one.
-  - zlib's source and Wuffs's single C file (`wuffs-v0.4.c`, from
-    `google/wuffs-mirror-release-c`) are lazy packages pinned by hash. Only `tools/` and `bench/`
-    compile them, and the library never links them. This needs their entry in CLAUDE.md's list
-    of ruled dependencies.
-  - `bench/` measures decoding throughput against zlib and Wuffs by §11's method, on Linux.
-    Wuffs's own benchmark shows a streaming decoder with no heap at 1.5 to 1.9 times zlib's speed,
-    which is the target.
-  - Fuzzing under https://github.com/c4milo/colibri/issues/53, and mutations. *Medium.*
+- **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
+  codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
+  it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
+  **Check:** colibri pins a stdx commit whose gzip and deflate decoders have passed that check,
+  and CLAUDE.md lists stdx among the ruled dependencies. *Small.*
 - **Step 15 — h11.** RFC 9112 as [decision 88](decisions.md) rules it: the start line and the
   field section, §6.3's rules for the length of a body, `chunked` and the §7.2 codings through
-  `deflate`, persistence and the client's pipelining (§9.3), the request smuggling defenses of
+  stdx's decoders, persistence and the client's pipelining (§9.3), the request smuggling defenses of
   §11.2, and ALPN `http/1.1` through `tls`. **Check:**
   - A simulator check before the protocol code (non-negotiable 7). A colibri client and server
     exchange seeded requests over step 2's byte pipe, pipelined, with `chunked` and coded bodies,
@@ -3579,7 +3562,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Mutations for every request-parsing check (decision 88). *Large.*
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
-both. Steps 14 and 15 are h11: the decoder first, because h11 imports it. Step 6 exists where it
+both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists where it
 does on purpose: the cheap regression check is in place before the larger half begins.
 
 ## 9. Test-only entry points
