@@ -4060,6 +4060,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     parameters and the key handover stay colibri's.
   - The session's memory is the caller's, sized by a comptime constant from chapulin's receive
     floor (decision 35). 16b decides whether it sits inside each connection struct or beside it.
+  - Amended by the owner on 2026-09-26 (decision 97's amendment). chapulin's Zig API gives each
+    object types of its own, so these values are colibri's, defined in `tls`. `tls` converts them
+    once per object into that object's chapulin values, and a server identity types its keys.
 
   ```zig
   pub const Anchor = struct { subject: []const u8, spki: []const u8 };
@@ -4080,10 +4083,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
                               ticket: ?*const Ticket = null, ticket_age_ms: u64 = 0,
                               require_pq: bool = false };
 
-  pub const Identity = struct { chain: []const []const u8, public_key: []const u8,
-                                private_key: *const anyopaque };
+  pub const EcdsaP256Identity = struct { chain: []const []const u8, public_key: *const [64]u8,
+                                         private_key: *const [32]u8 };
+  // chapulin's ch_rsa_priv is a type of each object, so this key stays opaque.
+  pub const RsaPssIdentity = struct { chain: []const []const u8, public_key: []const u8,
+                                      private_key: *const anyopaque };
 
-  pub const Server = struct { ecdsa_p256: ?Identity = null, rsa_pss: ?Identity = null,
+  pub const Server = struct { ecdsa_p256: ?EcdsaP256Identity = null,
+                              rsa_pss: ?RsaPssIdentity = null,
                               cookie_key: *const [32]u8, ticket_key: ?*const [32]u8 = null,
                               now_seconds: u64, alpn: []const []const u8,
                               require_server_name: bool = false,

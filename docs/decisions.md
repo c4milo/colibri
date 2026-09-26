@@ -2480,3 +2480,20 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - `ssl`, the Python, Erlang and Java name, for a module that speaks TLS 1.3 alone.
     - `AES=hw` everywhere, which refuses to build for a target without the AES instructions.
     - ChaCha20-Poly1305 alone on TCP, which a server offering only AES-GCM refuses.
+
+    **Amended by the owner on 2026-09-26.** chapulin's Zig API gives each object types of its own:
+    two instances of one dependency make two modules, and a type in one is not a type in the
+    other. So step 16c's values are colibri's, and `tls` no longer passes chapulin's through.
+    - `tls` defines the values once and converts them, once per object, into that object's
+      chapulin values. They go into a configuration the caller owns, which every session of the
+      object borrows.
+    - The lists are copied into arrays at chapulin's limits, `CH_WEBPKI_ANCHOR_MAX` and
+      `CH_ALPN_MAX`. That is one copy per object at setup and none per connection. The same
+      values then configure h11, h2 and h3, as 16c rules.
+    - A server identity types its keys. An ECDSA P-256 private key is `*const [32]u8` and its
+      public key `*const [64]u8`, so a key of the wrong size fails to compile. An RSA-PSS private
+      key stays `*const anyopaque`, because chapulin's `ch_rsa_priv` is a type of each object.
+
+    The alternative refused: `tls` re-exporting each object's chapulin module, so a program writes
+    one literal per object in chapulin's types. It copies nothing, but a program that speaks h2 and
+    h3 configures both, with C element types such as `ch_trust_anchor`.
