@@ -677,6 +677,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   definitions, each stopping the proofs; and 1 edit to the vector file, which `zig build lean`
   refuses.
 
+  **The prefixed integer proved, 2026-09-26.** `spec/lean/Colibri/Wire/PrefixedInteger.lean`
+  states RFC 7541 §5.1's integer as `prefixed_integer.zig` computes it, at every prefix size 1 to 8,
+  and proves:
+  - `decode_encode`: an encoding decodes to its value and its length, whatever high bits the
+    caller set above the prefix and whatever octets follow;
+  - `encode_octets`: every octet is below 256;
+  - `encode_length`: every value up to 2^62 - 1 takes at most `integer_len_max` octets at every
+    prefix size;
+  - `decodeLimited_encode`: with colibri's octet and value limits, every such encoding still reads
+    back, so the limits refuse nothing RFC 9204 §4.1.1 requires.
+
+  `src/wire/prefixed_integer_vectors.txt` holds 191 encodings, RFC 7541 Appendix C.1's three
+  among them, and 355 decodings: every cut encoding, and the inputs only colibri's limits refuse.
+  A test in `prefixed_integer.zig` requires the Zig codec to give each. Mutations: 5 in
+  `prefixed_integer.zig`, each **CAUGHT** by that test. One, reading a tenth continuation octet,
+  was caught only after the vectors gained an input whose tenth octet ends the integer. 1 in the
+  Lean definitions stops the proofs, and 1 edit to the vector file is refused by `zig build lean`.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put

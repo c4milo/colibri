@@ -206,3 +206,90 @@ test "fuzz: decode returns a bounded value or consumes nothing" {
 test "sweep: every input of up to two octets, at every prefix size, is bounded or consumes nothing" {
     try core.fuzz.sweep(fuzz_decode, .{ .min = 1, .max = 8 });
 }
+
+/// The octets of one vector line at most, the base its numbers are in, and the lines of each kind
+/// `prefixed_integer_vectors.txt` holds. Test-only.
+const vector_octets_max = constants.integer_len_max + 1;
+const vector_radix = 10;
+const vector_encode_lines = 191;
+const vector_decode_lines = 355;
+
+/// `decode` at a prefix size a vector line names at run time. Test-only.
+fn decode_at(prefix_size: u4, reader: *Reader) DecodeError!u64 {
+    return switch (prefix_size) {
+        inline constants.integer_prefix_bits_min...constants.integer_prefix_bits_max => |size| decode(size, reader),
+        else => unreachable,
+    };
+}
+
+/// `encode` at a prefix size a vector line names at run time. Test-only.
+fn encode_at(prefix_size: u4, writer: *Writer, high_bits: u8, value: u64) core.writer.Error!void {
+    return switch (prefix_size) {
+        inline constants.integer_prefix_bits_min...constants.integer_prefix_bits_max => |size| encode(size, writer, high_bits, value),
+        else => unreachable,
+    };
+}
+
+/// `encode n high value octets`: `encode` writes the octets, and `decode` reads the value back
+/// from all of them.
+fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    const prefix_size = try std.fmt.parseUnsigned(u4, fields.next().?, vector_radix);
+    const high_bits = try std.fmt.parseUnsigned(u8, fields.next().?, vector_radix);
+    const value = try std.fmt.parseUnsigned(u64, fields.next().?, vector_radix);
+    var expected: [vector_octets_max]u8 = undefined;
+    const octets = try std.fmt.hexToBytes(&expected, fields.next().?);
+    var buffer: [vector_octets_max]u8 = undefined;
+    var writer = Writer.init(&buffer);
+    try encode_at(prefix_size, &writer, high_bits, value);
+    try testing.expectEqualSlices(u8, octets, writer.written());
+    var reader = Reader.init(octets);
+    try testing.expectEqual(value, try decode_at(prefix_size, &reader));
+    try testing.expectEqual(octets.len, reader.offset);
+}
+
+/// `decode n octets outcome`: `decode` answers the value and its length, or the error, and a
+/// refusal consumes nothing.
+fn expect_decode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    const prefix_size = try std.fmt.parseUnsigned(u4, fields.next().?, vector_radix);
+    var storage: [vector_octets_max]u8 = undefined;
+    const octets = try std.fmt.hexToBytes(&storage, fields.next().?);
+    var reader = Reader.init(octets);
+    const answer = fields.next().?;
+    const expected_error: ?DecodeError = if (std.mem.eql(u8, answer, "truncated"))
+        error.Truncated
+    else if (std.mem.eql(u8, answer, "too_long"))
+        error.IntegerTooLong
+    else if (std.mem.eql(u8, answer, "too_large"))
+        error.IntegerTooLarge
+    else
+        null;
+    if (expected_error) |failure| {
+        try testing.expectError(failure, decode_at(prefix_size, &reader));
+        try testing.expectEqual(0, reader.offset);
+        return;
+    }
+    try testing.expectEqual(try std.fmt.parseUnsigned(u64, answer, vector_radix), try decode_at(prefix_size, &reader));
+    try testing.expectEqual(try std.fmt.parseUnsigned(usize, fields.next().?, vector_radix), reader.offset);
+}
+
+test "the codec gives what the proved definitions give (spec/lean/Colibri/Wire/PrefixedInteger.lean)" {
+    var lines = std.mem.splitScalar(u8, @embedFile("prefixed_integer_vectors.txt"), '\n');
+    var encoded: usize = 0;
+    var decoded: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const kind = fields.next().?;
+        if (std.mem.eql(u8, kind, "encode")) {
+            try expect_encode_line(&fields);
+            encoded += 1;
+        } else {
+            try testing.expectEqualStrings("decode", kind);
+            try expect_decode_line(&fields);
+            decoded += 1;
+        }
+    }
+    try testing.expectEqual(vector_encode_lines, encoded);
+    try testing.expectEqual(vector_decode_lines, decoded);
+}

@@ -345,8 +345,8 @@ section when a step adds or renames a command.
   build tla`.
 - Proofs: `zig build lean` builds the Lean proofs in `spec/lean/` with lake, through pepegrillo's
   `lean` tool, and checks that the vector files the Zig tests read (such as
-  `src/qpack/insert_count_vectors.txt` and `src/wire/varint_vectors.txt`) are what the proved
-  definitions give; `zig build lean -- write` rewrites them. `spec/lean/lean-toolchain` pins the Lean release, which elan installs.
+  `src/qpack/insert_count_vectors.txt` and the files beside `src/wire/varint.zig`) are what the
+  proved definitions give; `zig build lean -- write` rewrites them. `spec/lean/lean-toolchain` pins the Lean release, which elan installs.
   `tools/ci.sh` runs it where lake is installed (decision 77).
 - Format: `zig fmt --check build.zig build examples src tools`.
 - Examples: `zig build examples` builds and runs every program in `examples/`, and `zig build
