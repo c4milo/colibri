@@ -3957,7 +3957,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **16b**, the adapters. The record-mode provider and the QUIC provider and suite move from
     `src/testing/` into a library module, which design §3 gains. `tls.Provider` and
     `crypto.Suite` become internal, filled by that module and by the simulator's null
-    implementations.
+    implementations. Amended on 2026-09-26 (decision 94's amendment, decision 97): the plain-TLS
+    part moves into chapulin as a Zig API, and colibri's `tls` module is the glue from it to
+    `tls_provider.Provider` and `crypto.Suite`. 16b waits on that API.
   - **16c**, what a user sets: the server name, trust anchors with the wall-clock time as a value,
     SPKI pins, ALPN, and session tickets offered and handed back, as the owner ruled below.
   - **16d**, the checks. Every check that linked chapulin through `src/testing/` runs against the

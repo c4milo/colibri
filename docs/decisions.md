@@ -2400,6 +2400,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Cost: every build of colibri compiles chapulin, no other TLS stack can be used, and the
     library gains its first dependency and its first C. Design §8 step 16 carries the work.
 
+    **Amended by the owner on 2026-09-26.** The part of the adapter that is plain TLS moves into
+    chapulin, as a Zig API over its C calls: step 16c's values (`Client`, `Server`, `Trust`,
+    `Ticket`), the session storage and its size, driving a handshake, and QUIC's key handover. Any
+    Zig program that uses chapulin needs it, HTTP or not, and cocuyo kept an adapter of its own for
+    want of one. colibri keeps the glue: its `tls` module fills `tls_provider.Provider` and
+    `crypto.Suite` from chapulin's sessions and makes colibri's own checks, such as the ALPN a
+    connection attaches with. The refused alternatives were the whole adapter in colibri, as ruled
+    above, which leaves every other Zig user of chapulin to write it again, and building it in
+    colibri first to move it later, which writes it twice.
+
 95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.
@@ -2451,8 +2461,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     owner on 2026-09-26, for design §8 step 16b.
     - The module a program imports for TLS and for QUIC's handshake and packet protection is
       `tls`, the name Go's `crypto/tls`, Node's `tls` and Zig's `std.crypto.tls` give theirs. It
-      holds chapulin's adapters, which move from `src/testing/`, and step 16c's values: `Client`,
-      `Server`, `Trust` and `Ticket`.
+      fills colibri's vtables from chapulin's sessions; step 16c's values are chapulin's, as
+      entry 94's amendment rules, and `tls` passes them through.
     - The provider vtable the module was named for until now becomes `tls_provider`. h2, h11,
       quic and sim import it, and a program imports it only to name the type. The HTTP modules do
       not import `tls`: a program makes a session there and hands its provider to the connection,
