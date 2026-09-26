@@ -456,9 +456,22 @@ pub const quic_input_check_one_in: u64 = 2;
 /// How far below its upper bound a value drawn near the bound lies, at most.
 pub const quic_input_check_near_bound: u64 = 4;
 
+/// The h2 input check: inputs per seed, the most edits made to one, the longest input, the most
+/// frames drawn into one, the longest octet string a frame carries, the random octets those are
+/// drawn from, how often a draw takes its rarer branch, and how far inside a bound it lands.
+pub const h2_input_check_inputs: u32 = 128;
+pub const h2_input_check_edits_max: u64 = 8;
+pub const h2_input_check_input_len_max: u32 = 512;
+pub const h2_input_check_frames_max: u64 = 6;
+pub const h2_input_check_octets_len_max: u64 = 32;
+pub const h2_input_check_material_len: u32 = 64;
+pub const h2_input_check_one_in: u64 = 2;
+pub const h2_input_check_near_bound: u64 = 4;
+
 comptime {
     // A drawn string is a slice of the material.
     assert(quic_input_check_octets_len_max <= quic_input_check_material_len);
+    assert(h2_input_check_octets_len_max <= h2_input_check_material_len);
     assert(qpack_check_sections_max > 0 and qpack_check_lines_max > 0);
     assert(qpack_check_streams > 0);
 }

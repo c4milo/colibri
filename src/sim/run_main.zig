@@ -8,6 +8,7 @@
 //!     sim --qpack-seed <hex>           the same, over a QPACK encoder and decoder (step 11)
 //!     sim --qpack-check [seeds]
 //!     sim --qpack-input-check [seeds]  edited QPACK input, taken or refused (step 11)
+//!     sim --h2-input-check [seeds]     edited h2 frames, read, cut or refused (step 4)
 //!     sim --h3-check [seeds]           h3 exchanges over a lossy network (step 12)
 //!     sim --h3-long-check [seeds]      long h3 connections, which outgrow h3's buffers
 //!     sim --h3-trace-check [seeds]     the h3 model's actions acted out (#58)
@@ -28,6 +29,7 @@ const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
 const qpack_check = @import("qpack_check.zig");
 const qpack_input_check = @import("qpack_input_check.zig");
+const h2_input_check = @import("h2_input_check.zig");
 const h3_check = @import("h3_check.zig");
 const h3_trace_check = @import("h3_trace_check.zig");
 const h3_trace_state = @import("h3_trace_state.zig");
@@ -49,7 +51,7 @@ const hex_prefix = "0x";
 
 const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --connection-seed <hex> | --connection-check [seeds] | --tls-check [seeds]" ++
-    " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]" ++
+    " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h2-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]" ++
     " | --h3-trace-check [seeds] | --h3-trace-write <directory>" ++
     " | --h11-split-seed <hex> | --h11-split-check [seeds]" ++
     " | --h11-connection-seed <hex> | --h11-connection-check [seeds]\n";
@@ -63,6 +65,7 @@ pub const Command = union(enum) {
     qpack_seed: u64,
     qpack_check: u64,
     qpack_input_check: u64,
+    h2_input_check: u64,
     h3_check: u64,
     h3_long_check: u64,
     h3_trace_check: u64,
@@ -79,6 +82,7 @@ var connection_storage: connection_check.Storage = .zeroed;
 var tls_storage: tls_check.Storage = .zeroed;
 var qpack_storage: qpack_check.Storage = undefined;
 var qpack_input_storage: qpack_input_check.Storage = undefined;
+var h2_input_storage: h2_input_check.Storage = undefined;
 var h3_storage: h3_check.Storage = undefined;
 var h3_trace_storage: h3_trace_check.Storage = undefined;
 var h3_trace_module: [constants.h3_trace_module_len_max]u8 = undefined;
@@ -108,6 +112,7 @@ pub fn main(init: std.process.Init) !void {
         .qpack_seed => |seed| try qpack_seed(seed),
         .qpack_check => |seeds| try qpack_check_seeds(seeds),
         .qpack_input_check => |seeds| try qpack_input_check_seeds(seeds),
+        .h2_input_check => |seeds| try h2_input_check_seeds(seeds),
         .h3_check => |seeds| try h3_check_seeds(seeds, .normal),
         .h3_long_check => |seeds| try h3_check_seeds(seeds, .long),
         .h3_trace_check => |seeds| try h3_trace_check_seeds(seeds),
@@ -135,6 +140,7 @@ pub fn parse(arguments: []const []const u8) error{Usage}!Command {
     // The TLS check writes no trace, so it has no single-seed form: what it compares is the
     // events of three runs of one seed, which the check itself prints when they differ.
     if (std.mem.eql(u8, flag, "--tls-check")) return .{ .tls_check = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--h2-input-check")) return .{ .h2_input_check = try parse_seeds(value) };
     return parse_step_eleven_on(flag, value);
 }
 
@@ -392,6 +398,22 @@ fn qpack_input_check_seeds(seeds: u64) !void {
     const counts = census.counts;
     std.debug.print("qpack-input: seeds={d} inputs={d} taken={d} blocked={d} refused={d} crc32=0x{x:0>8}\n", .{
         census.seeds, counts.inputs, counts.taken, counts.blocked, counts.refused, census.crc32.final(),
+    });
+}
+
+/// The h2 input check (https://github.com/c4milo/colibri/issues/53), over `[0, seeds)`.
+fn h2_input_check_seeds(seeds: u64) !void {
+    var census: h2_input_check.Census = .{};
+    var failed_seed: ?u64 = null;
+    h2_input_check.run_check(&h2_input_storage, seeds, &census, &failed_seed) catch |failure| {
+        std.debug.print("h2-input: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
+        return failure;
+    };
+    const outcomes = census.counts.outcomes;
+    std.debug.print("h2-input: seeds={d} taken={d} incomplete={d} refused={d} frames={d} crc32=0x{x:0>8}\n", .{
+        census.seeds,                                              outcomes[@intFromEnum(h2_input_check.Outcome.taken)],
+        outcomes[@intFromEnum(h2_input_check.Outcome.incomplete)], outcomes[@intFromEnum(h2_input_check.Outcome.refused)],
+        census.counts.frames_read,                                 census.crc32.final(),
     });
 }
 

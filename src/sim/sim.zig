@@ -10,6 +10,7 @@ pub const constants = @import("constants.zig");
 
 pub const random = @import("random.zig");
 pub const input_edit = @import("input_edit.zig");
+pub const input_draw = @import("input_draw.zig");
 pub const clock = @import("clock.zig");
 pub const trace = @import("trace.zig");
 pub const pipe = @import("pipe.zig");
@@ -30,6 +31,7 @@ test {
     _ = constants;
     _ = random;
     _ = input_edit;
+    _ = input_draw;
     _ = clock;
     _ = trace;
     _ = pipe;

@@ -877,6 +877,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The fix's mutations, against `zig build test-h2` alone: 7 **CAUGHT**. h2spec still prints 144
     of 146 in cleartext and over TLS, and the server interop against Go passes.
 
+  **The input check, 2026-09-26.** `src/sim/h2_input_check.zig` gives the frame reader inputs
+  longer than two octets, as the QPACK and QUIC input checks do
+  ([#53](https://github.com/c4milo/colibri/issues/53)).
+  - Each input is a stream of frames of all ten types and one of an unknown type, written by
+    `h2.frame`'s writers, with values drawn at their bounds or a few inside them half the time.
+    What the writers produced must be read whole before it takes up to eight edits.
+  - The edited stream is read as the connection reads it: the header, the Length against
+    SETTINGS_MAX_FRAME_SIZE, then `parse`.
+  - A refusal must get a verdict of PROTOCOL_ERROR or FRAME_SIZE_ERROR, and a stream error only on
+    a stream other than 0 (§5.4.2). An accepted frame must keep every rule its writer asserts.
+    Written again, it must keep its type, its stream and its defined flags, and read back the
+    same.
+
+  `zig build test-sim-run` runs 256 seeds of 128 inputs and pins the census, which Debug and
+  ReleaseSafe agree on. `zig build sim -- --h2-input-check` prints `seeds=256 taken=6698
+  incomplete=16496 refused=9574 frames=157943 crc32=0x0d547a5d`. 200,000 seeds, 25.6 million
+  inputs, ran in ReleaseSafe with no input halted. 20 mutations of the reader, its writers and
+  `verdict`, all **CAUGHT** by the check alone.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

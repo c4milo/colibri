@@ -49,35 +49,28 @@ pub const Storage = struct {
 /// The bit length of the largest variable-length integer (RFC 9000 §16).
 const varint_value_bits = std.math.log2_int(u64, quic.wire.constants.varint_value_max + 1);
 
-/// A variable-length integer's value, drawn by bit length first so small values, and the values
-/// at each boundary of §16's encodings, come up as often as large ones.
+/// How this check draws a value: variable-length integers, and a bound once in
+/// `quic_input_check_one_in`.
+const draw: sim.input_draw.Draw = .{
+    .one_in = constants.quic_input_check_one_in,
+    .near_bound = constants.quic_input_check_near_bound,
+    .bits_max = varint_value_bits,
+};
+
+/// A variable-length integer's value, drawn by bit length first.
 pub fn draw_varint(random: *Random) u64 {
-    const bits = random.between(0, varint_value_bits);
-    return random.below(@as(u64, 1) << @intCast(bits));
+    return draw.by_bits(random);
 }
 
-/// A value in `[min, max]`. Once in `quic_input_check_one_in` it is at a bound or a few inside
-/// it, where an edit that moves an octet by one takes it past; otherwise it is drawn as a
-/// variable-length integer and held to the bounds.
 pub fn draw_bounded(random: *Random, min: u64, max: u64) u64 {
-    assert(min <= max);
-    if (!chosen(random)) return @max(min, @min(max, draw_varint(random)));
-    const inside = @min(max - min, random.below(constants.quic_input_check_near_bound));
-    return if (chosen(random)) min + inside else max - inside;
+    return draw.bounded(random, min, max);
 }
 
-/// True once in `quic_input_check_one_in` draws.
 pub fn chosen(random: *Random) bool {
-    return random.below(constants.quic_input_check_one_in) == 0;
+    return draw.chosen(random);
 }
 
-/// A slice of `material` of `min` to `max` octets.
-pub fn draw_octets(random: *Random, material: []const u8, min: u64, max: u64) []const u8 {
-    assert(min <= max and max <= material.len);
-    const len = random.between(min, max);
-    const start = random.below(material.len - len + 1);
-    return material[start..][0..len];
-}
+pub const draw_octets = sim.input_draw.octets;
 
 /// Writes a payload of drawn frames and returns it. A STREAM frame with no Length runs to the end
 /// of the payload (RFC 9000 §19.8), so only the last frame may be one.
