@@ -855,6 +855,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   by calling `write_response` twice, and nothing stops it setting END_STREAM on one, which §8.1
   forbids.
 
+  **The TLA+ model, 2026-09-26** ([#48](https://github.com/c4milo/colibri/issues/48)).
+  - `347f8e7`: `spec/tla/h2_flow_control` models a colibri client and a colibri server over one
+    connection: RFC 9113 §5.1's stream states, §6.9's connection and stream windows, colibri's
+    WINDOW_UPDATE threshold and its queue of owed replies, and a peer that changes its
+    SETTINGS_INITIAL_WINDOW_SIZE, which may drive a send window negative (§6.9.2). The
+    properties: no frame goes out that its stream's state forbids, no window passes its maximum,
+    no sender sends on a window that is not positive, and every exchange finishes.
+  - It found a defect. colibri queued a stream's WINDOW_UPDATE when DATA arrived and wrote it
+    later, so it could follow the frame that closed the stream, which §5.1 forbids ("An endpoint
+    MUST NOT send frames other than PRIORITY on a closed stream"). `3653d52` drops a stream's owed
+    credit once the peer ends its side or either side resets it, since no more DATA comes.
+  - What `zig build tla` printed, on macOS arm64:
+    - holds, as expected: `colibri`, 6463 distinct states; `two_streams`, 572165; `settings`,
+      432411;
+    - violated, as expected: `update_after_end`, the path the fix closes; `settings_negative`, a
+      send window does go negative, so the rule is exercised; `ignore_negative`, a sender that
+      sends on a window that is not positive; `threshold_above_window`, a WINDOW_UPDATE threshold
+      above the window, which stalls the exchange and is why `window.Receiver` requires the
+      window to be at least the threshold.
+  - The fix's mutations, against `zig build test-h2` alone: 7 **CAUGHT**. h2spec still prints 144
+    of 146 in cleartext and over TLS, and the server interop against Go passes.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
