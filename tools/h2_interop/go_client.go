@@ -1,17 +1,19 @@
-// The Go peer of tools/h2_server_interop.sh: an h2 client on net/http, standard library alone, in
-// cleartext or over TLS 1.3, run against colibri's test-only h2 server. Nothing here is colibri's
-// code, which is the point: the run says whether Go's client and colibri's server read RFC 9113
-// the same way.
+// The Go peer of tools/h2_server_interop.sh and tools/h11_server_interop.sh: an h2 client on
+// net/http, or with -h11 an HTTP/1.1 one, standard library alone, in cleartext or over TLS 1.3,
+// run against colibri's test-only server. Nothing here is colibri's code, which is the point: the
+// run says whether Go's client and colibri's server read RFC 9113 and RFC 9112 the same way.
 //
-//	go run tools/h2_interop/go_client.go <address:port> [<identity-prefix>]
+//	go run tools/h2_interop/go_client.go [-h11] <address:port> [<identity-prefix>]
 //
 // With a prefix it speaks TLS, trusts the root in <identity-prefix>.chain.pem, which
-// tools/h2_interop/tls_identity.go wrote, and asks for the name the leaf carries.
+// tools/h2_interop/tls_identity.go wrote, and asks for the name the leaf carries. With -h11 over
+// TLS it offers ALPN "http/1.1" alone.
 //
-// It sends every request of its plan at once on one connection: GETs, and a POST whose content is
-// past the 65,535-octet window a stream starts with (RFC 9113 §6.9.2), so it finishes only if the
-// server sends WINDOW_UPDATE frames. colibri's server answers every request with 200 and
-// "colibri\n", and the run requires exactly that of each.
+// It sends every request of its plan at once: GETs, and a POST whose content is past the
+// 65,535-octet window an h2 stream starts with (RFC 9113 §6.9.2), so in h2 it finishes only if
+// the server sends WINDOW_UPDATE frames. In h2 they share one connection; in HTTP/1.1 Go opens
+// as many as it needs. colibri's server answers every request with 200 and "colibri\n", in the
+// protocol asked for, and the run requires exactly that of each.
 package main
 
 import (
@@ -19,6 +21,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -46,12 +49,16 @@ const hostname = "localhost"
 // How long the whole plan may take.
 const deadline = 60 * time.Second
 
+// Whether the run speaks HTTP/1.1, and the major version every response must carry.
+var h11 = flag.Bool("h11", false, "speak HTTP/1.1 alone (RFC 9112) instead of h2")
+
 func main() {
-	if len(os.Args) != 2 && len(os.Args) != 3 {
-		log.Fatal("usage: go_client <address:port> [<identity-prefix>]")
+	flag.Parse()
+	arguments := flag.Args()
+	if len(arguments) != 1 && len(arguments) != 2 {
+		log.Fatal("usage: go_client [-h11] <address:port> [<identity-prefix>]")
 	}
-	address := os.Args[1]
-	client, base := newClient(address)
+	client, base := newClient(arguments)
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 
@@ -89,17 +96,24 @@ func main() {
 }
 
 // Builds the client for the mode the command line asked for, and the base of every URI.
-func newClient(address string) (*http.Client, string) {
+func newClient(arguments []string) (*http.Client, string) {
+	address := arguments[0]
 	protocols := new(http.Protocols)
 	transport := &http.Transport{Protocols: protocols}
-	if len(os.Args) == 2 {
+	if *h11 {
+		// RFC 9112, in cleartext, and over TLS selected by ALPN, which this client offers alone.
+		protocols.SetHTTP1(true)
+	} else if len(arguments) == 1 {
 		// RFC 9113 §3.3: cleartext h2 with prior knowledge.
 		protocols.SetUnencryptedHTTP2(true)
+	} else {
+		// RFC 9113 §3.2: h2 over TLS, selected by ALPN, which this client offers alone.
+		protocols.SetHTTP2(true)
+	}
+	if len(arguments) == 1 {
 		return &http.Client{Transport: transport}, "http://" + address
 	}
-	// RFC 9113 §3.2: h2 over TLS, selected by ALPN, which this client offers alone.
-	protocols.SetHTTP2(true)
-	pem, err := os.ReadFile(os.Args[2] + ".chain.pem")
+	pem, err := os.ReadFile(arguments[1] + ".chain.pem")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -120,7 +134,8 @@ func newClient(address string) (*http.Client, string) {
 	return &http.Client{Transport: transport}, "https://" + net.JoinHostPort(hostname, port)
 }
 
-// Sends one request and requires h2, status 200 and the body colibri's server always sends.
+// Sends one request and requires the protocol asked for, status 200 and the body colibri's server
+// always sends.
 func exchange(ctx context.Context, client *http.Client, method, uri string, content []byte) error {
 	var body io.Reader
 	if content != nil {
@@ -139,7 +154,11 @@ func exchange(ctx context.Context, client *http.Client, method, uri string, cont
 	if err != nil {
 		return fmt.Errorf("%s %s: reading the body: %w", method, uri, err)
 	}
-	if response.ProtoMajor != 2 || response.StatusCode != http.StatusOK || string(received) != expectedBody {
+	major := 2
+	if *h11 {
+		major = 1
+	}
+	if response.ProtoMajor != major || response.StatusCode != http.StatusOK || string(received) != expectedBody {
 		return fmt.Errorf("%s %s: %s %d %q", method, uri, response.Proto, response.StatusCode, received)
 	}
 	return nil
