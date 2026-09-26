@@ -32,8 +32,9 @@ pub const Step = struct {
     done: bool,
 };
 
-/// What is left to write of the response to the request read last.
-const Owed = enum { nothing, head, body, end };
+/// What is left to write of the response to the request read last: a 100 (Continue) the client
+/// waits for before it sends the content, then the final response's head, body and end.
+const Owed = enum { nothing, interim, head, body, end };
 
 /// The fields every response carries (RFC 9110 §8.3, §8.6).
 const response_fields = [_]Field{
@@ -43,6 +44,10 @@ const response_fields = [_]Field{
 
 /// The reason phrase of `response_status` (RFC 9110 §15.3.1).
 const response_reason = "OK";
+
+/// 100 (Continue) and its reason phrase (RFC 9110 §15.2.1).
+const continue_status: u16 = 100;
+const continue_reason = "Continue";
 
 /// Passes of `step` per octet of input: one that consumes it, and one that ends its request.
 const passes_per_octet = 2;
@@ -83,6 +88,7 @@ pub const Session = struct {
             const event = received.event orelse return .{ .consumed = consumed, .written = written, .done = session.connection.should_close() };
             // The request is read whole once the connection waits, and its `end` is not owed.
             if (session.connection.phase == .waiting and event != .data) session.owed = .head;
+            if (event == .request and session.expects_continue(event.request)) session.owed = .interim;
         }
         unreachable;
     }
@@ -102,11 +108,34 @@ pub const Session = struct {
         unreachable;
     }
 
+    /// Whether the request asks for a 100 (Continue) before its content. RFC 9110 §10.1.1: an
+    /// origin server MUST send one at once when an HTTP/1.1 request's Expect field holds
+    /// "100-continue" and content will follow, and MUST ignore the expectation in HTTP/1.0.
+    fn expects_continue(session: *const Session, request: h11.connection.Request) bool {
+        if (request.line.version.minor == 0) return false;
+        // RFC 9110 §10.1.1: the server MAY omit it when the framing says no content follows.
+        if (session.connection.phase != .body) return false;
+        const expect = session.connection.section.find("expect") orelse return false;
+        var expectations = std.mem.splitScalar(u8, expect.value, ',');
+        // Bounded: a value of n octets holds at most n + 1 members.
+        for (0..expect.value.len + 1) |_| {
+            const expectation = expectations.next() orelse return false;
+            // RFC 9110 §10.1.1: the Expect field value is case-insensitive.
+            if (std.ascii.eqlIgnoreCase(std.mem.trim(u8, expectation, " \t"), "100-continue")) return true;
+        }
+        return false;
+    }
+
     /// Writes the next part of the response, and moves `owed` past it.
     fn write_part(session: *Session, output: []u8) h11.connection.SendError!usize {
         const connection = &session.connection;
         switch (session.owed) {
             .nothing => return 0,
+            .interim => {
+                const written = try connection.write_response(output, continue_status, continue_reason, &.{});
+                session.owed = .nothing;
+                return written;
+            },
             .head => {
                 const written = try connection.write_response(output, constants.response_status, response_reason, &response_fields);
                 // RFC 9112 §6.3 rule 1: a response to HEAD has no body, and is written whole.
@@ -210,4 +239,23 @@ test "a response the output has no room for waits for a later step" {
     const third = target.step(&.{}, &test_output);
     try testing.expectEqualStrings(constants.response_body, test_output[0..third.written]);
     try testing.expect(!third.done);
+}
+
+test "RFC 9110 §10.1.1: an HTTP/1.1 request expecting 100-continue gets it before its content" {
+    const target = fresh_session();
+    const head = "POST / HTTP/1.1\r\nHost: a\r\nExpect: token, 100-Continue\r\nContent-Length: 3\r\n\r\n";
+    const first = target.step(head, &test_output);
+    try testing.expectEqual(head.len, first.consumed);
+    try testing.expectEqualStrings("HTTP/1.1 100 Continue\r\n\r\n", test_output[0..first.written]);
+    const second = target.step("abc", &test_output);
+    try testing.expectEqualStrings(response ++ constants.response_body, test_output[0..second.written]);
+    // No content follows, or the request is HTTP/1.0: no 100 goes out.
+    for ([_][]const u8{
+        "GET / HTTP/1.1\r\nHost: a\r\nExpect: 100-continue\r\n\r\n",
+        "POST / HTTP/1.0\r\nExpect: 100-continue\r\nContent-Length: 1\r\n\r\nx",
+        "POST / HTTP/1.1\r\nHost: a\r\nExpect: other\r\nContent-Length: 1\r\n\r\nx",
+    }) |input| {
+        const plain = fresh_session().step(input, &test_output);
+        try testing.expect(std.mem.startsWith(u8, test_output[0..plain.written], "HTTP/1.1 200 OK\r\n"));
+    }
 }
