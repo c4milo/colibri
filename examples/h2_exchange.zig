@@ -7,6 +7,10 @@
 //! `write_response` and `write_data`. Every call that needs the instant takes the one the side's
 //! loop read. Both run over `link.zig`, which stands where a program's sockets would be.
 //!
+//! The program checks what arrived: the client must see 200 and the greeting, octet for octet.
+//! Anything else exits with an error, which is how `zig build examples` and CI know the example
+//! still works.
+//!
 //! Run it with `zig build example-h2_exchange`, or every example with `zig build examples`.
 const std = @import("std");
 const h2 = @import("h2");
@@ -27,13 +31,28 @@ const frames_per_round_max = 64;
 
 const greeting = "hello from colibri over h2\n";
 
-/// Where the exchange stands.
+/// The status the client must see.
+const status_expected = 200;
+
+/// Where the exchange stands, and what the client received, which `main` checks at the end.
 const State = struct {
     /// The stream the server answers on, once its request has arrived.
     request_stream: ?u32 = null,
     answered: bool = false,
     /// The client has the whole response.
     done: bool = false,
+    status: u16 = 0,
+    body: [greeting.len]u8 = undefined,
+    body_len: usize = 0,
+    /// The client received more body octets than the server sent.
+    overflowed: bool = false,
+};
+
+pub const Error = error{
+    /// The exchange did not end within `rounds_max` rounds.
+    ExchangeUnfinished,
+    /// What arrived is not what was sent.
+    ExchangeWrong,
 };
 
 // The connections and the link hold tens of kilobytes each, so they live outside the stack.
@@ -64,9 +83,20 @@ pub fn main() !void {
     for (0..rounds_max) |_| {
         try step(&server, .server, &state);
         try step(&client, .client, &state);
-        if (state.done) return;
+        if (state.done) return check(&state);
     }
     return error.ExchangeUnfinished;
+}
+
+/// The client saw the status the server sent, and every octet of the body.
+fn check(state: *const State) Error!void {
+    const body_right = !state.overflowed and std.mem.eql(u8, state.body[0..state.body_len], greeting);
+    if (state.status == status_expected and body_right) {
+        std.debug.print("h2_exchange: every octet arrived as sent\n", .{});
+        return;
+    }
+    std.debug.print("h2_exchange: status {d}, body {s}\n", .{ state.status, if (body_right) "as sent" else "changed" });
+    return error.ExchangeWrong;
 }
 
 /// One round of one side: read every frame that arrived, answer what the application owes, then
@@ -103,17 +133,27 @@ fn handle(side: Side, event: h2.connection.Event, state: *State) void {
             });
             state.request_stream = request.stream_id;
         },
-        .response => |response| std.debug.print("client: {d} on stream {d}\n", .{
-            response.response.status.code,
-            response.stream_id,
-        }),
+        .response => |response| {
+            std.debug.print("client: {d} on stream {d}\n", .{ response.response.status.code, response.stream_id });
+            state.status = response.response.status.code;
+        },
         .data => |data| {
             std.debug.print("{s}: body {s}", .{ @tagName(side), data.payload });
+            keep_body(state, data.payload);
             if (data.end_stream) state.done = true;
         },
         .settings_applied => std.debug.print("{s}: the peer's SETTINGS applied\n", .{@tagName(side)}),
         else => {},
     }
+}
+
+fn keep_body(state: *State, payload: []const u8) void {
+    if (state.body_len + payload.len > state.body.len) {
+        state.overflowed = true;
+        return;
+    }
+    @memcpy(state.body[state.body_len..][0..payload.len], payload);
+    state.body_len += payload.len;
 }
 
 /// Writes the server's response: a HEADERS frame, then the content in a DATA frame that ends the

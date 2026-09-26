@@ -17,7 +17,10 @@ zig build examples
 zig build example-h2_exchange
 ```
 
-`tools/ci.sh` runs them on every push, so an example that stops working fails CI.
+Each example checks what arrived against what was sent, octet for octet, and exits with an error
+when anything differs. `tools/ci.sh` runs them on every push, so an example that stops working fails
+CI. Six deliberate breaks, in colibri's h11 and h2 writers and in the link, each made `zig build
+examples` fail.
 
 ## The link
 
