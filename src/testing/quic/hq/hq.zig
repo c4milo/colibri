@@ -101,3 +101,62 @@ test "hq-interop: a request past the limit is refused" {
     long[method.len] = '/';
     try testing.expectError(error.RequestTooLong, read_request(&long));
 }
+
+/// Most octets one fuzz input carries: a request line of a few segments.
+const fuzz_input_len_max = 48;
+
+/// Reads the input as a request. An accepted path is the request's own octets after `GET `, with
+/// only CR and LF after it, and it names a file inside the served directory. Written again, it
+/// reads back the same. The rules are read again here, without `check_path`.
+fn fuzz_request(_: void, smith: *std.testing.Smith) anyerror!void {
+    var input: [fuzz_input_len_max]u8 = @splat(0);
+    const request = input[0..smith.slice(&input)];
+    const path = read_request(request) catch return;
+    try testing.expect(std.mem.startsWith(u8, request, method));
+    try testing.expectEqualSlices(u8, request[method.len..][0..path.len], path);
+    for (request[method.len + path.len ..]) |octet| try testing.expect(octet == '\r' or octet == '\n');
+    try expect_contained(path);
+    var buffer: [constants.hq_request_len_max]u8 = undefined;
+    try testing.expectEqualSlices(u8, path, try read_request(try write_request(path, &buffer)));
+}
+
+/// A path that stays inside the directory it is joined to: a slash, then segments of visible
+/// ASCII other than a backslash, none of them empty, "." or "..".
+fn expect_contained(path: []const u8) !void {
+    try testing.expect(path.len > 1 and path[0] == '/');
+    var segment_start: usize = 1;
+    for (path[1..], 1..) |octet, index| {
+        try testing.expect(octet > ' ' and octet < delete and octet != '\\');
+        if (octet == '/') {
+            try expect_segment(path[segment_start..index]);
+            segment_start = index + 1;
+        }
+    }
+    try expect_segment(path[segment_start..]);
+}
+
+/// DEL, the one control above the visible ASCII range (RFC 5234 Appendix B.1).
+const delete = 0x7f;
+
+fn expect_segment(segment: []const u8) !void {
+    try testing.expect(segment.len > 0);
+    try testing.expect(!std.mem.eql(u8, segment, "."));
+    try testing.expect(!std.mem.eql(u8, segment, ".."));
+}
+
+test "fuzz: an accepted hq-interop path names a file inside the served directory" {
+    const fuzz = @import("quic").core.fuzz;
+    try testing.fuzz({}, fuzz_request, .{ .corpus = &.{
+        fuzz.input("GET /files/one.bin\r\n"),
+        fuzz.input("GET /a\n\r\n"),
+        fuzz.input("GET /a/../b\r\n"),
+        fuzz.input("GET /a/.\r\n"),
+        fuzz.input("GET /a/\r\n"),
+        fuzz.input("GET /.hidden/..x\r\n"),
+        fuzz.input("GET /a\\..\r\n"),
+        fuzz.input("GET /\x7f\r\n"),
+        fuzz.input("GET /a b\r\n"),
+        fuzz.input("GET /a\t\r\n"),
+    } });
+    try fuzz.sweep(fuzz_request, null);
+}

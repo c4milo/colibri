@@ -236,3 +236,120 @@ test "octets that end inside a parameter are a value that cannot be read" {
     var lone = Reader.init(&.{0x04});
     try testing.expectError(error.ParameterTruncated, read(&lone, .server));
 }
+
+/// Most octets one fuzz input carries: room for a few parameters and one connection ID.
+const fuzz_input_len_max = 96;
+
+/// Reads the input as a client's extension and as a server's. What is accepted keeps RFC 9000
+/// §18.2's bounds, and written again it reads back the same.
+fn fuzz_read(_: void, smith: *std.testing.Smith) anyerror!void {
+    var input: [fuzz_input_len_max]u8 = @splat(0);
+    const octets = input[0..smith.slice(&input)];
+    for ([_]transport_parameters.Role{ .client, .server }) |sender| {
+        var reader = Reader.init(octets);
+        const parameters = read(&reader, sender) catch continue;
+        try testing.expectEqual(octets.len, reader.offset);
+        try expect_identifiers(octets, sender);
+        try expect_bounds(&parameters);
+        var writer = Writer.init(&test_buffer);
+        try transport_parameters.write(&writer, &parameters, sender);
+        var again = Reader.init(writer.written());
+        try testing.expectEqualDeep(parameters, try read(&again, sender));
+    }
+}
+
+/// The identifiers of RFC 9000 §18.2, which `read` refuses to see twice (§7.4).
+const known_id_max: u64 = @intFromEnum(Id.retry_source_connection_id);
+
+/// The parameters RFC 9000 §18.2 gives a server alone.
+const server_only_ids = [_]Id{ .original_destination_connection_id, .preferred_address, .retry_source_connection_id, .stateless_reset_token };
+
+/// Fewest octets a parameter takes: an identifier and a length of one octet each (RFC 9000 §18).
+const parameter_len_min = 2;
+
+/// Walks an accepted extension (RFC 9000 §18): none of §18.2's identifiers twice (§7.4), and
+/// from a client none that §18.2 gives a server alone.
+fn expect_identifiers(octets: []const u8, sender: transport_parameters.Role) !void {
+    var reader = Reader.init(octets);
+    var seen: u32 = 0;
+    // Bounded: every parameter takes at least two octets.
+    for (0..octets.len / parameter_len_min + 1) |_| {
+        if (reader.remaining_len() == 0) break;
+        const id = (try wire.varint.decode(&reader)).value;
+        try expect_shape(id, try reader.take(@intCast((try wire.varint.decode(&reader)).value)));
+        if (sender == .client) {
+            for (server_only_ids) |server_only| try testing.expect(id != @intFromEnum(server_only));
+        }
+        if (id > known_id_max) continue;
+        const bit = @as(u32, 1) << @intCast(id);
+        try testing.expect(seen & bit == 0);
+        seen |= bit;
+    }
+    try testing.expectEqual(0, reader.remaining_len());
+}
+
+/// The shape RFC 9000 §18.2 gives each of its parameters' values: a token of 16 octets, an empty
+/// value, a connection ID of at most 20 octets (§17.2), or one integer and nothing after it (§18).
+fn expect_shape(id: u64, body: []const u8) !void {
+    switch (id) {
+        @intFromEnum(Id.stateless_reset_token) => try testing.expectEqual(transport_parameters.stateless_reset_token_len, body.len),
+        @intFromEnum(Id.disable_active_migration) => try testing.expectEqual(0, body.len),
+        @intFromEnum(Id.original_destination_connection_id),
+        @intFromEnum(Id.initial_source_connection_id),
+        @intFromEnum(Id.retry_source_connection_id),
+        => try testing.expect(body.len <= constants.connection_id_len_max),
+        @intFromEnum(Id.preferred_address) => {},
+        else => if (id <= known_id_max) {
+            var integer_reader = Reader.init(body);
+            _ = try wire.varint.decode(&integer_reader);
+            try testing.expectEqual(0, integer_reader.remaining_len());
+        },
+    }
+}
+
+/// The bounds RFC 9000 §18.2 states as values that are invalid, read again without `valid`.
+fn expect_bounds(parameters: *const Parameters) !void {
+    try testing.expect(parameters.max_udp_payload_size >= transport_parameters.max_udp_payload_size_min);
+    try testing.expect(parameters.ack_delay_exponent <= transport_parameters.ack_delay_exponent_max);
+    try testing.expect(parameters.max_ack_delay_ms < transport_parameters.max_ack_delay_ms_max);
+    try testing.expect(parameters.active_connection_id_limit >= transport_parameters.active_connection_id_limit_min);
+    try testing.expect(parameters.initial_max_streams_bidi <= constants.max_streams_max);
+    try testing.expect(parameters.initial_max_streams_uni <= constants.max_streams_max);
+}
+
+test "fuzz: accepted transport parameters keep §18.2's bounds, and read back the same" {
+    try testing.fuzz({}, fuzz_read, .{
+        .corpus = &.{
+            // max_udp_payload_size 1200 and 1199 (0x44b0, 0x44af), the least §18.2 admits and one
+            // below it.
+            core.fuzz.input("\x03\x02\x44\xb0"),
+            core.fuzz.input("\x03\x02\x44\xaf"),
+            // ack_delay_exponent 20 and 21; max_ack_delay 2^14 - 1 and 2^14.
+            core.fuzz.input("\x0a\x01\x14"),
+            core.fuzz.input("\x0a\x01\x15"),
+            core.fuzz.input("\x0b\x02\x7f\xff"),
+            core.fuzz.input("\x0b\x04\x80\x00\x40\x00"),
+            // active_connection_id_limit 2 and 1.
+            core.fuzz.input("\x0e\x01\x02"),
+            core.fuzz.input("\x0e\x01\x01"),
+            // initial_max_streams_bidi and _uni at 2^60, then one past it.
+            core.fuzz.input("\x08\x08\xd0\x00\x00\x00\x00\x00\x00\x00"),
+            core.fuzz.input("\x09\x08\xd0\x00\x00\x00\x00\x00\x00\x01"),
+            // A connection ID of 20 octets and of 21, a stateless reset token of 16 and of 15.
+            core.fuzz.input("\x0f\x14" ++ "\xaa" ** 20),
+            core.fuzz.input("\x0f\x15" ++ "\xaa" ** 21),
+            core.fuzz.input("\x02\x10" ++ "\x5a" ** 16),
+            core.fuzz.input("\x02\x0f" ++ "\x5a" ** 15),
+            // disable_active_migration empty and not, a preferred_address, and an unknown
+            // parameter twice.
+            core.fuzz.input("\x0c\x00"),
+            core.fuzz.input("\x0c\x01\x00"),
+            core.fuzz.input("\x0d\x01\x00"),
+            core.fuzz.input("\x40\x99\x00\x40\x99\x00"),
+            // initial_max_data twice, and one whose integer has an octet after it.
+            core.fuzz.input("\x04\x01\x10\x04\x01\x10"),
+            core.fuzz.input("\x04\x02\x10\x00"),
+        },
+    });
+    try core.fuzz.sweep(fuzz_read, null);
+}

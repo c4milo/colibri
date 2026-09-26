@@ -282,4 +282,5 @@ test {
     _ = frame_latest;
     _ = @import("frame_test.zig");
     _ = @import("frame_repair_test.zig");
+    _ = @import("frame_fuzz.zig");
 }

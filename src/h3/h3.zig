@@ -20,6 +20,7 @@ test {
     _ = constants;
     _ = frame;
     _ = frame_write;
+    _ = @import("frame_fuzz.zig");
     _ = stream;
     _ = send_buffer;
     _ = connection;

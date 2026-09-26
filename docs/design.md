@@ -1449,6 +1449,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the reader ends the loop whatever the bound says; the bound is there because non-negotiable 4
   asks for one a reader can see.
 
+  **Fuzzing, 2026-09-26.** `frame_fuzz.zig` reads a payload frame by frame, as a connection
+  does ([#53](https://github.com/c4milo/colibri/issues/53)). Three things must hold:
+  - A refused frame consumes nothing.
+  - A frame that is read keeps every rule the writer asserts, so no peer's frame can halt colibri
+    when it is written again.
+  - A frame is written with the type it was read from, and reads back as the same frame.
+
+  It runs over 23 corpus inputs, most of them one on each side of a §19 refusal, and over every
+  input of up to two octets; the fuzzer does not build with Zig 0.16.0 (step 1). 18 mutations,
+  18 **CAUGHT** by the fuzz test alone: ten §19 refusals removed or loosened, a refusal that
+  consumes octets, three writer faults, and four type bits misread, which the round trip saw only
+  once it compared the types.
+
 - **Step 9b — packet number spaces, acknowledgments, and how a connection ends.** The three
   spaces of RFC 9000 §12.3, duplicate suppression, ACK generation and processing (§13.1, §13.2),
   the ECN counts (§13.4.1), the idle timeout (§10.1) and the closing and draining states
@@ -1768,6 +1781,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   undetected, although §7.4 forbids a repeat of any parameter: detecting it means holding every
   identifier a peer chose to send, which is the trade the ACK range walk of §19.3.1 already
   refuses, and §18.1 gives an unknown parameter no semantics to conflict with.
+
+  **Fuzzing, 2026-09-26.** A fuzz property reads each input as a client's extension and as a
+  server's ([#53](https://github.com/c4milo/colibri/issues/53)). An accepted extension must keep §18.2's bounds and each value's shape. It
+  must name no §18.2 identifier twice (§7.4), and a client's must name no server-only one.
+  Written again, it must read back the same. Its 20 corpus inputs sit on each side of every
+  bound. 10 mutations, 10 **CAUGHT** by the fuzz test alone, two of them only after it checked
+  each value's shape.
 
   **The connection exists, 2026-09-20.** `src/quic/connection/connection.zig` is what joins the
   ten pieces steps 9a to 9d built: three packet number spaces paired with three encryption
@@ -2773,6 +2793,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   `zig build test`: 1421 passed, 26 skipped.
 
+  **Fuzzing, 2026-09-26.** `hq.zig` has a fuzz property ([#53](https://github.com/c4milo/colibri/issues/53)). An accepted path must be
+  the request's own octets after `GET `, with only CR and LF after it. It must name a file inside
+  the served directory, which the property checks again without `check_path`. 6 mutations, 6
+  **CAUGHT**.
+
   **colibri meets another QUIC implementation, 2026-09-23.** `tools/quic_aioquic.sh` runs the
   UDP endpoint against aioquic 1.3.0's, a Python stack pinned and installed into a cached virtual
   environment, over 127.0.0.1 in both directions. `tools/quic_interop/hq_peer.py` is the
@@ -3502,6 +3527,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and response mapping of §4.1 to §4.3, which §12 question 6 must settle first; the connection
   itself, which needs QUIC streams and so waits on 9e; and h3spec, the interop runner's `http3`
   case and `h2load --h3`, which all need a connection.
+
+  **Fuzzing, 2026-09-26.** `frame_fuzz.zig` reads a header and, when colibri reads the payload
+  whole, the payload ([#53](https://github.com/c4milo/colibri/issues/53)). A short header must consume nothing. A whole payload must never
+  be `Truncated`, which would have the caller wait for octets that are not coming. An accepted
+  payload must be the type its header named and keep §7.2's rules, which the property reads
+  again. Written again, it must read back the same. 10 mutations, 10 **CAUGHT** by the fuzz test
+  alone, two of them only after the corpus gained a SETTINGS payload cut inside a pair and one
+  holding a single setting.
 
   **The connection and its simulator check, 2026-09-24.** The owner ruled h3's send path first
   (decisions 78 and 79), and decision 80 followed:
