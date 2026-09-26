@@ -71,21 +71,39 @@ fn parse_size(reader: *Reader) Error!u64 {
 fn check_extensions(reader: *Reader) Error!void {
     // Bounded: each extension consumes at least its ";".
     for (0..constants.chunk_line_len_max) |_| {
-        skip_whitespace(reader);
-        const octet = reader.read_byte() catch return;
-        // RFC 9112 §7.1.1: each chunk extension starts with ";".
-        if (octet != extension_start) return error.ChunkExtensionInvalid;
-        skip_whitespace(reader);
-        // RFC 9112 §7.1.1: chunk-ext-name = token.
-        if (take_token(reader).len == 0) return error.ChunkExtensionInvalid;
-        skip_whitespace(reader);
-        const next = reader.peek_byte() catch return;
-        if (next != extension_equals) continue;
-        _ = reader.read_byte() catch unreachable;
-        skip_whitespace(reader);
-        try check_extension_value(reader);
+        if (try at_end_after_whitespace(reader)) return;
+        if (try check_extension(reader)) return;
     }
     unreachable;
+}
+
+/// One chunk extension, from its ";". True when the line ended with it.
+fn check_extension(reader: *Reader) Error!bool {
+    const octet = reader.read_byte() catch unreachable;
+    // RFC 9112 §7.1.1: each chunk extension starts with ";".
+    if (octet != extension_start) return error.ChunkExtensionInvalid;
+    skip_whitespace(reader);
+    // RFC 9112 §7.1.1: chunk-ext-name = token.
+    if (take_token(reader).len == 0) return error.ChunkExtensionInvalid;
+    if (try at_end_after_whitespace(reader)) return true;
+    const next = reader.peek_byte() catch unreachable;
+    if (next != extension_equals) return false;
+    _ = reader.read_byte() catch unreachable;
+    skip_whitespace(reader);
+    try check_extension_value(reader);
+    return false;
+}
+
+/// Skips BWS, and answers whether the line ended there. RFC 9112 §7.1.1 puts BWS before ";" and
+/// "=" and nowhere else, so whitespace that ends the line, after the size or after an extension,
+/// is none of the grammar's.
+fn at_end_after_whitespace(reader: *Reader) Error!bool {
+    const before = reader.offset;
+    skip_whitespace(reader);
+    if (reader.remaining_len() != 0) return false;
+    // RFC 9112 §7.1.1: BWS that nothing follows on the line is refused.
+    if (reader.offset != before) return error.ChunkExtensionInvalid;
+    return true;
 }
 
 /// `chunk-ext-val = token / quoted-string` (RFC 9112 §7.1.1).
@@ -186,7 +204,7 @@ test "RFC 9112 §7.1.1: chunk extensions are checked and ignored" {
 }
 
 test "RFC 9112 §7.1.1: a malformed chunk extension is refused" {
-    for ([_][]const u8{ "5;", "5;=b", "5;a=", "5;a=\"b", "5;a=b c", "5 a", "5;a=\"\x7f\"", "5;a=\"\\\x00\"", "5;a b", "5;(a)", "5;a=;b" }) |line| {
+    for ([_][]const u8{ "5;", "5;=b", "5;a=", "5;a=\"b", "5;a=b c", "5 a", "5;a=\"\x7f\"", "5;a=\"\\\x00\"", "5;a b", "5;(a)", "5;a=;b", "5 ", "5\t", "5;a ", "5;a=b\t", "5;a=\"b\" " }) |line| {
         try testing.expectError(error.ChunkExtensionInvalid, parse(line));
     }
 }
