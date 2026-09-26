@@ -276,7 +276,10 @@ section when a step adds or renames a command.
   every stream of `tools/http_garden/driver.py` to colibri and each origin, all of them by
   default. It reports each stream colibri parses differently from another origin, which is then
   judged against RFC 9112, and fails only when a stream went uncompared. It needs Linux, Docker
-  with compose, `python3`, `uv` and tens of GB of disk.
+  with compose, `python3`, `uv` and tens of GB of disk. With `GARDEN_REGISTRY` set it pulls the
+  origins' images from that repository and builds only the missing ones, and with `GARDEN_PUSH=1`
+  it pushes what it built; the CI job uses `ghcr.io/c4milo/colibri-http-garden` (decision 88 as
+  amended).
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
 - TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin

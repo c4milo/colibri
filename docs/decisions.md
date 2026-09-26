@@ -2194,6 +2194,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       from `tools/` alone, cloned at a pinned commit into a cache as `tools/interop.sh` clones the
       QUIC Interop Runner, and nothing of it is linked or shipped. Its license is GPL-3.0, which
       reaches no colibri code, because colibri only runs it. It needs Docker.
+    - Amended by the owner on 2026-09-25, for design §8 step 15d: the Garden's job publishes the
+      images it builds as public images in one package, `ghcr.io/c4milo/colibri-http-garden`,
+      tagged by the Garden's commit, so a later run pulls them instead of building every origin
+      for hours. The images carry the Garden's GPL-3.0 code and each origin's own; their source is
+      the pinned public repositories they are built from. colibri's own image is never published.
+      The alternatives offered: the Actions cache, whose 10 GB the push job's Zig caches already
+      fill; private images, whose free storage is far smaller than the images; and rebuilding on
+      every run.
 
     The alternatives refused for transfer codings, both offered on 2026-09-25:
     - `chunked` alone, refusing the rest. It is the smallest surface, and needs no decoder.

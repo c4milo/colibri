@@ -123,6 +123,14 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    # The origins' images are kept as public images in one package, tagged by the Garden's commit,
+    # so a run pulls what an earlier one built (decision 88 as amended).
+    permissions:
+      contents: read
+      packages: write
+    env:
+      GARDEN_REGISTRY: ghcr.io/${{ github.repository_owner }}/colibri-http-garden
+      GARDEN_PUSH: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
@@ -140,6 +148,10 @@ jobs:
             sudo systemctl start docker
           fi
           df -h / /mnt || true
+      - name: Sign in to the package registry
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Run the Garden
         shell: bash
         run: tools/http_garden.sh 2>&1 | tee garden-report.txt
