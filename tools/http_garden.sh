@@ -27,8 +27,9 @@ readonly garden_repository=https://github.com/narfindustries/http-garden
 readonly garden_commit=b417e806c1b15e8ea0b9312f81a91fbdcbc7a83e
 readonly garden="${XDG_CACHE_HOME:-${HOME}/.cache}/colibri/http-garden-${garden_commit:0:8}"
 readonly driver="${repository_root}/tools/http_garden/driver.py"
-# Seconds the origins get to start listening once their containers are up.
-readonly start_wait_seconds=30
+# Seconds the origins get to accept a connection once their containers are up, and again after one
+# is restarted.
+readonly start_wait_seconds=60
 # The Garden's tools find each container on the Docker network `http-garden_default`, a name they
 # hold fixed. Compose names the network after its project, so every compose command here runs as
 # the project `http-garden`, whatever the cache directory is called.
@@ -149,13 +150,105 @@ echo "http_garden.sh: ${#ready[@]} of ${#origins[@]} origins ready, ${#pulled[@]
 [ "${#ready[@]}" -gt 0 ] || fail "no origin's image is ready"
 docker system df
 
+# The named services that accept a TCP connection on their port within `start_wait_seconds`, one
+# a line. The port is the Garden's: its `port` property, or 443 for TLS and 80 otherwise.
+reachable() {
+  (cd "${garden}" && uv run python3 - "${start_wait_seconds}" "$@") <<'PYTHON'
+import socket
+import sys
+import time
+
+import docker
+import yaml
+
+network_name = "http-garden_default"
+services = yaml.safe_load(open("docker-compose.yml"))["services"]
+addresses = {
+    container.labels["com.docker.compose.service"]: container.attrs["NetworkSettings"]["Networks"][network_name]["IPAddress"]
+    for container in docker.from_env().networks.get(network_name).containers
+}
+waiting = list(sys.argv[2:])
+deadline = time.monotonic() + float(sys.argv[1])
+while waiting and time.monotonic() < deadline:
+    for name in list(waiting):
+        properties = services[name].get("x-props", {})
+        port = properties.get("port", 443 if properties.get("requires-tls") else 80)
+        try:
+            socket.create_connection((addresses[name], port), timeout=1).close()
+        except (KeyError, OSError):
+            continue
+        print(name)
+        waiting.remove(name)
+    time.sleep(1)
+PYTHON
+}
+
+# Whether the first argument is one of the rest.
+among() {
+  local wanted="$1"
+  shift
+  local name
+  for name in "$@"; do
+    [ "${name}" = "${wanted}" ] && return 0
+  done
+  return 1
+}
+
+# The named services whose containers are not running, one a line.
+stopped() {
+  local running
+  running="$(cd "${garden}" && docker compose ps --status running --services)"
+  local name
+  for name in "$@"; do
+    grep -qx "${name}" <<<"${running}" || echo "${name}"
+  done
+}
+
 (cd "${garden}" && docker compose up -d colibri "${ready[@]}")
-sleep "${start_wait_seconds}"
+mapfile -t live < <(reachable colibri "${ready[@]}")
+among colibri "${live[@]}" || fail "colibri's server accepted no connection"
+compared=()
+unreachable=()
+for origin in "${ready[@]}"; do
+  if among "${origin}" "${live[@]}"; then compared+=("${origin}"); else unreachable+=("${origin}"); fi
+done
+if [ "${#unreachable[@]}" -gt 0 ]; then
+  echo "http_garden.sh: unreachable=${#unreachable[@]}: ${unreachable[*]}"
+  (cd "${garden}" && docker compose logs --tail 5 "${unreachable[@]}") || true
+fi
+[ "${#compared[@]}" -gt 0 ] || fail "no origin accepted a connection"
+echo "http_garden.sh: comparing colibri with ${#compared[@]} origins"
 
 readonly scratch="$(mktemp -d)"
-python3 "${driver}" commands "${ready[@]}" >"${scratch}/commands"
-(cd "${garden}" && uv run ./tools/repl.py) <"${scratch}/commands" >"${scratch}/output" 2>&1 ||
-  fail "the Garden's REPL exited non-zero: $(tail -5 "${scratch}/output")"
-python3 "${driver}" report "${ready[@]}" <"${scratch}/output" ||
+: >"${scratch}/output"
+
+# run_case <case> <origin>...: one case through a REPL of its own, whose output joins the rest.
+run_case() {
+  local name="$1"
+  shift
+  python3 "${driver}" case "${name}" "$@" >"${scratch}/case"
+  (cd "${garden}" && uv run ./tools/repl.py) <"${scratch}/case" >>"${scratch}/output" 2>"${scratch}/error"
+}
+
+# The REPL stops at the first server it cannot reach, so each case runs in its own. A case that
+# brings a server down is reported with that server's last lines, the server is restarted, and
+# the case runs once more without it. colibri's own server is never left out.
+while IFS= read -r name <&3; do
+  run_case "${name}" "${compared[@]}" && continue
+  mapfile -t down < <(stopped colibri "${compared[@]}")
+  echo "http_garden.sh: ${name}: the REPL failed ($(tail -1 "${scratch}/error")); down: ${down[*]:-none}"
+  if [ "${#down[@]}" -gt 0 ]; then
+    (cd "${garden}" && docker compose logs --tail 5 "${down[@]}" && docker compose up -d "${down[@]}") || true
+    reachable "${down[@]}" >/dev/null
+  fi
+  without=()
+  for origin in "${compared[@]}"; do
+    among "${origin}" "${down[@]}" || without+=("${origin}")
+  done
+  run_case "${name}" "${without[@]}" ||
+    echo "http_garden.sh: ${name}: the REPL failed again ($(tail -1 "${scratch}/error"))"
+done 3< <(python3 "${driver}" names)
+
+python3 "${driver}" report <"${scratch}/output" ||
   fail "not every stream was compared: $(grep -iE "error|exception|traceback|invalid|couldn't|expects" "${scratch}/output" | sort | uniq -c | head -5)"
 rm -rf "${scratch}"
