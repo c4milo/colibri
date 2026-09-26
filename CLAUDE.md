@@ -268,7 +268,15 @@ section when a step adds or renames a command.
   part of `zig build test`; CI runs them, and so does a person before calling a step done.
 - CI: `tools/ci.sh [report.md]` runs every check above that exists and writes the report;
   `.github/workflows/main.yml` runs it on each push to main (decision 47). A new check joins
-  `tools/ci.sh`, never the workflow file, so CI and a person run the same thing.
+  `tools/ci.sh`, never the workflow file, so CI and a person run the same thing. The one exception
+  is the HTTP Garden, whose job the workflow starts by hand and every Monday (decision 47 as
+  amended).
+- HTTP Garden: `tools/http_garden.sh [origin...]` builds the Garden, pinned by commit and cached,
+  with colibri's server added as an origin in its `--echo` mode (`tools/http_garden/`), and feeds
+  every stream of `tools/http_garden/driver.py` to colibri and each origin, all of them by
+  default. It reports each stream colibri parses differently from another origin, which is then
+  judged against RFC 9112, and fails only when a stream went uncompared. It needs Linux, Docker
+  with compose, `python3`, `uv` and tens of GB of disk.
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
 - TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin

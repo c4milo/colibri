@@ -892,6 +892,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     artifact lives, and it would give the workflow write access to the repository, which a job
     that runs on every push should not hold.
 
+    Amended by the owner on 2026-09-25, for design §8 step 15d: the HTTP Garden runs in a job of
+    its own, started by hand and every Monday, and not in `tools/ci.sh`. It builds every origin
+    the Garden carries from source, which takes hours and tens of GB, past the 45 minutes of the
+    push job. Its work is still one script, `tools/http_garden.sh`, which a person on Linux runs
+    for the same answer; the job adds only what a hosted runner lacks: uv, and room on the disk.
+    The alternatives offered: a manual job alone, which lets the comparison go stale while colibri
+    changes; and a person running it on Linux with no job, which leaves no record between runs.
+
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three
