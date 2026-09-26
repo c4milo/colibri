@@ -2423,3 +2423,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Cost: colibri cannot check that the octets counted are the octets sent, or that they go out
     next. A caller that counts one thing and sends another frames the message wrongly, which is
     how request smuggling starts.
+
+96. **`examples/` holds programs a dependent writes, run on Rotor's loop over an in-memory link.**
+    Ruled by the owner on 2026-09-26, who asked for examples like chapulin's and for them to use
+    Rotor and memory. It amends decision 58, which gave Rotor to `src/testing/` alone.
+    - Each example is a program that imports the library modules by the names a dependent uses
+      (decision 86). `zig build examples` builds and runs every one, and `tools/ci.sh` runs that
+      step, so an example that stops working fails CI.
+    - A client and a server run in one process, each on its own Rotor loop. What one side sends is
+      copied into the other side's queue in memory, and a message posted between the loops says
+      how many octets arrived (`examples/link.zig`). The instant colibri takes is the one the
+      side's loop read at its last tick.
+    - The examples open no socket, so `src/testing/` stays the one directory that does. Rotor is
+      still a lazy package that only colibri's own build requests, and the library imports it
+      nowhere.
+    - h11 and h2 come first, in cleartext. Examples over TLS, QUIC and h3 need chapulin, which
+      design §8 step 16 links into the library.
+
+    The alternatives refused:
+    - Programs over real sockets that CI builds and never runs, as chapulin's are. They show a
+      whole program, but a broken one passes CI, and they would make a second directory open
+      sockets.
+    - Octets passed between the two sides with no loop at all. It is shorter, but it shows no
+      program's shape: where the loop, the time and colibri's calls meet.

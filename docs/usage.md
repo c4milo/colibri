@@ -2,8 +2,8 @@
 
 This guide shows how a program drives colibri: how to add it, what the program owns, and the calls
 each protocol takes. Each module's entry file documents its calls in full; this guide shows how
-they fit together. The test-only endpoints under [`src/testing/`](../src/testing/) are complete,
-working programs for every protocol, and the best place to read a whole loop.
+they fit together. [`examples/`](../examples/) holds short whole programs for h11 and h2, and the
+test-only endpoints under [`src/testing/`](../src/testing/) run every protocol over real sockets.
 
 ## Adding colibri
 

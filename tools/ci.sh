@@ -107,9 +107,11 @@ throughput() {
 : >"${scratch}/verdicts"
 : >"${scratch}/failures"
 
-section "Format" zig fmt --check build.zig build src tools
+section "Format" zig fmt --check build.zig build examples src tools
 section "Lint and tests" zig build test --summary all
 tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
+# Decision 96: every program in examples/ builds and runs.
+section "Examples" zig build examples
 section "Simulator checks, Debug and ReleaseSafe" simulator_checks
 # h2spec runs over TLS too when the checkout carries the record-mode server object (design §8
 # step 5, https://github.com/c4milo/colibri/issues/20).

@@ -164,6 +164,9 @@ exists — never propose a second one.
   library and is the only directory permitted to open a socket. Every endpoint there does its I/O
   without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
   58 and 83).
+- `examples/` holds programs a project that depends on colibri would write, importing the library
+  modules by name. They run on Rotor's loop over an in-memory link and open no socket, and `zig
+  build examples` runs every one (decision 96).
 - `src/golden/` holds the byte-exact corpus with a manifest naming each file's length, checksum
   and expected verdict.
 - `tools/` is developer tooling, run by `zig build lint` and never linked into the library. Its rule
@@ -209,8 +212,8 @@ tree. Design §11 holds the method and the numbers.
 - Adding a dependency. The library has one, chapulin, which it links for TLS and packet
   protection (decision 94), and no allocator at all (decision 35). Five more are ruled for the
   tooling and the tests, and the library imports none of them: pepegrillo, the tooling `tools/`
-  builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints run on (decisions 58 and
-  83); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
+  builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and `examples/` run on
+  (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
   `qpackers/qifs`, the QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75); and the Lean
   toolchain, which `zig build lean` runs through pepegrillo (decision 77).
 - Weakening an assertion or an invariant to make a test pass.
@@ -363,7 +366,9 @@ section when a step adds or renames a command.
   `src/qpack/insert_count_vectors.txt`) are what the proved definitions give; `zig build lean --
   write` rewrites them. `spec/lean/lean-toolchain` pins the Lean release, which elan installs.
   `tools/ci.sh` runs it where lake is installed (decision 77).
-- Format: `zig fmt --check build.zig build src tools`.
+- Format: `zig fmt --check build.zig build examples src tools`.
+- Examples: `zig build examples` builds and runs every program in `examples/`, and `zig build
+  example-<name>` runs one (decision 96). `tools/ci.sh` runs them.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and

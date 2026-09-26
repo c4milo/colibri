@@ -103,6 +103,9 @@ The response's field lines are in `connection.section` until the next call, and
 at most one event out, and the frames colibri owes written into your buffer.
 [`docs/usage.md`](docs/usage.md) walks through each protocol, TLS, and the buffers each one needs.
 
+[`examples/`](examples/) holds whole programs: an h11 and an h2 client and server, run over
+[Rotor](https://github.com/c4milo/rotor)'s loop. `zig build examples` runs them, and CI does too.
+
 ## How it is checked
 
 - **RFC citations.** A check that exists because an RFC requires it carries the RFC and the
@@ -148,6 +151,7 @@ come from Linux alone.
 | Document | What it covers |
 | --- | --- |
 | [`docs/usage.md`](docs/usage.md) | Adding colibri, driving each protocol, TLS, and the buffers you own |
+| [`examples/`](examples/) | Whole programs for h11 and h2, which CI runs |
 | [`docs/design.md`](docs/design.md) | The module graph, the wire formats, and the numbered build plan with each step's record |
 | [`docs/decisions.md`](docs/decisions.md) | Every design decision, with the alternatives it beat |
 | [`docs/invariants.md`](docs/invariants.md) | The numbered invariants, each one a runtime assertion |

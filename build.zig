@@ -25,13 +25,14 @@ const modules = @import("build/modules.zig");
 const generated = @import("build/generated.zig");
 const lint = @import("build/lint.zig");
 const vectors = @import("build/vectors.zig");
+const examples = @import("build/examples.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
-const source_directories = [_][]const u8{ "build", "src", "tools" };
+const source_directories = [_][]const u8{ "build", "examples", "src", "tools" };
 
 /// Every directory the tools/lint rules read: the sources above plus the documents, which the
 /// markdown rule covers.
-const lint_rule_directories = [_][]const u8{ "build", "src", "tools", "docs" };
+const lint_rule_directories = [_][]const u8{ "build", "examples", "src", "tools", "docs" };
 
 /// Every tool built on pepegrillo whose own tests `zig build test` runs; build/generated.zig and build/vectors.zig hook in the tests of the generator and vectors tools. A build that does not run the checkers' own
 /// tests lets a rule lose its own test without the build reporting it.
@@ -89,6 +90,8 @@ pub fn build(b: *std.Build) void {
     // Rotor's loop too.
     graph.testing.addImport("rotor", rotor_dependency.module("rotor"));
     graph.testing_client.addImport("rotor", rotor_dependency.module("rotor"));
+    // Decision 96: the programs of examples/ run over an in-memory link on rotor's loop.
+    examples.add(b, graph, rotor_dependency.module("rotor"), target, optimize);
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");
