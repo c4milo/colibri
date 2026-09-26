@@ -226,20 +226,26 @@ readonly scratch="$(mktemp -d)"
 : >"${scratch}/output"
 
 # run_case <case> <origin>...: one case through a REPL of its own, whose output joins the rest.
+# It fails when the REPL printed no grid with colibri's row: the REPL stops at the first server it
+# cannot reach, and refuses the name of a server whose container stopped without failing.
 run_case() {
   local name="$1"
   shift
   python3 "${driver}" case "${name}" "$@" >"${scratch}/case"
-  (cd "${garden}" && uv run ./tools/repl.py) <"${scratch}/case" >>"${scratch}/output" 2>"${scratch}/error"
+  local failed=0
+  (cd "${garden}" && uv run ./tools/repl.py) <"${scratch}/case" >"${scratch}/last" 2>"${scratch}/error" || failed=1
+  cat "${scratch}/last" >>"${scratch}/output"
+  [ "${failed}" -eq 0 ] && grep -aq '^colibri *|' "${scratch}/last"
 }
 
-# The REPL stops at the first server it cannot reach, so each case runs in its own. A case that
-# brings a server down is reported with that server's last lines, the server is restarted, and
-# the case runs once more without it. colibri's own server is never left out.
+# Each case runs in its own REPL. A case that brings a server down is reported with that server's
+# last lines, the server is restarted, and the case runs once more without it. colibri's own
+# server is never left out.
 while IFS= read -r name <&3; do
   run_case "${name}" "${compared[@]}" && continue
   mapfile -t down < <(stopped colibri "${compared[@]}")
-  echo "http_garden.sh: ${name}: the REPL failed ($(tail -1 "${scratch}/error")); down: ${down[*]:-none}"
+  why="$(cat "${scratch}/error" "${scratch}/last" | grep -aiE "invalid server|error" | tail -1)"
+  echo "http_garden.sh: ${name}: no grid (${why:-nothing printed}); down: ${down[*]:-none}"
   if [ "${#down[@]}" -gt 0 ]; then
     (cd "${garden}" && docker compose logs --tail 5 "${down[@]}" && docker compose up -d "${down[@]}") || true
     reachable "${down[@]}" >/dev/null
@@ -249,7 +255,7 @@ while IFS= read -r name <&3; do
     among "${origin}" "${down[@]}" || without+=("${origin}")
   done
   run_case "${name}" "${without[@]}" ||
-    echo "http_garden.sh: ${name}: the REPL failed again ($(tail -1 "${scratch}/error"))"
+    echo "http_garden.sh: ${name}: no grid again ($(cat "${scratch}/error" "${scratch}/last" | grep -aiE "invalid server|error" | tail -1))"
 done 3< <(python3 "${driver}" names)
 
 [ -z "${GARDEN_REPL_OUTPUT:-}" ] || cp "${scratch}/output" "${GARDEN_REPL_OUTPUT}"
