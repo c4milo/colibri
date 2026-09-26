@@ -1,0 +1,26 @@
+# Dependabot watches the one place this repository runs code it did not write on every push: the
+# GitHub Actions in .github/workflows, which run with the repository token. None of them ships in
+# the library.
+#
+# Actions are pinned to a commit SHA with the version tag in a trailing comment, and Dependabot
+# rewrites both. The Zig packages in build.zig.zon are not here: Dependabot does not read them, and
+# CLAUDE.md has a person move each pin and check it.
+#
+# The prefix keeps the commit subject conventional (`ci: ...`). Dependabot writes the body itself,
+# and a person merging its pull request checks it against CLAUDE.md's commit rules.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+      timezone: Etc/UTC # before the 06:00 UTC run of the HTTP Garden, so the two do not overlap
+    open-pull-requests-limit: 2
+    groups:
+      github-actions:
+        patterns: ["*"] # one pull request a week for every action
+    commit-message:
+      prefix: ci
