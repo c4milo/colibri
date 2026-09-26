@@ -3819,8 +3819,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - colibri answered 501 to `Transfer-Encoding: xchunked`, a coding it does not decode, as §6.1's
     SHOULD asks. §6.3 says a request whose final coding is not chunked "MUST" get 400, and the
     origins split 11 to 12 between the two. The owner amended decision 92 on 2026-09-26 to put
-    §6.3 first, and `39c0c14` answers 400. A coding it does not decode ahead of a final chunked still
-    gets 501.
+    §6.3 first, and `39c0c14` answers 400. A coding it does not decode ahead of a final chunked
+    still gets 501.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
