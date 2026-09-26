@@ -141,7 +141,13 @@ fn take_reset(connection: *Connection, stream_id: u64, application_error_code: u
     stream.receiving.on_reset(final_size) catch return Error.FinalSize;
     // RFC 9000 §3.2: the first reset moves the receiving part to "Reset Recvd", and a repeat of
     // it carries nothing new.
-    if (stream.receiving.on(.received_reset) == .taken) stream.peer_reset_error_code = application_error_code;
+    if (stream.receiving.on(.received_reset) == .taken) {
+        stream.peer_reset_error_code = application_error_code;
+        // RFC 9000 §4.5: "The final size is the amount of flow control credit that is consumed
+        // by a stream." The octets the application did not read are never delivered, so the
+        // connection's limit is measured past them, or the other streams lose that credit.
+        connection.receive_flow.consume(final_size - stream.receive_flow.consumed);
+    }
     // RFC 9000 §3.2: a reset stream's octets are not delivered, so the pool takes them back.
     if (connection.receive_storage) |storage| stream.incoming.release(storage);
 }

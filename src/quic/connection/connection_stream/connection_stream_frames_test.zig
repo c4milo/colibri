@@ -10,6 +10,7 @@ const stream_id_module = @import("../../stream/stream_id.zig");
 const transport_parameters = @import("../../transport_parameters.zig");
 const connection_module = @import("../connection.zig");
 const frames = @import("../connection_frames.zig");
+const connection_flow = @import("../connection_flow.zig");
 const stream_frames = @import("connection_stream_frames.zig");
 
 const connection_recovery = @import("../connection_recovery.zig");
@@ -260,6 +261,28 @@ test "RFC 9000 §4.5: a RESET_STREAM's final size counts against flow control" {
         .final_size = reset_at,
     } }});
     try testing.expectEqual(reset_at, test_connection.receive_flow.used);
+}
+
+test "RFC 9000 §4.5: a reset stream's unread octets give the connection its credit back" {
+    open_server();
+    // Half the connection's window, which is what a new MAX_DATA waits for.
+    const reset_at: u64 = test_max_data / constants.flow_credit_fraction;
+    _ = try run(&.{stream_frame(client_bidi_first, 0, data_len, false)});
+    // The application reads part of what arrived.
+    try connection_flow.consume(&test_connection, .{ .value = client_bidi_first }, data_len / 2);
+    // "The final size is the amount of flow control credit that is consumed by a stream": what
+    // the application did not read is never delivered once the stream is reset. A repeat of the
+    // frame gives nothing back a second time.
+    const reset: Frame = .{ .reset_stream = .{
+        .stream_id = client_bidi_first,
+        .error_code = 0,
+        .final_size = reset_at,
+    } };
+    _ = try run(&.{ reset, reset });
+    const receiver = &test_connection.receive_flow;
+    try testing.expectEqual(reset_at, receiver.consumed);
+    // Without the credit back, every other stream shares what is left of the window for good.
+    try testing.expectEqual(reset_at + test_max_data, receiver.credit_frame_limit(test_now_ns, 0).?);
 }
 
 test "RFC 9000 §19.10: MAX_STREAM_DATA raises what this endpoint may send" {
