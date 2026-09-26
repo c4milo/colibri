@@ -29,6 +29,10 @@ readonly garden="${XDG_CACHE_HOME:-${HOME}/.cache}/colibri/http-garden-${garden_
 readonly driver="${repository_root}/tools/http_garden/driver.py"
 # Seconds the origins get to start listening once their containers are up.
 readonly start_wait_seconds=30
+# The Garden's tools find each container on the Docker network `http-garden_default`, a name they
+# hold fixed. Compose names the network after its project, so every compose command here runs as
+# the project `http-garden`, whatever the cache directory is called.
+export COMPOSE_PROJECT_NAME=http-garden
 
 fail() {
   echo "http_garden.sh: $*" >&2
@@ -78,13 +82,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The registry's tag for a service's image, and the name compose gives the image it builds, which
-# is the clone's directory name, its project, then the service.
+# The registry's tag for a service's image, and the name compose gives the image it builds: its
+# project, then the service.
 registry_tag() {
   echo "${GARDEN_REGISTRY}:$1-${garden_commit:0:8}"
 }
 local_image() {
-  echo "$(basename "${garden}")-$1"
+  echo "${COMPOSE_PROJECT_NAME}-$1"
 }
 
 # pull <local-image> <service>: takes the service's image from the registry when it is there.
@@ -153,5 +157,5 @@ python3 "${driver}" commands "${ready[@]}" >"${scratch}/commands"
 (cd "${garden}" && uv run ./tools/repl.py) <"${scratch}/commands" >"${scratch}/output" 2>&1 ||
   fail "the Garden's REPL exited non-zero: $(tail -5 "${scratch}/output")"
 python3 "${driver}" report "${ready[@]}" <"${scratch}/output" ||
-  fail "not every stream was compared: $(grep -iE "error|exception|traceback" "${scratch}/output" | head -5)"
+  fail "not every stream was compared: $(grep -iE "error|exception|traceback|invalid|couldn't|expects" "${scratch}/output" | sort | uniq -c | head -5)"
 rm -rf "${scratch}"

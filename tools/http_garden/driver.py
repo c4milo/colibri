@@ -79,12 +79,24 @@ def commands(origins: list[str]) -> None:
 
 ansi = re.compile(r"\x1b\[[0-9;]*m")
 marker = re.compile(r"\[b'([A-Za-z0-9_]+)'\]")
+# One cell of a grid row: a symbol in its colour, or a blank, then a space.
+cell = re.compile(r"(?:\x1b\[([0-9;]*)m)?(.)(?:\x1b\[0m)? ")
+# The colours the REPL gives a cell: the two parses differ, or one of them fails the Garden's own
+# check against the RFCs, whichever server produced it. Agreement is green.
+differs = "0;31"
+invalid = "37;41"
+
+
+def row_colours(raw: str) -> list[str]:
+    """The colour of each cell of a grid row, left to right. A blank cell has none."""
+    return [colour for colour, _ in cell.findall(raw.split("|", 1)[1])]
 
 
 def report(origins: list[str]) -> int:
-    """Reads the REPL's output and prints each case colibri disagrees on. Returns the count."""
+    """Reads the REPL's output and prints each case colibri disagrees on. Returns how many cases
+    went uncompared."""
     case = None
-    disagreements = []
+    findings = []
     seen = 0
     for raw in sys.stdin:
         line = ansi.sub("", raw).replace("garden> ", "")
@@ -93,16 +105,21 @@ def report(origins: list[str]) -> int:
             continue
         # The grid's first row: colibri against itself, then against each origin in order.
         if case is not None and line.startswith("colibri") and "|" in line:
-            symbols = line.split("|", 1)[1].rstrip("\n")[0::2]
-            differing = [origin for origin, symbol in zip(origins, symbols[1:]) if symbol == "X"]
+            colours = row_colours(raw)[1:]
+            case_name, case = case, None
+            if len(colours) != len(origins):
+                continue
             seen += 1
-            if differing:
-                disagreements.append((case, differing))
-            case = None
-    print(f"http_garden: cases={len(cases())} compared={seen} origins={len(origins)} disagreements={len(disagreements)}")
-    for name, differing in disagreements:
-        agreeing = len(origins) - len(differing)
-        print(f"http_garden: {name}: colibri differs from {len(differing)} of {len(origins)}, agrees with {agreeing}: {' '.join(differing)}")
+            differing = [origin for origin, colour in zip(origins, colours) if colour == differs]
+            failing = [origin for origin, colour in zip(origins, colours) if colour == invalid]
+            if differing or failing:
+                findings.append((case_name, differing, failing))
+    print(f"http_garden: cases={len(cases())} compared={seen} origins={len(origins)} disagreements={len(findings)}")
+    for name, differing, failing in findings:
+        if differing:
+            print(f"http_garden: {name}: colibri parses it differently from {len(differing)} of {len(origins)}: {' '.join(differing)}")
+        if failing:
+            print(f"http_garden: {name}: a parse fails the Garden's RFC check against {len(failing)} of {len(origins)}: {' '.join(failing)}")
     return len(cases()) - seen
 
 
