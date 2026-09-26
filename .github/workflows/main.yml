@@ -11,9 +11,6 @@ on:
     - cron: "0 6 * * 1"
 permissions:
   contents: read
-concurrency:
-  group: main
-  cancel-in-progress: false
 env:
   ZIG_VERSION: 0.16.0
   ZIG_SHA256: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
@@ -26,6 +23,11 @@ jobs:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # One run of each job at a time, and each job its own queue, so the Garden's hours never hold
+    # up a push's checks.
+    concurrency:
+      group: checks
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -123,6 +125,9 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    concurrency:
+      group: http-garden
+      cancel-in-progress: false
     # The origins' images are kept as public images in one package, tagged by the Garden's commit,
     # so a run pulls what an earlier one built (decision 88 as amended).
     permissions:
