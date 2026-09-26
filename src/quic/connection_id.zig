@@ -66,8 +66,6 @@ pub const Remote = struct {
     len: usize,
     /// The largest Retire Prior To the peer has sent, below which nothing is active (§5.1.2).
     retire_prior_to: u64,
-    /// The largest sequence number offered, so a repeat is told from something new (§19.15).
-    highest_offered: ?u64,
     /// Connection IDs retired and owed a RETIRE_CONNECTION_ID frame, until the peer acknowledges
     /// one (§5.1.2, §13.3).
     retiring: [constants.connection_ids_max]Retirement,
@@ -84,7 +82,6 @@ pub const Remote = struct {
         remote.entries = undefined;
         remote.len = 0;
         remote.retire_prior_to = 0;
-        remote.highest_offered = null;
         remote.retiring_len = 0;
         remote.reported = @splat(0);
         remote.reported_len = 0;
@@ -145,7 +142,6 @@ pub const Remote = struct {
         if (past_limit) return error.ConnectionIdLimitExceeded;
         remote.entries[remote.len] = entry;
         remote.len += 1;
-        remote.highest_offered = @max(remote.highest_offered orelse 0, entry.sequence_number);
     }
 
     /// Whether this connection ID is one already active. RFC 9000 §19.15: the same frame
