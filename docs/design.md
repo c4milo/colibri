@@ -4011,6 +4011,44 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `tools/h3spec.sh` and the interop runner all pass with no chapulin option passed; and a program
   that does not define `ch_rand_bytes` fails to link, naming it. *Large.*
 
+  **16a, 2026-09-26.** chapulin `64e2f25` is pinned in `build.zig.zon`, lazy, and colibri's build
+  compiles it from the package with `RAND=extern`
+  ([#66](https://github.com/c4milo/colibri/issues/66)).
+  - Two objects serve `src/testing/`. The TCP one, `TRANSPORT=tcp-nonblocking ROLE=both
+    TRUST=webpki EXPORTER=on`, serves the h11 and h2 endpoints and the TLS checks, both roles in
+    one object. The QUIC one is `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki SUITE=aesgcm
+    AES=hw KEYLOG=on` with `CH_NATIVE_AES`. A third, the QUIC object built `TRUST=raw-ecdsa`, is
+    compiled only for `zig build interop-endpoint`.
+  - `src/testing/` imports the module the package translates from chapulin's headers under the
+    object's own defines, in place of `@cImport` under a define list colibri kept. That list had
+    lost `HKDF_LABEL_MAX=32`, which `EXPORTER=on` adds. Each endpoint still calls
+    `ch_build_matches`.
+  - Each image defines `ch_rand_bytes` from `getentropy` (`src/testing/entropy.zig`), and the tests
+    that stage one ClientHello twice switch it to a fixed stream. `RAND=drbg` and its seeding are
+    gone, and with them the API changes https://github.com/c4milo/colibri/issues/65 tracked.
+  - The `-Dchapulin-*` options are gone, which 16d had planned: no check takes a checkout, and
+    `tools/ci.sh` runs the TLS and QUIC checks on every push.
+  - chapulin's module at `8a813e2` lacked `SRV_TICKET_KEY_LEN`, which its `srv_cfg.h` names but
+    `srv_ticket.h` defined. chapulin `64e2f25` defines it and `SRV_COOKIE_KEY_LEN` in `srv_cfg.h`.
+
+  What each check printed, on macOS arm64 with no chapulin option passed:
+  - `zig build test`: 1941 of 1941 tests, none skipped; before, 1823 of 1893 with 70 skipped for
+    want of a checkout.
+  - `tools/tls_handshake.sh` and `tools/tls_accept.sh`: `tls_handshake: ok` and `tls_accept: ok`,
+    each with `alpn=h2 version=0x0304 suite=0x1303`.
+  - `tools/h2spec.sh 18443 --tls`: 144 passed in cleartext and over TLS, and the 2 skipped by
+    name.
+  - The h2 and h11 interop over TLS, in both directions: every exchange and every request ended as
+    planned, against Go, nghttpd, h2o, curl and nghttp.
+  - `tools/quic_loopback.sh`, `tools/quic_udp.sh` over h3 and hq-interop with resumption, and
+    `tools/quic_aioquic.sh` against aioquic 1.3.0: ok.
+  - `tools/h3spec.sh`: 49 examples, 0 failures.
+  - `tools/interop.sh quic-go handshake,transfer,retry,resumption,keyupdate,http3`, its image now
+    compiling chapulin from the package on Linux: every case passed in both roles against
+    quic-go, and against colibri itself.
+  - With the export of `ch_rand_bytes` removed, the link fails with `undefined symbol:
+    _ch_rand_bytes`.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

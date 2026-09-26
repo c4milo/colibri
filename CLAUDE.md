@@ -252,23 +252,22 @@ section when a step adds or renames a command.
   Every check is also a test inside its module, so `zig build test` runs them, silently. The QUIC
   checks have no command line of their own: `zig build test-sim-run-quic` runs them, in a module
   with no HTTP module in its graph (decision 5), and each one's census is pinned in its test.
-- Conformance: `tools/h2spec.sh [port] [checkout]`, `tools/h3spec.sh <checkout>`,
-  `tools/interop.sh` — each starts the test-only endpoint of design §9 and runs the pinned suite
-  version. Given a chapulin checkout, `tools/h2spec.sh` also runs `h2spec -t -k` against the h2
-  server's `--tls` mode, which needs Go to mint the identity. `tools/h3spec.sh` fetches
+- Conformance: `tools/h2spec.sh [port] [--tls]`, `tools/h3spec.sh [port]`, `tools/interop.sh` —
+  each starts the test-only endpoint of design §9 and runs the pinned suite version. With `--tls`,
+  `tools/h2spec.sh` also runs `h2spec -t -k` against the h2 server's `--tls` mode, which needs Go
+  to mint the identity. `tools/h3spec.sh` fetches
   h3spec once and checks it against a pinned SHA-256. It needs the `SUITE=aesgcm` object, because
   h3spec offers AES suites alone, and runs the server with `no-ecn`, because h3spec's client does
-  not parse an ACK frame that carries ECN counts. `tools/h3load.sh <checkout>` runs `h2load --h3`
+  not parse an ACK frame that carries ECN counts. `tools/h3load.sh [requests] [port]` runs `h2load --h3`
   from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker.
-  `tools/h2_interop.sh [--tls <checkout>] [go] [nghttpd] [h2o]` runs the test-only h2 client
+  `tools/h2_interop.sh [--tls] [go] [nghttpd] [h2o]` runs the test-only h2 client
   (`zig build http-client`) against other implementations' servers in cleartext, and with `--tls`
   over TLS too, through the client's `--tls <anchor-prefix> --seconds <unix-seconds>` mode; it
-  needs `go`, `docker` and `python3`. `tools/h2_server_interop.sh [--tls <checkout>] [curl]
-  [nghttp] [go]` runs curl, nghttp and Go's client against the test-only h2 server the same way;
+  needs `go`, `docker` and `python3`. `tools/h2_server_interop.sh [--tls] [curl] [nghttp]
+  [go]` runs curl, nghttp and Go's client against the test-only h2 server the same way;
   it needs `go` and `docker`. Both endpoints take `--h11`: in cleartext it makes them speak h11,
   and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`.
-  `tools/h11_interop.sh [--tls <checkout>] [go] [h2o]` and `tools/h11_server_interop.sh [--tls
-  <checkout>] [curl] [go]` run the same peers over h11: the client against Go's and h2o's servers,
+  `tools/h11_interop.sh [--tls] [go] [h2o]` and `tools/h11_server_interop.sh [--tls] [curl] [go]` run the same peers over h11: the client against Go's and h2o's servers,
   and curl and Go's client against the server, where curl also offers no ALPN over TLS. None is
   part of `zig build test`; CI runs them, and so does a person before calling a step done.
 - CI: `tools/ci.sh [report.md]` runs every check above that exists and writes the report;
@@ -287,70 +286,53 @@ section when a step adds or renames a command.
   amended).
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
-- TLS endpoints: `-Dchapulin-client=<checkout>` and `-Dchapulin-server=<checkout>` link chapulin
-  into `src/testing/` and nowhere else (decision 10). colibri vendors none of its C: build the
-  checkout yourself with `make RAND=drbg TRUST=webpki TRANSPORT=tcp-nonblocking EXPORTER=on lib &&
-  cp bin/chapulin.o bin/chapulin-client.o` and `make RAND=drbg ROLE=server TRUST=none
-  TRANSPORT=tcp-nonblocking EXPORTER=on lib && cp bin/chapulin.o bin/chapulin-server.o`, and colibri
-  reads the headers from it in place. `TRANSPORT=tcp-nonblocking` drives the handshake from octets
-  the caller read, so the h2 server runs it inside its loop (decisions 46 and 82), and a record that
-  carries no data leaves the session live. An object of another transport does not link, and one
-  built with other defines than `build/modules.zig` reads the headers under is refused when an
-  endpoint starts (chapulin's `build.h`). It needs chapulin `b32ad68` or later: `b20f0ac` keeps the
-  write side open after a peer's `close_notify` (RFC 9846 §6.1), `ca80351` names the transports and
-  the build record colibri reads (`ch_build_info_tcp_nonblocking`), and `b32ad68` adds the secp256r1
-  key exchange nghttpd requires (RFC 9846 §9.1). The client's `TRUST=webpki` is not a preference:
-  chapulin compiles its ALPN fields out for `TRUST=raw` and `TRUST=ca`, and without ALPN no client
-  can negotiate h2 (RFC 9113 §3.1), so colibri refuses such a build at compile time. Without the
-  options the TLS endpoints compile to nothing, so a clone with no chapulin still builds and still
-  runs every other check. Copy each role's object out before building the other: `make clean`
-  removes the one already written.
-- TLS checks: `tools/tls_handshake.sh <checkout> [port]` runs one handshake with colibri as the
-  client against a Go server, and `tools/tls_accept.sh <checkout> [port]` one with colibri as the
-  server against a Go client, which also moves a record each way and ends on the client's
-  `close_notify`. Both need a Go toolchain and both roles built. `tools/ci.sh` runs them when it
-  finds a checkout carrying both objects, at `$CHAPULIN` or `../chapulin`, and says so when it
-  does not.
-- QUIC check: `-Dchapulin-quic=<checkout>` links chapulin's QUIC object into `src/testing/` and
-  nowhere else. Build it with `CFLAGS="-Wall -Wextra -Wpedantic -Werror -std=c11 -O2
-  -D_DEFAULT_SOURCE -DCH_NATIVE_AES" make RAND=drbg TRUST=webpki TRANSPORT=quic-nonblocking
-  ROLE=both KEYLOG=on SUITE=aesgcm AES=hw lib && cp bin/chapulin.o bin/chapulin-quic.o`, adding
-  `-maes -mpclmul` to `CFLAGS` on x86-64 and `-march=armv8-a+crypto` on an Arm compiler that does
-  not turn the AES instructions on by itself (decision 85). `ROLE=both` puts both roles in one
-  object, `KEYLOG=on` hands the check the traffic secrets, `SUITE=aesgcm` adds RFC 9846 §9.1's
-  mandatory TLS_AES_128_GCM_SHA256, and `-DCH_NATIVE_AES` is the builder's statement that the part's
-  AES instructions run in constant time (chapulin's INV-26). Every QUIC endpoint refuses an object
-  built otherwise (chapulin's `build.h`). `tools/quic_loopback.sh <checkout>` runs a colibri client
-  and a colibri server over it in one process, through one handshake and one stream, and writes the
-  secrets to `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain. `tools/ci.sh` runs it when it
-  finds `bin/chapulin-quic.o`.
+- chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles two objects from
+  the package, each `RAND=extern`, and links them into `src/testing/` and nowhere else until design
+  §8 step 16b (design §8 step 16a). The TCP object, `TRANSPORT=tcp-nonblocking ROLE=both
+  TRUST=webpki EXPORTER=on`, serves the h11 and h2 endpoints and the TLS checks:
+  `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so the endpoints run
+  it inside their loops (decisions 46 and 82), and `TRUST=webpki` is the one client trust mode that
+  compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1). The QUIC object,
+  `TRANSPORT=quic-nonblocking ROLE=both SUITE=aesgcm AES=hw KEYLOG=on` with `CH_NATIVE_AES`, serves
+  the QUIC endpoints: `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256,
+  `KEYLOG=on` hands the checks the traffic secrets, and `CH_NATIVE_AES` is the builder's statement
+  that the part's AES instructions run in constant time (decision 85, chapulin's INV-26). The
+  package translates chapulin's public headers under the object's own defines into the module
+  `chapulin`, which `src/testing/` imports, and each endpoint still calls `ch_build_matches` before
+  anything else. Each image defines chapulin's hooks: `ch_rand_bytes` from `getentropy`
+  (`src/testing/entropy.zig`), `ch_assert_fail`, and `ch_keylog` beside the QUIC object. A bump is
+  `zig fetch --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`, and `.lazy = true`
+  must survive it.
+- TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
+  a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,
+  which also moves a record each way and ends on the client's `close_notify`. Both need a Go
+  toolchain, and `tools/ci.sh` runs them.
+- QUIC check: `tools/quic_loopback.sh` runs a colibri client and a colibri server over the QUIC
+  object in one process, through one handshake and one stream, and writes the secrets to
+  `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
   [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]` and `-- client <address>
   <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3]
-  <path>...` run design §9's servers and clients over Rotor's UDP loop and the same chapulin object,
-  which must be chapulin `ca80351` or later: its session tickets, `ch_quic_seal_close` for the close
-  a failed handshake owes (decision 84), the AES-GCM suites (decision 85), the KeyUpdate refusal
-  h3spec checks, and the build record named `ch_build_info_quic_nonblocking`. The server serves h3
-  or hq-interop, whichever its client's ALPN asks for, and a client with `h3` fetches over h3. An
-  address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh <checkout>
-  [port]` runs a client against a server on 127.0.0.1 over both protocols, checks each file arrives
-  octet for octet, that a missing one is refused, and that a second connection resumes the first
-  one's session, and `tools/ci.sh` runs it beside the loopback check. `tools/quic_aioquic.sh
-  <checkout> [port]` runs the same endpoint against aioquic's, pinned and installed once into a
-  cached virtual environment, over both protocols in both directions, and checks that a handshake
-  colibri's server refuses ends with its CONNECTION_CLOSE; it also needs `python3`, and
-  `tools/ci.sh` runs it too.
+  <path>...` run design §9's servers and clients over Rotor's UDP loop and the QUIC object. The
+  server serves h3 or hq-interop, whichever its client's ALPN asks for, and a client with `h3`
+  fetches over h3. An address is IPv4 or IPv6; a server bound to `::` takes both on Linux.
+  `tools/quic_udp.sh [port]` runs a client against a server on 127.0.0.1 over both protocols,
+  checks each file arrives octet for octet, that a missing one is refused, and that a second
+  connection resumes the first one's session. `tools/quic_aioquic.sh [port]` runs the same endpoint
+  against aioquic's, pinned and installed once into a cached virtual environment, over both
+  protocols in both directions, and checks that a handshake colibri's server refuses ends with its
+  CONNECTION_CLOSE; it also needs `python3`. `tools/ci.sh` runs both.
 - QIF tools: `zig build qif -- encode <input.qif> <output> <capacity> <blocked-streams>
   <acknowledgment>` and `-- decode <input> <output.qif> <capacity> <blocked-streams>` are design
   §9's two QPACK tools, over the "QPACK Offline Interop" format. `tools/qif_interop.sh` runs them
   against ls-qpack, through the pylsqpack of the cached aioquic environment, in both directions
   over the qifs inputs; it needs `python3`, and `tools/ci.sh` runs it.
-- QUIC Interop Runner: `tools/interop.sh <checkout> [peers] [tests]`, whose tests include `http3`,
-  builds the `colibri-qns` image from this working tree and the checkout, with chapulin built
-  `TRUST=raw-ecdsa` because the runner's certificates fail the Web PKI profile, and runs it in the
-  runner, pinned by commit, as a server and as a client against each peer. It needs Docker with
-  docker compose, `python3` and `tshark` from Wireshark 4.5.0 or newer.
-  `-Dchapulin-quic-trust=raw-ecdsa` builds against such an object here.
+- QUIC Interop Runner: `tools/interop.sh [peers] [tests]`, whose tests include `http3`, builds the
+  `colibri-qns` image from this working tree, its fetched packages included, and runs it in the
+  runner, pinned by commit, as a server and as a client against each peer. The image's endpoint is
+  `zig build interop-endpoint`'s `quic-udp-interop`: the UDP endpoint over a QUIC object built
+  `TRUST=raw-ecdsa`, because the runner's certificates fail the Web PKI profile. It needs Docker
+  with docker compose, `python3` and `tshark` from Wireshark 4.5.0 or newer.
 - Models: `zig build tla [-- <configuration>...]` model-checks the TLA+ specifications in
   `spec/tla/` with TLC, through pepegrillo's `tla` tool. `tools/tla.zig` pins TLC by release and
   SHA-256, and the jar is cached on first use; it needs Java. The first line of each
@@ -377,8 +359,8 @@ section when a step adds or renames a command.
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
-- Tooling: the first build on a machine fetches pepegrillo (decision 36), Rotor (decision 58) and
-  the `qifs` vectors (decision 75).
+- Tooling: the first build on a machine fetches pepegrillo (decision 36), Rotor (decision 58), the
+  `qifs` vectors (decision 75) and chapulin (decision 94).
   A Rotor bump is `zig fetch --save=rotor git+https://github.com/c4milo/rotor#<commit>`, and
   `.lazy = true` must survive it too. After a pepegrillo bump with `zig
   fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm `.lazy = true`

@@ -8,6 +8,7 @@ const chapulin = @import("chapulin.zig");
 const chapulin_server = @import("chapulin_server.zig");
 const constants = @import("../constants.zig");
 const check_file = @import("check_file.zig");
+const entropy = @import("../entropy.zig");
 
 /// The storage the loaded identity and cookie key point into. It outlives every session, which
 /// is chapulin's rule for its configuration (decision 35).
@@ -19,13 +20,10 @@ pub const Storage = struct {
     cookie_key: [chapulin_server.cookie_key_len]u8,
 };
 
-/// Seeds chapulin's generator and draws the cookie key. A `RAND=drbg` build requires the seed
-/// before any handshake, and `ch_srv_check` draws entropy of its own to salt a signature. RFC 9846
-/// §4.3.2 asks for one cookie key per deployment, and a run is one deployment.
+/// Draws the cookie key. RFC 9846 §4.3.2 asks for one cookie key per deployment, and a run is one
+/// deployment. chapulin draws the rest of its entropy through `ch_rand_bytes` (`entropy.zig`).
 pub fn seed(storage: *Storage) !void {
-    try chapulin.seed_from_entropy();
-    const cookie = try check_file.read_file(chapulin.entropy_path, &storage.cookie_key);
-    if (cookie.len != storage.cookie_key.len) return chapulin.SeedError.EntropyShort;
+    entropy.fill(&storage.cookie_key);
 }
 
 /// Reads the four parts of the identity `tls_identity.go` minted, each raw DER or raw octets.

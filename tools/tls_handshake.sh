@@ -4,17 +4,16 @@
 # first half of design §8 step 5's check. It says whether the two complete a handshake and agree
 # on ALPN, which RFC 9113 §3.1 makes the thing h2 over TLS rests on.
 #
-# It needs a Go toolchain and a chapulin checkout built for the client role. It is not part of
-# `zig build test`, which runs without either.
+# It needs a Go toolchain. chapulin comes from the package build.zig.zon pins (design §8 step
+# 16a). It is not part of `zig build test`.
 #
-#   tools/tls_handshake.sh <chapulin-checkout> [port]
+#   tools/tls_handshake.sh [port]
 #
 # The server mints its own CA and a leaf signed by it, writes the CA's Subject Name and
 # SubjectPublicKeyInfo, and serves the chain. colibri pins that one root.
 set -euo pipefail
 
-readonly checkout="${1:?usage: tls_handshake.sh <chapulin-checkout> [port]}"
-readonly port="${2:-44443}"
+readonly port="${1:-44443}"
 readonly hostname="localhost"
 
 scratch="$(mktemp -d)"
@@ -27,7 +26,7 @@ trap cleanup EXIT
 
 echo "tls_handshake: building the peer and the check"
 go build -o "$scratch/tls_server" tools/h2_interop/tls_server.go
-zig build -Dchapulin-client="$checkout"
+zig build
 
 "$scratch/tls_server" "$port" "$scratch/ca" > "$scratch/server.log" 2>&1 &
 server_pid=$!

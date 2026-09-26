@@ -82,7 +82,7 @@ pub const Resumption = struct {
 
 /// Whether the linked object judges a server by the Web PKI (`TRUST=webpki`), or by a pinned
 /// P-256 key (`TRUST=raw-ecdsa`). chapulin declares the anchor fields in a Web PKI build alone.
-pub const webpki = chapulin_quic_c.available and @hasField(c.ch_cfg, "anchors");
+pub const webpki = @hasField(c.ch_cfg, "anchors");
 pub const Anchor = if (webpki) c.ch_trust_anchor else void;
 
 /// What a client judges the server by, which is the one mode the linked object was built with.
@@ -363,7 +363,7 @@ fn keylog_hook(
 }
 
 comptime {
-    if (chapulin_quic_c.available) @export(&keylog_hook, .{ .name = "ch_keylog", .linkage = .strong });
+    @export(&keylog_hook, .{ .name = "ch_keylog", .linkage = .strong });
 }
 
 pub const vtable: tls.quic_provider.VTable = .{

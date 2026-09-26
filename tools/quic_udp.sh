@@ -5,17 +5,15 @@
 # 9e and 12. Each file must arrive octet for octet, and a client with `resumption` must resume its
 # first connection's session on its second (RFC 9846 §2.2).
 #
-# It needs a Go toolchain, for the identity, and a chapulin checkout whose QUIC object was built
-# as CLAUDE.md's QUIC check line says and copied to bin/chapulin-quic.o. It is not part of `zig
-# build test`.
+# It needs a Go toolchain, for the identity. chapulin comes from the package build.zig.zon pins
+# (design §8 step 16a). It is not part of `zig build test`.
 #
-#   tools/quic_udp.sh <chapulin-checkout> [port]
+#   tools/quic_udp.sh [port]
 #
 # SSLKEYLOGFILE, when set, receives both endpoints' traffic secrets.
 set -euo pipefail
 
-readonly checkout="${1:?usage: quic_udp.sh <chapulin-checkout> [port]}"
-readonly port="${2:-44555}"
+readonly port="${1:-44555}"
 readonly hostname="localhost"
 
 scratch="$(mktemp -d)"
@@ -27,7 +25,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "quic_udp: building the endpoint"
-zig build -Dchapulin-quic="$checkout"
+zig build
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 
 # Three files: one smaller than a packet, one of many packets, and one past the receive pool,

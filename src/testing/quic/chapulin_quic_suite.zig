@@ -11,6 +11,7 @@
 //! deployment (decision 55), and the Retry Integrity Tag, which RFC 9001 §5.8 fixes for every
 //! connection.
 const std = @import("std");
+const entropy = @import("../entropy.zig");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const chapulin_quic_c = @import("chapulin_quic_c.zig");
@@ -327,8 +328,7 @@ const point_len: usize = 64;
 const placeholder_point: [point_len]u8 = @splat(placeholder_octet);
 
 fn start_test_client() !quic.crypto.Suite {
-    const seed: [chapulin_quic_c.seed_len]u8 = @splat(0);
-    c.ch_drbg_seed(&seed);
+    entropy.use_fixed(0);
     const anchors = [_]chapulin_quic.Anchor{if (chapulin_quic.webpki) .{
         .name = &placeholder,
         .name_len = placeholder.len,
@@ -348,7 +348,6 @@ fn start_test_client() !quic.crypto.Suite {
 }
 
 test "RFC 9001 §4.9: a level colibri discards is gone from chapulin too" {
-    if (!chapulin_quic_c.available) return error.SkipZigTest;
     const suite = try start_test_client();
     // RFC 9001 §5.2: the Initial keys exist once the connection ID is known, and no other level's.
     try testing.expect(suite.vtable.keys_available(suite.context, .initial, .read));
@@ -360,7 +359,6 @@ test "RFC 9001 §4.9: a level colibri discards is gone from chapulin too" {
 }
 
 test "a key set is the one chapulin names" {
-    if (!chapulin_quic_c.available) return error.SkipZigTest;
     try testing.expectEqual(suite_module.KeySet.previous, key_set_of(c.CH_QUIC_KEY_PREVIOUS));
     try testing.expectEqual(suite_module.KeySet.current, key_set_of(c.CH_QUIC_KEY_CURRENT));
     try testing.expectEqual(suite_module.KeySet.next, key_set_of(c.CH_QUIC_KEY_NEXT));
@@ -371,7 +369,6 @@ const test_key_octet: u8 = 0x4b;
 const test_lifetime_seconds: u64 = 10;
 
 test "decision 55: chapulin mints a Retry token that gives both connection IDs back" {
-    if (!chapulin_quic_c.available) return error.SkipZigTest;
     var retry: Retry = .{ .key = @splat(test_key_octet), .lifetime_seconds = test_lifetime_seconds };
     const suite = retry.suite();
     const ids = suite_module.RetryConnectionIds.of(&placeholder, "retry-id");

@@ -6,17 +6,16 @@
 # whether the record phase works from the server side: one record each way, then the client's
 # close_notify read as the end of its data rather than as a failure (RFC 9846 §6.1).
 #
-# It needs a Go toolchain and a chapulin checkout built for the server role. It is not part of
-# `zig build test`, which runs without either.
+# It needs a Go toolchain. chapulin comes from the package build.zig.zon pins (design §8 step
+# 16a). It is not part of `zig build test`.
 #
-#   tools/tls_accept.sh <chapulin-checkout> [port]
+#   tools/tls_accept.sh [port]
 #
 # The run mints its own CA and a leaf signed by it, hands colibri the leaf, the root and the
 # signing key, and has the client pin that one root.
 set -euo pipefail
 
-readonly checkout="${1:?usage: tls_accept.sh <chapulin-checkout> [port]}"
-readonly port="${2:-44444}"
+readonly port="${1:-44444}"
 readonly hostname="localhost"
 
 scratch="$(mktemp -d)"
@@ -28,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "tls_accept: building the check and the peer"
-zig build -Dchapulin-server="$checkout"
+zig build
 go build -o "$scratch/tls_client" tools/h2_interop/tls_client.go
 
 # The identity colibri serves: the leaf, the root that signed it, and the P-256 scalar and point

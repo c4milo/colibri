@@ -109,12 +109,11 @@ pub fn open(sequence: u64, record: []const u8, output: []u8) ?Opened {
 const testing = std.testing;
 
 /// A connected session the test drives. Test-only.
-var test_session: if (chapulin.available) c.ch_tls else void = undefined;
+var test_session: c.ch_tls = undefined;
 var test_held: Held = undefined;
 var test_receive: [tls.constants.record_write_len_min]u8 = undefined;
 
 test "a record sealed here is the record chapulin seals under the zero key" {
-    if (!chapulin.available) return error.SkipZigTest;
     connect(&test_held, &test_session, &test_receive);
     var chapulin_output: [content_len_max]u8 = undefined;
     const provider: tls.Provider = .{ .context = @ptrCast(&test_held), .vtable = &chapulin_record.vtable };

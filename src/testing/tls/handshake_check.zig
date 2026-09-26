@@ -124,15 +124,10 @@ fn admitted(suite: u16) bool {
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    if (!chapulin.available) {
-        std.debug.print("tls-handshake: built without chapulin; pass -Dchapulin-client=<checkout>\n", .{});
-        std.process.exit(exit_usage);
-    }
     const asked = parse(init);
     const anchor_name = try check_file.read_part(asked.anchor_prefix, ".name", &name_storage);
     const spki = try check_file.read_part(asked.anchor_prefix, ".spki", &spki_storage);
     try chapulin.check_build();
-    try chapulin.seed_from_entropy();
 
     const socket = try connect(asked.port);
     defer _ = std.c.close(socket);

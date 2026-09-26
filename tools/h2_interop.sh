@@ -2,14 +2,14 @@
 # The client half of the interop check of docs/design.md §8 step 5: run colibri's test-only h2
 # client (§9) against other implementations' servers and require every exchange to end the way
 # the plan says. Cleartext, with prior knowledge (RFC 9113 §3.3), and with --tls also over TLS
-# 1.3 (§3.2), through chapulin's record-mode client built from the checkout.
+# 1.3 (§3.2), through chapulin's record-mode client.
 #
 # The peers are Go's net/http, run with `go run`, and Debian's nghttpd and h2o, run in a
 # container built from tools/h2_interop/Dockerfile. None is installed by this repository: the run
 # needs `go`, `docker` and `python3` on the path, and it names the versions it met. Over TLS each
 # peer serves the identity tools/h2_interop/tls_identity.go mints, and the client pins its root.
 #
-# Usage: tools/h2_interop.sh [--tls <chapulin-checkout>] [go] [nghttpd] [h2o]
+# Usage: tools/h2_interop.sh [--tls] [go] [nghttpd] [h2o]
 #        (no peer runs all three)
 set -euo pipefail
 
@@ -100,7 +100,7 @@ run_go() {
   (cd "${peer_directory}" && go build -o "${scratch}/go_server" go_server.go)
   start_go
   plan_go
-  if [ -n "${checkout}" ]; then
+  if [ -n "${tls}" ]; then
     start_go "${identity}"
     over_tls plan_go
   fi
@@ -141,7 +141,7 @@ run_nghttpd() {
   echo "h2_interop.sh: $(docker run --rm "${image}" nghttpd --version)"
   start_container nghttpd "${nghttpd_port}" nghttpd --no-tls -d /www 8080
   plan_nghttpd
-  if [ -n "${checkout}" ]; then
+  if [ -n "${tls}" ]; then
     start_container nghttpd "${nghttpd_port}" nghttpd -d /www 8080 \
       /identity/colibri.key.pem /identity/colibri.chain.pem
     over_tls plan_nghttpd
@@ -162,7 +162,7 @@ run_h2o() {
   echo "h2_interop.sh: $(docker run --rm "${image}" h2o --version | head -1)"
   start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri.conf
   plan_h2o
-  if [ -n "${checkout}" ]; then
+  if [ -n "${tls}" ]; then
     start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri_tls.conf
     over_tls plan_h2o
   fi
@@ -178,11 +178,10 @@ plan_h2o() {
   expect /missing "status=404"
 }
 
-checkout=""
+tls=""
 if [ "${1:-}" = "--tls" ]; then
-  [ -n "${2:-}" ] || fail "--tls needs a chapulin checkout"
-  checkout="$(cd "$2" && pwd)"
-  shift 2
+  tls="yes"
+  shift
 fi
 peers=("$@")
 [ "${#peers[@]}" -gt 0 ] || peers=(go nghttpd h2o)
@@ -190,8 +189,8 @@ peers=("$@")
 command -v python3 >/dev/null 2>&1 || fail "python3 is not installed"
 echo "h2_interop.sh: building the test-only client"
 mkdir -p "${identity_directory}"
-if [ -n "${checkout}" ]; then
-  (cd "${repository_root}" && zig build install -Dchapulin-client="${checkout}")
+if [ -n "${tls}" ]; then
+  (cd "${repository_root}" && zig build install)
   command -v go >/dev/null 2>&1 || fail "go is not installed, and the TLS identity needs it"
   (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
   # A webpki chain is valid only at an instant, and the client reads no clock, so a TLS run that
@@ -222,5 +221,5 @@ for peer in "${peers[@]}"; do
   esac
 done
 modes="cleartext"
-[ -z "${checkout}" ] || modes="cleartext and TLS"
+[ -z "${tls}" ] || modes="cleartext and TLS"
 echo "h2_interop.sh: every exchange ended as planned, in ${modes}, against: ${peers[*]}"

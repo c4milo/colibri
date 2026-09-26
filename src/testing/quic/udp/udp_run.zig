@@ -84,10 +84,6 @@ fn any_address(family: udp.Address.Family) udp.Address {
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    if (!chapulin_quic_c.available) {
-        std.debug.print("quic-udp: built without chapulin; pass -Dchapulin-quic=<checkout>\n", .{});
-        std.process.exit(check_file.exit_usage);
-    }
     arguments = udp_arguments.parse(init);
     try udp_identity.seed();
     for (&connections) |*connection| connection.live = false;

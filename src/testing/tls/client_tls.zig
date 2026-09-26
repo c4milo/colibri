@@ -26,40 +26,35 @@ const tls_records = @import("records.zig");
 const c = chapulin.c;
 const Session = client_session.Session;
 
-/// Whether the build linked chapulin's client. Without it `Layer` holds nothing, and the client
-/// refuses `--tls`.
-pub const available = chapulin.available;
-
 /// Why a connection ends here. The socket around it closes it either way.
 pub const Error = chapulin_client.Error || tls_records.AttachError || tls_records.Error;
 
 /// chapulin's trust anchor, which `Shared` holds: a root's Subject Name and SubjectPublicKeyInfo.
-pub const Anchor = if (available) c.ch_trust_anchor else struct {};
+pub const Anchor = c.ch_trust_anchor;
 
 /// What every connection of a run shares, loaded once: the one root the client trusts, the name
 /// the server's certificate must carry, the instant chapulin judges the chain at, and the
 /// protocols the client offers through ALPN (`session.alpn_both` or `session.alpn_h11`).
-pub const Shared = if (available) struct {
+pub const Shared = struct {
     anchors: []const Anchor,
     hostname: []const u8,
     now_seconds: u64,
     protocols: []const []const u8 = &session_module.alpn_both,
-} else struct {};
+};
 
 /// The root the client trusts, read once from the files `tools/h2_interop/tls_identity.go` wrote:
 /// its Subject Name and its SubjectPublicKeyInfo, each a whole DER TLV, and the anchor that points
 /// at them.
-pub const Anchors = if (available) struct {
+pub const Anchors = struct {
     name: [constants.tls_der_len_max]u8,
     spki: [constants.tls_der_len_max]u8,
     anchors: [1]c.ch_trust_anchor,
-} else struct {};
+};
 
-/// What a run does once before its first connection: checks the linked object, seeds chapulin's
-/// generator, and reads the root `prefix` names into `storage`.
+/// What a run does once before its first connection: checks the linked object, and reads the root
+/// `prefix` names into `storage`.
 pub fn load(storage: *Anchors, prefix: []const u8, hostname: []const u8, now_seconds: u64, protocols: []const []const u8) !Shared {
     try chapulin.check_build();
-    try chapulin.seed_from_entropy();
     const name = try check_file.read_part(prefix, ".name", &storage.name);
     const spki = try check_file.read_part(prefix, ".spki", &storage.spki);
     storage.anchors[0] = .{ .name = name.ptr, .name_len = name.len, .spki = spki.ptr, .spki_len = spki.len };
@@ -67,7 +62,7 @@ pub fn load(storage: *Anchors, prefix: []const u8, hostname: []const u8, now_sec
 }
 
 /// One connection's TLS state, in static storage `client/client_loop.zig` places.
-pub const Layer = if (available) struct {
+pub const Layer = struct {
     client: chapulin_client.Client,
     /// chapulin's receive buffer (`chapulin_client.Options.receive`).
     receive: [constants.tls_receive_len]u8,
@@ -75,7 +70,7 @@ pub const Layer = if (available) struct {
     records: tls_records.Records,
     /// Whether `attach_tls` accepted the finished handshake.
     attached: bool,
-} else struct {};
+};
 
 pub const Step = tls_records.Step;
 
@@ -103,7 +98,7 @@ pub fn finish(layer: *Layer) void {
 pub fn session_state(layer: *const Layer) u8 {
     return c.ch_record_state(&layer.client.record);
 }
-pub const chapulin_closed = if (available) c.CH_ST_CLOSED else 0;
+pub const chapulin_closed = c.CH_ST_CLOSED;
 
 /// Prints why a connection's TLS failed: chapulin's code, and the alert it chose. It runs once for
 /// a failed connection, never for each record.
@@ -171,7 +166,6 @@ const test_now_seconds: u64 = 1_780_000_000;
 const handshake_client_hello: u8 = 1;
 
 test "RFC 9113 §3.4: the ClientHello goes out first, and no h2 octet before the handshake ends" {
-    if (!available) return error.SkipZigTest;
     test_session.init(.h2, "https", "localhost", &test_plans);
     try start(&test_layer, &test_shared);
     const stepped = try step(&test_layer, &test_session, &.{}, &test_output);
@@ -187,7 +181,6 @@ test "RFC 9113 §3.4: the ClientHello goes out first, and no h2 octet before the
 }
 
 test "RFC 9846 §6: a server flight chapulin refuses ends the connection" {
-    if (!available) return error.SkipZigTest;
     test_session.init(.h2, "https", "localhost", &test_plans);
     try start(&test_layer, &test_shared);
     _ = try step(&test_layer, &test_session, &.{}, &test_output);
@@ -199,7 +192,6 @@ test "RFC 9846 §6: a server flight chapulin refuses ends the connection" {
 }
 
 test "RFC 9113 §3.4: once connected, the client's preface is the first record it seals" {
-    if (!available) return error.SkipZigTest;
     test_session.init(.h2, "https", "localhost", &test_plans);
     try start(&test_layer, &test_shared);
     // What a finished handshake leaves, keyed with zeros (`zero_key_records.zig`).

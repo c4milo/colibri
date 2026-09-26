@@ -6,17 +6,16 @@
 # misreading of an RFC passes the loopback and tools/quic_udp.sh, and fails here. Over h3 both
 # ends advertise a QPACK dynamic table, so colibri's QPACK meets ls-qpack's too.
 #
-# It needs python3, a Go toolchain for the identity, and a chapulin checkout whose QUIC object
-# was built as CLAUDE.md's QUIC check line says and copied to bin/chapulin-quic.o. aioquic is
-# pinned and installed once into a cached virtual environment. It is not part of `zig build test`.
+# It needs python3 and a Go toolchain for the identity. chapulin comes from the package
+# build.zig.zon pins (design §8 step 16a). aioquic is pinned and installed once into a cached
+# virtual environment. It is not part of `zig build test`.
 #
-#   tools/quic_aioquic.sh <chapulin-checkout> [port]
+#   tools/quic_aioquic.sh [port]
 #
 # SSLKEYLOGFILE, when set, receives both endpoints' traffic secrets.
 set -euo pipefail
 
-readonly checkout="${1:?usage: quic_aioquic.sh <chapulin-checkout> [port]}"
-readonly port="${2:-44655}"
+readonly port="${1:-44655}"
 readonly hostname="localhost"
 readonly aioquic_version="1.3.0"
 readonly venv="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/aioquic-${aioquic_version}"
@@ -30,7 +29,7 @@ cleanup() {
 trap cleanup EXIT
 
 echo "quic_aioquic: building the endpoint and the peer"
-zig build -Dchapulin-quic="$checkout"
+zig build
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 if [ ! -x "$venv/bin/python" ]; then
   python3 -m venv "$venv"

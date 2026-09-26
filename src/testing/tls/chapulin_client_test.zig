@@ -1,6 +1,7 @@
 //! The tests of `chapulin_client.zig`, split out because a hand-written source file stays at or
 //! under 500 lines with its tests included (CLAUDE.md).
 const std = @import("std");
+const entropy = @import("../entropy.zig");
 const core = @import("core");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
@@ -49,7 +50,6 @@ fn init_test_client() void {
 }
 
 test "the configuration colibri builds is the one chapulin is given" {
-    if (!chapulin.available) return error.SkipZigTest;
     init_test_client();
     // RFC 9113 §3.1: one protocol is offered, and it is "h2".
     try testing.expectEqual(1, test_client.config.alpn_count);
@@ -67,11 +67,10 @@ test "the configuration colibri builds is the one chapulin is given" {
     try testing.expectEqual(Io.handshake, std.meta.activeTag(test_client.held.io));
 }
 
-/// Seeds chapulin's generator the same way before each handshake, so two runs stage the same
-/// ClientHello.
+/// Starts chapulin's randomness from the same fixed stream before each handshake, so two runs stage
+/// the same ClientHello.
 fn seed_for_test() void {
-    const seed: [chapulin.seed_len]u8 = @splat(0);
-    c.ch_drbg_seed(&seed);
+    entropy.use_fixed(0);
 }
 
 /// RFC 9846 §4: the HandshakeType of a ClientHello.
@@ -84,7 +83,6 @@ const small_output_len: usize = 7;
 var test_expected: [constants.tls_record_buffer_len]u8 = undefined;
 
 test "start stages a ClientHello, and the first call writes it as one handshake record" {
-    if (!chapulin.available) return error.SkipZigTest;
     seed_for_test();
     init_test_client();
     try test_client.start();
@@ -105,7 +103,6 @@ test "start stages a ClientHello, and the first call writes it as one handshake 
 }
 
 test "a ClientHello longer than the output is written over several calls, unchanged" {
-    if (!chapulin.available) return error.SkipZigTest;
     seed_for_test();
     init_test_client();
     try test_client.start();
@@ -128,7 +125,6 @@ test "a ClientHello longer than the output is written over several calls, unchan
 }
 
 test "a configuration chapulin refuses stages no ClientHello" {
-    if (!chapulin.available) return error.SkipZigTest;
     // chapulin's webpki build requires at least one anchor (its `webpki_cfg.c`).
     const none = [_]c.ch_trust_anchor{};
     test_client.init(.{
@@ -142,7 +138,6 @@ test "a configuration chapulin refuses stages no ClientHello" {
 }
 
 test "a partial record is left for the next call, and a refused one fails the handshake" {
-    if (!chapulin.available) return error.SkipZigTest;
     seed_for_test();
     init_test_client();
     try test_client.start();
@@ -163,7 +158,6 @@ test "a partial record is left for the next call, and a refused one fails the ha
 }
 
 test "the record phase serves colibri's buffers" {
-    if (!chapulin.available) return error.SkipZigTest;
     init_test_client();
     // Moving to phase 2 is what `handshake` does on success.
     var input = [_]u8{ 1, 2, 3, 4 };
@@ -189,7 +183,6 @@ test "the record phase serves colibri's buffers" {
 }
 
 test "the vtable colibri gets answers every member" {
-    if (!chapulin.available) return error.SkipZigTest;
     init_test_client();
     const held = test_client.provider();
     var room: [64]u8 = @splat(0);
@@ -219,7 +212,6 @@ test "the vtable colibri gets answers every member" {
 }
 
 test "the exporter answers inside chapulin's bounds and refuses outside them" {
-    if (!chapulin.available) return error.SkipZigTest;
     init_test_client();
     // What a completed handshake leaves. The live exporter is compared with a Go peer's by
     // `tools/tls_handshake.sh`; this pins the bounds the adapter enforces.
@@ -261,7 +253,6 @@ test "the exporter answers inside chapulin's bounds and refuses outside them" {
 }
 
 test "once the handshake is done the session reports what it chose" {
-    if (!chapulin.available) return error.SkipZigTest;
     init_test_client();
     // What `handshake` does on success. The live handshake is a separate check; this pins what
     // colibri reads afterwards.
@@ -282,7 +273,6 @@ test "once the handshake is done the session reports what it chose" {
 }
 
 test "RFC 7301 §3.2: the protocol reported is the one at the index the server selected" {
-    if (!chapulin.available) return error.SkipZigTest;
     const offered = [_][]const u8{ "h2", "http/1.1" };
     test_client.init(.{ .anchors = &test_anchors, .hostname = "localhost", .receive = &test_receive, .now_seconds = test_now_seconds, .protocols = &offered });
     test_client.held.io = .{ .records = .{} };
@@ -293,7 +283,6 @@ test "RFC 7301 §3.2: the protocol reported is the one at the index the server s
 }
 
 test "a peer's close_notify is reported with its description, not as a failure" {
-    if (!chapulin.available) return error.SkipZigTest;
     init_test_client();
     test_client.held.io = .{ .records = .{} };
     // chapulin's `ch_read` answers 0 for a session the peer closed cleanly, which is the one

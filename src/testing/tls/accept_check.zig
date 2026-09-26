@@ -102,10 +102,6 @@ fn admitted(suite: u16) bool {
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    if (!chapulin.available) {
-        std.debug.print("tls-accept: built without chapulin; pass -Dchapulin-server=<checkout>\n", .{});
-        std.process.exit(exit_usage);
-    }
     const asked = parse(init);
     try chapulin.check_build();
     try server_identity.seed(&identity_storage);

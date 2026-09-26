@@ -2,7 +2,7 @@
 # The client half of the h11 interop check of docs/design.md §8 step 15d: run colibri's test-only
 # client (§9) over HTTP/1.1 against other implementations' servers and require every exchange to
 # end the way the plan says. Cleartext, and with --tls also over TLS 1.3 through chapulin's
-# record-mode client built from the checkout.
+# record-mode client.
 #
 # The peers are Go's net/http, run with `go run`, and Debian's h2o, run in the container
 # tools/h2_interop/Dockerfile builds, the same peers tools/h2_interop.sh runs. Over TLS, Go serves
@@ -11,7 +11,7 @@
 # client offers "http/1.1" alone with --h11. Every exchange must report stream=0, which is how the
 # client reports an h11 exchange.
 #
-# Usage: tools/h11_interop.sh [--tls <chapulin-checkout>] [go] [h2o]
+# Usage: tools/h11_interop.sh [--tls] [go] [h2o]
 #        (no peer runs both)
 set -euo pipefail
 
@@ -93,7 +93,7 @@ run_go() {
   start_go
   mode_arguments=(--h11)
   plan_go
-  if [ -n "${checkout}" ]; then
+  if [ -n "${tls}" ]; then
     echo "h11_interop.sh: over TLS, h11 by the server's ALPN selection"
     start_go "${identity}"
     mode_arguments=(--tls "${identity}" --seconds "$(date +%s)")
@@ -139,7 +139,7 @@ run_h2o() {
   start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri.conf
   mode_arguments=(--h11)
   plan_h2o
-  if [ -n "${checkout}" ]; then
+  if [ -n "${tls}" ]; then
     echo "h11_interop.sh: over TLS, h11 by the client's ALPN offer"
     start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri_tls.conf
     mode_arguments=(--h11 --tls "${identity}" --seconds "$(date +%s)")
@@ -159,11 +159,10 @@ plan_h2o() {
   expect /missing "status=404"
 }
 
-checkout=""
+tls=""
 if [ "${1:-}" = "--tls" ]; then
-  [ -n "${2:-}" ] || fail "--tls needs a chapulin checkout"
-  checkout="$(cd "$2" && pwd)"
-  shift 2
+  tls="yes"
+  shift
 fi
 peers=("$@")
 [ "${#peers[@]}" -gt 0 ] || peers=(go h2o)
@@ -171,8 +170,8 @@ peers=("$@")
 command -v python3 >/dev/null 2>&1 || fail "python3 is not installed"
 echo "h11_interop.sh: building the test-only client"
 mkdir -p "${identity_directory}"
-if [ -n "${checkout}" ]; then
-  (cd "${repository_root}" && zig build install -Dchapulin-client="${checkout}")
+if [ -n "${tls}" ]; then
+  (cd "${repository_root}" && zig build install)
   command -v go >/dev/null 2>&1 || fail "go is not installed, and the TLS identity needs it"
   (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
 else
@@ -198,5 +197,5 @@ for peer in "${peers[@]}"; do
   esac
 done
 modes="cleartext"
-[ -z "${checkout}" ] || modes="cleartext and TLS"
+[ -z "${tls}" ] || modes="cleartext and TLS"
 echo "h11_interop.sh: every exchange ended as planned over h11, in ${modes}, against: ${peers[*]}"

@@ -2,7 +2,7 @@
 # The server half of the interop check of docs/design.md §8 step 5: run other implementations' h2
 # clients against colibri's test-only h2 server (§9) and require every request to end with 200 and
 # the body the server always sends. Cleartext, with prior knowledge (RFC 9113 §3.3), and with
-# --tls also over TLS 1.3 (§3.2), through chapulin's record-mode server built from the checkout.
+# --tls also over TLS 1.3 (§3.2), through chapulin's record-mode server.
 #
 # The peers are Go's net/http client, built with `go build`, and Debian's curl and nghttp, run in
 # the container tools/h2_interop/Dockerfile builds. None is installed by this repository: the run
@@ -10,7 +10,7 @@
 # serves the identity tools/h2_interop/tls_identity.go mints. curl and Go check its chain against
 # the root and refuse one that fails; nghttp prints a warning and goes on.
 #
-# Usage: tools/h2_server_interop.sh [--tls <chapulin-checkout>] [curl] [nghttp] [go]
+# Usage: tools/h2_server_interop.sh [--tls] [curl] [nghttp] [go]
 #        (no peer runs all three)
 set -euo pipefail
 
@@ -81,7 +81,7 @@ in_both_modes() {
   mode=cleartext
   start_server
   "$1"
-  if [ -n "${checkout}" ]; then
+  if [ -n "${tls}" ]; then
     mode=tls
     echo "h2_server_interop.sh: over TLS"
     start_server --tls "${identity}"
@@ -154,11 +154,10 @@ plan_go() {
   echo "h2_server_interop.sh: go ${mode}: ${report#go_client: }"
 }
 
-checkout=""
+tls=""
 if [ "${1:-}" = "--tls" ]; then
-  [ -n "${2:-}" ] || fail "--tls needs a chapulin checkout"
-  checkout="$(cd "$2" && pwd)"
-  shift 2
+  tls="yes"
+  shift
 fi
 peers=("$@")
 [ "${#peers[@]}" -gt 0 ] || peers=(curl nghttp go)
@@ -166,8 +165,8 @@ peers=("$@")
 command -v go >/dev/null 2>&1 || fail "go is not installed"
 echo "h2_server_interop.sh: building the test-only server"
 mkdir -p "${identity_directory}"
-if [ -n "${checkout}" ]; then
-  (cd "${repository_root}" && zig build install -Dchapulin-server="${checkout}")
+if [ -n "${tls}" ]; then
+  (cd "${repository_root}" && zig build install)
   (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
 else
   (cd "${repository_root}" && zig build install)
@@ -196,5 +195,5 @@ for peer in "${peers[@]}"; do
   esac
 done
 modes="cleartext"
-[ -z "${checkout}" ] || modes="cleartext and TLS"
+[ -z "${tls}" ] || modes="cleartext and TLS"
 echo "h2_server_interop.sh: every request ended with 200, in ${modes}, from: ${peers[*]}"

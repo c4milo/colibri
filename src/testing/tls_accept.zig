@@ -14,7 +14,7 @@ pub const check_file = @import("tls/check_file.zig");
 pub const accept_check = @import("tls/accept_check.zig");
 
 comptime {
-    // The chapulin object is linked whenever the build was given a checkout, and it imports
+    // The chapulin object from the package is always linked (design §8 step 16a), and it imports
     // `ch_assert_fail`, which `tls/chapulin.zig` exports. Zig analyses a file only when something
     // references it, and in a build with no tests nothing here does, so the export would be
     // missing and the link would fail. This reference is what forces the analysis.

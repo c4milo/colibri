@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # The h2spec check of docs/design.md §8 steps 4 and 5: run the pinned suite against the test-only
 # h2 server of §9 and require every case to pass but the ones named below. It runs in cleartext
-# with prior knowledge, and, given a chapulin checkout, over TLS as well (`h2spec -t -k`), through
-# the server's record-mode chapulin (https://github.com/c4milo/colibri/issues/20). The TLS run also
-# needs a Go toolchain, which mints the identity the server presents.
+# with prior knowledge, and, with --tls, over TLS as well (`h2spec -t -k`), through the server's
+# record-mode chapulin (https://github.com/c4milo/colibri/issues/20). The TLS run also needs a Go
+# toolchain, which mints the identity the server presents.
 #
 # h2spec is not installed by this repository. On macOS: brew install h2spec. Elsewhere, take the
 # release named by h2spec_version from https://github.com/summerwind/h2spec.
 #
-# Usage: tools/h2spec.sh [port] [chapulin-checkout]
+# Usage: tools/h2spec.sh [port] [--tls]
 set -euo pipefail
 
 readonly h2spec_version="2.6.0"
 readonly port="${1:-18443}"
-readonly checkout="${2:-}"
+readonly tls="${2:-}"
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly server="${repository_root}/zig-out/bin/http-server"
 
@@ -48,12 +48,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
+[ -z "${tls}" ] || [ "${tls}" = "--tls" ] || fail "usage: tools/h2spec.sh [port] [--tls]"
 echo "h2spec.sh: building the test-only server"
-if [ -n "${checkout}" ]; then
-  (cd "${repository_root}" && zig build install -Dchapulin-server="${checkout}")
-else
-  (cd "${repository_root}" && zig build install)
-fi
+(cd "${repository_root}" && zig build install)
 [ -x "${server}" ] || fail "the server was not built at ${server}"
 
 # Runs the suite once against a server started with the given arguments, and checks the report.
@@ -102,7 +99,7 @@ run_suite() {
 
 run_suite cleartext --
 
-if [ -n "${checkout}" ]; then
+if [ -n "${tls}" ]; then
   command -v go >/dev/null 2>&1 || fail "the TLS run needs a Go toolchain to mint the identity"
   # The identity the server presents: the leaf, the root that signed it, and the P-256 scalar and
   # point chapulin's ecdsa_p256 slot takes. -k tells h2spec not to verify it.

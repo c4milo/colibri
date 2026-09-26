@@ -62,8 +62,8 @@ test "a record-mode server's flight goes into the output whole, or the call fail
 /// A zeroed session and the state around it, for the calls that refuse before chapulin reads the
 /// session. A zeroed session's `alpn_selected` is 0, which names the one protocol offered here.
 /// Test-only.
-const test_alpn = if (chapulin.available) [_]c.ch_alpn_protocol{.{ .name = chapulin_record.alpn_h2.ptr, .name_len = chapulin_record.alpn_h2.len }} else [_]u8{};
-var test_session: if (chapulin.available) c.ch_tls else void = undefined;
+const test_alpn = [_]c.ch_alpn_protocol{.{ .name = chapulin_record.alpn_h2.ptr, .name_len = chapulin_record.alpn_h2.len }};
+var test_session: c.ch_tls = undefined;
 var test_held: Held = undefined;
 
 fn test_provider() tls.Provider {
@@ -73,7 +73,6 @@ fn test_provider() tls.Provider {
 }
 
 test "RFC 9846 §5.1: a record not yet whole is incomplete, and chapulin never reads it" {
-    if (!chapulin.available) return error.SkipZigTest;
     const held = test_provider();
     const partial = [_]u8{ 0x17, 0x03, 0x03, 0x00, 0x11, 0x00 };
     var plaintext: [64]u8 = undefined;
@@ -85,7 +84,6 @@ test "RFC 9846 §5.1: a record not yet whole is incomplete, and chapulin never r
 }
 
 test "a plaintext buffer shorter than the record's ciphertext is refused before chapulin reads it" {
-    if (!chapulin.available) return error.SkipZigTest;
     const held = test_provider();
     const record = [_]u8{ 0x17, 0x03, 0x03, 0x00, 0x11 } ++ [_]u8{0} ** 0x11;
     var plaintext: [0x10]u8 = undefined;
@@ -94,7 +92,6 @@ test "a plaintext buffer shorter than the record's ciphertext is refused before 
 }
 
 test "RFC 9846 §5.2: an output that cannot hold one sealed octet takes no plaintext" {
-    if (!chapulin.available) return error.SkipZigTest;
     const held = test_provider();
     test_session.peer_limit = c.CH_TX_PT;
     var output: [c.REC_OVERHEAD]u8 = undefined;
@@ -105,7 +102,6 @@ test "RFC 9846 §5.2: an output that cannot hold one sealed octet takes no plain
 }
 
 test "in record mode, `recv` answers 0 between records, which `ch_read` reads as no record yet" {
-    if (!chapulin.available) return error.SkipZigTest;
     var io: Io = .{ .records = .{} };
     var into: [8]u8 = undefined;
     try testing.expectEqual(0, chapulin_record.recv(@ptrCast(&io), &into, into.len));
@@ -117,7 +113,7 @@ test "in record mode, `recv` answers 0 between records, which `ch_read` reads as
 }
 
 /// A session keyed with zeros (`zero_key_records.zig`), and records sealed for it. Test-only.
-var keyed_session: if (chapulin.available) c.ch_tls else void = undefined;
+var keyed_session: c.ch_tls = undefined;
 var keyed_held: Held = undefined;
 var keyed_receive: [tls.constants.record_write_len_min]u8 = undefined;
 var keyed_input: [keyed_input_len]u8 = undefined;
@@ -130,7 +126,6 @@ fn keyed_provider() tls.Provider {
 }
 
 test "a record that carries no data is taken whole, and chapulin never reads the partial one after it" {
-    if (!chapulin.available) return error.SkipZigTest;
     const held = keyed_provider();
     // RFC 9846 §5.1: application data may be empty. The next record has arrived in part.
     const empty = try zero_key_records.seal(0, zero_key_records.content_application_data, "", &keyed_input);
@@ -157,7 +152,6 @@ const update_not_requested: u8 = 0;
 const update_requested: u8 = 1;
 
 test "RFC 9846 §4.7.3: a KeyUpdate that asks for one is answered, under the keys it replaces" {
-    if (!chapulin.available) return error.SkipZigTest;
     const held = keyed_provider();
     const update = try zero_key_records.seal(0, zero_key_records.content_handshake, &key_update_requested, &keyed_input);
     var plaintext: [tls.constants.record_ciphertext_len_max]u8 = undefined;
@@ -186,7 +180,6 @@ test "RFC 9846 §4.7.3: a KeyUpdate that asks for one is answered, under the key
 const small_limit: u16 = 100;
 
 test "a peer's lower record limit cuts the records, and the seal takes only what fits" {
-    if (!chapulin.available) return error.SkipZigTest;
     const held = keyed_provider();
     keyed_session.peer_limit = small_limit;
     // Room for two records of the lower limit, and a plaintext longer than both.

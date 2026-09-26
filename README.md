@@ -133,10 +133,11 @@ shape: octets in, at most one event out, and the frames colibri owes written int
   source file above 500 lines, and a slice indexed by a value a peer chose.
 
 CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main: the lints, every module's tests, the
-simulator in both build modes, the TLA+ models and the h3 traces, h2spec, and the interop
-scripts in cleartext. The HTTP Garden runs every Monday. The checks over TLS and QUIC need a
-chapulin checkout, and the proofs need a Lean toolchain; a person runs those on the same script
-before a step is called done.
+examples, the simulator in both build modes, the TLA+ models and the h3 traces, h2spec and the
+interop scripts in cleartext and over TLS, the TLS handshakes against Go, and the QUIC checks
+against colibri and aioquic. The HTTP Garden runs every Monday. The proofs need a Lean toolchain,
+and h3spec and the QUIC Interop Runner need tools CI does not install; a person runs those before
+a step is called done.
 
 ## Platforms
 

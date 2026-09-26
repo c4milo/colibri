@@ -17,6 +17,7 @@ const quic = @import("quic");
 const constants = @import("../constants.zig");
 const check_file = @import("../tls/check_file.zig");
 const chapulin_quic_c = @import("chapulin_quic_c.zig");
+const entropy = @import("../entropy.zig");
 const chapulin_quic = @import("chapulin_quic.zig");
 const loopback_endpoint = @import("loopback_endpoint.zig");
 
@@ -74,22 +75,14 @@ fn parse(init: std.process.Init.Minimal) Arguments {
     };
 }
 
-/// Checks the linked object, then seeds chapulin's DRBG and draws the cookie key. The check may
-/// read the operating system's entropy; the library may not, and does not.
+/// Checks the linked object, then draws the cookie key. The check may read the operating system's
+/// entropy; the library may not, and does not.
 fn seed_chapulin() !void {
     try chapulin_quic_c.check_build();
-    var seed: [chapulin_quic_c.seed_len]u8 = undefined;
-    const drawn = try check_file.read_file("/dev/urandom", &seed);
-    const cookie = try check_file.read_file("/dev/urandom", &cookie_storage);
-    if (drawn.len != seed.len or cookie.len != cookie_storage.len) fail("could not draw entropy", .{});
-    c.ch_drbg_seed(&seed);
+    entropy.fill(&cookie_storage);
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    if (!chapulin_quic_c.available) {
-        std.debug.print("quic-loopback: built without chapulin; pass -Dchapulin-quic=<checkout>\n", .{});
-        std.process.exit(exit_usage);
-    }
     const asked = parse(init);
     try seed_chapulin();
     const prefix = asked.identity_prefix;

@@ -74,7 +74,6 @@ pub fn add(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-    chapulin: Chapulin,
 ) Modules {
     const core = library(b, "core", target, optimize);
 
@@ -182,12 +181,6 @@ pub fn add(
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;
 
-    // Decision 10, and the reason the two objects are separate: a chapulin build carries one role,
-    // and both roles export `ch_read`, `ch_write` and `ch_close`, so one binary cannot hold both.
-    // The server endpoint links the `ROLE=server` object and the client endpoint the client one.
-    link_chapulin(b, testing, chapulin.server, "chapulin-server.o", chapulin_server_defines);
-    link_chapulin(b, testing_client, chapulin.client, "chapulin-client.o", chapulin_client_defines);
-
     // Design §8 step 5's check runs one handshake against a server that is not colibri's. It is
     // a third root because an executable has one `main`, and the other two are the h2 server's
     // and the h2 client's.
@@ -198,7 +191,6 @@ pub fn add(
     testing_tls.addImport("h2", h2);
     testing_tls.addImport("tls", tls);
     testing_tls.link_libc = true;
-    link_chapulin(b, testing_tls, chapulin.client, "chapulin-client.o", chapulin_client_defines);
 
     // The other half of step 5's check, and a fourth root for the same reason as the third: one
     // `main` per executable, and one role per chapulin object (decision 10). This one accepts.
@@ -207,7 +199,6 @@ pub fn add(
     testing_tls_server.addImport("h2", h2);
     testing_tls_server.addImport("tls", tls);
     testing_tls_server.link_libc = true;
-    link_chapulin(b, testing_tls_server, chapulin.server, "chapulin-server.o", chapulin_server_defines);
 
     // Design §9's QIF tools, a root of their own for their `main`. They serve `qpack`, and keep
     // their limits in `src/testing/qif/constants.zig` rather than the shared file, which imports
@@ -226,7 +217,6 @@ pub fn add(
     testing_quic.addImport("h2", h2);
     testing_quic.addImport("quic", quic);
     testing_quic.link_libc = true;
-    link_chapulin(b, testing_quic, chapulin.quic, "chapulin-quic.o", chapulin_quic_defines(chapulin.quic_trust));
 
     return .{
         .core = core,
@@ -262,7 +252,7 @@ pub fn add_testing_udp(
     b: *std.Build,
     graph: Modules,
     rotor: *std.Build.Module,
-    chapulin: Chapulin,
+    chapulin_quic_object: *std.Build.Dependency,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
@@ -273,7 +263,7 @@ pub fn add_testing_udp(
     module.addImport("h3", graph.h3);
     module.addImport("rotor", rotor);
     module.link_libc = true;
-    link_chapulin(b, module, chapulin.quic, "chapulin-quic.o", chapulin_quic_defines(chapulin.quic_trust));
+    link_chapulin(module, chapulin_quic_object);
     return module;
 }
 
@@ -307,65 +297,70 @@ fn create(
     });
 }
 
-/// The axes chapulin's client object is built with. `TRANSPORT=tcp-nonblocking`, as the server's
-/// is: the handshake runs from octets the endpoint read, and a record that carries no data leaves
-/// the session live, which the blocking driver of `TRANSPORT=tcp-blocking` could not do.
-const chapulin_client_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_TCP_NONBLOCKING", "CH_EXPORTER" };
-
-/// The axes chapulin's server object is built with. `TRANSPORT=tcp-nonblocking` drives the
-/// handshake from octets the caller read and sends the flight through a callback, so the h2
-/// endpoint runs it inside its Rotor loop (decisions 46 and 83,
-/// https://github.com/c4milo/colibri/issues/20).
-const chapulin_server_defines: []const []const u8 = &.{ "CH_RAND_DRBG", "CH_ROLE_SERVER", "CH_TRANSPORT_TCP_NONBLOCKING", "CH_EXPORTER" };
-
-/// The axes chapulin's QUIC object is built with, which its headers need to parse the same way.
-/// The trust mode is the one axis a checkout chooses: `TRUST=webpki` for the checks on this
-/// machine, and `TRUST=raw-ecdsa` for the QUIC Interop Runner's certificates, which carry no
-/// extended key usage and so fail the Web PKI profile.
-fn chapulin_quic_defines(trust: QuicTrust) []const []const u8 {
-    return switch (trust) {
-        .webpki => &.{ "CH_RAND_DRBG", "CH_TRUST_WEBPKI", "CH_TRANSPORT_QUIC_NONBLOCKING", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
-        .@"raw-ecdsa" => &.{ "CH_RAND_DRBG", "CH_PIN_ECDSA", "CH_TRANSPORT_QUIC_NONBLOCKING", "CH_AES_HW", "CH_SUITE_AES_GCM", "CH_ROLE_SERVER", "CH_ROLE_BOTH", "CH_KEYLOG" },
-    };
-}
-
-/// The trust modes a chapulin QUIC object may be built with, spelled as its Makefile spells them.
+/// The trust modes chapulin's QUIC object is built with, spelled as its build spells them: `webpki`
+/// for every check, and `raw-ecdsa` for the endpoint the QUIC Interop Runner runs, whose
+/// certificates carry no extended key usage and so fail the Web PKI profile.
 pub const QuicTrust = enum { webpki, @"raw-ecdsa" };
 
-/// The chapulin checkout each role's endpoint links, named apart because the two roles are two
-/// builds and either can be present without the other (decision 10).
+/// The two chapulin objects `src/testing/` links, each compiled from the pinned package with
+/// `RAND=extern` (design §8 step 16a, decision 94). The package also translates the public headers
+/// under the defines its object compiled with, so the declarations colibri reads always match the
+/// object it links.
 pub const Chapulin = struct {
-    client: ?[]const u8 = null,
-    server: ?[]const u8 = null,
-    /// A checkout whose `bin/chapulin-quic.o` was built `TRANSPORT=quic-nonblocking ROLE=both`.
-    quic: ?[]const u8 = null,
-    /// The trust mode that object was built with.
-    quic_trust: QuicTrust = .webpki,
+    /// `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`: the h11 and h2 endpoints,
+    /// client and server in one object. The handshake runs from octets the endpoint read, so it
+    /// runs inside the endpoint's loop (decisions 46 and 82), and `TRUST=webpki` is the one client
+    /// trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
+    tcp: *std.Build.Dependency,
+    /// `TRANSPORT=quic-nonblocking ROLE=both SUITE=aesgcm AES=hw KEYLOG=on`, with the builder's
+    /// statement that the part's AES instructions run in constant time (decision 85). `KEYLOG=on`
+    /// hands the checks each traffic secret, so a capture can be decrypted.
+    quic: *std.Build.Dependency,
 };
 
-/// Links one chapulin object into a `src/testing/` module and tells its source whether it is
-/// there (decision 10). colibri vendors none of chapulin's C: the checkout is the caller's, built
-/// by the two `make` lines CLAUDE.md's Commands section names, and the headers are read from it in
-/// place. With no checkout the module still compiles, with `chapulin` false, and the TLS
-/// endpoints compile to nothing.
-fn link_chapulin(
-    b: *std.Build,
-    module: *std.Build.Module,
-    checkout: ?[]const u8,
-    object: []const u8,
-    defines: []const []const u8,
-) void {
-    const options = b.addOptions();
-    options.addOption(bool, "chapulin", checkout != null);
-    module.addImport("build_options", options.createModule());
-    const path = checkout orelse return;
-    module.addIncludePath(.{ .cwd_relative = path });
-    module.addObjectFile(.{ .cwd_relative = b.pathJoin(&.{ path, "bin", object }) });
-    // chapulin's headers are compiled by the same axes that compiled its object, and they refuse
-    // to parse without them. colibri names the variant it needs rather than accepting any: the
-    // entropy pattern, for the client the trust mode that compiles ALPN in at all (chapulin's
-    // cfg.h), and the exporter, which adds a field to `ch_tls`. A checkout built another way
-    // fails here, at `check_alpn`, or at the link for want of `ch_export`, which is the point —
-    // CLAUDE.md's Commands section names the two `make` lines that match.
-    for (defines) |define| module.addCMacro(define, "1");
+/// Requests both objects, the QUIC one `TRUST=webpki`, or null while the package is still being
+/// fetched.
+pub fn chapulin_objects(b: *std.Build, target: std.Build.ResolvedTarget) ?Chapulin {
+    const tcp = b.lazyDependency("chapulin", .{
+        .target = target,
+        .RAND = .@"extern",
+        .TRANSPORT = .@"tcp-nonblocking",
+        .ROLE = .both,
+        .TRUST = .webpki,
+        .EXPORTER = .on,
+    });
+    const quic = chapulin_quic(b, target, .webpki);
+    return .{ .tcp = tcp orelse return null, .quic = quic orelse return null };
+}
+
+/// The QUIC object in the trust mode `trust`, or null while the package is still being fetched.
+pub fn chapulin_quic(b: *std.Build, target: std.Build.ResolvedTarget, trust: QuicTrust) ?*std.Build.Dependency {
+    return b.lazyDependency("chapulin", .{
+        .target = target,
+        .RAND = .@"extern",
+        .TRANSPORT = .@"quic-nonblocking",
+        .ROLE = .both,
+        .TRUST = trust,
+        .SUITE = .aesgcm,
+        .AES = .hw,
+        .KEYLOG = .on,
+        .CH_NATIVE_AES = true,
+    });
+}
+
+/// Links chapulin into every `src/testing/` module that needs it: the TCP object into the h11 and
+/// h2 endpoints and the TLS checks, the QUIC object into the loopback check. The UDP endpoint gets
+/// the QUIC object where it is made (`add_testing_udp`).
+pub fn link_chapulin_all(graph: Modules, chapulin: Chapulin) void {
+    for ([_]*std.Build.Module{ graph.testing, graph.testing_client, graph.testing_tls, graph.testing_tls_server }) |module| {
+        link_chapulin(module, chapulin.tcp);
+    }
+    link_chapulin(graph.testing_quic, chapulin.quic);
+}
+
+/// One object and the module translated from its headers, which `src/testing/` imports as
+/// `chapulin`.
+fn link_chapulin(module: *std.Build.Module, dependency: *std.Build.Dependency) void {
+    module.addImport("chapulin", dependency.module("chapulin"));
+    module.addObjectFile(dependency.namedLazyPath("chapulin.o"));
 }

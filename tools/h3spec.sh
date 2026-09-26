@@ -4,23 +4,22 @@
 # every case accounted for. h3spec is fetched once, checked against the SHA-256 pinned below, and
 # cached; the release publishes no checksums, so the pins were taken from the files themselves.
 #
-# It needs a Go toolchain for the identity and a chapulin checkout whose QUIC object was built as
-# tools/quic_udp.sh says. The server runs with `errors`, because h3spec breaks a rule on purpose
+# It needs a Go toolchain for the identity. chapulin comes from the package build.zig.zon pins
+# (design §8 step 16a). The server runs with `errors`, because h3spec breaks a rule on purpose
 # on every connection it opens. It is not part of `zig build test`.
 #
-# h3spec's client offers AES-GCM and AES-CCM suites alone, so the chapulin object must be built
-# SUITE=aesgcm, as CLAUDE.md's QUIC make line says.
+# h3spec's client offers AES-GCM and AES-CCM suites alone, so the chapulin object is built
+# SUITE=aesgcm (build/modules.zig).
 #
 # The server runs with `no-ecn` too. h3spec 0.1.13's client does not parse an ACK frame of type
 # 0x03, the one that carries ECN counts (RFC 9000 §19.3), and closes with FRAME_ENCODING_ERROR
 # on the first. colibri's ACK frames are what RFC 9000 permits, and quic-go, ngtcp2 and aioquic
 # read them, so the check turns ECN off rather than change colibri.
 #
-#   tools/h3spec.sh <chapulin-checkout> [port]
+#   tools/h3spec.sh [port]
 set -euo pipefail
 
-readonly checkout="${1:?usage: h3spec.sh <chapulin-checkout> [port]}"
-readonly port="${2:-44833}"
+readonly port="${1:-44833}"
 readonly h3spec_version="v0.1.13"
 readonly cache="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/h3spec-${h3spec_version}"
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -63,7 +62,7 @@ trap cleanup EXIT
 
 cd "$repository_root"
 echo "h3spec.sh: building the endpoint"
-zig build -Dchapulin-quic="$checkout"
+zig build
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 mkdir -p "$scratch/www"
 ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" errors no-ecn \

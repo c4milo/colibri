@@ -218,7 +218,7 @@ const testing = std.testing;
 
 /// A server the test drives, and an identity of the right lengths that nothing signs with. The
 /// handshake fails before chapulin reads a key. Test-only.
-var test_server: if (chapulin.available) Server else void = undefined;
+var test_server: Server = undefined;
 var test_receive: [tls.constants.record_write_len_min]u8 = undefined;
 var test_output: [tls.constants.record_write_len_min]u8 = undefined;
 /// Each certificate is an empty DER SEQUENCE. Test-only.
@@ -229,7 +229,6 @@ const test_point: [public_point_len]u8 = @splat(1);
 const test_cookie: [cookie_key_len]u8 = @splat(1);
 
 test "RFC 9846 §6: a ClientHello chapulin refuses fails the handshake, and nothing completes" {
-    if (!chapulin.available) return error.SkipZigTest;
     test_server.init(.{
         .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
         .cookie_key = &test_cookie,
@@ -244,7 +243,6 @@ test "RFC 9846 §6: a ClientHello chapulin refuses fails the handshake, and noth
 }
 
 test "a session closed after its handshake failed holds nothing and stays dead" {
-    if (!chapulin.available) return error.SkipZigTest;
     test_server.init(.{
         .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
         .cookie_key = &test_cookie,

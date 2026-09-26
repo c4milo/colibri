@@ -5,16 +5,15 @@
 # alone, through bench/.
 #
 # h2load comes from tools/h3load/Dockerfile, which builds it with HTTP/3 from pinned release tags,
-# because Debian's h2load has none. It needs Docker, a Go toolchain for the identity, and a
-# chapulin checkout whose QUIC object was built as tools/quic_udp.sh says. It is not part of
-# `zig build test`.
+# because Debian's h2load has none. It needs Docker and a Go toolchain for the identity. chapulin
+# comes from the package build.zig.zon pins (design §8 step 16a). It is not part of `zig build
+# test`.
 #
-#   tools/h3load.sh <chapulin-checkout> [requests] [port]
+#   tools/h3load.sh [requests] [port]
 set -euo pipefail
 
-readonly checkout="${1:?usage: h3load.sh <chapulin-checkout> [requests] [port]}"
-readonly requests="${2:-1000}"
-readonly port="${3:-44823}"
+readonly requests="${1:-1000}"
+readonly port="${2:-44823}"
 readonly image="colibri-h3load:latest"
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly clients=10
@@ -35,7 +34,7 @@ fail() {
 
 cd "$repository_root"
 echo "h3load.sh: building the endpoint and h2load"
-zig build -Dchapulin-quic="$checkout"
+zig build
 docker image inspect "$image" >/dev/null 2>&1 || docker build -q -t "$image" tools/h3load >/dev/null
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 mkdir -p "$scratch/www"

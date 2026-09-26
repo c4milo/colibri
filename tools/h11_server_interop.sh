@@ -2,15 +2,15 @@
 # The server half of the h11 interop check of docs/design.md §8 step 15d: run other
 # implementations' HTTP/1.1 clients against colibri's test-only server (§9) and require every
 # request to end with 200 and the body the server always sends, over HTTP/1.1. Cleartext with
-# `--h11`, and with --tls also over TLS 1.3 through chapulin's record-mode server built from the
-# checkout, where the server offers "h2" and "http/1.1" and the client's offer decides.
+# `--h11`, and with --tls also over TLS 1.3 through chapulin's record-mode server, where the server
+# offers "h2" and "http/1.1" and the client's offer decides.
 #
 # The peers are Go's net/http client, built with `go build`, and Debian's curl, run in the
 # container tools/h2_interop/Dockerfile builds, the same peers tools/h2_server_interop.sh runs.
 # Over TLS, Go offers ALPN "http/1.1" alone, and curl runs twice: offering "http/1.1" alone, and
 # offering no ALPN at all, which the server takes as h11 (decision 88).
 #
-# Usage: tools/h11_server_interop.sh [--tls <chapulin-checkout>] [curl] [go]
+# Usage: tools/h11_server_interop.sh [--tls] [curl] [go]
 #        (no peer runs both)
 set -euo pipefail
 
@@ -79,7 +79,7 @@ in_both_modes() {
   mode=cleartext
   start_server --h11
   "$1"
-  if [ -n "${checkout}" ]; then
+  if [ -n "${tls}" ]; then
     mode=tls
     echo "h11_server_interop.sh: over TLS"
     start_server --tls "${identity}"
@@ -135,11 +135,10 @@ plan_go() {
   echo "h11_server_interop.sh: go ${mode}: ${report#go_client: }"
 }
 
-checkout=""
+tls=""
 if [ "${1:-}" = "--tls" ]; then
-  [ -n "${2:-}" ] || fail "--tls needs a chapulin checkout"
-  checkout="$(cd "$2" && pwd)"
-  shift 2
+  tls="yes"
+  shift
 fi
 peers=("$@")
 [ "${#peers[@]}" -gt 0 ] || peers=(curl go)
@@ -147,8 +146,8 @@ peers=("$@")
 command -v go >/dev/null 2>&1 || fail "go is not installed"
 echo "h11_server_interop.sh: building the test-only server"
 mkdir -p "${identity_directory}"
-if [ -n "${checkout}" ]; then
-  (cd "${repository_root}" && zig build install -Dchapulin-server="${checkout}")
+if [ -n "${tls}" ]; then
+  (cd "${repository_root}" && zig build install)
   (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
 else
   (cd "${repository_root}" && zig build install)
@@ -173,5 +172,5 @@ for peer in "${peers[@]}"; do
   esac
 done
 modes="cleartext"
-[ -z "${checkout}" ] || modes="cleartext and TLS"
+[ -z "${tls}" ] || modes="cleartext and TLS"
 echo "h11_server_interop.sh: every request ended with 200 over h11, in ${modes}, from: ${peers[*]}"

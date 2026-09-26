@@ -59,21 +59,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseSafe });
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 
-    // Decision 10: `src/testing/` is the only directory that links chapulin, and colibri vendors
-    // none of its C (CLAUDE.md "Ask before"). The option names a chapulin checkout whose
-    // `bin/chapulin-client.o` and `bin/chapulin-server.o` have already been built; without it the
-    // TLS endpoints are not built and every other check still runs, so a fresh clone needs no
-    // chapulin.
-    // The two roles are two builds and either can be present without the other, so each endpoint
-    // names its own. Both usually point at one checkout: colibri reads the headers from it and
-    // links `bin/chapulin-client.o` or `bin/chapulin-server.o` from it.
-    const chapulin: modules.Chapulin = .{
-        .client = b.option([]const u8, "chapulin-client", "A chapulin checkout built ROLE=client (decision 10)"),
-        .server = b.option([]const u8, "chapulin-server", "A chapulin checkout built ROLE=server (decision 10)"),
-        .quic = b.option([]const u8, "chapulin-quic", "A chapulin checkout built TRANSPORT=quic-nonblocking ROLE=both (decision 10)"),
-        .quic_trust = b.option(modules.QuicTrust, "chapulin-quic-trust", "The TRUST that object was built with") orelse .webpki,
-    };
-    const graph = modules.add(b, target, optimize, chapulin);
+    const graph = modules.add(b, target, optimize);
 
     // Everything below is colibri's own build: the tests, the checks and the tools. A project that
     // depends on colibri stops here, before the tools request pepegrillo.
@@ -85,7 +71,16 @@ pub fn build(b: *std.Build) void {
     // build, like this one, offers ReleaseSafe as `-Drelease` and no `-Doptimize`.
     const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
     const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
-    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), chapulin, target, optimize);
+    // Design §8 step 16a: chapulin, compiled from the pinned package with `RAND=extern` in each
+    // configuration `src/testing/` links (decision 94). Requested here, after a dependent's build
+    // has stopped, until step 16b moves the adapters into the library.
+    const chapulin = modules.chapulin_objects(b, target) orelse return;
+    modules.link_chapulin_all(graph, chapulin);
+    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), chapulin.quic, target, optimize);
+    // The QUIC Interop Runner's endpoint, the same program over a `TRUST=raw-ecdsa` object, which
+    // only `zig build interop-endpoint` compiles.
+    const interop_quic = modules.chapulin_quic(b, target, .@"raw-ecdsa") orelse return;
+    add_interop_endpoint_step(b, modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), interop_quic, target, optimize));
     // https://github.com/c4milo/colibri/issues/61 amends decision 58: the h2 endpoints run on
     // Rotor's loop too.
     graph.testing.addImport("rotor", rotor_dependency.module("rotor"));
@@ -346,7 +341,7 @@ fn add_http_client_step(b: *std.Build, testing_client: *std.Build.Module) void {
 
 /// `zig build tls-handshake -- <port> <spki-path> <hostname>`: one TLS 1.3 handshake against a
 /// server that is not colibri's, which is the first half of design §8 step 5's check. It needs a
-/// chapulin checkout and a listening peer, so it is never part of `zig build test`.
+/// listening peer, so it is never part of `zig build test`.
 fn add_tls_handshake_step(b: *std.Build, testing_tls: *std.Build.Module) void {
     const check = b.addExecutable(.{ .name = "tls-handshake", .root_module = testing_tls });
     const run = b.addRunArtifact(check);
@@ -358,8 +353,8 @@ fn add_tls_handshake_step(b: *std.Build, testing_tls: *std.Build.Module) void {
 
 /// `zig build tls-accept -- <port> <identity-prefix>`: one TLS 1.3 handshake as the server
 /// against a client that is not colibri's, then one record each way, which is the second half of
-/// design §8 step 5's check. It needs a chapulin checkout built `ROLE=server` and a peer that
-/// connects, so it is never part of `zig build test`.
+/// design §8 step 5's check. It needs a peer that connects, so it is never part of `zig build
+/// test`.
 fn add_tls_accept_step(b: *std.Build, testing_tls_server: *std.Build.Module) void {
     const check = b.addExecutable(.{ .name = "tls-accept", .root_module = testing_tls_server });
     const run = b.addRunArtifact(check);
@@ -370,8 +365,8 @@ fn add_tls_accept_step(b: *std.Build, testing_tls_server: *std.Build.Module) voi
 }
 
 /// `zig build quic-loopback -- <identity-prefix> <hostname> <unix-seconds>`: one QUIC handshake and
-/// one stream between two colibri connections over chapulin, in one process. It needs a chapulin
-/// checkout built `TRANSPORT=quic-nonblocking ROLE=both`, so it is never part of `zig build test`.
+/// one stream between two colibri connections over chapulin, in one process. It needs an identity a
+/// Go program mints, so it is never part of `zig build test`.
 fn add_quic_loopback_step(b: *std.Build, testing_quic: *std.Build.Module) void {
     const check = b.addExecutable(.{ .name = "quic-loopback", .root_module = testing_quic });
     const run = b.addRunArtifact(check);
@@ -382,7 +377,7 @@ fn add_quic_loopback_step(b: *std.Build, testing_quic: *std.Build.Module) void {
 }
 
 /// `zig build quic-udp -- server|client ...`: design §9's UDP QUIC endpoint, as the hq-interop
-/// server or client. It needs a chapulin checkout built `TRANSPORT=quic-nonblocking ROLE=both`.
+/// server or client, over chapulin's `TRANSPORT=quic-nonblocking ROLE=both` object.
 /// `zig build qif -- encode|decode ...`: design §9's two QPACK command-line tools, for the QIF
 /// interop of step 11.
 fn add_qif_step(b: *std.Build, testing_qif: *std.Build.Module) void {
@@ -401,6 +396,14 @@ fn add_quic_udp_step(b: *std.Build, testing_udp: *std.Build.Module) void {
     const step = b.step("quic-udp", "Run the UDP QUIC endpoint: -- server|client ...");
     step.dependOn(&run.step);
     b.installArtifact(endpoint);
+}
+
+/// `zig build interop-endpoint`: installs the UDP QUIC endpoint over a `TRUST=raw-ecdsa` object as
+/// `quic-udp-interop`, which `tools/quic_interop/Dockerfile` copies into the runner's image.
+fn add_interop_endpoint_step(b: *std.Build, module: *std.Build.Module) void {
+    const endpoint = b.addExecutable(.{ .name = "quic-udp-interop", .root_module = module });
+    const step = b.step("interop-endpoint", "Install the UDP QUIC endpoint built TRUST=raw-ecdsa, for the QUIC Interop Runner");
+    step.dependOn(&b.addInstallArtifact(endpoint, .{}).step);
 }
 
 fn add_hooks_step(b: *std.Build) void {

@@ -242,7 +242,6 @@ fn step_session(connection: *Connection, index: usize) void {
 /// Steps a TLS connection: records in from `input`, records out into `output`
 /// (`client_tls.zig`).
 fn step_tls(connection: *Connection, index: usize, layer: *client_tls.Layer) void {
-    if (comptime !client_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
     const stepped = client_tls.step(
         layer,
         &connection.session,
@@ -272,7 +271,6 @@ fn consume(connection: *Connection, consumed: usize) void {
 
 /// Gives a connection the TLS layer of its index, with its ClientHello staged.
 fn start_tls(index: usize, shared: *const client_tls.Shared) !*client_tls.Layer {
-    if (comptime !client_tls.available) unreachable; // `main` refuses `--tls` without chapulin.
     const layer = &tls_layers[index];
     try client_tls.start(layer, shared);
     return layer;
@@ -280,7 +278,6 @@ fn start_tls(index: usize, shared: *const client_tls.Shared) !*client_tls.Layer 
 
 /// Wipes what a TLS connection's session still holds, once its connection is closed.
 fn finish_tls(layer: *client_tls.Layer) void {
-    if (comptime !client_tls.available) unreachable; // No layer exists without chapulin.
     client_tls.finish(layer);
 }
 
@@ -341,10 +338,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// Loads what every TLS connection of the run shares. The name the server's certificate must carry
 /// is the authority the requests name, and `--h11` offers `http/1.1` alone.
 fn load_tls(prefix: []const u8, run: *const Run) !void {
-    if (comptime !client_tls.available) {
-        std.debug.print("http-client: built without chapulin; pass -Dchapulin-client=<checkout>\n", .{});
-        std.process.exit(exit_usage);
-    }
     const protocols: []const []const u8 = if (run.protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both;
     tls_shared = try client_tls.load(&tls_anchors, prefix, run.authority, run.now_seconds, protocols);
 }
@@ -360,7 +353,6 @@ const der_sequence_tag: u8 = 0x30;
 const test_now_seconds: u64 = 1_780_000_000;
 
 test "a TLS connection's session is wiped when its connection closes" {
-    if (!client_tls.available) return error.SkipZigTest;
     const anchors = [_]client_tls.Anchor{.{
         .name = &test_der,
         .name_len = test_der.len,
@@ -380,7 +372,6 @@ test "a TLS connection's session is wiped when its connection closes" {
 }
 
 test "RFC 9113 §8.3.1: a run's requests name https over TLS and http in cleartext" {
-    if (!client_tls.available) return error.SkipZigTest;
     const saved = tls_shared;
     defer tls_shared = saved;
     tls_shared = null;

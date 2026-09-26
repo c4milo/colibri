@@ -6,6 +6,7 @@ const std = @import("std");
 const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
 const chapulin_quic_c = @import("../chapulin_quic_c.zig");
+const entropy = @import("../../entropy.zig");
 const chapulin_quic = @import("../chapulin_quic.zig");
 const quic = @import("quic");
 const chapulin_quic_suite = @import("../chapulin_quic_suite.zig");
@@ -43,26 +44,17 @@ var spki_storage: [constants.tls_der_len_max]u8 = undefined;
 /// chapulin keeps a pointer to the anchors, so they live as long as the session.
 var anchors: [1]chapulin_quic.Anchor = undefined;
 
-/// Fills `into` from the operating system's entropy.
-fn draw(into: []u8) !void {
-    const drawn = try check_file.read_file("/dev/urandom", into);
-    if (drawn.len != into.len) return error.EntropyShort;
-}
-
-/// Checks the linked object, then seeds chapulin's generator and draws the cookie key, before any
-/// session starts.
+/// Checks the linked object, then draws the keys, before any session starts. chapulin draws the
+/// rest of its entropy through `ch_rand_bytes` (`entropy.zig`).
 pub fn seed() !void {
     try chapulin_quic_c.check_build();
-    var seed_octets: [chapulin_quic_c.seed_len]u8 = undefined;
-    try draw(&seed_octets);
-    c.ch_drbg_seed(&seed_octets);
     // RFC 9846 §4.3.2: one key per deployment, and a run is one deployment.
-    try draw(&cookie_storage);
+    entropy.fill(&cookie_storage);
     // Decision 55: so is the Retry token's key, which only this process ever holds.
-    try draw(&retry.key);
+    entropy.fill(&retry.key);
     // chapulin's `srv_cfg.h`: one ticket key per deployment, and a ticket resumes only on a server
     // that holds it, which here is this process.
-    try draw(&ticket_key_storage);
+    entropy.fill(&ticket_key_storage);
     retry.lifetime_seconds = constants.quic_retry_token_lifetime_seconds;
 }
 
@@ -75,7 +67,7 @@ pub fn retry_suite() quic.crypto.Suite {
 /// unpredictable.
 pub fn challenge_data() quic.connection_migration.ChallengeData {
     var data: quic.connection_migration.ChallengeData = undefined;
-    draw(std.mem.asBytes(&data)) catch unreachable;
+    entropy.fill(std.mem.asBytes(&data));
     return data;
 }
 
@@ -83,7 +75,7 @@ pub fn challenge_data() quic.connection_migration.ChallengeData {
 /// §7.2.4.1, §8.1), drawn at random, so each connection greases with its own.
 pub fn grease() u64 {
     var value: u64 = undefined;
-    draw(std.mem.asBytes(&value)) catch unreachable;
+    entropy.fill(std.mem.asBytes(&value));
     return value;
 }
 
@@ -96,14 +88,14 @@ const client_alpn_hq = [_][]const u8{hq.alpn};
 /// A spare connection ID and its stateless reset token (RFC 9000 §5.1.1, §10.3), drawn at random:
 /// §5.1 wants a connection ID unlinkable to the others, and §10.3 a token no one else can guess.
 pub fn spare_id(id: *[id_len]u8, token: *[quic.constants.stateless_reset_token_len]u8) void {
-    draw(id) catch unreachable;
-    draw(token) catch unreachable;
+    entropy.fill(id);
+    entropy.fill(token);
 }
 
 /// A Retry's Source Connection ID, drawn at random, which the client addresses next (RFC 9000
 /// §17.2.5.1). §5.1 wants it unpredictable, as every connection ID this endpoint chooses.
 pub fn retry_id() []const u8 {
-    draw(&retry_source_id) catch unreachable;
+    entropy.fill(&retry_source_id);
     return &retry_source_id;
 }
 
@@ -111,7 +103,7 @@ pub fn retry_id() []const u8 {
 /// carried the client's first Destination Connection ID and the Retry's Source Connection ID
 /// (decision 55), which RFC 9000 §7.3 has the server send back.
 pub fn server_ids_after_retry(ids: *const quic.crypto.suite.RetryConnectionIds, source: []const u8) udp_peer.Identity {
-    draw(&local_id) catch unreachable;
+    entropy.fill(&local_id);
     return .{
         .local_source = &local_id,
         .original_destination = ids.original_destination_slice(),
@@ -122,14 +114,14 @@ pub fn server_ids_after_retry(ids: *const quic.crypto.suite.RetryConnectionIds, 
 
 /// A client's two connection IDs, drawn at random (RFC 9000 §7.2).
 pub fn client_ids() udp_peer.Identity {
-    draw(&local_id) catch unreachable;
-    draw(&original_id) catch unreachable;
+    entropy.fill(&local_id);
+    entropy.fill(&original_id);
     return .{ .local_source = &local_id, .original_destination = &original_id };
 }
 
 /// A server's connection ID, drawn at random, beside the two the client's first Initial carried.
 pub fn server_ids(destination: []const u8, source: []const u8) udp_peer.Identity {
-    draw(&local_id) catch unreachable;
+    entropy.fill(&local_id);
     return .{ .local_source = &local_id, .original_destination = destination, .peer_source = source };
 }
 

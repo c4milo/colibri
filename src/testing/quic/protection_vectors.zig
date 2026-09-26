@@ -16,6 +16,7 @@
 //!
 //! The hex is copied from `docs/rfcs/rfc9001.txt` line for line, and each constant names the lines.
 const std = @import("std");
+const entropy = @import("../entropy.zig");
 const quic = @import("quic");
 const constants = @import("../constants.zig");
 const chapulin_quic_c = @import("chapulin_quic_c.zig");
@@ -132,8 +133,7 @@ const placeholder_point: [point_len]u8 = @splat(placeholder_octet);
 const test_now_seconds: u64 = 1;
 
 fn start_client() !crypto.Suite {
-    const seed: [chapulin_quic_c.seed_len]u8 = @splat(0);
-    c.ch_drbg_seed(&seed);
+    entropy.use_fixed(0);
     const anchors = [_]chapulin_quic.Anchor{if (chapulin_quic.webpki) .{
         .name = &placeholder,
         .name_len = placeholder.len,
@@ -152,7 +152,6 @@ fn start_client() !crypto.Suite {
 }
 
 test "RFC 9001 Appendix A.2: the client's Initial is sealed octet for octet" {
-    if (!chapulin_quic_c.available) return error.SkipZigTest;
     const suite = try start_client();
     var payload: [client_payload_len]u8 = @splat(0);
     @memcpy(payload[0..client_crypto_frame.len], &client_crypto_frame);
@@ -168,7 +167,6 @@ test "RFC 9001 Appendix A.2: the client's Initial is sealed octet for octet" {
 }
 
 test "RFC 9001 Appendix A.3: the server's Initial opens to its header and payload" {
-    if (!chapulin_quic_c.available) return error.SkipZigTest;
     const suite = try start_client();
     var packet = server_protected;
     // The Packet Number field follows the header's Length field, which ends the unprotected part.
@@ -187,7 +185,6 @@ test "RFC 9001 Appendix A.3: the server's Initial opens to its header and payloa
 const server_packet_number_len = 2;
 
 test "RFC 9001 Appendix A.4: the Retry Integrity Tag over colibri's pseudo-packet" {
-    if (!chapulin_quic_c.available) return error.SkipZigTest;
     const suite = try start_client();
     const tag_len = crypto.constants.retry_integrity_tag_len;
     const without_tag = retry_packet[0 .. retry_packet.len - tag_len];

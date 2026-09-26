@@ -25,10 +25,6 @@ const chapulin_record = @import("chapulin_record.zig");
 
 const Session = session_module.Session;
 
-/// Whether the build linked chapulin's server. Without it `Layer` holds nothing, and the server
-/// refuses `--tls`.
-pub const available = chapulin.available;
-
 /// Why a connection ends here. The socket around it closes it either way.
 pub const Error = chapulin_server.Error || tls_records.AttachError || tls_records.Error;
 
@@ -41,7 +37,7 @@ pub const Shared = struct {
 };
 
 /// One connection's TLS state, in static storage `server.zig` places.
-pub const Layer = if (available) struct {
+pub const Layer = struct {
     server: chapulin_server.Server,
     /// chapulin's receive buffer (`chapulin_server.Options.receive`).
     receive: [constants.tls_receive_len]u8,
@@ -49,7 +45,7 @@ pub const Layer = if (available) struct {
     records: tls_records.Records,
     /// Whether `attach_tls` accepted the finished handshake.
     attached: bool,
-} else struct {};
+};
 
 pub const Step = tls_records.Step;
 
@@ -76,7 +72,7 @@ pub fn finish(layer: *Layer) void {
 pub fn session_state(layer: *const Layer) u8 {
     return chapulin.c.ch_record_state(&layer.server.record);
 }
-pub const chapulin_closed = if (available) chapulin.c.CH_ST_CLOSED else 0;
+pub const chapulin_closed = chapulin.c.CH_ST_CLOSED;
 
 /// Runs the handshake over what the socket read until it completes, then the record half.
 pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!Step {
@@ -151,7 +147,6 @@ fn empty_records(count: usize) ![]u8 {
 }
 
 test "a record with no room in the byte stream waits for the session to read" {
-    if (!available) return error.SkipZigTest;
     try connect_test_layer(&session_module.alpn_both);
     // Leave less room than a record's ciphertext: the record stays in the socket's input.
     test_layer.records.plain_in_len = test_layer.records.plain_in.len - 1;
@@ -161,7 +156,6 @@ test "a record with no room in the byte stream waits for the session to read" {
 }
 
 test "RFC 9113 §10.5: a run of records carrying nothing ends h2 with a GOAWAY, not the socket" {
-    if (!available) return error.SkipZigTest;
     try connect_test_layer(&session_module.alpn_both);
     // One past `records_without_data_max` is ENHANCE_YOUR_CALM, an h2 connection error.
     const input = try empty_records(h2.core.constants.records_without_data_max + 1);
@@ -172,7 +166,6 @@ test "RFC 9113 §10.5: a run of records carrying nothing ends h2 with a GOAWAY, 
 }
 
 test "RFC 9846 §6.1: after the peer's close_notify this side still writes, then closes once" {
-    if (!available) return error.SkipZigTest;
     try connect_test_layer(&session_module.alpn_both);
     // The peer closes before the server has written anything. §6.1: its close_notify "does not
     // have any effect on" this side's writing, so the server's SETTINGS still go out.
@@ -203,7 +196,6 @@ const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, 1 };
 const handshake_key_update: u8 = 24;
 
 test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before anything else is read or sealed" {
-    if (!available) return error.SkipZigTest;
     try connect_test_layer(&session_module.alpn_both);
     // The server's SETTINGS go out first, as this side's record 0.
     _ = try step(&test_layer, &test_session, &.{}, &test_output);
@@ -224,7 +216,6 @@ test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before anything else is r
 }
 
 test "decision 88: a handshake that selected http/1.1 runs h11, and RFC 9112 §9.8's close follows" {
-    if (!available) return error.SkipZigTest;
     try connect_test_layer(&session_module.alpn_h11);
     try testing.expectEqual(.h11, std.meta.activeTag(test_session));
     const request = "GET / HTTP/1.1\r\nHost: a\r\nConnection: close\r\n\r\n";

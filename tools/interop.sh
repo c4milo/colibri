@@ -3,7 +3,7 @@
 # Runs colibri's endpoint in the QUIC Interop Runner against other implementations, as a server
 # and as a client. Design §8 step 9e's piece 11 and design §9's interop check.
 #
-#   tools/interop.sh <chapulin-checkout> [peers] [tests]
+#   tools/interop.sh [peers] [tests]
 #
 # peers and tests are the runner's comma-separated names; the defaults are below. It needs Docker
 # with docker compose, python3, and tshark from Wireshark 4.5.0 or newer, which the runner reads
@@ -13,9 +13,8 @@
 # unsupported. It is not part of `zig build test`, and it takes minutes.
 set -euo pipefail
 
-readonly checkout="${1:?usage: interop.sh <chapulin-checkout> [peers] [tests]}"
-readonly peers="${2:-quic-go}"
-readonly tests="${3:-handshake,transfer,chacha20,multiplexing,handshakeloss,transferloss,retry,keyupdate,amplificationlimit,ipv6,ecn,longrtt,blackhole,rebind-port,rebind-addr,resumption,http3}"
+readonly peers="${1:-quic-go}"
+readonly tests="${2:-handshake,transfer,chacha20,multiplexing,handshakeloss,transferloss,retry,keyupdate,amplificationlimit,ipv6,ecn,longrtt,blackhole,rebind-port,rebind-addr,resumption,http3}"
 readonly runner_commit="740c05a10b61d65e8abd3ad38d60898004d335d9"
 readonly runner="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/quic-interop-runner-${runner_commit}"
 readonly image="colibri-qns:latest"
@@ -28,12 +27,12 @@ done
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
-# The image builds from colibri's working tree, fetched packages included, and a chapulin
-# checkout, so it runs exactly what this machine has.
+# The image builds from colibri's working tree, fetched packages included, so it runs exactly what
+# this machine has. The packages come first, so zig-pkg/ holds chapulin's.
 echo "interop: building $image"
-mkdir -p "$scratch/context/colibri" "$scratch/context/chapulin"
+(cd "$repository_root" && zig build --fetch=all)
+mkdir -p "$scratch/context/colibri"
 rsync -a --exclude .zig-cache --exclude zig-out --exclude .git "$repository_root/" "$scratch/context/colibri/"
-git -C "$checkout" archive HEAD | tar -x -C "$scratch/context/chapulin"
 cp "$repository_root"/tools/quic_interop/{Dockerfile,run_endpoint.sh,qns_identity.py} "$scratch/context/"
 docker build -q -t "$image" "$scratch/context" >/dev/null
 

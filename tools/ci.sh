@@ -16,10 +16,6 @@ readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly report="${1:-${repository_root}/ci-report.md}"
 readonly scratch="$(mktemp -d)"
 readonly h2load_port=18470
-# The two TLS checks of design §8 step 5 need a chapulin checkout built for both roles, which a
-# hosted runner does not have. They run for a person and are stated as skipped otherwise, which
-# is what CLAUDE.md asks of a check CI cannot run.
-readonly chapulin="${CHAPULIN:-${repository_root}/../chapulin}"
 readonly h2load_runs=5
 readonly h2load_requests=200000
 readonly h2load_clients=32
@@ -117,60 +113,32 @@ section "Examples" zig build examples
 section "Doc snippets" tools/doc_snippets.sh
 section "A project that depends on colibri" tools/consumer_check.sh
 section "Simulator checks, Debug and ReleaseSafe" simulator_checks
-# h2spec runs over TLS too when the checkout carries the record-mode server object (design §8
-# step 5, https://github.com/c4milo/colibri/issues/20).
-if [ -f "${chapulin}/bin/chapulin-server.o" ]; then
-  section "h2spec, cleartext and TLS" tools/h2spec.sh 18443 "${chapulin}"
-else
-  section "h2spec, cleartext" tools/h2spec.sh
-fi
+# chapulin comes from the package build.zig.zon pins (design §8 step 16a), so every run makes the
+# TLS and QUIC handshakes: h2spec and the interop in both directions over TLS as well as
+# cleartext, step 5's two handshakes against Go, and step 9e's QUIC checks.
+section "h2spec, cleartext and TLS" tools/h2spec.sh 18443 --tls
 h2spec_lines="$(grep -E "^h2spec.sh: [a-z]+: [0-9]+ passed" "${scratch}/last.log")"
-# The client direction runs over TLS too when the checkout carries the record-mode client object.
-if [ -f "${chapulin}/bin/chapulin-client.o" ]; then
-  section "Interop, client direction, cleartext and TLS" tools/h2_interop.sh --tls "${chapulin}"
-else
-  section "Interop, client direction, cleartext" tools/h2_interop.sh
-fi
+section "Interop, client direction, cleartext and TLS" tools/h2_interop.sh --tls
 interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|over TLS|every exchange)|^http-client:" "${scratch}/last.log")"
-# The server direction runs over TLS too when the checkout carries the record-mode server object.
-if [ -f "${chapulin}/bin/chapulin-server.o" ]; then
-  section "Interop, server direction, cleartext and TLS" tools/h2_server_interop.sh --tls "${chapulin}"
-else
-  section "Interop, server direction, cleartext" tools/h2_server_interop.sh
-fi
+section "Interop, server direction, cleartext and TLS" tools/h2_server_interop.sh --tls
 server_interop_lines="$(grep -E "^h2_server_interop.sh: (curl|nghttp|go|over TLS|every request)" "${scratch}/last.log")"
-# The same two directions over h11 (design §8 step 15d), over TLS when the objects are there.
-if [ -f "${chapulin}/bin/chapulin-client.o" ]; then
-  section "h11 interop, client direction, cleartext and TLS" tools/h11_interop.sh --tls "${chapulin}"
-else
-  section "h11 interop, client direction, cleartext" tools/h11_interop.sh
-fi
+# The same two directions over h11 (design §8 step 15d).
+section "h11 interop, client direction, cleartext and TLS" tools/h11_interop.sh --tls
 h11_interop_lines="$(grep -E "^h11_interop.sh: (go version|h2o version|over TLS|every exchange)" "${scratch}/last.log")"
-if [ -f "${chapulin}/bin/chapulin-server.o" ]; then
-  section "h11 interop, server direction, cleartext and TLS" tools/h11_server_interop.sh --tls "${chapulin}"
-else
-  section "h11 interop, server direction, cleartext" tools/h11_server_interop.sh
-fi
+section "h11 interop, server direction, cleartext and TLS" tools/h11_server_interop.sh --tls
 h11_server_interop_lines="$(grep -E "^h11_server_interop.sh: (curl|go|over TLS|every request)" "${scratch}/last.log")"
-if [ -f "${chapulin}/bin/chapulin-client.o" ] && [ -f "${chapulin}/bin/chapulin-server.o" ]; then
-  section "TLS handshake, colibri as client" tools/tls_handshake.sh "${chapulin}"
-  tls_lines="$(grep -E "^tls-handshake:" "${scratch}/last.log")"
-  section "TLS handshake, colibri as server" tools/tls_accept.sh "${chapulin}"
-  tls_lines="${tls_lines}"$'\n'"$(grep -E "^tls-accept: complete|^tls-accept: records|^tls_client:" "${scratch}/last.log")"
-else
-  tls_lines="No chapulin checkout with both role objects at ${chapulin}, so this run made no TLS handshake."
-fi
-# Design §8 step 9e's QUIC loopback: a colibri client and server over chapulin's QUIC object.
-if [ -f "${chapulin}/bin/chapulin-quic.o" ]; then
-  section "QUIC handshake, colibri to colibri over chapulin" tools/quic_loopback.sh "${chapulin}"
-  quic_lines="$(grep -E "^quic-loopback:" "${scratch}/last.log")"
-  section "hq-interop over UDP, colibri to colibri over chapulin" tools/quic_udp.sh "${chapulin}"
-  quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic-udp: (fetched|served)" "${scratch}/last.log")"
-  section "hq-interop over UDP, colibri against aioquic" tools/quic_aioquic.sh "${chapulin}"
-  quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic_aioquic: " "${scratch}/last.log")"
-else
-  quic_lines="No chapulin checkout with a QUIC object at ${chapulin}, so this run made no QUIC handshake."
-fi
+section "TLS handshake, colibri as client" tools/tls_handshake.sh
+tls_lines="$(grep -E "^tls-handshake:" "${scratch}/last.log")"
+section "TLS handshake, colibri as server" tools/tls_accept.sh
+tls_lines="${tls_lines}"$'\n'"$(grep -E "^tls-accept: complete|^tls-accept: records|^tls_client:" "${scratch}/last.log")"
+# Design §8 step 9e's QUIC checks: a colibri client and server over chapulin's QUIC object, in one
+# process and over UDP, and colibri against aioquic.
+section "QUIC handshake, colibri to colibri over chapulin" tools/quic_loopback.sh
+quic_lines="$(grep -E "^quic-loopback:" "${scratch}/last.log")"
+section "hq-interop over UDP, colibri to colibri over chapulin" tools/quic_udp.sh
+quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic-udp: (fetched|served)" "${scratch}/last.log")"
+section "hq-interop over UDP, colibri against aioquic" tools/quic_aioquic.sh
+quic_lines="${quic_lines}"$'\n'"$(grep -E "^quic_aioquic: " "${scratch}/last.log")"
 # Design §8 step 11: the QIF tools of design §9 against ls-qpack, through pylsqpack.
 if command -v python3 >/dev/null 2>&1; then
   section "QIF interop, colibri against ls-qpack" tools/qif_interop.sh

@@ -27,6 +27,15 @@
             .hash = "N-V-__8AACPGUgeB6kOEJXkaQuKfDvAXxeXYW9wcU6TpfDty",
             .lazy = true,
         },
+        // The TLS stack and the packet protection (decision 94), compiled from source with
+        // `RAND=extern` in each configuration colibri uses (design §8 step 16a). Lazy, and
+        // requested only when colibri is the root build, until step 16b moves the adapters into
+        // the library; until then `src/testing/` alone links it.
+        .chapulin = .{
+            .url = "git+https://github.com/c4milo/chapulin#64e2f25f7fd3c58de69348dbd57bf95ea1c5d5a4",
+            .hash = "chapulin-0.0.0-btv9NoRkFgC2ucu2jWMdY6LTx_qiPNcbxFrjp4J83Lcx",
+            .lazy = true,
+        },
     },
     .paths = .{
         "build.zig",
