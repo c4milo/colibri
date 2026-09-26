@@ -1279,6 +1279,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the corpus, whose cases are 64 octets at most. The headers of those samples are already
   checked, octet for octet, above.
 
+  **Check passed, 2026-09-25**, on macOS arm64 with Zig 0.16.0 and chapulin's QUIC object at
+  `b32ad68`. `src/testing/quic/protection_vectors.zig` runs RFC 9001 Appendix A through
+  `crypto.Suite` as chapulin fills it, with the hex copied from `docs/rfcs/rfc9001.txt` line for
+  line. One client session, holding the A.1 connection ID's Initial keys:
+  - A.2: seals the client's Initial, which comes out as the published 1200 octets;
+  - A.3: opens the server's published Initial, which gives back its header, packet number 1 and
+    its 99-octet payload, with the keys of the other direction;
+  - A.4: checks the Retry Integrity Tag over the pseudo-packet colibri's
+    `write_retry_pseudo_packet` builds, and chapulin writes the published tag over it.
+
+  A.1's keys are what makes A.2 and A.3 match octet for octet. A.5 is chapulin's to check, and
+  its `test/quic_packet_tests.h` does: it starts from a 1-RTT secret, and under decision 48 no
+  secret crosses the vtable, so colibri has none to give.
+
+  What each check printed: `zig build test-testing-quic -Dchapulin-quic=<checkout>` passes 15 of
+  15, and without the option the three vector tests skip. Mutations, against that command: six
+  **CAUGHT** — the packet number, the connection ID the keys derive from, the Packet Number
+  field's offset, the pseudo-packet's connection ID length, and the adapter's packet number length
+  and Retry check.
+
 - **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and ECN
   marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays
   byte-identically across hosts and build modes — and the harness **builds and runs with no HTTP
