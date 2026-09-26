@@ -1597,6 +1597,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **9c is done.** `zig build test` passes 790 of 790 and the lint is clean.
 
+  **The TLA+ model, 2026-09-26** ([#47](https://github.com/c4milo/colibri/issues/47)).
+  - `3c1fe58`: `spec/tla/quic_stream_flow` models one stream and the connection's flow control
+    as colibri keeps them: RFC 9000 §3.1's and §3.2's states, STREAM, RESET_STREAM and
+    STOP_SENDING, both limits with their MAX_* and BLOCKED frames, §13.3's rule that a lost frame
+    is sent again only when it was the most recent of its kind, and step 9e's BLOCKED repeat
+    ([#43](https://github.com/c4milo/colibri/issues/43)). The network loses, reorders and
+    duplicates frames and acknowledgments, and the idle timeout of §10.1 closes a connection with
+    nothing in flight, nothing owed and no shorter timer armed. The properties: no limit is
+    passed, a final size never changes, "Data Recvd" comes only with every octet, a stream done
+    at the receiver has given all its connection credit back, no frame goes out that §3.3
+    forbids, and a blocked sender is released and the stream finishes.
+  - It found a defect. A RESET_STREAM's final size counted against the connection's limit, but
+    the octets the application never read were never consumed, so MAX_DATA was measured short of
+    them from then on; once reset streams held more than half the window, the other streams stalled
+    for good. §4.5 calls the final size "the amount of flow control credit that is consumed by a
+    stream", and `a19f0f8` has `take_reset` consume the unread octets for the connection.
+  - What `zig build tla` printed, on macOS arm64:
+    - holds, as expected: `colibri`, 935365 distinct states; `windows`, 35923;
+    - violated, as expected: `no_repeat`, a blocked sender whose peer reads late loses the
+      connection to the idle timeout without the BLOCKED repeat; `no_resend`, a lost MAX_DATA or
+      MAX_STREAM_DATA that is not sent again leaves the sender blocked, because colibri answers
+      a BLOCKED frame with nothing; `reset_leak`, the path the fix closes.
+  - The fix's mutations, against `zig build test-quic` alone: 3 **CAUGHT**.
+
 - **Step 9d — connection IDs, path validation and anti-amplification.** NEW_CONNECTION_ID and
   RETIRE_CONNECTION_ID (RFC 9000 §5.1), PATH_CHALLENGE and PATH_RESPONSE (§8.2), the
   anti-amplification limit of §8, and the Stateless Reset of §10.3 — its §10.3.1 half here, with
