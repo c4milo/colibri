@@ -67,40 +67,39 @@ exe.root_module.addImport("http", colibri.module("http"));
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
 
-An h11 client sends a request and reads the response like this. The socket calls are your own:
+An h11 client writes each request into a buffer it owns, then sends it. These lines are from
+[`examples/h11_exchange.zig`](examples/h11_exchange.zig), where `link` stands in for the
+program's socket:
 
 ```zig
-const h11 = @import("h11");
-
-var connection: h11.connection.Connection = undefined;
-var output: [4096]u8 = undefined;
-var input: [16384]u8 = undefined;
-
-connection.init(.client, .{});
-const head_len = try connection.write_request(&output, "GET", "/", &.{
-    .{ .name = "Host", .value = "example.com" },
+const get_len = try client.write_request(&output, "GET", "/greeting", &.{
+    .{ .name = "Host", .value = host },
 });
-try send_all(socket, output[0..head_len]);
-
-const input_len = try receive_some(socket, &input);
-var offset: usize = 0;
-while (true) {
-    const received = try connection.receive(input[offset..input_len]);
-    offset += received.consumed;
-    // No event means colibri needs more octets.
-    const event = received.event orelse break;
-    switch (event) {
-        .response => |response| handle_status(response.line.status.code),
-        .data => |data| handle_body(data),
-        .end => break,
-        else => {},
-    }
-}
+try link.send(.client, output[0..get_len]);
 ```
 
-The response's field lines are in `connection.section` until the next call, and
-`connection.section.find("etag")` looks one up. h2 and h3 follow the same shape: bytes in,
-at most one event out, and the frames colibri owes written into your buffer.
+It then hands colibri the octets that arrived, and gets at most one event per call:
+
+```zig
+const input = try link.receive(.client);
+const step = try client.receive(input);
+if (step.event) |event| switch (event) {
+    .response => |response| {
+        try read_status(response.line.status.code);
+        if (ends_with_head(response.body)) ended += 1;
+    },
+    .data => |data| try read_body(data),
+    .end => ended += 1,
+    else => {},
+};
+link.consume(.client, step.consumed);
+```
+
+A call that consumes nothing and returns no event means colibri needs more octets. A response
+with no body ends with its head, so no `.end` follows it. An event's slices point into the input,
+so the example uses them before it lets the link drop the octets `step.consumed` counts. The
+response's field lines are in `client.section` until the next call. h2 and h3 follow the same
+shape: octets in, at most one event out, and the frames colibri owes written into your buffer.
 [`docs/usage.md`](docs/usage.md) walks through each protocol, TLS, and the buffers each one needs.
 
 [`examples/`](examples/) holds whole programs: an h11 and an h2 client and server, run over

@@ -22,6 +22,9 @@ when anything differs. `tools/ci.sh` runs them on every push, so an example that
 CI. Six deliberate breaks, in colibri's h11 and h2 writers and in the link, each made `zig build
 examples` fail.
 
+The code in README.md and docs/usage.md is quoted from these programs, and `tools/doc_snippets.sh`
+fails when a quote no longer matches them.
+
 ## The link
 
 colibri does no I/O, so a program brings its own sockets and its own event loop. These examples

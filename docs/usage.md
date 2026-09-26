@@ -17,8 +17,9 @@ In `build.zig`, import the modules your program uses:
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });
-exe.root_module.addImport("h2", colibri.module("h2"));
+exe.root_module.addImport("h11", colibri.module("h11"));
 exe.root_module.addImport("http", colibri.module("http"));
+exe.root_module.addImport("h2", colibri.module("h2"));
 ```
 
 The library is eleven modules, each exported by name:
@@ -69,48 +70,67 @@ One `h11.connection.Connection` is one HTTP/1.1 connection. `receive` consumes t
 most one event: a head, a run of body data, or the end of a body. Loop over it until it consumes
 nothing and returns no event.
 
-A client:
+The code below is from [`examples/h11_exchange.zig`](../examples/h11_exchange.zig), where `link`
+stands in for a program's socket. A client writes a request head into a buffer it owns and sends
+it. This one sends the body from its own buffer, so `count_body` counts it against the
+Content-Length and colibri copies none of it (decision 95); `write_body` would copy it into the
+output buffer instead:
 
 ```zig
-connection.init(.client, .{});
-const head_len = try connection.write_request(&output, "PUT", "/object", &.{
-    .{ .name = "Host", .value = "store.example" },
-    .{ .name = "Content-Length", .value = "5" },
+const put_len = try client.write_request(&output, "PUT", "/upload", &.{
+    .{ .name = "Host", .value = host },
+    .{ .name = "Content-Length", .value = std.fmt.comptimePrint("{d}", .{upload.len}) },
 });
-const body_len = try connection.write_body(output[head_len..], "hello");
-const end_len = try connection.write_end(output[head_len + body_len ..], &.{});
-// Send output[0 .. head_len + body_len + end_len], then read and receive the response.
+try link.send(.client, output[0..put_len]);
+try client.count_body(upload.len);
+try link.send(.client, upload);
+_ = try client.write_end(&output, &.{});
 ```
 
 A client pipelines requests and gives each response to the oldest one. It stops pipelining after
 a request whose method is not idempotent until that request has its final response (decision 88).
 
-A server:
+A server hands colibri what arrived and answers each request once it has read it. A request with
+no body ends with its head, so no `end` event follows it:
 
 ```zig
-connection.init(.server, .{});
-const received = try connection.receive(input);
-if (received.event) |event| switch (event) {
+const step = try server.receive(input);
+if (step.event) |event| switch (event) {
     .request => |request| {
-        // The field lines are in connection.section until the next call.
-        const head_len = try connection.write_response(&output, 200, "OK", &.{
-            .{ .name = "Content-Length", .value = "2" },
-        });
-        const body_len = try connection.write_body(output[head_len..], "ok");
-        _ = try connection.write_end(output[head_len + body_len ..], &.{});
+        std.debug.print("server: {s} {s}\n", .{ request.line.method, request.line.target });
+        resource = resource_of(request.line.target);
+        // A request without a body ends with its head, and no `end` event follows.
+        if (ends_with_head(request.body)) {
+            try respond(resource);
+            answered += 1;
+        }
+    },
+    .data => |data| try store(data),
+    .end => {
+        try respond(resource);
+        answered += 1;
     },
     else => {},
 };
+// The event's slices point into the queue, so it is consumed only once they are used.
+link.consume(.server, step.consumed);
+```
+
+Answering is a head, the body, and the end, each written into the output buffer:
+
+```zig
+const head_len = try server.write_response(&output, 200, "OK", &.{
+    .{ .name = "Content-Length", .value = std.fmt.comptimePrint("{d}", .{greeting.len}) },
+});
+const written = head_len + try server.write_body(output[head_len..], greeting);
+_ = try server.write_end(output[written..], &.{});
+try link.send(.server, output[0..written]);
 ```
 
 A server reads one request at a time: it reads the next only after the final response to the
 current one is written. When `receive` fails, `has_pending` says colibri owes an error response,
 `write_pending` writes it, and the connection then closes (decision 92). `should_close` says when
 to close the transport, and `transport_closed` reports what a close cut short.
-
-A body already in a buffer of your own need not be copied. `count_body(len)` counts `len` octets
-against the declared Content-Length and writes nothing; your program then sends those octets
-itself, next (decision 95).
 
 Over TLS, call `attach_tls` once the handshake completes, and pass every record through
 `h11.connection_tls`'s `decrypt` and `encrypt`.
@@ -123,21 +143,30 @@ whether colibri must write first, and `write_pending(output, now_ns)` writes the
 preface, colibri's SETTINGS, and every frame it owes: acknowledgments, WINDOW_UPDATE, RST_STREAM
 and GOAWAY.
 
+Each side of [`examples/h2_exchange.zig`](../examples/h2_exchange.zig) runs this loop once a
+round: it reads every frame that arrived, then writes what colibri owes, with what the server's
+answer adds in between:
+
 ```zig
-connection.init(.server);
-while (true) {
-    const received = try connection.receive(input[offset..], now_ns);
-    offset += received.consumed;
-    if (received.event) |event| handle(event);
-    if (received.consumed == 0) {
-        if (connection.has_pending()) {
-            const written = connection.write_pending(&output, now_ns);
-            // Send output[0..written].
-            continue;
-        }
-        break; // Read more octets.
-    }
+const input = try link.receive(side);
+var consumed: usize = 0;
+for (0..frames_per_round_max) |_| {
+    const received = try connection.receive(input[consumed..], link.now_ns(side));
+    if (received.event) |event| handle(side, event, state);
+    consumed += received.consumed;
+    if (received.consumed == 0) break;
 }
+// Every slice an event carried points into the queue, so it is consumed only now.
+link.consume(side, consumed);
+// What colibri owes goes first: a server's SETTINGS must be the first frame it sends
+// (RFC 9113 §3.4). Anything the answer made owed goes out after it.
+var written = connection.write_pending(&output, link.now_ns(side));
+if (side == .server and state.request_stream != null and !state.answered) {
+    written += try answer(output[written..], state.request_stream.?);
+    state.answered = true;
+}
+written += connection.write_pending(output[written..], link.now_ns(side));
+try link.send(side, output[0..written]);
 ```
 
 Events are a request or a response head with its field section (`connection.field_section()`),

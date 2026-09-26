@@ -1,0 +1,14 @@
+.{
+    .name = .colibri_consumer,
+    .version = "0.0.0",
+    .fingerprint = 0x328d6a1aaa5994c6,
+    .minimum_zig_version = "0.16.0",
+    // tools/consumer_check.sh adds colibri here with `zig fetch --save`, from a tarball of the
+    // working tree, in a scratch copy of this directory.
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "main.zig",
+    },
+}

@@ -112,6 +112,10 @@ section "Lint and tests" zig build test --summary all
 tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
 # Decision 96: every program in examples/ builds and runs.
 section "Examples" zig build examples
+# Every Zig block in README.md and the docs is an excerpt of code that runs, and a project that
+# depends on colibri builds and runs with the lines README.md shows.
+section "Doc snippets" tools/doc_snippets.sh
+section "A project that depends on colibri" tools/consumer_check.sh
 section "Simulator checks, Debug and ReleaseSafe" simulator_checks
 # h2spec runs over TLS too when the checkout carries the record-mode server object (design §8
 # step 5, https://github.com/c4milo/colibri/issues/20).

@@ -368,7 +368,11 @@ section when a step adds or renames a command.
   `tools/ci.sh` runs it where lake is installed (decision 77).
 - Format: `zig fmt --check build.zig build examples src tools`.
 - Examples: `zig build examples` builds and runs every program in `examples/`, and `zig build
-  example-<name>` runs one (decision 96). `tools/ci.sh` runs them.
+  example-<name>` runs one (decision 96). Each checks what arrived octet for octet.
+  `tools/doc_snippets.sh` requires every Zig block in README.md, docs/usage.md and
+  examples/README.md to be a verbatim excerpt of an example or of `tools/consumer/`, and
+  `tools/consumer_check.sh` builds and runs `tools/consumer/` as a project that depends on colibri
+  as a package. `tools/ci.sh` runs all three.
 - Commit messages: `zig build hooks` once after cloning points `core.hooksPath` at `.githooks`;
   `zig build lint-commits` checks `origin/main..HEAD`; `zig build install-commit-lint` installs the
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
