@@ -659,6 +659,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | huffman tool: only a larger hex column refused | **CAUGHT** | test `huffman_table`: "a row whose bits and hex disagree is refused" |
   | huffman tool: symbol order not checked | **CAUGHT** | test `huffman_table`: "a missing, reordered or short appendix is refused" |
 
+  **The varint proved, 2026-09-26.** `spec/lean/Colibri/Wire/Varint.lean` states RFC 9000 §16's
+  codec over natural numbers, as `varint.zig` computes it, and proves four things
+  ([#52](https://github.com/c4milo/colibri/issues/52)):
+  - `decode_encode`: an encoding decodes to its value and its length, whatever octets follow it;
+  - `encode_octets`: in the four lengths, every octet of an encoding is below 256;
+  - `decode_bound`: whatever octets are decoded, the value fits the length the first octet names;
+  - `minimal_fits` and `minimal_shortest`: the minimal length carries the value, and no shorter
+    one does.
+
+  The proof of the first used no bound on the length. The four lengths are what keep the first
+  octet a byte, which `u8` enforces in `varint.zig` and the model had left unstated, so that
+  fact became `encode_octets`. `spec/lean/Vectors.lean` writes `src/wire/varint_vectors.txt`:
+  60 encodings, among them RFC 9000 Appendix A.1's, 484 decodings of every one-octet input and
+  every cut encoding, and 23 minimal lengths. A test in `varint.zig` requires the Zig codec to
+  give each. Mutations: 3 in `varint.zig`, each **CAUGHT** by that test; 2 in the Lean
+  definitions, each stopping the proofs; and 1 edit to the vector file, which `zig build lean`
+  refuses.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put

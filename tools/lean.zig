@@ -1,14 +1,14 @@
 //! colibri's Lean proofs (decision 77), built by pepegrillo's lake runner. The project is
 //! spec/lean/. After the proofs build, the vectors the proved definitions give are checked against
-//! the committed files in src/qpack/, which the Zig unit tests read.
+//! the committed files under src/, in src/qpack/ and src/wire/, which the Zig unit tests read.
 //!
 //! Run: `zig build lean`, or `zig build lean -- write` to rewrite the vector files.
 
 const std = @import("std");
 const pepegrillo = @import("pepegrillo");
 
-/// Where the vector files are, from spec/lean/, where lake runs.
-const vector_directory = "../../src/qpack";
+/// The directory the vector files are under, from spec/lean/, where lake runs.
+const vector_directory = "../../src";
 
 const exit_usage: u8 = 2;
 

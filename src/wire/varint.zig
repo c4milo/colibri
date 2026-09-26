@@ -183,3 +183,72 @@ test "fuzz: decode consumes an encoding exactly or nothing" {
 test "sweep: every input of up to two octets decodes exactly or consumes nothing" {
     try core.fuzz.sweep(fuzz_decode, null);
 }
+
+/// The octets of one vector line, in hex, at most. Test-only.
+const vector_octets_max = constants.varint_len_max;
+
+/// The base the vector lines write their numbers in. Test-only.
+const vector_radix = 10;
+
+/// The lines of each kind `varint_vectors.txt` holds. Test-only.
+const vector_encode_lines = 60;
+const vector_decode_lines = 484;
+const vector_minimal_lines = 23;
+
+/// A vector line's octets, decoded from hex. Test-only.
+fn vector_octets(hex: []const u8, into: *[vector_octets_max]u8) ![]const u8 {
+    return std.fmt.hexToBytes(into, hex);
+}
+
+/// `encode value len octets`: `encode_with_len` writes the octets, and `decode` reads them back.
+fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    const value = try std.fmt.parseUnsigned(u64, fields.next().?, vector_radix);
+    const len = try std.fmt.parseUnsigned(u8, fields.next().?, vector_radix);
+    var expected: [vector_octets_max]u8 = undefined;
+    const octets = try vector_octets(fields.next().?, &expected);
+    var buffer: [vector_octets_max]u8 = undefined;
+    var writer = Writer.init(&buffer);
+    try encode_with_len(&writer, value, len);
+    try testing.expectEqualSlices(u8, octets, writer.written());
+    var reader = Reader.init(octets);
+    try testing.expectEqual(Decoded{ .value = value, .encoded_len = len }, try decode(&reader));
+}
+
+/// `decode octets (value len | error)`: `decode` gives the value and length, or a truncation.
+fn expect_decode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    var storage: [vector_octets_max]u8 = undefined;
+    const octets = try vector_octets(fields.next().?, &storage);
+    var reader = Reader.init(octets);
+    const answer = fields.next().?;
+    if (std.mem.eql(u8, answer, "error")) {
+        try testing.expectError(error.Truncated, decode(&reader));
+        return;
+    }
+    const value = try std.fmt.parseUnsigned(u64, answer, vector_radix);
+    const len = try std.fmt.parseUnsigned(u8, fields.next().?, vector_radix);
+    try testing.expectEqual(Decoded{ .value = value, .encoded_len = len }, try decode(&reader));
+}
+
+test "the codec gives what the proved definitions give (spec/lean/Colibri/Wire/Varint.lean)" {
+    var lines = std.mem.splitScalar(u8, @embedFile("varint_vectors.txt"), '\n');
+    var counts: [3]usize = @splat(0);
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const kind = fields.next().?;
+        if (std.mem.eql(u8, kind, "encode")) {
+            try expect_encode_line(&fields);
+            counts[0] += 1;
+        } else if (std.mem.eql(u8, kind, "decode")) {
+            try expect_decode_line(&fields);
+            counts[1] += 1;
+        } else {
+            try testing.expectEqualStrings("minimal", kind);
+            const value = try std.fmt.parseUnsigned(u64, fields.next().?, vector_radix);
+            try testing.expectEqual(try std.fmt.parseUnsigned(u8, fields.next().?, vector_radix), encoded_len_minimal(value));
+            counts[2] += 1;
+        }
+    }
+    try testing.expectEqual([3]usize{ vector_encode_lines, vector_decode_lines, vector_minimal_lines }, counts);
+}
