@@ -75,7 +75,9 @@ pub const request = [_]Case{
     reject("h11_request_space_before_colon", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding : chunked\r\n\r\n", error.WhitespaceBeforeColon),
     reject("h11_request_obs_fold", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding:\r\n chunked\r\n\r\n", error.ObsFold),
     reject("h11_request_quoted_chunked", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: \"chunked\"\r\n\r\n", error.TransferEncodingInvalid),
-    reject("h11_request_unknown_coding", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: xchunked\r\n\r\n", error.CodingUnsupported),
+    // RFC 9112 §6.3 rule 4 before §6.1: a coding h11 does not know, with no chunked after it, is
+    // unframeable first (decision 92 as amended).
+    reject("h11_request_unknown_coding", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: xchunked\r\n\r\n", error.ChunkedNotLast),
     reject("h11_request_length_disagrees", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 5, 6\r\n\r\nhello", error.ContentLengthInvalid),
     reject("h11_request_length_signed", "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: +5\r\n\r\nhello", error.ContentLengthInvalid),
     reject("h11_request_http10_chunked", "POST / HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n", error.TransferEncodingInHttp10),

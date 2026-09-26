@@ -11,7 +11,9 @@
 //!     after a compression coding, which decision 91 does not decode.
 //!
 //! Decision 91 limits the codings: chunked, and at most one of gzip or deflate. A coding h11 does
-//! not decode is `CodingUnsupported`, which RFC 9112 §6.1 has a server answer with 501.
+//! not decode is `CodingUnsupported`, which RFC 9112 §6.1 has a server answer with 501. A request
+//! whose final coding is not chunked is `ChunkedNotLast` whatever codings it names, because
+//! §6.3's 400 is a MUST and §6.1's 501 a SHOULD (decision 92 as amended).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -81,8 +83,9 @@ pub fn request_body(version: Version, section: *const FieldSection) Error!Body {
         if (version.minor == 0) return error.TransferEncodingInHttp10;
         try refuse_content_length(section);
         // RFC 9112 §6.3 rule 4: a request whose final coding is not chunked cannot be framed, and
-        // the server MUST respond 400 and close.
+        // the server MUST respond 400 and close, before §6.1's 501 for a coding it does not know.
         if (!codings.chunked_last) return error.ChunkedNotLast;
+        if (codings.refused) |failure| return failure;
         return .{ .length = .chunked, .coding = codings.coding };
     }
     // RFC 9112 §6.3 rules 5 and 6.
@@ -106,6 +109,8 @@ pub fn response_body(asked: Asked, status: http.status.Status, version: Version,
         // RFC 9112 §6.1: an HTTP/1.0 message with Transfer-Encoding has faulty framing.
         if (version.minor == 0) return error.TransferEncodingInHttp10;
         try refuse_content_length(section);
+        // Decision 91: a client fails a response in a coding it does not decode.
+        if (codings.refused) |failure| return failure;
         // RFC 9112 §6.3 rule 4: with no chunked, the body runs until the server closes.
         if (!codings.chunked) return .{ .length = .close_delimited, .coding = codings.coding };
         // RFC 9112 §6.3 rule 4: chunked that is not final would need decoding after a
@@ -140,6 +145,8 @@ const Codings = struct {
     /// chunked is the final coding.
     chunked_last: bool = false,
     coding: Coding = .none,
+    /// The first coding h11 refuses to decode, kept until chunked's place is known.
+    refused: ?Error = null,
 };
 
 /// Most members one field value holds: every member but the last takes a comma.
@@ -193,12 +200,18 @@ fn add_coding(codings: *Codings, name: []const u8) Error!void {
         .gzip
     else if (std.ascii.eqlIgnoreCase(name, coding_deflate))
         .deflate
-    else
-        // RFC 9112 §6.1: a server SHOULD respond 501 to a coding it does not understand.
-        return error.CodingUnsupported;
+    else {
+        // RFC 9112 §6.1: a server SHOULD respond 501 to a coding it does not understand. It is
+        // kept rather than returned, because §6.3's 400 comes first when chunked is not last.
+        codings.refused = codings.refused orelse error.CodingUnsupported;
+        return;
+    };
     // RFC 9112 §6.1 lets a message list several codings; decision 91 decodes one compression
     // coding at most, and refuses a second.
-    if (codings.coding != .none) return error.CodingsStacked;
+    if (codings.coding != .none) {
+        codings.refused = codings.refused orelse error.CodingsStacked;
+        return;
+    }
     codings.coding = coding;
 }
 
@@ -275,6 +288,17 @@ test "decision 91: gzip, x-gzip and deflate once, and nothing else" {
         try testing.expectError(error.CodingUnsupported, request_body(http11, try section_of(&.{.{ .name = "Transfer-Encoding", .value = value }})));
     }
     try testing.expectError(error.CodingsStacked, request_body(http11, try section_of(&.{.{ .name = "Transfer-Encoding", .value = "deflate, gzip, chunked" }})));
+}
+
+test "RFC 9112 §6.3 rule 4 before §6.1: a request not ending in chunked gets 400, whatever it names" {
+    // §6.3's "MUST respond with the 400 (Bad Request) status code" outranks §6.1's "SHOULD respond
+    // with 501", so a request that is both unframeable and in an unknown coding is refused as the first.
+    for ([_][]const u8{ "xchunked", "br", "chunked-x", "gzip, br", "gzip, deflate" }) |value| {
+        try testing.expectError(error.ChunkedNotLast, request_body(http11, try section_of(&.{.{ .name = "Transfer-Encoding", .value = value }})));
+    }
+    // A response in a coding colibri does not decode is still refused as that (decision 91).
+    try testing.expectError(error.CodingUnsupported, response_body(.other, status_of(200), http11, try section_of(&.{.{ .name = "Transfer-Encoding", .value = "xchunked" }})));
+    try testing.expectError(error.CodingsStacked, response_body(.other, status_of(200), http11, try section_of(&.{.{ .name = "Transfer-Encoding", .value = "gzip, deflate" }})));
 }
 
 test "RFC 9112 §6.3 rules 1 and 2: HEAD, 1xx, 204 and 304 have no body, and a 2xx to CONNECT tunnels" {

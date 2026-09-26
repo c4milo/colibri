@@ -15,7 +15,7 @@ h11_request_chunked_twice len=89 crc32=0xe822bc4b verdict=ChunkedNotLast constru
 h11_request_space_before_colon len=57 crc32=0x8242a8b9 verdict=WhitespaceBeforeColon construction=literal
 h11_request_obs_fold len=58 crc32=0xecde5106 verdict=ObsFold construction=literal
 h11_request_quoted_chunked len=58 crc32=0xe314fed8 verdict=TransferEncodingInvalid construction=literal
-h11_request_unknown_coding len=57 crc32=0x82e8a240 verdict=CodingUnsupported construction=literal
+h11_request_unknown_coding len=57 crc32=0x82e8a240 verdict=ChunkedNotLast construction=literal
 h11_request_length_disagrees len=55 crc32=0x082a7abd verdict=ContentLengthInvalid construction=literal
 h11_request_length_signed len=53 crc32=0x6b0e0483 verdict=ContentLengthInvalid construction=literal
 h11_request_http10_chunked len=52 crc32=0x17e9956e verdict=TransferEncodingInHttp10 construction=literal

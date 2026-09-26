@@ -2305,8 +2305,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       - 414 for a request line longer than `start_line_len_max` (RFC 9112 §3, RFC 9110 §15.5.15);
       - 431 for a head, field section or trailer section past colibri's limits (RFC 6585 §5, now in
         `docs/rfcs/`);
-      - 501 for a transfer coding h11 does not decode (RFC 9112 §6.1, RFC 9110 §15.6.2, decision
-        91);
+      - 501 for a transfer coding h11 does not decode, when chunked is the final coding (RFC 9112
+        §6.1, RFC 9110 §15.6.2, decision 91). A request whose final coding is not chunked gets 400
+        whatever codings it names, because RFC 9112 §6.3 makes that 400 a MUST and §6.1's 501 is a
+        SHOULD. The owner amended this on 2026-09-26: the HTTP Garden showed colibri answering 501
+        to `Transfer-Encoding: xchunked`, where 11 of its origins answer 400 and 12 answer 501;
       - 505 for a major version other than 1 (RFC 9110 §15.6.6).
     - HTTP/1.0 keep-alive is not honoured. An HTTP/1.0 exchange closes after its response, which
       RFC 9112 §9.3 allows. HTTP/1.1 connections persist unless either side sends
@@ -2324,7 +2327,6 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       methods, at the cost of a queue of pending requests on every connection.
     - Answering an oversized field section with 400, which RFC 9110 §5.4's "appropriate 4xx"
       allows. 431 tells the client which limit it passed.
-
 
 93. **h2's `write_request` takes an indexing choice for each field line.** Ruled by the owner on
     2026-09-26, for a caller that sends a DNS query in `:path` (RFC 8484) and must keep it out of
