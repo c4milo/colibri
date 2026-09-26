@@ -3878,7 +3878,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A client may offer a session ticket it kept, with the ticket's age in milliseconds, and may
     refuse a handshake that is not post-quantum (`require_pq`). After the handshake the client
     says whether the ticket was taken. Each ticket the server sends is copied into a slot the
-    session holds, and the caller takes it from there. colibri calls no callback of the user's.
+    session holds, and taking it empties the slot and hands back a `Ticket` value in fixed-size
+    fields, which the caller keeps as long as it likes: the identity, the PSK, `age_add`, the
+    binding, and `lifetime_s`, the ticket_lifetime of RFC 9846 §4.7.1. colibri calls no callback
+    of the user's. The value and its lifetime were settled the same day, after cocuyo showed that
+    slices into the session could not outlive the connection a ticket is kept for.
   - A server sets its identities: one ECDSA P-256 and one RSA-PSS, each a certificate chain with
     the leaf first, a public key, and a pointer to a private key. It also sets the HelloRetry
     cookie key, an optional ticket key, the time in seconds as a value, whether a server name is
@@ -3901,10 +3905,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       pins: struct { pins: []const Pin, server_name: ?[]const u8 = null },
   };
 
-  pub const Ticket = struct { identity: []const u8, psk: []const u8, age_add: u32,
-                              binding: [32]u8, age_ms: u64 };
+  // Sized from chapulin's CH_TICKET_ID_MAX, 320, and its largest hash, SHA-384's 48.
+  pub const Ticket = struct { identity: [ticket_identity_len_max]u8, identity_len: u16,
+                              psk: [ticket_psk_len_max]u8, psk_len: u8, age_add: u32,
+                              lifetime_s: u32, binding: [32]u8 };
 
-  pub const Client = struct { trust: Trust, alpn: []const []const u8, ticket: ?Ticket = null,
+  pub const Client = struct { trust: Trust, alpn: []const []const u8,
+                              ticket: ?*const Ticket = null, ticket_age_ms: u64 = 0,
                               require_pq: bool = false };
 
   pub const Identity = struct { chain: []const []const u8, public_key: []const u8,
