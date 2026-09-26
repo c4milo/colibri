@@ -3859,9 +3859,63 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `crypto.Suite` become internal, filled by that module and by the simulator's null
     implementations.
   - **16c**, what a user sets: the server name, trust anchors with the wall-clock time as a value,
-    SPKI pins, ALPN, and session tickets offered and handed back.
+    SPKI pins, ALPN, and session tickets offered and handed back, as the owner ruled below.
   - **16d**, the checks. Every check that linked chapulin through `src/testing/` runs against the
     library's adapter, and the `-Dchapulin-*` options leave CLAUDE.md's commands.
+
+  **16c, ruled by the owner on 2026-09-26.** What a user sets is plain values, and chapulin's `ch_cfg`
+  (its `cfg.h`, `webpki_cfg.h` and `srv_cfg.h`) is what they become. Each rule below is
+  chapulin's, and colibri checks none of them twice.
+  - A client names one of two kinds of trust. Web PKI takes the trust anchors, each a root's
+    subject and SubjectPublicKeyInfo as DER; the server name the leaf must carry, which is also
+    sent as `server_name`; and the wall-clock time in seconds, as a value (non-negotiable 3). It
+    may add SPKI pins, which then narrow the anchors. Pins alone take one to four SHA-256 pins
+    of a SubjectPublicKeyInfo, as chapulin's `webpki_cfg.h` defines them, read no clock, and send
+    a server name only when one is given. That is how cocuyo reaches a DNS server it knows by
+    its key and address alone.
+  - Both roles set ALPN: a list, most preferred first. A client offers it, and a server picks
+    from it in its own order (decision 88).
+  - A client may offer a session ticket it kept, with the ticket's age in milliseconds, and may
+    refuse a handshake that is not post-quantum (`require_pq`). After the handshake the client
+    says whether the ticket was taken. Each ticket the server sends is copied into a slot the
+    session holds, and the caller takes it from there. colibri calls no callback of the user's.
+  - A server sets its identities: one ECDSA P-256 and one RSA-PSS, each a certificate chain with
+    the leaf first, a public key, and a pointer to a private key. It also sets the HelloRetry
+    cookie key, an optional ticket key, the time in seconds as a value, whether a server name is
+    required, and, in an AES build, its cipher suites in its order. After the handshake it
+    reports the server name the client sent.
+  - Keys stay in the caller's memory. colibri passes chapulin a pointer to each private key and
+    to each cookie and ticket key, and never reads or copies one (non-negotiable 2).
+  - The same values configure h11 and h2 over TCP and h3 over QUIC. The QUIC transport
+    parameters and the key handover stay colibri's.
+  - The session's memory is the caller's, sized by a comptime constant from chapulin's receive
+    floor (decision 35). 16b decides whether it sits inside each connection struct or beside it.
+
+  ```zig
+  pub const Anchor = struct { subject: []const u8, spki: []const u8 };
+  pub const Pin = [32]u8; // SHA-256 of a DER SubjectPublicKeyInfo
+
+  pub const Trust = union(enum) {
+      web_pki: struct { anchors: []const Anchor, server_name: []const u8, now_seconds: u64,
+                        pins: []const Pin = &.{} },
+      pins: struct { pins: []const Pin, server_name: ?[]const u8 = null },
+  };
+
+  pub const Ticket = struct { identity: []const u8, psk: []const u8, age_add: u32,
+                              binding: [32]u8, age_ms: u64 };
+
+  pub const Client = struct { trust: Trust, alpn: []const []const u8, ticket: ?Ticket = null,
+                              require_pq: bool = false };
+
+  pub const Identity = struct { chain: []const []const u8, public_key: []const u8,
+                                private_key: *const anyopaque };
+
+  pub const Server = struct { ecdsa_p256: ?Identity = null, rsa_pss: ?Identity = null,
+                              cookie_key: *const [32]u8, ticket_key: ?*const [32]u8 = null,
+                              now_seconds: u64, alpn: []const []const u8,
+                              require_server_name: bool = false,
+                              cipher_suites: []const u16 = &.{} };
+  ```
 
   **Check:** `tools/tls_handshake.sh`, `tools/tls_accept.sh`, `h2spec -t -k`, the h2 and h11
   interop over TLS, `tools/quic_loopback.sh`, `tools/quic_udp.sh`, `tools/quic_aioquic.sh`,
