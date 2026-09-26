@@ -1672,6 +1672,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - Run once and not kept, because it takes seven minutes: both endpoints closing while one
       talks, with one loss, holds over 2242541 distinct states.
 
+  **The ACK ranges proved, 2026-09-26.** `spec/lean/Colibri/Quic/AckRanges.lean` states RFC 9000
+  §19.3.1's ranges as `frame_ack.zig` reads them and as `write_ack_at` in `space.zig` writes them,
+  and proves:
+  - `decode_encode`: ranges that descend with an unacknowledged number between each two, as
+    `space_received.zig` keeps them, read back from what the writer writes;
+  - `encode_decode` and `decode_wellFormed`: whatever the reader accepts is such ranges, and the
+    writer writes them back as the same fields;
+  - `decode_none_iff`: the reader refuses a frame exactly when a packet number §19.3.1 computes
+    over the integers is below zero, which is that section's FRAME_ENCODING_ERROR.
+
+  `src/quic/frame/frame_ack_vectors.txt` holds 205 frames, 32 ranges long at most, and what the
+  reader gives each. `src/quic/space/space_ack_vectors.txt` holds the 74 distinct sets of ranges
+  the reader accepts, and the fields the writer writes for each. A test beside each requires the
+  Zig code to give them. Mutations: 14 over the reader, its iterator, `smallest_acknowledged` and
+  the writer, each **CAUGHT** by those tests. One, a writer that counts the next gap down from a
+  range's largest, was caught only after the vectors gained ranges of two numbers between two
+  others. 3 mutations in the Lean definitions stop the proofs, and 1 edit to a vector file is
+  refused by `zig build lean`.
+
 - **Step 9c — streams and flow control.** RFC 9000 §2.1's identifiers, §3.1's sending state
   machine and §3.2's receiving one, §4.5's final size, §4.1's stream and connection flow
   control, and §4.6's stream limits, with the blocked frames each produces. **Check:** every

@@ -184,3 +184,83 @@ pub fn write(writer: *Writer, ack: Ack) core.writer.Error!void {
     try wire.varint.encode(writer, ecn.ect_1);
     try wire.varint.encode(writer, ecn.ecn_ce);
 }
+
+const testing = std.testing;
+
+const vector_radix = 10;
+const vector_lines = 205;
+/// Largest Acknowledged, ACK Delay, ACK Range Count and First ACK Range (RFC 9000 §19.3).
+const vector_leading_fields = 4;
+/// A Gap and an ACK Range Length (RFC 9000 §19.3.1).
+const vector_fields_per_pair = 2;
+/// Room for a vector's frame: every field at a varint's longest, and `ack_ranges_max` pairs.
+const vector_frame_len_max = (vector_leading_fields + vector_fields_per_pair * constants.ack_ranges_max) *
+    wire.constants.varint_len_max;
+
+fn parse_number(text: []const u8) !u64 {
+    return std.fmt.parseUnsigned(u64, text, vector_radix);
+}
+
+/// Writes the frame a vector names, after its type: an ACK Delay of 0, and the ACK Range Count
+/// the pairs give. `pairs_text` is `gap/length` joined by commas, or `-` for none. Test-only.
+fn write_vector_frame(writer: *Writer, largest: u64, first: u64, pairs_text: []const u8) !void {
+    const none = std.mem.eql(u8, pairs_text, "-");
+    const count = if (none) 0 else std.mem.count(u8, pairs_text, ",") + 1;
+    try wire.varint.encode(writer, largest);
+    try wire.varint.encode(writer, 0);
+    try wire.varint.encode(writer, count);
+    try wire.varint.encode(writer, first);
+    if (none) return;
+    var pairs = std.mem.tokenizeScalar(u8, pairs_text, ',');
+    // Bounded by the line.
+    while (pairs.next()) |pair| {
+        var halves = std.mem.splitScalar(u8, pair, '/');
+        try wire.varint.encode(writer, try parse_number(halves.next().?));
+        try wire.varint.encode(writer, try parse_number(halves.next().?));
+    }
+}
+
+/// `decode largest first pairs answer`: `read` refuses the frame with `below_zero`, or its ranges
+/// walk out as `smallest..largest` joined by commas, and the last one's smallest is
+/// `smallest_acknowledged`.
+fn expect_decode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    const largest = try parse_number(fields.next().?);
+    const first = try parse_number(fields.next().?);
+    var buffer: [vector_frame_len_max]u8 = undefined;
+    var writer = Writer.init(&buffer);
+    try write_vector_frame(&writer, largest, first, fields.next().?);
+    var reader = Reader.init(writer.written());
+    const answer = fields.next().?;
+    if (std.mem.eql(u8, answer, "below_zero")) {
+        try testing.expectError(error.AckRangeBelowZero, read(&reader, constants.frame_ack));
+        return;
+    }
+    const ack = try read(&reader, constants.frame_ack);
+    try testing.expectEqual(writer.written().len, reader.offset);
+    var walk = ack.ranges.iterator();
+    var expected = std.mem.tokenizeScalar(u8, answer, ',');
+    var smallest = largest;
+    // Bounded by the line.
+    while (expected.next()) |range_text| {
+        var ends = std.mem.splitSequence(u8, range_text, "..");
+        smallest = try parse_number(ends.next().?);
+        const range_largest = try parse_number(ends.next().?);
+        try testing.expectEqual(Range{ .smallest = smallest, .largest = range_largest }, walk.next().?);
+    }
+    try testing.expectEqual(null, walk.next());
+    try testing.expectEqual(smallest, ack.ranges.smallest_acknowledged());
+}
+
+test "read gives what the proved definition gives (spec/lean/Colibri/Quic/AckRanges.lean)" {
+    var lines = std.mem.splitScalar(u8, @embedFile("frame_ack_vectors.txt"), '\n');
+    var checked: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        try testing.expectEqualStrings("decode", fields.next().?);
+        try expect_decode_line(&fields);
+        checked += 1;
+    }
+    try testing.expectEqual(vector_lines, checked);
+}

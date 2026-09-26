@@ -4,6 +4,7 @@
 //! arithmetic rather than each agreeing with itself.
 const std = @import("std");
 const core = @import("core");
+const wire = @import("wire");
 const constants = @import("../constants.zig");
 const frame = @import("../frame/frame.zig");
 const space_module = @import("space.zig");
@@ -274,4 +275,63 @@ test "RFC 9000 §13.2.1: a space with an acknowledgment owed already needs no de
     test_space.init(.application);
     _ = test_space.receive(0, millisecond_ns, false, .not_ect);
     try testing.expectEqual(null, test_space.ack_deadline_ns(test_max_ack_delay_ns));
+}
+
+const vector_radix = 10;
+const vector_lines = 74;
+
+fn parse_number(text: []const u8) !u64 {
+    return std.fmt.parseUnsigned(u64, text, vector_radix);
+}
+
+/// Puts the ranges a vector names, `smallest..largest` joined by commas, into the space. They
+/// descend with a gap between each two, which is how `space_received.zig` keeps them. Test-only.
+fn hold_ranges(ranges_text: []const u8) !void {
+    test_space.init(.application);
+    var ranges = std.mem.tokenizeScalar(u8, ranges_text, ',');
+    // Bounded by the line, which names at most `ack_ranges_max` ranges.
+    while (ranges.next()) |range_text| {
+        var ends = std.mem.splitSequence(u8, range_text, "..");
+        const smallest = try parse_number(ends.next().?);
+        const largest = try parse_number(ends.next().?);
+        test_space.received.ranges[test_space.received.len] = .{ .smallest = smallest, .largest = largest };
+        test_space.received.len += 1;
+    }
+}
+
+/// `encode ranges largest first pairs`: a space holding those ranges writes an ACK frame with that
+/// Largest Acknowledged, that First ACK Range, and those pairs, `gap/length` joined by commas or
+/// `-` for none.
+fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    try hold_ranges(fields.next().?);
+    const ack = try written_ack(0, false);
+    try testing.expectEqual(try parse_number(fields.next().?), ack.ranges.largest_acknowledged);
+    try testing.expectEqual(try parse_number(fields.next().?), ack.ranges.first_range);
+    const pairs_text = fields.next().?;
+    var reader = Reader.init(ack.ranges.octets);
+    var count: u64 = 0;
+    var pairs = std.mem.tokenizeScalar(u8, if (std.mem.eql(u8, pairs_text, "-")) "" else pairs_text, ',');
+    // Bounded by the line.
+    while (pairs.next()) |pair| {
+        var halves = std.mem.splitScalar(u8, pair, '/');
+        try testing.expectEqual(try parse_number(halves.next().?), (try wire.varint.decode(&reader)).value);
+        try testing.expectEqual(try parse_number(halves.next().?), (try wire.varint.decode(&reader)).value);
+        count += 1;
+    }
+    try testing.expectEqual(count, ack.ranges.count);
+    try testing.expectEqual(ack.ranges.octets.len, reader.offset);
+}
+
+test "write_ack gives what the proved definition gives (spec/lean/Colibri/Quic/AckRanges.lean)" {
+    var lines = std.mem.splitScalar(u8, @embedFile("space_ack_vectors.txt"), '\n');
+    var checked: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        try testing.expectEqualStrings("encode", fields.next().?);
+        try expect_encode_line(&fields);
+        checked += 1;
+    }
+    try testing.expectEqual(vector_lines, checked);
 }
