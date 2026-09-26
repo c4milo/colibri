@@ -3165,6 +3165,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   compared a parsed value against the same constant it came from, so the constants are now pinned
   to the numbers §18.2 states. `zig build test` passes 996 of 996.
 
+  **The TLA+ model, 2026-09-26** ([#49](https://github.com/c4milo/colibri/issues/49)).
+  - `spec/tla/quic_keys` models both endpoints' handshake over Initial, Handshake and 1-RTT, as
+    colibri installs and discards each level's keys, over a network that loses packets and
+    delivers them in any order. It carries the server's anti-amplification credit (RFC 9000
+    §8.1), the client's anti-deadlock probe (RFC 9002 §6.2.2.1), the PTO that resends a level's
+    CRYPTO data (decision 64) and the server's early Initial resend (decision 65). The properties:
+    a level's keys go from none to available to discarded and never back (invariant 21); an
+    endpoint discards its Initial keys only once it holds Handshake keys (RFC 9001 §4.9.1); and
+    both handshakes are confirmed in the end.
+  - Three abstractions keep it small. Time is left out, so a timer that is set may fire at any
+    moment; each level's probe is strongly fair, which RFC 9002 Appendix A.8's choice of the
+    earliest deadline guarantees; and only the server's ACK frames are modeled, because nothing
+    the server waits for depends on the client's.
+  - It found no defect. Writing it found three abstractions of the model's own that were wrong,
+    each caught by TLC as a stall no colibri connection can reach: a server that sent one level
+    at a time where colibri coalesces them (RFC 9000 §12.2), an ACK that acknowledged CRYPTO data
+    its sender never received, and an anti-deadlock probe sent before the ClientHello.
+  - What `zig build tla` printed, on macOS arm64:
+    - holds, as expected: `colibri`, 53059 distinct states; `tight_credit`, a server flight that
+      takes the whole allowance a client datagram grants, 65876;
+    - violated, as expected: `no_anti_deadlock`, where the client's first flight is acknowledged,
+      the server's is lost, and neither side may send; `discard_on_complete`, a client that drops
+      its Handshake keys on sending its Finished and cannot send it again; and
+      `server_discard_on_send`, a server that drops its Initial keys on its first Handshake packet
+      and cannot send its ServerHello again.
+
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine

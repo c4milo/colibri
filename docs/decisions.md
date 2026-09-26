@@ -2382,7 +2382,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       (non-negotiable 1).
     - Randomness is the consumer's. chapulin is built with `RAND=extern`, and the program that
       links colibri defines `ch_rand_bytes` and `ch_assert_fail`, each of which an image may define
-      once. colibri's executables in `src/testing/` define both for themselves.
+      once. `ch_rand_bytes` must be safe to call from several threads at once (chapulin's
+      `docs/porting.md`). The library's configurations leave `KEYLOG` off, so those two are all a
+      program defines; colibri's executables in `src/testing/` define them for themselves, and
+      `ch_keylog` too for the test builds that turn `KEYLOG` on.
 
     The alternatives refused:
     - An optional module beside the library. It kept the library free of a TLS stack and left a
