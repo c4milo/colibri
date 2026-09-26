@@ -155,3 +155,23 @@ test "101 and malformed responses fail the connection, and a 2xx to CONNECT tunn
     try testing.expectEqualStrings("raw", (try target.receive("raw")).event.?.tunnel);
     try testing.expectEqual(3, try target.write_body(&test_output, "raw"));
 }
+
+test "decision 95: a fixed body's octets the caller sends itself are counted, not copied" {
+    var target = client(.{});
+    _ = try target.write_request(&test_output, "PUT", "/", &.{ host[0], .{ .name = "Content-Length", .value = "5" } });
+    try target.count_body(2);
+    // `write_body` and `count_body` share the one Content-Length.
+    try testing.expectEqual(1, try target.write_body(&test_output, "c"));
+    // RFC 9112 §6.2: no more octets than the Content-Length declared, and a refused count is not
+    // counted.
+    try testing.expectError(error.BodyTooLong, target.count_body(3));
+    try testing.expectError(error.BodyIncomplete, target.write_end(&test_output, &.{}));
+    try target.count_body(2);
+    try testing.expectEqual(0, try target.write_end(&test_output, &.{}));
+    // RFC 9112 §6: once the body ends there is nothing to count.
+    try testing.expectError(error.NoBody, target.count_body(1));
+    // RFC 9112 §7.1: a chunk needs its size line, which the caller's octets lack.
+    target = client(.{});
+    _ = try target.write_request(&test_output, "POST", "/", &.{ host[0], .{ .name = "Transfer-Encoding", .value = "chunked" } });
+    try testing.expectError(error.BodyChunked, target.count_body(1));
+}

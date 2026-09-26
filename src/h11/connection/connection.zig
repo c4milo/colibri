@@ -238,6 +238,18 @@ pub const Connection = struct {
         return connection_body.write(&connection.writer, output, data);
     }
 
+    /// Counts `len` body octets the caller sends from its own buffer, in place of `write_body`'s
+    /// copy, and writes nothing (decision 95). The caller sends them next, before any other octet
+    /// of this connection. A chunked body refuses it.
+    pub fn count_body(connection: *Connection, len: u64) SendError!void {
+        const closed = connection.phase == .closed and connection.role == .server;
+        // RFC 9112 §9.6: a server that closes the connection sends nothing after its last response.
+        if (closed) return error.ConnectionClosed;
+        // RFC 9112 §6: a message has a body only where its head declared one.
+        if (!connection.writer.open()) return error.NoBody;
+        return connection_body.count(&connection.writer, len);
+    }
+
     /// Ends the body the caller is writing, with `trailers` for a chunked one.
     pub fn write_end(connection: *Connection, output: []u8, trailers: []const http.field.Field) SendError!usize {
         // RFC 9112 §6: a message has a body only where its head declared one.

@@ -197,3 +197,23 @@ test "a body is written as the head declared it: no more and no fewer octets, ch
     try testing.expectEqualStrings("0\r\nT: v\r\n\r\n", test_output[0..last]);
     try testing.expectEqual(connection.Phase.head, target.phase);
 }
+
+/// A body longer than any buffer a caller holds, which a close-delimited body admits.
+const test_body_len_large: u64 = std.math.maxInt(u40);
+
+test "decision 95: a response body is counted as the head declared it, until the connection closes" {
+    var target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+    _ = try target.write_response(&test_output, 200, "", &.{.{ .name = "Content-Length", .value = "5" }});
+    try target.count_body(4);
+    // RFC 9112 §9.6: nothing is sent once the connection has closed.
+    _ = target.transport_closed();
+    try testing.expectError(error.ConnectionClosed, target.count_body(1));
+    // A body delimited by the close has no length to count against.
+    target = server();
+    _ = try expect_request(target, "GET / HTTP/1.1\r\nHost: h\r\n\r\n", "GET");
+    _ = try target.write_response(&test_output, 200, "", &.{});
+    try target.count_body(test_body_len_large);
+    _ = try target.write_end(&test_output, &.{});
+    try testing.expect(target.should_close());
+}

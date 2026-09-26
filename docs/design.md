@@ -3848,6 +3848,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     server always answers that request with the close, so the check cannot reach the rule, and
     the client's unit test catches it.
 
+  **A body the caller sends itself, 2026-09-26.** `Connection.count_body` counts octets the
+  caller sends from its own buffer against the body its head declared, and writes nothing
+  ([decision 95](decisions.md)). A chunked body refuses it. 6 mutations, 6 **CAUGHT** by the
+  connection's unit tests.
+
 - **Step 15c — the `gzip` and `deflate` codings.** stdx's decoders from a pool the caller owns,
   under decision 91. It follows https://github.com/c4milo/stdx/issues/1. **Check:** step 15b's
   simulator check with coded bodies, the corrupt and refused verdicts each with a case, and

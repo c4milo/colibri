@@ -91,6 +91,9 @@ pub const WriteError = chunked.WriteError || error{
     BodyIncomplete,
     /// Trailers after a body that is not chunked, which alone carries them (RFC 9112 §7.1.2).
     TrailersWithoutChunked,
+    /// Octets the caller sends itself, counted for a chunked body, whose every chunk needs a size
+    /// line before its data (RFC 9112 §7.1).
+    BodyChunked,
 };
 
 /// Writes `data` framed as the body declared. Returns the octets written into `output`.
@@ -115,6 +118,23 @@ pub fn write(writer: *Writer, output: []u8, data: []const u8) WriteError!usize {
             @memcpy(output[0..data.len], data);
             return data.len;
         },
+    }
+}
+
+/// Counts `len` body octets the caller sends from its own buffer, and writes nothing (decision 95).
+pub fn count(writer: *Writer, len: u64) WriteError!void {
+    assert(writer.open());
+    assert(len > 0);
+    switch (writer.kind) {
+        .none => unreachable,
+        .fixed => {
+            // RFC 9112 §6.2: the Content-Length is the number of octets that follow.
+            if (len > writer.remaining) return error.BodyTooLong;
+            writer.remaining -= len;
+        },
+        // RFC 9112 §7.1: each chunk starts with its size, which the caller's octets lack.
+        .chunked => return error.BodyChunked,
+        .close_delimited, .tunnel => {},
     }
 }
 
