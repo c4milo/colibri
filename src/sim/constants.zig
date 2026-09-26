@@ -438,7 +438,27 @@ pub const qpack_input_check_inputs: u32 = 32;
 pub const qpack_input_check_edits_max: u64 = 8;
 pub const qpack_input_check_input_len_max: u32 = 512;
 
+/// The QUIC input check: inputs per seed, the most edits made to one, and the longest input.
+pub const quic_input_check_inputs: u32 = 128;
+pub const quic_input_check_edits_max: u64 = 8;
+pub const quic_input_check_input_len_max: u32 = 512;
+/// The most frames drawn into one payload, packets into one datagram, and ranges after the first
+/// into one ACK frame.
+pub const quic_input_check_frames_max: u64 = 6;
+pub const quic_input_check_packets_max: u64 = 3;
+pub const quic_input_check_ack_ranges_max: u64 = 4;
+/// The longest octet string a drawn frame or packet carries: data, a token, a reason, a payload.
+pub const quic_input_check_octets_len_max: u64 = 32;
+/// The random octets every drawn string is taken from, drawn once per seed.
+pub const quic_input_check_material_len: u32 = 64;
+/// One choice in this many takes the rarer branch: a field left out, an offset of 0.
+pub const quic_input_check_one_in: u64 = 2;
+/// How far below its upper bound a value drawn near the bound lies, at most.
+pub const quic_input_check_near_bound: u64 = 4;
+
 comptime {
+    // A drawn string is a slice of the material.
+    assert(quic_input_check_octets_len_max <= quic_input_check_material_len);
     assert(qpack_check_sections_max > 0 and qpack_check_lines_max > 0);
     assert(qpack_check_streams > 0);
 }

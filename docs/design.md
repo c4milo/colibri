@@ -1462,6 +1462,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   consumes octets, three writer faults, and four type bits misread, which the round trip saw only
   once it compared the types.
 
+  **The input check, 2026-09-26.** `src/sim/quic_input_check.zig` gives the QUIC readers inputs
+  longer than two octets, as `qpack_input_check.zig` does for QPACK ([#53](https://github.com/c4milo/colibri/issues/53)). Each input starts
+  from what colibri's writer produces and takes up to eight edits from `src/sim/input_edit.zig`,
+  which gained a fifth edit: an octet moved up or down by one, which takes a value at a bound
+  past it. Values are drawn at their bounds, or a few inside, one time in two. The inputs go to:
+  - the frame reader, under the rules of `frame_fuzz.zig`;
+  - the packet header reader, datagram by datagram, where every packet must lie inside what is
+    left and keep its Fixed Bit;
+  - the transport parameter reader, under §18.2's bounds, read again without
+    `Parameters.valid`.
+
+  What the writer produced must be read whole first. `zig build test-sim-run-quic` runs 256
+  seeds of 128 inputs each and pins the census, which Debug and ReleaseSafe agree on:
+  `crc32=0x1cfa0ad6`, 54,437 frames read, with every target reaching both outcomes. No input
+  halted. 34 mutations, 31 **CAUGHT** by the check alone. The fuzz tests catch the three it
+  misses, and a one-octet edit cannot reach two of them: `max_ack_delay`'s bound needs a longer
+  encoding than the writer uses, and `active_connection_id_limit`'s is its default, which the
+  writer leaves out. The third, a CRYPTO offset one past 2^62-1, did not come up in 32,768
+  inputs.
+
 - **Step 9b — packet number spaces, acknowledgments, and how a connection ends.** The three
   spaces of RFC 9000 §12.3, duplicate suppression, ACK generation and processing (§13.1, §13.2),
   the ECN counts (§13.4.1), the idle timeout (§10.1) and the closing and draining states
@@ -3471,6 +3491,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `seeds=256 inputs=8192 taken=3935 blocked=86 refused=4171 crc32=0x0452f651`. 200,000 seeds, 6.4
   million inputs, ran in ReleaseSafe with none halted. 4 mutations, each removing one check on
   peer input: each is CAUGHT by its fuzz property and by the input check at 256 seeds.
+
+  **The nudge edit, 2026-09-26.** The QUIC input check of step 9a shares these edits, now in
+  `src/sim/input_edit.zig`, and added an octet moved up or down by one. The census changed to
+  `seeds=256 inputs=8192 taken=3933 blocked=128 refused=4131 crc32=0x7971245b`, in Debug and in
+  ReleaseSafe. 200,000 seeds, 6.4 million inputs, ran in ReleaseSafe with none halted.
 
 - **Step 12 — h3.** Stream types, the frame layer, the one setting, the control stream rules,
   request and response mapping, GOAWAY, greasing. **Check:** `h3spec` against the h3 entry point,

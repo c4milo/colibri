@@ -26,7 +26,7 @@ const constants = sim.constants;
 const FieldSection = qpack.http.field_section.FieldSection;
 
 /// The CRC-32 of the outcomes of seeds `[0, check_seeds_default)`, in order.
-pub const census_crc32_expected: u32 = 0x0452f651;
+pub const census_crc32_expected: u32 = 0x7971245b;
 
 const Target = enum { section, encoder_stream, decoder_stream };
 
@@ -94,7 +94,7 @@ fn one_input(storage: *Storage, random: *Random, index: u32, target: Target) Out
         .encoder_stream => written.instructions,
         .decoder_stream => acknowledgment(storage, written.stream_id),
     };
-    const input = edit(storage, random, base);
+    const input = sim.input_edit.edit(random, &storage.input, base, constants.qpack_input_check_edits_max);
     return switch (target) {
         .section => read_section(storage, written, input),
         .encoder_stream => read_encoder_stream(storage, input),
@@ -127,37 +127,6 @@ fn acknowledgment(storage: *Storage, stream_id: u64) []const u8 {
     qpack.instruction.write_decoder(&writer, .{ .section_acknowledgment = stream_id }) catch unreachable;
     return writer.written();
 }
-
-/// Copies `base` into the input buffer and makes up to `qpack_input_check_edits_max` edits.
-fn edit(storage: *Storage, random: *Random, base: []const u8) []const u8 {
-    const input = &storage.input;
-    var len: usize = @min(base.len, input.len);
-    @memcpy(input[0..len], base[0..len]);
-    const edits = random.below(constants.qpack_input_check_edits_max + 1);
-    for (0..edits) |_| {
-        const at = random.below(len + 1);
-        const kind: Edit = @enumFromInt(random.below(std.meta.fields(Edit).len));
-        switch (kind) {
-            .change => if (at < len) {
-                input[at] = @truncate(random.next());
-            },
-            .insert => if (len < input.len) {
-                std.mem.copyBackwards(u8, input[at + 1 .. len + 1], input[at..len]);
-                input[at] = @truncate(random.next());
-                len += 1;
-            },
-            .remove => if (at < len) {
-                std.mem.copyForwards(u8, input[at .. len - 1], input[at + 1 .. len]);
-                len -= 1;
-            },
-            .cut => len = at,
-        }
-    }
-    return input[0..len];
-}
-
-/// The edits: an octet changed, inserted or removed, or the end cut off at the drawn offset.
-const Edit = enum { change, insert, remove, cut };
 
 fn read_section(storage: *Storage, written: Written, input: []const u8) Outcome {
     const settings = storage.plan.settings;
