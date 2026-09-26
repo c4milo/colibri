@@ -100,6 +100,8 @@ pub fn reset(target: *Connection, stream_id: u32, error_code: u32) Error!void {
     const record = try sendable(target, stream_id, .rst_stream, false);
     const verdict = stream.on_send(record.state, record.closed, .rst_stream, false, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .rst_stream, false);
+    // RFC 9113 §5.1: the RST_STREAM closes the stream, so no WINDOW_UPDATE may go out after it.
+    target.replies.drop_window_updates(stream_id);
     target.replies.push_stream_reply(.{ .stream_id = stream_id, .kind = .rst_stream, .value = error_code });
 }
 

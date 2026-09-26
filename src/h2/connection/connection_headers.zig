@@ -59,6 +59,9 @@ pub fn on_headers(target: *Connection, header: frame.Header, payload: frame.Head
         },
         .act => |acting| {
             target.streams.transition(acting.record, acting.verdict, .receive, .headers, payload.end_stream);
+            // RFC 9113 §5.1: trailers that end the peer's side leave the stream's credit unneeded,
+            // and no WINDOW_UPDATE may follow once it closes.
+            if (payload.end_stream) target.replies.drop_window_updates(id);
             dropped = false;
         },
     }

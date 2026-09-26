@@ -111,6 +111,23 @@ pub const Replies = struct {
         replies.stream_reply_count += 1;
     }
 
+    /// Drops the WINDOW_UPDATE frames owed on `stream_id`, once the peer has ended its side of the
+    /// stream or the stream is reset. No more DATA comes on it, so its credit is never needed, and
+    /// the stream may close before the queue is written: RFC 9113 §5.1 says "an endpoint MUST NOT
+    /// send frames other than PRIORITY on a closed stream". spec/tla/h2_flow_control found the
+    /// path. A RST_STREAM owed on the stream stays.
+    pub fn drop_window_updates(replies: *Replies, stream_id: u32) void {
+        assert(stream_id != constants.connection_stream_id);
+        var kept: u32 = 0;
+        for (replies.stream_replies[0..replies.stream_reply_count]) |reply| {
+            if (reply.stream_id == stream_id and reply.kind == .window_update) continue;
+            replies.stream_replies[kept] = reply;
+            kept += 1;
+        }
+        assert(kept <= replies.stream_reply_count);
+        replies.stream_reply_count = kept;
+    }
+
     /// Sets the GOAWAY colibri sends. The first one stands: invariant 16 keeps the last stream
     /// identifier from rising, and the connection sends one GOAWAY and then stops reading.
     pub fn set_goaway(replies: *Replies, goaway: Goaway) void {
@@ -284,4 +301,17 @@ test "the first GOAWAY stands, and it is written after the replies the peer aske
     const written = test_replies.write(&test_output);
     try testing.expectEqual(constants.frame_header_len + constants.goaway_len_min, written);
     try testing.expectEqual(null, test_replies.goaway);
+}
+
+test "dropping a stream's owed WINDOW_UPDATE keeps its RST_STREAM and every other stream's reply" {
+    test_replies.init();
+    test_replies.push_stream_reply(.{ .stream_id = 1, .kind = .window_update, .value = 10 });
+    test_replies.push_stream_reply(.{ .stream_id = 3, .kind = .window_update, .value = 20 });
+    test_replies.push_stream_reply(.{ .stream_id = 1, .kind = .rst_stream, .value = constants.error_cancel });
+    test_replies.push_stream_reply(.{ .stream_id = 1, .kind = .window_update, .value = 30 });
+    test_replies.drop_window_updates(1);
+    try testing.expectEqual(2, test_replies.stream_reply_count);
+    try testing.expectEqual(3, test_replies.stream_replies[0].stream_id);
+    try testing.expectEqual(.rst_stream, test_replies.stream_replies[1].kind);
+    try testing.expectEqual(1, test_replies.stream_replies[1].stream_id);
 }

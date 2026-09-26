@@ -48,6 +48,9 @@ pub fn on_data(target: *Connection, header: frame.Header, payload: frame.Data, n
                 return refused;
             }
             target.streams.transition(record, acting.verdict, .receive, .data, payload.end_stream);
+            // RFC 9113 §5.1: the peer ended its side, so the stream's credit is never needed and
+            // no WINDOW_UPDATE may follow once it closes.
+            if (payload.end_stream) target.replies.drop_window_updates(header.stream_id);
             return .{ .data = .{
                 .stream_id = header.stream_id,
                 .payload = payload.data,
@@ -263,4 +266,73 @@ test "§8.1: DATA after an interim response alone is refused, and after the fina
     _ = try feed_response(1, "200", false);
     const event = (try feed_data(1, "test", true)).?;
     try testing.expectEqualStrings("test", event.data.payload);
+}
+
+/// Owes stream 1 of a request a WINDOW_UPDATE, with the connection's, and leaves both queued.
+/// Test-only.
+fn owe_stream_credit() !void {
+    try start_server();
+    _ = try feed_request(1, "/", false);
+    var payload: [constants.frame_size_max]u8 = @splat('x');
+    _ = try feed_data(1, &payload, false);
+    _ = try feed_data(1, &payload, false);
+}
+
+/// How many WINDOW_UPDATE frames in `queued` name stream `stream_id`. Test-only.
+fn updates_on(queued: []const u8, stream_id: u32) !usize {
+    var reader = core.reader.Reader.init(queued);
+    var count: usize = 0;
+    for (0..queued.len) |_| {
+        if (reader.remaining_len() == 0) return count;
+        const header = try frame.frame_header.read(&reader);
+        _ = try reader.take(header.length);
+        if (header.type == constants.frame_type_window_update and header.stream_id == stream_id) count += 1;
+    }
+    return count;
+}
+
+/// A trailer section of one field, which ends the request (RFC 9113 §8.1). Test-only.
+fn trailers_frame() ![]const u8 {
+    var block: [constants.frame_size_max]u8 = undefined;
+    connection.test_encoder.init(constants.header_table_size_initial, .never);
+    var writer = Writer.init(&block);
+    try connection.test_encoder.begin_block(&writer);
+    try connection.test_encoder.write_field(&writer, "x-checked", "yes", .without_indexing);
+    connection.test_encoder.commit_block();
+    const flags = constants.flag_end_headers | constants.flag_end_stream;
+    return frame_bytes(test_input, constants.frame_type_headers, flags, 1, writer.written());
+}
+
+test "§5.1: once the peer ends a stream, or either side resets it, its owed WINDOW_UPDATE is dropped" {
+    // spec/tla/h2_flow_control's path: credit owed on the stream, then the peer ends its side.
+    try owe_stream_credit();
+    _ = try feed_data(1, "", true);
+    var queued = write_queued();
+    try testing.expectEqual(0, try updates_on(queued, 1));
+    // The connection's credit is still owed: the connection goes on.
+    try testing.expectEqual(1, try updates_on(queued, constants.connection_stream_id));
+    try owe_stream_credit();
+    _ = try feed(try trailers_frame());
+    try testing.expectEqual(0, try updates_on(write_queued(), 1));
+    // RFC 9113 §6.4: a RST_STREAM from the peer closes the stream at once.
+    try owe_stream_credit();
+    const cancel = [_]u8{ 0, 0, 0, @intCast(constants.error_cancel) };
+    _ = try feed(try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 1, &cancel));
+    try testing.expectEqual(0, try updates_on(write_queued(), 1));
+    // colibri's own reset closes it too, and its RST_STREAM still goes out.
+    try owe_stream_credit();
+    try test_connection.reset_stream(1, constants.error_cancel);
+    queued = write_queued();
+    try testing.expectEqual(0, try updates_on(queued, 1));
+    try testing.expect(std.mem.indexOfScalar(u8, queued, constants.frame_type_rst_stream) != null);
+    // colibri's own refusal of the stream resets it too, here DATA past its window (§6.9.1).
+    try owe_stream_credit();
+    test_connection.streams.lookup(1).live.receive = window.Receiver.init(constants.window_update_threshold);
+    var payload: [constants.frame_size_max]u8 = @splat('x');
+    _ = try feed_data(1, &payload, false);
+    try testing.expectEqual(1, (try feed_data(1, &payload, false)).?.stream_refused.stream_id);
+    try testing.expectEqual(0, try updates_on(write_queued(), 1));
+    // Credit the peer can still use is sent as before.
+    try owe_stream_credit();
+    try testing.expectEqual(1, try updates_on(write_queued(), 1));
 }

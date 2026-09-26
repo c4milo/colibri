@@ -138,6 +138,8 @@ pub fn reset_stream(target: *Connection, id: u32, code: u32, now_ns: u64) Error!
         // A stream colibri has already closed takes no second close; §5.1 leaves it closed.
         if (verdict == .state) target.streams.transition(record, verdict, .send, .rst_stream, false);
     }
+    // RFC 9113 §5.1: the RST_STREAM closes the stream, so no WINDOW_UPDATE may go out after it.
+    target.replies.drop_window_updates(id);
     target.replies.push_stream_reply(.{ .stream_id = id, .kind = .rst_stream, .value = code });
     return .{ .stream_refused = .{ .stream_id = id, .error_code = code } };
 }
@@ -183,6 +185,8 @@ fn on_rst_stream(target: *Connection, header: frame.Header, payload: frame.RstSt
         .open => unreachable,
         .act => |acting| {
             target.streams.transition(acting.record, acting.verdict, .receive, .rst_stream, false);
+            // RFC 9113 §5.1: the stream is closed, and no WINDOW_UPDATE may go out on it.
+            target.replies.drop_window_updates(header.stream_id);
             return .{ .stream_reset = .{ .stream_id = header.stream_id, .error_code = payload.error_code } };
         },
     }
