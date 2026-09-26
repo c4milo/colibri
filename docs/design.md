@@ -1728,6 +1728,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The fix's mutations, against `zig build test-quic` alone: 9 applied, 8 **CAUGHT**. The header
     length mutant needed a test with a peer ID longer than the handshake's first. The one not
     caught set `highest_offered` for sequence number 0, which nothing reads, and the line is gone.
+    `aebc502` then removed the field, its doc comment and its remaining two writes.
     `tools/quic_udp.sh` and `tools/quic_aioquic.sh` pass against the fix.
 
 - **Step 9e — the handshake over CRYPTO frames, and the interop runner.** CRYPTO frame
