@@ -3,6 +3,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
+const h11 = @import("h11");
 
 /// Octets the server reads from a socket at once: one whole h2 frame, header included, so a
 /// connection always makes progress on the largest frame colibri accepts (RFC 9113 §4.2).
@@ -26,6 +27,26 @@ pub const tick_ns: u64 = 1_000_000;
 /// Most application protocols an endpoint offers through ALPN (RFC 7301 §3.1): `h2` and
 /// `http/1.1`, in decision 88's order.
 pub const alpn_offered_max: u32 = 2;
+
+/// Most octets of request content the server's `--echo` mode returns (`h11/h11_echo.zig`). A
+/// request with more is answered with 413 (RFC 9110 §15.5.14) and no echo.
+pub const echo_body_len_max: u32 = 16384;
+
+/// Octets of the JSON one echo writes: the method and the target, each at most a request line
+/// long, the field lines, each name and value base64-encoded inside `["",""],`, the content, and
+/// the keys around them (`h11/h11_echo.zig`). Only modules that import h11 reach it, so its
+/// comptime asserts are in `h11/h11_echo.zig`.
+pub const echo_json_len_max: u32 = 2 * base64_len(h11.constants.start_line_len_max) +
+    base64_len(h11.core.constants.field_section_size_max) + echo_json_line_len * h11.core.constants.field_count_max +
+    base64_len(echo_body_len_max) + echo_json_keys_len;
+/// The octets around one field line in the echo, `["",""],`, and around everything else.
+pub const echo_json_line_len: u32 = 8;
+pub const echo_json_keys_len: u32 = 128;
+
+/// Octets of the standard base64 encoding of `len` octets, which the HTTP Garden decodes.
+fn base64_len(len: u32) u32 {
+    return @intCast(std.base64.standard.Encoder.calcSize(len));
+}
 
 /// The port the server listens on when the caller names none.
 pub const default_port: u16 = 8080;

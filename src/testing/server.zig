@@ -34,6 +34,8 @@ const rotor = @import("rotor");
 const constants = @import("constants.zig");
 const session_module = @import("session.zig");
 const server_tls = @import("tls/server_tls.zig");
+const server_options = @import("server_options.zig");
+const h11_echo = @import("h11/h11_echo.zig");
 const server_identity = @import("tls/server_identity.zig");
 const chapulin = @import("tls/chapulin.zig");
 const chapulin_server = @import("tls/chapulin_server.zig");
@@ -89,6 +91,8 @@ const Connection = struct {
 /// One worker: a core's loop, listener and connections. One thread touches these fields, and the
 /// loop's memory, aligned to a cache line or more, keeps the next worker off this one's lines.
 const Worker = struct {
+    /// Which of `workers` this is, which picks its slots' echoes.
+    index: usize,
     loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(@max(rotor.memory_alignment, constants.cache_line_bytes)),
     loop: rotor.Loop,
     listener: rotor.Descriptor,
@@ -134,10 +138,11 @@ pub fn listen_and_serve(port: u16) !void {
 /// Serves connections on `workers[index]` until the process is stopped.
 fn run_worker(index: usize, port: u16) !void {
     const worker = &workers[index];
+    worker.index = index;
     // Rotor's rule: the loop belongs to the thread that starts it.
     try worker.loop.init(&worker.loop_memory, loop_options);
     defer worker.loop.deinit();
-    const address = rotor.Address.ipv4(loopback_octets, port);
+    const address = rotor.Address.ipv4(listen_address, port);
     worker.listener = try rotor.sync.listen(&address, .{ .backlog = constants.kernel_backlog, .reuse_port = true });
     defer rotor.sync.close_now(worker.listener);
     if (index == 0) std.debug.print("http-server: listening on port {d}, rotor backend {t}\n", .{ port, rotor.backend() });
@@ -190,6 +195,8 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     connection.descriptor = descriptor;
     // Over TLS, `server_tls.step` sets the protocol again once ALPN has selected one.
     connection.session.init(cleartext_protocol);
+    // `server_options.read` refuses `--echo` but for h11 in cleartext.
+    if (echo_mode) connection.session.h11.echo = &echoes[worker.index][slot];
     connection.input_len = 0;
     connection.output_len = 0;
     connection.output_sent = 0;
@@ -350,56 +357,29 @@ fn consume(connection: *Connection, consumed: usize) void {
     connection.input_len -= consumed;
 }
 
-/// The address the server listens on: the loopback, because it serves tests alone. RFC 1122
-/// §3.2.1.3 reserves 127.0.0.0/8 for the local host.
-const loopback_octets = [_]u8{ loopback_first, 0, 0, 1 };
-const loopback_first: u8 = 127;
-
-/// The command-line options, as `tools/h2spec.sh` passes them: the port, the prefix of the
-/// identity files `tools/h2_interop/tls_identity.go` wrote, which turns the TLS mode on, and
-/// `--h11`, which takes no value and makes a cleartext connection speak h11, or a TLS server offer
-/// `http/1.1` alone.
-const port_option = "--port";
-const tls_option = "--tls";
-const h11_option = "--h11";
-
-/// What the command line asked for.
-const Options = struct {
-    port: u16 = constants.default_port,
-    identity_prefix: ?[]const u8 = null,
-    protocol: Protocol = .h2,
-};
-
-/// The protocol every cleartext connection speaks, which `main` sets from the command line.
+/// What the command line asked for, which `main` sets before any worker starts.
 var cleartext_protocol: Protocol = .h2;
+var listen_address: [server_options.ipv4_octets]u8 = server_options.loopback_octets;
+var echo_mode: bool = false;
 
-/// Runs the server: `zig build http-server -- --port <port> [--h11] [--tls <identity-prefix>]`.
+/// Where each connection slot of each worker keeps its echo in the `--echo` mode. Apart from the
+/// sessions, so the mode costs every other one nothing, and mapped by the operating system only
+/// when a connection touches it.
+var echoes: [constants.workers_max][constants.connections_per_worker_max]h11_echo.Echo = undefined;
+
+/// Runs the server: `zig build http-server -- [options]` (`server_options.zig`).
 pub fn main(init: std.process.Init.Minimal) !void {
     var arguments = std.process.Args.Iterator.init(init.args);
     _ = arguments.skip();
-    const options = read_options(&arguments);
+    const options = server_options.read(&arguments) orelse {
+        std.debug.print(server_options.usage, .{});
+        std.process.exit(exit_usage);
+    };
     cleartext_protocol = options.protocol;
+    listen_address = options.address;
+    echo_mode = options.echo;
     if (options.identity_prefix) |prefix| try load_tls(prefix, options.protocol);
     try listen_and_serve(options.port);
-}
-
-/// Reads `--port` and `--tls`, each followed by its value, and `--h11`. An unreadable port is the
-/// default.
-fn read_options(arguments: *std.process.Args.Iterator) Options {
-    var options: Options = .{};
-    for (0..constants.arguments_max) |_| {
-        const argument = arguments.next() orelse break;
-        if (std.mem.eql(u8, argument, h11_option)) {
-            options.protocol = .h11;
-            continue;
-        }
-        const value = arguments.next() orelse break;
-        if (std.mem.eql(u8, argument, port_option)) {
-            options.port = std.fmt.parseInt(u16, value, constants.port_radix) catch constants.default_port;
-        }
-        if (std.mem.eql(u8, argument, tls_option)) options.identity_prefix = value;
-    }
-    return options;
 }
 
 /// Checks the linked object's build, loads what every TLS connection shares, and runs chapulin's

@@ -24,9 +24,11 @@ comptime {
 pub const h2_session = @import("h2/h2_session.zig");
 pub const h11_session = @import("h11/h11_session.zig");
 pub const h11_client_session = @import("h11/h11_client_session.zig");
+pub const h11_echo = @import("h11/h11_echo.zig");
 pub const session = @import("session.zig");
 pub const Session = session.Session;
 pub const server = @import("server.zig");
+pub const server_options = @import("server_options.zig");
 pub const server_tls = @import("tls/server_tls.zig");
 pub const tls_records = @import("tls/records.zig");
 pub const client_exchange = @import("client/client_exchange.zig");
@@ -43,8 +45,10 @@ test {
     _ = h2_session;
     _ = h11_session;
     _ = h11_client_session;
+    _ = h11_echo;
     _ = session;
     _ = server;
+    _ = server_options;
     _ = server_tls;
     _ = tls_records;
     _ = client_exchange;

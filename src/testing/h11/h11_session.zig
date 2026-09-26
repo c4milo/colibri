@@ -18,6 +18,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
 const constants = @import("../constants.zig");
+const h11_echo = @import("h11_echo.zig");
 
 const Connection = h11.connection.Connection;
 const Field = h11.http.field.Field;
@@ -45,6 +46,13 @@ const response_fields = [_]Field{
 /// The reason phrase of `response_status` (RFC 9110 §15.3.1).
 const response_reason = "OK";
 
+/// 413 (Content Too Large) and its reason phrase (RFC 9110 §15.5.14).
+const too_large_status: u16 = 413;
+const too_large_reason = "Content Too Large";
+
+/// The media type of an echo (RFC 9110 §8.3).
+const echo_content_type = "application/json";
+
 /// 100 (Continue) and its reason phrase (RFC 9110 §15.2.1).
 const continue_status: u16 = 100;
 const continue_reason = "Continue";
@@ -60,11 +68,18 @@ const passes_after_input = 2;
 pub const Session = struct {
     connection: Connection,
     owed: Owed,
+    /// Where the `--echo` mode keeps the request it returns, or null in every other mode. The
+    /// server places it apart from the session, so the mode costs the other sessions nothing.
+    echo: ?*h11_echo.Echo,
+    /// Octets of the response's content written so far.
+    content_sent: usize,
 
     /// Makes a server connection that has read nothing and written nothing.
     pub fn init(session: *Session) void {
         session.connection.init(.server, .{});
         session.owed = .nothing;
+        session.echo = null;
+        session.content_sent = 0;
         assert(session.connection.phase == .head);
     }
 
@@ -86,9 +101,7 @@ pub const Session = struct {
             consumed += received.consumed;
             // `should_close` waits for the error response a refusal owes, too.
             const event = received.event orelse return .{ .consumed = consumed, .written = written, .done = session.connection.should_close() };
-            // The request is read whole once the connection waits, and its `end` is not owed.
-            if (session.connection.phase == .waiting and event != .data) session.owed = .head;
-            if (event == .request and session.expects_continue(event.request)) session.owed = .interim;
+            session.on_event(event);
         }
         unreachable;
     }
@@ -106,6 +119,23 @@ pub const Session = struct {
             if (session.owed == .nothing) return written;
         }
         unreachable;
+    }
+
+    /// Notes what one event says about the response owed, and keeps what an echo returns.
+    fn on_event(session: *Session, event: h11.connection.Event) void {
+        if (session.echo) |echo| switch (event) {
+            // The head's octets are valid until the next read, so the echo copies them now.
+            .request => |request| echo.begin(request.line, &session.connection.section),
+            .data => |data| echo.add(data),
+            else => {},
+        };
+        // The request is read whole once the connection waits, and its `end` is not owed.
+        if (session.connection.phase == .waiting and event != .data) {
+            if (session.echo) |echo| echo.finish();
+            session.owed = .head;
+            session.content_sent = 0;
+        }
+        if (event == .request and session.expects_continue(event.request)) session.owed = .interim;
     }
 
     /// Whether the request asks for a 100 (Continue) before its content. RFC 9110 §10.1.1: an
@@ -126,6 +156,28 @@ pub const Session = struct {
         return false;
     }
 
+    /// The content of the response owed: the request's echo in the `--echo` mode, and
+    /// `response_body` otherwise.
+    fn content(session: *const Session) []const u8 {
+        const echo = session.echo orelse return constants.response_body;
+        return echo.written();
+    }
+
+    /// Writes the head of the response owed: 200 with its content, or, when the echo could not
+    /// keep the request's content, 413 with none (RFC 9110 §15.5.14).
+    fn write_head(session: *Session, output: []u8) h11.connection.SendError!usize {
+        const connection = &session.connection;
+        const echo = session.echo orelse return connection.write_response(output, constants.response_status, response_reason, &response_fields);
+        if (echo.body_too_long) return connection.write_response(output, too_large_status, too_large_reason, &.{.{ .name = "Content-Length", .value = "0" }});
+        var digits: [constants.content_length_digits_max]u8 = undefined;
+        const length = std.fmt.bufPrint(&digits, "{d}", .{echo.written().len}) catch unreachable;
+        const fields = [_]Field{
+            .{ .name = "Content-Type", .value = echo_content_type },
+            .{ .name = "Content-Length", .value = length },
+        };
+        return connection.write_response(output, constants.response_status, response_reason, &fields);
+    }
+
     /// Writes the next part of the response, and moves `owed` past it.
     fn write_part(session: *Session, output: []u8) h11.connection.SendError!usize {
         const connection = &session.connection;
@@ -137,14 +189,19 @@ pub const Session = struct {
                 return written;
             },
             .head => {
-                const written = try connection.write_response(output, constants.response_status, response_reason, &response_fields);
+                const written = try session.write_head(output);
                 // RFC 9112 §6.3 rule 1: a response to HEAD has no body, and is written whole.
                 session.owed = if (connection.writer.open()) .body else .nothing;
                 return written;
             },
             .body => {
-                const written = try connection.write_body(output, constants.response_body);
-                session.owed = .end;
+                // The content goes out as far as the room allows, and the rest in a later step.
+                const left = session.content()[session.content_sent..];
+                const slice = left[0..@min(left.len, output.len)];
+                if (slice.len == 0) return error.OutputTooSmall;
+                const written = try connection.write_body(output, slice);
+                session.content_sent += slice.len;
+                if (session.content_sent == session.content().len) session.owed = .end;
                 return written;
             },
             .end => {
@@ -259,3 +316,55 @@ test "RFC 9110 §10.1.1: an HTTP/1.1 request expecting 100-continue gets it befo
         try testing.expect(std.mem.startsWith(u8, test_output[0..plain.written], "HTTP/1.1 200 OK\r\n"));
     }
 }
+
+/// The echo the `--echo` tests attach, outside any stack frame. Test-only.
+var test_echo: h11_echo.Echo = undefined;
+
+fn echo_session() *Session {
+    const target = fresh_session();
+    target.echo = &test_echo;
+    return target;
+}
+
+test "the echo mode answers each request with the JSON of what h11 read" {
+    const target = echo_session();
+    const input = "POST /p HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
+    const stepped = target.step(input, &test_output);
+    const written = test_output[0..stepped.written];
+    const json = "{\"method\":\"UE9TVA==\",\"uri\":\"L3A=\",\"version\":\"SFRUUC8xLjE=\"," ++
+        "\"headers\":[[\"SG9zdA==\",\"YQ==\"],[\"VHJhbnNmZXItRW5jb2Rpbmc=\",\"Y2h1bmtlZA==\"]],\"body\":\"aGVsbG8=\"}";
+    const head = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " ++
+        std.fmt.comptimePrint("{d}", .{json.len}) ++ "\r\n\r\n";
+    try testing.expectEqualStrings(head ++ json, written);
+}
+
+test "the echo mode answers content past its limit with 413, and writes a long echo in slices" {
+    var target = echo_session();
+    var input: [test_long_input_len]u8 = undefined;
+    const head = "POST / HTTP/1.1\r\nHost: a\r\nContent-Length: " ++
+        std.fmt.comptimePrint("{d}", .{constants.echo_body_len_max + 1}) ++ "\r\n\r\n";
+    @memcpy(input[0..head.len], head);
+    @memset(input[head.len..][0 .. constants.echo_body_len_max + 1], 'x');
+    const refused = target.step(input[0 .. head.len + constants.echo_body_len_max + 1], &test_output);
+    try testing.expect(std.mem.startsWith(u8, test_output[0..refused.written], "HTTP/1.1 413 Content Too Large\r\n"));
+    // A GET whose echo is longer than the output: the content goes out over several steps.
+    target = echo_session();
+    const get = "GET /" ++ "a" ** 1200 ++ " HTTP/1.1\r\nHost: a\r\n\r\n";
+    var steps: usize = 0;
+    var content_len: usize = 0;
+    for (0..test_output.len) |_| {
+        const stepped = target.step(if (steps == 0) get else "", test_output[0..test_small_output_len]);
+        steps += 1;
+        content_len += stepped.written;
+        if (target.owed == .nothing and steps > 1) break;
+    }
+    try testing.expect(steps > 2);
+    try testing.expect(content_len > test_output.len);
+}
+
+/// Room for a request whose content is one past the echo's limit: the content and a head of at
+/// most `test_head_len_max` octets. Test-only.
+const test_long_input_len = constants.echo_body_len_max + test_head_len_max;
+const test_head_len_max = 128;
+/// An output smaller than any echo, so an echo goes out in slices. Test-only.
+const test_small_output_len = 128;
