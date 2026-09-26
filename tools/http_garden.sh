@@ -18,6 +18,9 @@
 # built is pushed there for the next run. colibri's image is always built from the commit under
 # test, and never pushed. A pull or a push that fails is reported, and the run goes on.
 #
+# With GARDEN_REPL_OUTPUT set to a path, the REPL's whole output is copied there, so a run whose
+# report is wrong can be read afterwards.
+#
 # Usage: tools/http_garden.sh [origin...]
 #        (no origin compares colibri with every origin the Garden carries)
 set -euo pipefail
@@ -249,6 +252,12 @@ while IFS= read -r name <&3; do
     echo "http_garden.sh: ${name}: the REPL failed again ($(tail -1 "${scratch}/error"))"
 done 3< <(python3 "${driver}" names)
 
-python3 "${driver}" report <"${scratch}/output" ||
-  fail "not every stream was compared: $(grep -iE "error|exception|traceback|invalid|couldn't|expects" "${scratch}/output" | sort | uniq -c | head -5)"
+[ -z "${GARDEN_REPL_OUTPUT:-}" ] || cp "${scratch}/output" "${GARDEN_REPL_OUTPUT}"
+if ! python3 "${driver}" report <"${scratch}/output"; then
+  # What the REPL printed for the first case that went uncompared.
+  first="$(python3 "${driver}" uncompared <"${scratch}/output" | head -1)"
+  echo "http_garden.sh: the REPL's output for ${first}:"
+  grep -a -A 40 "\[b'${first}'\]" "${scratch}/output" | cut -c 1-200 | head -60
+  fail "not every stream was compared"
+fi
 rm -rf "${scratch}"

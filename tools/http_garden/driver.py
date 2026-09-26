@@ -6,6 +6,7 @@ none of the Garden's code, which is GPL-3.0: colibri only runs the Garden.
     driver.py names                     every case's name, one a line
     driver.py case <name> <origin>...   the REPL commands for one case, on standard output
     driver.py report                    the REPL's output on standard input, the report on standard output
+    driver.py uncompared                the REPL's output on standard input, each case with no grid
 
 Every case is one HTTP/1.1 request stream, sent to colibri and to each origin, whose parses the
 REPL compares pair by pair (`grid`). colibri is listed first, so the first row of each grid is
@@ -109,6 +110,19 @@ def grids(lines) -> dict[str, list[tuple[str, str]]]:
     return found
 
 
+def compared_grid(rows: list[tuple[str, str]]) -> tuple[list[str], list[str]] | None:
+    """The origins of a case's grid and colibri's colour against each, or None when the REPL
+    printed no whole grid for it."""
+    # The grid's first row: colibri against itself, then against each origin in row order.
+    if not rows or rows[0][0] != "colibri":
+        return None
+    origins = [label for label, _ in rows[1:]]
+    colours = row_colours(rows[0][1])[1:]
+    if len(colours) != len(origins):
+        return None
+    return origins, colours
+
+
 def report() -> int:
     """Reads the REPL's output and prints each case colibri disagrees on. Returns how many cases
     went uncompared."""
@@ -116,14 +130,10 @@ def report() -> int:
     findings = []
     compared = 0
     for name, _ in cases():
-        rows = rows_of.get(name, [])
-        # The grid's first row: colibri against itself, then against each origin in row order.
-        if not rows or rows[0][0] != "colibri":
+        grid = compared_grid(rows_of.get(name, []))
+        if grid is None:
             continue
-        origins = [label for label, _ in rows[1:]]
-        colours = row_colours(rows[0][1])[1:]
-        if len(colours) != len(origins):
-            continue
+        origins, colours = grid
         compared += 1
         differing = [origin for origin, colour in zip(origins, colours) if colour == differs]
         failing = [origin for origin, colour in zip(origins, colours) if colour == invalid]
@@ -150,6 +160,12 @@ def main() -> int:
             print(f"driver.py: no case named {sys.argv[2]}", file=sys.stderr)
             return 2
         case_commands(sys.argv[2], octets, sys.argv[3:])
+        return 0
+    if command == "uncompared":
+        rows_of = grids(sys.stdin)
+        for name, _ in cases():
+            if compared_grid(rows_of.get(name, [])) is None:
+                print(name)
         return 0
     if command == "report":
         # A case the REPL printed no grid for was not compared, which fails the run.

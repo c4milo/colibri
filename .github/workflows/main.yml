@@ -159,6 +159,8 @@ jobs:
         run: echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Run the Garden
         shell: bash
+        env:
+          GARDEN_REPL_OUTPUT: garden-repl.txt
         run: tools/http_garden.sh 2>&1 | tee garden-report.txt
       - name: Publish the report
         if: always()
@@ -175,5 +177,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: http-garden-${{ github.sha }}
-          path: garden-report.txt
+          path: |
+            garden-report.txt
+            garden-repl.txt
           retention-days: 90
