@@ -183,6 +183,23 @@ test "RFC 9000 §19.16: a retired connection ID is named until the frame is ackn
     try testing.expectEqual(null, try send_from(&client));
 }
 
+test "RFC 9000 §5.1.2: once the peer retires the ID in use, colibri addresses the next one" {
+    open_pair(generous_limit);
+    // What the client takes off the server's first Initial (`connection_receive.zig`).
+    client.remote_ids.hold_initial(&peer_id);
+    var next: connection_id.Entry = .{ .sequence_number = 1, .len = id_len, .octets = @splat(0), .stateless_reset_token = token };
+    @memcpy(next.octets[0..id_len], &second_id);
+    try client.remote_ids.offer(next, 1, generous_limit);
+    // "Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
+    // corresponding connection IDs", so the packet retiring sequence number 0 goes to the next
+    // one, which also keeps it off the ID it names (§19.16). RFC 9000 §17.3: a short header's
+    // Destination Connection ID follows its first octet.
+    const retire = (try send_from(&client)).?;
+    try testing.expectEqualSlices(u8, &second_id, datagram[1 .. 1 + id_len]);
+    try deliver(retire, &server);
+    try testing.expectEqual(null, server.local_ids.sequence_number_of(&local_id));
+}
+
 test "RFC 9000 §12.4: neither frame goes below 1-RTT" {
     open_pair(transport_parameters.default_active_connection_id_limit);
     _ = try id_frames.issue(&client, &issued_id, &token);

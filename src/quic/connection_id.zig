@@ -38,7 +38,8 @@ pub const Entry = struct {
 /// Why a frame about connection IDs ended the connection.
 pub const Error = error{
     /// RFC 9000 §5.1.1: more active connection IDs than the endpoint's
-    /// `active_connection_id_limit` permits.
+    /// `active_connection_id_limit` permits, or, under §5.1.2, more retired ones awaiting
+    /// acknowledgment than `connection_ids_max`.
     ConnectionIdLimitExceeded,
     /// RFC 9000 §19.15: the same sequence number was used for a different connection ID.
     SequenceNumberReused,
@@ -94,6 +95,30 @@ pub const Remote = struct {
         return remote.len;
     }
 
+    /// Takes the connection ID the peer put in the Source Connection ID field of its first
+    /// packets, which RFC 9000 §5.1.1 gives sequence number 0. It is active like any other: it
+    /// counts against the limit, and a Retire Prior To above 0 retires it (§5.1.2). A peer that
+    /// sent a zero-length one has no other to offer (§19.15). The ID carries no Stateless Reset
+    /// Token here: §10.3 gives a client's none, and a server's travels in its transport
+    /// parameters (§18.2).
+    pub fn hold_initial(remote: *Remote, octets: []const u8) void {
+        assert(remote.len == 0);
+        assert(octets.len <= constants.connection_id_len_max);
+        if (octets.len == 0) {
+            remote.zero_length = true;
+            return;
+        }
+        var entry: Entry = .{
+            .sequence_number = 0,
+            .len = @intCast(octets.len),
+            .octets = @splat(0),
+            .stateless_reset_token = @splat(0),
+        };
+        @memcpy(entry.octets[0..octets.len], octets);
+        remote.entries[0] = entry;
+        remote.len = 1;
+    }
+
     /// Takes a NEW_CONNECTION_ID frame (RFC 9000 §19.15). `limit` is this endpoint's
     /// `active_connection_id_limit` (§18.2), which §5.1.1 measures the result against.
     pub fn offer(remote: *Remote, entry: Entry, retire_prior_to: u64, limit: u64) Error!void {
@@ -105,12 +130,12 @@ pub const Remote = struct {
         if (try remote.is_active(entry)) return;
         // RFC 9000 §5.1.2: the connection IDs below Retire Prior To are retired **before** the
         // new one is added, so the count never passes the limit even for an instant.
-        remote.raise_retire_prior_to(retire_prior_to);
+        try remote.raise_retire_prior_to(retire_prior_to);
         // RFC 9000 §19.15: an endpoint that receives a connection ID whose sequence number is
         // below a Retire Prior To it already saw MUST send a RETIRE_CONNECTION_ID for it,
         // unless it has already done so. It is never added back (§5.1.2).
         if (entry.sequence_number < remote.retire_prior_to) {
-            remote.record_retiring(entry.sequence_number);
+            try remote.record_retiring(entry.sequence_number);
             return;
         }
         const past_limit = remote.len == remote.entries.len or remote.len + 1 > limit;
@@ -140,7 +165,7 @@ pub const Remote = struct {
     }
 
     /// Retires every active connection ID below `mark` (RFC 9000 §5.1.2).
-    fn raise_retire_prior_to(remote: *Remote, mark: u64) void {
+    fn raise_retire_prior_to(remote: *Remote, mark: u64) Error!void {
         if (mark <= remote.retire_prior_to) return;
         remote.retire_prior_to = mark;
         var index: usize = 0;
@@ -151,7 +176,7 @@ pub const Remote = struct {
                 index += 1;
                 continue;
             }
-            remote.record_retiring(remote.entries[index].sequence_number);
+            try remote.record_retiring(remote.entries[index].sequence_number);
             remote.remove(index);
         }
     }
@@ -160,7 +185,7 @@ pub const Remote = struct {
     /// was already sent (RFC 9000 §19.15). `reported` remembers the recent ones, because the
     /// queue itself drains; past what it holds a duplicate frame can go out, which the peer
     /// takes as a retransmission the way §19.15 describes.
-    fn record_retiring(remote: *Remote, sequence_number: u64) void {
+    fn record_retiring(remote: *Remote, sequence_number: u64) Error!void {
         for (remote.reported[0..remote.reported_len]) |held| {
             if (held == sequence_number) return;
         }
@@ -168,9 +193,12 @@ pub const Remote = struct {
             for (1..remote.reported_len) |index| remote.reported[index - 1] = remote.reported[index];
             remote.reported_len -= 1;
         }
+        // RFC 9000 §5.1.2: "An endpoint MUST NOT forget a connection ID without retiring it,
+        // though it MAY choose to treat having connection IDs in need of retirement that exceed
+        // this limit as a connection error of type CONNECTION_ID_LIMIT_ERROR."
+        if (remote.retiring_len == remote.retiring.len) return error.ConnectionIdLimitExceeded;
         remote.reported[remote.reported_len] = sequence_number;
         remote.reported_len += 1;
-        if (remote.retiring_len == remote.retiring.len) return;
         remote.retiring[remote.retiring_len] = .{ .sequence_number = sequence_number, .frame = .{ .owed = true } };
         remote.retiring_len += 1;
     }

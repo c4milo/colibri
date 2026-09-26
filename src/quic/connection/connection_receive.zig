@@ -199,10 +199,18 @@ fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Lo
     // Connection ID field that it received." It is taken off a packet that opened, because until
     // the AEAD tag matches nothing in a packet is the peer's word for anything.
     switch (outcome) {
-        .opened => connection.identity.on_peer_initial(long.scid),
+        .opened => take_peer_source(connection, long.scid),
         .discarded => {},
     }
     return outcome;
+}
+
+/// RFC 9000 §7.2: the first Source Connection ID the peer sent is the one this endpoint addresses,
+/// and §5.1.1 makes it the peer's connection ID with sequence number 0.
+fn take_peer_source(connection: *Connection, scid: []const u8) void {
+    if (connection.identity.peer_initial_source != null) return;
+    connection.identity.on_peer_initial(scid);
+    connection.remote_ids.hold_initial(scid);
 }
 
 /// RFC 9000 §7.2: whether a long header's Source Connection ID is the one this endpoint already

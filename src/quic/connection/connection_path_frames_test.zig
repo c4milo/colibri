@@ -212,6 +212,22 @@ test "RFC 9000 §5.1.1: the identity's own Source Connection ID is sequence numb
     try testing.expectEqual(null, test_connection.local_ids.sequence_number_of(&offered_id));
 }
 
+test "RFC 9000 §5.1.1: a server holds the client's first Source Connection ID as sequence number 0" {
+    test_connection.init(.{
+        .role = .server,
+        .local_parameters = parameters(),
+        .now_ns = test_now_ns,
+        .identity = .{ .local_initial_source = &local_id, .original_destination = &peer_id, .peer_initial_source = &offered_id },
+    });
+    const held = test_connection.remote_ids.active().?;
+    try testing.expectEqual(0, held.sequence_number);
+    try testing.expectEqualSlices(u8, &offered_id, held.value());
+    // §5.1.1: it is one of the two the default limit allows, so a second from NEW_CONNECTION_ID
+    // fills the set and a third closes the connection.
+    _ = try run(&.{new_connection_id(1, 0)});
+    try testing.expectError(error.ConnectionIdLimitExceeded, run(&.{new_connection_id(2, 0)}));
+}
+
 fn new_connection_id(sequence_number: u64, retire_prior_to: u64) Frame {
     return .{ .new_connection_id = .{
         .sequence_number = sequence_number,

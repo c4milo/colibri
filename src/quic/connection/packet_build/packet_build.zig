@@ -38,10 +38,12 @@ const recovery_sent = @import("../../recovery/recovery_sent.zig");
 const StreamProvider = @import("../../stream/stream_provider.zig").StreamProvider;
 const connection_handshake = @import("../connection_handshake.zig");
 const packet_build_frames = @import("packet_build_frames.zig");
+const transport_parameters = @import("../../transport_parameters.zig");
 
 const Level = core.Level;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
+const ConnectionId = transport_parameters.ConnectionId;
 
 /// What one packet may hold, which `connection_send` decides by RFC 9002 §7's congestion window.
 pub const Room = packet_build_frames.Room;
@@ -258,7 +260,7 @@ fn shape_of(connection: *Connection, level: Level, packet_number_len: u8, output
 fn fixed_header_len(connection: *Connection, level: Level, packet_number_len: u8) usize {
     const identity = &connection.identity;
     // RFC 9000 §17.3: a short header is byte 0, the Destination Connection ID and the number.
-    if (level == .application) return 1 + identity.destination().len + packet_number_len;
+    if (level == .application) return 1 + short_destination(connection).len + packet_number_len;
     const destination = identity.destination().len;
     const source = identity.source().len;
     // §17.2: byte 0, the Version, both connection IDs with their length octets, and the number.
@@ -413,13 +415,24 @@ fn write_and_seal(
     }, output);
 }
 
+/// The Destination Connection ID a short header carries. RFC 9000 §5.1.2: an active one the peer
+/// issued, and once the peer raises Retire Prior To past the one in use, colibri "MUST stop using"
+/// it, so the next active one takes its place. A RETIRE_CONNECTION_ID frame therefore never names
+/// the ID of its own packet (§19.16). A peer with a zero-length ID holds none in the set, and is
+/// addressed by the handshake's (§7.2). The ID is returned whole, because the handshake's is a
+/// value that no slice may outlive.
+fn short_destination(connection: *const Connection) ConnectionId {
+    if (connection.remote_ids.active()) |entry| return ConnectionId.of(entry.value());
+    return connection.identity.destination();
+}
+
 /// RFC 9000 §17.2 and §17.3: the header through the Packet Number field, unprotected, which
 /// RFC 9001 §5.3 makes the AEAD's associated data.
 fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, pending: Pending) core.writer.Error!void {
     const identity = &connection.identity;
     if (pending.level == .application) {
         return header_write.write_short(writer, .{
-            .dcid = identity.destination().slice(),
+            .dcid = short_destination(connection).slice(),
             .packet_number = pending.truncated,
             // RFC 9001 §6: the bit is the suite's answer about its current write keys, read at
             // the moment the header is written and never stored by colibri.
@@ -453,4 +466,5 @@ test {
     _ = @import("packet_build_test.zig");
     _ = @import("packet_build_ack_test.zig");
     _ = @import("packet_build_probe_test.zig");
+    _ = @import("packet_build_destination_test.zig");
 }

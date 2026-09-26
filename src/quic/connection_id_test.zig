@@ -115,6 +115,51 @@ test "§5.1.2: Retire Prior To retires below itself and keeps the one at it" {
     try testing.expectEqualSlices(u64, &.{1}, retiring_numbers(&numbers));
 }
 
+test "§5.1.1: the peer's handshake connection ID is sequence number 0 and counts against the limit" {
+    test_remote.init(false);
+    test_remote.hold_initial(&issued_a);
+    try testing.expectEqual(0, test_remote.active().?.sequence_number);
+    try testing.expectEqualSlices(u8, &issued_a, test_remote.active().?.value());
+    try test_remote.offer(entry_of(1, 0xa1), 0, test_limit);
+    // RFC 9000 §5.1.1: sequence number 0 is one of the two a limit of two allows.
+    try testing.expectError(error.ConnectionIdLimitExceeded, test_remote.offer(entry_of(2, 0xa2), 0, test_limit));
+}
+
+test "§5.1.2: a Retire Prior To above 0 retires the handshake's connection ID" {
+    test_remote.init(false);
+    test_remote.hold_initial(&issued_a);
+    try test_remote.offer(entry_of(1, 0xa1), 1, test_limit);
+    // "Upon receipt of an increased Retire Prior To field, the peer MUST stop using the
+    // corresponding connection IDs and retire them with RETIRE_CONNECTION_ID frames".
+    try testing.expectEqual(1, test_remote.active_len());
+    try testing.expectEqual(1, test_remote.active().?.sequence_number);
+    var numbers: [constants.connection_ids_max]u64 = undefined;
+    try testing.expectEqualSlices(u64, &.{0}, retiring_numbers(&numbers));
+}
+
+test "§5.1.2: a retirement past the queue closes the connection rather than being forgotten" {
+    test_remote.init(false);
+    const limit: u64 = constants.connection_ids_max;
+    test_remote.hold_initial(&issued_a);
+    for (1..constants.connection_ids_max) |sequence_number| {
+        try test_remote.offer(entry_of(sequence_number, @intCast(sequence_number)), 0, limit);
+    }
+    // Retiring every one at once fills the queue of retirements awaiting acknowledgment.
+    try test_remote.offer(entry_of(limit, 0xf0), limit, limit);
+    try testing.expectEqual(constants.connection_ids_max, test_remote.retirements().len);
+    // "An endpoint MUST NOT forget a connection ID without retiring it, though it MAY choose to
+    // treat having connection IDs in need of retirement that exceed this limit as a connection
+    // error of type CONNECTION_ID_LIMIT_ERROR."
+    try testing.expectError(error.ConnectionIdLimitExceeded, test_remote.offer(entry_of(limit + 1, 0xf1), limit + 1, limit));
+}
+
+test "§19.15: a peer that sent a zero-length connection ID offers no other" {
+    test_remote.init(false);
+    test_remote.hold_initial(&.{});
+    try testing.expectEqual(null, test_remote.active());
+    try testing.expectError(error.ZeroLengthConnectionId, test_remote.offer(entry_of(1, 0xa1), 0, test_limit));
+}
+
 test "§19.15: an endpoint with a zero-length connection ID takes no such frame" {
     test_remote.init(true);
     try testing.expectError(error.ZeroLengthConnectionId, test_remote.offer(entry_of(1, 0xa1), 0, test_limit));

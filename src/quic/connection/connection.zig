@@ -250,6 +250,9 @@ pub const Connection = struct {
         const issued = connection.local_ids.issue(connection.identity.source().slice(), null);
         assert(issued != null and issued.? == 0);
         connection.remote_ids.init(false);
+        // RFC 9000 §5.1.1: the peer's first Source Connection ID is its sequence number 0, which a
+        // server read off the client's first Initial and a client learns from the server's.
+        if (connection.identity.peer_initial_source) |peer| connection.remote_ids.hold_initial(peer.slice());
         // RFC 9000 §8.1: the anti-amplification limit is the server's, because a server is handed
         // an address it cannot yet believe. §21.1.1.1 exempts a client establishing a connection.
         connection.path.init(switch (options.role) {

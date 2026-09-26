@@ -414,6 +414,10 @@ test "RFC 9000 §7.2: the peer's Source Connection ID is taken off the first pac
     // field in subsequent packets it sends to the value of the Source Connection ID field that it
     // received."
     try testing.expectEqualSlices(u8, &peer_id, test_connection.identity.destination().slice());
+    // RFC 9000 §5.1.1: it is the peer's connection ID with sequence number 0 too.
+    const held = test_connection.remote_ids.active().?;
+    try testing.expectEqual(0, held.sequence_number);
+    try testing.expectEqualSlices(u8, &peer_id, held.value());
 }
 
 test "RFC 9000 §7.2: a long header with another Source Connection ID is discarded" {
@@ -447,6 +451,7 @@ test "RFC 9000 §7.2: a packet that did not open supplies no Source Connection I
     const dropped = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.would_not_open, dropped.discarded);
     try testing.expectEqual(null, test_connection.identity.peer_initial_source);
+    try testing.expectEqual(null, test_connection.remote_ids.active());
 }
 
 test "RFC 9001 §4.9.1: a server discards its Initial keys once it processes a Handshake packet" {

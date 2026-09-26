@@ -34,7 +34,7 @@ pub var test_connection: Connection = undefined;
 /// walking a packet into the space that sent it would see its own number as a duplicate.
 pub var peer_connection: Connection = undefined;
 var scratch: packet_build.DefaultScratch = .{};
-var datagram: [constants.datagram_len_min]u8 = undefined;
+pub var datagram: [constants.datagram_len_min]u8 = undefined;
 pub var fake: Fake = undefined;
 var round_trip: RoundTrip = undefined;
 
