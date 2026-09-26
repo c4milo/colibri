@@ -2,7 +2,7 @@
 //! the flight sink of the record-mode server, and what `decrypt_record` and `encrypt_record` refuse
 //! before they call chapulin. The ones that need chapulin linked skip without it.
 const std = @import("std");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin.zig");
 const chapulin_record = @import("chapulin_record.zig");
 const zero_key_records = @import("zero_key_records.zig");
@@ -22,7 +22,7 @@ test "RFC 9846 §5.1: a record is whole once its header and the length it names 
     try testing.expectEqual(record.len, chapulin_record.whole_record_len(&(record ++ record)).?);
     // One octet short of the body, and every cut of the header, is not whole.
     try testing.expectEqual(null, chapulin_record.whole_record_len(record[0 .. record.len - 1]));
-    for (0..tls.constants.record_header_len) |cut| try testing.expectEqual(null, chapulin_record.whole_record_len(record[0..cut]));
+    for (0..tls_provider.constants.record_header_len) |cut| try testing.expectEqual(null, chapulin_record.whole_record_len(record[0..cut]));
     // RFC 9846 §3.1: the length is big-endian, so these two octets name 256.
     const long = [_]u8{ 0x17, 0x03, 0x03, 0x01, 0x00 };
     try testing.expectEqual(null, chapulin_record.whole_record_len(&long));
@@ -66,7 +66,7 @@ const test_alpn = [_]c.ch_alpn_protocol{.{ .name = chapulin_record.alpn_h2.ptr, 
 var test_session: c.ch_tls = undefined;
 var test_held: Held = undefined;
 
-fn test_provider() tls.Provider {
+fn test_provider() tls_provider.Provider {
     test_session = std.mem.zeroes(c.ch_tls);
     test_held = .{ .session = &test_session, .io = .{ .records = .{} }, .closed = false, .pending_alert = null, .suite = 0, .alpn = &test_alpn };
     return .{ .context = @ptrCast(&test_held), .vtable = &chapulin_record.vtable };
@@ -77,7 +77,7 @@ test "RFC 9846 §5.1: a record not yet whole is incomplete, and chapulin never r
     const partial = [_]u8{ 0x17, 0x03, 0x03, 0x00, 0x11, 0x00 };
     var plaintext: [64]u8 = undefined;
     const opened = try held.vtable.decrypt_record(held.context, &partial, &plaintext);
-    try testing.expectEqual(tls.Content.incomplete, opened.content);
+    try testing.expectEqual(tls_provider.Content.incomplete, opened.content);
     try testing.expectEqual(0, opened.consumed);
     // chapulin never ran, so the session's input was never set.
     try testing.expectEqual(0, test_held.io.records.input.len);
@@ -115,12 +115,12 @@ test "in record mode, `recv` answers 0 between records, which `ch_read` reads as
 /// A session keyed with zeros (`zero_key_records.zig`), and records sealed for it. Test-only.
 var keyed_session: c.ch_tls = undefined;
 var keyed_held: Held = undefined;
-var keyed_receive: [tls.constants.record_write_len_min]u8 = undefined;
+var keyed_receive: [tls_provider.constants.record_write_len_min]u8 = undefined;
 var keyed_input: [keyed_input_len]u8 = undefined;
 /// Room for one empty record and part of the next. Test-only.
 const keyed_input_len: usize = 256;
 
-fn keyed_provider() tls.Provider {
+fn keyed_provider() tls_provider.Provider {
     zero_key_records.connect(&keyed_held, &keyed_session, &keyed_receive);
     return .{ .context = @ptrCast(&keyed_held), .vtable = &chapulin_record.vtable };
 }
@@ -132,12 +132,12 @@ test "a record that carries no data is taken whole, and chapulin never reads the
     const empty_len = empty.len;
     const next = [_]u8{ 0x17, 0x03, 0x03 };
     @memcpy(keyed_input[empty_len..][0..next.len], &next);
-    var plaintext: [tls.constants.record_ciphertext_len_max]u8 = undefined;
+    var plaintext: [tls_provider.constants.record_ciphertext_len_max]u8 = undefined;
     const input = keyed_input[0 .. empty_len + next.len];
     const opened = try held.vtable.decrypt_record(held.context, input, &plaintext);
     try testing.expectEqual(empty_len, opened.consumed);
     try testing.expectEqual(0, opened.plaintext_len);
-    try testing.expectEqual(tls.Content.new_session_ticket, opened.content);
+    try testing.expectEqual(tls_provider.Content.new_session_ticket, opened.content);
     // chapulin sent nothing from inside the read, so nothing is owed.
     var output: [chapulin_record.owed_len_max]u8 = undefined;
     try testing.expectEqual(0, try held.vtable.handshake_write(held.context, &output, 0));
@@ -154,10 +154,10 @@ const update_requested: u8 = 1;
 test "RFC 9846 §4.7.3: a KeyUpdate that asks for one is answered, under the keys it replaces" {
     const held = keyed_provider();
     const update = try zero_key_records.seal(0, zero_key_records.content_handshake, &key_update_requested, &keyed_input);
-    var plaintext: [tls.constants.record_ciphertext_len_max]u8 = undefined;
+    var plaintext: [tls_provider.constants.record_ciphertext_len_max]u8 = undefined;
     const opened = try held.vtable.decrypt_record(held.context, update, &plaintext);
     try testing.expectEqual(update.len, opened.consumed);
-    try testing.expectEqual(tls.Content.key_update, opened.content);
+    try testing.expectEqual(tls_provider.Content.key_update, opened.content);
     // An output too short for the reply takes none of it.
     var short: [1]u8 = undefined;
     try testing.expectError(error.NoSpaceLeft, held.vtable.handshake_write(held.context, &short, 0));

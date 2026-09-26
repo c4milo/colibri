@@ -3,7 +3,7 @@
 //! `pub`, so nothing was widened to make the split.
 const std = @import("std");
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const connection = @import("connection.zig");
 const connection_tls = @import("connection_tls.zig");
@@ -20,15 +20,15 @@ const testing = std.testing;
 /// Test-only.
 const Fake = struct {
     complete: bool = true,
-    selected: ?[]const u8 = &tls.constants.alpn_h2,
-    parameters: ?tls.Negotiated = .{
-        .version = tls.constants.version_tls_1_3,
-        .cipher_suite = tls.constants.cipher_suite_aes_128_gcm_sha256,
+    selected: ?[]const u8 = &tls_provider.constants.alpn_h2,
+    parameters: ?tls_provider.Negotiated = .{
+        .version = tls_provider.constants.version_tls_1_3,
+        .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256,
     },
     /// What the next `decrypt_record` reports. Test-only.
-    content: tls.Content = .application_data,
+    content: tls_provider.Content = .application_data,
     /// What the next `take_alert` reports, or null. Test-only.
-    alert_held: ?tls.AlertReport = null,
+    alert_held: ?tls_provider.AlertReport = null,
     /// The plaintext the next `decrypt_record` writes. Test-only.
     body: []const u8 = "",
     /// The handshake octets the provider owes, which `handshake_write` hands over whole once.
@@ -43,16 +43,16 @@ const Fake = struct {
         const self: *const Fake = @ptrCast(@alignCast(context));
         return self.complete;
     }
-    fn parameters_of(context: *const anyopaque) ?tls.Negotiated {
+    fn parameters_of(context: *const anyopaque) ?tls_provider.Negotiated {
         const self: *const Fake = @ptrCast(@alignCast(context));
         return self.parameters;
     }
 
-    fn provider(self: *Fake) tls.Provider {
+    fn provider(self: *Fake) tls_provider.Provider {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
 
-    fn open(context: *anyopaque, input: []const u8, plaintext: []u8) tls.provider.OpenError!tls.provider.Opened {
+    fn open(context: *anyopaque, input: []const u8, plaintext: []u8) tls_provider.provider.OpenError!tls_provider.provider.Opened {
         const self: *Fake = @ptrCast(@alignCast(context));
         if (self.body.len > plaintext.len) return error.NoSpaceLeft;
         @memcpy(plaintext[0..self.body.len], self.body);
@@ -61,14 +61,14 @@ const Fake = struct {
         return .{ .consumed = input.len, .plaintext_len = self.body.len, .content = self.content };
     }
 
-    fn seal(context: *anyopaque, plaintext: []const u8, output: []u8) tls.provider.SealError!tls.provider.Sealed {
+    fn seal(context: *anyopaque, plaintext: []const u8, output: []u8) tls_provider.provider.SealError!tls_provider.provider.Sealed {
         _ = context;
         if (output.len < plaintext.len) return error.NoSpaceLeft;
         @memcpy(output[0..plaintext.len], plaintext);
         return .{ .consumed = plaintext.len, .written = plaintext.len };
     }
 
-    fn write_owed(context: *anyopaque, output: []u8, now_ns: u64) tls.provider.HandshakeWriteError!usize {
+    fn write_owed(context: *anyopaque, output: []u8, now_ns: u64) tls_provider.provider.HandshakeWriteError!usize {
         _ = now_ns;
         const self: *Fake = @ptrCast(@alignCast(context));
         if (self.owed.len > output.len) return error.NoSpaceLeft;
@@ -77,20 +77,20 @@ const Fake = struct {
         return self.owed.len;
     }
 
-    fn alert_of(context: *anyopaque) ?tls.AlertReport {
+    fn alert_of(context: *anyopaque) ?tls_provider.AlertReport {
         const self: *Fake = @ptrCast(@alignCast(context));
         defer self.alert_held = null;
         return self.alert_held;
     }
 
-    fn close(context: *anyopaque, output: []u8) tls.provider.CloseError!usize {
+    fn close(context: *anyopaque, output: []u8) tls_provider.provider.CloseError!usize {
         _ = context;
         if (output.len == 0) return error.NoSpaceLeft;
         output[0] = 0;
         return 1;
     }
 
-    var table: tls.VTable = undefined;
+    var table: tls_provider.VTable = undefined;
 
     fn init_table() void {
         table.negotiated_alpn = alpn;
@@ -123,7 +123,7 @@ test "§3.3 and §9.2: h2 runs only on a complete handshake that chose h2 at TLS
     try testing.expectEqual(error.AlpnNotH2, check(state.provider()));
 
     // Decision 45: TLS 1.3 alone, which is inside RFC 9113 §9.2's floor of 1.2.
-    state = .{ .parameters = .{ .version = tls.constants.version_tls_1_2, .cipher_suite = tls.constants.cipher_suite_aes_128_gcm_sha256 } };
+    state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_2, .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256 } };
     try testing.expectEqual(error.TlsVersionRefused, check(state.provider()));
     state = .{ .parameters = null };
     try testing.expectEqual(error.ParametersUnknown, check(state.provider()));
@@ -134,17 +134,17 @@ test "decision 45: the three suites of RFC 9846 §9.1 are admitted and nothing e
     var state: Fake = .{};
     // RFC 9846 Appendix B.4: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 and
     // TLS_CHACHA20_POLY1305_SHA256.
-    for (tls.constants.cipher_suites_admitted) |suite| {
-        state = .{ .parameters = .{ .version = tls.constants.version_tls_1_3, .cipher_suite = suite } };
+    for (tls_provider.constants.cipher_suites_admitted) |suite| {
+        state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_3, .cipher_suite = suite } };
         try check(state.provider());
     }
     // RFC 9001 §5.3 excludes TLS_AES_128_CCM_8_SHA256 by name, and RFC 9846 §9.1 makes neither
     // CCM suite a MUST or a SHOULD.
     for ([_]u16{
-        tls.constants.cipher_suite_aes_128_ccm_sha256,
-        tls.constants.cipher_suite_aes_128_ccm_8_sha256,
+        tls_provider.constants.cipher_suite_aes_128_ccm_sha256,
+        tls_provider.constants.cipher_suite_aes_128_ccm_8_sha256,
     }) |suite| {
-        state = .{ .parameters = .{ .version = tls.constants.version_tls_1_3, .cipher_suite = suite } };
+        state = .{ .parameters = .{ .version = tls_provider.constants.version_tls_1_3, .cipher_suite = suite } };
         try testing.expectEqual(error.CipherSuiteRefused, check(state.provider()));
     }
 }
@@ -176,7 +176,7 @@ test "§9.2.3: a post-handshake CertificateRequest is a connection error of PROT
 test "§9.2.3: a NewSessionTicket and a KeyUpdate are consumed and yield no plaintext" {
     Fake.init_table();
     var plaintext: [16]u8 = undefined;
-    for ([_]tls.Content{ .new_session_ticket, .key_update }) |content| {
+    for ([_]tls_provider.Content{ .new_session_ticket, .key_update }) |content| {
         var state: Fake = .{ .content = content, .body = "ignored" };
         connection.test_connection.init(.client);
         try attach(&connection.test_connection, state.provider());

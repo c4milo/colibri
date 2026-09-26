@@ -1,4 +1,4 @@
-//! chapulin's TLS 1.3 server behind colibri's `tls.Provider`, for `src/testing/` alone
+//! chapulin's TLS 1.3 server behind colibri's `tls_provider.Provider`, for `src/testing/` alone
 //! ([decision 10](../../../docs/decisions.md)). The other half of design §8 step 5's TLS work.
 //!
 //! This file is phase 1: building the configuration and driving chapulin's
@@ -20,7 +20,7 @@
 //! one its build offers.
 const std = @import("std");
 const assert = std.debug.assert;
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin.zig");
 const chapulin_record = @import("chapulin_record.zig");
 const constants = @import("../constants.zig");
@@ -200,7 +200,7 @@ pub const Server = struct {
     }
 
     /// The session colibri drives, and the calls it makes on it.
-    pub fn provider(server: *Server) tls.Provider {
+    pub fn provider(server: *Server) tls_provider.Provider {
         return .{ .context = @ptrCast(&server.held), .vtable = &vtable };
     }
 
@@ -219,8 +219,8 @@ const testing = std.testing;
 /// A server the test drives, and an identity of the right lengths that nothing signs with. The
 /// handshake fails before chapulin reads a key. Test-only.
 var test_server: Server = undefined;
-var test_receive: [tls.constants.record_write_len_min]u8 = undefined;
-var test_output: [tls.constants.record_write_len_min]u8 = undefined;
+var test_receive: [tls_provider.constants.record_write_len_min]u8 = undefined;
+var test_output: [tls_provider.constants.record_write_len_min]u8 = undefined;
 /// Each certificate is an empty DER SEQUENCE. Test-only.
 const test_der = [_]u8{ der_sequence_tag, 0 };
 const der_sequence_tag: u8 = 0x30;

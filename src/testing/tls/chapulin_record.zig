@@ -1,4 +1,4 @@
-//! The record phase of a chapulin session behind colibri's `tls.Provider`, shared by both roles
+//! The record phase of a chapulin session behind colibri's `tls_provider.Provider`, shared by both roles
 //! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 5's TLS work.
 //!
 //! **Two phases.** colibri's vtable is buffer in and buffer out: it never reads a descriptor, and
@@ -22,7 +22,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin.zig");
 
 const c = chapulin.c;
@@ -40,7 +40,7 @@ pub const Held = struct {
     /// The alert colibri has not collected yet, and null when there is none. chapulin keeps no
     /// alert on a record-mode session a caller can read, so the one description this file can
     /// report is the clean peer close `ch_read` answers 0 for.
-    pending_alert: ?tls.AlertReport,
+    pending_alert: ?tls_provider.AlertReport,
     /// The suite the handshake selected, which a role fills when its handshake completes. A
     /// server reads `session.suite`; a client has no such field and reports the one its build
     /// offers. `negotiated_parameters` reads it here either way.
@@ -93,11 +93,11 @@ pub const Records = struct {
 pub const alpn_h2 = "h2";
 
 /// RFC 7301 §6's identifier for HTTP/1.1, which h11 runs under (decision 88).
-pub const alpn_http_1_1 = tls.constants.alpn_http_1_1;
+pub const alpn_http_1_1 = tls_provider.constants.alpn_http_1_1;
 
 /// RFC 9846 Appendix B.1: the TLS 1.3 codepoint. chapulin speaks 1.3 and nothing else, so a
 /// completed handshake negotiated it.
-pub const tls_1_3 = tls.constants.version_tls_1_3;
+pub const tls_1_3 = tls_provider.constants.version_tls_1_3;
 
 /// chapulin answers 0 for success and a negative `CH_E*` for everything else. The `send`
 /// callback shares the convention; `recv` does not, and returns a count.
@@ -191,7 +191,7 @@ pub fn whole_record_len(input: []const u8) ?usize {
     var reader = core.Reader.init(input);
     _ = reader.take(record_length_offset) catch return null;
     const length = reader.read_int(u16) catch return null;
-    const total = tls.constants.record_header_len + @as(usize, length);
+    const total = tls_provider.constants.record_header_len + @as(usize, length);
     if (input.len < total) return null;
     return total;
 }
@@ -239,7 +239,7 @@ fn decrypt_record(
     context: *anyopaque,
     input: []const u8,
     plaintext: []u8,
-) tls.provider.OpenError!tls.provider.Opened {
+) tls_provider.provider.OpenError!tls_provider.provider.Opened {
     const role = held(context);
     // RFC 9846 §5.1: chapulin reads a record whole or fails the session, so a partial one is
     // reported as incomplete before chapulin sees it, and the caller reads more.
@@ -247,7 +247,7 @@ fn decrypt_record(
         return .{ .consumed = 0, .plaintext_len = 0, .content = .incomplete };
     // A record's plaintext is shorter than what follows its header, so a buffer that long holds
     // it, and chapulin never keeps plaintext back for a call that brings no record.
-    if (plaintext.len < record_len - tls.constants.record_header_len) return tls.provider.OpenError.NoSpaceLeft;
+    if (plaintext.len < record_len - tls_provider.constants.record_header_len) return tls_provider.provider.OpenError.NoSpaceLeft;
     // chapulin may send from inside `ch_read`, and what it sends waits in `owed`.
     role.io = .{ .records = .{ .input = input[0..record_len], .output = role.owed[role.owed_len..] } };
     const read = c.ch_read(role.session, plaintext.ptr, plaintext.len);
@@ -261,16 +261,16 @@ fn decrypt_record(
     if (read == 0) return closed_by_peer(role, records.taken);
     if (records.ran_dry and records.taken == record_len and read == c.CH_RECORD_AGAIN) {
         // A record that made chapulin send was a KeyUpdate asking for one back.
-        const content: tls.Content = if (records.written > 0) .key_update else .new_session_ticket;
+        const content: tls_provider.Content = if (records.written > 0) .key_update else .new_session_ticket;
         return .{ .consumed = records.taken, .plaintext_len = 0, .content = content };
     }
-    return tls.provider.OpenError.TlsFailed;
+    return tls_provider.provider.OpenError.TlsFailed;
 }
 
 /// RFC 9846 §6.1: chapulin answers 0 for a clean peer close, which is a `close_notify`. colibri's
 /// `on_alert` calls `take_alert` for the description and treats a provider that reports none as
 /// having broken its contract, so the report is recorded here for it.
-fn closed_by_peer(role: *Held, consumed: usize) tls.provider.Opened {
+fn closed_by_peer(role: *Held, consumed: usize) tls_provider.provider.Opened {
     role.pending_alert = .{ .description = .close_notify, .origin = .peer };
     return .{ .consumed = consumed, .plaintext_len = 0, .content = .alert };
 }
@@ -283,22 +283,22 @@ fn encrypt_record(
     context: *anyopaque,
     plaintext: []const u8,
     output: []u8,
-) tls.provider.SealError!tls.provider.Sealed {
+) tls_provider.provider.SealError!tls_provider.provider.Sealed {
     const role = held(context);
     if (plaintext.len == 0) return .{ .consumed = 0, .written = 0 };
     const limit: usize = @min(role.session.peer_limit, c.CH_TX_PT);
     const fits = sealable_len(plaintext.len, output.len, limit, c.REC_OVERHEAD);
     // RFC 9846 §5.2: a record carries at least one octet of application data here, so an output
     // that cannot hold one record of one octet takes nothing.
-    if (fits == 0) return tls.provider.SealError.NoSpaceLeft;
+    if (fits == 0) return tls_provider.provider.SealError.NoSpaceLeft;
     role.io = .{ .records = .{ .output = output } };
-    if (c.ch_write(role.session, plaintext.ptr, fits) != ok) return tls.provider.SealError.TlsFailed;
+    if (c.ch_write(role.session, plaintext.ptr, fits) != ok) return tls_provider.provider.SealError.TlsFailed;
     return .{ .consumed = fits, .written = role.io.records.written };
 }
 
 /// RFC 9846 §4.3.1 and Appendix B.4: the version and the suite the handshake selected. The role
 /// filled `suite` when its handshake completed.
-fn negotiated_parameters(context: *const anyopaque) ?tls.Negotiated {
+fn negotiated_parameters(context: *const anyopaque) ?tls_provider.Negotiated {
     const role = held_const(context);
     if (!handshake_complete(context)) return null;
     return .{ .version = tls_1_3, .cipher_suite = role.suite };
@@ -327,7 +327,7 @@ fn negotiated_alpn(context: *const anyopaque) ?[]const u8 {
 /// RFC 9846 §4.7.3 and §4.7.1: after the handshake, a peer's KeyUpdate and NewSessionTicket ride
 /// records, and chapulin reads both inside `ch_read`. So colibri hands over no handshake octets
 /// here, and this answers 0 for the life of the connection.
-fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls.provider.HandshakeReadError!usize {
+fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls_provider.provider.HandshakeReadError!usize {
     _ = .{ context, input, now_ns };
     return 0;
 }
@@ -335,10 +335,10 @@ fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls.provi
 /// What chapulin sent from inside `ch_read` (`owed`), whole: RFC 9846 §4.7.3's KeyUpdate reply is
 /// protected under the keys it replaces, so none of it may follow a record sealed after it. An
 /// output that cannot hold all of it takes none.
-fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) tls.provider.HandshakeWriteError!usize {
+fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) tls_provider.provider.HandshakeWriteError!usize {
     _ = now_ns;
     const role = held(context);
-    if (role.owed_len > output.len) return tls.provider.HandshakeWriteError.NoSpaceLeft;
+    if (role.owed_len > output.len) return tls_provider.provider.HandshakeWriteError.NoSpaceLeft;
     const written = role.owed_len;
     @memcpy(output[0..written], role.owed[0..written]);
     role.owed_len = 0;
@@ -350,7 +350,7 @@ fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) tls.provider.
 /// mode and nowhere for records — so a failed session reaches colibri as an error with no
 /// description, and the one report this answers is the clean peer close `decrypt_record`
 /// recorded.
-fn take_alert(context: *anyopaque) ?tls.AlertReport {
+fn take_alert(context: *anyopaque) ?tls_provider.AlertReport {
     const role = held(context);
     const report = role.pending_alert;
     role.pending_alert = null;
@@ -359,7 +359,7 @@ fn take_alert(context: *anyopaque) ?tls.AlertReport {
 
 /// RFC 9846 §6.1's `close_notify`. `ch_close` sends it through the same `send` callback, which in
 /// phase 2 writes into colibri's output, and then wipes the key material.
-fn send_close_notify(context: *anyopaque, output: []u8) tls.provider.CloseError!usize {
+fn send_close_notify(context: *anyopaque, output: []u8) tls_provider.provider.CloseError!usize {
     const role = held(context);
     if (role.closed) return 0;
     role.io = .{ .records = .{ .output = output } };
@@ -372,11 +372,11 @@ fn send_close_notify(context: *anyopaque, output: []u8) tls.provider.CloseError!
 /// ask for it. Every member of the vtable is mandatory, which is why this exists and refuses.
 fn initiate_key_update(
     context: *anyopaque,
-    request: tls.provider.KeyUpdateRequest,
+    request: tls_provider.provider.KeyUpdateRequest,
     output: []u8,
-) tls.provider.KeyUpdateError!usize {
+) tls_provider.provider.KeyUpdateError!usize {
     _ = .{ context, request, output };
-    return tls.provider.KeyUpdateError.Unsupported;
+    return tls_provider.provider.KeyUpdateError.Unsupported;
 }
 
 /// RFC 9846 §7.5's exporter, which chapulin's `EXPORTER=on` build offers as `ch_export`. h2 needs
@@ -392,21 +392,21 @@ fn export_keying_material(
     label: []const u8,
     context_value: ?[]const u8,
     output: []u8,
-) tls.provider.ExportError!void {
+) tls_provider.provider.ExportError!void {
     const role = held(context);
-    if (role.session.state != c.CH_ST_CONNECTED) return tls.provider.ExportError.HandshakeIncomplete;
+    if (role.session.state != c.CH_ST_CONNECTED) return tls_provider.provider.ExportError.HandshakeIncomplete;
     // chapulin's bound is 255 octets, lower than the 255 hash lengths of RFC 5869 §2.3 that the
     // error names, and a provider enforces its own.
-    if (output.len > c.CH_EXPORT_MAX) return tls.provider.ExportError.OutputTooLong;
+    if (output.len > c.CH_EXPORT_MAX) return tls_provider.provider.ExportError.OutputTooLong;
     // chapulin refuses a zero length, and there is nothing to write.
     if (output.len == 0) return;
     var label_storage: [c.CH_EXPORT_LABEL_MAX + 1]u8 = undefined;
     const label_terminated = label_string(label, &label_storage) orelse
-        return tls.provider.ExportError.Unsupported;
+        return tls_provider.provider.ExportError.Unsupported;
     const value = context_value orelse &.{};
     const value_pointer: ?[*]const u8 = if (value.len == 0) null else value.ptr;
     const code = c.ch_export(role.session, label_terminated, value_pointer, value.len, output.ptr, output.len);
-    // Every argument rule chapulin's `tls.h` names is checked above, so a refusal here is a
+    // Every argument rule chapulin's `tls_provider.h` names is checked above, so a refusal here is a
     // defect in this adapter or in chapulin, not a condition colibri could handle.
     std.debug.assert(code == ok);
 }
@@ -424,7 +424,7 @@ fn label_string(label: []const u8, storage: *[c.CH_EXPORT_LABEL_MAX + 1]u8) ?[*:
 
 /// The calls colibri makes on a chapulin session, whichever side it is. Every member is mandatory
 /// (decision 8), so the one chapulin does not offer answers `Unsupported` rather than being absent.
-pub const vtable: tls.VTable = .{
+pub const vtable: tls_provider.VTable = .{
     .handshake_read = handshake_read,
     .handshake_write = handshake_write,
     .encrypt_record = encrypt_record,

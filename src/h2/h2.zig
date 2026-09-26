@@ -13,7 +13,7 @@ pub const core = @import("core");
 pub const wire = @import("wire");
 pub const http = @import("http");
 pub const hpack = @import("hpack");
-pub const tls = @import("tls");
+pub const tls_provider = @import("tls_provider");
 pub const constants = @import("constants.zig");
 
 pub const role = @import("role.zig");

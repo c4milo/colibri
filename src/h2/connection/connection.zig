@@ -23,7 +23,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const http = @import("http");
 const hpack = @import("hpack");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const frame = @import("../frame/frame.zig");
 const settings = @import("../settings.zig");
@@ -174,7 +174,7 @@ pub const Connection = struct {
     send_block: [constants.send_block_len_max]u8,
     /// The TLS provider this connection runs over, or null for the cleartext prior-knowledge
     /// endpoint of §3.3 (decision 44, `connection_tls.zig`).
-    provider: ?tls.Provider,
+    provider: ?tls_provider.Provider,
     /// Records in a row that carried no application data, counted by `connection_tls.zig`. A
     /// peer chooses how many it sends, so the run is bounded (`records_without_data_max`).
     records_without_data: u32,
@@ -242,7 +242,7 @@ pub const Connection = struct {
     /// section needs (RFC 9113 §8.1, §8.3.1). A client's call.
     /// Attaches the TLS provider h2 runs over, after checking everything RFC 9113 §3.2 and §9.2
     /// require of the connection (decision 44).
-    pub fn attach_tls(connection: *Connection, provider: tls.Provider) connection_tls.AttachError!void {
+    pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) connection_tls.AttachError!void {
         return connection_tls.attach(connection, provider);
     }
 

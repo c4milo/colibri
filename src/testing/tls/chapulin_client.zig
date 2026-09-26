@@ -1,4 +1,4 @@
-//! chapulin's TLS 1.3 client behind colibri's `tls.Provider`, for `src/testing/` alone
+//! chapulin's TLS 1.3 client behind colibri's `tls_provider.Provider`, for `src/testing/` alone
 //! ([decision 10](../../../docs/decisions.md)). Part of design §8 step 5's TLS half.
 //!
 //! This file is phase 1: building the configuration and driving chapulin's
@@ -9,7 +9,7 @@
 //! `chapulin_record.zig` and is shared with the server.
 const std = @import("std");
 const assert = std.debug.assert;
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin.zig");
 const chapulin_record = @import("chapulin_record.zig");
 const constants = @import("../constants.zig");
@@ -78,7 +78,7 @@ pub const Progress = struct {
 /// `docs/aes_suite.md` scopes the work. When that lands, a client build may offer two suites and
 /// this constant will report the wrong one until chapulin exposes what was selected. The run in
 /// `tools/tls_handshake.sh` prints the suite, so a change shows there first.
-pub const client_suite = tls.constants.cipher_suite_chacha20_poly1305_sha256;
+pub const client_suite = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256;
 
 pub const Client = struct {
     /// chapulin's record-mode handshake, whose `t` is the session. It is not copyable, because
@@ -181,7 +181,7 @@ pub const Client = struct {
     }
 
     /// The session colibri drives, and the calls it makes on it.
-    pub fn provider(client: *Client) tls.Provider {
+    pub fn provider(client: *Client) tls_provider.Provider {
         return .{ .context = @ptrCast(&client.held), .vtable = &vtable };
     }
 

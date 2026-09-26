@@ -4,7 +4,7 @@
 const std = @import("std");
 const core = @import("core");
 const crypto = @import("crypto");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
 const transport_parameters = @import("../transport_parameters.zig");
@@ -92,7 +92,7 @@ fn send_from(connection: *Connection) !send.Sent {
     return try send.send(connection, suite_holder.suite(), provider_holder.provider(), StreamProvider.none(), &send_scratch, &datagram, test_now_ns) orelse error.NothingSent;
 }
 
-fn receive_at(connection: *Connection, provider: tls.QuicProvider, len: usize, now_ns: u64) datagram_module.Error!datagram_module.Received {
+fn receive_at(connection: *Connection, provider: tls_provider.QuicProvider, len: usize, now_ns: u64) datagram_module.Error!datagram_module.Received {
     return datagram_module.receive(connection, suite_holder.suite(), provider, .{ .octets = datagram[0..len], .now_ns = now_ns, .ecn = .not_ect }, &scratch);
 }
 
@@ -218,21 +218,21 @@ const Recorder = struct {
     /// caller's code moves TLS's secrets to its suite (decision 48).
     makes_available: ?Level = null,
 
-    fn provider(self: *Recorder) tls.QuicProvider {
+    fn provider(self: *Recorder) tls_provider.QuicProvider {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
-    fn set_params(_: *anyopaque, _: []const u8) tls.quic_provider.TransportParamsError!void {}
+    fn set_params(_: *anyopaque, _: []const u8) tls_provider.quic_provider.TransportParamsError!void {}
     fn peer_params(context: *const anyopaque) ?[]const u8 {
         const self: *const Recorder = @ptrCast(@alignCast(context));
         return if (self.peer_body.len == 0) null else self.peer_body;
     }
-    fn provide(context: *anyopaque, _: Level, data: []const u8) tls.quic_provider.ProvideError!void {
+    fn provide(context: *anyopaque, _: Level, data: []const u8) tls_provider.quic_provider.ProvideError!void {
         const self: *Recorder = @ptrCast(@alignCast(context));
         @memcpy(self.taken[self.taken_len..][0..data.len], data);
         self.taken_len += data.len;
         if (self.makes_available) |level| suite_holder.available[@intFromEnum(level)] = @splat(true);
     }
-    fn write(_: *anyopaque, _: Level, _: []u8) tls.quic_provider.WriteError!usize {
+    fn write(_: *anyopaque, _: Level, _: []u8) tls_provider.quic_provider.WriteError!usize {
         return 0;
     }
     fn alpn(_: *const anyopaque) ?[]const u8 {
@@ -242,14 +242,14 @@ const Recorder = struct {
         const self: *const Recorder = @ptrCast(@alignCast(context));
         return self.done;
     }
-    fn alert_of(_: *anyopaque) ?tls.Alert {
+    fn alert_of(_: *anyopaque) ?tls_provider.Alert {
         return null;
     }
-    fn exported(_: *anyopaque, _: []const u8, _: ?[]const u8, _: []u8) tls.quic_provider.ExportError!void {
+    fn exported(_: *anyopaque, _: []const u8, _: ?[]const u8, _: []u8) tls_provider.quic_provider.ExportError!void {
         // RFC 9846 §7.5 standardises the exporter without obliging a stack to offer one.
         return error.Unsupported;
     }
-    const table: tls.QuicVTable = .{
+    const table: tls_provider.QuicVTable = .{
         .set_transport_params = set_params,
         .peer_transport_params = peer_params,
         .provide_handshake = provide,

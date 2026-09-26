@@ -2,7 +2,7 @@
 //! moves one record each way through the vtable. The second half of design §8 step 5's check.
 //!
 //! What it proves, which the client half cannot: chapulin's server behind colibri's
-//! `tls.Provider` completes a handshake with Go's `crypto/tls`, the two agree on "h2"
+//! `tls_provider.Provider` completes a handshake with Go's `crypto/tls`, the two agree on "h2"
 //! (RFC 9113 §3.1), and the record phase works from the server side — `decrypt_record` opens what
 //! the peer sealed, `encrypt_record` seals the answer, and the peer's `close_notify` arrives as
 //! the end of its data rather than as a failure (RFC 9846 §6.1).
@@ -10,7 +10,7 @@
 //! What it does not do is speak h2. That follows once the handshake and the records are proved,
 //! because it is the same session with `attach_tls` on top.
 const std = @import("std");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
 const chapulin_server = @import("chapulin_server.zig");
@@ -95,7 +95,7 @@ fn report_exporter() void {
 /// colibri does not admit, so a handshake that completed on one is not a session h2 could use.
 /// Printing the codepoint is not enough; this is what makes the run fail on it.
 fn admitted(suite: u16) bool {
-    for (tls.constants.cipher_suites_admitted) |candidate| {
+    for (tls_provider.constants.cipher_suites_admitted) |candidate| {
         if (suite == candidate) return true;
     }
     return false;
@@ -198,7 +198,7 @@ fn await_close(socket: std.c.fd_t) !void {
     };
     // RFC 9846 §6.1: only close_notify ends the peer's data. A user_canceled would mean the peer
     // owes a close_notify still, which this run does not wait for.
-    if (tls.alert.verdict(report_held) != .end_of_data) {
+    if (tls_provider.alert.verdict(report_held) != .end_of_data) {
         std.debug.print("tls-accept: the peer closed with {s}, not close_notify\n", .{
             @tagName(report_held.description),
         });

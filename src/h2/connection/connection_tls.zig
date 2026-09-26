@@ -11,7 +11,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const connection = @import("connection.zig");
 
@@ -37,7 +37,7 @@ pub const AttachError = error{
 
 /// Checks a TLS connection against everything RFC 9113 requires of it before h2 runs, and stores
 /// the provider on success. The check order is the one §3.2 and §9.2 imply (invariant 7).
-pub fn attach(target: *Connection, provider: tls.Provider) AttachError!void {
+pub fn attach(target: *Connection, provider: tls_provider.Provider) AttachError!void {
     // A provider is attached once, before any h2 octet moves in either direction.
     assert(target.provider == null);
     assert(!target.preface_written and target.preface_read_len == 0);
@@ -48,7 +48,7 @@ pub fn attach(target: *Connection, provider: tls.Provider) AttachError!void {
 
 /// The rules themselves, separated from the storing so a test and a caller can ask the question
 /// without a connection.
-pub fn check(provider: tls.Provider) AttachError!void {
+pub fn check(provider: tls_provider.Provider) AttachError!void {
     // RFC 9846 Appendix E.5: the application must be able to tell whether the handshake completed,
     // and nothing below is decided until it has.
     if (!provider.is_complete()) return error.HandshakeIncomplete;
@@ -63,11 +63,11 @@ pub fn check(provider: tls.Provider) AttachError!void {
     // RFC 9113 §9.2 makes TLS 1.2 the floor for HTTP/2 over TLS, and colibri admits TLS 1.3 alone
     // (decision 45). Admitting less than the floor permits is the endpoint's choice; §7 names
     // INADEQUATE_SECURITY for a transport that does not meet the requirements of §9.2.
-    if (negotiated.version != tls.constants.version_tls_1_3) return error.TlsVersionRefused;
+    if (negotiated.version != tls_provider.constants.version_tls_1_3) return error.TlsVersionRefused;
     // RFC 9846 Appendix B.4: the suite is a codepoint, and colibri admits the three of §9.1
     // (decision 45). Refusing here needs no part of RFC 9113 Appendix A, whose prohibited suites
     // are TLS 1.2's and are listed by name with no codepoint.
-    if (!tls.provider.cipher_suite_admitted(negotiated.cipher_suite)) return error.CipherSuiteRefused;
+    if (!tls_provider.provider.cipher_suite_admitted(negotiated.cipher_suite)) return error.CipherSuiteRefused;
 }
 
 /// Why a record did not open or did not go out. `ConnectionFailed` is an HTTP/2 connection error
@@ -141,7 +141,7 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
 }
 
 /// A record that carried application data, which ends any run of records that carried none.
-fn with_data(target: *Connection, opened: tls.provider.Opened) Decrypted {
+fn with_data(target: *Connection, opened: tls_provider.provider.Opened) Decrypted {
     target.records_without_data = 0;
     return .{
         .consumed = opened.consumed,
@@ -173,11 +173,11 @@ fn owing(target: *Connection, decrypted: Decrypted) Decrypted {
 }
 
 /// What an alert record means to the connection (RFC 9846 §6).
-fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) RecordError!Decrypted {
+fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usize) RecordError!Decrypted {
     // RFC 9846 §6: an alert record carries a description, so a provider that classified this
     // record as an alert and then reports none has broken its own contract.
     const report = provider.vtable.take_alert(provider.context) orelse return error.TlsFailed;
-    return switch (tls.alert.verdict(report)) {
+    return switch (tls_provider.alert.verdict(report)) {
         // RFC 9846 §6.1: close_notify tells the recipient that the sender will not send any more
         // messages, which design §8 step 5 makes the end of the h2 byte stream.
         .end_of_data => .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = true },
@@ -197,7 +197,7 @@ fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) Record
 /// RFC 9846 §4.7.3: a KeyUpdate's reply is protected under the keys it replaces, and every record
 /// after it under the new ones, so the reply is written first. When the output cannot hold it,
 /// nothing is written and nothing is sealed.
-pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls.provider.Sealed {
+pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls_provider.provider.Sealed {
     // RFC 9113 §3.3: a cleartext connection writes its frames straight to the transport.
     const provider = target.provider orelse return error.NoProvider;
     assert(plaintext.len == 0 or plaintext.ptr != output.ptr);
@@ -218,7 +218,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
 }
 
 /// Writes what the provider owes after a KeyUpdate, whole, and clears the debt once it is out.
-fn write_owed(target: *Connection, provider: tls.Provider, output: []u8, now_ns: u64) RecordError!usize {
+fn write_owed(target: *Connection, provider: tls_provider.Provider, output: []u8, now_ns: u64) RecordError!usize {
     const written = provider.vtable.handshake_write(provider.context, output, now_ns) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,

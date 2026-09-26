@@ -1,4 +1,4 @@
-//! A `tls.Provider` that performs no cryptography (decisions 8 and 10, design §8 step 5). It is
+//! A `tls_provider.Provider` that performs no cryptography (decisions 8 and 10, design §8 step 5). It is
 //! test-only, lives in `src/sim/` and is never packaged: colibri's library carries no
 //! implementation of either vtable and never will (CLAUDE.md non-negotiable 2).
 //!
@@ -13,7 +13,7 @@
 //! (invariants 4, 5 and 6).
 const std = @import("std");
 const assert = std.debug.assert;
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("constants.zig");
 
 /// RFC 9846 §5.1: the ContentType of a record.
@@ -38,20 +38,20 @@ pub const NullProvider = struct {
     /// Flights the peer still owes, counted down as `handshake_read` consumes them.
     flights_expected: u8 = 0,
     /// What `negotiated_alpn` reports. Null reports no selection at all.
-    alpn: ?[]const u8 = &tls.constants.alpn_h2,
+    alpn: ?[]const u8 = &tls_provider.constants.alpn_h2,
     /// What `negotiated_parameters` reports.
-    parameters: ?tls.Negotiated = .{
-        .version = tls.constants.version_tls_1_3,
-        .cipher_suite = tls.constants.cipher_suite_aes_128_gcm_sha256,
+    parameters: ?tls_provider.Negotiated = .{
+        .version = tls_provider.constants.version_tls_1_3,
+        .cipher_suite = tls_provider.constants.cipher_suite_aes_128_gcm_sha256,
     },
     /// The alert held for the next `take_alert`, which the call clears (RFC 9846 §6).
-    alert_held: ?tls.AlertReport = null,
+    alert_held: ?tls_provider.AlertReport = null,
     /// Whether `send_close_notify` has already written its record (RFC 9846 §6.1).
     close_sent: bool = false,
 
     /// The vtable, filled once and shared. Every connection in a run uses the same one, which is
     /// what `Provider.vtable` being read-only is for.
-    var table: tls.VTable = undefined;
+    var table: tls_provider.VTable = undefined;
 
     /// Fills the shared vtable. Called once before any provider is handed out.
     pub fn install() void {
@@ -71,7 +71,7 @@ pub const NullProvider = struct {
     }
 
     /// The vtable-shaped view colibri holds.
-    pub fn provider(self: *NullProvider) tls.Provider {
+    pub fn provider(self: *NullProvider) tls_provider.Provider {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
 
@@ -83,7 +83,7 @@ pub const NullProvider = struct {
         return @ptrCast(@alignCast(context));
     }
 
-    fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls.provider.HandshakeReadError!usize {
+    fn handshake_read(context: *anyopaque, input: []const u8, now_ns: u64) tls_provider.provider.HandshakeReadError!usize {
         // The instant is a parameter because a provider that checked a certificate would need one;
         // this one reads no clock and needs nothing (CLAUDE.md non-negotiable 3).
         _ = now_ns;
@@ -94,7 +94,7 @@ pub const NullProvider = struct {
         return record.total_len;
     }
 
-    fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) tls.provider.HandshakeWriteError!usize {
+    fn handshake_write(context: *anyopaque, output: []u8, now_ns: u64) tls_provider.provider.HandshakeWriteError!usize {
         _ = now_ns;
         const self = of(context);
         if (self.flights_owed == 0) return 0;
@@ -103,16 +103,16 @@ pub const NullProvider = struct {
         return written;
     }
 
-    fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls.provider.SealError!tls.provider.Sealed {
+    fn encrypt_record(context: *anyopaque, plaintext: []const u8, output: []u8) tls_provider.provider.SealError!tls_provider.provider.Sealed {
         _ = context;
         // RFC 9846 §5.1: one record carries at most 2^14 octets of plaintext.
-        const body_len = @min(plaintext.len, tls.constants.record_plaintext_len_max);
+        const body_len = @min(plaintext.len, tls_provider.constants.record_plaintext_len_max);
         const written = write_record(output, .application_data, plaintext[0..body_len]) catch
             return error.NoSpaceLeft;
         return .{ .consumed = body_len, .written = written };
     }
 
-    fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) tls.provider.OpenError!tls.provider.Opened {
+    fn decrypt_record(context: *anyopaque, input: []const u8, plaintext: []u8) tls_provider.provider.OpenError!tls_provider.provider.Opened {
         _ = context;
         const record = read_record(input) orelse
             return .{ .consumed = 0, .plaintext_len = 0, .content = .incomplete };
@@ -138,23 +138,23 @@ pub const NullProvider = struct {
         return self.flights_owed == 0 and self.flights_expected == 0;
     }
 
-    fn negotiated_parameters(context: *const anyopaque) ?tls.Negotiated {
+    fn negotiated_parameters(context: *const anyopaque) ?tls_provider.Negotiated {
         const self = of_const(context);
         if (!handshake_complete(context)) return null;
         return self.parameters;
     }
 
-    fn take_alert(context: *anyopaque) ?tls.AlertReport {
+    fn take_alert(context: *anyopaque) ?tls_provider.AlertReport {
         const self = of(context);
         defer self.alert_held = null;
         return self.alert_held;
     }
 
-    fn send_close_notify(context: *anyopaque, output: []u8) tls.provider.CloseError!usize {
+    fn send_close_notify(context: *anyopaque, output: []u8) tls_provider.provider.CloseError!usize {
         const self = of(context);
         // RFC 9846 §6.1: each party sends it before closing its write side, and once is enough.
         if (self.close_sent) return 0;
-        const written = write_record(output, .alert, &.{@intFromEnum(tls.Alert.close_notify)}) catch
+        const written = write_record(output, .alert, &.{@intFromEnum(tls_provider.Alert.close_notify)}) catch
             return error.NoSpaceLeft;
         self.close_sent = true;
         return written;
@@ -162,9 +162,9 @@ pub const NullProvider = struct {
 
     fn initiate_key_update(
         context: *anyopaque,
-        request: tls.provider.KeyUpdateRequest,
+        request: tls_provider.provider.KeyUpdateRequest,
         output: []u8,
-    ) tls.provider.KeyUpdateError!usize {
+    ) tls_provider.provider.KeyUpdateError!usize {
         _ = context;
         // RFC 9846 §4.7.3: the KeyUpdate message carries the request as its one octet.
         const body = [_]u8{ @intFromEnum(HandshakeType.key_update), @intFromEnum(request) };
@@ -176,7 +176,7 @@ pub const NullProvider = struct {
         label: []const u8,
         context_value: ?[]const u8,
         output: []u8,
-    ) tls.provider.ExportError!void {
+    ) tls_provider.provider.ExportError!void {
         _ = context;
         _ = label;
         _ = context_value;
@@ -188,7 +188,7 @@ pub const NullProvider = struct {
 };
 
 /// The ContentType, the legacy version and the length (RFC 9846 §5.1).
-const header_len: usize = tls.constants.record_header_len;
+const header_len: usize = tls_provider.constants.record_header_len;
 
 /// What `read_record` found.
 const Record = struct {
@@ -225,7 +225,7 @@ fn read_record(input: []const u8) ?Record {
 fn write_record(output: []u8, content: ContentType, body: []const u8) error{NoSpaceLeft}!usize {
     const declared = body.len + constants.record_tag_len;
     const total = header_len + declared;
-    if (output.len < total or declared > tls.constants.record_ciphertext_len_max) return error.NoSpaceLeft;
+    if (output.len < total or declared > tls_provider.constants.record_ciphertext_len_max) return error.NoSpaceLeft;
     output[constants.record_content_type_offset] = @intFromEnum(content);
     // RFC 9846 §5.1: legacy_record_version is 0x0303 on every record after the first flight.
     output[constants.record_version_offset] = constants.record_legacy_version_octet;
@@ -243,7 +243,7 @@ pub fn write_application_record(output: []u8, body: []const u8) error{NoSpaceLef
 }
 
 /// What a record holds, in the terms colibri's vtable reports (RFC 9846 §5.1, §4).
-fn classify(content: ContentType, body: []const u8) tls.Content {
+fn classify(content: ContentType, body: []const u8) tls_provider.Content {
     return switch (content) {
         .application_data => .application_data,
         .alert => .alert,
@@ -252,7 +252,7 @@ fn classify(content: ContentType, body: []const u8) tls.Content {
 }
 
 /// The handshake message a post-handshake record holds (RFC 9846 §4).
-fn classify_handshake(body: []const u8) tls.Content {
+fn classify_handshake(body: []const u8) tls_provider.Content {
     if (body.len == 0) return .new_session_ticket;
     // RFC 9113 §9.2.3 names the three a post-handshake record may hold, and CertificateRequest is
     // the one an HTTP/2 client must refuse.
@@ -277,7 +277,7 @@ test "a record carries the sizes RFC 9846 §5.1 gives it, and round-trips its bo
     const opened = try NullProvider.decrypt_record(@ptrCast(&endpoint), output[0..sealed.written], &plaintext);
     try testing.expectEqual(sealed.written, opened.consumed);
     try testing.expectEqualStrings("hello", plaintext[0..opened.plaintext_len]);
-    try testing.expectEqual(tls.Content.application_data, opened.content);
+    try testing.expectEqual(tls_provider.Content.application_data, opened.content);
 }
 
 test "a record that is not whole yet is incomplete, not an error" {
@@ -288,7 +288,7 @@ test "a record that is not whole yet is incomplete, not an error" {
     var plaintext: [64]u8 = undefined;
     for (0..sealed.written) |cut| {
         const opened = try NullProvider.decrypt_record(@ptrCast(&endpoint), output[0..cut], &plaintext);
-        try testing.expectEqual(tls.Content.incomplete, opened.content);
+        try testing.expectEqual(tls_provider.Content.incomplete, opened.content);
         try testing.expectEqual(0, opened.consumed);
     }
 }
@@ -298,7 +298,7 @@ test "§4: the handshake message type decides what a post-handshake record holds
     var endpoint: NullProvider = .{};
     var output: [64]u8 = undefined;
     var plaintext: [64]u8 = undefined;
-    const cases = [_]struct { HandshakeType, tls.Content }{
+    const cases = [_]struct { HandshakeType, tls_provider.Content }{
         .{ .new_session_ticket, .new_session_ticket },
         .{ .key_update, .key_update },
         .{ .certificate_request, .certificate_request },
@@ -327,7 +327,7 @@ test "the handshake completes after the scripted flights, and nothing is negotia
     try testing.expect(view.is_complete());
     try testing.expect(view.speaks_h2());
     try testing.expectEqual(
-        tls.constants.version_tls_1_3,
+        tls_provider.constants.version_tls_1_3,
         view.vtable.negotiated_parameters(view.context).?.version,
     );
 }
@@ -343,8 +343,8 @@ test "§6.1: close_notify is written once and reports itself as the peer's alert
     try testing.expectEqual(0, try view.vtable.send_close_notify(view.context, &output));
     var plaintext: [64]u8 = undefined;
     const opened = try view.vtable.decrypt_record(view.context, output[0..written], &plaintext);
-    try testing.expectEqual(tls.Content.alert, opened.content);
-    try testing.expectEqual(@intFromEnum(tls.Alert.close_notify), plaintext[0]);
+    try testing.expectEqual(tls_provider.Content.alert, opened.content);
+    try testing.expectEqual(@intFromEnum(tls_provider.Alert.close_notify), plaintext[0]);
 }
 
 test "the exporter is the member a provider without one refuses" {

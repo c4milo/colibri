@@ -29,7 +29,7 @@ The library is eleven modules, each exported by name:
 | `core` | The bounds-checked reader and writer, and the limits two modules share |
 | `wire` | The integer and string codecs of RFC 7541 and RFC 9000 §16, and the Huffman code |
 | `http` | What h11, h2 and h3 share: field lines and sections, methods, status codes, URIs, and the message rules of RFC 9110 |
-| `tls` | The `tls.Provider` and `tls.QuicProvider` vtables your TLS stack fills |
+| `tls_provider` | The `tls_provider.Provider` and `tls_provider.QuicProvider` vtables your TLS stack fills |
 | `crypto` | The `crypto.Suite` vtable that protects QUIC packets |
 | `hpack` | HPACK (RFC 7541) |
 | `qpack` | QPACK (RFC 9204) |
@@ -54,8 +54,8 @@ colibri makes no system call, holds no allocator, and reads no clock. Four thing
 - **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
   nanoseconds from any fixed origin. The same instants and the same octets give the same output,
   which is what lets the simulator replay a connection.
-- **Your program chooses the TLS stack.** h11 and h2 take a `tls.Provider`, and QUIC takes a
-  `tls.QuicProvider` and a `crypto.Suite`. Design §8 step 16 links
+- **Your program chooses the TLS stack.** h11 and h2 take a `tls_provider.Provider`, and QUIC
+  takes a `tls_provider.QuicProvider` and a `crypto.Suite`. Design §8 step 16 links
   [chapulin](https://github.com/c4milo/chapulin) into the library to fill all three. Until it
   lands, `src/testing/` holds chapulin adapters you can copy, and a program without TLS runs in
   cleartext.

@@ -24,7 +24,7 @@ The name is Spanish for hummingbird.
 | Memory | No allocator anywhere in `src/`, tests included. Your program owns every struct and buffer, and each size is a comptime constant. |
 | I/O | None. colibri parses octets you already read and writes into buffers you own. A call that would block returns what it needs instead. |
 | Time | A value you pass. No source file reads a clock. |
-| TLS and packet protection | Vtables you fill: `tls.Provider` for h11 and h2, and `tls.QuicProvider` and `crypto.Suite` for QUIC. [chapulin](https://github.com/c4milo/chapulin) becomes the library's own TLS stack in design §8 step 16, which is in progress. |
+| TLS and packet protection | Vtables you fill: `tls_provider.Provider` for h11 and h2, and `tls_provider.QuicProvider` and `crypto.Suite` for QUIC. [chapulin](https://github.com/c4milo/chapulin) becomes the library's own TLS stack in design §8 step 16, which is in progress. |
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
 
@@ -56,7 +56,7 @@ zig fetch --save git+https://github.com/c4milo/colibri#<commit>
 ```
 
 Then import the modules you use. Each of the eleven library modules is exported by name: `core`,
-`wire`, `http`, `tls`, `crypto`, `hpack`, `qpack`, `quic`, `h2`, `h3` and `h11`.
+`wire`, `http`, `tls_provider`, `crypto`, `hpack`, `qpack`, `quic`, `h2`, `h3` and `h11`.
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });

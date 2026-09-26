@@ -14,7 +14,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const crypto = @import("crypto");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const frame_module = @import("../frame/frame.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 const connection_module = @import("connection.zig");
@@ -39,7 +39,7 @@ pub const HandshakeDone = struct {
 /// Marks the handshake complete once the provider reports it (RFC 9001 §4.1.1). A server
 /// confirms it at the same moment (§4.1.2), owes a HANDSHAKE_DONE frame and discards its
 /// Handshake keys (§4.9.2). True when this call completed it.
-pub fn complete(connection: *Connection, provider: tls.QuicProvider, suite: crypto.Suite) connection_crypto.Error!bool {
+pub fn complete(connection: *Connection, provider: tls_provider.QuicProvider, suite: crypto.Suite) connection_crypto.Error!bool {
     if (connection.handshake_complete) return false;
     // RFC 9001 §4.1.1: "the TLS handshake is considered complete when the TLS stack has reported
     // that the handshake is complete."

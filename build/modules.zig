@@ -4,11 +4,11 @@
 //!
 //! The one edge that must never exist is `quic` importing anything of HTTP. RFC 9000 defines a
 //! transport that carries streams and never interprets their payloads; decision 5 keeps it that
-//! way: `quic` receives `core`, `wire`, `crypto` and `tls`, and nothing else. `src/quic/` naming
+//! way: `quic` receives `core`, `wire`, `crypto` and `tls_provider`, and nothing else. `src/quic/` naming
 //! `http`, `h2`, `h3`, `h11`, `hpack` or `qpack` does not compile, which is invariant 26 and the
 //! check of design §8 step 0.
 //!
-//! `sim` receives `core`, `tls` and `crypto` because it implements the two caller-supplied
+//! `sim` receives `core`, `tls_provider` and `crypto` because it implements the two caller-supplied
 //! vtables (decisions 8 and 9) and passes its own null providers to the protocol modules in place
 //! of a real caller's. It receives no protocol module, which stops the harness from
 //! knowing anything a caller would not.
@@ -35,7 +35,7 @@ pub const Modules = struct {
     /// The version-independent HTTP semantics core of RFC 9110 (decision 15).
     http: *std.Build.Module,
     /// The TLS provider vtable, both modes. No production implementation (decision 8).
-    tls: *std.Build.Module,
+    tls_provider: *std.Build.Module,
     /// The packet-protection vtable. No production implementation (decision 9).
     crypto: *std.Build.Module,
     hpack: *std.Build.Module,
@@ -83,8 +83,8 @@ pub fn add(
     const http = library(b, "http", target, optimize);
     http.addImport("core", core);
 
-    const tls = library(b, "tls", target, optimize);
-    tls.addImport("core", core);
+    const tls_provider = library(b, "tls_provider", target, optimize);
+    tls_provider.addImport("core", core);
 
     const crypto = library(b, "crypto", target, optimize);
     crypto.addImport("core", core);
@@ -104,14 +104,14 @@ pub fn add(
     quic.addImport("core", core);
     quic.addImport("wire", wire);
     quic.addImport("crypto", crypto);
-    quic.addImport("tls", tls);
+    quic.addImport("tls_provider", tls_provider);
 
     const h2 = library(b, "h2", target, optimize);
     h2.addImport("core", core);
     h2.addImport("wire", wire);
     h2.addImport("http", http);
     h2.addImport("hpack", hpack);
-    h2.addImport("tls", tls);
+    h2.addImport("tls_provider", tls_provider);
 
     const h3 = library(b, "h3", target, optimize);
     h3.addImport("core", core);
@@ -124,11 +124,11 @@ pub fn add(
     h11.addImport("core", core);
     h11.addImport("http", http);
     // Decision 88: h11 attaches to a finished handshake and checks what ALPN selected.
-    h11.addImport("tls", tls);
+    h11.addImport("tls_provider", tls_provider);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
-    sim.addImport("tls", tls);
+    sim.addImport("tls_provider", tls_provider);
     sim.addImport("crypto", crypto);
 
     const sim_run = create(b, "src/sim/run.zig", target, optimize);
@@ -166,9 +166,9 @@ pub fn add(
     testing.addImport("core", core);
     testing.addImport("h2", h2);
     testing.addImport("h11", h11);
-    // Step 5's TLS half: the endpoint fills `tls.Provider` from chapulin, so it needs the vtable
+    // Step 5's TLS half: the endpoint fills `tls_provider.Provider` from chapulin, so it needs the vtable
     // the library declares. The library still links no TLS stack; this module is not in it.
-    testing.addImport("tls", tls);
+    testing.addImport("tls_provider", tls_provider);
     // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's. The library links
     // no C at all; this module is excluded from it, and decision 10 links chapulin here too.
     testing.link_libc = true;
@@ -177,7 +177,7 @@ pub fn add(
     testing_client.addImport("core", core);
     testing_client.addImport("h2", h2);
     testing_client.addImport("h11", h11);
-    testing_client.addImport("tls", tls);
+    testing_client.addImport("tls_provider", tls_provider);
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;
 
@@ -189,7 +189,7 @@ pub fn add(
     //  sizes its buffers against h2's frame limits, and every root
     // that reads it needs the module those limits come from.
     testing_tls.addImport("h2", h2);
-    testing_tls.addImport("tls", tls);
+    testing_tls.addImport("tls_provider", tls_provider);
     testing_tls.link_libc = true;
 
     // The other half of step 5's check, and a fourth root for the same reason as the third: one
@@ -197,7 +197,7 @@ pub fn add(
     const testing_tls_server = create(b, "src/testing/tls_accept.zig", target, optimize);
     testing_tls_server.addImport("core", core);
     testing_tls_server.addImport("h2", h2);
-    testing_tls_server.addImport("tls", tls);
+    testing_tls_server.addImport("tls_provider", tls_provider);
     testing_tls_server.link_libc = true;
 
     // Design §9's QIF tools, a root of their own for their `main`. They serve `qpack`, and keep
@@ -208,7 +208,7 @@ pub fn add(
     testing_qif.addImport("qpack", qpack);
     testing_qif.link_libc = true;
 
-    // Step 9e's QUIC check fills `tls.QuicProvider` and `crypto.Suite` from chapulin's QUIC mode.
+    // Step 9e's QUIC check fills `tls_provider.QuicProvider` and `crypto.Suite` from chapulin's QUIC mode.
     // A fifth root, because its object is another build: `TRANSPORT=quic-nonblocking` exports none
     // of the record calls the other four link, and `ROLE=both` puts both roles in one object.
     // `KEYLOG=on` imports `ch_keylog`, which the check defines, so a capture of a run can be
@@ -222,7 +222,7 @@ pub fn add(
         .core = core,
         .wire = wire,
         .http = http,
-        .tls = tls,
+        .tls_provider = tls_provider,
         .crypto = crypto,
         .hpack = hpack,
         .qpack = qpack,

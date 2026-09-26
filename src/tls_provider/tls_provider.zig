@@ -1,5 +1,6 @@
-//! The TLS provider vtable, in both modes (decision 8). No production implementation is in this
-//! tree; src/sim/ provides a null one, which is test-only and never packaged.
+//! The TLS provider vtable, in both modes (decision 8). chapulin fills it in the `tls` module
+//! (decisions 94 and 97), and src/sim/ fills it with a null one, which is test-only and never
+//! packaged. The module was `tls` until decision 97 gave that name to the module a program imports.
 //!
 //! Record mode serves h2 and is `provider.zig`. QUIC mode serves h3 and lands with design §8
 //! step 9e, where RFC 9001 §4 replaces the record layer: step 7 shipped the packet formats and,

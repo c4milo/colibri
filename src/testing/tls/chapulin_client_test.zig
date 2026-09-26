@@ -3,7 +3,7 @@
 const std = @import("std");
 const entropy = @import("../entropy.zig");
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
 const chapulin_client = @import("chapulin_client.zig");
@@ -265,7 +265,7 @@ test "once the handshake is done the session reports what it chose" {
     // RFC 9113 §9.2: colibri needs both codepoints, and admits this suite (decision 45).
     const negotiated = held.vtable.negotiated_parameters(held.context).?;
     try testing.expectEqual(tls_1_3, negotiated.version);
-    try testing.expectEqual(tls.constants.cipher_suite_chacha20_poly1305_sha256, negotiated.cipher_suite);
+    try testing.expectEqual(tls_provider.constants.cipher_suite_chacha20_poly1305_sha256, negotiated.cipher_suite);
     // A server that selected nothing leaves colibri with no protocol, which h2's `attach_tls`
     // refuses and h11's takes (decision 88).
     test_client.held.session.alpn_selected = c.CH_ALPN_NONE;
@@ -296,17 +296,17 @@ test "a peer's close_notify is reported with its description, not as a failure" 
     var plaintext: [64]u8 = @splat(0);
     const opened = try held.vtable.decrypt_record(held.context, &record, &plaintext);
     // RFC 9846 §6.1: the record is an alert and carries no application data.
-    try testing.expectEqual(tls.Content.alert, opened.content);
+    try testing.expectEqual(tls_provider.Content.alert, opened.content);
     try testing.expectEqual(0, opened.plaintext_len);
 
     // colibri's `connection_tls.on_alert` treats a provider that classifies a record as an alert
     // and then reports no description as having broken its contract, and closes with
     // `error.TlsFailed`. Without a report here every orderly close would look like a failure.
     const report = held.vtable.take_alert(held.context).?;
-    try testing.expectEqual(tls.Alert.close_notify, report.description);
-    try testing.expectEqual(tls.AlertReport.Origin.peer, report.origin);
+    try testing.expectEqual(tls_provider.Alert.close_notify, report.description);
+    try testing.expectEqual(tls_provider.AlertReport.Origin.peer, report.origin);
     // RFC 9846 §6.1 makes this the end of the peer's data, which is not an error.
-    try testing.expect(tls.alert.verdict(report) == .end_of_data);
+    try testing.expect(tls_provider.alert.verdict(report) == .end_of_data);
     // The call clears it, so a second reports none.
     try testing.expectEqual(null, held.vtable.take_alert(held.context));
 }

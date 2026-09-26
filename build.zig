@@ -107,7 +107,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "core", .module = graph.core },
         .{ .name = "wire", .module = graph.wire },
         .{ .name = "http", .module = graph.http },
-        .{ .name = "tls", .module = graph.tls },
+        .{ .name = "tls-provider", .module = graph.tls_provider },
         .{ .name = "crypto", .module = graph.crypto },
         .{ .name = "hpack", .module = graph.hpack },
         .{ .name = "qpack", .module = graph.qpack },

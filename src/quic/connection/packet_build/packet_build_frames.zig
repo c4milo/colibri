@@ -21,7 +21,7 @@
 //! A packet the congestion window holds back carries the first two alone (`Room.in_flight_allowed`).
 const std = @import("std");
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../../constants.zig");
 const frame_module = @import("../../frame/frame.zig");
 const connection_module = @import("../connection.zig");
@@ -79,7 +79,7 @@ pub const Framed = struct {
 /// packet's, which the frames §13.3 sends again record.
 pub fn write(
     connection: *Connection,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     stream_provider: StreamProvider,
     space: anytype,
     level: Level,
@@ -238,7 +238,7 @@ const DataFrame = struct {
 /// otherwise. Never both: a packet's record holds one range (decisions 56 and 57).
 fn write_data(
     connection: *Connection,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     stream_provider: StreamProvider,
     level: Level,
     output: []u8,

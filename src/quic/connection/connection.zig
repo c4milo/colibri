@@ -9,7 +9,7 @@
 //!
 //! **colibri holds no key and no socket here either.** The keys are the caller's `crypto.Suite`
 //! ([decision 48](../../../docs/decisions.md)) and the handshake is the caller's
-//! `tls.QuicProvider` (decision 8); a connection holds neither, and takes them as parameters
+//! `tls_provider.QuicProvider` (decision 8); a connection holds neither, and takes them as parameters
 //! where it needs them. It reads no clock: every function that needs the instant takes it
 //! (non-negotiable 3).
 //!
@@ -23,7 +23,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const crypto = @import("crypto");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const space = @import("../space/space.zig");
 const crypto_stream = @import("../crypto_stream.zig");
@@ -165,7 +165,7 @@ pub const Connection = struct {
     pending_close: ?frame_control.ConnectionClose,
     /// The alert the provider raised when the handshake failed, which RFC 9001 §4.8 turns into
     /// the CRYPTO_ERROR code the close carries. Null while none was raised.
-    tls_alert: ?tls.Alert,
+    tls_alert: ?tls_provider.Alert,
     /// Whether the TLS provider failed (RFC 9001 §4.8). From then on the suite, and not
     /// colibri's own record, says which levels still seal (decision 84, `take_lost`).
     tls_failed: bool,

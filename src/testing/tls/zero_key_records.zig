@@ -8,7 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin.zig");
 const chapulin_record = @import("chapulin_record.zig");
 
@@ -49,7 +49,7 @@ pub fn connect(held: *Held, session: *c.ch_tls, receive: []u8) void {
         .io = .{ .records = .{} },
         .closed = false,
         .pending_alert = null,
-        .suite = tls.constants.cipher_suite_chacha20_poly1305_sha256,
+        .suite = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256,
         .alpn = alpn,
     };
 }
@@ -92,7 +92,7 @@ pub const Opened = struct {
 /// null when it does not authenticate under that key (RFC 9846 §5.2).
 pub fn open(sequence: u64, record: []const u8, output: []u8) ?Opened {
     var reader = core.Reader.init(record);
-    const header = reader.take(tls.constants.record_header_len) catch return null;
+    const header = reader.take(tls_provider.constants.record_header_len) catch return null;
     const sealed = reader.take_rest();
     if (sealed.len < Aead.tag_length + 1) return null;
     const inner_len = sealed.len - Aead.tag_length;
@@ -111,12 +111,12 @@ const testing = std.testing;
 /// A connected session the test drives. Test-only.
 var test_session: c.ch_tls = undefined;
 var test_held: Held = undefined;
-var test_receive: [tls.constants.record_write_len_min]u8 = undefined;
+var test_receive: [tls_provider.constants.record_write_len_min]u8 = undefined;
 
 test "a record sealed here is the record chapulin seals under the zero key" {
     connect(&test_held, &test_session, &test_receive);
     var chapulin_output: [content_len_max]u8 = undefined;
-    const provider: tls.Provider = .{ .context = @ptrCast(&test_held), .vtable = &chapulin_record.vtable };
+    const provider: tls_provider.Provider = .{ .context = @ptrCast(&test_held), .vtable = &chapulin_record.vtable };
     const sealed = try provider.vtable.encrypt_record(provider.context, "zero key", &chapulin_output);
     var ours: [content_len_max]u8 = undefined;
     const expected = try seal(0, content_application_data, "zero key", &ours);

@@ -472,7 +472,7 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Claim.** `src/quic/` never imports `http`, `h2`, `h3`, `h11`, `hpack` or `qpack`, and contains
   no identifier naming an HTTP concept.
 - **Mechanism.** The module graph in `build.zig` gives `quic` only `core`, `wire`, `crypto` and
-  `tls`. A module can import only what the build gives it, so a forbidden import does not
+  `tls_provider`. A module can import only what the build gives it, so a forbidden import does not
   compile.
 - **Check.** Type system, by way of the build graph — and the check that proves it is that the QUIC
   simulator builds and runs with no HTTP module in the graph at all. A lint rule covers the

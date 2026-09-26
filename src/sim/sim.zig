@@ -4,7 +4,7 @@
 const std = @import("std");
 
 pub const core = @import("core");
-pub const tls = @import("tls");
+pub const tls_provider = @import("tls_provider");
 pub const crypto = @import("crypto");
 pub const constants = @import("constants.zig");
 

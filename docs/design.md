@@ -56,11 +56,11 @@ build and not by review. An arrow reads "imports".
 core   <- wire   <- hpack <- h2
                  <- qpack <- h3
 core   <- http   <- h2, h3, h11
-core   <- tls    <- h2, h11, quic
+core   <- tls_provider <- h2, h11, quic
 stdx   <- h11
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
-core, tls, crypto <- sim
+core, tls_provider, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
@@ -74,15 +74,15 @@ core, qpack      <- testing_qif
 | `core` | limits, assertions, the bounded reader and writer, the slot pool | nothing | — |
 | `wire` | varint, prefixed integer, Huffman, string literal | `core` | 9000 §16, 7541 §5.1, §5.2, App. B |
 | `http` | the version-independent semantics core | `core` | 9110 |
-| `tls` | the TLS provider vtable, no production implementation | `core` | 8446, 7301, 9001 §4 |
+| `tls_provider` | the TLS provider vtable, which chapulin and the simulator fill ([decision 97](decisions.md)) | `core` | 9846, 7301, 9001 §4 |
 | `crypto` | the packet-protection vtable, no production implementation | `core` | 9001 §5 |
 | `hpack` | HPACK | `core`, `wire`, `http` | 7541 |
 | `qpack` | QPACK | `core`, `wire`, `http` | 9204 |
-| `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls` | 8999, 9000, 9001, 9002 |
-| `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls` | 9113 |
+| `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls_provider` | 8999, 9000, 9001, 9002 |
+| `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
-| `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
-| `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls`, `crypto` | — |
+| `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
+| `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
@@ -98,7 +98,7 @@ The architecture depends on three of these edges and forbids one.
   [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) and
   [decision 5](decisions.md#scope-and-shape). The check that proves it is that the QUIC simulator
   builds and runs with no HTTP module in the graph at all — not a lint rule, a link.
-- **`sim` imports `core`, `tls` and `crypto`, and no protocol module.** It implements the same two
+- **`sim` imports `core`, `tls_provider` and `crypto`, and no protocol module.** It implements the same two
   vtables a real caller does, so the build hands its null providers to the protocol modules in
   place of the caller's and nothing is conditionally compiled. It cannot import a protocol module,
   which is what keeps the harness from knowing anything the caller would not. A check drives a

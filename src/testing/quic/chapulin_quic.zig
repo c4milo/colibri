@@ -1,4 +1,4 @@
-//! chapulin's QUIC mode behind colibri's `tls.QuicProvider` and `crypto.Suite`, for `src/testing/`
+//! chapulin's QUIC mode behind colibri's `tls_provider.QuicProvider` and `crypto.Suite`, for `src/testing/`
 //! alone ([decision 10](../../../docs/decisions.md)). Part of design §8 step 9e, piece 11.
 //!
 //! One `ch_quic` is both halves. RFC 9001 §4.1.4 has TLS produce the secrets that packet
@@ -25,7 +25,7 @@ const chapulin_quic_c = @import("chapulin_quic_c.zig");
 const chapulin_quic_suite = @import("chapulin_quic_suite.zig");
 
 const c = chapulin_quic_c.c;
-const tls = quic.tls;
+const tls_provider = quic.tls_provider;
 const Level = quic.core.Level;
 const Role = quic.crypto.suite.Role;
 const Keylog = chapulin_quic_c.Keylog;
@@ -255,7 +255,7 @@ pub const Session = struct {
         return c.ch_srv_check(&session.config) == ok;
     }
 
-    pub fn provider(session: *Session) tls.QuicProvider {
+    pub fn provider(session: *Session) tls_provider.QuicProvider {
         return .{ .context = @ptrCast(session), .vtable = &vtable };
     }
 
@@ -366,7 +366,7 @@ comptime {
     @export(&keylog_hook, .{ .name = "ch_keylog", .linkage = .strong });
 }
 
-pub const vtable: tls.quic_provider.VTable = .{
+pub const vtable: tls_provider.quic_provider.VTable = .{
     .set_transport_params = set_transport_params,
     .peer_transport_params = peer_transport_params,
     .provide_handshake = provide_handshake,
@@ -387,7 +387,7 @@ fn held_const(context: *const anyopaque) *const Session {
 
 /// RFC 9001 §8.2: the parameters travel in the first message each side writes, so chapulin reads
 /// them at initialization, and the session starts here.
-fn set_transport_params(context: *anyopaque, body: []const u8) tls.quic_provider.TransportParamsError!void {
+fn set_transport_params(context: *anyopaque, body: []const u8) tls_provider.quic_provider.TransportParamsError!void {
     const session = held(context);
     if (session.started) return error.HandshakeStarted;
     if (body.len > session.local_parameters.len) return error.TlsFailed;
@@ -410,7 +410,7 @@ fn peer_transport_params(context: *const anyopaque) ?[]const u8 {
     return session.peer_parameters[0..len];
 }
 
-fn provide_handshake(context: *anyopaque, level: Level, data: []const u8) tls.quic_provider.ProvideError!void {
+fn provide_handshake(context: *anyopaque, level: Level, data: []const u8) tls_provider.quic_provider.ProvideError!void {
     const session = held(context);
     if (!session.started) return error.WrongLevel;
     const at: u8 = @intFromEnum(level);
@@ -429,7 +429,7 @@ fn provide_handshake(context: *anyopaque, level: Level, data: []const u8) tls.qu
 }
 
 /// Hands colibri what is waiting at `level`, as much as fits.
-fn write_handshake(context: *anyopaque, level: Level, output: []u8) tls.quic_provider.WriteError!usize {
+fn write_handshake(context: *anyopaque, level: Level, output: []u8) tls_provider.quic_provider.WriteError!usize {
     const session = held(context);
     if (session.outgoing_overflowed) return error.NoSpaceLeft;
     const outgoing = &session.outgoing[@intFromEnum(level)];
@@ -460,7 +460,7 @@ fn handshake_complete(context: *const anyopaque) bool {
 }
 
 /// RFC 9001 §4.8: the alert behind a failed session, once.
-fn take_alert(context: *anyopaque) ?tls.Alert {
+fn take_alert(context: *anyopaque) ?tls_provider.Alert {
     const session = held(context);
     if (session.alert_taken or !session.failed()) return null;
     const description = c.ch_quic_alert(&session.quic);
@@ -476,7 +476,7 @@ fn export_keying_material(
     label: []const u8,
     context_value: ?[]const u8,
     output: []u8,
-) tls.quic_provider.ExportError!void {
+) tls_provider.quic_provider.ExportError!void {
     _ = context;
     _ = label;
     _ = context_value;

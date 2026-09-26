@@ -28,7 +28,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const crypto = @import("crypto");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
 const header = @import("../packet/packet_header.zig");
@@ -108,7 +108,7 @@ pub const Received = struct {
 pub fn receive(
     connection: *Connection,
     suite: crypto.Suite,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     datagram: Datagram,
     scratch: *Scratch,
 ) Error!Received {
@@ -181,7 +181,7 @@ fn take_whole(
 fn walk_packets(
     connection: *Connection,
     suite: crypto.Suite,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     datagram: Datagram,
     scratch: *Scratch,
     received: *Received,
@@ -248,7 +248,7 @@ fn process_packet(
 fn advance_handshake(
     connection: *Connection,
     suite: crypto.Suite,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     received: *Received,
 ) Error!void {
     // RFC 9001 §4.1.3: the octets CRYPTO frames delivered in order go to TLS.

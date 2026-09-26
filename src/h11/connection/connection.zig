@@ -25,7 +25,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const message = @import("../message/message.zig");
 const connection_body = @import("connection_body.zig");
@@ -159,7 +159,7 @@ pub const Connection = struct {
     /// A client sent `Connection: close`, and sends nothing more (RFC 9112 §9.6).
     close_sent: bool,
     /// The TLS provider the connection runs over, or null in cleartext.
-    provider: ?tls.Provider,
+    provider: ?tls_provider.Provider,
     /// Records in a row that carried no application data. The peer chooses how many it sends, so
     /// the run is bounded (`core.constants.records_without_data_max`).
     records_without_data: u32,
@@ -199,7 +199,7 @@ pub const Connection = struct {
 
     /// Attaches the TLS provider h11 runs over, after checking the finished handshake
     /// (`connection_tls.zig`). Called once, before any octet of HTTP moves.
-    pub fn attach_tls(connection: *Connection, provider: tls.Provider) connection_tls.AttachError!void {
+    pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) connection_tls.AttachError!void {
         return connection_tls.attach(connection, provider);
     }
 

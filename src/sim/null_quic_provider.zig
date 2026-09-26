@@ -1,4 +1,4 @@
-//! A `tls.QuicVTable` that performs no cryptography (decisions 8, 10 and 48, design §8 step 9e).
+//! A `tls_provider.QuicVTable` that performs no cryptography (decisions 8, 10 and 48, design §8 step 9e).
 //! It is test-only, lives in `src/sim/` and is never packaged: colibri's library carries no
 //! implementation of either vtable and never will (CLAUDE.md non-negotiable 2).
 //!
@@ -24,15 +24,15 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const crypto = @import("crypto");
 const constants = @import("constants.zig");
 
 const NullSuite = @import("null_suite.zig").NullSuite;
 
 const Crc32 = std.hash.Crc32;
-const Alert = tls.Alert;
-const Level = tls.Level;
+const Alert = tls_provider.Alert;
+const Level = tls_provider.Level;
 
 /// Which endpoint of the connection this is. It is `crypto.suite`'s, so the null provider and the
 /// null suite of one endpoint are told apart by the same value.
@@ -124,7 +124,7 @@ pub const NullQuicProvider = struct {
     suite: ?*NullSuite = null,
 
     /// The vtable-shaped view colibri holds.
-    pub fn provider(self: *NullQuicProvider) tls.QuicProvider {
+    pub fn provider(self: *NullQuicProvider) tls_provider.QuicProvider {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
 
@@ -184,7 +184,7 @@ pub const NullQuicProvider = struct {
     fn set_transport_params(
         context: *anyopaque,
         body: []const u8,
-    ) tls.quic_provider.TransportParamsError!void {
+    ) tls_provider.quic_provider.TransportParamsError!void {
         const self = of(context);
         // RFC 9001 §4.1.3: "Before starting the handshake, QUIC provides TLS with the transport
         // parameters that it wishes to carry."
@@ -209,7 +209,7 @@ pub const NullQuicProvider = struct {
         context: *anyopaque,
         level: Level,
         data: []const u8,
-    ) tls.quic_provider.ProvideError!void {
+    ) tls_provider.quic_provider.ProvideError!void {
         const self = of(context);
         self.note_start(.server);
         if (self.fails_with) |description| return self.fail(description);
@@ -226,7 +226,7 @@ pub const NullQuicProvider = struct {
         self: *NullQuicProvider,
         level: Level,
         data: []const u8,
-    ) tls.quic_provider.ProvideError!void {
+    ) tls_provider.quic_provider.ProvideError!void {
         const index = @intFromEnum(level);
         const held = self.pending_len[index];
         assert(held <= self.pending[index].len);
@@ -237,7 +237,7 @@ pub const NullQuicProvider = struct {
 
     /// Reads every whole message the next steps call for. RFC 9001 §4.1.3 leaves TLS to buffer
     /// octets that arrived in order, so a message cut across calls waits here for the rest.
-    fn read_flight(self: *NullQuicProvider) tls.quic_provider.ProvideError!void {
+    fn read_flight(self: *NullQuicProvider) tls_provider.quic_provider.ProvideError!void {
         for (0..constants.null_quic_steps_max) |_| {
             const step = self.current() orelse return;
             if (step.writes) return;
@@ -249,7 +249,7 @@ pub const NullQuicProvider = struct {
     fn read_message(
         self: *NullQuicProvider,
         step: Step,
-    ) tls.quic_provider.ProvideError!bool {
+    ) tls_provider.quic_provider.ProvideError!bool {
         const index = @intFromEnum(step.level);
         const held = self.pending[index][0..self.pending_len[index]];
         const message = read_framed(held) orelse return false;
@@ -305,7 +305,7 @@ pub const NullQuicProvider = struct {
         context: *anyopaque,
         level: Level,
         output: []u8,
-    ) tls.quic_provider.WriteError!usize {
+    ) tls_provider.quic_provider.WriteError!usize {
         const self = of(context);
         self.note_start(.client);
         if (self.fails_with) |description| return self.fail(description);
@@ -335,7 +335,7 @@ pub const NullQuicProvider = struct {
         // there is no selection to report before one of those has been read.
         if (!self.alpn_selected) return null;
         // RFC 9001 §8.1: "endpoints MUST use ALPN", and h3 is what QUIC carries here.
-        return &tls.constants.alpn_h3;
+        return &tls_provider.constants.alpn_h3;
     }
 
     fn handshake_complete(context: *const anyopaque) bool {
@@ -354,7 +354,7 @@ pub const NullQuicProvider = struct {
         label: []const u8,
         context_value: ?[]const u8,
         output: []u8,
-    ) tls.quic_provider.ExportError!void {
+    ) tls_provider.quic_provider.ExportError!void {
         const self = of(context);
         // RFC 9846 §7.5 derives the exporter from exporter_secret, which exists once the handshake
         // has completed.
@@ -368,7 +368,7 @@ pub const NullQuicProvider = struct {
 
 /// The vtable, filled once and shared. Every endpoint in a run uses the same one, which is what
 /// `QuicProvider.vtable` being read-only is for.
-const table: tls.QuicVTable = .{
+const table: tls_provider.QuicVTable = .{
     .set_transport_params = NullQuicProvider.set_transport_params,
     .peer_transport_params = NullQuicProvider.peer_transport_params,
     .provide_handshake = NullQuicProvider.provide_handshake,

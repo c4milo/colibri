@@ -2,7 +2,7 @@
 //! under 500 lines with its tests included (CLAUDE.md).
 const std = @import("std");
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const error_code = @import("../error_code.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
@@ -64,27 +64,27 @@ const Fake = struct {
     /// What the next call fails with, or null. Test-only.
     failure: ?anyerror = null,
     /// What `take_alert` reports once. Test-only.
-    alert_held: ?tls.Alert = null,
+    alert_held: ?tls_provider.Alert = null,
 
-    fn provider(self: *Fake) tls.QuicProvider {
+    fn provider(self: *Fake) tls_provider.QuicProvider {
         return .{ .context = @ptrCast(self), .vtable = &table };
     }
 
-    fn set_params(context: *anyopaque, body: []const u8) tls.quic_provider.TransportParamsError!void {
+    fn set_params(context: *anyopaque, body: []const u8) tls_provider.quic_provider.TransportParamsError!void {
         _ = .{ context, body };
     }
     fn peer_params(context: *const anyopaque) ?[]const u8 {
         const self: *const Fake = @ptrCast(@alignCast(context));
         return self.peer_body;
     }
-    fn provide(context: *anyopaque, level: Level, data: []const u8) tls.quic_provider.ProvideError!void {
+    fn provide(context: *anyopaque, level: Level, data: []const u8) tls_provider.quic_provider.ProvideError!void {
         const self: *Fake = @ptrCast(@alignCast(context));
         if (self.failure) |held| return @errorCast(held);
         @memcpy(self.taken[0..data.len], data);
         self.taken_len = data.len;
         self.taken_level = level;
     }
-    fn write(context: *anyopaque, level: Level, output: []u8) tls.quic_provider.WriteError!usize {
+    fn write(context: *anyopaque, level: Level, output: []u8) tls_provider.quic_provider.WriteError!usize {
         const self: *Fake = @ptrCast(@alignCast(context));
         if (self.failure) |held| return @errorCast(held);
         if (level != self.owed_level or self.owed.len == 0) return 0;
@@ -94,25 +94,25 @@ const Fake = struct {
     }
     fn alpn(context: *const anyopaque) ?[]const u8 {
         _ = context;
-        return &tls.constants.alpn_h3;
+        return &tls_provider.constants.alpn_h3;
     }
     fn complete(context: *const anyopaque) bool {
         _ = context;
         return false;
     }
-    fn alert_of(context: *anyopaque) ?tls.Alert {
+    fn alert_of(context: *anyopaque) ?tls_provider.Alert {
         const self: *Fake = @ptrCast(@alignCast(context));
         defer self.alert_held = null;
         return self.alert_held;
     }
-    fn exported(context: *anyopaque, label: []const u8, value: ?[]const u8, output: []u8) tls.quic_provider.ExportError!void {
+    fn exported(context: *anyopaque, label: []const u8, value: ?[]const u8, output: []u8) tls_provider.quic_provider.ExportError!void {
         _ = .{ context, label, value, output };
         // RFC 9846 §7.5 standardises the exporter without obliging a stack to offer it, and no
         // test below needs one.
         return error.Unsupported;
     }
 
-    const table: tls.QuicVTable = .{
+    const table: tls_provider.QuicVTable = .{
         .set_transport_params = set_params,
         .peer_transport_params = peer_params,
         .provide_handshake = provide,

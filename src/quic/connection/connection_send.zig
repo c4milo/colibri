@@ -26,7 +26,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const crypto = @import("crypto");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const frame_module = @import("../frame/frame.zig");
 const connection_module = @import("connection.zig");
@@ -130,7 +130,7 @@ pub fn owe_probes(connection: *Connection, level: Level, count: u8) void {
 pub fn send(
     connection: *Connection,
     suite: crypto.Suite,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     stream_provider: StreamProvider,
     scratch: anytype,
     output: []u8,
@@ -197,7 +197,7 @@ pub fn send(
 fn send_previous_probe(
     connection: *Connection,
     suite: crypto.Suite,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     stream_provider: StreamProvider,
     scratch: anytype,
     output: []u8,
@@ -224,7 +224,7 @@ fn send_previous_probe(
 /// that the handshake is complete". A client's stack reports it once its Finished is written,
 /// which happens while a datagram is framed, so `send` asks as `connection_datagram.receive` does
 /// (decision 60).
-fn note_handshake_complete(connection: *Connection, provider: tls.QuicProvider, suite: crypto.Suite) Error!void {
+fn note_handshake_complete(connection: *Connection, provider: tls_provider.QuicProvider, suite: crypto.Suite) Error!void {
     _ = connection_handshake.complete(connection, provider, suite) catch |failure| switch (failure) {
         error.ParametersMissing => return Error.ParametersMissing,
         // `complete` refuses nothing else: it reads the provider and changes no flow.

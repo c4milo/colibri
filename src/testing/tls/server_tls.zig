@@ -14,7 +14,7 @@
 //! alert (`alert`), and this test-only endpoint closes the socket instead of sending it.
 const std = @import("std");
 const h2 = @import("h2");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
 const chapulin_server = @import("chapulin_server.zig");
@@ -177,9 +177,9 @@ test "RFC 9846 §6.1: after the peer's close_notify this side still writes, then
     try testing.expect(stepped.done);
     // What went out is the SETTINGS record, then this side's close_notify: a record whose
     // plaintext is the alert's two octets.
-    const close_len = tls.constants.record_header_len + zero_key_records.close_notify.len + record_overhead_after_header;
+    const close_len = tls_provider.constants.record_header_len + zero_key_records.close_notify.len + record_overhead_after_header;
     try testing.expect(stepped.written > close_len);
-    const last_header = test_output[stepped.written - close_len ..][0..tls.constants.record_header_len];
+    const last_header = test_output[stepped.written - close_len ..][0..tls_provider.constants.record_header_len];
     try testing.expectEqual(zero_key_records.content_application_data, last_header[0]);
     // The close goes out once.
     const again = try step(&test_layer, &test_session, &.{}, &test_output);
@@ -189,7 +189,7 @@ test "RFC 9846 §6.1: after the peer's close_notify this side still writes, then
 
 /// What a sealed record adds after its header: the inner content type and the AEAD tag, which is
 /// chapulin's `REC_OVERHEAD` less the header. Test-only.
-const record_overhead_after_header: usize = chapulin.c.REC_OVERHEAD - tls.constants.record_header_len;
+const record_overhead_after_header: usize = chapulin.c.REC_OVERHEAD - tls_provider.constants.record_header_len;
 
 /// RFC 9846 §4.7.3's KeyUpdate asking for one back, as a handshake message. Test-only.
 const key_update_requested = [_]u8{ handshake_key_update, 0, 0, 1, 1 };
@@ -224,7 +224,7 @@ test "decision 88: a handshake that selected http/1.1 runs h11, and RFC 9112 §9
     try testing.expectEqual(input.len, stepped.consumed);
     const written = test_output[0..stepped.written];
     const first_len = chapulin_record.whole_record_len(written) orelse return error.TestUnexpectedResult;
-    var inner: [tls.constants.record_plaintext_len_max + 1]u8 = undefined;
+    var inner: [tls_provider.constants.record_plaintext_len_max + 1]u8 = undefined;
     const response = zero_key_records.open(0, written[0..first_len], &inner) orelse
         return error.TestUnexpectedResult;
     try testing.expectEqual(zero_key_records.content_application_data, response.content_type);

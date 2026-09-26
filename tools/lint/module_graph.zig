@@ -54,7 +54,7 @@ const check_name_field = "name";
 /// The import set docs/design.md §3 gives `quic`. Every other module in the graph is checked by
 /// the compiler the moment a file names it; this one is checked here because its whole point is
 /// what is *absent*, and absence compiles.
-const expected_quic_imports = [_][]const u8{ "core", "wire", "crypto", "tls" };
+const expected_quic_imports = [_][]const u8{ "core", "wire", "crypto", "tls_provider" };
 
 /// Longest path the rule builds for the file it reads beside build/modules.zig.
 const max_path_bytes: usize = 4096;
@@ -311,7 +311,7 @@ const passing_build: [:0]const u8 =
     \\    quic.addImport("core", core);
     \\    quic.addImport("wire", wire);
     \\    quic.addImport("crypto", crypto);
-    \\    quic.addImport("tls", tls);
+    \\    quic.addImport("tls_provider", tls_provider);
     \\    const h3 = create(b, "src/h3/h3.zig");
     \\    h3.addImport("quic", quic);
     \\    h3.addImport("qpack", qpack);
@@ -323,7 +323,7 @@ const passing_check: [:0]const u8 =
     \\    .{ .name = "core", .root = "core/core.zig", .deps = &.{} },
     \\    .{ .name = "wire", .root = "wire/wire.zig", .deps = &.{"core"} },
     \\    .{ .name = "crypto", .root = "crypto/crypto.zig", .deps = &.{"core"} },
-    \\    .{ .name = "tls", .root = "tls/tls.zig", .deps = &.{"core"} },
+    \\    .{ .name = "tls_provider", .root = "tls_provider/tls_provider.zig", .deps = &.{"core"} },
     \\};
     \\const forbidden = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
 ;
@@ -364,7 +364,7 @@ test "module-graph flags an HTTP module the build gives quic" {
         \\    quic.addImport("core", core);
         \\    quic.addImport("wire", wire);
         \\    quic.addImport("crypto", crypto);
-        \\    quic.addImport("tls", tls);
+        \\    quic.addImport("tls_provider", tls_provider);
         \\    quic.addImport("http", http);
         \\}
     , passing_check);
@@ -390,8 +390,8 @@ test "module-graph flags a module the build no longer gives quic" {
         \\}
     , passing_check);
     try harness.expect_messages(findings, &.{
-        "quic does not receive \"tls\", which the graph gives it (design §3)",
-        "quic receives \"tls\", which the graph does not give it (decision 5, invariant 26)",
+        "quic does not receive \"tls_provider\", which the graph gives it (design §3)",
+        "quic receives \"tls_provider\", which the graph does not give it (decision 5, invariant 26)",
     });
     try testing.expectEqualStrings(build_modules_path, findings[0].path);
     try testing.expectEqualStrings(graph_check_path, findings[1].path);
@@ -408,7 +408,7 @@ test "module-graph flags a check list that drifts from the build" {
         \\};
     );
     try harness.expect_messages(findings, &.{
-        "quic does not receive \"tls\", which the graph gives it (design §3)",
+        "quic does not receive \"tls_provider\", which the graph gives it (design §3)",
     });
     try testing.expectEqualStrings(graph_check_path, findings[0].path);
 }
@@ -433,7 +433,7 @@ test "module-graph reads the addImport calls of quic and of no other module" {
     const entries = try collect_add_imports(arena, &tree);
     try testing.expectEqual(4, entries.len);
     try testing.expectEqualStrings("core", entries[0].name);
-    try testing.expectEqualStrings("tls", entries[3].name);
+    try testing.expectEqualStrings("tls_provider", entries[3].name);
     try testing.expectEqual(9, entries[3].line);
 }
 

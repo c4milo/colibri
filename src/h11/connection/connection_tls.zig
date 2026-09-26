@@ -13,7 +13,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const connection = @import("connection.zig");
 
 const Connection = connection.Connection;
@@ -34,7 +34,7 @@ pub const AttachError = error{
 };
 
 /// Checks a finished handshake, and stores the provider on success.
-pub fn attach(target: *Connection, provider: tls.Provider) AttachError!void {
+pub fn attach(target: *Connection, provider: tls_provider.Provider) AttachError!void {
     // A provider is attached once, before any HTTP octet moves in either direction.
     assert(target.provider == null);
     assert(target.phase == .head and target.scanner.scanned == 0 and target.outstanding_len == 0);
@@ -45,14 +45,14 @@ pub fn attach(target: *Connection, provider: tls.Provider) AttachError!void {
 
 /// The rules themselves, apart from the storing, so a test and a caller can ask the question
 /// without a connection.
-pub fn check(provider: tls.Provider) AttachError!void {
+pub fn check(provider: tls_provider.Provider) AttachError!void {
     // RFC 9846 Appendix E.5: the application must be able to tell whether the handshake completed,
     // and nothing below is decided until it has.
     if (!provider.is_complete()) return error.HandshakeIncomplete;
     if (provider.vtable.negotiated_alpn(provider.context)) |selected| {
         // RFC 7301 §3.2: the selected protocol is definitive for the connection, so any other
         // selection means h11 does not run here.
-        if (!std.mem.eql(u8, selected, tls.constants.alpn_http_1_1)) return error.AlpnNotHttp11;
+        if (!std.mem.eql(u8, selected, tls_provider.constants.alpn_http_1_1)) return error.AlpnNotHttp11;
     }
     // A handshake that selected nothing runs h11 too: RFC 9846 §4.2.2 has a server ignore an
     // extension it does not recognise, and RFC 9112 §9.7 asks for no ALPN (decision 88).
@@ -61,9 +61,9 @@ pub fn check(provider: tls.Provider) AttachError!void {
         // cannot check decision 45 against.
         return error.ParametersUnknown;
     // Decision 45: colibri admits TLS 1.3 alone (RFC 9846 Appendix B.1).
-    if (negotiated.version != tls.constants.version_tls_1_3) return error.TlsVersionRefused;
+    if (negotiated.version != tls_provider.constants.version_tls_1_3) return error.TlsVersionRefused;
     // Decision 45: and three suites (RFC 9846 Appendix B.4).
-    if (!tls.provider.cipher_suite_admitted(negotiated.cipher_suite)) return error.CipherSuiteRefused;
+    if (!tls_provider.provider.cipher_suite_admitted(negotiated.cipher_suite)) return error.CipherSuiteRefused;
 }
 
 /// Why a record did not open or did not go out. Each ends the connection with no HTTP octet.
@@ -139,7 +139,7 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8) RecordEr
 }
 
 /// A record that carried application data, which ends any run of records that carried none.
-fn with_data(target: *Connection, opened: tls.provider.Opened) Decrypted {
+fn with_data(target: *Connection, opened: tls_provider.provider.Opened) Decrypted {
     target.records_without_data = 0;
     return .{ .consumed = opened.consumed, .plaintext_len = opened.plaintext_len, .end_of_data = false };
 }
@@ -165,11 +165,11 @@ fn owing(target: *Connection, decrypted: Decrypted) Decrypted {
 }
 
 /// What an alert record means to the connection (RFC 9846 §6).
-fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) RecordError!Decrypted {
+fn on_alert(target: *Connection, provider: tls_provider.Provider, consumed: usize) RecordError!Decrypted {
     // RFC 9846 §6: an alert record carries a description, so a provider that classified this
     // record as an alert and then reports none has broken its own contract.
     const report = provider.vtable.take_alert(provider.context) orelse return error.TlsFailed;
-    switch (tls.alert.verdict(report)) {
+    switch (tls_provider.alert.verdict(report)) {
         .end_of_data => {
             // RFC 9112 §9.8: a valid closure alert, which alone completes a body that runs until
             // the close.
@@ -192,7 +192,7 @@ fn on_alert(target: *Connection, provider: tls.Provider, consumed: usize) Record
 /// RFC 9846 §4.7.3: a KeyUpdate's reply is protected under the keys it replaces, and every record
 /// after it under the new ones, so the reply is written first. When the output cannot hold it,
 /// nothing is written and nothing is sealed.
-pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls.provider.Sealed {
+pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns: u64) RecordError!tls_provider.provider.Sealed {
     // RFC 9112 §9.7: a cleartext connection writes its octets straight to the transport.
     const provider = target.provider orelse return error.NoProvider;
     assert(plaintext.len == 0 or plaintext.ptr != output.ptr);
@@ -213,7 +213,7 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
 }
 
 /// Writes what the provider owes after a KeyUpdate, whole, and clears the debt once it is out.
-fn write_owed(target: *Connection, provider: tls.Provider, output: []u8, now_ns: u64) RecordError!usize {
+fn write_owed(target: *Connection, provider: tls_provider.Provider, output: []u8, now_ns: u64) RecordError!usize {
     const written = provider.vtable.handshake_write(provider.context, output, now_ns) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,

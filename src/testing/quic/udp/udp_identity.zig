@@ -81,8 +81,8 @@ pub fn grease() u64 {
 
 /// The ALPN protocols a server offers: h3 first, then hq-interop, and it serves whichever its
 /// client asks for (RFC 9001 §8.1).
-const server_alpn = [_][]const u8{ &h2.tls.constants.alpn_h3, hq.alpn };
-const client_alpn_h3 = [_][]const u8{&h2.tls.constants.alpn_h3};
+const server_alpn = [_][]const u8{ &h2.tls_provider.constants.alpn_h3, hq.alpn };
+const client_alpn_h3 = [_][]const u8{&h2.tls_provider.constants.alpn_h3};
 const client_alpn_hq = [_][]const u8{hq.alpn};
 
 /// A spare connection ID and its stateless reset token (RFC 9000 §5.1.1, §10.3), drawn at random:

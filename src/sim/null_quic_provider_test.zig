@@ -6,13 +6,13 @@
 //! level. `src/sim/` cannot import `quic` (design §3), so the moving is done here.
 const std = @import("std");
 const core = @import("core");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("constants.zig");
 const null_quic_provider = @import("null_quic_provider.zig");
 
 const testing = std.testing;
-const Alert = tls.Alert;
-const Level = tls.Level;
+const Alert = tls_provider.Alert;
+const Level = tls_provider.Level;
 const NullQuicProvider = null_quic_provider.NullQuicProvider;
 const MessageType = null_quic_provider.MessageType;
 const Role = null_quic_provider.Role;
@@ -82,8 +82,8 @@ test "RFC 9001 §4.1.5: a pair completes the handshake and each learns the other
     try testing.expect(test_client.provider().handshake_complete());
     try testing.expect(test_server.provider().handshake_complete());
     // RFC 9001 §8.1: "endpoints MUST use ALPN", and h3 is what this pair selects.
-    try testing.expect(test_client.provider().speaks(&tls.constants.alpn_h3));
-    try testing.expect(test_server.provider().speaks(&tls.constants.alpn_h3));
+    try testing.expect(test_client.provider().speaks(&tls_provider.constants.alpn_h3));
+    try testing.expect(test_server.provider().speaks(&tls_provider.constants.alpn_h3));
     // RFC 9001 §8.2: the extension crosses in the ClientHello and in EncryptedExtensions.
     try testing.expectEqualStrings(server_params, test_client.provider().peer_transport_params().?);
     try testing.expectEqualStrings(client_params, test_server.provider().peer_transport_params().?);
@@ -137,12 +137,12 @@ test "RFC 9001 §8.1: no protocol is selected until a message that carries ALPN 
     try testing.expectEqual(null, test_server.provider().negotiated_alpn());
     _ = try flight(&test_client, &test_server, .initial);
     // The server has read the ClientHello and selected; the client has read nothing.
-    try testing.expect(test_server.provider().speaks(&tls.constants.alpn_h3));
+    try testing.expect(test_server.provider().speaks(&tls_provider.constants.alpn_h3));
     try testing.expectEqual(null, test_client.provider().negotiated_alpn());
     _ = try flight(&test_server, &test_client, .initial);
     try testing.expectEqual(null, test_client.provider().negotiated_alpn());
     _ = try flight(&test_server, &test_client, .handshake);
-    try testing.expect(test_client.provider().speaks(&tls.constants.alpn_h3));
+    try testing.expect(test_client.provider().speaks(&tls_provider.constants.alpn_h3));
 }
 
 test "RFC 9001 §4.1.3: octets at a level the provider does not read are the wrong level" {

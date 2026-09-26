@@ -2,7 +2,7 @@
 //!
 //! Three things meet here and none of them owns the other two. `quic.crypto_stream` turns the
 //! frames a peer sent into an in-order run of octets per encryption level (RFC 9000 §19.6). The
-//! caller's `tls.QuicProvider` consumes that run and produces the octets colibri owes back
+//! caller's `tls_provider.QuicProvider` consumes that run and produces the octets colibri owes back
 //! (decision 8). And `quic.frame` writes those into CRYPTO frames. This file is the wiring, and
 //! it holds no key: the secrets go from the provider to the caller's `crypto.Suite` without
 //! passing through colibri ([decision 48](../../../docs/decisions.md)).
@@ -15,7 +15,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
 const frame_module = @import("../frame/frame.zig");
@@ -87,7 +87,7 @@ pub fn close_code(connection: *const Connection, failure: Error) u64 {
 
 /// The code a TLS alert closes the connection with (RFC 9001 §4.8): "The AlertDescription value
 /// is added to 0x0100 to produce a QUIC error code from the range reserved for CRYPTO_ERROR."
-pub fn alert_error_code(description: tls.Alert) u64 {
+pub fn alert_error_code(description: tls_provider.Alert) u64 {
     return error_code.crypto_error(@intFromEnum(description));
 }
 
@@ -101,7 +101,7 @@ pub fn receive_crypto(connection: *Connection, level: Level, crypto: frame_strea
 
 /// Hands the provider every octet it can read now, at every level (RFC 9001 §4.1.3). A level with
 /// nothing in order yet is skipped, and what the provider takes is forgotten.
-pub fn provide_handshake(connection: *Connection, provider: tls.QuicProvider) Error!void {
+pub fn provide_handshake(connection: *Connection, provider: tls_provider.QuicProvider) Error!void {
     // Bounded by the levels, of which RFC 9001 §4.1.4 names three.
     for (0..core.levels_count) |index| {
         const level: Level = @enumFromInt(index);
@@ -130,7 +130,7 @@ pub const Written = struct {
 
 pub fn write_crypto(
     connection: *Connection,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     level: Level,
     output: []u8,
 ) Error!Written {
@@ -213,7 +213,7 @@ const frame_type_len: usize = 1;
 
 /// Reads the peer's transport parameters out of the provider once the handshake has carried them
 /// (RFC 9001 §8.2), and gives them to the connection. Answers false while they have not arrived.
-pub fn take_peer_parameters(connection: *Connection, provider: tls.QuicProvider) Error!bool {
+pub fn take_peer_parameters(connection: *Connection, provider: tls_provider.QuicProvider) Error!bool {
     if (connection.peer_parameters != null) return true;
     const body = provider.peer_transport_params() orelse {
         // RFC 9001 §8.2 requires the extension, but a client has not read EncryptedExtensions
@@ -240,7 +240,7 @@ pub fn require_peer_parameters(connection: *const Connection) Error!void {
 
 /// Turns a provider's failure into the connection error RFC 9001 §4.8 makes it. The alert is
 /// kept on the connection, so `close_code` can name its CRYPTO_ERROR code.
-fn provider_failure(connection: *Connection, provider: tls.QuicProvider, failure: anyerror) Error {
+fn provider_failure(connection: *Connection, provider: tls_provider.QuicProvider, failure: anyerror) Error {
     return switch (failure) {
         error.WrongLevel => Error.WrongLevel,
         error.NoSpaceLeft => Error.NoSpaceLeft,

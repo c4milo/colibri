@@ -22,7 +22,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const crypto = @import("crypto");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const wire = @import("wire");
 const constants = @import("../../constants.zig");
 const frame_module = @import("../../frame/frame.zig");
@@ -152,7 +152,7 @@ pub const Planned = struct {
 /// which is the ordinary answer for two of the three levels most of the time.
 pub fn plan(
     connection: *Connection,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     stream_provider: StreamProvider,
     level: Level,
     payload: []u8,
@@ -214,7 +214,7 @@ fn count_ack_only(connection: *Connection, framed: packet_build_frames.Framed) v
 pub fn build(
     connection: *Connection,
     suite: crypto.Suite,
-    provider: tls.QuicProvider,
+    provider: tls_provider.QuicProvider,
     stream_provider: StreamProvider,
     level: Level,
     scratch: anytype,

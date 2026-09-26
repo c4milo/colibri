@@ -2446,3 +2446,27 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       sockets.
     - Octets passed between the two sides with no loop at all. It is shorter, but it shows no
       program's shape: where the loop, the time and colibri's calls meet.
+
+97. **The library's TLS module is `tls`, and the vtable it fills is `tls_provider`.** Ruled by the
+    owner on 2026-09-26, for design §8 step 16b.
+    - The module a program imports for TLS and for QUIC's handshake and packet protection is
+      `tls`, the name Go's `crypto/tls`, Node's `tls` and Zig's `std.crypto.tls` give theirs. It
+      holds chapulin's adapters, which move from `src/testing/`, and step 16c's values: `Client`,
+      `Server`, `Trust` and `Ticket`.
+    - The provider vtable the module was named for until now becomes `tls_provider`. h2, h11,
+      quic and sim import it, and a program imports it only to name the type. The HTTP modules do
+      not import `tls`: a program makes a session there and hands its provider to the connection,
+      so a cleartext program never links chapulin, and sim's null providers fill the same vtable.
+    - The TCP object carries `SUITE=aesgcm`, so a server that offers only AES-GCM connects; RFC
+      9846 §9.1 makes TLS_AES_128_GCM_SHA256 mandatory to implement. The build picks `AES=hw`,
+      with the builder's statement `CH_NATIVE_AES`, on a target whose features include the AES
+      instructions, and `AES=soft` on any other.
+    - The TCP object sets chapulin's `TX_RECORD` to 16384, TLS's largest record plaintext (RFC
+      9846 §5.1), once chapulin offers the option, so a large body takes a record per 16 KiB.
+
+    The alternatives refused:
+    - chapulin's adapter inside the vtable's module. Every program that imports h2, h11 or quic
+      would link chapulin, a cleartext one included, and would have to define its two hooks.
+    - `ssl`, the Python, Erlang and Java name, for a module that speaks TLS 1.3 alone.
+    - `AES=hw` everywhere, which refuses to build for a target without the AES instructions.
+    - ChaCha20-Poly1305 alone on TCP, which a server offering only AES-GCM refuses.

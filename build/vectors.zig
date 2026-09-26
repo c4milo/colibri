@@ -40,15 +40,15 @@ pub fn add(b: *std.Build, steps: Steps, qifs: std.Build.LazyPath) void {
     hpack.addImport("core", core);
     hpack.addImport("wire", wire);
     hpack.addImport("http", http);
-    const tls = host_module(b, "src/tls/tls.zig");
-    tls.addImport("core", core);
+    const tls_provider = host_module(b, "src/tls_provider/tls_provider.zig");
+    tls_provider.addImport("core", core);
     // The same imports build/modules.zig gives `h2`.
     const h2 = host_module(b, "src/h2/h2.zig");
     h2.addImport("core", core);
     h2.addImport("wire", wire);
     h2.addImport("http", http);
     h2.addImport("hpack", hpack);
-    h2.addImport("tls", tls);
+    h2.addImport("tls_provider", tls_provider);
     // The same imports build/modules.zig gives `qpack`.
     const qpack = host_module(b, "src/qpack/qpack.zig");
     qpack.addImport("core", core);

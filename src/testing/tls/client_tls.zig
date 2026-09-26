@@ -136,7 +136,7 @@ pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!S
 }
 
 const testing = std.testing;
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const zero_key_records = @import("zero_key_records.zig");
 const chapulin_record = @import("chapulin_record.zig");
 const client_exchange = @import("../client/client_exchange.zig");
@@ -171,8 +171,8 @@ test "RFC 9113 §3.4: the ClientHello goes out first, and no h2 octet before the
     const stepped = try step(&test_layer, &test_session, &.{}, &test_output);
     // RFC 9846 §5.1: one plaintext handshake record carrying the ClientHello.
     try testing.expectEqual(zero_key_records.content_handshake, test_output[0]);
-    try testing.expectEqual(handshake_client_hello, test_output[tls.constants.record_header_len]);
-    try testing.expect(stepped.written > tls.constants.record_header_len);
+    try testing.expectEqual(handshake_client_hello, test_output[tls_provider.constants.record_header_len]);
+    try testing.expect(stepped.written > tls_provider.constants.record_header_len);
     try testing.expect(!stepped.done);
     // The session has not been stepped, so its preface waits for the handshake.
     try testing.expect(!test_layer.attached);
@@ -201,7 +201,7 @@ test "RFC 9113 §3.4: once connected, the client's preface is the first record i
     const stepped = try step(&test_layer, &test_session, &.{}, &test_output);
     const record_len = chapulin_record.whole_record_len(test_output[0..stepped.written]) orelse
         return error.TestUnexpectedResult;
-    var inner: [tls.constants.record_plaintext_len_max + 1]u8 = undefined;
+    var inner: [tls_provider.constants.record_plaintext_len_max + 1]u8 = undefined;
     const first = zero_key_records.open(0, test_output[0..record_len], &inner) orelse
         return error.TestUnexpectedResult;
     try testing.expectEqual(zero_key_records.content_application_data, first.content_type);

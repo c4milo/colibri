@@ -1,7 +1,7 @@
 //! Runs one TLS 1.3 handshake against a real server and reports what it negotiated. The first
 //! half of design §8 step 5's check.
 //!
-//! What it proves: chapulin's client, behind colibri's `tls.Provider`, completes a handshake with
+//! What it proves: chapulin's client, behind colibri's `tls_provider.Provider`, completes a handshake with
 //! a server that is not colibri's, and the two agree on ALPN. RFC 9113 §3.1 makes that agreement
 //! the thing h2 over TLS rests on.
 //!
@@ -11,7 +11,7 @@
 //! The trust anchor is the SubjectPublicKeyInfo of the CA the peer minted, read from the file the
 //! peer wrote. colibri pins that one root and nothing else, so a chain from any other root fails.
 const std = @import("std");
-const tls = @import("tls");
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const chapulin = @import("chapulin.zig");
 const chapulin_client = @import("chapulin_client.zig");
@@ -117,7 +117,7 @@ fn report_exporter() void {
 /// colibri does not admit, so a handshake that completed on one is not a session h2 could use.
 /// Printing the codepoint is not enough; this is what makes the run fail on it.
 fn admitted(suite: u16) bool {
-    for (tls.constants.cipher_suites_admitted) |candidate| {
+    for (tls_provider.constants.cipher_suites_admitted) |candidate| {
         if (suite == candidate) return true;
     }
     return false;

@@ -29,7 +29,7 @@ The architecture depends on every rule in this section.
 2. **chapulin is colibri's crypto, and colibri holds no key.** The library links chapulin as its
    TLS stack and its packet protection, pinned by commit and hash in `build.zig.zon` and compiled
    by colibri's build (decision 94, which amends decisions 8, 9, 10 and 48; design §8 step 16
-   carries the move). The two vtables `tls.Provider` and `crypto.Suite` stay inside colibri, with
+   carries the move). The two vtables `tls_provider.Provider` and `crypto.Suite` stay inside colibri, with
    two implementations: chapulin's, and the null ones in `src/sim/`, which are test-only, are never
    packaged, and are what let one seed replay. chapulin holds every private key, traffic secret
    and packet protection key; colibri never holds one and never chooses a cipher suite.

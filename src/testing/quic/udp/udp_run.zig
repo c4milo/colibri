@@ -341,7 +341,7 @@ fn step_application(connection: *Connection) void {
 fn application_of(connection: *Connection) Application {
     if (!connection.peer.connection.handshake_complete) return .undecided;
     const selected = connection.peer.session.provider().negotiated_alpn() orelse return .hq;
-    return if (std.mem.eql(u8, selected, &h2.tls.constants.alpn_h3)) .h3 else .hq;
+    return if (std.mem.eql(u8, selected, &h2.tls_provider.constants.alpn_h3)) .h3 else .hq;
 }
 
 /// Sends every datagram `connection` owes now, each from a free slot.
