@@ -1532,6 +1532,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   instant-passing entry point on an active connection, and the check that a draining endpoint
   stays silent was masked, because the counter it reads stops moving once draining begins.
 
+  **The TLA+ model, 2026-09-26** ([#51](https://github.com/c4milo/colibri/issues/51)).
+  - `spec/tla/quic_close` models two endpoints ending a connection as colibri does: the idle
+    timeout (§10.1) with its rule for restarting on a send, the immediate close, and the closing
+    and draining states (§10.2), over a network that loses packets and delivers some a tick late.
+    Time moves in ticks of one PTO, so the idle timeout, the PTO and its doubling, and the three
+    PTOs of each period are checked against each other. Either endpoint may close first, both may
+    close at once, and any CONNECTION_CLOSE may be lost. The properties: a closing endpoint sends
+    CONNECTION_CLOSE alone and a draining or closed one sends nothing; a closing endpoint's
+    answers back off, so after n answers it has received at least 2^(n-1) packets; and once
+    either endpoint leaves "active", both reach "closed".
+  - It found no defect, and one sentence above that no longer holds. `Termination` moves a closing
+    endpoint that hears a close to draining, but the connection never asks it to:
+    `connection_datagram.receive` takes no frame while closing, as §10.2.1 allows. The rate limit
+    is what ends an exchange of closes, and the model checks that it does.
+  - What `zig build tla` printed, on macOS arm64:
+    - holds, as expected: `colibri`, both endpoints may close and neither sends data, 3996
+      distinct states; `talker`, one closes while the other sends a packet every tick, 127762;
+    - violated, as expected: `no_idle`, with no idle timeout a peer whose CONNECTION_CLOSE was
+      lost and that has nothing to send never ends; `restart_every_send`, restarting the idle
+      timer on every ack-eliciting send keeps a peer that talks into a closed connection alive
+      for good, which is why §10.1 restarts it only on the first; `no_rate_limit`, two endpoints
+      closing at once answer each other without backing off.
+    - Run once and not kept, because it takes seven minutes: both endpoints closing while one
+      talks, with one loss, holds over 2242541 distinct states.
+
 - **Step 9c — streams and flow control.** RFC 9000 §2.1's identifiers, §3.1's sending state
   machine and §3.2's receiving one, §4.5's final size, §4.1's stream and connection flow
   control, and §4.6's stream limits, with the blocked frames each produces. **Check:** every
