@@ -100,3 +100,33 @@ test "§17.1: a field is read most significant octet first, all of it or none" {
     try testing.expectError(error.Truncated, read(&reader, 2));
     try testing.expectEqual(Truncated{ .value = 0x01, .len = 1 }, try read(&reader, 1));
 }
+
+const vector_radix = 10;
+const vector_lines = 381;
+
+/// `decode largest len value number`: `decode` rebuilds that number. `largest` is `-` for none.
+fn expect_decode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    const largest_text = fields.next().?;
+    const largest: ?u64 = if (std.mem.eql(u8, largest_text, "-"))
+        null
+    else
+        try std.fmt.parseUnsigned(u64, largest_text, vector_radix);
+    const len = try std.fmt.parseUnsigned(u8, fields.next().?, vector_radix);
+    const value = try std.fmt.parseUnsigned(u32, fields.next().?, vector_radix);
+    const number = try std.fmt.parseUnsigned(u64, fields.next().?, vector_radix);
+    try testing.expectEqual(number, decode(largest, .{ .value = value, .len = len }));
+}
+
+test "decode gives what the proved definition gives (spec/lean/Colibri/Quic/PacketNumber.lean)" {
+    var lines = std.mem.splitScalar(u8, @embedFile("packet_number_vectors.txt"), '\n');
+    var checked: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        try testing.expectEqualStrings("decode", fields.next().?);
+        try expect_decode_line(&fields);
+        checked += 1;
+    }
+    try testing.expectEqual(vector_lines, checked);
+}

@@ -118,9 +118,9 @@ shape: octets in, at most one event out, and the frames colibri owes written int
   TLC must find those violated. The h3 simulator writes its runs as traces that TLC checks
   against the h3 model.
 - **Proofs.** [`spec/lean/`](spec/lean/) holds [Lean 4](https://lean-lang.org/) proofs of
-  QUIC's variable-length integer, HPACK's and QPACK's prefixed integer, and QPACK's Required
-  Insert Count encoding. The Zig tests read
-  vectors the proved definitions produce.
+  QUIC's variable-length integer and packet number, HPACK's and QPACK's prefixed integer, and
+  QPACK's Required Insert Count encoding. The Zig tests read vectors the proved definitions
+  produce.
 - **Golden corpus.** [`src/golden/`](src/golden/) holds exact bytes with a manifest that names
   each case's length, checksum and expected verdict, including the request smuggling shapes of
   RFC 9112.

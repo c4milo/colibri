@@ -1376,6 +1376,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   field's offset, the pseudo-packet's connection ID length, and the adapter's packet number length
   and Retry check.
 
+  **The packet number proved, 2026-09-26.** `spec/lean/Colibri/Quic/PacketNumber.lean` states RFC
+  9000 Appendix A.2 as `quic`'s `encode` computes it and Appendix A.3 as `crypto`'s `decode`
+  computes it, and proves:
+  - `encode_range` and `encode_shortest`: the length `encode` picks represents more than twice
+    the unacknowledged range, as §17.1 requires, and no shorter length does;
+  - `encode_none`: `encode` refuses exactly when four octets do not;
+  - `decode_closest`: `decode` rebuilds every packet number within half a window of the one
+    expected;
+  - `decode_encode`: a receiver that has processed at least the number the sender saw
+    acknowledged, and none at or past the one sent, rebuilds the number `encode` truncated;
+  - `decode_bound` and `decode_field`: any field decodes to a packet number (§12.3) that ends in
+    the field's octets;
+  - `field_read_write`: the field's octets, most significant first, read back to its value.
+
+  `src/quic/packet/packet_number_vectors.txt` holds 112 encodings, Appendix A.2's two among them,
+  and `src/crypto/packet_number_vectors.txt` holds 381 decodings, Appendix A.3's among them. A
+  test beside each requires the Zig function to give them. Mutations: 11 in the two Zig files.
+  9 are **CAUGHT** by those tests. 2 are equivalent, so no test can catch them:
+  - `candidate + window < packet_number_max`: the sum equals 2^62 - 1 only when the field is all
+    ones, and then the candidate is not half a window below the number expected;
+  - `candidate > window`: the candidate equals `window` only when the number expected is at least
+    `window`, and then the candidate is not above it.
+
+  A Lean proof that each mutated `decode` equals `decode` on every input confirmed both; it was
+  run once and not committed. 3 mutations in the Lean definitions stop the proofs, and 1 edit to
+  a vector file is refused by `zig build lean`.
+
 - **Step 8 — the QUIC simulator.** A datagram network with delay, drop, reorder, duplication and ECN
   marking, over the step 2 clock, with a null crypto suite. **Check:** one seed replays
   byte-identically across hosts and build modes — and the harness **builds and runs with no HTTP

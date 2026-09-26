@@ -120,3 +120,46 @@ test "§17.1: the field is written most significant octet first, and read back" 
     var reader = Reader.init(&.{ 0x01, 0x02 });
     try testing.expectError(error.Truncated, read(&reader, 3));
 }
+
+const vector_radix = 10;
+const vector_lines = 112;
+
+/// `encode full acked octets`: `encode` picks a field of those octets, `write` writes them, and
+/// `read` reads the field back. `acked` is `-` for none, and `range_too_large` names the error.
+fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    const full = try std.fmt.parseUnsigned(u64, fields.next().?, vector_radix);
+    const acked_text = fields.next().?;
+    const acked: ?u64 = if (std.mem.eql(u8, acked_text, "-"))
+        null
+    else
+        try std.fmt.parseUnsigned(u64, acked_text, vector_radix);
+    const answer = fields.next().?;
+    if (std.mem.eql(u8, answer, "range_too_large")) {
+        try testing.expectError(error.RangeTooLarge, encode(full, acked));
+        return;
+    }
+    var storage: [constants.packet_number_len_max]u8 = undefined;
+    const octets = try std.fmt.hexToBytes(&storage, answer);
+    const truncated = try encode(full, acked);
+    try testing.expectEqual(octets.len, truncated.len);
+    var buffer: [constants.packet_number_len_max]u8 = undefined;
+    var writer = Writer.init(&buffer);
+    try write(&writer, truncated);
+    try testing.expectEqualSlices(u8, octets, writer.written());
+    var reader = Reader.init(octets);
+    try testing.expectEqual(truncated, try read(&reader, truncated.len));
+}
+
+test "encode gives what the proved definition gives (spec/lean/Colibri/Quic/PacketNumber.lean)" {
+    var lines = std.mem.splitScalar(u8, @embedFile("packet_number_vectors.txt"), '\n');
+    var checked: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        try testing.expectEqualStrings("encode", fields.next().?);
+        try expect_encode_line(&fields);
+        checked += 1;
+    }
+    try testing.expectEqual(vector_lines, checked);
+}
