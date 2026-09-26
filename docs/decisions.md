@@ -127,6 +127,10 @@ and is re-argued, not edited.
    new provider API rather than exporter calls, and it is what "no record layer" costs. Since
    entry 48 that API is between the provider and the suite, and is the caller's to write.
 
+   Entry 94 amends this on 2026-09-26: colibri links chapulin, so a user no longer supplies a
+   provider. The vtable stays inside colibri, filled by chapulin and by the simulator's null
+   provider, and the gain above, a library that links no TLS stack, is given up.
+
 9. **Packet protection is a *second* caller-supplied vtable, so the TLS provider never has to carry
    AES.** Ruled by the owner on 2026-09-16, and amended on 2026-09-19 by entry 48, which keeps
    the second vtable and replaces its members. As first ruled, `crypto.Suite` supplied
@@ -194,6 +198,9 @@ and is re-argued, not edited.
    that shows it: a suite that refuses `install_initial_keys` is a configuration error
    ([invariant 25](invariants.md#inv-25--a-suite-that-cannot-protect-initial-packets-is-a-configuration-error)).
 
+   Entry 94 amends this on 2026-09-26: colibri links chapulin, so a user no longer supplies this
+   vtable. It stays inside colibri, filled by chapulin and by the simulator's null suite.
+
 10. **chapulin provides all of colibri's crypto, through colibri's two vtables.** Ruled by the
     owner on 2026-09-16. chapulin fills both `tls.Provider` (entry 8) and `crypto.Suite` (entry
     9). colibri's library source never imports chapulin, so the packaged library still links no
@@ -221,6 +228,9 @@ and is re-argued, not edited.
     ships prior-knowledge cleartext h2, so the whole h2 core is built and tested with no TLS. Only
     the checks that need the declined item wait, and naming a different provider for
     `src/testing/` would be a new "Ask before".
+
+    Entry 94 amends this on 2026-09-26: the library itself now links chapulin, pinned as a
+    package, and the adapters leave `src/testing/` for the library.
 
 ## What is shared between h2 and h3
 
@@ -947,6 +957,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     combined vtable lost again, for entry 9's reason and a new one: with protection apart from
     the handshake, the QUIC simulator of step 8 runs over a null suite before any handshake
     exists.
+
+    Entry 94 amends this on 2026-09-26: chapulin fills the suite inside the library. Every rule
+    above stands, and colibri still holds no key.
 
 49. **colibri auto-tunes its flow control receive window.** Ruled by the owner on 2026-09-19,
     after the first flow control landed with a fixed window and the cost was put to him. A fixed
@@ -2345,3 +2358,41 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - A choice for `:path` alone. It serves the DNS query, but not `authorization` or `cookie`.
     - Offering `incremental` too. The encoder would have to take back a refused block's inserts,
       which means copying the dynamic table before every request.
+
+94. **colibri links chapulin as its TLS stack and its packet protection.** Ruled by the owner on
+    2026-09-26. It amends non-negotiable 2 and entries 8, 9, 10 and 48.
+
+    Every user of colibri had to write the code between a TLS stack and colibri's two vtables, and
+    that code is where the choices that decide a connection's security are made: whether the
+    server name is checked, which trust anchors and pins apply and against which clock, which ALPN
+    is offered, where randomness comes from, and how QUIC's secrets pass from TLS to packet
+    protection. One adapter, kept here and run by colibri's interop checks, replaces a copy in
+    every consumer. cocuyo asked for it, after keeping its own QUIC adapter and starting a second.
+    - chapulin is pinned by commit and hash in `build.zig.zon`, and colibri's build compiles its C
+      with the options each configuration needs, so no consumer runs `make` and no object can be
+      built against other headers. chapulin has no Zig build yet, and is asked for one. colibri
+      does not copy chapulin's Makefile.
+    - The adapters in `src/testing/` move into the library, and a user no longer fills
+      `tls.Provider` or `crypto.Suite`. Both vtables stay inside colibri, filled by chapulin and by
+      the simulator's null provider and null suite. Those null implementations are what let one
+      seed replay byte for byte (non-negotiable 5), so they stay test-only and are never packaged.
+    - colibri still holds no private key, traffic secret or packet protection key: chapulin holds
+      them (entry 48). colibri still reads no clock: the wall-clock time that certificate checks
+      need is a value the caller passes (non-negotiable 3). colibri still does no I/O
+      (non-negotiable 1).
+    - Randomness is the consumer's. chapulin is built with `RAND=extern`, and the program that
+      links colibri defines `ch_rand_bytes` and `ch_assert_fail`, each of which an image may define
+      once. colibri's executables in `src/testing/` define both for themselves.
+
+    The alternatives refused:
+    - An optional module beside the library. It kept the library free of a TLS stack and left a
+      user free to bring another, but a user who brought none still had nothing that worked.
+    - A separate package depending on both colibri and chapulin. It kept colibri's rules as they
+      were, and made the supported way to use colibri live outside it.
+    - colibri defining `ch_rand_bytes` over a random-bytes callback. A consumer that defines its
+      own, as cocuyo does, could then not link colibri at all.
+    - Each consumer's own chapulin checkout, as `src/testing/` used until now. Each consumer would
+      have to pick chapulin's build options correctly, and `build.h` could only refuse a wrong one.
+
+    Cost: every build of colibri compiles chapulin, no other TLS stack can be used, and the
+    library gains its first dependency and its first C. Design §8 step 16 carries the work.

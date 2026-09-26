@@ -3822,9 +3822,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     §6.3 first, and `39c0c14` answers 400. A coding it does not decode ahead of a final chunked
     still gets 501.
 
+- **Step 16 — chapulin in the library.** [Decision 94](decisions.md) has colibri link chapulin as
+  its TLS stack and its packet protection. Four parts, in order:
+  - **16a**, the package. chapulin is pinned by commit and hash in `build.zig.zon` once it offers
+    a Zig build that compiles each configuration colibri uses with `RAND=extern`, and colibri's
+    build checks each object's build record against the headers it compiled. The pin moves past
+    the API changes https://github.com/c4milo/colibri/issues/65 tracks.
+  - **16b**, the adapters. The record-mode provider and the QUIC provider and suite move from
+    `src/testing/` into a library module, which design §3 gains. `tls.Provider` and
+    `crypto.Suite` become internal, filled by that module and by the simulator's null
+    implementations.
+  - **16c**, what a user sets: the server name, trust anchors with the wall-clock time as a value,
+    SPKI pins, ALPN, and session tickets offered and handed back.
+  - **16d**, the checks. Every check that linked chapulin through `src/testing/` runs against the
+    library's adapter, and the `-Dchapulin-*` options leave CLAUDE.md's commands.
+
+  **Check:** `tools/tls_handshake.sh`, `tools/tls_accept.sh`, `h2spec -t -k`, the h2 and h11
+  interop over TLS, `tools/quic_loopback.sh`, `tools/quic_udp.sh`, `tools/quic_aioquic.sh`,
+  `tools/h3spec.sh` and the interop runner all pass with no chapulin option passed; and a program
+  that does not define `ch_rand_bytes` fails to link, naming it. *Large.*
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
+Step 16 moves chapulin, which the checks from step 5 on linked in `src/testing/`, into the
+library.
 
 ## 9. Test-only entry points
 

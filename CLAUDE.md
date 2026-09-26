@@ -26,13 +26,15 @@ The architecture depends on every rule in this section.
    are written into storage the caller owns and parsed out of bytes the caller has already read.
    Every function that would block instead returns a value naming the I/O it needs. Do not
    make a syscall in this repository.
-2. **colibri owns no crypto.** Two caller-supplied vtables, `tls.Provider` and `crypto.Suite`, with
-   no production implementation in this tree (decisions 8, 9 and 48): `src/sim/` will carry the null
-   implementations, which are test-only and are never packaged; design §8 step 2 records that the
-   null provider lands with step 5 and the null suite with step 7. chapulin fills both vtables for
-   the checks, linked by `src/testing/` alone (decision 10). The library never links a TLS stack,
-   never holds a private key, a traffic secret or a packet protection key, and never chooses a
-   cipher suite.
+2. **chapulin is colibri's crypto, and colibri holds no key.** The library links chapulin as its
+   TLS stack and its packet protection, pinned by commit and hash in `build.zig.zon` and compiled
+   by colibri's build (decision 94, which amends decisions 8, 9, 10 and 48; design §8 step 16
+   carries the move). The two vtables `tls.Provider` and `crypto.Suite` stay inside colibri, with
+   two implementations: chapulin's, and the null ones in `src/sim/`, which are test-only, are never
+   packaged, and are what let one seed replay. chapulin holds every private key, traffic secret
+   and packet protection key; colibri never holds one and never chooses a cipher suite.
+   Randomness is the consumer's: chapulin is built `RAND=extern`, and the program that links
+   colibri defines `ch_rand_bytes` and `ch_assert_fail`.
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and
@@ -204,13 +206,13 @@ tree. Design §11 holds the method and the numbers.
 ## Ask before
 
 - Changing a named limit.
-- Adding a dependency. The library is meant to have none: no package, no vendored C, and no
-  allocator at all (decision 35). There are six ruled exceptions, and the library imports none:
-  chapulin, which `src/testing/` links (decision 10); pepegrillo, the tooling `tools/` builds on
-  (decision 36); Rotor, the loop `src/testing/`'s endpoints run on (decisions 58 and 83); TLC, the
-  TLA+ model checker `zig build tla` runs through pepegrillo (decision 67); `qpackers/qifs`, the
-  QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75); and the Lean toolchain, which
-  `zig build lean` runs through pepegrillo (decision 77).
+- Adding a dependency. The library has one, chapulin, which it links for TLS and packet
+  protection (decision 94), and no allocator at all (decision 35). Five more are ruled for the
+  tooling and the tests, and the library imports none of them: pepegrillo, the tooling `tools/`
+  builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints run on (decisions 58 and
+  83); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
+  `qpackers/qifs`, the QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75); and the Lean
+  toolchain, which `zig build lean` runs through pepegrillo (decision 77).
 - Weakening an assertion or an invariant to make a test pass.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
