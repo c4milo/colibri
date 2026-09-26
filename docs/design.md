@@ -3811,14 +3811,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     of the header section (RFC 9110 §6.5.1). An empty Host and an empty port are both valid.
   - Where colibri chose among what the RFCs allow, the choice stands. It refuses a lone LF
     (§2.2) and a repeated `chunked`. It reports an absolute-form target as it arrived, since
-    §3.3 makes it the target URI. It answers 501 for a coding it does not decode (decision 92).
+    §3.3 makes it the target URI.
   - Two differences come from the harness. The body of `gzip, chunked` goes to the application
     still coded, because step 15c has not built the decoders. The echo server sends 100
     (Continue) when the content has already arrived, which RFC 9110 §10.1.1 allows, and the
     Garden reads it as the final response.
-  - Open for the owner: RFC 9112 §6.3 says a request whose final coding is not chunked "MUST"
-    get 400, and decision 92 answers 501 to a coding h11 does not decode, as §6.1's SHOULD asks.
-    `Transfer-Encoding: xchunked` falls under both.
+  - colibri answered 501 to `Transfer-Encoding: xchunked`, a coding it does not decode, as §6.1's
+    SHOULD asks. §6.3 says a request whose final coding is not chunked "MUST" get 400, and the
+    origins split 11 to 12 between the two. The owner amended decision 92 on 2026-09-26 to put
+    §6.3 first, and `39c0c14` answers 400. A coding it does not decode ahead of a final chunked still
+    gets 501.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
