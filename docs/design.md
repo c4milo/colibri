@@ -3863,8 +3863,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **16d**, the checks. Every check that linked chapulin through `src/testing/` runs against the
     library's adapter, and the `-Dchapulin-*` options leave CLAUDE.md's commands.
 
-  **16c, ruled by the owner on 2026-09-26.** What a user sets is plain values, and chapulin's `ch_cfg`
-  (its `cfg.h`, `webpki_cfg.h` and `srv_cfg.h`) is what they become. Each rule below is
+  **16c, ruled by the owner on 2026-09-26.** What a user sets is plain values, and chapulin's
+  `ch_cfg` (its `cfg.h`, `webpki_cfg.h` and `srv_cfg.h`) is what they become. Each rule below is
   chapulin's, and colibri checks none of them twice.
   - A client names one of two kinds of trust. Web PKI takes the trust anchors, each a root's
     subject and SubjectPublicKeyInfo as DER; the server name the leaf must carry, which is also
