@@ -56,6 +56,8 @@ pub const RequestError = connection_request.Error;
 
 /// The pseudo-header fields of a request a client sends (`connection_request.zig`).
 pub const Request_ = connection_request.Request;
+pub const RequestIndexing = connection_request.Indexing;
+pub const PseudoIndexing = connection_request.PseudoIndexing;
 
 /// What `write_request` opened and wrote (`connection_request.zig`).
 pub const Sent = connection_request.Sent;
@@ -249,9 +251,10 @@ pub const Connection = struct {
         output: []u8,
         request: connection_request.Request,
         fields: []const hpack.Field,
+        indexing: []const connection_request.Indexing,
         end_stream: bool,
     ) connection_request.Error!connection_request.Sent {
-        return connection_request.write_request(connection, output, request, fields, end_stream);
+        return connection_request.write_request(connection, output, request, fields, indexing, end_stream);
     }
 
     pub fn write_data(

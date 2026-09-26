@@ -215,7 +215,7 @@ pub const Session = struct {
             .scheme = session.scheme,
             .path = exchange.plan.path,
             .authority = session.authority,
-        }, sent_fields, !has_content) catch |failure| {
+        }, sent_fields, &.{}, !has_content) catch |failure| {
             exchange.outcome = switch (failure) {
                 error.OutputTooSmall, error.PeerLimitReached, error.Full => return null,
                 error.AfterGoawayReceived => .abandoned,

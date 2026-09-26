@@ -57,6 +57,21 @@ pub const Error = error{
     Full,
 };
 
+/// How the encoder writes one field line of a request (RFC 7541 §6.2.2, §6.2.3), as h3's callers
+/// choose for QPACK (decision 76). `never_indexed` also tells every intermediary not to index the
+/// line (§7.1.3), for a value such as a credential. Neither choice inserts into the dynamic table:
+/// an insert travels inside the block, and a request refused after its block was encoded would
+/// leave the peer's table without it, where this file promises to change nothing.
+pub const Indexing = enum { without_indexing, never_indexed };
+
+/// How each pseudo-header field of a request is written.
+pub const PseudoIndexing = struct {
+    method: Indexing = .without_indexing,
+    scheme: Indexing = .without_indexing,
+    authority: Indexing = .without_indexing,
+    path: Indexing = .without_indexing,
+};
+
 /// The pseudo-header fields of one request (RFC 9113 §8.3.1). `scheme` and `path` are null in a
 /// CONNECT request and set in every other one (§8.5). `authority` is null when the caller has no
 /// authority information to convey (§8.3.1).
@@ -65,6 +80,7 @@ pub const Request = struct {
     scheme: ?[]const u8 = null,
     path: ?[]const u8 = null,
     authority: ?[]const u8 = null,
+    indexing: PseudoIndexing = .{},
 };
 
 /// What `write_request` did.
@@ -76,17 +92,20 @@ pub const Sent = struct {
 };
 
 /// Opens a stream and writes `request` on it as a HEADERS frame and the CONTINUATION frames its
-/// field section needs (RFC 9113 §8.1, §8.3.1). A client's call.
+/// field section needs (RFC 9113 §8.1, §8.3.1). A client's call. `indexing` is empty, which writes
+/// every line of `fields` without indexing, or holds one choice for each of them.
 pub fn write_request(
     target: *Connection,
     output: []u8,
     request: Request,
     fields: []const hpack.Field,
+    indexing: []const Indexing,
     end_stream: bool,
 ) Error!Sent {
     // RFC 9113 §8.1: a client sends a request, and §5.1 gives a server no way to open a stream,
     // because decision 17 refuses push.
     assert(target.role == .client);
+    assert(indexing.len == 0 or indexing.len == fields.len);
     try validate(request, fields);
     const record = streams_open.open_local(
         &target.streams,
@@ -101,7 +120,7 @@ pub fn write_request(
     const stream_id: u32 = @intCast(record.id);
     // RFC 9113 §4.3: a field block is one sequence, so a section past the buffer is refused whole
     // rather than cut.
-    const block = encode_request(target, request, fields) catch return error.OutputTooSmall;
+    const block = encode_request(target, request, fields, indexing) catch return error.OutputTooSmall;
     // RFC 9113 §6.2: the block opens in a HEADERS frame, whole or not at all.
     const written = connection_send.write_block(target, output, stream_id, block, end_stream) catch
         return error.OutputTooSmall;
@@ -188,28 +207,34 @@ fn is_lowercase(name: []const u8) bool {
 
 /// Encodes the request's field section into the connection's block buffer, the pseudo-header
 /// fields first (RFC 9113 §8.3).
-fn encode_request(target: *Connection, request: Request, fields: []const hpack.Field) !([]const u8) {
+fn encode_request(target: *Connection, request: Request, fields: []const hpack.Field, indexing: []const Indexing) !([]const u8) {
     var writer = Writer.init(&target.send_block);
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes.
     try target.encoder.begin_block(&writer);
+    const pseudo = request.indexing;
     // RFC 9113 §8.3: all pseudo-header fields appear before the regular field lines.
-    try write_pseudo(target, &writer, ":method", request.method);
-    if (request.scheme) |scheme| try write_pseudo(target, &writer, ":scheme", scheme);
+    try write_line(target, &writer, ":method", request.method, pseudo.method);
+    if (request.scheme) |scheme| try write_line(target, &writer, ":scheme", scheme, pseudo.scheme);
     // RFC 9113 §8.3.1: a client that generates a request uses `:authority` in place of the Host
     // field, and omits it when it has no authority information to convey.
-    if (request.authority) |authority| try write_pseudo(target, &writer, ":authority", authority);
-    if (request.path) |path| try write_pseudo(target, &writer, ":path", path);
-    for (fields) |line| {
-        try target.encoder.write_field(&writer, line.name, line.value, .without_indexing);
+    if (request.authority) |authority| try write_line(target, &writer, ":authority", authority, pseudo.authority);
+    if (request.path) |path| try write_line(target, &writer, ":path", path, pseudo.path);
+    for (fields, 0..) |line, index| {
+        const how: Indexing = if (indexing.len == 0) .without_indexing else indexing[index];
+        try write_line(target, &writer, line.name, line.value, how);
     }
     // RFC 7541 §4.2: the block is whole, so the capacity its updates named is the peer's now.
     target.encoder.commit_block();
     return writer.written();
 }
 
-/// One pseudo-header field, written the way `encode_response` writes `:status`.
-fn write_pseudo(target: *Connection, writer: *Writer, name: []const u8, value: []const u8) !void {
-    try target.encoder.write_field(writer, name, value, .without_indexing);
+/// One field line, never inserted into the dynamic table (`Indexing`).
+fn write_line(target: *Connection, writer: *Writer, name: []const u8, value: []const u8, how: Indexing) !void {
+    const representation: hpack.encoder.Indexing = switch (how) {
+        .without_indexing => .without_indexing,
+        .never_indexed => .never_indexed,
+    };
+    try target.encoder.write_field(writer, name, value, representation);
 }
 
 const testing = std.testing;
@@ -228,7 +253,7 @@ const test_request: Request = .{
 
 test "§8.3.1: a client opens stream 1 and writes the request pseudo-header fields" {
     try start_client();
-    const sent = try write_request(test_connection, test_output, test_request, &.{}, true);
+    const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     try testing.expectEqual(1, sent.stream_id);
     try testing.expectEqual(constants.frame_type_headers, test_output[3]);
     try testing.expectEqual(constants.flag_end_stream | constants.flag_end_headers, test_output[4]);
@@ -241,44 +266,44 @@ test "§8.3.1: a client opens stream 1 and writes the request pseudo-header fiel
 
 test "§5.1.1: each request opens the next odd identifier, and a refused one opens none" {
     try start_client();
-    const first = try write_request(test_connection, test_output, test_request, &.{}, true);
-    const second = try write_request(test_connection, test_output, test_request, &.{}, true);
+    const first = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
+    const second = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     try testing.expectEqual(1, first.stream_id);
     try testing.expectEqual(3, second.stream_id);
     // RFC 9113 §5.1.1: an identifier a refused request would have spent cannot be reused, so the
     // refusal happens before the stream opens.
     const bad: Request = .{ .method = "GET", .scheme = "https", .path = "" };
-    try testing.expectEqual(error.PseudoHeaderInvalid, write_request(test_connection, test_output, bad, &.{}, true));
-    const third = try write_request(test_connection, test_output, test_request, &.{}, true);
+    try testing.expectEqual(error.PseudoHeaderInvalid, write_request(test_connection, test_output, bad, &.{}, &.{}, true));
+    const third = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     try testing.expectEqual(5, third.stream_id);
 }
 
 test "§8.3.1: a request without :scheme or :path, or with an empty one, is refused" {
     try start_client();
     const no_scheme: Request = .{ .method = "GET", .path = "/" };
-    try testing.expectEqual(error.SchemeMissing, write_request(test_connection, test_output, no_scheme, &.{}, true));
+    try testing.expectEqual(error.SchemeMissing, write_request(test_connection, test_output, no_scheme, &.{}, &.{}, true));
     const no_path: Request = .{ .method = "GET", .scheme = "https" };
-    try testing.expectEqual(error.PathMissing, write_request(test_connection, test_output, no_path, &.{}, true));
+    try testing.expectEqual(error.PathMissing, write_request(test_connection, test_output, no_path, &.{}, &.{}, true));
     const empty_scheme: Request = .{ .method = "GET", .scheme = "", .path = "/" };
-    try testing.expectEqual(error.PseudoHeaderInvalid, write_request(test_connection, test_output, empty_scheme, &.{}, true));
+    try testing.expectEqual(error.PseudoHeaderInvalid, write_request(test_connection, test_output, empty_scheme, &.{}, &.{}, true));
     const bad_method: Request = .{ .method = "GE T", .scheme = "https", .path = "/" };
-    try testing.expectEqual(error.MethodInvalid, write_request(test_connection, test_output, bad_method, &.{}, true));
+    try testing.expectEqual(error.MethodInvalid, write_request(test_connection, test_output, bad_method, &.{}, &.{}, true));
 }
 
 test "§8.5: a CONNECT request carries :authority alone" {
     try start_client();
     const connect: Request = .{ .method = "CONNECT", .authority = "example.com:443" };
-    const sent = try write_request(test_connection, test_output, connect, &.{}, false);
+    const sent = try write_request(test_connection, test_output, connect, &.{}, &.{}, false);
     try testing.expectEqual(1, sent.stream_id);
     const with_path: Request = .{ .method = "CONNECT", .authority = "example.com:443", .path = "/" };
     try testing.expectEqual(
         error.ConnectWithSchemeOrPath,
-        write_request(test_connection, test_output, with_path, &.{}, false),
+        write_request(test_connection, test_output, with_path, &.{}, &.{}, false),
     );
     const no_authority: Request = .{ .method = "CONNECT" };
     try testing.expectEqual(
         error.ConnectWithoutAuthority,
-        write_request(test_connection, test_output, no_authority, &.{}, false),
+        write_request(test_connection, test_output, no_authority, &.{}, &.{}, false),
     );
 }
 
@@ -287,22 +312,22 @@ test "§8.2 and §8.2.2: an uppercase name and a connection-specific line are re
     const upper = [_]hpack.Field{.{ .name = "Accept", .value = "*/*" }};
     try testing.expectEqual(
         error.FieldLineInvalid,
-        write_request(test_connection, test_output, test_request, &upper, true),
+        write_request(test_connection, test_output, test_request, &upper, &.{}, true),
     );
     const keep_alive = [_]hpack.Field{.{ .name = "keep-alive", .value = "timeout=5" }};
     try testing.expectEqual(
         error.FieldLineInvalid,
-        write_request(test_connection, test_output, test_request, &keep_alive, true),
+        write_request(test_connection, test_output, test_request, &keep_alive, &.{}, true),
     );
     // RFC 9113 §8.2.2: TE is the one connection-specific name a request may carry, and only with
     // the value "trailers".
     const te_other = [_]hpack.Field{.{ .name = "te", .value = "gzip" }};
     try testing.expectEqual(
         error.FieldLineInvalid,
-        write_request(test_connection, test_output, test_request, &te_other, true),
+        write_request(test_connection, test_output, test_request, &te_other, &.{}, true),
     );
     const te_trailers = [_]hpack.Field{.{ .name = "te", .value = "trailers" }};
-    _ = try write_request(test_connection, test_output, test_request, &te_trailers, true);
+    _ = try write_request(test_connection, test_output, test_request, &te_trailers, &.{}, true);
 }
 
 test "§6.8: no stream opens after a GOAWAY the peer sent" {
@@ -311,13 +336,13 @@ test "§6.8: no stream opens after a GOAWAY the peer sent" {
     _ = try connection.feed(goaway);
     try testing.expectEqual(
         error.AfterGoawayReceived,
-        write_request(test_connection, test_output, test_request, &.{}, true),
+        write_request(test_connection, test_output, test_request, &.{}, &.{}, true),
     );
 }
 
 test "§8.1: an interim response is not a trailer section, and the final response follows it" {
     try start_client();
-    const sent = try write_request(test_connection, test_output, test_request, &.{}, true);
+    const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // RFC 9113 §8.1: any number of interim responses may precede the final one.
     const first = (try feed_response(sent.stream_id, "103", false)).?;
     try testing.expect(first.response.response.status.is_interim());
@@ -331,7 +356,7 @@ test "§8.1: an interim response is not a trailer section, and the final respons
 
 test "§8.1: the trailer section is the one after the final response" {
     try start_client();
-    const sent = try write_request(test_connection, test_output, test_request, &.{}, true);
+    const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     _ = try feed_response(sent.stream_id, "103", false);
     _ = try feed_response(sent.stream_id, "200", false);
     var block: [constants.frame_size_max]u8 = undefined;
@@ -348,7 +373,7 @@ test "§8.1: the trailer section is the one after the final response" {
 
 test "§8.1.1: an interim response does not set the content-length the DATA is compared with" {
     try start_client();
-    const sent = try write_request(test_connection, test_output, test_request, &.{}, true);
+    const sent = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // An interim response carrying content-length: its value belongs to no message, because the
     // message the final response begins is the one §8.1.1 compares.
     var block: [constants.frame_size_max]u8 = undefined;
@@ -372,7 +397,7 @@ test "§8.1.1: an interim response does not set the content-length the DATA is c
 test "§8.3: the block carries the pseudo-header fields, then the regular field lines" {
     try start_client();
     const lines = [_]hpack.Field{.{ .name = "accept", .value = "*/*" }};
-    const sent = try write_request(test_connection, test_output, test_request, &lines, true);
+    const sent = try write_request(test_connection, test_output, test_request, &lines, &.{}, true);
     hpack.decoder.test_decoder.init(constants.header_table_size_initial);
     // RFC 9113 §8.3: all pseudo-header fields appear before the regular field lines.
     try hpack.decoder.expect_lines(test_output[constants.frame_header_len..sent.written], &.{
@@ -384,10 +409,46 @@ test "§8.3: the block carries the pseudo-header fields, then the regular field 
     });
 }
 
+/// The lines of one HEADERS block the tests wrote, with whether each is never indexed. Test-only.
+fn expect_never_indexed(block: []const u8, expected: []const bool) !void {
+    hpack.decoder.test_decoder.init(constants.header_table_size_initial);
+    var lines = hpack.decoder.test_decoder.block(block);
+    for (expected) |never_indexed| {
+        const line = (try lines.next()) orelse return error.TestUnexpectedResult;
+        try testing.expectEqual(never_indexed, line.never_indexed);
+    }
+    try testing.expectEqual(null, try lines.next());
+}
+
+test "RFC 7541 §6.2.3: the lines a caller marks go out never indexed, and no other" {
+    try start_client();
+    var marked = test_request;
+    marked.path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE";
+    marked.indexing.path = .never_indexed;
+    const lines = [_]hpack.Field{
+        .{ .name = "accept", .value = "application/dns-message" },
+        .{ .name = "authorization", .value = "secret" },
+    };
+    const sent = try write_request(test_connection, test_output, marked, &lines, &.{ .without_indexing, .never_indexed }, true);
+    // RFC 7541 §7.1.3: an intermediary MUST NOT index a line sent in this representation, so the
+    // DoH query in :path and the credential stay out of every table on the path.
+    try expect_never_indexed(test_output[constants.frame_header_len..sent.written], &.{ false, false, false, true, false, true });
+    // `Indexing`: no choice a request offers inserts, so the block leaves the tables as they were.
+    try testing.expectEqual(0, test_connection.encoder.table.count);
+}
+
+test "RFC 7541 §6.2.2: a request the caller marks nothing on writes every line without indexing" {
+    try start_client();
+    const lines = [_]hpack.Field{.{ .name = "accept", .value = "*/*" }};
+    const sent = try write_request(test_connection, test_output, test_request, &lines, &.{}, true);
+    try expect_never_indexed(test_output[constants.frame_header_len..sent.written], &.{ false, false, false, false, false });
+    try testing.expectEqual(0, test_connection.encoder.table.count);
+}
+
 test "§8.5: a CONNECT block carries :method and :authority alone" {
     try start_client();
     const connect: Request = .{ .method = "CONNECT", .authority = "example.com:443" };
-    const sent = try write_request(test_connection, test_output, connect, &.{}, false);
+    const sent = try write_request(test_connection, test_output, connect, &.{}, &.{}, false);
     hpack.decoder.test_decoder.init(constants.header_table_size_initial);
     // RFC 9113 §8.5: the :scheme and :path pseudo-header fields are omitted.
     try hpack.decoder.expect_lines(test_output[constants.frame_header_len..sent.written], &.{
@@ -401,12 +462,12 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
     // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
     const settings = try connection.frame_bytes(&connection.test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
     _ = try connection.feed(settings);
-    const first = try write_request(test_connection, test_output, test_request, &.{}, true);
+    const first = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // RFC 7541 §4.2: the block opens with the size update the change owes.
     try testing.expectEqual(0x3f, test_output[constants.frame_header_len]);
     try testing.expectEqual(0x45, test_output[constants.frame_header_len + 1]);
     _ = first;
-    _ = try write_request(test_connection, test_output, test_request, &.{}, true);
+    _ = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // The first block reached the peer, so the second owes nothing.
     try testing.expect(test_output[constants.frame_header_len] != 0x3f);
 }

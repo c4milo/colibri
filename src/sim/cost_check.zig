@@ -173,7 +173,7 @@ pub fn measure_client_cleartext(storage: *Storage) !Cost {
         .scheme = "https",
         .path = "/",
         .authority = "example.com",
-    }, &.{}, true);
+    }, &.{}, &.{}, true);
     cost.write_calls += 1;
     cost.octets_out += @intCast(sent.written);
     const octets = server_octets(storage);
