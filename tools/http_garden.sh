@@ -73,19 +73,32 @@ cleanup() {
 trap cleanup EXIT
 
 # The build is what takes time and disk, so both are reported beside the comparison. The images are
-# built one at a time, which a runner with a few cores and 16 GB of memory can hold.
+# built one at a time, which a runner with a few cores and 16 GB of memory can hold. The Garden's
+# own base image and colibri's must build. An origin's image that does not, because a download it
+# names has moved since the pinned commit, is reported and left out of the comparison.
 build_started="$(date +%s)"
-(cd "${garden}" && ./garden.sh build_seq colibri "${origins[@]}")
-echo "http_garden.sh: built ${#origins[@]} origins and colibri in $(($(date +%s) - build_started)) seconds"
+(cd "${garden}" && ./garden.sh build_seq colibri) || fail "colibri's image did not build"
+built=()
+unbuilt=()
+for origin in "${origins[@]}"; do
+  if (cd "${garden}" && docker compose build "${origin}"); then
+    built+=("${origin}")
+  else
+    unbuilt+=("${origin}")
+  fi
+done
+echo "http_garden.sh: built colibri and ${#built[@]} of ${#origins[@]} origins in $(($(date +%s) - build_started)) seconds"
+[ "${#unbuilt[@]}" -eq 0 ] || echo "http_garden.sh: unbuilt=${#unbuilt[@]}: ${unbuilt[*]}"
+[ "${#built[@]}" -gt 0 ] || fail "no origin's image built"
 docker system df
 
-(cd "${garden}" && docker compose up -d colibri "${origins[@]}")
+(cd "${garden}" && docker compose up -d colibri "${built[@]}")
 sleep "${start_wait_seconds}"
 
 readonly scratch="$(mktemp -d)"
-python3 "${driver}" commands "${origins[@]}" >"${scratch}/commands"
+python3 "${driver}" commands "${built[@]}" >"${scratch}/commands"
 (cd "${garden}" && uv run ./tools/repl.py) <"${scratch}/commands" >"${scratch}/output" 2>&1 ||
   fail "the Garden's REPL exited non-zero: $(tail -5 "${scratch}/output")"
-python3 "${driver}" report "${origins[@]}" <"${scratch}/output" ||
+python3 "${driver}" report "${built[@]}" <"${scratch}/output" ||
   fail "not every stream was compared: $(grep -iE "error|exception|traceback" "${scratch}/output" | head -5)"
 rm -rf "${scratch}"
