@@ -2411,6 +2411,28 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     above, which leaves every other Zig user of chapulin to write it again, and building it in
     colibri first to move it later, which writes it twice.
 
+    **Amended by the owner on 2026-09-27.** A program passes each session the source its randomness
+    comes from, and every draw chapulin makes for that session comes from that source. cocuyo asked
+    for it, because its tests replay a connection only when every draw comes from a stream it
+    seeds.
+    - chapulin gives each session a randomness callback with a context, as `ch_keylog` has a
+      context. The `start` of each `tls` session takes the source and passes it through.
+    - A session with no source does not start, and nothing falls back to another source.
+    - colibri's objects then call no `ch_rand_bytes`. A program defines that hook only for a
+      chapulin object of its own, and still defines `ch_assert_fail`. Non-negotiable 2 changes when
+      this lands, which waits on chapulin's change.
+
+    The alternatives refused:
+    - colibri keeping the source in the session and making it the thread's current source around
+      each call into chapulin, with a draw function the program's `ch_rand_bytes` calls. It needs no
+      chapulin change, but every call into chapulin sets and restores a thread-local, and a call
+      left unwrapped stops the program when it draws.
+    - The program's `ch_rand_bytes` as the only source. A caller that needs its draws per
+      connection wraps the provider and must know which calls draw, which breaks with no error when
+      chapulin moves a draw.
+
+    Cost: every caller passes a source to `start`, and chapulin changes how its objects draw.
+
 95. **h11 counts body octets the caller sends from its own buffer.** Ruled by the owner on
     2026-09-26, for a caller that already holds a large body in a buffer of its own, such as an
     object store client sending segments of several MiB.

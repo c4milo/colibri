@@ -199,7 +199,16 @@ answers that.
 
 ## What is left
 
-One contract note, smaller than a gap. Every change design §8 step 16b asked of chapulin is in:
+One change chapulin owes, and one contract note smaller than a gap.
+
+**Each session draws from a source its caller passes.** Decision 94, as amended on 2026-09-27,
+has every draw chapulin makes for a session come from a source the caller passes to that session.
+chapulin gives each session a randomness callback with a context, as `ch_keylog` has one. A
+session configured with none is refused when it starts, and nothing falls back to
+`ch_rand_bytes`. A call that draws outside any session takes a callback too. Requested on
+2026-09-27.
+
+Every change design §8 step 16b asked of chapulin is in:
 - `9d604f7` ends the connection when a handshake message before a key change does not end its
   record (RFC 9846 §5.1).
 - `e802399` has pins alone take any number of certificates after the leaf.
