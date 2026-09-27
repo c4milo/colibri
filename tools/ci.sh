@@ -107,8 +107,13 @@ section "Format" zig fmt --check build.zig build examples src tools
 section "Lint and tests" zig build test --summary all
 tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
 # Decision 97: a target without the AES instructions builds chapulin with software AES and
-# ChaCha20 alone. A generic CPU has none, so the TLS tests run over those objects too.
-section "TLS tests over objects without AES-GCM" zig build test-tls test-tls-keylog -Dcpu=generic --summary all
+# ChaCha20 alone, so the TLS tests run over those objects too, on a CPU model that has none:
+# x86-64's baseline, `x86_64`, or Arm's `generic`. Each architecture names its own models.
+case "$(uname -m)" in
+  x86_64 | amd64) cpu_without_aes=x86_64 ;;
+  *) cpu_without_aes=generic ;;
+esac
+section "TLS tests over objects without AES-GCM" zig build test-tls test-tls-keylog -Dcpu="${cpu_without_aes}" --summary all
 # Decision 96: every program in examples/ builds and runs.
 section "Examples" zig build examples
 # Every Zig block in README.md and the docs is an excerpt of code that runs, and a project that

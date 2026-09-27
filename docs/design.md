@@ -4387,8 +4387,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - chapulin refuses `SUITE=aesgcm` with `AES=soft` (its `ct.h`, INV-26), which decision 97 did not
     know. An object for a target without the AES instructions carries `SUITE=chacha`: a server's
     suite order is then refused with `SuitesUnavailable`, and a client, which records no suite,
-    reports ChaCha20. `zig build test-tls test-tls-keylog -Dcpu=generic` runs the tests over such
-    objects, and `tools/ci.sh` runs it. Decision 97 carries a note for the owner to confirm.
+    reports ChaCha20. `zig build test-tls test-tls-keylog -Dcpu=<model>`, on a model without the
+    AES instructions, runs the tests over such objects, and `tools/ci.sh` runs it. Decision 97
+    carries a note for the owner to confirm.
 
   A chapulin limit, reported on 2026-09-27: pins alone read the leaf alone, but chapulin refuses a
   chain of more than `CH_WEBPKI_FLIGHT_ENTRIES`, four entries, with bad_certificate. The runner's
@@ -4442,6 +4443,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     case against quic-go, whose client does not run `ecn`, and against colibri's client every case
     but `amplificationlimit` and `rebind-port`. `rebind-port` then passed 3 runs of 3. As the
     client against quic-go, colibri passed every case but `amplificationlimit`.
+
+  **CI on Linux, 2026-09-27.** CI failed on `ecb5924` and `94edca5` in its new section alone:
+  `-Dcpu=generic` names an Arm model, and clang knows no x86 model by that name. `tools/ci.sh` now
+  runs the section on `x86_64`, the x86-64 baseline, which has no AES instructions, and on
+  `generic` elsewhere. Built for x86_64 Linux with `-Dcpu=x86_64` and run in an amd64 container on
+  macOS arm64, the two test binaries passed 34 of 34 and 39 of 39.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

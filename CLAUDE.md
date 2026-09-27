@@ -308,8 +308,9 @@ section when a step adds or renames a command.
   it: a second copy fails the link. A program that links `tls` defines chapulin's hooks
   `ch_rand_bytes` and `ch_assert_fail`; each image of `src/testing/` defines them
   (`src/testing/entropy.zig` and `src/testing/tls/hooks.zig`), and a QUIC image `ch_keylog` too
-  (`src/testing/quic/keylog.zig`). `zig build test-tls test-tls-keylog -Dcpu=generic` runs the
-  `tls` tests over the objects without AES-GCM, and `tools/ci.sh` runs it. A bump is `zig fetch
+  (`src/testing/quic/keylog.zig`). `zig build test-tls test-tls-keylog -Dcpu=<model>` runs the
+  `tls` tests over the objects without AES-GCM, on a CPU model without the AES instructions:
+  `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
   --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
 - TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,
