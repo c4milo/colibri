@@ -4540,6 +4540,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     kept, a client read with no room for the alert, an alert counted after the peer's own, and each
     `failure_written` answering 0.
 
+  **The endpoints send it, 2026-09-27.** `src/testing/`'s endpoints now send what a failed
+  handshake wrote before they close. The server's TLS layer ends the connection on it as on a
+  finished session, the client's loop closes once the socket has taken it, and the two TLS checks
+  write it before they exit. Four cases require Go to read colibri's alert:
+  - `tools/tls_accept.sh` and `tools/h2_server_interop.sh --tls`: a Go client that offers TLS 1.2
+    alone reads "protocol version not supported" (RFC 9846 §4.3.1).
+  - `tools/tls_handshake.sh`: Go's server logs "bad certificate" from colibri's client, which asked
+    for a name the certificate does not carry.
+  - `tools/h2_interop.sh --tls`: Go's server logs "unknown certificate authority" from colibri's
+    client, which pins another root.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1948 of 1948 tests. The four scripts above, and the h11 interop scripts with
+    `--tls`: ok, every exchange and request as planned.
+  - 4 mutations, each **CAUGHT**: each TLS check sending nothing, which Go read as an EOF; the server
+    layer counting no octets; and the client loop closing before its alert went out.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

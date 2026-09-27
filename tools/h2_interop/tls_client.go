@@ -6,10 +6,11 @@
 // Nothing here is colibri's code, which is the point: the run says whether colibri's server and
 // Go's client complete a TLS 1.3 handshake, agree on ALPN, and move application data.
 //
-//	go run tools/h2_interop/tls_client.go <port> <identity-prefix> <hostname>
+//	go run tools/h2_interop/tls_client.go <port> <identity-prefix> <hostname> [tls12]
 //
 // It reads <identity-prefix>.ca.der, the raw DER of the root tls_identity.go minted, and trusts
-// that root and no other.
+// that root and no other. With tls12 it offers TLS 1.2 alone, which colibri's server refuses
+// (RFC 9846 §4.3.1), and it prints the handshake's error, which names the server's alert.
 //
 // One environment note: GOFIPS140=on drops TLS_CHACHA20_POLY1305_SHA256 from the client's offer,
 // and that is the one suite a chapulin server has, so the handshake would fail with no suite in
@@ -36,10 +37,14 @@ const exporterContext = "colibri"
 const exporterLen = 32
 
 func main() {
-	if len(os.Args) != 4 {
-		log.Fatal("usage: tls_client <port> <identity-prefix> <hostname>")
+	if len(os.Args) != 4 && (len(os.Args) != 5 || os.Args[4] != "tls12") {
+		log.Fatal("usage: tls_client <port> <identity-prefix> <hostname> [tls12]")
 	}
 	port, prefix, hostname := os.Args[1], os.Args[2], os.Args[3]
+	var version uint16 = tls.VersionTLS13
+	if len(os.Args) == 5 {
+		version = tls.VersionTLS12
+	}
 
 	// The root the run minted, as raw DER. tls_identity.go writes DER and never PEM, so this
 	// parses the certificate rather than calling AppendCertsFromPEM.
@@ -59,8 +64,8 @@ func main() {
 		ServerName: hostname,
 		// RFC 9113 §3.1: h2 over TLS is selected by ALPN, and this client offers it alone.
 		NextProtos: []string{"h2"},
-		MinVersion: tls.VersionTLS13,
-		MaxVersion: tls.VersionTLS13,
+		MinVersion: version,
+		MaxVersion: version,
 		// Go prefers the X25519MLKEM768 hybrid and sends a fallback X25519 share beside it, which
 		// a chapulin server can use. Pinning X25519 keeps the ClientHello small enough that the
 		// server's receive buffer is never the thing under test.

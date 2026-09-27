@@ -8,7 +8,8 @@
 # the container tools/h2_interop/Dockerfile builds. None is installed by this repository: the run
 # needs `go` and `docker` on the path, and it names the versions it met. Over TLS the server
 # serves the identity tools/h2_interop/tls_identity.go mints. curl and Go check its chain against
-# the root and refuse one that fails; nghttp prints a warning and goes on.
+# the root and refuse one that fails; nghttp prints a warning and goes on. With --tls a Go client
+# that offers TLS 1.2 alone must read the alert the server refuses it with.
 #
 # Usage: tools/h2_server_interop.sh [--tls] [curl] [nghttp] [go]
 #        (no peer runs all three)
@@ -154,6 +155,21 @@ plan_go() {
   echo "h2_server_interop.sh: go ${mode}: ${report#go_client: }"
 }
 
+# RFC 9846 §6.2: a handshake the server refuses ends with its alert, which the client reads. A
+# client that offers TLS 1.2 alone is one it refuses (RFC 9846 §4.3.1). Go names a received alert
+# "remote error"; a connection closed with no alert is an EOF.
+refuse_tls_1_2() {
+  (cd "${peer_directory}" && go build -o "${scratch}/tls_client" tls_client.go)
+  start_server --tls "${identity}"
+  local report
+  if report="$("${scratch}/tls_client" "${port}" "${identity}" localhost tls12 2>&1)"; then
+    fail "the server completed a handshake that offered TLS 1.2 alone"
+  fi
+  grep -q "remote error: tls: " <<<"${report}" || { echo "${report}"; fail "the refused client read no alert"; }
+  stop_server
+  echo "h2_server_interop.sh: a refused handshake ends with the server's alert: ${report##*remote error: tls: }"
+}
+
 tls=""
 if [ "${1:-}" = "--tls" ]; then
   tls="yes"
@@ -194,6 +210,7 @@ for peer in "${peers[@]}"; do
     *) fail "unknown peer: ${peer}" ;;
   esac
 done
+[ -z "${tls}" ] || refuse_tls_1_2
 modes="cleartext"
 [ -z "${tls}" ] || modes="cleartext and TLS"
 echo "h2_server_interop.sh: every request ended with 200, in ${modes}, from: ${peers[*]}"

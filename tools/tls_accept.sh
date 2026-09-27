@@ -4,7 +4,9 @@
 # step 5's check. It says whether chapulin's server behind colibri's `tls.Provider` completes a
 # handshake with Go's crypto/tls client, whether the two agree on ALPN (RFC 9113 §3.1), and
 # whether the record phase works from the server side: one record each way, then the client's
-# close_notify read as the end of its data rather than as a failure (RFC 9846 §6.1).
+# close_notify read as the end of its data rather than as a failure (RFC 9846 §6.1). A second
+# connection offers TLS 1.2 alone, which the server refuses, and the client must read the server's
+# alert (RFC 9846 §6.2).
 #
 # It needs a Go toolchain. chapulin comes from the package build.zig.zon pins (design §8 step
 # 16a). It is not part of `zig build test`.
@@ -34,19 +36,23 @@ go build -o "$scratch/tls_client" tools/h2_interop/tls_client.go
 # chapulin's ecdsa_p256 slot takes. All raw DER or raw octets, never PEM.
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 
-./zig-out/bin/tls-accept "$port" "$scratch/identity" > "$scratch/server.log" 2>&1 &
-server_pid=$!
+# Starts colibri's server, which serves one connection, logging to $1. It prints "ready" once the
+# listener is open, so the client never races it.
+start_server() {
+  ./zig-out/bin/tls-accept "$port" "$scratch/identity" > "$1" 2>&1 &
+  server_pid=$!
+  for _ in $(seq 1 100); do
+    grep -q ready "$1" 2>/dev/null && break
+    sleep 0.1
+  done
+  if ! grep -q ready "$1" 2>/dev/null; then
+    echo "tls_accept: colibri's server did not start" >&2
+    cat "$1" >&2
+    exit 1
+  fi
+}
 
-# The check prints "ready" once the listener is open, so the client never races it.
-for _ in $(seq 1 100); do
-  grep -q ready "$scratch/server.log" 2>/dev/null && break
-  sleep 0.1
-done
-if ! grep -q ready "$scratch/server.log" 2>/dev/null; then
-  echo "tls_accept: colibri's server did not start" >&2
-  cat "$scratch/server.log" >&2
-  exit 1
-fi
+start_server "$scratch/server.log"
 
 if ! "$scratch/tls_client" "$port" "$scratch/identity" "$hostname" | tee "$scratch/client.log"; then
   echo "tls_accept: the client failed; colibri's server said:" >&2
@@ -71,5 +77,26 @@ if [ -z "$server_exporter" ] || [ "$server_exporter" != "$client_exporter" ]; th
     "the peer ${client_exporter:-none}" >&2
   exit 1
 fi
+
+# RFC 9846 §6.2: a handshake the server refuses ends with its alert, which the client reads. A
+# client that offers TLS 1.2 alone is one it refuses (RFC 9846 §4.3.1). Go names a received alert
+# "remote error"; a connection closed with no alert is an EOF.
+start_server "$scratch/refuse.log"
+if "$scratch/tls_client" "$port" "$scratch/identity" "$hostname" tls12 > "$scratch/refused.log" 2>&1; then
+  echo "tls_accept: colibri's server completed a handshake that offered TLS 1.2 alone" >&2
+  exit 1
+fi
+if ! grep -q "remote error: tls: " "$scratch/refused.log"; then
+  echo "tls_accept: the refused client read no alert; it said:" >&2
+  cat "$scratch/refused.log" >&2
+  exit 1
+fi
+if wait "$server_pid"; then
+  echo "tls_accept: colibri's server reported no refusal" >&2
+  exit 1
+fi
+server_pid=""
+echo "tls_accept: a refused handshake ends with the server's alert:" \
+  "$(sed -n 's/.*remote error: tls: //p' "$scratch/refused.log")"
 
 echo "tls_accept: ok"

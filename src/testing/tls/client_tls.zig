@@ -91,6 +91,13 @@ pub fn print_failure(layer: *const Layer, index: usize, failure: Error) void {
     std.debug.print("connection={d} tls_error={t} alert={?d}\n", .{ index, failure, layer.client.alert() });
 }
 
+/// After `step` failed, the octets it wrote at the front of its output: a refused handshake's,
+/// the alert that says why last (RFC 9846 §6.2). None after a record failed.
+pub fn failure_written(layer: *const Layer) usize {
+    if (layer.attached) return 0;
+    return layer.client.failure_written();
+}
+
 /// Runs the handshake over what the socket read until it completes, then the record half.
 pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!Step {
     var taken: Step = .{ .consumed = 0, .written = 0, .done = false };

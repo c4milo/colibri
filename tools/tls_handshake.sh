@@ -2,7 +2,9 @@
 #
 # One TLS 1.3 handshake between colibri's chapulin-backed client and a Go server, which is the
 # first half of design §8 step 5's check. It says whether the two complete a handshake and agree
-# on ALPN, which RFC 9113 §3.1 makes the thing h2 over TLS rests on.
+# on ALPN, which RFC 9113 §3.1 makes the thing h2 over TLS rests on. A second connection asks for
+# a name the server's certificate does not carry, which the client refuses, and the server must read
+# the client's alert (RFC 9846 §6.2).
 #
 # It needs a Go toolchain. chapulin comes from the package build.zig.zon pins (design §8 step
 # 16a). It is not part of `zig build test`.
@@ -68,5 +70,24 @@ if ! grep -q "records ok, [1-9][0-9]* carried no data" "$scratch/client.log"; th
   echo "tls_handshake: no record without data reached the client's record phase" >&2
   exit 1
 fi
+
+# RFC 9846 §6.2: a handshake the client refuses ends with its alert, which the server reads. Go's
+# server logs a received alert as a "remote error"; a connection closed with no alert is an EOF.
+if ./zig-out/bin/tls-handshake "$port" "$scratch/ca" "refused.$hostname" "$(date +%s)" \
+  > "$scratch/refuse.log" 2>&1; then
+  echo "tls_handshake: colibri's client accepted a certificate for another name" >&2
+  exit 1
+fi
+for _ in $(seq 1 50); do
+  grep -q "remote error: tls: " "$scratch/server.log" && break
+  sleep 0.1
+done
+if ! grep -q "TLS handshake error.*remote error: tls: " "$scratch/server.log"; then
+  echo "tls_handshake: the server read no alert; it said:" >&2
+  grep "TLS handshake error" "$scratch/server.log" >&2 || tail -3 "$scratch/server.log" >&2
+  exit 1
+fi
+echo "tls_handshake: a refused handshake ends with the client's alert:" \
+  "$(sed -n 's/.*remote error: tls: //p' "$scratch/server.log" | head -1)"
 
 echo "tls_handshake: ok"

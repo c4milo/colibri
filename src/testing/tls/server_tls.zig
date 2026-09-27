@@ -9,8 +9,10 @@
 //! protocol it selected (design §8 step 15d). That protocol's `attach_tls` checks the handshake,
 //! and every octet after that crosses the record half the client shares, `records.zig`.
 //!
-//! A handshake or a record that fails ends the connection without an alert: the session names the
-//! alert (`alert`), and this test-only endpoint closes the socket instead of sending it.
+//! A handshake that fails ends the connection with what the session wrote, the alert that says why
+//! last, which the socket sends before it closes (RFC 9846 §6.2). A record that fails ends the
+//! connection without an alert: the session names it (`alert`), and this test-only endpoint closes
+//! the socket instead of sending it.
 const std = @import("std");
 const h2 = @import("h2");
 const tls = @import("tls");
@@ -34,6 +36,8 @@ pub const Layer = struct {
     records: tls_records.Records,
     /// Whether `attach_tls` accepted the finished handshake.
     attached: bool,
+    /// Whether the handshake failed, so its alert was the last the peer gets.
+    refused: bool,
 };
 
 pub const Step = tls_records.Step;
@@ -44,6 +48,7 @@ pub fn start(layer: *Layer, config: *const tls.record.ServerConfig) Error!void {
     try layer.server.start(config, no_clock);
     layer.records.reset();
     layer.attached = false;
+    layer.refused = false;
 }
 
 /// Wipes what the layer's session still holds, once its connection is over, whether it closed or
@@ -60,11 +65,18 @@ pub fn wiped(layer: *const Layer) bool {
 /// Runs the handshake over what the socket read until it completes, then the record half.
 pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!Step {
     var taken: Step = .{ .consumed = 0, .written = 0, .done = false };
+    // A refused handshake's alert was the last step, and nothing follows it.
+    if (layer.refused) return .{ .consumed = 0, .written = 0, .done = true };
     if (!layer.attached) {
         // The session writes a flight whole or fails the handshake, so it runs only once the
         // socket has taken enough of the output for a whole one.
         if (output.len < constants.tls_flight_len_max) return taken;
-        const progress = try layer.server.handshake(input, output);
+        const progress = layer.server.handshake(input, output) catch {
+            // RFC 9846 §6.2: what the refused handshake wrote ends with the alert that says why,
+            // and the connection closes once the socket has sent it.
+            layer.refused = true;
+            return .{ .consumed = 0, .written = layer.server.failure_written(), .done = true };
+        };
         taken.consumed = progress.consumed;
         taken.written = progress.written;
         if (!progress.complete) return taken;
@@ -106,6 +118,7 @@ fn connect_test_layer(protocol: []const u8) !void {
     test_session.init(session_module.protocol_of(protocol));
     try tls_records.attach(&test_session, test_provider.provider());
     test_layer.attached = true;
+    test_layer.refused = false;
 }
 
 /// Writes `count` records that carry nothing into the test input, and returns them. Test-only.

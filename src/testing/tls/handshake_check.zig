@@ -147,6 +147,8 @@ fn run_handshake(socket: std.c.fd_t) !void {
     for (0..check_socket.handshake_reads_max) |_| {
         const progress = client.handshake(input.unread(), &output_storage) catch |failure| {
             std.debug.print("tls-handshake: {t} (alert {?d})\n", .{ failure, client.alert() });
+            // RFC 9846 §6.2: the alert that says why goes to the server before the close.
+            check_socket.write_all(socket, output_storage[0..client.failure_written()]) catch {};
             std.process.exit(exit_failed);
         };
         try check_socket.write_all(socket, output_storage[0..progress.written]);

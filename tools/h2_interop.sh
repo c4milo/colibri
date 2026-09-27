@@ -8,6 +8,7 @@
 # container built from tools/h2_interop/Dockerfile. None is installed by this repository: the run
 # needs `go`, `docker` and `python3` on the path, and it names the versions it met. Over TLS each
 # peer serves the identity tools/h2_interop/tls_identity.go mints, and the client pins its root.
+# With --tls a client that pins another root must send the alert it refuses Go's server with.
 #
 # Usage: tools/h2_interop.sh [--tls] [go] [nghttpd] [h2o]
 #        (no peer runs all three)
@@ -103,8 +104,32 @@ run_go() {
   if [ -n "${tls}" ]; then
     start_go "${identity}"
     over_tls plan_go
+    refuse_untrusted
   fi
   stop_peer
+}
+
+# RFC 9846 §6.2: a handshake the client refuses ends with its alert, which the server reads. A
+# client that pins another root refuses the server's chain. Go's server logs a received alert as a
+# "remote error"; a connection closed with no alert is an EOF.
+refuse_untrusted() {
+  local other="${identity_directory}/other"
+  (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${other}")
+  stop_peer
+  "${scratch}/go_server" "${go_port}" "${identity}" 2>"${scratch}/refused.log" &
+  background_pid=$!
+  wait_for_port "${go_port}"
+  if "${client}" --port "${go_port}" --tls "${other}" --seconds "$(date +%s)" --get / >/dev/null 2>&1; then
+    fail "the client completed a handshake with a chain its anchor did not sign"
+  fi
+  for _ in $(seq 1 50); do
+    grep -q "remote error: tls: " "${scratch}/refused.log" && break
+    sleep 0.1
+  done
+  grep -q "remote error: tls: " "${scratch}/refused.log" ||
+    { cat "${scratch}/refused.log" >&2; fail "the server read no alert from the refusing client"; }
+  echo "h2_interop.sh: a refused handshake ends with the client's alert:" \
+    "$(sed -n 's/.*remote error: tls: //p' "${scratch}/refused.log" | head -1)"
 }
 
 # start_go [<identity-prefix>]: starts Go's server, over TLS when given the identity.

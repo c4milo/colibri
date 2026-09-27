@@ -64,6 +64,9 @@ const Connection = struct {
     receiving: bool,
     sending: bool,
     failure: Failure,
+    /// Whether the TLS handshake failed, so the octets left end with its alert and the
+    /// connection closes once they are sent.
+    refused: bool,
 };
 
 /// The loop and the connections, in static storage: each connection is large, and a run holds up
@@ -144,6 +147,7 @@ fn open_connection(connection: *Connection, index: usize, run: *const Run) void 
     connection.connecting = false;
     connection.receiving = false;
     connection.sending = false;
+    connection.refused = false;
     connection.state = .closed;
     connection.failure = .socket_error;
     if (tls_shared) |*shared| connection.layer = start_tls(index, shared) catch {
@@ -228,6 +232,7 @@ fn submit(operation: rotor.Operation) void {
 /// Steps the session until it stops moving, appending what it writes to the output buffer. A
 /// session that finished with every octet written closes its connection.
 fn step_session(connection: *Connection, index: usize) void {
+    if (connection.refused) return close_refused_when_sent(connection, index);
     if (connection.layer) |layer| return step_tls(connection, index, layer);
     for (0..constants.steps_per_read_max) |_| {
         const room = connection.output[connection.output_len..];
@@ -250,11 +255,26 @@ fn step_tls(connection: *Connection, index: usize, layer: *client_tls.Layer) voi
         connection.output[connection.output_len..],
     ) catch |failure| {
         client_tls.print_failure(layer, index, failure);
-        return close_connection(connection, index, .tls_failed);
+        return refuse(connection, index, layer);
     };
     connection.output_len += stepped.written;
     consume(connection, stepped.consumed);
     if (stepped.done) close_when_sent(connection, index);
+}
+
+/// Ends a connection whose TLS failed. What a refused handshake wrote, the alert that says why
+/// last, goes out before the close (RFC 9846 §6.2); any other failure ends the connection now.
+fn refuse(connection: *Connection, index: usize, layer: *const client_tls.Layer) void {
+    const written = client_tls.failure_written(layer);
+    if (written == 0) return close_connection(connection, index, .tls_failed);
+    connection.output_len += written;
+    assert(connection.output_len <= connection.output.len);
+    connection.refused = true;
+}
+
+/// Closes a refused connection once the socket has taken its alert.
+fn close_refused_when_sent(connection: *Connection, index: usize) void {
+    if (connection.output_sent == connection.output_len and !connection.sending) close_connection(connection, index, .tls_failed);
 }
 
 /// Closes a connection whose session is done, once the socket has taken every octet.

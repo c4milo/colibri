@@ -269,7 +269,9 @@ section when a step adds or renames a command.
   over TLS too, through the client's `--tls <anchor-prefix> --seconds <unix-seconds>` mode; it
   needs `go`, `docker` and `python3`. `tools/h2_server_interop.sh [--tls] [curl] [nghttp]
   [go]` runs curl, nghttp and Go's client against the test-only h2 server the same way;
-  it needs `go` and `docker`. Both endpoints take `--h11`: in cleartext it makes them speak h11,
+  it needs `go` and `docker`. With `--tls` each also runs a handshake colibri refuses, the client
+  pinning another root and a Go client offering TLS 1.2 alone to the server, and requires Go to
+  read colibri's alert. Both endpoints take `--h11`: in cleartext it makes them speak h11,
   and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`.
   `tools/h11_interop.sh [--tls] [go] [h2o]` and `tools/h11_server_interop.sh [--tls] [curl] [go]` run the same peers over h11: the client against Go's and h2o's servers,
   and curl and Go's client against the server, where curl also offers no ALPN over TLS. None is
@@ -314,7 +316,9 @@ section when a step adds or renames a command.
   --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
 - TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,
-  which also moves a record each way and ends on the client's `close_notify`. Both need a Go
+  which also moves a record each way and ends on the client's `close_notify`. Each then runs a
+  handshake colibri refuses, a name the certificate does not carry and a client that offers TLS 1.2
+  alone, and requires the Go peer to read colibri's alert (RFC 9846 §6.2). Both need a Go
   toolchain, and `tools/ci.sh` runs them.
 - QUIC check: `tools/quic_loopback.sh` runs a colibri client and a colibri server over the QUIC
   object in one process, through one handshake and one stream, and writes the secrets to
