@@ -3532,6 +3532,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   itself, and in both roles against quic-go and ngtcp2. colibri against itself passed
   `handshakeloss` five more times in a row. With that, every runner case this step names passes.
 
+  **The RTT estimate in the runner, 2026-09-27**
+  ([#73](https://github.com/c4milo/colibri/issues/73)). The UDP endpoints pass colibri the instant
+  Rotor's last tick read (decision 63). Rotor 0.4.0 read the clock again after a wait only when the
+  wait produced no event. So a datagram that ended a wait was processed at the instant the tick
+  started, and an RTT sample taken from it left out the wait. On the `handshake` case's path, 15 ms
+  each way, a scratch build of colibri's client at `a6a4791` printed `latest=289us min=289us
+  smoothed=289us variation=144us`, and its PTO was about 1.5 ms. Rotor v0.6.0, `59599a8`, reads the
+  clock after every wait that blocked ([rotor#6](https://github.com/c4milo/rotor/issues/6)), and
+  colibri pins it.
+
+  With v0.6.0, a scratch build whose client printed its estimate as each connection ended ran
+  `handshake` three times as the client against quic-go, in the runner at `740c05a` in Docker on
+  macOS arm64. Each run passed. A wire sample is read from the client-side capture: the time from a
+  client packet to the ACK frame that first names it as the largest acknowledged, for each ACK
+  frame that arrived before the client's CONNECTION_CLOSE.
+
+  | Run | Printed | Wire samples |
+  |---|---|---|
+  | 1 | `latest=39919us min=39919us smoothed=41999us variation=13904us` | 40.65, 49.92, 35.91 ms |
+  | 2 | `latest=41542us min=41542us smoothed=43559us variation=17018us` | 43.23, 38.45 ms |
+  | 3 | `latest=35643us min=35643us smoothed=39892us variation=16401us` | 39.89, 33.80 ms |
+
+  Each `latest` is the last wire sample plus 1.8 to 4.0 ms. That sample's packet carries the
+  instant its tick read before the tick processed the server's handshake messages, and Rotor sends
+  a packet on the tick after the one that built it.
+
+  With v0.6.0 pinned, `zig build test`, `tools/quic_udp.sh` and `tools/quic_aioquic.sh` pass on
+  macOS arm64, and `tools/interop.sh quic-go` gave:
+  - colibri's server and colibri's client: every case passed.
+  - colibri's server and quic-go's client: every case passed but `ecn`, which quic-go does not run.
+  - quic-go's server and colibri's client: every case passed but `ecn`, and `handshakeloss`, which
+    failed as [#72](https://github.com/c4milo/colibri/issues/72) records. The server-side capture
+    holds 51 Source Connection IDs in quic-go's Initial packets and 50 in the client's.
+
 - **Step 11 — QPACK.** Static-table-only encoding first, because both QPACK settings default to
   zero and a static-only encoder is legal and useful; then the dynamic table with the encoder and
   decoder streams, Known Received Count, Required Insert Count, Base, relative and post-base
