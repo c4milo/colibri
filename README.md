@@ -30,8 +30,9 @@ The name is Spanish for hummingbird.
 
 ## Status
 
-colibri 0.2.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
-16 put in the library. 0.2.0 has each TLS session draw from a source its caller passes.
+colibri 0.3.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
+16 put in the library. 0.2.0 has each TLS session draw from a source its caller passes. 0.3.0 ends
+a connection inside colibri on a TLS or QUIC error, and adds h2's trailers.
 
 | Protocol | Built | Checked against |
 | --- | --- | --- |
@@ -50,7 +51,7 @@ printed.
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.2.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.3.0
 ```
 
 Then import the modules you use. Each of the twelve library modules is exported by name: `core`,
