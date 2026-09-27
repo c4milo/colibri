@@ -120,6 +120,19 @@ pub const Event = union(enum) {
     /// colibri ended a stream and queued the RST_STREAM (§5.4.2).
     stream_refused: StreamReset,
     goaway: PeerGoaway,
+
+    /// The stream whose peer side the event ended (RFC 9113 §8.1), or null: a request, a response
+    /// or DATA that carried END_STREAM, and every trailer section, which always carries it. One
+    /// call answers what three kinds of event say.
+    pub fn ended_stream(event: Event) ?u32 {
+        return switch (event) {
+            .request => |request| if (request.end_stream) request.stream_id else null,
+            .response => |response| if (response.end_stream) response.stream_id else null,
+            .data => |data| if (data.end_stream) data.stream_id else null,
+            .trailers => |trailers| trailers.stream_id,
+            else => null,
+        };
+    }
 };
 
 /// What one `receive` call consumed and produced.
@@ -270,6 +283,12 @@ pub const Connection = struct {
         end_stream: bool,
     ) SendError!connection_send.DataWritten {
         return connection_send.write_data(connection, output, stream_id, payload, end_stream);
+    }
+
+    /// Writes a trailer section on `stream_id`, which ends colibri's side of the stream (RFC 9113
+    /// §8.1): see `connection_send.zig`.
+    pub fn write_trailers(connection: *Connection, output: []u8, stream_id: u32, fields: []const hpack.Field) SendError!usize {
+        return connection_send.write_trailers(connection, output, stream_id, fields);
     }
 
     /// Queues a RST_STREAM for `stream_id` (RFC 9113 §6.4): see `connection_send.zig`.

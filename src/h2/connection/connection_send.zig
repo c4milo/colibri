@@ -1,4 +1,6 @@
-//! What the caller asks the connection to send: a response at a server, the DATA that follows it, a RST_STREAM that ends one stream and the GOAWAY that ends the connection.
+//! What the caller asks the connection to send: a response at a server, the DATA that follows it,
+//! the trailer section that may end it, a RST_STREAM that ends one stream and the GOAWAY that ends
+//! the connection.
 //! Every one writes into the caller's buffer and returns the octets it wrote (design §4.1); none
 //! of them touches a socket.
 //!
@@ -26,6 +28,7 @@ const frame = @import("../frame/frame.zig");
 const stream = @import("../stream/stream.zig");
 const streams_table = @import("../stream/streams.zig");
 const connection = @import("connection.zig");
+const connection_request = @import("connection_request.zig");
 
 const Connection = connection.Connection;
 const Stream = streams_table.Stream;
@@ -40,6 +43,12 @@ pub const Error = error{
     OutputTooSmall,
     /// The status is not a three-digit code RFC 9110 §15 defines.
     StatusInvalid,
+    /// A field line the caller passed is not one RFC 9110 §5.1 and §5.5 admit, is uppercase or
+    /// connection-specific (RFC 9113 §8.2, §8.2.2), or is a pseudo-header field in a trailer
+    /// section (§8.1).
+    FieldLineInvalid,
+    /// RFC 9113 §8.1: a response after the final one, or a trailer section before it.
+    SectionOutOfOrder,
 };
 
 /// What `write_data` did: the octets of the payload it sent, and the octets it wrote.
@@ -61,12 +70,45 @@ pub fn write_response(
     end_stream: bool,
 ) Error!usize {
     assert(target.role == .server);
+    // RFC 9110 §15: a status code is a three-digit integer between 100 and 599.
+    const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
+    try validate_fields(fields);
     const record = try sendable(target, stream_id, .headers, end_stream);
-    const block = try encode_response(target, status, fields);
+    // RFC 9113 §8.1: one final response per request, and the peer reads a section after it as the
+    // trailer section.
+    if (record.final_sent) return error.SectionOutOfOrder;
+    const block = try encode_response(target, code, fields);
     const written = try write_block(target, output, stream_id, block, end_stream);
     const verdict = stream.on_send(record.state, record.closed, .headers, end_stream, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .headers, end_stream);
+    // RFC 9113 §8.1: zero or more interim responses precede the final one.
+    record.final_sent = !code.is_interim();
     return written;
+}
+
+/// Writes a trailer section on `stream_id`, which ends colibri's side of the stream (RFC 9113
+/// §8.1): a HEADERS frame carrying END_STREAM, and the CONTINUATION frames the section needs. A
+/// client sends one after its request, and a server after its final response, each after any DATA.
+pub fn write_trailers(target: *Connection, output: []u8, stream_id: u32, fields: []const hpack.Field) Error!usize {
+    // RFC 9113 §8.1: "Trailers MUST NOT include pseudo-header fields", and a pseudo-header name is
+    // not a token, so the field-line rules refuse one.
+    try validate_fields(fields);
+    const record = try sendable(target, stream_id, .headers, true);
+    // RFC 9113 §8.1: the trailer section follows the final header section.
+    if (!record.final_sent) return error.SectionOutOfOrder;
+    const block = try encode_trailers(target, fields);
+    const written = try write_block(target, output, stream_id, block, true);
+    const verdict = stream.on_send(record.state, record.closed, .headers, true, target.role, record.peer_initiated);
+    target.streams.transition(record, verdict, .send, .headers, true);
+    return written;
+}
+
+/// Refuses a field line colibri would send malformed, before anything changes (RFC 9113 §8.2).
+fn validate_fields(fields: []const hpack.Field) Error!void {
+    for (fields) |line| {
+        // RFC 9113 §8.2.1: a field line that breaks its rules makes the message malformed.
+        connection_request.validate_field_line(line) catch return error.FieldLineInvalid;
+    }
 }
 
 /// Writes as much of `payload` as the windows, one frame and the caller's buffer allow, as DATA on
@@ -127,14 +169,12 @@ fn sendable(target: *Connection, stream_id: u32, kind: stream.Kind, end_stream: 
 }
 
 /// Encodes the response's field section into the connection's block buffer (RFC 9113 §8.3.2).
-fn encode_response(target: *Connection, status: u16, fields: []const hpack.Field) Error![]const u8 {
+fn encode_response(target: *Connection, code: http.status.Status, fields: []const hpack.Field) Error![]const u8 {
     var writer = Writer.init(&target.send_block);
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes, and a buffer that
     // cannot hold them holds no block. The buffer is `send_block_len_max` (design §7).
     target.encoder.begin_block(&writer) catch return error.OutputTooSmall;
     var digits: [http.constants.status_digits_len]u8 = undefined;
-    // RFC 9110 §15: a status code is a three-digit integer between 100 and 599.
-    const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
     const status_text = code.write_digits(&digits);
     // RFC 9113 §8.3.2: a response carries the `:status` pseudo-header field, and it comes first.
     target.encoder.write_field(&writer, ":status", status_text, .without_indexing) catch return error.OutputTooSmall;
@@ -146,6 +186,20 @@ fn encode_response(target: *Connection, status: u16, fields: []const hpack.Field
         };
     }
     // RFC 7541 §4.2: the block is whole, so the capacity its updates named is the peer's now.
+    target.encoder.commit_block();
+    return writer.written();
+}
+
+/// Encodes a trailer section into the connection's block buffer: field lines alone (RFC 9113 §8.1).
+fn encode_trailers(target: *Connection, fields: []const hpack.Field) Error![]const u8 {
+    var writer = Writer.init(&target.send_block);
+    // RFC 7541 §4.2: a block may open with the size updates the encoder owes.
+    target.encoder.begin_block(&writer) catch return error.OutputTooSmall;
+    for (fields) |field_line| {
+        // RFC 9113 §4.3: a field block is one sequence, so a section past the buffer is refused
+        // whole rather than cut.
+        target.encoder.write_field(&writer, field_line.name, field_line.value, .without_indexing) catch return error.OutputTooSmall;
+    }
     target.encoder.commit_block();
     return writer.written();
 }
@@ -372,4 +426,8 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
     _ = try write_response(test_connection, test_output, 3, 200, &.{}, true);
     // The first block reached the peer, so the second owes nothing.
     try testing.expect(test_output[constants.frame_header_len] != 0x3f);
+}
+
+test {
+    _ = @import("connection_send_trailers_test.zig");
 }

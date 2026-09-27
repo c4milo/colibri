@@ -198,9 +198,12 @@ try link.send(side, output[0..written]);
 
 Events are a request or a response head with its field section (`connection.field_section()`),
 trailers, data, a stream the peer reset or colibri refused, the peer's GOAWAY, and the SETTINGS
-exchange. A client opens a stream with `write_request`, a server answers with `write_response`,
-and both send content with `write_data`, which writes as much as the flow-control windows allow.
-`reset_stream` ends one stream, and `shutdown` begins a graceful close.
+exchange. `event.ended_stream()` names the stream an event ended, whichever of the request,
+response, DATA or trailers ended it. A client opens a stream with `write_request`, a server
+answers with `write_response`, and both send content with `write_data`, which writes as much as
+the flow-control windows allow. `write_trailers` ends either side's message with a trailer
+section, after its final header section (RFC 9113 §8.1). `reset_stream` ends one stream, and
+`shutdown` begins a graceful close.
 
 ## TLS
 

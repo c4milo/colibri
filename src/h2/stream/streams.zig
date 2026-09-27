@@ -70,6 +70,9 @@ pub const Stream = struct {
     /// The field sections that have arrived on the stream, which decides what the next one is
     /// (RFC 9113 §8.1). This table only stores it.
     sections_received: SectionsReceived = .none,
+    /// Whether colibri has sent its final field section on the stream: a client's request, or a
+    /// server's final response (RFC 9113 §8.1). Only a trailer section may follow it.
+    final_sent: bool = false,
 };
 
 /// The field sections that have arrived on one stream, in the order RFC 9113 §8.1 allows. A

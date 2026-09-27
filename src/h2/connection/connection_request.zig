@@ -126,6 +126,8 @@ pub fn write_request(
         return error.OutputTooSmall;
     const verdict = stream.on_send(record.state, record.closed, .headers, end_stream, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .headers, end_stream);
+    // RFC 9113 §8.1: a request's header section is its final one, and a trailer section may follow.
+    record.final_sent = true;
     return .{ .stream_id = stream_id, .written = written };
 }
 
@@ -177,8 +179,9 @@ fn validate_pseudo_value(value: []const u8) Error!void {
     http.field.validate_value(value) catch return error.PseudoHeaderInvalid;
 }
 
-/// One field line the caller passed, under the rules a request carries them by.
-fn validate_field_line(line: hpack.Field) Error!void {
+/// One field line the caller passed, under the rules every field section colibri sends carries
+/// them by: a request's, a response's and a trailer section's.
+pub fn validate_field_line(line: hpack.Field) Error!void {
     // RFC 9113 §8.2: field names are lowercase when an HTTP/2 message is constructed, and §8.2.1
     // makes an uppercase name malformed on receipt, so colibri sends none.
     if (!is_lowercase(line.name)) return error.FieldLineInvalid;

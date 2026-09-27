@@ -4702,6 +4702,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     sent after the failure, each QUIC close not owed or carrying the wrong code, and packet-number
     exhaustion left open or owing a close.
 
+  **h2's field sections in their order, 2026-09-27.** cocuyo asked for it in
+  https://github.com/c4milo/colibri/issues/69.
+  - `write_trailers` writes a trailer section, a HEADERS frame carrying END_STREAM, after the
+    final header section of either side's message (RFC 9113 §8.1). No call could send one before,
+    so cocuyo's test server wrote the frame and its HPACK by hand.
+  - Each stream records whether colibri sent its final section, a request or a final response.
+    Trailers before it are refused, and so is a response after it, which the peer would read as a
+    trailer section carrying `:status`.
+  - `write_response` now holds the caller's field lines to RFC 9113 §8.2 as `write_request` does.
+    An uppercase or connection-specific field went out before, which §8.2.1 makes the peer treat
+    as malformed. Trailers are held to the same rules, which refuse a pseudo-header field (§8.1).
+  - `Event.ended_stream()` names the stream an event ended, where a caller checked a request, a
+    response, DATA and trailers.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1970 of 1970 tests. `zig build examples`: every example ran.
+  - `tools/h2spec.sh 18443 --tls`: 144 passed in cleartext and over TLS, the 2 skipped by name.
+    `tools/h2_interop.sh --tls` and `tools/h2_server_interop.sh --tls`: every exchange and request
+    ended as planned.
+  - 13 mutations, each **CAUGHT**: each of the three order checks removed, an interim response
+    counted as final, a final response or a request not recorded, either field-line check
+    removed, trailers without END_STREAM, and each arm of `ended_stream` wrong.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
