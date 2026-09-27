@@ -32,6 +32,8 @@ pub const h11_split_check = @import("h11_split_check.zig");
 pub const h11_exchange_plan = @import("h11_exchange_plan.zig");
 pub const h11_exchange_run = @import("h11_exchange_run.zig");
 pub const h11_exchange_check = @import("h11_exchange_check.zig");
+pub const h11_coding_plan = @import("h11_coding_plan.zig");
+pub const h11_coding_check = @import("h11_coding_check.zig");
 const run_main = @import("run_main.zig");
 
 pub const main = run_main.main;
@@ -58,6 +60,8 @@ test {
     _ = h11_exchange_plan;
     _ = h11_exchange_run;
     _ = h11_exchange_check;
+    _ = h11_coding_plan;
+    _ = h11_coding_check;
     _ = h3_trace_tla;
     _ = run_main;
 }

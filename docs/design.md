@@ -57,7 +57,7 @@ core   <- wire   <- hpack <- h2
                  <- qpack <- h3
 core   <- http   <- h2, h3, h11
 core   <- tls_provider <- h2, h11, quic
-stdx   <- h11
+stdx   <- h11, sim_run
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
@@ -83,7 +83,7 @@ core, qpack      <- testing_qif
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
-| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a | — |
+| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, and stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26) | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, and `rotor` ([decision 83](decisions.md)) | — |
@@ -4043,6 +4043,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     early close keeping its decoder, TE left out of the head, a close-delimited body whole without
     its stream, a failure keeping its decoder, and a given-back chunk keeping its `data_end` state.
     The TE mutation first did not compile and was rewritten so it did.
+
+  **The check, 2026-09-26.** Step 15b's exchange runs a colibri client against a colibri server,
+  and no colibri writer codes a body (decision 91), so the exchange cannot carry a coded one.
+  `src/sim/h11_coding_check.zig` is the check instead:
+  - The plan (`h11_coding_plan.zig`) writes one to four requests to a colibri server, or responses
+    to a colibri client, each with a body in `gzip`, `deflate` or no compression under `chunked`,
+    coded by stdx's encoders and cut into chunks of seeded lengths. A third of the gzip bodies are
+    two members.
+  - Half the seeds plant a defect in the last message: a checksum one bit off, the last coded octet
+    left out, an octet after a zlib stream, a zlib preset dictionary, or the pool's one decoder
+    taken. Each must meet decision 91's refusal: the server's 400, 501 or 503, or the client's
+    matching failure.
+  - The connection reads the stream in seeded pieces, with a seeded room of 1 to 48 octets for
+    each call. Each seed runs twice in pieces and once whole with the most room, and the three
+    traces must agree, every body must decode to the plan's octets, and the decoder must be back
+    in the pool.
+  - `zig build sim -- --h11-coding-check` printed, in Debug and in `-Drelease` alike:
+    `h11-coding: seeds=256 messages=540 refused=127 two_members=72 stream_octets=116431
+    pieces=13532 calls=27992 trace_octets=52145 crc32=0x4b48322b`. The test pins the digest.
+  - Mutations of the library, each against `zig build test-sim-run` alone, all **CAUGHT** by the
+    check: undecoded octets not given back, a stream cut short accepted, octets after a zlib
+    stream starting another, a second gzip member refused, 503 answered as 400, and a failure
+    keeping its decoder.
+
+  The simulator's h11 commands moved to `src/sim/run_main_h11.zig` to keep `run_main.zig` under
+  500 lines, and the check's limits are in `src/sim/constants_h11.zig`, which `constants.zig`
+  exports as `h11_coding`.
 
 - **Step 15d — the endpoints and conformance.**
   - The test-only h11 server and client on Rotor.
