@@ -70,6 +70,7 @@ core, h2, tls    <- testing_tls, testing_tls_server
 h2, h3, tls, rotor <- testing_udp
 h2, quic, tls    <- testing_quic
 core, qpack      <- testing_qif
+core, http, h11, h2, h3, quic, tls <- client, server
 ```
 
 | Module | Holds | Imports | RFCs |
@@ -86,6 +87,8 @@ core, qpack      <- testing_qif
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
 | `tls` | TLS 1.3 over chapulin: colibri's values, converted once per chapulin object; record-mode sessions behind `tls_provider.Provider`; and QUIC sessions behind `tls_provider.QuicProvider` and `crypto.Suite` ([decisions 94 and 97](decisions.md)) | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects, built `KEYLOG=off` | 9846, 7301, 9001 |
+| `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls` | 9110, 9112, 9113, 9114, 7838, 9460 |
+| `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls` | 9110, 9112, 9113, 9114, 7838 |
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects built `KEYLOG=on` | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, and stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26) | — |
@@ -119,9 +122,11 @@ The architecture depends on four of these edges and forbids one.
 - **No protocol module imports `tls`.** h11, h2 and quic take a provider, and a program makes a
   session with `tls` and hands its provider over, so a cleartext program never links chapulin
   ([decision 97](decisions.md)).
-- **Nothing imports `h2`, `h3` or `h11`.** They are the roots. A consumer picks any of them, and
-  `testing` is a consumer like any other: the library it drives cannot use the socket it opens,
-  because the edge runs one way and nothing imports `testing` back.
+- **Nothing imports `h2`, `h3` or `h11` but `client` and `server`.** The protocol modules are the
+  roots a consumer picks from, and `client` and `server` are consumers above all three, which
+  choose the version for their caller ([decision 100](decisions.md)). Nothing imports `client` or
+  `server` in turn. `testing` is a consumer like any other: the library it drives cannot use the
+  socket it opens, because the edge runs one way and nothing imports `testing` back.
 
 ## 4. What the caller supplies
 
@@ -4735,6 +4740,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   -Dcpu=generic`: 88 of 88. The two TLS checks, h2spec's 144 in cleartext
   and over TLS, the h2 and h11 interop scripts with `--tls`, `tools/consumer_check.sh` and
   `tools/quic_udp.sh`: ok.
+
+- **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
+  library modules above h11, h2 and h3, for
+  [#70](https://github.com/c4milo/colibri/issues/70). Five parts, in order:
+  - **17a**, the server over TCP. It takes octets tagged by connection, runs the handshake
+    through `tls.record.Server`, and serves h11 or h2 as ALPN chose. One set of calls covers
+    both: a request is an event with an id, and a response is written by that id, its status,
+    fields, body and trailers.
+    **Check:** the h11 and h2 endpoints of §9 run on `server`, and the h11 and h2 server interop
+    scripts and h2spec pass over it, in cleartext and over TLS.
+  - **17b**, the server over QUIC. h3 runs through `tls.quic.Server` over datagrams tagged by
+    flow, and a TCP response advertises h3 with Alt-Svc when the caller asks.
+    **Check:** the UDP endpoint of §9 serves h3 through `server`, and h3spec, aioquic and the
+    QUIC Interop Runner's `http3` pass against it.
+  - **17c**, the client over TCP. `request(authority, path, fields)` returns an id or a refusal,
+    each request ends in one outcome (a status, the fields the caller named and the body in the
+    caller's memory, or a failure), `cancel(id)` ends one, and connection events report the
+    version, a ticket, draining and the close.
+    **Check:** the h2 and h11 client interop scripts pass through `client` against Go, nghttpd
+    and h2o.
+  - **17d**, the client over QUIC, and the choice. QUIC goes first when h3 is offered, and TCP
+    opens when QUIC fails or the fallback delay passes. The addresses and an HTTPS record's
+    `alpn` and `port` come in as values, and Alt-Svc is learned. Each transport has its own
+    resumption ticket.
+    **Check:** the simulator runs the choice over seeds that lose, delay and refuse QUIC, and
+    every seed ends with one completed request per request made. The client fetches over h3 from
+    quic-go and aioquic, and falls back to h2 against a server with no UDP.
+  - **17e**, what a dependent reads: an example of each module, docs/usage.md, and a release.
+    **Check:** `zig build examples` and `tools/doc_snippets.sh` pass.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
