@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Every check of this repository in one run, with a report: what .github/workflows/main.yml runs
-# on each push to main (docs/decisions.md entry 46), and what a person runs by hand to get the
+# on each push to main (docs/decisions.md entry 47), and what a person runs by hand to get the
 # same answer. It runs every section even after one fails, so the report is whole, and exits
-# non-zero when any section failed.
+# non-zero when any section failed. The HTTP Garden and the QUIC Interop Runner run outside it,
+# each in a job of its own that the workflow starts by hand and every Monday (entry 47 as
+# amended).
 #
 # The report separates two kinds of number. The counted costs and the simulator's checksums are
 # exact: a change in one is a change in the code. The h2load throughput is indicative: a hosted
@@ -126,6 +128,11 @@ section "Simulator checks, Debug and ReleaseSafe" simulator_checks
 # cleartext, step 5's two handshakes against Go, and step 9e's QUIC checks.
 section "h2spec, cleartext and TLS" tools/h2spec.sh 18443 --tls
 h2spec_lines="$(grep -E "^h2spec.sh: [a-z]+: [0-9]+ passed" "${scratch}/last.log")"
+# Design §8 step 12: h3spec against design §9's h3 server (decision 47 as amended). h3spec.sh
+# prints the suite's count line twice, inside the suite's report and on its own, and uniq keeps
+# one.
+section "h3spec" tools/h3spec.sh
+h3spec_lines="$(grep -E "^h3spec.sh: (running|ok)|^[0-9]+ examples?, [0-9]+ failures?$" "${scratch}/last.log" | uniq)"
 section "Interop, client direction, cleartext and TLS" tools/h2_interop.sh --tls
 interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|over TLS|a refused handshake|every exchange)|^http-client:" "${scratch}/last.log")"
 section "Interop, server direction, cleartext and TLS" tools/h2_server_interop.sh --tls
@@ -212,6 +219,7 @@ fi
   echo
   {
     echo "${h2spec_lines}"
+    echo "${h3spec_lines}"
     echo "${interop_lines}"
     echo "${server_interop_lines}"
     echo "${h11_interop_lines}"

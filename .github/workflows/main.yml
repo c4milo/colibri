@@ -1,12 +1,14 @@
-# Every check of this repository, on each push to main, with a report (docs/decisions.md entry
-# 46). The work is tools/ci.sh, which a person can run by hand for the same answer; this file only
+# Every check of this repository, with a report (docs/decisions.md entry 47): tools/ci.sh on each
+# push to main, and the HTTP Garden and the QUIC Interop Runner by hand and every Monday. Each
+# job's work is one script, which a person can run by hand for the same answer; this file only
 # installs what that script needs, each download pinned by checksum or commit.
 name: main
 on:
   push:
     branches: [main]
   workflow_dispatch:
-  # The HTTP Garden's job, every Monday (decision 47 as amended for design §8 step 15d).
+  # The HTTP Garden's job and the QUIC Interop Runner's, every Monday (decision 47 as amended for
+  # design §8 steps 15d and 9e).
   schedule:
     - cron: "0 6 * * 1"
 permissions:
@@ -19,7 +21,7 @@ env:
   ZIG_CACHE_MEGABYTES_MAX: 2048
 jobs:
   checks:
-    # The scheduled run is the Garden's alone.
+    # The scheduled run is the Garden's and the runner's alone.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -180,4 +182,70 @@ jobs:
           path: |
             garden-report.txt
             garden-repl.txt
+          retention-days: 90
+
+  # The QUIC Interop Runner (design §8 step 9e): colibri's endpoint against quic-go as the server
+  # and as the client, over every case of tools/interop.sh's default list. It runs in a job of its
+  # own, started by hand and every Monday (decision 47 as amended), for two reasons. It takes
+  # about 30 minutes, and the push job already takes 25 of its 45. Its handshakeloss case with
+  # colibri as the client fails some runs against quic-go's server
+  # (https://github.com/c4milo/colibri/issues/72), and a push should not fail on that. The work is
+  # tools/interop.sh, which a person runs for the same answer.
+  quic-interop-runner:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # The runner reads its packet captures with tshark 4.5.0 or newer. Ubuntu 26.04 packages 4.6;
+    # Ubuntu 24.04 packages 4.2.
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    concurrency:
+      group: quic-interop-runner
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # tools/interop.sh fetches colibri's packages with the host's Zig before it builds the
+      # endpoint's image.
+      - name: Install Zig
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
+          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
+          mkdir -p "${HOME}/zig" && tar -xJf zig.tar.xz -C "${HOME}/zig" --strip-components=1
+          rm zig.tar.xz
+          echo "${HOME}/zig" >>"${GITHUB_PATH}"
+      - name: Install tshark
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends tshark
+          tshark --version | head -1
+      # The simulator's IPv6 needs the host's ip6table_filter module, which a container cannot
+      # load (the runner's README).
+      - name: Load the IPv6 packet filter
+        run: sudo modprobe ip6table_filter
+      - name: Run the runner
+        shell: bash
+        env:
+          # Absolute, because tools/interop.sh copies the logs from inside the runner's directory.
+          INTEROP_LOGS: ${{ github.workspace }}/interop-logs
+          # tools/interop.sh keeps the image's 0.5 GB context and every case's logs in a temporary
+          # directory, and Ubuntu 26.04 mounts /tmp in memory with a quota
+          # (https://github.com/actions/runner-images/issues/14777).
+          TMPDIR: ${{ runner.temp }}
+        run: tools/interop.sh 2>&1 | tee interop-report.txt
+      - name: Publish the report
+        if: always()
+        run: |
+          {
+            echo "## QUIC Interop Runner"
+            echo
+            echo '```text'
+            grep -E "^(interop: |\|)" interop-report.txt || echo "no report"
+            echo '```'
+          } >>"${GITHUB_STEP_SUMMARY}"
+      # The logs exist only when a case failed: tools/interop.sh copies them to INTEROP_LOGS then.
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: quic-interop-runner-${{ github.sha }}
+          path: |
+            interop-report.txt
+            interop-logs
           retention-days: 90

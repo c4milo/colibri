@@ -276,12 +276,14 @@ section when a step adds or renames a command.
   and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`.
   `tools/h11_interop.sh [--tls] [go] [h2o]` and `tools/h11_server_interop.sh [--tls] [curl] [go]` run the same peers over h11: the client against Go's and h2o's servers,
   and curl and Go's client against the server, where curl also offers no ALPN over TLS. None is
-  part of `zig build test`; CI runs them, and so does a person before calling a step done.
-- CI: `tools/ci.sh [report.md]` runs every check above that exists and writes the report;
-  `.github/workflows/main.yml` runs it on each push to main (decision 47). A new check joins
-  `tools/ci.sh`, never the workflow file, so CI and a person run the same thing. The one exception
-  is the HTTP Garden, whose job the workflow starts by hand and every Monday (decision 47 as
-  amended).
+  part of `zig build test`. CI runs each of them on every push, except `tools/interop.sh`, which
+  it runs every Monday, and `tools/h3load.sh`, which only a person runs. A person runs each before
+  calling a step done.
+- CI: `tools/ci.sh [report.md]` runs every check above that exists, except `tools/interop.sh` and
+  `tools/h3load.sh`, and writes the report; `.github/workflows/main.yml` runs it on each push to
+  main (decision 47). A new check joins `tools/ci.sh`, never the workflow file, so CI and a person
+  run the same thing. The two exceptions are the HTTP Garden and the QUIC Interop Runner, whose
+  jobs the workflow starts by hand and every Monday (decision 47 as amended).
 - HTTP Garden: `tools/http_garden.sh [origin...]` builds the Garden, pinned by commit and cached,
   with colibri's server added as an origin in its `--echo` mode (`tools/http_garden/`), and feeds
   every stream of `tools/http_garden/driver.py` to colibri and each origin, all of them by
@@ -350,7 +352,8 @@ section when a step adds or renames a command.
   `zig build interop-endpoint`'s `quic-udp-interop`: the UDP endpoint, whose client runs with
   `pin`, because the runner's certificates fail the Web PKI profile (the owner's ruling of
   2026-09-26). It needs Docker with docker compose, `python3` and `tshark` from Wireshark 4.5.0 or
-  newer.
+  newer. The workflow's `quic-interop-runner` job runs it against quic-go on Ubuntu 26.04, which
+  packages tshark 4.6 (decision 47 as amended).
 - Models: `zig build tla [-- <configuration>...]` model-checks the TLA+ specifications in
   `spec/tla/` with TLC, through pepegrillo's `tla` tool. `tools/tla.zig` pins TLC by release and
   SHA-256, and the jar is cached on first use; it needs Java. The first line of each

@@ -910,6 +910,28 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternatives offered: a manual job alone, which lets the comparison go stale while colibri
     changes; and a person running it on Linux with no job, which leaves no record between runs.
 
+    Amended by the owner on 2026-09-27, for design §8 steps 9e and 12: `tools/h3spec.sh` joins
+    `tools/ci.sh`, and the QUIC Interop Runner, `tools/interop.sh`, runs in a job of its own,
+    started by hand and every Monday. Until then neither ran in CI, although CLAUDE.md said both
+    did. h3spec has passed all 49 of its cases in every run design §8 records since 2026-09-25, and
+    it tests the endpoint that h2spec's section has already built. The runner stays out of the
+    push job for three reasons:
+
+    - It takes about 30 minutes against quic-go in both roles, and the push job took about 25 of
+      its 45 minutes on `13b7dbd`.
+    - It needs tshark from Wireshark 4.5.0 or newer. Ubuntu 24.04 packages 4.2 and Ubuntu 26.04
+      packages 4.6, so its job runs on Ubuntu 26.04.
+    - Its `handshakeloss` case with colibri as the client fails some runs against quic-go's
+      server, because the runner counts one client connection twice
+      ([#72](https://github.com/c4milo/colibri/issues/72)). A push should not fail on that.
+
+    Its work is still one script, which a person runs for the same answer; the job adds only what
+    a hosted runner lacks: Zig, tshark, and the kernel module the simulator's IPv6 needs. The
+    alternatives offered: both checks in the push job, which needs a longer limit and fails a push
+    whenever `handshakeloss` fails; h3spec in the push job and the runner by hand alone, which
+    leaves no record between runs; and CLAUDE.md corrected to say both run by hand, with nothing
+    added to CI.
+
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three

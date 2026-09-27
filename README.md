@@ -132,14 +132,15 @@ shape: octets in, at most one event out, and the frames colibri owes written int
 
 CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main: the lints, every module's tests, the
 examples, the simulator in both build modes, the TLA+ models and the h3 traces, h2spec and the
-interop scripts in cleartext and over TLS, the TLS handshakes against Go, and the QUIC checks
-against colibri and aioquic. The HTTP Garden runs every Monday. The proofs need a Lean toolchain,
-and h3spec and the QUIC Interop Runner need tools CI does not install; a person runs those before
-a step is called done.
+interop scripts in cleartext and over TLS, h3spec, the TLS handshakes against Go, and the QUIC
+checks against colibri and aioquic. The HTTP Garden and the QUIC Interop Runner run every Monday.
+The proofs need a Lean toolchain, which CI does not install; a person runs them before a step is
+called done.
 
 ## Platforms
 
-CI runs on Linux x86-64 (Ubuntu 24.04). macOS on arm64 is the development host, where every
+CI runs on Linux x86-64: Ubuntu 24.04, and Ubuntu 26.04 for the QUIC Interop Runner, whose
+tshark must be 4.5.0 or newer. macOS on arm64 is the development host, where every
 check also runs, the TLS and QUIC ones included. colibri makes no system call, so it builds
 wherever Zig 0.16.0 does, but only these two platforms are checked. Published performance numbers
 come from Linux alone.
