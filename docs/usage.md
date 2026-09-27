@@ -7,10 +7,10 @@ test-only endpoints under [`src/testing/`](../src/testing/) run every protocol o
 
 ## Adding colibri
 
-colibri has no release yet, so depend on a commit:
+Depend on a release tag, or on a commit for a change made since:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#<commit>
+zig fetch --save git+https://github.com/c4milo/colibri#v0.1.0
 ```
 
 In `build.zig`, import the modules your program uses:

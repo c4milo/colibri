@@ -30,8 +30,7 @@ The name is Spanish for hummingbird.
 
 ## Status
 
-colibri has no release yet. The first one comes after design §8 step 16, so that it carries TLS.
-Until then, depend on a commit.
+colibri 0.1.0 is the first release. It carries TLS, which design §8 step 16 put in the library.
 
 | Protocol | Built | Checked against |
 | --- | --- | --- |
@@ -40,7 +39,6 @@ Until then, depend on a commit.
 | h3 and QUIC | Client and server, QPACK with the dynamic table, Retry, resumption, key update, loss recovery and congestion control | The [QUIC Interop Runner](https://github.com/quic-interop/quic-interop-runner) against quic-go, ngtcp2, neqo and quinn; [h3spec](https://github.com/kazu-yamamoto/h3spec) 0.1.13: 49 examples, 0 failures; `h2load --h3`: 1,000 of 1,000 requests; aioquic in both directions; QPACK against ls-qpack |
 
 Still to come:
-- the first release, now that design §8 step 16 is done;
 - published benchmarks from Linux (step 13).
 
 [`docs/design.md`](docs/design.md) §8 records each check: what ran, on what machine, and what it
@@ -51,7 +49,7 @@ printed.
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#<commit>
+zig fetch --save git+https://github.com/c4milo/colibri#v0.1.0
 ```
 
 Then import the modules you use. Each of the twelve library modules is exported by name: `core`,
