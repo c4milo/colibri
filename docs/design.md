@@ -3120,9 +3120,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | colibri | all | same run |
 
   Against quic-go, L1 passed in both roles when run again. In the failed client run every file
-  had arrived, but the runner counted 51 handshakes where it expects 50: one client process
-  opened two connections to quic-go's server, 12 seconds apart. With quinn as the client, L1
-  stays flaky, as "More peers, and the loss the random seeds missed" records.
+  had arrived, but the runner counted 51 handshakes where it expects 50: quic-go's server opened
+  two connections, 12 seconds apart, for one connection of the client's. "`handshakeloss` against
+  quic-go's server" below gives the cause. With quinn as the client, L1 stays flaky, as "More
+  peers, and the loss the random seeds missed" records.
 
   **Rebinding in the runner, 2026-09-24.** The runner's `rebind-port` and `rebind-addr` cases
   give the client a new port, or a new address and port, one second into the run and every five
@@ -3181,6 +3182,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   14 mutations, 14 CAUGHT: 11 by `tools/quic_udp.sh` and 3 by unit tests. The runner at
   `740c05a`, chapulin `2262eee` built `TRUST=raw-ecdsa`, passed `resumption` in both roles
   against colibri, quic-go and ngtcp2 on the first run.
+
+  **`handshakeloss` against quic-go's server, 2026-09-27**
+  ([#72](https://github.com/c4milo/colibri/issues/72)). With colibri as the client, the case
+  fails with "Expected 50 handshakes. Got: 51": 3 of 11 runs at `ecb5924`, and 1 of 2 at
+  `a6a4791`. In the three captures below, the client opened 50 connections and completed 50
+  handshakes, and quic-go's server opened 51. colibri needs no change.
+  - The runner counts a handshake for each distinct Source Connection ID in the server's Initial
+    packets, read from the server-side capture (`_count_handshakes` in its `testcase.py`).
+  - In each capture, one client connection lost what the server sent back, and then every
+    packet it sent for 5 seconds. Its probes were seconds apart by then, because its PTO doubles
+    on each one (RFC 9002 §6.2.1). quic-go's server destroyed the connection 5 seconds after the
+    client's last packet reached it, and logged "timeout: no recent network activity".
+  - The client had received nothing from the server, so its next probe kept its first Destination
+    Connection ID (RFC 9000 §7.2). quic-go started a second connection for it, under a second
+    Source Connection ID, and the handshake completed on that one.
+  - No endpoint broke a rule. quic-go's server had processed no Handshake packet from the client,
+    so the client's address was not validated (RFC 9000 §8.1), and RFC 9000 §10 lets an endpoint
+    discard connection state when it has no validated path.
+
+  Three failed captures, each with quic-go at `9d085cc`:
+
+  | Run | colibri | Client port | quic-go's Source Connection IDs | Apart |
+  |---|---|---|---|---|
+  | 2026-09-24 | `169c91d` | 55685 | `673c38de`, then `18a9a339` | 12 s |
+  | 2026-09-27 | `ecb5924` | 55456 | `c1c1d964`, then `504eca39` | 6 s |
+  | 2026-09-27 | `a6a4791` | 57256 | `0518e848`, then `ec4de6cd` | 6 s |
+
+  In each, the capture holds 51 distinct Source Connection IDs in the server's Initial packets and
+  50 in the client's, and the client's key log holds 50 `CLIENT_TRAFFIC_SECRET_0` lines. A
+  client's Source Connection ID does not change within a connection, so a count of the client's
+  would give 50. Whether to report that to the runner is the owner's call.
 
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
@@ -4409,7 +4441,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `amplificationlimit` and `handshakeloss`, and quic-go's server does not run `ecn`.
   - `handshakeloss` with colibri as the client against quic-go failed 3 runs of 11 with "Expected
     50 handshakes. Got: 51", the failure recorded at `169c91d` above, and passed the other 8. The
-    client's key log held 50 handshakes in the failed run. The cause is not yet found.
+    client's key log held 50 handshakes in the failed run. quic-go's server opened a second
+    connection for one of the client's, and the runner counted both; step 9e's runner notes give
+    the evidence ([#72](https://github.com/c4milo/colibri/issues/72)).
   - 41 mutations of `src/tls/quic/`, each **CAUGHT** by `zig build test-tls test-tls-keylog`, and
     the two checks of an object without AES-GCM, each **CAUGHT** under `-Dcpu=generic`. The first
     run left eleven otherwise. The session struct the tests reuse still held the previous test's
