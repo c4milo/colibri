@@ -234,8 +234,8 @@ const representation_write = @import("representation_write.zig");
 /// Room for the octets a test writes and for the strings it decodes, larger than any of them.
 /// Test-only.
 const test_room: usize = 256;
-var test_octets: [test_room]u8 = undefined;
-var test_strings: [test_room]u8 = undefined;
+threadlocal var test_octets: [test_room]u8 = undefined;
+threadlocal var test_strings: [test_room]u8 = undefined;
 
 /// Reads one representation out of `octets`, with the strings written into `test_strings`.
 fn read_one(octets: []const u8) Error!Representation {

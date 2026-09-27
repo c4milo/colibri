@@ -123,7 +123,7 @@ fn parse_digits(digits: []const u8) Error!u64 {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
+threadlocal var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// `test_section` holding one content-length line per value, after one other line.
 fn section_of(values: []const []const u8) !*const FieldSection {

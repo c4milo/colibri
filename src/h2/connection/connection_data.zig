@@ -113,28 +113,29 @@ const testing = std.testing;
 const core = @import("core");
 const window = @import("../window.zig");
 const Writer = core.Writer;
-const test_connection = &connection.test_connection;
-const feed = connection.feed;
-const feed_request = connection.feed_request;
-const frame_bytes = connection.frame_bytes;
-const start_server = connection.start_server;
-const start_client = connection.start_client;
-const feed_response = connection.feed_response;
-const write_queued = connection.write_queued;
-const test_input = &connection.test_input;
+const support = @import("connection_test_support.zig");
+const test_connection = &support.test_connection;
+const feed = support.feed;
+const feed_request = support.feed_request;
+const frame_bytes = support.frame_bytes;
+const start_server = support.start_server;
+const start_client = support.start_client;
+const feed_response = support.feed_response;
+const write_queued = support.write_queued;
+const test_input = &support.test_input;
 
 /// Feeds a POST request declaring `content_length` on `stream_id`. Test-only.
 fn feed_post(stream_id: u32, content_length: []const u8) !?Event {
     var block: [constants.frame_size_max]u8 = undefined;
-    connection.test_encoder.init(constants.header_table_size_initial, .never);
+    support.test_encoder.init(constants.header_table_size_initial, .never);
     var writer = Writer.init(&block);
-    try connection.test_encoder.begin_block(&writer);
-    try connection.test_encoder.write_field(&writer, ":method", "POST", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":authority", "example.com", .without_indexing);
-    try connection.test_encoder.write_field(&writer, "content-length", content_length, .without_indexing);
-    connection.test_encoder.commit_block();
+    try support.test_encoder.begin_block(&writer);
+    try support.test_encoder.write_field(&writer, ":method", "POST", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":authority", "example.com", .without_indexing);
+    try support.test_encoder.write_field(&writer, "content-length", content_length, .without_indexing);
+    support.test_encoder.commit_block();
     const bytes = try frame_bytes(test_input, constants.frame_type_headers, constants.flag_end_headers, stream_id, writer.written());
     return feed(bytes);
 }
@@ -240,7 +241,7 @@ test "the padding of a DATA frame costs window and is not part of the payload (ย
 fn open_stream_1() !void {
     try start_client();
     const request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
-    const sent = try test_connection.write_request(&connection.test_output, request, &.{}, &.{}, true);
+    const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, true);
     try testing.expectEqual(1, sent.stream_id);
 }
 
@@ -294,11 +295,11 @@ fn updates_on(queued: []const u8, stream_id: u32) !usize {
 /// A trailer section of one field, which ends the request (RFC 9113 ยง8.1). Test-only.
 fn trailers_frame() ![]const u8 {
     var block: [constants.frame_size_max]u8 = undefined;
-    connection.test_encoder.init(constants.header_table_size_initial, .never);
+    support.test_encoder.init(constants.header_table_size_initial, .never);
     var writer = Writer.init(&block);
-    try connection.test_encoder.begin_block(&writer);
-    try connection.test_encoder.write_field(&writer, "x-checked", "yes", .without_indexing);
-    connection.test_encoder.commit_block();
+    try support.test_encoder.begin_block(&writer);
+    try support.test_encoder.write_field(&writer, "x-checked", "yes", .without_indexing);
+    support.test_encoder.commit_block();
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     return frame_bytes(test_input, constants.frame_type_headers, flags, 1, writer.written());
 }

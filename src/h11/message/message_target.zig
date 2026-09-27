@@ -131,7 +131,7 @@ fn check_host(version: message_start.Version, section: *const FieldSection) Erro
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
+threadlocal var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 fn request(method: []const u8, target: []const u8, minor: u8, host: ?[]const u8) !Form {
     test_section.init();

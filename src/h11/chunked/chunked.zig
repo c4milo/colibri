@@ -210,7 +210,7 @@ pub const Decoder = struct {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_trailers: FieldSection align(@alignOf(FieldSection)) = undefined;
+threadlocal var test_trailers: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// Decodes `input` whole, one call after another, and returns the data it held.
 fn decode_all(role: Role, input: []const u8, data: []u8) ![]const u8 {
@@ -298,7 +298,7 @@ test "RFC 9112 §2.2 and §7.1: a bare CR, a lone LF, or data without its CRLF i
 }
 
 /// Octets the limit tests fill a line with.
-var test_octets: [constants.trailer_len_max + 1]u8 = @splat('a');
+threadlocal var test_octets: [constants.trailer_len_max + 1]u8 = @splat('a');
 
 test "a chunk-size line or trailer section past its limit is refused, and one at it is read" {
     var decoder: Decoder = .{};

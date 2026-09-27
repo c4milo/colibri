@@ -37,7 +37,7 @@ const core = @import("core");
 const wire = @import("wire");
 const http = @import("http");
 const hpack = @import("hpack");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const field_block_decode = @import("field_block_decode.zig");
 const field_block_limit = @import("field_block_limit.zig");
 
@@ -220,93 +220,48 @@ pub const FieldBlock = struct {
 const testing = std.testing;
 const Writer = core.Writer;
 
-/// The slot the tests of this file and of `field_block_decode.zig` run on, placed outside any
-/// stack frame. Test-only.
-pub var test_block: FieldBlock align(@alignOf(FieldBlock)) = undefined;
-/// The decoder those tests run on. Test-only.
-pub var test_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
-/// The encoder those tests build fragments with. Test-only.
-pub var test_encoder: hpack.Encoder align(@alignOf(hpack.Encoder)) = undefined;
-/// One frame of octets the tests write fragments into. Test-only.
-pub var test_frame: [constants.frame_size_max]u8 = @splat('v');
-/// A value as long as a value may be. Test-only.
-pub const long_value: [core.constants.field_value_len_max]u8 = @splat('v');
-
-/// RFC 7541 Appendix C.3.1: the first request, raw. Test-only.
-pub const request_raw = "\x82\x86\x84\x41\x0fwww.example.com";
-/// RFC 7541 Appendix C.4.1: the same request, Huffman-coded. Test-only.
-pub const request_huffman = "\x82\x86\x84\x41\x8c\xf1\xe3\xc2\xe5\xf2\x3a\x6b\xa0\xab\x90\xf4\xff";
-/// The field lines both encodings of the first request decode to. Test-only.
-pub const request_lines = [_]hpack.Field{
-    .{ .name = ":method", .value = "GET" },
-    .{ .name = ":scheme", .value = "http" },
-    .{ .name = ":path", .value = "/" },
-    .{ .name = ":authority", .value = "www.example.com" },
-};
-
-/// Begins a block on a fresh slot over a fresh decoder. Test-only.
-pub fn start(identifier: u32, origin: Origin, end_stream: bool) void {
-    test_decoder.init(constants.header_table_size_initial);
-    test_block.init();
-    test_block.begin(identifier, origin, end_stream);
-}
-
-/// Requires the slot's section to hold exactly `expected`, in order. Test-only.
-pub fn expect_section(expected: []const hpack.Field) !void {
-    try testing.expectEqual(expected.len, test_block.section.len());
-    for (expected, 0..) |field, index| {
-        const line = test_block.section.get(@intCast(index));
-        try testing.expectEqualStrings(field.name, line.name);
-        try testing.expectEqualStrings(field.value, line.value);
-    }
-}
-
-/// Requires `result` to be `expected` and the slot to be free with nothing kept. Test-only.
-pub fn expect_done(result: ?Done, expected: Done) !void {
-    const done = result orelse return error.TestUnexpectedResult;
-    try testing.expectEqual(expected, done);
-    try testing.expect(!test_block.is_in_progress());
-    try testing.expectEqual(null, test_block.stream_id());
-    try testing.expectEqual(0, test_block.buffer_len);
-}
-
-/// Requires the slot to be as `abandon` and a refusal leave it. Test-only.
-pub fn expect_cleared() !void {
-    try testing.expect(!test_block.is_in_progress());
-    try testing.expectEqual(0, test_block.buffer_len);
-    try testing.expectEqual(0, test_block.section.len());
-    try testing.expectEqual(0, test_block.octets_fed);
-}
+const support = @import("field_block_test_support.zig");
+const test_block = &support.test_block;
+const test_decoder = &support.test_decoder;
+const test_frame = &support.test_frame;
+const long_value = support.long_value;
+const request_raw = support.request_raw;
+const request_huffman = support.request_huffman;
+const request_lines = support.request_lines;
+const start = support.start;
+const expect_section = support.expect_section;
+const expect_done = support.expect_done;
+const expect_cleared = support.expect_cleared;
 
 test "a block in one HEADERS frame decodes to the request, and an empty block to no lines" {
     start(1, .headers, true);
     try testing.expectEqual(1, test_block.stream_id());
-    const done = try test_block.feed(&test_decoder, request_raw, true);
+    const done = try test_block.feed(test_decoder, request_raw, true);
     try expect_done(done, .{ .stream_id = 1, .origin = .headers, .end_stream = true, .too_large = false });
     try expect_section(&request_lines);
     try testing.expectEqual(0, test_block.continuations);
     try testing.expectEqual(request_raw.len, test_block.octets_fed);
     try testing.expectEqual(1, test_decoder.table.len());
     test_block.begin(3, .headers, true);
-    const empty = try test_block.feed(&test_decoder, "", true);
+    const empty = try test_block.feed(test_decoder, "", true);
     try expect_done(empty, .{ .stream_id = 3, .origin = .headers, .end_stream = true, .too_large = false });
     try expect_section(&.{});
 }
 
 test "a block cut between representations decodes across two and three fragments (generic/3.10/1, /2)" {
     start(3, .headers, false);
-    try testing.expectEqual(null, try test_block.feed(&test_decoder, request_raw[0..3], false));
+    try testing.expectEqual(null, try test_block.feed(test_decoder, request_raw[0..3], false));
     try testing.expectEqual(0, test_block.buffer_len);
     try testing.expectEqual(3, test_block.section.len());
-    const done = try test_block.feed(&test_decoder, request_raw[3..], true);
+    const done = try test_block.feed(test_decoder, request_raw[3..], true);
     try expect_done(done, .{ .stream_id = 3, .origin = .headers, .end_stream = false, .too_large = false });
     try expect_section(&request_lines);
     try testing.expectEqual(1, test_block.continuations);
     try testing.expectEqual(request_raw.len, test_block.octets_fed);
     start(5, .headers, true);
-    try testing.expectEqual(null, try test_block.feed(&test_decoder, request_huffman[0..1], false));
-    try testing.expectEqual(null, try test_block.feed(&test_decoder, request_huffman[1..3], false));
-    const three = try test_block.feed(&test_decoder, request_huffman[3..], true);
+    try testing.expectEqual(null, try test_block.feed(test_decoder, request_huffman[0..1], false));
+    try testing.expectEqual(null, try test_block.feed(test_decoder, request_huffman[1..3], false));
+    const three = try test_block.feed(test_decoder, request_huffman[3..], true);
     try expect_done(three, .{ .stream_id = 5, .origin = .headers, .end_stream = true, .too_large = false });
     try expect_section(&request_lines);
     try testing.expectEqual(2, test_block.continuations);
@@ -314,23 +269,23 @@ test "a block cut between representations decodes across two and three fragments
 
 test "END_HEADERS with a representation still cut is refused and clears the slot (http2/4.3/1)" {
     start(1, .headers, true);
-    try testing.expectError(error.BlockCutInsideRepresentation, test_block.feed(&test_decoder, "\x40", true));
+    try testing.expectError(error.BlockCutInsideRepresentation, test_block.feed(test_decoder, "\x40", true));
     try expect_cleared();
     start(1, .headers, true);
-    try testing.expectEqual(null, try test_block.feed(&test_decoder, "\x82\x40\x0acustom-key", false));
-    try testing.expectError(error.BlockCutInsideRepresentation, test_block.feed(&test_decoder, "\x0ccustom", true));
+    try testing.expectEqual(null, try test_block.feed(test_decoder, "\x82\x40\x0acustom-key", false));
+    try testing.expectError(error.BlockCutInsideRepresentation, test_block.feed(test_decoder, "\x0ccustom", true));
     try expect_cleared();
 }
 
 test "a HEADERS fragment and a 4000-octet CONTINUATION decode to one section (http2/6.10/1)" {
     start(1, .headers, true);
-    try testing.expectEqual(null, try test_block.feed(&test_decoder, "\x82\x86\x84", false));
-    var output = Writer.init(&test_frame);
+    try testing.expectEqual(null, try test_block.feed(test_decoder, "\x82\x86\x84", false));
+    var output = Writer.init(test_frame);
     try output.write_bytes("\x00\x07x-dummy");
     try wire.prefixed_integer.encode(hpack.constants.string_prefix_bits - 1, &output, 0, 3988);
     try output.write_bytes(long_value[0..3988]);
     try testing.expectEqual(4000, output.written().len);
-    const done = try test_block.feed(&test_decoder, output.written(), true);
+    const done = try test_block.feed(test_decoder, output.written(), true);
     try expect_done(done, .{ .stream_id = 1, .origin = .headers, .end_stream = true, .too_large = false });
     try expect_section(&(request_lines[0..3].* ++ [_]hpack.Field{.{ .name = "x-dummy", .value = long_value[0..3988] }}));
     try testing.expectEqual(4003, test_block.octets_fed);
@@ -339,33 +294,33 @@ test "a HEADERS fragment and a 4000-octet CONTINUATION decode to one section (ht
 test "Done carries the stream, the origin and END_STREAM the block began with" {
     start(8, .push_promise, false);
     try testing.expectEqual(8, test_block.stream_id());
-    const promise = try test_block.feed(&test_decoder, request_raw, true);
+    const promise = try test_block.feed(test_decoder, request_raw, true);
     try expect_done(promise, .{ .stream_id = 8, .origin = .push_promise, .end_stream = false, .too_large = false });
     test_block.begin(9, .headers, true);
-    try testing.expectEqual(null, try test_block.feed(&test_decoder, "", false));
+    try testing.expectEqual(null, try test_block.feed(test_decoder, "", false));
     try testing.expectEqual(9, test_block.stream_id());
-    const trailers = try test_block.feed(&test_decoder, "\xbe", true);
+    const trailers = try test_block.feed(test_decoder, "\xbe", true);
     try expect_done(trailers, .{ .stream_id = 9, .origin = .headers, .end_stream = true, .too_large = false });
     try expect_section(request_lines[3..]);
 }
 
 test "abandon clears a half-fed block, and the slot takes a new one" {
     start(1, .headers, true);
-    try testing.expectEqual(null, try test_block.feed(&test_decoder, request_raw[0..10], false));
+    try testing.expectEqual(null, try test_block.feed(test_decoder, request_raw[0..10], false));
     try testing.expectEqual(7, test_block.buffer_len);
     test_block.abandon();
     try expect_cleared();
     try testing.expectEqual(0, test_block.continuations);
     test_block.begin(3, .headers, false);
-    const done = try test_block.feed(&test_decoder, request_raw, true);
+    const done = try test_block.feed(test_decoder, request_raw, true);
     try expect_done(done, .{ .stream_id = 3, .origin = .headers, .end_stream = false, .too_large = false });
     try expect_section(&request_lines);
 }
 
 /// A second slot, fed each fuzzed block in one fragment. Test-only.
-var whole_block: FieldBlock align(@alignOf(FieldBlock)) = undefined;
+threadlocal var whole_block: FieldBlock align(@alignOf(FieldBlock)) = undefined;
 /// The decoder `whole_block` runs on. Test-only.
-var whole_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
+threadlocal var whole_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 
 /// Feeds a fuzzed block once whole and once cut in two where the fuzzer says, and requires the
 /// two to end the same way (RFC 9113 §4.3: a field block is logically equivalent to one frame).
@@ -379,14 +334,14 @@ fn fuzz_feed(_: void, smith: *testing.Smith) anyerror!void {
     whole_block.begin(1, .headers, false);
     const whole = whole_block.feed(&whole_decoder, octets, true);
     start(1, .headers, false);
-    const first = test_block.feed(&test_decoder, octets[0..cut], false) catch |failure| {
+    const first = test_block.feed(test_decoder, octets[0..cut], false) catch |failure| {
         // A representation the first fragment holds whole was refused, and so was the block.
         try testing.expectError(failure, whole);
         return expect_cleared();
     };
     try testing.expectEqual(null, first);
     try testing.expect(test_block.buffer_len <= constants.representation_len_max);
-    try expect_same(whole, test_block.feed(&test_decoder, octets[cut..], true), octets.len);
+    try expect_same(whole, test_block.feed(test_decoder, octets[cut..], true), octets.len);
 }
 
 fn expect_same(whole: Error!?Done, split: Error!?Done, octets_len: usize) !void {

@@ -26,7 +26,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const hpack = @import("hpack");
 const wire = @import("wire");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const field_block = @import("field_block.zig");
 const field_block_limit = @import("field_block_limit.zig");
 
@@ -88,16 +88,17 @@ pub fn keep_tail(block: *FieldBlock, consumed: usize) void {
 
 const testing = std.testing;
 const Writer = core.Writer;
-const test_block = &field_block.test_block;
-const test_decoder = &field_block.test_decoder;
-const test_encoder = &field_block.test_encoder;
-const long_value = field_block.long_value;
-const request_raw = field_block.request_raw;
-const request_lines = field_block.request_lines;
-const start = field_block.start;
-const expect_section = field_block.expect_section;
-const expect_done = field_block.expect_done;
-const expect_cleared = field_block.expect_cleared;
+const support = @import("field_block_test_support.zig");
+const test_block = &support.test_block;
+const test_decoder = &support.test_decoder;
+const test_encoder = &support.test_encoder;
+const long_value = support.long_value;
+const request_raw = support.request_raw;
+const request_lines = support.request_lines;
+const start = support.start;
+const expect_section = support.expect_section;
+const expect_done = support.expect_done;
+const expect_cleared = support.expect_cleared;
 
 test "a representation cut by a fragment is kept as the tail, at the front, and decoded whole later" {
     start(1, .headers, false);
@@ -115,7 +116,7 @@ test "a representation cut by a fragment is kept as the tail, at the front, and 
 test "one literal cut twice, in its name and in its value, decodes once whole and is inserted once" {
     start(1, .headers, false);
     test_encoder.init(constants.header_table_size_initial, .never);
-    var output = Writer.init(&field_block.test_frame);
+    var output = Writer.init(&support.test_frame);
     try test_encoder.write_field(&output, "custom-key", long_value[0..300], .incremental);
     const literal = output.written();
     try testing.expectEqual(null, try test_block.feed(test_decoder, literal[0..5], false));
@@ -201,11 +202,11 @@ test "both counts are carried when a fragment ends inside a representation (RFC 
 test "a section past its size keeps decoding, and the later inserts are made in the dynamic table (invariant 10)" {
     start(1, .headers, false);
     test_encoder.init(constants.header_table_size_initial, .never);
-    var output = Writer.init(&field_block.test_frame);
+    var output = Writer.init(&support.test_frame);
     try test_encoder.write_field(&output, "a", &long_value, .incremental);
     try testing.expectEqual(null, try test_block.feed(test_decoder, output.written(), false));
     try testing.expect(!test_block.too_large);
-    output = Writer.init(&field_block.test_frame);
+    output = Writer.init(&support.test_frame);
     try test_encoder.write_field(&output, "b", &long_value, .incremental);
     try test_encoder.write_field(&output, "custom-key", "custom-value", .incremental);
     try test_encoder.write_field(&output, "custom-key-2", "custom-value-2", .incremental);
@@ -226,7 +227,7 @@ test "a section past its size keeps decoding, and the later inserts are made in 
 
 test "a section past its line count keeps decoding and reports too_large" {
     start(1, .headers, false);
-    var output = Writer.init(&field_block.test_frame);
+    var output = Writer.init(&support.test_frame);
     // Three lines past the limit: the first is refused, and the two after it are still decoded.
     for (0..core.constants.field_count_max + 3) |_| try output.write_bytes("\x00\x01n\x01v");
     const done = try test_block.feed(test_decoder, output.written(), true);

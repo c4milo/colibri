@@ -16,7 +16,7 @@
 //! Exit status: 0 when nothing was found, 1 when any finding was reported or a file failed to read,
 //! 2 on a usage error.
 //!
-//! Nine rules are pepegrillo's, configured in the file named after each. `module-graph`,
+//! Ten rules are pepegrillo's, configured in the file named after each. `module-graph`,
 //! `rfc-citation` and `peer-index` are colibri's own, written against pepegrillo's readers.
 //!
 //! This tool is developer tooling. It is never linked into the library, so it allocates, reads the
@@ -41,6 +41,7 @@ const rules = .{
     @import("rfc_citation.zig"),
     @import("peer_index.zig"),
     @import("static_alignment.zig"),
+    @import("global_state.zig"),
 };
 
 const Linter = pepegrillo.lint.Linter(rules);
@@ -68,6 +69,7 @@ test "the registered rules are exactly the rules CLAUDE.md names" {
         "rfc-citation",
         "peer-index",
         "static-alignment",
+        "global-state",
     };
     try testing.expectEqual(expected.len, Linter.count);
     inline for (rules, 0..) |rule, index| {

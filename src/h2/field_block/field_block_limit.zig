@@ -14,7 +14,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
 const hpack = @import("hpack");
-const constants = @import("constants.zig");
+const constants = @import("../constants.zig");
 const field_block = @import("field_block.zig");
 
 const FieldBlock = field_block.FieldBlock;
@@ -59,13 +59,14 @@ pub fn measure_cut_line(block: *const FieldBlock) Error!void {
 
 const testing = std.testing;
 const Writer = core.Writer;
-const test_block = &field_block.test_block;
-const test_decoder = &field_block.test_decoder;
-const test_frame = &field_block.test_frame;
-const start = field_block.start;
-const expect_section = field_block.expect_section;
-const expect_done = field_block.expect_done;
-const expect_cleared = field_block.expect_cleared;
+const support = @import("field_block_test_support.zig");
+const test_block = &support.test_block;
+const test_decoder = &support.test_decoder;
+const test_frame = &support.test_frame;
+const start = support.start;
+const expect_section = support.expect_section;
+const expect_done = support.expect_done;
+const expect_cleared = support.expect_cleared;
 
 fn feed_continuations(count: u32) !void {
     for (0..count) |_| try testing.expectEqual(null, try test_block.feed(test_decoder, "\x86", false));
@@ -151,7 +152,7 @@ test "a cut line is refused once its octets fed pass representation_len_max, bef
 
 /// Where the longest line and one indexed field after it are written before they are cut into
 /// fragments. Test-only.
-var test_line: [constants.representation_len_max + 1]u8 = undefined;
+threadlocal var test_line: [constants.representation_len_max + 1]u8 = undefined;
 
 /// An octet RFC 7541 Appendix B codes in `huffman_code_bits_max` bits, the longest code, and one
 /// RFC 9113 §8.2.1 allows in a field value. Test-only.

@@ -29,6 +29,7 @@ const canary_rules = [_][]const u8{
     "rfc-citation",
     "peer-index",
     "static-alignment",
+    "global-state",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).

@@ -15,6 +15,7 @@ const encrypt = connection_tls.encrypt;
 const close_notify = connection_tls.close_notify;
 
 const testing = std.testing;
+const support = @import("connection_test_support.zig");
 
 /// A provider the tests drive, which performs no cryptography and answers what the test sets.
 /// Test-only.
@@ -152,25 +153,25 @@ test "decision 45: the three suites of RFC 9846 §9.1 are admitted and nothing e
 test "a cleartext connection holds no provider, and attach stores one before any octet moves" {
     Fake.init_table();
     var state: Fake = .{};
-    connection.test_connection.init(.server);
+    support.test_connection.init(.server);
     // RFC 9113 §3.3: prior-knowledge cleartext h2 has no TLS connection under it at all.
-    try testing.expectEqual(null, connection.test_connection.provider);
-    try attach(&connection.test_connection, state.provider());
-    try testing.expect(connection.test_connection.provider != null);
-    try testing.expect(connection.test_connection.provider.?.speaks_h2());
+    try testing.expectEqual(null, support.test_connection.provider);
+    try attach(&support.test_connection, state.provider());
+    try testing.expect(support.test_connection.provider != null);
+    try testing.expect(support.test_connection.provider.?.speaks_h2());
 }
 
 test "§9.2.3: a post-handshake CertificateRequest is a connection error of PROTOCOL_ERROR" {
     Fake.init_table();
     var state: Fake = .{ .content = .certificate_request };
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     try testing.expectEqual(
         error.ConnectionFailed,
-        decrypt(&connection.test_connection, "record", &plaintext, 0),
+        decrypt(&support.test_connection, "record", &plaintext, 0),
     );
-    try testing.expectEqual(constants.error_protocol_error, connection.test_connection.failure.?);
+    try testing.expectEqual(constants.error_protocol_error, support.test_connection.failure.?);
 }
 
 test "§9.2.3: a NewSessionTicket and a KeyUpdate are consumed and yield no plaintext" {
@@ -178,12 +179,12 @@ test "§9.2.3: a NewSessionTicket and a KeyUpdate are consumed and yield no plai
     var plaintext: [16]u8 = undefined;
     for ([_]tls_provider.Content{ .new_session_ticket, .key_update }) |content| {
         var state: Fake = .{ .content = content, .body = "ignored" };
-        connection.test_connection.init(.client);
-        try attach(&connection.test_connection, state.provider());
-        const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+        support.test_connection.init(.client);
+        try attach(&support.test_connection, state.provider());
+        const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
         try testing.expectEqual(0, opened.plaintext_len);
         try testing.expect(!opened.end_of_data);
-        try testing.expect(!connection.test_connection.has_failed());
+        try testing.expect(!support.test_connection.has_failed());
         // RFC 9846 §4.7.3: only a KeyUpdate may leave a reply owed.
         try testing.expectEqual(content == .key_update, opened.owes_handshake);
     }
@@ -197,36 +198,36 @@ fn key_update_owing(state: *Fake, reply: []const u8) !void {
     var plaintext: [opened_len_max]u8 = undefined;
     state.content = .key_update;
     state.owed = reply;
-    const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+    const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
     try testing.expect(opened.owes_handshake);
 }
 
 test "RFC 9846 §4.7.3: a KeyUpdate's reply goes out ahead of every record sealed after it" {
     Fake.init_table();
     var state: Fake = .{};
-    connection.test_connection.init(.server);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.server);
+    try attach(&support.test_connection, state.provider());
     var output: [16]u8 = undefined;
     try key_update_owing(&state, "reply");
-    const sealed = try encrypt(&connection.test_connection, "data", &output, 0);
+    const sealed = try encrypt(&support.test_connection, "data", &output, 0);
     try testing.expectEqual(4, sealed.consumed);
     try testing.expectEqualStrings("replydata", output[0..sealed.written]);
     // With nothing to seal, the owed octets still go out.
     try key_update_owing(&state, "reply");
-    const alone = try encrypt(&connection.test_connection, "", &output, 0);
+    const alone = try encrypt(&support.test_connection, "", &output, 0);
     try testing.expectEqual(0, alone.consumed);
     try testing.expectEqualStrings("reply", output[0..alone.written]);
     // An output that cannot hold the reply takes nothing, and seals nothing after it.
     try key_update_owing(&state, "reply");
-    try testing.expectError(error.NoSpaceLeft, encrypt(&connection.test_connection, "data", output[0..4], 0));
+    try testing.expectError(error.NoSpaceLeft, encrypt(&support.test_connection, "data", output[0..4], 0));
     try testing.expectEqualStrings("reply", state.owed);
     // Room for the reply and not for a record: the reply alone.
-    const tight = try encrypt(&connection.test_connection, "data", output[0..7], 0);
+    const tight = try encrypt(&support.test_connection, "data", output[0..7], 0);
     try testing.expectEqual(0, tight.consumed);
     try testing.expectEqualStrings("reply", output[0..tight.written]);
     // Once the reply is out nothing is owed, and the provider is not asked again.
     state.owed = "stray";
-    const after = try encrypt(&connection.test_connection, "data", &output, 0);
+    const after = try encrypt(&support.test_connection, "data", &output, 0);
     try testing.expectEqualStrings("data", output[0..after.written]);
 }
 
@@ -235,10 +236,10 @@ test "without a KeyUpdate, sealing asks the provider for nothing owed" {
     // The provider says it owes octets without any KeyUpdate: colibri does not ask, so the
     // common record costs one crossing of the vtable.
     var state: Fake = .{ .owed = "stray" };
-    connection.test_connection.init(.server);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.server);
+    try attach(&support.test_connection, state.provider());
     var output: [16]u8 = undefined;
-    const sealed = try encrypt(&connection.test_connection, "data", &output, 0);
+    const sealed = try encrypt(&support.test_connection, "data", &output, 0);
     try testing.expectEqualStrings("data", output[0..sealed.written]);
     try testing.expectEqualStrings("stray", state.owed);
 }
@@ -250,45 +251,45 @@ test "RFC 9846 §6.1: a peer close_notify is the end of data, and an error alert
         .content = .alert,
         .alert_held = .{ .description = .close_notify, .origin = .peer },
     };
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
-    const closed = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
+    const closed = try decrypt(&support.test_connection, "record", &plaintext, 0);
     try testing.expect(closed.end_of_data);
     try testing.expectEqual(0, closed.plaintext_len);
     // RFC 9846 §6.1 makes this an orderly close, so no HTTP/2 connection error is raised.
-    try testing.expect(!connection.test_connection.has_failed());
+    try testing.expect(!support.test_connection.has_failed());
 
     // RFC 9846 §6.2: every other description is an error alert.
     state = .{ .content = .alert, .alert_held = .{ .description = .bad_record_mac, .origin = .local } };
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
     try testing.expectEqual(
         error.TlsFailed,
-        decrypt(&connection.test_connection, "record", &plaintext, 0),
+        decrypt(&support.test_connection, "record", &plaintext, 0),
     );
 }
 
 test "application data reaches the caller's buffer, and a cleartext connection has no record path" {
     Fake.init_table();
     var state: Fake = .{ .body = "frame octets" };
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
     var plaintext: [32]u8 = undefined;
-    const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+    const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
     try testing.expectEqualStrings("frame octets", plaintext[0..opened.plaintext_len]);
     var output: [32]u8 = undefined;
-    const sealed = try encrypt(&connection.test_connection, "reply", &output, 0);
+    const sealed = try encrypt(&support.test_connection, "reply", &output, 0);
     try testing.expectEqual(5, sealed.written);
-    try testing.expectEqual(1, try close_notify(&connection.test_connection, &output));
+    try testing.expectEqual(1, try close_notify(&support.test_connection, &output));
 
     // RFC 9113 §3.3: a prior-knowledge cleartext connection has no records at all.
-    connection.test_connection.init(.server);
+    support.test_connection.init(.server);
     try testing.expectEqual(
         error.NoProvider,
-        decrypt(&connection.test_connection, "record", &plaintext, 0),
+        decrypt(&support.test_connection, "record", &plaintext, 0),
     );
-    try testing.expectEqual(error.NoProvider, encrypt(&connection.test_connection, "reply", &output, 0));
-    try testing.expectEqual(error.NoProvider, close_notify(&connection.test_connection, &output));
+    try testing.expectEqual(error.NoProvider, encrypt(&support.test_connection, "reply", &output, 0));
+    try testing.expectEqual(error.NoProvider, close_notify(&support.test_connection, &output));
 }
 
 test "RFC 9846 §5.1: a record that is not whole consumes nothing, whatever the provider reports" {
@@ -297,10 +298,10 @@ test "RFC 9846 §5.1: a record that is not whole consumes nothing, whatever the 
     // caller must be told nothing was taken, or it would drop the start of the record it is
     // still waiting for.
     var state: Fake = .{ .content = .incomplete, .body = "partial" };
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
     var plaintext: [32]u8 = undefined;
-    const opened = try decrypt(&connection.test_connection, "half a record", &plaintext, 0);
+    const opened = try decrypt(&support.test_connection, "half a record", &plaintext, 0);
     try testing.expectEqual(0, opened.consumed);
     try testing.expectEqual(0, opened.plaintext_len);
     try testing.expect(!opened.end_of_data);
@@ -313,61 +314,61 @@ test "RFC 9846 §6.1: a user_canceled is neither the end of data nor an error" {
         .content = .alert,
         .alert_held = .{ .description = .user_canceled, .origin = .peer },
     };
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
     // RFC 9846 §6.1: the alert precedes a close_notify, so the reader carries on and waits.
-    const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+    const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
     try testing.expect(!opened.end_of_data);
     try testing.expectEqual(0, opened.plaintext_len);
-    try testing.expect(!connection.test_connection.has_failed());
+    try testing.expect(!support.test_connection.has_failed());
     // It carried no data, so it counts against the run that bounds a hostile stream of them.
-    try testing.expectEqual(1, connection.test_connection.records_without_data);
+    try testing.expectEqual(1, support.test_connection.records_without_data);
     // RFC 9846 §6.1: the close_notify that must follow is what ends the peer's data.
     state.alert_held = .{ .description = .close_notify, .origin = .peer };
-    const closed = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+    const closed = try decrypt(&support.test_connection, "record", &plaintext, 0);
     try testing.expect(closed.end_of_data);
 }
 
 test "a run of records carrying no data is bounded, and one past it is ENHANCE_YOUR_CALM" {
     Fake.init_table();
     var state: Fake = .{ .content = .new_session_ticket };
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     // The bound is what a peer may send, so the last permitted record still succeeds.
     for (0..core.constants.records_without_data_max) |_| {
-        const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+        const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
         try testing.expectEqual(0, opened.plaintext_len);
     }
-    try testing.expect(!connection.test_connection.has_failed());
+    try testing.expect(!support.test_connection.has_failed());
     // RFC 9113 §10.5: a peer generating excessive load is a connection error.
     try testing.expectEqual(
         error.ConnectionFailed,
-        decrypt(&connection.test_connection, "record", &plaintext, 0),
+        decrypt(&support.test_connection, "record", &plaintext, 0),
     );
-    try testing.expectEqual(constants.error_enhance_your_calm, connection.test_connection.failure.?);
+    try testing.expectEqual(constants.error_enhance_your_calm, support.test_connection.failure.?);
 }
 
 test "a record carrying data ends the run, so an interleaved stream never reaches the bound" {
     Fake.init_table();
     var state: Fake = .{};
-    connection.test_connection.init(.client);
-    try attach(&connection.test_connection, state.provider());
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
     var plaintext: [16]u8 = undefined;
     // Many times the bound in total, with one record carrying data after every full run of them.
     for (0..interleaved_runs) |_| {
         state.content = .new_session_ticket;
         state.body = "";
         for (0..core.constants.records_without_data_max) |_| {
-            _ = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+            _ = try decrypt(&support.test_connection, "record", &plaintext, 0);
         }
         state.content = .application_data;
         state.body = "h2";
-        const opened = try decrypt(&connection.test_connection, "record", &plaintext, 0);
+        const opened = try decrypt(&support.test_connection, "record", &plaintext, 0);
         try testing.expectEqual(2, opened.plaintext_len);
     }
-    try testing.expect(!connection.test_connection.has_failed());
-    try testing.expectEqual(0, connection.test_connection.records_without_data);
+    try testing.expect(!support.test_connection.has_failed());
+    try testing.expectEqual(0, support.test_connection.records_without_data);
 }
 
 /// Runs of records carrying no data the interleaving test drives, each a whole bound's worth.

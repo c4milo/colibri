@@ -197,7 +197,7 @@ test "every split of a head finds the span the whole head does, scanning each oc
 }
 
 /// Octets the limit tests fill a line with.
-var test_octets: [constants.head_len_max + 1]u8 = @splat('a');
+threadlocal var test_octets: [constants.head_len_max + 1]u8 = @splat('a');
 
 test "a start line of start_line_len_max octets is read, and one octet more is refused" {
     var scanner: Scanner = .{};

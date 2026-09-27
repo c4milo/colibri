@@ -98,7 +98,7 @@ const small_line_len: u64 = 2;
 const small_capacity: u64 = small_entries * (constants.entry_overhead_len + small_line_len);
 
 /// The decoder the tests drive, placed outside any stack frame. Test-only.
-var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
+threadlocal var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
 /// Room for the tests' encoded instructions. Test-only.
 const test_room: usize = 256;
 

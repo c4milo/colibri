@@ -233,7 +233,8 @@ section when a step adds or renames a command.
   relative-import, module-graph, magic-numbers, markdown GFM, file length, rfc-citation
   (a validation branch with no RFC section comment), peer-index (invariant 3) and
   static-alignment (a global states `align(@alignOf(T))`, which Zig 0.16's x86_64 backend needs
-  to place it right). Every rule
+  to place it right) and global-state (no library `var` that every thread shares; a fixture
+  several test files share lives in a `*_test_support.zig` file). Every rule
   `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it.
 - Test: `zig build test` — depends on `lint`, then every module's unit tests and `golden-check`.
   `zig build test-<module>` runs one target's tests with nothing else in the graph, which is what

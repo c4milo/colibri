@@ -182,7 +182,7 @@ fn weighted(held_ns: u64, sample_ns: u64, weight: u64) u64 {
 const testing = std.testing;
 
 /// The estimator the tests drive, and the instants they measure in. Test-only.
-var test_rtt: Rtt align(@alignOf(Rtt)) = undefined;
+threadlocal var test_rtt: Rtt align(@alignOf(Rtt)) = undefined;
 const millisecond = constants.nanoseconds_per_millisecond;
 
 /// A sample with no reported delay, which is what an Initial packet's acknowledgment gives.

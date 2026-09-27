@@ -245,7 +245,7 @@ pub const DynamicTable = struct {
 const testing = std.testing;
 
 /// The table the tests drive, placed outside any stack frame. Test-only.
-var test_table: DynamicTable align(@alignOf(DynamicTable)) = undefined;
+threadlocal var test_table: DynamicTable align(@alignOf(DynamicTable)) = undefined;
 /// A capacity that holds a handful of small entries, and the size one of them takes: §3.2.1's
 /// overhead plus a one-octet name and a one-octet value.
 const test_entries: u64 = 4;

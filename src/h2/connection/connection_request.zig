@@ -238,10 +238,11 @@ fn write_line(target: *Connection, writer: *Writer, name: []const u8, value: []c
 }
 
 const testing = std.testing;
-const test_connection = &connection.test_connection;
-const test_output = &connection.test_output;
-const start_client = connection.start_client;
-const feed_response = connection.feed_response;
+const support = @import("connection_test_support.zig");
+const test_connection = &support.test_connection;
+const test_output = &support.test_output;
+const start_client = support.start_client;
+const feed_response = support.feed_response;
 
 /// A request the tests send, with every pseudo-header field §8.3.1 requires. Test-only.
 const test_request: Request = .{
@@ -332,8 +333,8 @@ test "§8.2 and §8.2.2: an uppercase name and a connection-specific line are re
 
 test "§6.8: no stream opens after a GOAWAY the peer sent" {
     try start_client();
-    const goaway = try connection.frame_bytes(&connection.test_input, constants.frame_type_goaway, 0, 0, "\x00\x00\x00\x00\x00\x00\x00\x00");
-    _ = try connection.feed(goaway);
+    const goaway = try support.frame_bytes(&support.test_input, constants.frame_type_goaway, 0, 0, "\x00\x00\x00\x00\x00\x00\x00\x00");
+    _ = try support.feed(goaway);
     try testing.expectEqual(
         error.AfterGoawayReceived,
         write_request(test_connection, test_output, test_request, &.{}, &.{}, true),
@@ -360,14 +361,14 @@ test "§8.1: the trailer section is the one after the final response" {
     _ = try feed_response(sent.stream_id, "103", false);
     _ = try feed_response(sent.stream_id, "200", false);
     var block: [constants.frame_size_max]u8 = undefined;
-    connection.test_encoder.init(constants.header_table_size_initial, .never);
+    support.test_encoder.init(constants.header_table_size_initial, .never);
     var writer = Writer.init(&block);
-    try connection.test_encoder.begin_block(&writer);
-    try connection.test_encoder.write_field(&writer, "grpc-status", "0", .without_indexing);
-    connection.test_encoder.commit_block();
+    try support.test_encoder.begin_block(&writer);
+    try support.test_encoder.write_field(&writer, "grpc-status", "0", .without_indexing);
+    support.test_encoder.commit_block();
     const flags = constants.flag_end_headers | constants.flag_end_stream;
-    const bytes = try connection.frame_bytes(&connection.test_input, constants.frame_type_headers, flags, sent.stream_id, writer.written());
-    const event = (try connection.feed(bytes)).?;
+    const bytes = try support.frame_bytes(&support.test_input, constants.frame_type_headers, flags, sent.stream_id, writer.written());
+    const event = (try support.feed(bytes)).?;
     try testing.expectEqual(sent.stream_id, event.trailers.stream_id);
 }
 
@@ -377,20 +378,20 @@ test "§8.1.1: an interim response does not set the content-length the DATA is c
     // An interim response carrying content-length: its value belongs to no message, because the
     // message the final response begins is the one §8.1.1 compares.
     var block: [constants.frame_size_max]u8 = undefined;
-    connection.test_encoder.init(constants.header_table_size_initial, .never);
+    support.test_encoder.init(constants.header_table_size_initial, .never);
     var writer = Writer.init(&block);
-    try connection.test_encoder.begin_block(&writer);
-    try connection.test_encoder.write_field(&writer, ":status", "103", .without_indexing);
-    try connection.test_encoder.write_field(&writer, "content-length", "5", .without_indexing);
-    connection.test_encoder.commit_block();
-    const interim = try connection.frame_bytes(&connection.test_input, constants.frame_type_headers, constants.flag_end_headers, sent.stream_id, writer.written());
-    _ = try connection.feed(interim);
+    try support.test_encoder.begin_block(&writer);
+    try support.test_encoder.write_field(&writer, ":status", "103", .without_indexing);
+    try support.test_encoder.write_field(&writer, "content-length", "5", .without_indexing);
+    support.test_encoder.commit_block();
+    const interim = try support.frame_bytes(&support.test_input, constants.frame_type_headers, constants.flag_end_headers, sent.stream_id, writer.written());
+    _ = try support.feed(interim);
     try testing.expectEqual(null, test_connection.streams.lookup(sent.stream_id).live.content_length);
     _ = try feed_response(sent.stream_id, "200", false);
     // Three octets end the stream, which a content-length of 5 left over from the interim
     // response would refuse.
-    const data = try connection.frame_bytes(&connection.test_input, constants.frame_type_data, constants.flag_end_stream, sent.stream_id, "abc");
-    const event = (try connection.feed(data)).?;
+    const data = try support.frame_bytes(&support.test_input, constants.frame_type_data, constants.flag_end_stream, sent.stream_id, "abc");
+    const event = (try support.feed(data)).?;
     try testing.expectEqual(3, event.data.payload.len);
 }
 
@@ -460,8 +461,8 @@ test "§8.5: a CONNECT block carries :method and :authority alone" {
 test "RFC 7541 §4.2: a table-size change is declared once and not repeated on the next request" {
     try start_client();
     // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
-    const settings = try connection.frame_bytes(&connection.test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
-    _ = try connection.feed(settings);
+    const settings = try support.frame_bytes(&support.test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
+    _ = try support.feed(settings);
     const first = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // RFC 7541 §4.2: the block opens with the size update the change owes.
     try testing.expectEqual(0x3f, test_output[constants.frame_header_len]);

@@ -26,7 +26,7 @@ const frame = @import("../frame/frame.zig");
 const message = @import("../message/message.zig");
 const stream = @import("../stream/stream.zig");
 const streams_table = @import("../stream/streams.zig");
-const field_block = @import("../field_block.zig");
+const field_block = @import("../field_block/field_block.zig");
 const connection = @import("connection.zig");
 const stream_frames = @import("connection_stream.zig");
 
@@ -219,16 +219,17 @@ fn refuse_message(target: *Connection, id: u32, now_ns: u64) Error!?Event {
 const testing = std.testing;
 const core = @import("core");
 const Writer = core.Writer;
-const test_connection = &connection.test_connection;
-const feed = connection.feed;
-const feed_request = connection.feed_request;
-const frame_bytes = connection.frame_bytes;
-const start_server = connection.start_server;
-const write_queued = connection.write_queued;
-const test_input = &connection.test_input;
+const support = @import("connection_test_support.zig");
+const test_connection = &support.test_connection;
+const feed = support.feed;
+const feed_request = support.feed_request;
+const frame_bytes = support.frame_bytes;
+const start_server = support.start_server;
+const write_queued = support.write_queued;
+const test_input = &support.test_input;
 
 /// Where a test builds a field block before it is cut into frames. Test-only.
-var test_block: [constants.frame_size_max]u8 = undefined;
+threadlocal var test_block: [constants.frame_size_max]u8 = undefined;
 
 test "a GET request is reported with its pseudo-header fields and the section it came from" {
     try start_server();
@@ -248,7 +249,7 @@ test "a GET request is reported with its pseudo-header fields and the section it
 
 test "http2/6.10: a field block cut into CONTINUATION frames is one request" {
     try start_server();
-    const fragment = try connection.request_block(&test_block, "/");
+    const fragment = try support.request_block(&test_block, "/");
     const cut = fragment.len / 2;
     const opening = try frame_bytes(test_input, constants.frame_type_headers, constants.flag_end_stream, 1, fragment[0..cut]);
     try testing.expectEqual(null, try feed(opening));
@@ -264,10 +265,10 @@ test "§8.1: a second field section is a trailer section, and one without END_ST
     try start_server();
     _ = try feed_request(1, "/", false);
     var writer = Writer.init(&test_block);
-    connection.test_encoder.init(constants.header_table_size_initial, .never);
-    try connection.test_encoder.begin_block(&writer);
-    try connection.test_encoder.write_field(&writer, "x-checksum", "abc", .without_indexing);
-    connection.test_encoder.commit_block();
+    support.test_encoder.init(constants.header_table_size_initial, .never);
+    try support.test_encoder.begin_block(&writer);
+    try support.test_encoder.write_field(&writer, "x-checksum", "abc", .without_indexing);
+    support.test_encoder.commit_block();
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const trailers = try frame_bytes(test_input, constants.frame_type_headers, flags, 1, writer.written());
     const event = (try feed(trailers)).?;
@@ -283,12 +284,12 @@ test "§8.1: a second field section is a trailer section, and one without END_ST
 test "§8.3.1: a request §8 refuses is a stream error, and the decoder stays in step with the peer" {
     try start_server();
     var writer = Writer.init(&test_block);
-    connection.test_encoder.init(constants.header_table_size_initial, .always);
-    try connection.test_encoder.begin_block(&writer);
+    support.test_encoder.init(constants.header_table_size_initial, .always);
+    try support.test_encoder.begin_block(&writer);
     // No :path, which §8.3.1 requires, and an insert the next block will index.
-    try connection.test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
-    try connection.test_encoder.write_field(&writer, "x-trace", "abc", .incremental);
+    try support.test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
+    try support.test_encoder.write_field(&writer, "x-trace", "abc", .incremental);
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const malformed = try frame_bytes(test_input, constants.frame_type_headers, flags, 1, writer.written());
     const refused = (try feed(malformed)).?;
@@ -298,12 +299,12 @@ test "§8.3.1: a request §8 refuses is a stream error, and the decoder stays in
     // The next request indexes what that block inserted, which only a decoder synchronized with
     // the peer's encoder can read.
     var second = Writer.init(&test_block);
-    try connection.test_encoder.begin_block(&second);
-    try connection.test_encoder.write_field(&second, ":method", "GET", .without_indexing);
-    try connection.test_encoder.write_field(&second, ":scheme", "http", .without_indexing);
-    try connection.test_encoder.write_field(&second, ":path", "/", .without_indexing);
-    try connection.test_encoder.write_field(&second, "x-trace", "abc", .without_indexing);
-    connection.test_encoder.commit_block();
+    try support.test_encoder.begin_block(&second);
+    try support.test_encoder.write_field(&second, ":method", "GET", .without_indexing);
+    try support.test_encoder.write_field(&second, ":scheme", "http", .without_indexing);
+    try support.test_encoder.write_field(&second, ":path", "/", .without_indexing);
+    try support.test_encoder.write_field(&second, "x-trace", "abc", .without_indexing);
+    support.test_encoder.commit_block();
     var buffer: [constants.frame_header_len + constants.frame_size_max]u8 = undefined;
     const bytes = try frame_bytes(&buffer, constants.frame_type_headers, flags, 3, second.written());
     const event = (try feed(bytes)).?;
@@ -324,13 +325,13 @@ test "http2/5.1.2/1: the stream past concurrent_streams_max is refused, and its 
     // The refused stream's field block carries an insert, which the decoder must still read:
     // §4.3 makes the dynamic table the connection's state, not the stream's (invariant 10).
     var writer = Writer.init(&test_block);
-    connection.test_encoder.init(constants.header_table_size_initial, .never);
-    try connection.test_encoder.begin_block(&writer);
-    try connection.test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
-    try connection.test_encoder.write_field(&writer, "x-trace", "abc", .incremental);
-    connection.test_encoder.commit_block();
+    support.test_encoder.init(constants.header_table_size_initial, .never);
+    try support.test_encoder.begin_block(&writer);
+    try support.test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
+    try support.test_encoder.write_field(&writer, "x-trace", "abc", .incremental);
+    support.test_encoder.commit_block();
     const inserts_before = test_connection.decoder.table.len();
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const bytes = try frame_bytes(test_input, constants.frame_type_headers, flags, id, writer.written());
@@ -343,7 +344,7 @@ test "http2/5.1.2/1: the stream past concurrent_streams_max is refused, and its 
 
 test "http2/5.1.1/1: a HEADERS frame on the server's own parity ends the connection" {
     try start_server();
-    const fragment = try connection.request_block(&test_block, "/");
+    const fragment = try support.request_block(&test_block, "/");
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const bytes = try frame_bytes(test_input, constants.frame_type_headers, flags, 2, fragment);
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
@@ -353,7 +354,7 @@ test "http2/5.1.1/1: a HEADERS frame on the server's own parity ends the connect
 test "§8.4: a PUSH_PROMISE at a server ends the connection (decision 17)" {
     try start_server();
     _ = try feed_request(1, "/", false);
-    const fragment = try connection.request_block(&test_block, "/");
+    const fragment = try support.request_block(&test_block, "/");
     var payload: [constants.frame_header_len + constants.frame_size_max]u8 = undefined;
     var writer = Writer.init(&payload);
     try writer.write_int(u32, 2);
@@ -366,17 +367,17 @@ test "§8.4: a PUSH_PROMISE at a server ends the connection (decision 17)" {
 test "§10.5.1: a field section past what colibri accepts is a stream error and the block is read whole" {
     try start_server();
     var writer = Writer.init(&test_block);
-    connection.test_encoder.init(constants.header_table_size_initial, .never);
-    try connection.test_encoder.begin_block(&writer);
-    try connection.test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
-    try connection.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
-    connection.test_encoder.commit_block();
+    support.test_encoder.init(constants.header_table_size_initial, .never);
+    try support.test_encoder.begin_block(&writer);
+    try support.test_encoder.write_field(&writer, ":method", "GET", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":scheme", "http", .without_indexing);
+    try support.test_encoder.write_field(&writer, ":path", "/", .without_indexing);
+    support.test_encoder.commit_block();
     // One line more than `field_count_max`, which is the section the caller's storage holds.
     var name: [16]u8 = undefined;
     for (0..core.constants.field_count_max) |index| {
         const written_name = try std.fmt.bufPrint(&name, "x-{d}", .{index});
-        try connection.test_encoder.write_field(&writer, written_name, "v", .without_indexing);
+        try support.test_encoder.write_field(&writer, written_name, "v", .without_indexing);
     }
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const bytes = try frame_bytes(test_input, constants.frame_type_headers, flags, 1, writer.written());

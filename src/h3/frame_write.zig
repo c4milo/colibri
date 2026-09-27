@@ -101,7 +101,7 @@ const Reader = core.Reader;
 
 /// Room for what a test writes, larger than any of them. Test-only.
 const test_room: usize = 256;
-var test_octets: [test_room]u8 = undefined;
+threadlocal var test_octets: [test_room]u8 = undefined;
 
 /// Writes with `write` and reads the header back, returning it with the payload. Test-only.
 fn round_trip(written: []const u8) !struct { header: frame.Header, payload: []const u8 } {

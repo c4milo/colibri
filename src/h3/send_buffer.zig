@@ -89,8 +89,8 @@ const testing = std.testing;
 
 /// A buffer small enough that a test fills it. Test-only.
 const test_capacity: usize = 16;
-var test_buffer: SendBuffer(test_capacity) align(@alignOf(SendBuffer(test_capacity))) = undefined;
-var test_output: [test_capacity]u8 = undefined;
+threadlocal var test_buffer: SendBuffer(test_capacity) align(@alignOf(SendBuffer(test_capacity))) = undefined;
+threadlocal var test_output: [test_capacity]u8 = undefined;
 
 test "decision 79: octets written are read back by stream offset" {
     test_buffer.init();

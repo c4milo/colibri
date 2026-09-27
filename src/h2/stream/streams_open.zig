@@ -224,7 +224,7 @@ const Lookup = table.Lookup;
 
 /// The table the tests run in, placed outside any stack frame. Test-only, and
 /// `streams_slot.zig` runs its tests on it too.
-pub var test_table: Streams align(@alignOf(Streams)) = undefined;
+pub threadlocal var test_table: Streams align(@alignOf(Streams)) = undefined;
 
 /// The peer's SETTINGS_INITIAL_WINDOW_SIZE in the tests. Test-only.
 pub const test_send_window: u32 = 1000;

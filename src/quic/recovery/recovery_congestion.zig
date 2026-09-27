@@ -156,7 +156,7 @@ fn minimum_window_of(max_datagram_len: u64) u64 {
 const testing = std.testing;
 
 /// The controller the tests drive. Test-only.
-var test_congestion: Congestion align(@alignOf(Congestion)) = undefined;
+threadlocal var test_congestion: Congestion align(@alignOf(Congestion)) = undefined;
 /// The path's maximum datagram in these tests, which is RFC 9000 §14.1's floor, and the window
 /// ten of them come to.
 const test_datagram_len: u64 = constants.datagram_len_min;

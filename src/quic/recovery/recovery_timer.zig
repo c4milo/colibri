@@ -168,8 +168,8 @@ fn backed_off(period_ns: u64, pto_count: u6) u64 {
 const testing = std.testing;
 
 /// The state and estimator the tests drive. Test-only.
-var test_state: State align(@alignOf(State)) = undefined;
-var test_rtt: Rtt align(@alignOf(Rtt)) = undefined;
+threadlocal var test_state: State align(@alignOf(State)) = undefined;
+threadlocal var test_rtt: Rtt align(@alignOf(Rtt)) = undefined;
 /// An estimator whose Probe Timeout is 200 ms outside the Application Data space and 225 ms in
 /// it: 100 ms smoothed, four times a 25 ms variation, and the peer's 25 ms on top. Every one is
 /// written whole in nanoseconds, because the magic-numbers rule reads a constant's whole value.

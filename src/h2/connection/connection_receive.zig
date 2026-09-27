@@ -129,12 +129,13 @@ fn check_field_block(target: *Connection, header: frame.Header) Error!void {
 }
 
 const testing = std.testing;
-const test_connection = &connection.test_connection;
-const feed = connection.feed;
-const frame_bytes = connection.frame_bytes;
-const start_server = connection.start_server;
-const write_queued = connection.write_queued;
-const test_input = &connection.test_input;
+const support = @import("connection_test_support.zig");
+const test_connection = &support.test_connection;
+const feed = support.feed;
+const frame_bytes = support.frame_bytes;
+const start_server = support.start_server;
+const write_queued = support.write_queued;
+const test_input = &support.test_input;
 
 test "a server reads the client preface, in pieces, and refuses the first octet that differs" {
     test_connection.init(.server);

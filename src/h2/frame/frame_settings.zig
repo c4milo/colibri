@@ -164,7 +164,7 @@ test "an unknown setting identifier is yielded, not refused (RFC 9113 §6.5.2 le
 
 /// Octets of the largest SETTINGS payload colibri accepts: every setting zero. Test-only.
 const full_payload_len = constants.settings_per_frame_max * constants.setting_len;
-var full_payload: [full_payload_len]u8 = @splat(0);
+threadlocal var full_payload: [full_payload_len]u8 = @splat(0);
 
 test "the iterator walks a payload of the largest frame colibri accepts, bounded by settings_per_frame_max" {
     var iterator = (try parse_settings(settings_header(full_payload_len, 0, 0), &full_payload)).iterator();

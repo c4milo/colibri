@@ -119,7 +119,7 @@ fn cost_ns(earned: u64, rate: Rate) u64 {
 const testing = std.testing;
 
 /// The pacer the tests drive. Test-only.
-var test_pacer: Pacer align(@alignOf(Pacer)) = undefined;
+threadlocal var test_pacer: Pacer align(@alignOf(Pacer)) = undefined;
 /// A path whose window is ten datagrams over a 100 ms round trip, so the rate earns one datagram
 /// every 8 ms: 100 ms divided by ten datagrams, and then by the 5/4 of §7.7. Every instant is
 /// written whole in nanoseconds, because the magic-numbers rule reads a constant's whole value.

@@ -206,10 +206,10 @@ fn write_goaway(replies: *Replies, writer: *Writer) void {
 const testing = std.testing;
 
 /// The queues the tests run on, placed outside any stack frame. Test-only.
-var test_replies: Replies align(@alignOf(Replies)) = undefined;
+threadlocal var test_replies: Replies align(@alignOf(Replies)) = undefined;
 
 /// Where the tests write frames. Test-only.
-var test_output: [constants.frame_size_max]u8 = @splat(0);
+threadlocal var test_output: [constants.frame_size_max]u8 = @splat(0);
 
 test "an empty queue writes nothing, and init empties every queue" {
     test_replies.init();

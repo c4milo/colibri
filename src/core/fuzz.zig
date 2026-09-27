@@ -104,8 +104,8 @@ test "a corpus entry with a value reads the value first" {
     try testing.expectEqualSlices(u8, "\x1f\x9a", buffer[0..smith.slice(&buffer)]);
 }
 
-var sweep_count: usize = 0;
-var sweep_longest: usize = 0;
+threadlocal var sweep_count: usize = 0;
+threadlocal var sweep_longest: usize = 0;
 
 fn count_inputs(_: void, smith: *Smith) anyerror!void {
     var buffer: [sweep_len_max]u8 = @splat(0);

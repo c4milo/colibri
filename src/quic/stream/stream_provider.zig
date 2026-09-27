@@ -43,7 +43,7 @@ pub const StreamProvider = struct {
     }
 };
 
-var none_context: u8 = 0;
+threadlocal var none_context: u8 = 0;
 
 const none_vtable: VTable = .{ .read = read_nothing };
 

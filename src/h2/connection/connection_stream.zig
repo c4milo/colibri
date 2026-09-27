@@ -214,13 +214,14 @@ fn on_window_update(target: *Connection, header: frame.Header, payload: frame.Wi
 }
 
 const testing = std.testing;
-const test_connection = &connection.test_connection;
-const feed = connection.feed;
-const feed_request = connection.feed_request;
-const frame_bytes = connection.frame_bytes;
-const start_server = connection.start_server;
-const write_queued = connection.write_queued;
-const test_input = &connection.test_input;
+const support = @import("connection_test_support.zig");
+const test_connection = &support.test_connection;
+const feed = support.feed;
+const feed_request = support.feed_request;
+const frame_bytes = support.frame_bytes;
+const start_server = support.start_server;
+const write_queued = support.write_queued;
+const test_input = &support.test_input;
 
 /// The octets of a RST_STREAM frame for `stream_id` carrying `code`. Test-only.
 fn expect_rst_stream(written: []const u8, stream_id: u32, code: u32) !void {
@@ -249,7 +250,7 @@ test "http2/5.1.1/2: a HEADERS frame on an identifier below the watermark ends t
     _ = try feed_request(5, "/", true);
     try testing.expectEqual(5, test_connection.streams.highest_peer_opened_id);
     var block: [constants.frame_size_max]u8 = undefined;
-    const fragment = try connection.request_block(&block, "/");
+    const fragment = try support.request_block(&block, "/");
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const bytes = try frame_bytes(test_input, constants.frame_type_headers, flags, 3, fragment);
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));

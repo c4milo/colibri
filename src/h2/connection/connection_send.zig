@@ -193,21 +193,22 @@ fn spend_windows(target: *Connection, record: *Stream, len: u32) void {
 }
 
 const testing = std.testing;
-const test_connection = &connection.test_connection;
-const feed = connection.feed;
-const feed_request = connection.feed_request;
-const frame_bytes = connection.frame_bytes;
-const start_server = connection.start_server;
-const write_queued = connection.write_queued;
-const test_input = &connection.test_input;
-const test_output = &connection.test_output;
+const support = @import("connection_test_support.zig");
+const test_connection = &support.test_connection;
+const feed = support.feed;
+const feed_request = support.feed_request;
+const frame_bytes = support.frame_bytes;
+const start_server = support.start_server;
+const write_queued = support.write_queued;
+const test_input = &support.test_input;
+const test_output = &support.test_output;
 
 /// A response body the tests send. Test-only.
 const test_body = "hello";
 
 /// Where the tests that send more than one frame write: the largest block and the frame headers
 /// that cut it. Test-only.
-var test_large_output: [constants.send_block_len_max + constants.frame_size_max]u8 = @splat(0);
+threadlocal var test_large_output: [constants.send_block_len_max + constants.frame_size_max]u8 = @splat(0);
 
 test "a response ends the stream, and a HEADERS frame on it afterwards is STREAM_CLOSED (http2/5.1/12)" {
     try start_server();
@@ -222,7 +223,7 @@ test "a response ends the stream, and a HEADERS frame on it afterwards is STREAM
     try testing.expectEqual(0, test_connection.streams.peer_active);
     // The table still holds the record, so the frame the peer sends late is judged by §5.1.
     var block: [constants.frame_size_max]u8 = undefined;
-    const fragment = try connection.request_block(&block, "/");
+    const fragment = try support.request_block(&block, "/");
     const flags = constants.flag_end_headers | constants.flag_end_stream;
     const late = try frame_bytes(test_input, constants.frame_type_headers, flags, 1, fragment);
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(late, 0));
@@ -361,7 +362,7 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
     _ = try feed_request(1, "/", true);
     // RFC 9113 §6.5.2: SETTINGS_HEADER_TABLE_SIZE is the limit the peer sets on colibri's encoder.
     const settings = try frame_bytes(test_input, constants.frame_type_settings, 0, 0, "\x00\x01\x00\x00\x00\x64");
-    _ = try connection.feed(settings);
+    _ = try support.feed(settings);
     _ = try write_response(test_connection, test_output, 1, 200, &.{}, true);
     // RFC 7541 §4.2: the block opens with the size update the change owes, which for 100 is two
     // octets, the prefix full and the remainder 69.

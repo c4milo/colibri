@@ -57,7 +57,7 @@ pub fn walk(section: *const FieldSection, kind: Kind) Error!Seen {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
+threadlocal var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 fn line_of(name: []const u8, value: []const u8) Field {
     return .{ .name = name, .value = value };

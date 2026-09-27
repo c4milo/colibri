@@ -327,7 +327,7 @@ pub const Streams = struct {
 const testing = std.testing;
 
 /// The table the tests drive, and the limits they start it with. Test-only.
-var test_streams: Streams align(@alignOf(Streams)) = undefined;
+threadlocal var test_streams: Streams align(@alignOf(Streams)) = undefined;
 const test_limit = 8;
 const both_limits: [constants.stream_directionalities]u64 = @splat(test_limit);
 

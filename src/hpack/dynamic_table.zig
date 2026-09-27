@@ -197,7 +197,7 @@ pub const DynamicTable = struct {
 const testing = std.testing;
 
 /// The table the tests run in, placed outside any stack frame.
-var test_table: DynamicTable align(@alignOf(DynamicTable)) = undefined;
+threadlocal var test_table: DynamicTable align(@alignOf(DynamicTable)) = undefined;
 
 fn expect_entry(index: u64, name: []const u8, value: []const u8) !void {
     const entry = test_table.get(index) orelse return error.TestUnexpectedResult;

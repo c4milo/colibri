@@ -177,7 +177,7 @@ pub fn permitted_len(triggered_by_len: usize) ?PermittedLen {
 const testing = std.testing;
 
 /// The tokens the tests drive, and three distinct ones. Test-only.
-var test_tokens: Tokens align(@alignOf(Tokens)) = undefined;
+threadlocal var test_tokens: Tokens align(@alignOf(Tokens)) = undefined;
 const octet_a = 0x11;
 const octet_b = 0x22;
 const octet_c = 0x33;
@@ -275,7 +275,7 @@ const bits_octet: u8 = 0xa5;
 /// More octets than any case below asks for, so what bounds an answer is the rule under test.
 const bits_len_plenty: usize = 64;
 const bits_plenty: [bits_len_plenty]u8 = @splat(bits_octet);
-var reset_output: [bits_len_plenty]u8 = undefined;
+threadlocal var reset_output: [bits_len_plenty]u8 = undefined;
 /// A datagram long enough that §10.3.3 admits an answer of every length these cases ask for.
 const triggering_len: usize = 60;
 

@@ -215,8 +215,8 @@ const testing = std.testing;
 
 /// Room for what a test writes and for the strings it decodes. Test-only.
 const test_room: usize = 256;
-var test_octets: [test_room]u8 = undefined;
-var test_strings: [test_room]u8 = undefined;
+threadlocal var test_octets: [test_room]u8 = undefined;
+threadlocal var test_strings: [test_room]u8 = undefined;
 
 /// Writes an encoder instruction and reads it back. Test-only.
 fn round_trip_encoder(held: Encoder) !Encoder {

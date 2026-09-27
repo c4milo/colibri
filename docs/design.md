@@ -4212,6 +4212,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   passes 144 of 146 over TLS, the 2 skipped by name, and without the variable it ends in EOF:
   **CAUGHT**.
 
+  **Global state, 2026-09-26.** The same pepegrillo commit has `global-state`, which refuses a
+  container-level `var` that is not `threadlocal`. Over the whole tree it found 510. `zig build
+  lint` now runs it over the library modules alone, where it found 70:
+  - `none_context`, the one byte `stream_provider.zig`'s `none()` points its context at, is now
+    `threadlocal`;
+  - test fixtures that one file uses are `threadlocal` too;
+  - fixtures that several files' tests share move into `*_test_support.zig`, which the rule does
+    not read. A test names such a fixture through a `const` holding its address, and a
+    `threadlocal` has no address at compile time. `connection.zig`'s move to
+    `connection_test_support.zig`, and `field_block.zig`'s to `field_block_test_support.zig`, made
+    four `field_block` files, so they now sit in `src/h2/field_block/`.
+
+  The rule leaves out `src/testing/`, `src/sim/`, `src/golden/` and the test files. The servers in
+  `src/testing/` share arrays indexed by worker on purpose. Made `threadlocal`, each array would be
+  copied into every thread, and glibc places a thread's static TLS on its stack. Mutations, each
+  **CAUGHT** by `zig build lint`: `none_context` shared again, the rule unregistered (the
+  canary), and the rule reading `*_test_support.zig`.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

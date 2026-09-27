@@ -116,12 +116,13 @@ pub fn on_window_update(target: *Connection, update: frame.WindowUpdate) Error!?
 
 const testing = std.testing;
 const Writer = @import("core").Writer;
-const test_connection = &connection.test_connection;
-const feed = connection.feed;
-const frame_bytes = connection.frame_bytes;
-const start_server = connection.start_server;
-const write_queued = connection.write_queued;
-const test_input = &connection.test_input;
+const support = @import("connection_test_support.zig");
+const test_connection = &support.test_connection;
+const feed = support.feed;
+const frame_bytes = support.frame_bytes;
+const start_server = support.start_server;
+const write_queued = support.write_queued;
+const test_input = &support.test_input;
 
 /// Writes a SETTINGS frame carrying one setting. Test-only.
 fn settings_frame(id: u16, value: u32) ![]const u8 {
@@ -194,7 +195,7 @@ test "the peer's acknowledgment puts colibri's own settings in force, and one it
 
 test "a new SETTINGS_INITIAL_WINDOW_SIZE moves every stream's send window, and an overflow is FLOW_CONTROL_ERROR" {
     try start_server();
-    _ = try connection.feed_request(1, "/", false);
+    _ = try support.feed_request(1, "/", false);
     const record = test_connection.streams.lookup(1).live;
     try testing.expectEqual(constants.initial_window_size_initial, record.send_window.available);
     _ = try feed(try settings_frame(constants.setting_initial_window_size, 100));

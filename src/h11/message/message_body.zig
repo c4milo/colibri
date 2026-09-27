@@ -218,7 +218,7 @@ fn add_coding(codings: *Codings, name: []const u8) Error!void {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
+threadlocal var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 const http11: Version = .{ .major = 1, .minor = 1 };
 const http10: Version = .{ .major = 1, .minor = 0 };
