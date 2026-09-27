@@ -218,6 +218,14 @@ test "a pin of the server's key authenticates it with no anchor, clock or name" 
     try support.handshake_both(null);
     // No server_name was sent.
     try testing.expectEqual(null, server.sni());
+    // Pins alone read the leaf alone, however long the chain after it (chapulin `e802399`).
+    const long_chain = [_][]const u8{support.leaf} ++ [_][]const u8{support.root} ** 15;
+    try support.server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &support.protocols,
+    });
+    try support.handshake_both(null);
     // Another key's pin fails the handshake.
     pin[0] ^= 1;
     try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols }, .{});

@@ -4417,6 +4417,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     a level with no keys, and a Retry token checked a second later. A mapping of a capacity error
     chapulin cannot return with `receive_len` is gone.
 
+  **16b at chapulin `e802399`, 2026-09-27.** The pin moved from `13f4692` to chapulin `e8023994`,
+  which carries two of the fixes 16b asked for.
+  - `9d604f7` ends the connection when a handshake message before a key change does not end its
+    record (RFC 9846 §5.1). The test held back for it is in: two KeyUpdates sealed in one record
+    fail the read, and neither is answered.
+  - `e802399` has pins alone take any number of certificates after the leaf. A pinned client
+    completes in memory against a chain of 16.
+  - `7c18e3c` and `7d57fbc` change chapulin's Zig API and what its server refuses at init, and
+    colibri needed no change for either.
+
+  The runner's `amplificationlimit` case still fails with colibri as the client, for a second
+  bound: pins alone read the leaf under `CH_WEBPKI_CERT_MAX`, 3,072 octets, and the case's leaf
+  is 5,514 (`docs/chapulin.md`). Reported on 2026-09-27; the case waits for chapulin's answer.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1939 of 1939 tests. `zig build test-tls test-tls-keylog -Dcpu=generic`: 73 of
+    73.
+  - `tools/tls_handshake.sh`, `tools/tls_accept.sh`, `tools/quic_loopback.sh`, `tools/quic_udp.sh`
+    and `tools/quic_aioquic.sh`: ok. `tools/h3spec.sh`: 49 examples, 0 failures.
+  - `tools/h2spec.sh 18443 --tls`: 144 passed in cleartext and over TLS, the 2 skipped by name. The
+    h2 and h11 interop scripts with `--tls`: every exchange and request ended as planned.
+  - `tools/interop.sh quic-go`, every case of its default list: colibri as the server passed every
+    case against quic-go, whose client does not run `ecn`, and against colibri's client every case
+    but `amplificationlimit` and `rebind-port`. `rebind-port` then passed 3 runs of 3. As the
+    client against quic-go, colibri passed every case but `amplificationlimit`.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

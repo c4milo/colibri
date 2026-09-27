@@ -177,6 +177,17 @@ test "a record that carries no data is taken whole, and the partial one after it
     try testing.expectEqual(0, try receiver.vtable.handshake_write(receiver.context, &output_storage, 0));
 }
 
+test "RFC 9846 §5.1: a KeyUpdate that does not end its record fails the connection" {
+    try connect();
+    const receiver = support.server.provider();
+    const both = key_update_requested ++ key_update_requested;
+    const update = try seal(Keys.of(logged.client), 0, content_handshake, &both, &sealed_storage);
+    try testing.expectError(error.TlsFailed, receiver.vtable.decrypt_record(receiver.context, update, &support.scratch));
+    // chapulin answers neither: the record failed before the first KeyUpdate took effect.
+    const owed = try receiver.vtable.handshake_write(receiver.context, &output_storage, 0);
+    try testing.expect(owed < chapulin.record.key_update_record_len);
+}
+
 test "replies owed past `key_update_replies_max` fail the read that would owe one more" {
     try connect();
     const receiver = support.server.provider();
