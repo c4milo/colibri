@@ -18,8 +18,14 @@ pub const Opened = struct {
     len: u64,
 };
 
-/// Owner read and write, which is all a downloaded file needs.
-const created_mode: std.c.mode_t = 0o600;
+/// Owner read and write, and read for everyone else. The QUIC Interop Runner compares a
+/// downloaded file as its own user, and on Linux the file keeps the owner the endpoint's container
+/// wrote it as, root.
+const created_mode: std.c.mode_t = 0o644;
+
+comptime {
+    assert(created_mode & 0o004 != 0);
+}
 
 /// `directory` and `path` joined into `into`, null-terminated for libc, or null when too long.
 fn join(directory: []const u8, path: []const u8, into: *[check_file.path_len_max:0]u8) ?[:0]const u8 {
