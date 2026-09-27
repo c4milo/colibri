@@ -35,6 +35,14 @@ const Fake = struct {
     /// The handshake octets the provider owes, which `handshake_write` hands over whole once.
     /// Test-only.
     owed: []const u8 = "",
+    /// Whether the next `decrypt_record` refuses the record, owing `refusal_alert` as chapulin
+    /// owes the alert of a record it could not open. Test-only.
+    refuse: bool = false,
+    /// Whether `encrypt_record` refuses to seal. Test-only.
+    refuse_seal: bool = false,
+    /// Calls to `encrypt_record` and to `send_close_notify`. Test-only.
+    seals: u32 = 0,
+    closes: u32 = 0,
 
     fn alpn(context: *const anyopaque) ?[]const u8 {
         const self: *const Fake = @ptrCast(@alignCast(context));
@@ -55,6 +63,11 @@ const Fake = struct {
 
     fn open(context: *anyopaque, input: []const u8, plaintext: []u8) tls_provider.provider.OpenError!tls_provider.provider.Opened {
         const self: *Fake = @ptrCast(@alignCast(context));
+        if (self.refuse) {
+            self.owed = refusal_alert;
+            // RFC 9846 §5.2: a record that does not authenticate fails, and its alert is owed.
+            return error.TlsFailed;
+        }
         if (self.body.len > plaintext.len) return error.NoSpaceLeft;
         @memcpy(plaintext[0..self.body.len], self.body);
         // The plaintext length is reported whatever the content is, so a test can see that
@@ -63,7 +76,10 @@ const Fake = struct {
     }
 
     fn seal(context: *anyopaque, plaintext: []const u8, output: []u8) tls_provider.provider.SealError!tls_provider.provider.Sealed {
-        _ = context;
+        const self: *Fake = @ptrCast(@alignCast(context));
+        self.seals += 1;
+        // RFC 9846 §6: a session that failed seals nothing more.
+        if (self.refuse_seal) return error.TlsFailed;
         if (output.len < plaintext.len) return error.NoSpaceLeft;
         @memcpy(output[0..plaintext.len], plaintext);
         return .{ .consumed = plaintext.len, .written = plaintext.len };
@@ -85,11 +101,15 @@ const Fake = struct {
     }
 
     fn close(context: *anyopaque, output: []u8) tls_provider.provider.CloseError!usize {
-        _ = context;
+        const self: *Fake = @ptrCast(@alignCast(context));
+        self.closes += 1;
         if (output.len == 0) return error.NoSpaceLeft;
         output[0] = 0;
         return 1;
     }
+
+    /// A sealed alert record's length in octets, as a provider owes one. Test-only.
+    const refusal_alert = "a sealed alert, 24 octets";
 
     var table: tls_provider.VTable align(@alignOf(tls_provider.VTable)) = undefined;
 
@@ -373,3 +393,62 @@ test "a record carrying data ends the run, so an interleaved stream never reache
 
 /// Runs of records carrying no data the interleaving test drives, each a whole bound's worth.
 const interleaved_runs: u32 = 8;
+
+/// Room for what `expect_ended` writes and opens: the fake's alert, and the plaintext of one
+/// record it offers. Test-only.
+const ended_output_len = 64;
+const ended_plaintext_len = 16;
+
+/// Checks what a connection whose record layer failed still does. It reads no record and writes no
+/// frame, `encrypt` writes `alert` once and seals nothing, and no close_notify follows. Test-only.
+fn expect_ended(state: *Fake, alert: []const u8) !void {
+    const target = &support.test_connection;
+    try testing.expect(target.has_failed());
+    try testing.expect(!target.has_pending());
+    var output: [ended_output_len]u8 = undefined;
+    try testing.expectEqual(0, target.write_pending(&output, 0));
+    // A record that would open is not read.
+    state.* = .{ .body = "late", .owed = state.owed, .seals = state.seals, .closes = state.closes };
+    var plaintext: [ended_plaintext_len]u8 = undefined;
+    try testing.expectEqual(error.TlsFailed, decrypt(target, "record", &plaintext, 0));
+    const first = try encrypt(target, "data", &output, 0);
+    try testing.expectEqual(0, first.consumed);
+    try testing.expectEqualStrings(alert, output[0..first.written]);
+    const second = try encrypt(target, "data", &output, 0);
+    try testing.expectEqual(0, second.consumed + second.written);
+    try testing.expectEqual(0, try close_notify(target, &output));
+    try testing.expectEqual(0, state.closes);
+}
+
+test "RFC 9846 §5.2: a record the provider refuses ends the connection, and only its alert goes out" {
+    Fake.init_table();
+    var state: Fake = .{ .refuse = true };
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
+    var plaintext: [16]u8 = undefined;
+    try testing.expectEqual(error.TlsFailed, decrypt(&support.test_connection, "record", &plaintext, 0));
+    try expect_ended(&state, Fake.refusal_alert);
+    try testing.expectEqual(0, state.seals);
+}
+
+test "RFC 9846 §6.2: an error alert from the peer ends the connection, and nothing is owed" {
+    Fake.init_table();
+    var state: Fake = .{ .content = .alert, .alert_held = .{ .description = .bad_record_mac, .origin = .peer } };
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
+    var plaintext: [16]u8 = undefined;
+    try testing.expectEqual(error.TlsFailed, decrypt(&support.test_connection, "record", &plaintext, 0));
+    try expect_ended(&state, "");
+    try testing.expectEqual(0, state.seals);
+}
+
+test "RFC 9846 §6: a record the provider will not seal ends the connection too" {
+    Fake.init_table();
+    var state: Fake = .{ .refuse_seal = true };
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
+    var output: [64]u8 = undefined;
+    try testing.expectEqual(error.TlsFailed, encrypt(&support.test_connection, "data", &output, 0));
+    try expect_ended(&state, "");
+    try testing.expectEqual(1, state.seals);
+}

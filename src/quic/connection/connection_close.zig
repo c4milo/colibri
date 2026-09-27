@@ -150,6 +150,16 @@ pub fn owe(connection: *Connection, what: Close) void {
     connection.pending_close = what;
 }
 
+/// Ends the connection on an error `send` raised. One with a code owes the CONNECTION_CLOSE that
+/// carries it (RFC 9000 §10.2), and running out of packet numbers closes it silently (§12.3). Any
+/// other, such as the caller's slice too short for a packet, changes nothing.
+pub fn on_send_failure(connection: *Connection, code: ?u64, packet_numbers_exhausted: bool) void {
+    if (code) |value| return owe(connection, transport(value, null));
+    // RFC 9000 §12.3: "the sender MUST close the connection without sending a CONNECTION_CLOSE
+    // frame or any further packets".
+    if (packet_numbers_exhausted) connection.termination.on_packet_numbers_exhausted();
+}
+
 /// Whether any packet this connection sends would carry a close (RFC 9000 §10.2.3). It writes
 /// nothing, so the send path can ask before it decides how to fill a datagram.
 pub fn owes(connection: *const Connection) bool {
@@ -162,4 +172,5 @@ pub fn owes(connection: *const Connection) bool {
 
 test {
     _ = @import("connection_close_test.zig");
+    _ = @import("connection_close_owed_test.zig");
 }

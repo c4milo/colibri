@@ -149,7 +149,7 @@ test "RFC 9001 §4.1.1: a client whose stack completes as it sends completes the
     open_one(&client, .client);
     provider_holder = .{ .owed = &finished, .owed_level = .handshake, .done = true };
     try testing.expectError(error.ParametersMissing, send_from(&client));
-    try testing.expectEqual(error_code.transport_parameter_error, send.connection_error_code(error.ParametersMissing).?);
+    try testing.expectEqual(error_code.transport_parameter_error, send.connection_error_code(&client, error.ParametersMissing).?);
 }
 
 test "RFC 9001 §8.2: a handshake that completes without the peer's parameters is refused" {

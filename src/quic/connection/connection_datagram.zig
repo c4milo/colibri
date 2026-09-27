@@ -33,6 +33,7 @@ const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
 const header = @import("../packet/packet_header.zig");
 const connection_module = @import("connection.zig");
+const connection_close = @import("connection_close.zig");
 const receive_module = @import("connection_receive.zig");
 const frames = @import("connection_frames.zig");
 const keys_module = @import("connection_keys.zig");
@@ -46,8 +47,8 @@ const migration = @import("connection_migration.zig");
 const Connection = connection_module.Connection;
 const Datagram = receive_module.Datagram;
 
-/// Why the datagram ended the connection. Each is a connection error, and `connection_error_code`
-/// names the code the CONNECTION_CLOSE carries.
+/// Why the datagram ended the connection. Each is a connection error, and `receive` owes the
+/// CONNECTION_CLOSE, carrying the code `connection_error_code` names.
 pub const Error = receive_module.Error || frames.Error || error{
     /// The suite would not derive the Initial keys a Retry's connection ID changed (RFC 9001
     /// §5.2), so no Initial packet can be sealed or opened again.
@@ -112,6 +113,9 @@ pub fn receive(
     datagram: Datagram,
     scratch: *Scratch,
 ) Error!Received {
+    // RFC 9000 §10.2: a connection error closes the connection at once, and the endpoint that
+    // found it tells its peer why, in the CONNECTION_CLOSE `send` writes next.
+    errdefer |failure| connection_close.owe(connection, connection_close.transport(connection_error_code(connection, failure), null));
     var received: Received = .{};
     switch (connection.termination.state) {
         .active => {},

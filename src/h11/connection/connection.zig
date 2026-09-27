@@ -175,6 +175,10 @@ pub const Connection = struct {
     /// Whether the peer's `close_notify` arrived (RFC 9846 §6.1). Over TLS it alone ends a body
     /// that runs until the close (RFC 9112 §9.8).
     close_notify_received: bool,
+    /// Whether the record layer failed: a record did not open or seal, or an error alert arrived
+    /// (RFC 9846 §6). The connection is closed, and `connection_tls.encrypt` writes only the alert
+    /// the provider owes.
+    tls_failed: bool,
     /// `Options.decoders`.
     decoders: ?coding.Storage,
     /// The decoding of the body being read, when it carries `gzip` or `deflate`.
@@ -203,6 +207,7 @@ pub const Connection = struct {
         connection.records_without_data = 0;
         connection.handshake_owed = false;
         connection.close_notify_received = false;
+        connection.tls_failed = false;
         connection.decoders = options.decoders;
         connection.decoding = .{};
         assert(connection.phase == .head and connection.failure == null);

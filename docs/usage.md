@@ -68,7 +68,10 @@ colibri makes no system call, holds no allocator, and reads no clock. Four thing
 
 A peer that breaks a protocol rule never crashes colibri. `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
-such as h2's GOAWAY or an h11 server's 400, are waiting to be written.
+such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A QUIC connection error
+from `receive` or `send` leaves the CONNECTION_CLOSE owed, and the next `send` writes it (RFC 9000
+§10.2). Over TLS, a record that does not open ends the connection, and `encrypt` called with no
+plaintext writes the alert the provider owes (RFC 9846 §5.2).
 
 ## h11
 

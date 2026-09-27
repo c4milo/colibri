@@ -57,9 +57,12 @@ pub const Error = packet_build.Error || error{
 };
 
 /// The code a CONNECTION_CLOSE carries for `failure`, or null when none goes out.
-pub fn connection_error_code(failure: Error) ?u64 {
+pub fn connection_error_code(connection: *const Connection, failure: Error) ?u64 {
     // RFC 9001 §8.2: a missing extension is a TRANSPORT_PARAMETER_ERROR (RFC 9000 §7.4).
     if (failure == error.ParametersMissing) return connection_crypto.connection_error_code(error.ParametersMissing);
+    // RFC 9001 §4.8: TLS failed while its octets were written, and the alert it raised is the
+    // CRYPTO_ERROR code, or INTERNAL_ERROR when it raised none (RFC 9000 §11).
+    if (failure == error.Crypto) return connection_crypto.close_code(connection, error.TlsAlert);
     return packet_build.connection_error_code(@errorCast(failure));
 }
 
@@ -136,6 +139,8 @@ pub fn send(
     output: []u8,
     now_ns: u64,
 ) Error!?Sent {
+    // RFC 9000 §10.2, §12.3: an error that ends the connection owes its close, or closes it.
+    errdefer |ended| connection_close.on_send_failure(connection, connection_error_code(connection, ended), ended == error.PacketNumbersExhausted);
     // RFC 9000 §10.2.2: "an endpoint in the draining state MUST NOT send any packets", and the
     // same answer covers a connection whose closing period has ended (§10.2).
     if (connection.termination.permission() == .send_nothing) return null;
@@ -165,7 +170,7 @@ pub fn send(
             // A level that cannot fit a packet in what is left ends the datagram rather than
             // failing it: §12.2 coalesces what fits and the rest goes in the next one.
             error.NoSpaceLeft => break,
-            else => return failure,
+            else => return @as(Error!?Sent, failure),
         } orelse continue;
         plans[count] = planned;
         count += 1;

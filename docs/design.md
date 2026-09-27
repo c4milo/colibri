@@ -4679,6 +4679,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     kinds drawing from a fixed source in place of its caller's, `check` passing no source, and the
     program without the hook defining it.
 
+  **A connection error ends the connection inside colibri, 2026-09-27.** cocuyo reported it in
+  https://github.com/c4milo/colibri/issues/68.
+  - h2 and h11: a record the provider refused, or an error alert, left the connection running,
+    though RFC 9846 §5.2 says the receiver MUST terminate it. Now the connection fails at the
+    record layer. It reads no record and writes no frame, `encrypt` writes only the alert the
+    provider owes, and no close_notify follows (RFC 9846 §6). A seal the provider refuses ends it
+    the same way, and an h11 server that owed an error response owes none after it.
+  - QUIC: `receive` and `send` owe the CONNECTION_CLOSE for the connection error they return (RFC
+    9000 §10.2), so a caller no longer asks for its code.
+  - A TLS failure while `send` writes handshake octets closed with no frame at all. It now closes
+    with its alert's CRYPTO_ERROR code (RFC 9001 §4.8).
+  - A space out of packet numbers left the connection open, and the other spaces went on
+    sending. Now it closes silently and sends nothing more (RFC 9000 §12.3).
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1964 of 1964 tests.
+  - `tools/h3spec.sh`: 49 examples, 0 failures. `tools/h2spec.sh 18443 --tls`: 144 passed in
+    cleartext and over TLS. The QUIC, TLS and interop scripts of the 157d2ac record: ok.
+  - 25 mutations, each **CAUGHT**: 10 in h2, 8 in h11 and 7 in QUIC. They include the failure
+    not recorded, no alert owed, a record read, a frame written, a record sealed or a close_notify
+    sent after the failure, each QUIC close not owed or carrying the wrong code, and packet-number
+    exhaustion left open or owing a close.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

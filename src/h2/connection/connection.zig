@@ -182,6 +182,10 @@ pub const Connection = struct {
     /// `encrypt` asks `handshake_write` for before it seals. Without one it asks nothing, so the
     /// common record costs one crossing of the vtable.
     handshake_owed: bool,
+    /// Whether the record layer failed: a record did not open or seal, or an error alert arrived
+    /// (RFC 9846 §6). No record is read and no frame goes out after it, and `encrypt` writes only
+    /// the alert the provider owes (`connection_tls.zig`).
+    tls_failed: bool,
     /// RST_STREAM frames colibri has sent since `rst_stream_period_start_ns` (§10.5).
     rst_stream_sent: u32,
     /// The instant the current RST_STREAM rate period began.
@@ -213,6 +217,7 @@ pub const Connection = struct {
         connection.provider = null;
         connection.records_without_data = 0;
         connection.handshake_owed = false;
+        connection.tls_failed = false;
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
         assert(!connection.has_failed());
@@ -280,14 +285,17 @@ pub const Connection = struct {
     /// Writes the preface colibri owes and the frames it has queued into `output`, and returns the
     /// octets written. Frames that do not fit stay queued for the next call.
     pub fn write_pending(connection: *Connection, output: []u8, now_ns: u64) usize {
+        // RFC 9846 §6: after the record layer failed, no frame goes out.
+        if (connection.tls_failed) return 0;
         var writer = Writer.init(output);
         connection.write_preface(&writer, now_ns);
         const preface_len = writer.written().len;
         return preface_len + connection.replies.write(output[preface_len..]);
     }
 
-    /// Whether anything is waiting to be written.
+    /// Whether anything is waiting to be written. Nothing is once the record layer failed.
     pub fn has_pending(connection: *const Connection) bool {
+        if (connection.tls_failed) return false;
         return !connection.preface_done() or !connection.replies.is_empty();
     }
 
@@ -297,9 +305,10 @@ pub const Connection = struct {
         return connection.settings_written and connection.pending.len() == 0;
     }
 
-    /// Whether the peer broke the protocol and the connection is closing (RFC 9113 §5.4.1).
+    /// Whether the peer broke the protocol and the connection is closing (RFC 9113 §5.4.1), or
+    /// its record layer failed (RFC 9846 §6).
     pub fn has_failed(connection: *const Connection) bool {
-        return connection.failure != null;
+        return connection.failure != null or connection.tls_failed;
     }
 
     /// The field section of the latest `request`, `response` or `trailers` event, valid until the

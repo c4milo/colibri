@@ -48,6 +48,9 @@ pub const Reason = enum {
     /// RFC 9000 §9.3.2: the peer's new address failed validation and no validated one was left,
     /// so the connection closed silently.
     path_failed,
+    /// RFC 9000 §12.3: a packet number space ran out of packet numbers, so the connection closed
+    /// silently: no CONNECTION_CLOSE frame and no further packet.
+    packet_numbers_exhausted,
 };
 
 /// What a caller may do now.
@@ -190,6 +193,16 @@ pub const Termination = struct {
         assert(termination.state == .active);
         termination.state = .closed;
         termination.reason = .path_failed;
+        assert(termination.permission() == .send_nothing);
+    }
+
+    /// RFC 9000 §12.3: "If the packet number for sending reaches 2^62-1, the sender MUST close the
+    /// connection without sending a CONNECTION_CLOSE frame or any further packets." A closing
+    /// connection stops too, since its close would need a packet number, and one already closed
+    /// keeps its reason.
+    pub fn on_packet_numbers_exhausted(termination: *Termination) void {
+        if (termination.state == .active) termination.reason = .packet_numbers_exhausted;
+        termination.state = .closed;
         assert(termination.permission() == .send_nothing);
     }
 

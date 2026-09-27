@@ -77,7 +77,9 @@ pub const RecordError = error{
     /// RFC 9113 §9.2.3 was broken, or another HTTP/2 rule this file checks. `failure` holds the
     /// code and the GOAWAY is queued.
     ConnectionFailed,
-    /// The provider refused the record. RFC 9846 §6 forbids data in either direction afterwards.
+    /// The provider refused the record, or the peer sent an error alert. RFC 9846 §6 forbids data in
+    /// either direction afterwards, so the connection has failed: `encrypt`, called with no
+    /// plaintext, writes the alert the provider owes, and the caller sends it and closes.
     TlsFailed,
     /// The plaintext buffer cannot hold the record's fragment (RFC 9846 §5.1), or the output
     /// cannot hold one record (§5.2). Nothing moved.
@@ -111,9 +113,21 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
     // RFC 9113 §3.3: a prior-knowledge cleartext connection runs h2 directly over TCP, so its
     // octets pass through no record layer at all.
     const provider = target.provider orelse return error.NoProvider;
+    // RFC 9846 §6: after a fatal alert, sent or received, no record is read.
+    if (target.tls_failed) return error.TlsFailed;
     // The provider writes into the caller's buffer and reads the caller's input; the two are
     // never the same storage.
     assert(input.ptr != plaintext.ptr);
+    return open(target, provider, input, plaintext) catch |failure| {
+        // RFC 9846 §5.2 and §6.2: a record the provider refused, or an error alert, ends the
+        // connection, whose last octets are the alert the provider owes.
+        if (failure == error.TlsFailed) end_tls(target);
+        return failure;
+    };
+}
+
+/// Opens the record through the provider and says what it held.
+fn open(target: *Connection, provider: tls_provider.Provider, input: []const u8, plaintext: []u8) RecordError!Decrypted {
     const opened = provider.vtable.decrypt_record(provider.context, input, plaintext) catch |failure| {
         return switch (failure) {
             error.TlsFailed => error.TlsFailed,
@@ -138,6 +152,14 @@ pub fn decrypt(target: *Connection, input: []const u8, plaintext: []u8, now_ns: 
         .certificate_request => return target.fail(constants.error_protocol_error),
         .alert => try on_alert(target, provider, opened.consumed),
     };
+}
+
+/// Ends the connection at the record layer (RFC 9846 §6). The provider may owe the alert that says
+/// why, which `encrypt` writes, and nothing goes out after it.
+fn end_tls(target: *Connection) void {
+    target.tls_failed = true;
+    target.handshake_owed = true;
+    assert(target.has_failed());
 }
 
 /// A record that carried application data, which ends any run of records that carried none.
@@ -203,18 +225,27 @@ pub fn encrypt(target: *Connection, plaintext: []const u8, output: []u8, now_ns:
     assert(plaintext.len == 0 or plaintext.ptr != output.ptr);
     const owed = if (target.handshake_owed) try write_owed(target, provider, output, now_ns) else 0;
     assert(owed <= output.len);
-    if (plaintext.len == 0) return .{ .consumed = 0, .written = owed };
-    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output[owed..]) catch |failure| {
-        // What the provider owed is written, and goes out whether or not a record fits after it.
-        if (failure == error.NoSpaceLeft and owed > 0) return .{ .consumed = 0, .written = owed };
-        return switch (failure) {
-            error.TlsFailed, error.KeyExhausted => error.TlsFailed,
-            error.NoSpaceLeft => error.NoSpaceLeft,
-            error.HandshakeIncomplete => error.HandshakeIncomplete,
-        };
-    };
+    // RFC 9846 §6: after the record layer failed, the alert the provider owed is the last octet
+    // that goes out, and no data is sealed.
+    if (plaintext.len == 0 or target.tls_failed) return .{ .consumed = 0, .written = owed };
+    const sealed = provider.vtable.encrypt_record(provider.context, plaintext, output[owed..]) catch |failure|
+        return seal_refused(target, failure, owed);
     assert(sealed.consumed <= plaintext.len and owed + sealed.written <= output.len);
     return .{ .consumed = sealed.consumed, .written = owed + sealed.written };
+}
+
+/// What a seal the provider refused leaves. What it owed goes out when only the room was short,
+/// and a refusal ends the connection (RFC 9846 §6).
+fn seal_refused(target: *Connection, failure: tls_provider.provider.SealError, owed: usize) RecordError!tls_provider.provider.Sealed {
+    // What the provider owed is written, and goes out whether or not a record fits after it.
+    if (failure == error.NoSpaceLeft and owed > 0) return .{ .consumed = 0, .written = owed };
+    // RFC 9846 §6: a record the provider will not seal ends the connection too.
+    if (failure == error.TlsFailed or failure == error.KeyExhausted) end_tls(target);
+    return switch (failure) {
+        error.TlsFailed, error.KeyExhausted => error.TlsFailed,
+        error.NoSpaceLeft => error.NoSpaceLeft,
+        error.HandshakeIncomplete => error.HandshakeIncomplete,
+    };
 }
 
 /// Writes what the provider owes after a KeyUpdate, whole, and clears the debt once it is out.
@@ -233,6 +264,9 @@ fn write_owed(target: *Connection, provider: tls_provider.Provider, output: []u8
 pub fn close_notify(target: *Connection, output: []u8) RecordError!usize {
     // RFC 9113 §3.3: a cleartext connection has no TLS to close.
     const provider = target.provider orelse return error.NoProvider;
+    // RFC 9846 §6: a connection whose record layer failed is closed, and no close_notify follows
+    // the fatal alert.
+    if (target.tls_failed) return 0;
     return provider.vtable.send_close_notify(provider.context, output) catch error.NoSpaceLeft;
 }
 
