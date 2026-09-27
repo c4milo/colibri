@@ -921,12 +921,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       its 45 minutes on `13b7dbd`.
     - It needs tshark from Wireshark 4.5.0 or newer. Ubuntu 24.04 packages 4.2 and Ubuntu 26.04
       packages 4.6, so its job runs on Ubuntu 26.04.
-    - Its `handshakeloss` case with colibri as the client fails some runs against quic-go's
-      server, because the runner counts one client connection twice
+    - Its `handshakeloss` case with colibri as the client failed some runs against quic-go's
+      server, because the runner counted one client connection twice
       ([#72](https://github.com/c4milo/colibri/issues/72)). A push should not fail on that.
+      Decision 99, ruled the same day, patches the count, so this reason no longer holds.
 
     Its work is still one script, which a person runs for the same answer; the job adds only what
-    a hosted runner lacks: Zig, tshark, and the kernel module the simulator's IPv6 needs. The
+    a hosted runner lacks: Zig and the directory in its global cache that its fetch of a zip
+    package needs, tshark, and the kernel module the simulator's IPv6 needs. The
     alternatives offered: both checks in the push job, which needs a longer limit and fails a push
     whenever `handshakeloss` fails; h3spec in the push job and the runner by hand alone, which
     leaves no record between runs; and CLAUDE.md corrected to say both run by hand, with nothing

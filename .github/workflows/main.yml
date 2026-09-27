@@ -186,11 +186,9 @@ jobs:
 
   # The QUIC Interop Runner (design §8 step 9e): colibri's endpoint against quic-go as the server
   # and as the client, over every case of tools/interop.sh's default list. It runs in a job of its
-  # own, started by hand and every Monday (decision 47 as amended), for two reasons. It takes
-  # about 30 minutes, and the push job already takes 25 of its 45. Its handshakeloss case with
-  # colibri as the client fails some runs against quic-go's server
-  # (https://github.com/c4milo/colibri/issues/72), and a push should not fail on that. The work is
-  # tools/interop.sh, which a person runs for the same answer.
+  # own, started by hand and every Monday (decision 47 as amended), because it takes about 30
+  # minutes and the push job already takes 25 of its 45. The work is tools/interop.sh, which a
+  # person runs for the same answer.
   quic-interop-runner:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     # The runner reads its packet captures with tshark 4.5.0 or newer. Ubuntu 26.04 packages 4.6;
@@ -203,7 +201,9 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       # tools/interop.sh fetches colibri's packages with the host's Zig before it builds the
-      # endpoint's image.
+      # endpoint's image. Zig 0.16.0 writes a zip package, such as stdx's silesia.zip, to tmp/ in
+      # its global cache without creating that directory, so on a fresh Linux machine the fetch
+      # fails with FileNotFound.
       - name: Install Zig
         run: |
           curl -sSfL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
@@ -211,6 +211,9 @@ jobs:
           mkdir -p "${HOME}/zig" && tar -xJf zig.tar.xz -C "${HOME}/zig" --strip-components=1
           rm zig.tar.xz
           echo "${HOME}/zig" >>"${GITHUB_PATH}"
+          global_cache="$("${HOME}/zig/zig" env | sed -n 's/^ *\.global_cache_dir = "\(.*\)",$/\1/p')"
+          [ -n "${global_cache}" ] || { echo "zig env names no global cache" >&2; exit 1; }
+          mkdir -p "${global_cache}/tmp"
       - name: Install tshark
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends tshark
