@@ -7,6 +7,7 @@ const chapulin = @import("chapulin_tcp");
 const record = @import("record.zig");
 const values = @import("../values.zig");
 const constants = @import("../constants.zig");
+const random_support = @import("../random_test_support.zig");
 
 pub const leaf = @embedFile("../testdata/identity.leaf.der");
 pub const root = @embedFile("../testdata/identity.ca.der");
@@ -98,13 +99,18 @@ pub const web_pki: values.Client = .{
     .alpn = &protocols,
 };
 
+/// The source each session of the tests draws from: the stream the tests share.
+pub fn random() values.Random {
+    return random_support.stream.random();
+}
+
 /// Starts both sides and runs the handshake until both complete, leaving in `to_client` what the
 /// server wrote after it, such as its ticket.
 pub fn handshake_both(resumption: ?values.Resumption) !void {
     to_server = .{};
     to_client = .{};
-    try client.start(&client_config, now_seconds, resumption);
-    try server.start(&server_config, now_seconds);
+    try client.start(&client_config, random(), now_seconds, resumption);
+    try server.start(&server_config, random(), now_seconds);
     for (0..handshake_rounds_max) |_| {
         if (!client.state.completed) {
             const progress = try client.handshake(to_client.held(), to_server.free());

@@ -28,6 +28,7 @@
 //! The TLS mode runs one worker. chapulin's generator is one process-wide state with no lock
 //! (its `drbg.h`), so two threads must not run handshakes at once.
 const std = @import("std");
+const entropy = @import("entropy.zig");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
@@ -395,7 +396,7 @@ fn load_tls(prefix: []const u8, protocol: Protocol) !void {
     server_identity.seed(&tls_identity);
     const protocols: []const []const u8 = if (protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both;
     try tls_config.init(try server_identity.load(prefix, &tls_identity, protocols));
-    try tls_config.check();
+    try tls_config.check(entropy.random());
     tls_shared = &tls_config;
 }
 

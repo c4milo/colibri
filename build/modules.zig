@@ -354,7 +354,8 @@ const Suite = enum { chacha, aesgcm };
 const Keylog = enum { on, off };
 
 /// Decision 97's TCP object: `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`,
-/// compiled from the pinned package with `RAND=extern` (decision 94). `SUITE=aesgcm` adds RFC 9846
+/// compiled from the pinned package with `RAND=session`, where each session draws from the source its
+/// caller passes (decision 94 as amended on 2026-09-27). `SUITE=aesgcm` adds RFC 9846
 /// §9.1's mandatory TLS_AES_128_GCM_SHA256, and `TX_RECORD=16384` lets a record carry TLS's largest
 /// plaintext (RFC 9846 §5.1). `TRUST=webpki` is the one client trust mode that compiles ALPN in,
 /// without which no client negotiates h2 (RFC 9113 §3.1). The package also translates the public
@@ -365,7 +366,7 @@ fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylo
     const native = aes_native(target);
     return b.dependency("chapulin", .{
         .target = target,
-        .RAND = .@"extern",
+        .RAND = .session,
         .TRANSPORT = .@"tcp-nonblocking",
         .ROLE = .both,
         .TRUST = .webpki,
@@ -394,15 +395,15 @@ fn aes_native(target: std.Build.ResolvedTarget) bool {
 }
 
 /// Decision 97's QUIC object: `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki SUITE=aesgcm`,
-/// compiled from the pinned package with `RAND=extern` (decision 94), with the AES choice of the
-/// TCP object. `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, which is also
-/// the only kind of suite h3spec offers. The library's object is `KEYLOG=off`; `tls_keylog` builds
+/// compiled from the pinned package with `RAND=session` (decision 94 as amended), with the AES
+/// choice of the TCP object. `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256,
+/// which is also the only kind of suite h3spec offers. The library's object is `KEYLOG=off`; `tls_keylog` builds
 /// one `on`, which hands the tests and the endpoints each traffic secret.
 fn chapulin_quic_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
     const native = aes_native(target);
     return b.dependency("chapulin", .{
         .target = target,
-        .RAND = .@"extern",
+        .RAND = .session,
         .TRANSPORT = .@"quic-nonblocking",
         .ROLE = .both,
         .TRUST = .webpki,

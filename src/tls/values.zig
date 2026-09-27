@@ -4,10 +4,18 @@
 //! the object borrows it. Each rule the values carry is chapulin's (its `cfg.h`, `webpki_cfg.h`
 //! and `srv_cfg.h`), and colibri checks none of them twice.
 //!
-//! The clock and a ticket to offer change with each connection, so they are not here: a
-//! session's `start` takes them.
+//! The clock, a ticket to offer and the source of randomness belong to each connection, so they
+//! are not here: a session's `start` takes them.
 const std = @import("std");
 const constants = @import("constants.zig");
+
+/// The source a session's randomness comes from, which the caller passes to each session's `start`
+/// (decision 94 as amended on 2026-09-27). Every draw chapulin makes for that session fills from
+/// it, so a caller that seeds it replays the session. colibri makes no generator and draws from
+/// none (non-negotiable 5): this is the one file under `src/` that names the type, which
+/// `tools/lint/determinism.zig` permits. The generator it points at outlives the session, and
+/// answers on the thread that drives the session.
+pub const Random = std.Random;
 
 /// A root a client trusts: its subject Name and its SubjectPublicKeyInfo, each the whole DER TLV.
 pub const Anchor = struct {

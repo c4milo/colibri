@@ -23,17 +23,17 @@ pub fn build(b: *std.Build) void {
     const run = b.addRunArtifact(exe);
     b.step("run", "Run the consumer").dependOn(&run.step);
 
-    // Design §8 step 16's check: a program that links `tls` and defines no `ch_rand_bytes` does not
-    // link. tools/consumer_check.sh builds this step and requires it to fail, naming the hook. The
-    // step installs the program, because Zig links an executable only when its file is used.
-    const without_rand = b.addExecutable(.{
-        .name = "without-rand",
+    // Design §8 step 16's check: a program that links `tls` and defines no `ch_assert_fail` does
+    // not link. tools/consumer_check.sh builds this step and requires it to fail, naming the hook.
+    // The step installs the program, because Zig links an executable only when its file is used.
+    const without_assert = b.addExecutable(.{
+        .name = "without-assert",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("without_rand.zig"),
+            .root_source_file = b.path("without_assert.zig"),
             .target = target,
             .optimize = .ReleaseSafe,
         }),
     });
-    without_rand.root_module.addImport("tls", colibri.module("tls"));
-    b.step("without-rand", "Link a program that uses tls and defines no ch_rand_bytes").dependOn(&b.addInstallArtifact(without_rand, .{}).step);
+    without_assert.root_module.addImport("tls", colibri.module("tls"));
+    b.step("without-assert", "Link a program that uses tls and defines no ch_assert_fail").dependOn(&b.addInstallArtifact(without_assert, .{}).step);
 }

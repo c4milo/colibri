@@ -10,6 +10,7 @@
 //! What it does not do is speak h2. That follows once the handshake and the records are proved,
 //! because it is the same session with `attach_tls` on top.
 const std = @import("std");
+const entropy = @import("../entropy.zig");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
@@ -107,7 +108,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_failed);
     };
     // chapulin's boot check: every provisioned key signs and verifies under its own public key.
-    config.check() catch {
+    config.check(entropy.random()) catch {
         std.debug.print("tls-accept: chapulin refused the identity\n", .{});
         std.process.exit(exit_failed);
     };
@@ -115,7 +116,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer _ = std.c.close(socket);
 
     // The server issues no ticket, so it reads no clock: chapulin's 0 for none.
-    server.start(&config, 0) catch {
+    server.start(&config, entropy.random(), 0) catch {
         std.debug.print("tls-accept: chapulin refused the configuration\n", .{});
         std.process.exit(exit_failed);
     };

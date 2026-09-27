@@ -31,7 +31,7 @@ pub const LoadError = error{
 };
 
 /// Draws the cookie key. RFC 9846 §4.3.2 asks for one cookie key per deployment, and a run is one
-/// deployment. chapulin draws the rest of its entropy through `ch_rand_bytes` (`entropy.zig`).
+/// deployment. Each session draws the rest from the source `entropy.zig` hands its `start`.
 pub fn seed(storage: *Storage) void {
     entropy.fill(&storage.cookie_key);
 }

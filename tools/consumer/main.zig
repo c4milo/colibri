@@ -12,27 +12,30 @@ var tls_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig))
 var tls_client: tls.record.Client align(@alignOf(tls.record.Client)) = undefined;
 var output: [4096]u8 = undefined;
 
-/// chapulin's two hooks, which a program that links colibri's `tls` defines: chapulin is built
-/// `RAND=extern`, and its failed assertions are the program's to report.
-extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
-const getentropy_len_max = 256;
-
-fn rand_bytes(pointer: [*]u8, len: usize) callconv(.c) void {
-    var filled: usize = 0;
-    while (filled < len) {
-        const part = @min(len - filled, getentropy_len_max);
-        if (getentropy(pointer + filled, part) != 0) @panic("getentropy failed");
-        filled += part;
-    }
-}
-
+/// chapulin's one hook, which a program that links colibri's `tls` defines: its failed assertions
+/// are the program's to report.
 fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
     std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }
 
 comptime {
-    @export(&rand_bytes, .{ .name = "ch_rand_bytes", .linkage = .strong });
     @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+}
+
+/// The source each TLS session draws from, which the program passes to `start`: here the operating
+/// system's `getentropy`, which keeps no state.
+extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
+const getentropy_len_max = 256;
+var entropy_state: u8 = 0;
+const entropy: std.Random = .{ .ptr = &entropy_state, .fillFn = fill_entropy };
+
+fn fill_entropy(_: *anyopaque, buffer: []u8) void {
+    var filled: usize = 0;
+    while (filled < buffer.len) {
+        const part = @min(buffer.len - filled, getentropy_len_max);
+        if (getentropy(buffer[filled..].ptr, part) != 0) @panic("getentropy failed");
+        filled += part;
+    }
 }
 
 /// A root this client never meets a chain of: an empty DER SEQUENCE for its name and its key.
@@ -63,7 +66,7 @@ pub fn main() !void {
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
         .alpn = &.{ "h2", "http/1.1" },
     });
-    try tls_client.start(&tls_config, now_seconds, null);
+    try tls_client.start(&tls_config, entropy, now_seconds, null);
     const hello = try tls_client.handshake(&.{}, &output);
     if (hello.written == 0 or output[0] != handshake_record) return error.HelloWrong;
     tls_client.close();

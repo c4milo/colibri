@@ -21,7 +21,7 @@ pub const udp_run = @import("quic/udp/udp_run.zig");
 pub const udp_run_client = @import("quic/udp/udp_run_client.zig");
 
 comptime {
-    // chapulin's objects import `ch_assert_fail`, `ch_rand_bytes` and `ch_keylog`, which these two
+    // chapulin's objects import `ch_assert_fail` and `ch_keylog`, which these two
     // files export. Zig analyses a file only when something references it, so these keep the
     // exports in a build with no tests.
     _ = hooks;

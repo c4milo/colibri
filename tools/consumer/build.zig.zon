@@ -10,6 +10,6 @@
         "build.zig",
         "build.zig.zon",
         "main.zig",
-        "without_rand.zig",
+        "without_assert.zig",
     },
 }

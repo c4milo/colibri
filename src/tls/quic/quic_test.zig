@@ -8,6 +8,7 @@ const values = @import("../values.zig");
 const constants = @import("../constants.zig");
 const identity = @import("../record/record_test_support.zig");
 const support = @import("quic_test_support.zig");
+const random_support = @import("../random_test_support.zig");
 
 const testing = std.testing;
 const client = &support.client;
@@ -38,8 +39,8 @@ test "RFC 9001 §4.1: a client and a server complete the handshake and read each
 
 test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no start installs nothing" {
     try support.configure(support.web_pki, .{});
-    try client.start(&support.client_config, identity.now_seconds, null);
-    server.start(&support.server_config, identity.now_seconds);
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
+    server.start(&support.server_config, identity.random(), identity.now_seconds);
     const client_suite = client.suite();
     const server_suite = server.suite();
     // Nothing is installed before chapulin's session starts.
@@ -152,7 +153,7 @@ test "a level's octets that do not fit its buffer fail the handshake, and nothin
     client.close();
     server.close();
     // A client whose level is as full cannot stage its ClientHello there.
-    try client.start(&support.client_config, identity.now_seconds, null);
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
     client.state.outgoing_len[initial] = constants.crypto_out_len - 1;
     try client.provider().set_transport_params(support.client_parameters);
     try testing.expectError(error.NoSpaceLeft, client.provider().vtable.write_handshake(client.provider().context, .initial, &support.scratch));
@@ -182,7 +183,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     defer ticket.wipe();
     try support.handshake_both(.{ .ticket = &ticket, .age_ms = 0 });
     try testing.expect(client.resumed() and server.resumed());
-    try client.start(&support.client_config, identity.now_seconds, null);
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
     const provider = client.provider();
     try testing.expectError(error.WrongLevel, provider.vtable.provide_handshake(provider.context, .initial, "\x02"));
     try testing.expectEqual(null, provider.vtable.peer_transport_params(provider.context));
@@ -204,7 +205,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     const header = try support.short_header(0, false, &header_storage);
     try testing.expectError(error.KeysUnavailable, suite.vtable.seal(suite.context, .{ .level = .application, .packet_number = 0, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet));
     try testing.expectError(error.KeysUnavailable, suite.vtable.open(suite.context, .{ .level = .application, .packet = support.packet[0..header.len], .packet_number_offset = header.len - support.packet_number_len, .largest_packet_number = null }));
-    server.start(&support.server_config, identity.now_seconds);
+    server.start(&support.server_config, identity.random(), identity.now_seconds);
     try testing.expectEqual(null, server.sni());
     try testing.expect(!server.resumed());
     const server_suite = server.suite();
@@ -250,10 +251,10 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a ma
     server.close();
     var malformed = ticket;
     malformed.psk_len = 5;
-    try testing.expectError(error.Refused, client.start(&support.client_config, identity.now_seconds, .{ .ticket = &malformed, .age_ms = 0 }));
+    try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &malformed, .age_ms = 0 }));
     // RFC 9846 §4.7.1: a ticket past its lifetime is refused when chapulin's session starts.
     const stale_ms = (@as(u64, ticket.lifetime_s) + 1) * identity.ms_per_second;
-    try client.start(&support.client_config, identity.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms });
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms });
     try testing.expectError(error.TlsFailed, client.provider().set_transport_params(support.client_parameters));
     client.close();
 }
@@ -261,7 +262,7 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a ma
 test "the keylog context a program sets is the one chapulin's hook carries" {
     try support.configure(support.web_pki, .{});
     var marker: u8 = 0;
-    try client.start(&support.client_config, identity.now_seconds, null);
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
     client.set_keylog_context(&marker);
     try client.provider().set_transport_params(support.client_parameters);
     try testing.expectEqual(@as(?*anyopaque, &marker), client.session.hook.context);
@@ -317,4 +318,49 @@ test "decision 55: a Retry token gives both connection IDs back, and the Retry t
 
 test {
     _ = values;
+}
+
+/// What a QUIC client and server whose sources start at one seed write first at the Initial level:
+/// the ClientHello, and the ServerHello that answers it.
+const InitialFlights = struct {
+    hello: [constants.crypto_out_len]u8 = undefined,
+    hello_len: usize = 0,
+    answer: [constants.crypto_out_len]u8 = undefined,
+    answer_len: usize = 0,
+};
+
+fn initial_flights(client_seed: u64, server_seed: u64, flights: *InitialFlights) !void {
+    var client_stream: random_support.Stream = .{ .state = client_seed };
+    var server_stream: random_support.Stream = .{ .state = server_seed };
+    try client.start(&support.client_config, client_stream.random(), identity.now_seconds, null);
+    defer client.close();
+    server.start(&support.server_config, server_stream.random(), identity.now_seconds);
+    defer server.close();
+    try client.provider().set_transport_params(support.client_parameters);
+    try server.provider().set_transport_params(support.server_parameters);
+    const from = client.provider();
+    flights.hello_len = try from.vtable.write_handshake(from.context, .initial, &flights.hello);
+    const to = server.provider();
+    try to.vtable.provide_handshake(to.context, .initial, flights.hello[0..flights.hello_len]);
+    flights.answer_len = try to.vtable.write_handshake(to.context, .initial, &flights.answer);
+}
+
+test "decision 94: each QUIC session draws from its caller's source alone, so one seed replays it" {
+    try support.configure(support.web_pki, .{});
+    const seed = random_support.seed;
+    var first: InitialFlights = .{};
+    var again: InitialFlights = .{};
+    var client_other: InitialFlights = .{};
+    var server_other: InitialFlights = .{};
+    try initial_flights(seed, seed, &first);
+    try initial_flights(seed, seed, &again);
+    try initial_flights(seed +% 1, seed, &client_other);
+    try initial_flights(seed, seed +% 1, &server_other);
+    try testing.expect(first.hello_len > 0 and first.answer_len > 0);
+    try testing.expectEqualSlices(u8, first.hello[0..first.hello_len], again.hello[0..again.hello_len]);
+    try testing.expectEqualSlices(u8, first.answer[0..first.answer_len], again.answer[0..again.answer_len]);
+    // Another seed for one side changes what that side writes, and the same hello for the other.
+    try testing.expect(!std.mem.eql(u8, first.hello[0..first.hello_len], client_other.hello[0..client_other.hello_len]));
+    try testing.expectEqualSlices(u8, first.hello[0..first.hello_len], server_other.hello[0..server_other.hello_len]);
+    try testing.expect(!std.mem.eql(u8, first.answer[0..first.answer_len], server_other.answer[0..server_other.answer_len]));
 }

@@ -6,8 +6,8 @@
 //! Record mode serves h2 and h11 over the TCP object (`record/`), and QUIC mode serves h3 over the
 //! QUIC object (`quic/`), filling `tls_provider.QuicProvider` and `crypto.Suite`. chapulin holds
 //! every key, and colibri passes it pointers to the caller's keys and never reads one
-//! (non-negotiable 2). The program defines chapulin's two hooks, `ch_rand_bytes` and
-//! `ch_assert_fail` (decision 94).
+//! (non-negotiable 2). Each session draws from the `Random` its caller passes to `start`, and the
+//! program defines chapulin's one remaining hook, `ch_assert_fail` (decision 94 as amended).
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
@@ -15,6 +15,7 @@ pub const values = @import("values.zig");
 pub const record = @import("record/record.zig");
 pub const quic = @import("quic/quic.zig");
 
+pub const Random = values.Random;
 pub const Anchor = values.Anchor;
 pub const Pin = values.Pin;
 pub const Trust = values.Trust;

@@ -43,12 +43,14 @@ pub const Client = struct {
     const Provider = quic_provider.Provider(Client);
     const Suite = quic_suite.Suite(Client);
 
-    /// Prepares the connection's values. `now_seconds` is the clock a Web PKI chain is judged at,
-    /// which the caller read (non-negotiable 3). chapulin judges a ticket's age when its session
-    /// starts, and refuses a stale one then.
-    pub fn start(client: *Client, config: *const ClientConfig, now_seconds: u64, resumption: ?values.Resumption) Error!void {
+    /// Prepares the connection's values. Every draw the session makes comes from `random`
+    /// (decision 94 as amended). `now_seconds` is the clock a Web PKI chain is judged at, which the
+    /// caller read (non-negotiable 3). chapulin judges a ticket's age when its session starts, and
+    /// refuses a stale one then.
+    pub fn start(client: *Client, config: *const ClientConfig, random: values.Random, now_seconds: u64, resumption: ?values.Resumption) Error!void {
         client.state = .{};
         client.chosen = config.values;
+        client.chosen.random = random;
         switch (client.chosen.trust) {
             .web_pki => |*judged| judged.now_seconds = now_seconds,
             .pins => {},
@@ -106,11 +108,13 @@ pub const Server = struct {
     const Provider = quic_provider.Provider(Server);
     const Suite = quic_suite.Suite(Server);
 
-    /// Prepares the connection's values. `now_seconds` is the clock its tickets are issued and
-    /// judged at, or 0 for none.
-    pub fn start(server: *Server, config: *const ServerConfig, now_seconds: u64) void {
+    /// Prepares the connection's values. Every draw the session makes comes from `random`
+    /// (decision 94 as amended). `now_seconds` is the clock its tickets are issued and judged at,
+    /// or 0 for none.
+    pub fn start(server: *Server, config: *const ServerConfig, random: values.Random, now_seconds: u64) void {
         server.state = .{};
         server.chosen = config.values;
+        server.chosen.random = random;
         server.chosen.now_seconds = now_seconds;
     }
 

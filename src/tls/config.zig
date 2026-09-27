@@ -130,11 +130,14 @@ pub fn ServerConfig(comptime chapulin: type) type {
         }
 
         /// chapulin's `ch_srv_check`: each provisioned key signs, and the signature verifies. It
-        /// draws entropy and runs no I/O, so a program runs it once, before it serves.
-        pub fn check(config: *const Config) error{IdentityRefused}!void {
+        /// draws from `random`, for an RSA-PSS salt, and runs no I/O, so a program runs it once,
+        /// before it serves.
+        pub fn check(config: *const Config, random: values.Random) error{IdentityRefused}!void {
+            var checked = config.values;
+            checked.random = random;
             // RFC 9846 §4.5.2: a server's key signs its CertificateVerify, which its public key
             // must verify; a server with no identity has none.
-            config.values.check() catch return error.IdentityRefused;
+            checked.check() catch return error.IdentityRefused;
         }
     };
 }

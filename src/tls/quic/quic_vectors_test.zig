@@ -128,7 +128,7 @@ fn start_client() !crypto.Suite {
         .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = "example.com" } },
         .alpn = &.{"hq-interop"},
     });
-    try test_session.start(&test_config, identity.now_seconds, null);
+    try test_session.start(&test_config, identity.random(), identity.now_seconds, null);
     try test_session.provider().set_transport_params(placeholder_parameters);
     const suite = test_session.suite();
     try suite.vtable.install_initial_keys(suite.context, .client, &client_dcid);

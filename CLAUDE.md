@@ -33,8 +33,9 @@ The architecture depends on every rule in this section.
    two implementations: chapulin's, and the null ones in `src/sim/`, which are test-only, are never
    packaged, and are what let one seed replay. chapulin holds every private key, traffic secret
    and packet protection key; colibri never holds one and never chooses a cipher suite.
-   Randomness is the consumer's: chapulin is built `RAND=extern`, and the program that links
-   colibri defines `ch_rand_bytes` and `ch_assert_fail`.
+   Randomness is the consumer's: chapulin is built `RAND=session`, each session draws from the
+   `std.Random` its caller passes to `start` and from nothing else, and the program that links
+   colibri defines `ch_assert_fail` (decision 94 as amended).
 3. **Time is a value the caller passes, never a clock read.** Every function that needs the
    current instant takes it as a parameter. RFC 9002's pseudocode reads `now()` at nine sites —
    eight in loss recovery (Appendix A) and one in the congestion controller (Appendix B.6) — and
@@ -293,7 +294,7 @@ section when a step adds or renames a command.
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
-  the package, each `RAND=extern`. The library's `tls` module links two: the TCP object,
+  the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
   `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
   object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. On a target whose features include
   the AES instructions each is `SUITE=aesgcm AES=hw` with the builder's statement `CH_NATIVE_AES`,
@@ -307,9 +308,10 @@ section when a step adds or renames a command.
   so a capture can be decrypted. The package exports each object's module `chapulin`: chapulin's
   Zig API (its `docs/zig.md`), which carries the object, with the public headers translated under
   the object's own defines as its `c`. Because the module carries the object, nothing else may add
-  it: a second copy fails the link. A program that links `tls` defines chapulin's hooks
-  `ch_rand_bytes` and `ch_assert_fail`; each image of `src/testing/` defines them
-  (`src/testing/entropy.zig` and `src/testing/tls/hooks.zig`), and a QUIC image `ch_keylog` too
+  it: a second copy fails the link. A program that links `tls` defines chapulin's one hook,
+  `ch_assert_fail`, and passes each session's `start` the `std.Random` it draws from. Each image of
+  `src/testing/` defines the hook (`src/testing/tls/hooks.zig`) and passes `getentropy`'s octets
+  (`src/testing/entropy.zig`), and a QUIC image defines `ch_keylog` too
   (`src/testing/quic/keylog.zig`). `zig build test-tls test-tls-keylog -Dcpu=<model>` runs the
   `tls` tests over the objects without AES-GCM, on a CPU model without the AES instructions:
   `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch

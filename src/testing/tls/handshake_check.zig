@@ -12,6 +12,7 @@
 //! The trust anchor is the SubjectPublicKeyInfo of the CA the peer minted, read from the file the
 //! peer wrote. colibri pins that one root and nothing else, so a chain from any other root fails.
 const std = @import("std");
+const entropy = @import("../entropy.zig");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
@@ -128,7 +129,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const socket = try connect(asked.port);
     defer _ = std.c.close(socket);
 
-    client.start(&config, asked.now_seconds, null) catch {
+    client.start(&config, entropy.random(), asked.now_seconds, null) catch {
         std.debug.print("tls-handshake: chapulin refused the configuration\n", .{});
         std.process.exit(exit_failed);
     };

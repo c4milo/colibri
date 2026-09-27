@@ -91,8 +91,8 @@ Verified against chapulin's tree on 2026-09-22, at its commit `8a32aeb`:
   RFC 9001 uses no TLS exporter. chapulin's decision 43.
 - It has a key log behind a build value. `KEYLOG=on` hands each of the four traffic secrets to
   `ch_keylog(io, label, client_random, secret)` as it derives them, in both roles and every
-  transport, QUIC included. The image defines `ch_keylog`, the way it defines `ch_rand_bytes`, so
-  a build that turned the axis on and wired nothing fails to link. The labels are the NSS key log
+  transport, QUIC included. The image defines `ch_keylog`, the way it defines `ch_assert_fail`,
+  so a build that turned the axis on and wired nothing fails to link. The labels are the NSS key log
   format's. A client in a raw or ca trust mode refuses the axis; `TRUST=webpki`, the server's
   `TRUST=none` and `ROLE=both` admit it. chapulin's decision 44 and INV-29.
 
@@ -199,14 +199,11 @@ answers that.
 
 ## What is left
 
-One change chapulin owes, and one contract note smaller than a gap.
-
-**Each session draws from a source its caller passes.** Decision 94, as amended on 2026-09-27,
-has every draw chapulin makes for a session come from a source the caller passes to that session.
-chapulin gives each session a randomness callback with a context, as `ch_keylog` has one. A
-session configured with none is refused when it starts, and nothing falls back to
-`ch_rand_bytes`. A call that draws outside any session takes a callback too. Requested on
-2026-09-27.
+One contract note, smaller than a gap. Each session now draws from a source its caller passes:
+`e4b9c6f` adds `RAND=session`, as decision 94 was amended on 2026-09-27 to ask. Each session's
+configuration carries a randomness callback with a context, as `ch_keylog` has one, a session
+configured with none is refused when it starts, and nothing falls back to `ch_rand_bytes`.
+colibri's objects are built that way, and each `tls` session's `start` takes the source.
 
 Every change design §8 step 16b asked of chapulin is in:
 - `9d604f7` ends the connection when a handshake message before a key change does not end its

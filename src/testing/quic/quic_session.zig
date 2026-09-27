@@ -1,6 +1,7 @@
 //! One QUIC connection's TLS session in `src/testing/`, in either role: `tls.quic`'s client or
 //! server behind one type (design §8 step 16b), so an endpoint drives both the same way.
 const std = @import("std");
+const entropy = @import("../entropy.zig");
 const tls = @import("tls");
 const quic = @import("quic");
 const keylog_module = @import("keylog.zig");
@@ -37,12 +38,12 @@ pub const Session = union(enum) {
         switch (how) {
             .client => |client| {
                 session.* = .{ .client = undefined };
-                try session.client.start(client.config, client.now_seconds, client.resumption);
+                try session.client.start(client.config, entropy.random(), client.now_seconds, client.resumption);
                 session.client.set_keylog_context(keylog);
             },
             .server => |server| {
                 session.* = .{ .server = undefined };
-                session.server.start(server.config, server.now_seconds);
+                session.server.start(server.config, entropy.random(), server.now_seconds);
                 session.server.set_keylog_context(keylog);
             },
         }

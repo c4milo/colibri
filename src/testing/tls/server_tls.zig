@@ -20,6 +20,7 @@ const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const session_module = @import("../session.zig");
 const tls_records = @import("records.zig");
+const entropy = @import("../entropy.zig");
 
 const Session = session_module.Session;
 
@@ -45,7 +46,7 @@ pub const Step = tls_records.Step;
 /// Prepares a layer for a connection the listener just accepted, under the configuration every
 /// connection of the run borrows.
 pub fn start(layer: *Layer, config: *const tls.record.ServerConfig) Error!void {
-    try layer.server.start(config, no_clock);
+    try layer.server.start(config, entropy.random(), no_clock);
     layer.records.reset();
     layer.attached = false;
     layer.refused = false;

@@ -2419,8 +2419,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       context. The `start` of each `tls` session takes the source and passes it through.
     - A session with no source does not start, and nothing falls back to another source.
     - colibri's objects then call no `ch_rand_bytes`. A program defines that hook only for a
-      chapulin object of its own, and still defines `ch_assert_fail`. Non-negotiable 2 changes when
-      this lands, which waits on chapulin's change.
+      chapulin object of its own, and still defines `ch_assert_fail`. It landed with chapulin
+      `e4b9c6f`'s `RAND=session`, and non-negotiable 2 changed with it.
+    - `start` takes the source as a `tls.Random`, which `src/tls/values.zig` names. That file is
+      the one under `src/` the determinism lint lets name `std.Random`, as the owner ruled the same
+      day: colibri takes the source from its caller, and makes and draws from no generator.
 
     The alternatives refused:
     - colibri keeping the source in the session and making it the thread's current source around

@@ -1,8 +1,8 @@
-//! The hooks chapulin's TCP object imports, which every TCP image of `src/testing/` defines, as
-//! every program that links colibri's `tls` does (decision 94): `ch_assert_fail` here, and
-//! `ch_rand_bytes` in `entropy.zig`. The library defines neither.
+//! The hook chapulin's objects import, which every image of `src/testing/` defines, as every program
+//! that links colibri's `tls` does (decision 94): `ch_assert_fail`. The objects are built
+//! `RAND=session`, so each session draws from the source `entropy.zig` hands its `start`, and no
+//! image defines `ch_rand_bytes`. The library defines no hook.
 const std = @import("std");
-const entropy = @import("../entropy.zig");
 
 /// chapulin routes every failed assertion here, and `ch_assert.h` leaves the handler to the
 /// image: its failure domain is the caller's. colibri's panics, naming the condition and the
@@ -14,6 +14,4 @@ fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callc
 
 comptime {
     @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
-    // `ch_rand_bytes`, the other hook, is exported where `entropy.zig` is analysed.
-    _ = entropy;
 }

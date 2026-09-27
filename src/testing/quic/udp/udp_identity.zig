@@ -40,8 +40,8 @@ var pin_storage: [1]tls.Pin align(@alignOf(tls.Pin)) = undefined;
 var server_config: tls.quic.ServerConfig align(@alignOf(tls.quic.ServerConfig)) = undefined;
 var client_config: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
 
-/// Draws the keys and converts the run's configuration, before any session starts. chapulin draws
-/// the rest of its entropy through `ch_rand_bytes` (`entropy.zig`).
+/// Draws the keys and converts the run's configuration, before any session starts. Each session
+/// draws the rest from the source `entropy.zig` hands its `start`.
 pub fn seed(asked: udp_arguments.Arguments) !void {
     // RFC 9846 §4.3.2: one key per deployment, and a run is one deployment.
     entropy.fill(&cookie_storage);
@@ -168,7 +168,7 @@ fn configure_server(asked: udp_arguments.Server) !void {
         .ticket_key = &ticket_key_storage,
         .alpn = &server_alpn,
     });
-    try server_config.check();
+    try server_config.check(entropy.random());
 }
 
 /// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.

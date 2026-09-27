@@ -32,13 +32,19 @@ const forbidden_references = lint.rules.forbidden_references;
 /// pseudo-random generator, and the system entropy source.
 const forbidden_prefixes = [_][]const u8{ "std.time", "std.Random", "std.crypto.random" };
 
-/// The configuration. It reads `src/`, and not `src/testing/`.
+/// The one file under `src/` outside `src/testing/` that may name `std.Random`: it names the type
+/// of the source a caller passes each TLS session, which colibri stores and never draws from
+/// (decision 94 as amended on 2026-09-27). It holds plain value types and no code.
+const values_path = "src/tls/values.zig";
+
+/// The configuration. It reads `src/` but `src/testing/` and `values_path`.
 pub const config: forbidden_references.Config = .{
     .name = "determinism",
     .scope = .{
         .extensions = &.{lint.paths.zig_extension},
         .include_directories = &.{"src"},
         .exclude_directories = &.{"src/testing"},
+        .exclude_paths = &.{values_path},
     },
     .prefixes = &forbidden_prefixes,
     .reason = "time is a caller-supplied parameter and randomness is the caller's" ++

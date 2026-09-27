@@ -63,8 +63,8 @@ colibri makes no system call, holds no allocator, and reads no clock. Four thing
   `attach_tls` once `handshake` completes. For QUIC, hand `provider()` and `suite()` to the
   connection, which starts chapulin's session when it sets its transport parameters. A server that
   sends Retry packets checks their tokens with a `tls.quic.Retry` under a key it draws once. A
-  program that links `tls` defines chapulin's two hooks, `ch_rand_bytes` and `ch_assert_fail`, and
-  a program without TLS never links chapulin.
+  program that links `tls` defines chapulin's one hook, `ch_assert_fail`, and passes each session's
+  `start` the source it draws from. A program without TLS never links chapulin.
 
 A peer that breaks a protocol rule never crashes colibri. `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
@@ -202,29 +202,36 @@ and both send content with `write_data`, which writes as much as the flow-contro
 ## TLS
 
 The `tls` module runs chapulin's TLS 1.3 sessions behind the vtables h11, h2 and QUIC take. A
-program that links it defines chapulin's two hooks: `ch_rand_bytes`, which fills a buffer with
-random octets, and `ch_assert_fail`, which a failed chapulin assertion calls.
+program that links it defines chapulin's one hook, `ch_assert_fail`, which a failed chapulin
+assertion calls.
 
 ```zig
-extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
-const getentropy_len_max = 256;
-
-fn rand_bytes(pointer: [*]u8, len: usize) callconv(.c) void {
-    var filled: usize = 0;
-    while (filled < len) {
-        const part = @min(len - filled, getentropy_len_max);
-        if (getentropy(pointer + filled, part) != 0) @panic("getentropy failed");
-        filled += part;
-    }
-}
-
 fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
     std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
 }
 
 comptime {
-    @export(&rand_bytes, .{ .name = "ch_rand_bytes", .linkage = .strong });
     @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+}
+```
+
+Each session draws its randomness from a `std.Random` the program passes to its `start`, and
+from nothing else (decision 94 as amended). A program that seeds that source replays the session.
+This one reads the operating system's `getentropy`:
+
+```zig
+extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
+const getentropy_len_max = 256;
+var entropy_state: u8 = 0;
+const entropy: std.Random = .{ .ptr = &entropy_state, .fillFn = fill_entropy };
+
+fn fill_entropy(_: *anyopaque, buffer: []u8) void {
+    var filled: usize = 0;
+    while (filled < buffer.len) {
+        const part = @min(buffer.len - filled, getentropy_len_max);
+        if (getentropy(buffer[filled..].ptr, part) != 0) @panic("getentropy failed");
+        filled += part;
+    }
 }
 ```
 
@@ -233,9 +240,10 @@ object borrows. It then starts a session for each connection. Over TCP, `handsha
 socket read and writes what the session owes the peer. Once the handshake completes, the session's
 `provider()` goes to the connection's `attach_tls`. When it fails, `failure_written()` counts the
 octets it wrote at the front of the output, the alert that says why last (RFC 9846 §6.2). The
-program sends them, then closes the connection. An output of `tls.record.Client.handshake_output_len_min`
-octets takes all a client owes in one call. Each configuration names the most anchors and ALPN
-protocols it takes, `anchors_max` and `protocols_max`.
+program sends them, then closes the connection. An output of
+`tls.record.Client.handshake_output_len_min` octets takes all a client owes in one call. Each
+configuration names the most anchors and ALPN protocols it takes, `anchors_max` and
+`protocols_max`.
 
 ```zig
 const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
@@ -243,7 +251,7 @@ try tls_config.init(.{
     .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
     .alpn = &.{ "h2", "http/1.1" },
 });
-try tls_client.start(&tls_config, now_seconds, null);
+try tls_client.start(&tls_config, entropy, now_seconds, null);
 const hello = try tls_client.handshake(&.{}, &output);
 ```
 

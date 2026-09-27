@@ -55,8 +55,8 @@ pub const web_pki: values.Client = .{
 
 /// Starts both sessions and gives each its transport parameters, which starts chapulin's.
 pub fn start_both(resumption: ?values.Resumption) !void {
-    try client.start(&client_config, identity.now_seconds, resumption);
-    server.start(&server_config, identity.now_seconds);
+    try client.start(&client_config, identity.random(), identity.now_seconds, resumption);
+    server.start(&server_config, identity.random(), identity.now_seconds);
     try client.provider().set_transport_params(client_parameters);
     try server.provider().set_transport_params(server_parameters);
 }

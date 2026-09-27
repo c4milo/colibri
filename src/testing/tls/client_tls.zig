@@ -14,6 +14,7 @@
 //! makes the connection preface the first h2 octet a client sends, and RFC 9112 §9.7 has an h11
 //! client send its first request once the handshake has finished.
 const std = @import("std");
+const entropy = @import("../entropy.zig");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const check_file = @import("check_file.zig");
@@ -69,7 +70,7 @@ pub const Step = tls_records.Step;
 
 /// Prepares a layer for a connection whose connect is in flight, with its ClientHello staged.
 pub fn start(layer: *Layer, shared: *const Shared) Error!void {
-    try layer.client.start(shared.config, shared.now_seconds, null);
+    try layer.client.start(shared.config, entropy.random(), shared.now_seconds, null);
     layer.records.reset();
     layer.attached = false;
 }

@@ -30,8 +30,8 @@ const server_hello_type: u8 = 2;
 fn start_and_hello() !void {
     to_server.* = .{};
     to_client.* = .{};
-    try client.start(&support.client_config, support.now_seconds, null);
-    try server.start(&support.server_config, support.now_seconds);
+    try client.start(&support.client_config, support.random(), support.now_seconds, null);
+    try server.start(&support.server_config, support.random(), support.now_seconds);
     to_server.len += (try client.handshake(&.{}, to_server.free())).written;
 }
 

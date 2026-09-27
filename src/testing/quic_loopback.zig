@@ -11,7 +11,7 @@ pub const loopback_check = @import("quic/loopback_check.zig");
 pub const hq = @import("quic/hq/hq.zig");
 
 comptime {
-    // chapulin's objects import `ch_assert_fail`, `ch_rand_bytes` and `ch_keylog`, which these two
+    // chapulin's objects import `ch_assert_fail` and `ch_keylog`, which these two
     // files export. Zig analyses a file only when something references it, so these references
     // are what keep the exports in a build with no tests.
     _ = hooks;

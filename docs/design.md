@@ -4637,6 +4637,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   that offers a ticket took 1,568 octets. 5 mutations, each **CAUGHT**: each list limit one above
   chapulin's, a hello bound shorter than a ClientHello, and an alert record one octet short.
 
+  **Each session draws from its caller's source, chapulin `5ae9182`, 2026-09-27.** Decision 94 as
+  amended on 2026-09-27, https://github.com/c4milo/colibri/issues/71. The pin moved to chapulin
+  `5ae9182`, whose `e4b9c6f` adds `RAND=session`, and colibri's objects are built that way.
+  - Each `tls` session's `start` takes a `tls.Random` after its configuration, and
+    `ServerConfig.check` takes one for an RSA-PSS salt. chapulin refuses a session with none, so no
+    draw falls back to another source.
+  - No program defines `ch_rand_bytes`. `src/testing/entropy.zig` hands each endpoint session the
+    octets of `getentropy`, and the tests pass a seeded SplitMix64 (`random_test_support.zig`).
+  - `tools/lint/determinism.zig` lets `src/tls/values.zig`, which names the source's type, name
+    `std.Random`. Every other file under `src/` still may not.
+  - `tools/consumer_check.sh` now requires a program without `ch_assert_fail`, chapulin's one hook,
+    to fail to link, naming it.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1954 of 1954 tests; `zig build test-tls test-tls-keylog -Dcpu=generic`: 88
+    of 88. Two tests replay a record and a QUIC handshake's first flights. One seed twice writes the
+    same octets, and another seed for one side changes what that side writes and leaves the other
+    side's ClientHello as it was.
+  - The twelve scripts of the 157d2ac record, at `e4b9c6f`, whose C and Zig sources `5ae9182`
+    keeps: ok, with h3spec's 49 examples and 0 failures and h2spec's 144 in cleartext and over TLS.
+    `tools/consumer_check.sh` ran again at `5ae9182`: ok.
+  - 7 mutations, each **CAUGHT**: a record client that passes no source, each of the four session
+    kinds drawing from a fixed source in place of its caller's, `check` passing no source, and the
+    program without the hook defining it.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

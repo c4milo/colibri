@@ -66,12 +66,14 @@ pub const Client = struct {
 
     const Provider = record_provider.Provider(Client);
 
-    /// Stages the ClientHello, which the first `handshake` call writes. `now_seconds` is the
-    /// clock a Web PKI chain is judged at, which the caller read (non-negotiable 3).
-    pub fn start(client: *Client, config: *const ClientConfig, now_seconds: u64, resumption: ?values.Resumption) Error!void {
+    /// Stages the ClientHello, which the first `handshake` call writes. Every draw the session
+    /// makes comes from `random` (decision 94 as amended). `now_seconds` is the clock a Web PKI
+    /// chain is judged at, which the caller read (non-negotiable 3).
+    pub fn start(client: *Client, config: *const ClientConfig, random: values.Random, now_seconds: u64, resumption: ?values.Resumption) Error!void {
         client.state = .{};
         client.owed = true;
         var chosen = config.values;
+        chosen.random = random;
         switch (chosen.trust) {
             .web_pki => |*judged| judged.now_seconds = now_seconds,
             .pins => {},
@@ -179,10 +181,12 @@ pub const Server = struct {
     const Provider = record_provider.Provider(Server);
 
     /// Prepares the session to read a ClientHello. A server speaks second, so nothing is written.
-    /// `now_seconds` is the clock its tickets are issued and judged at, or 0 for none.
-    pub fn start(server: *Server, config: *const ServerConfig, now_seconds: u64) Error!void {
+    /// Every draw the session makes comes from `random` (decision 94 as amended). `now_seconds` is
+    /// the clock its tickets are issued and judged at, or 0 for none.
+    pub fn start(server: *Server, config: *const ServerConfig, random: values.Random, now_seconds: u64) Error!void {
         server.state = .{};
         var chosen = config.values;
+        chosen.random = random;
         chosen.now_seconds = now_seconds;
         // RFC 9846 §9.2: chapulin refuses values it cannot serve from, such as a cookie key missing
         // for the cookie extension that section makes mandatory.

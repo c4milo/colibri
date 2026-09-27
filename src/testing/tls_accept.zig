@@ -10,9 +10,9 @@ pub const accept_check = @import("tls/accept_check.zig");
 
 comptime {
     // The `tls` module links chapulin's TCP object (design §8 step 16b), which imports
-    // `ch_assert_fail` and `ch_rand_bytes`, and `tls/hooks.zig` exports both. Zig analyses a file
-    // only when something references it, and in a build with no tests nothing here does, so the
-    // exports would be missing and the link would fail. This reference is what forces the analysis.
+    // `ch_assert_fail`, and `tls/hooks.zig` exports it. Zig analyses a file only when something
+    // references it, and in a build with no tests nothing here does, so the export would be missing
+    // and the link would fail. This reference is what forces the analysis.
     _ = hooks;
 }
 
