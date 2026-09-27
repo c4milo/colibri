@@ -9,8 +9,9 @@
 # with docker compose, python3, and tshark from Wireshark 4.5.0 or newer, which the runner reads
 # packet captures with. The runner is cloned at a pinned commit into a cache directory, with its
 # requirements in a virtual environment there, and colibri is registered in that clone's
-# implementations_quic.json. Test cases the endpoint does not build exit 127 and show as
-# unsupported. It is not part of `zig build test`, and it takes minutes.
+# implementations_quic.json. The clone carries one patch, quic_interop/count_handshakes.patch
+# (decision 99). Test cases the endpoint does not build exit 127 and show as unsupported. It is
+# not part of `zig build test`, and it takes minutes.
 set -euo pipefail
 
 readonly peers="${1:-quic-go}"
@@ -39,6 +40,13 @@ docker build -q -t "$image" "$scratch/context" >/dev/null
 if [ ! -d "$runner" ]; then
   git clone -q https://github.com/quic-interop/quic-interop-runner "$runner"
   git -C "$runner" checkout -q "$runner_commit"
+fi
+# Decision 99: count the client's connection attempts as handshakes, until
+# https://github.com/quic-interop/quic-interop-runner/pull/509 is merged. A clone the patch no
+# longer applies to stops the run.
+readonly count_patch="$repository_root/tools/quic_interop/count_handshakes.patch"
+if ! git -C "$runner" apply --reverse --check "$count_patch" 2>/dev/null; then
+  git -C "$runner" apply "$count_patch"
 fi
 if [ ! -x "$runner/venv/bin/python" ]; then
   python3 -m venv "$runner/venv"

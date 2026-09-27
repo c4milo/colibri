@@ -3209,10 +3209,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | 2026-09-27 | `ecb5924` | 55456 | `c1c1d964`, then `504eca39` | 6 s |
   | 2026-09-27 | `a6a4791` | 57256 | `0518e848`, then `ec4de6cd` | 6 s |
 
-  In each, the capture holds 51 distinct Source Connection IDs in the server's Initial packets and
-  50 in the client's, and the client's key log holds 50 `CLIENT_TRAFFIC_SECRET_0` lines. A
-  client's Source Connection ID does not change within a connection, so a count of the client's
-  would give 50. Whether to report that to the runner is the owner's call.
+  In each, the capture holds 51 distinct Source Connection IDs in the server's Initial packets, and
+  the client's key log holds 50 `CLIENT_TRAFFIC_SECRET_0` lines.
+
+  [Decision 99](decisions.md), the same day: colibri's runs count the client's connection attempts,
+  the distinct Destination Connection IDs of the client's Initial packets numbered 0.
+  `tools/interop.sh` applies the change to the pinned runner, and it went upstream as
+  [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509).
+  - Over 27 saved captures, the old count gave 51 and the new one 50 on the three failed runs
+    above. The other 24 gave the same number both ways: `handshakeloss` with colibri's client once
+    and quic-go's 15 times, `handshake`, `retry` and `resumption` for three client and server
+    pairs, and `zerortt` for quic-go.
+  - A count of the client's Source Connection IDs, or of the server's IDs the client later used, is
+    wrong for quic-go's client. It uses zero-length connection IDs, and it moves to a
+    NEW_CONNECTION_ID one during the handshake.
+  - quic-go's own client failed 1 of 15 `handshakeloss` runs against quic-go's server. It gave up
+    at its handshake timeout.
+  - With the patch, colibri at `08d631e` passed 10 of 10 runs as the client. In one, quic-go
+    dropped a connection and started a second for the same client 7 seconds later: the old count
+    gives 51 there.
+  - 1 mutation, **CAUGHT**: without the patch, the four captures with a dropped connection count
+    51, and the case fails.
 
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A

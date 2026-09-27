@@ -2585,3 +2585,34 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       which is what decision 91's pool exists to avoid.
 
     Cost: every h11 caller passes a second argument, an empty slice when it places no pool.
+
+99. **colibri's runs of the QUIC Interop Runner count the client's connection attempts as
+    handshakes.** Ruled by the owner on 2026-09-27, for
+    [#72](https://github.com/c4milo/colibri/issues/72).
+
+    The runner counts a handshake for each distinct Source Connection ID of the server's Initial
+    packets. quic-go's server drops a connection it has heard nothing from for 5 seconds, and it
+    starts a second one when the client's next Initial arrives. So `handshakeloss` counted 51
+    handshakes where colibri's client made 50 connections. Design §8 step 9e's runner notes hold
+    the evidence.
+    - `tools/quic_interop/count_handshakes.patch` has the runner's `_count_handshakes` count the
+      distinct Destination Connection IDs of the client's Initial packets that have packet number
+      0: one for each connection attempt (RFC 9000 §12.3, §7.2). `tools/interop.sh` applies it to
+      the pinned clone.
+    - The same change is
+      [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509), for
+      [quic-interop-runner#508](https://github.com/quic-interop/quic-interop-runner/issues/508).
+      Once it is merged, the pin moves to the merge and the patch goes.
+
+    The alternatives refused:
+    - Leave the count as it is. `handshakeloss` with colibri as the client against quic-go then
+      fails about one run in three, on handshakes that all completed.
+    - Lower `rtt_initial_ns` to 100 ms. A model of the case put the failures near 0.1% of runs.
+      But RFC 9002 §6.2.2 recommends 333 ms, and the change would reach every user of the library
+      for one test's sake.
+    - Count the client's Source Connection IDs, or the server's IDs that the client later used.
+      quic-go's client uses zero-length connection IDs and switches to a NEW_CONNECTION_ID one
+      during the handshake, so both counts are wrong for it.
+
+    Cost: until the upstream change is merged, colibri's runs check a count the public runner does
+    not.
