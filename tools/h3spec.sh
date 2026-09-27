@@ -76,7 +76,9 @@ grep -q listening "$scratch/server.log" || fail "the server did not start: $(cat
 
 echo "h3spec.sh: running h3spec ${h3spec_version} against 127.0.0.1:${port}"
 status=0
-"$h3spec" 127.0.0.1 "$port" --no-validate >"$scratch/report" 2>&1 || status=$?
+# With GITHUB_ACTIONS set, h3spec's test framework colours its summary line, and tools/ci.sh's
+# report no longer matches it. Unset, CI gets the output a person gets.
+env -u GITHUB_ACTIONS "$h3spec" 127.0.0.1 "$port" --no-validate >"$scratch/report" 2>&1 || status=$?
 sed -n '/^QUIC servers/,/^Failures:/p' "$scratch/report"
 grep -E "examples, [0-9]+ failure" "$scratch/report" || true
 # A server that exits mid-run fails every case after it, so say so rather than leave the reader to
