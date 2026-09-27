@@ -33,8 +33,13 @@ pub fn ClientConfig(comptime chapulin: type) type {
     return struct {
         const Config = @This();
 
-        anchors: [c.CH_WEBPKI_ANCHOR_MAX]c.ch_trust_anchor,
-        alpn: [c.CH_ALPN_MAX]c.ch_alpn_protocol,
+        /// The most anchors and ALPN protocols the values may name, chapulin's
+        /// `CH_WEBPKI_ANCHOR_MAX` and `CH_ALPN_MAX`: `init` refuses more.
+        pub const anchors_max: usize = c.CH_WEBPKI_ANCHOR_MAX;
+        pub const protocols_max: usize = c.CH_ALPN_MAX;
+
+        anchors: [anchors_max]c.ch_trust_anchor,
+        alpn: [protocols_max]c.ch_alpn_protocol,
         /// What each session starts from; `start` sets the clock and the ticket.
         values: chapulin.Client,
 
@@ -75,9 +80,13 @@ pub fn ServerConfig(comptime chapulin: type) type {
     return struct {
         const Config = @This();
 
+        /// The most ALPN protocols the values may name, chapulin's `CH_ALPN_MAX`: `init` refuses
+        /// more.
+        pub const protocols_max: usize = c.CH_ALPN_MAX;
+
         ecdsa_chain: [constants.certificate_chain_len_max]c.ch_cert,
         rsa_chain: [constants.certificate_chain_len_max]c.ch_cert,
-        alpn: [c.CH_ALPN_MAX]c.ch_alpn_protocol,
+        alpn: [protocols_max]c.ch_alpn_protocol,
         suites: [constants.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock.
         values: chapulin.Server,

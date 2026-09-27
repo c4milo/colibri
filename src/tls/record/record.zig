@@ -22,6 +22,11 @@ pub const ServerConfig = config_module.ServerConfig(chapulin);
 pub const ConfigError = config_module.Error;
 pub const State = record_provider.State;
 
+/// Octets of a sealed alert record, chapulin's `alert_record_len` (RFC 9846 §5.2, §6). A client's
+/// `handshake` reads the server's flight only into an output with this much room left, so the
+/// alert a refused flight owes fits the call that fails.
+pub const alert_record_len: usize = chapulin.record.alert_record_len;
+
 pub const Error = error{
     /// chapulin refused the values: a configuration it does not accept, or a ticket past its
     /// lifetime or seven days old (RFC 9846 §4.7.1). Nothing was sent.
@@ -52,6 +57,12 @@ pub const Client = struct {
     /// Whether chapulin may hold octets the client owes the server. chapulin reads no record while
     /// it does (`tcp_nonblocking.h`), and it cannot say so, so `handshake` asks by collecting.
     owed: bool,
+
+    /// Octets of the largest record a client's `handshake` writes: a ClientHello, the first or the
+    /// one a HelloRetryRequest asks for, chapulin's `REC_HDR + CH_TX_HELLO`. The Finished flight
+    /// and a refused flight's alert are shorter. An output this long takes all the client owes in
+    /// one call, so nothing stays with chapulin for the next.
+    pub const handshake_output_len_min: usize = chapulin.c.REC_HDR + chapulin.c.CH_TX_HELLO;
 
     const Provider = record_provider.Provider(Client);
 
@@ -87,7 +98,7 @@ pub const Client = struct {
         // RFC 9846 §4.2.4: a client that owes its second ClientHello reads nothing before sending
         // it, and chapulin refuses the records until it is collected. RFC 9846 §6.2: nor does it
         // read before the output has room for the alert a refused flight owes the server, whole.
-        if (!client.owed and input.len > 0 and output.len - written >= chapulin.record.alert_record_len) {
+        if (!client.owed and input.len > 0 and output.len - written >= alert_record_len) {
             consumed = client.session.recordIn(input) catch {
                 // The alert that says why goes out after what this call wrote. `alert` names it.
                 client.state.failure_written = written + client.failure_alert(output[written..]);
@@ -104,9 +115,9 @@ pub const Client = struct {
     /// The alert record a failed read staged, sealed once the client's write key is installed.
     /// None follows the server's own fatal alert (RFC 9846 §6.2).
     fn failure_alert(client: *Client, output: []u8) usize {
-        assert(output.len >= chapulin.record.alert_record_len);
+        assert(output.len >= alert_record_len);
         const alert_len = client.session.recordOut(output) catch return 0;
-        assert(alert_len > 0 and alert_len <= chapulin.record.alert_record_len);
+        assert(alert_len > 0 and alert_len <= alert_record_len);
         return alert_len;
     }
 

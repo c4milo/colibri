@@ -271,6 +271,23 @@ test "a ClientHello longer than the output goes out over several calls, and noth
     try testing.expect(flight.written > 0);
 }
 
+test "a ClientHello that offers a ticket goes out whole into `handshake_output_len_min` octets" {
+    try support.configure(support.web_pki, .{ .tickets = true });
+    try support.handshake_both(null);
+    const receiver = client.provider();
+    _ = try receiver.vtable.decrypt_record(receiver.context, to_client.held(), scratch);
+    var ticket = client.take_ticket().?;
+    defer ticket.wipe();
+    client.close();
+    server.close();
+    try client.start(&support.client_config, support.now_seconds, .{ .ticket = &ticket, .age_ms = support.ms_per_second });
+    var output: [record.Client.handshake_output_len_min]u8 = undefined;
+    const hello = try client.handshake(&.{}, &output);
+    // A call that writes less than its output holds has taken all the client staged.
+    try testing.expect(hello.written > 0 and hello.written < output.len);
+    try testing.expect(!client.owed);
+}
+
 test "a server whose output cannot hold its flight fails the handshake" {
     try support.configure(support.web_pki, .{});
     to_server.* = .{};
@@ -281,13 +298,46 @@ test "a server whose output cannot hold its flight fails the handshake" {
     try testing.expectError(error.OutputTooSmall, server.handshake(to_server.held(), &short));
 }
 
+/// `count` ALPN protocol names, each different: "p0", "p1", and on.
+fn distinct_protocols(comptime count: usize) [count][]const u8 {
+    var names: [count][]const u8 = undefined;
+    for (&names, 0..) |*name, index| name.* = std.fmt.comptimePrint("p{d}", .{index});
+    return names;
+}
+
 test "a list longer than the one it is copied into is refused when it is converted" {
     const config = &support.client_config;
-    const many_anchors = [_]values.Anchor{support.anchors[0]} ** 13;
+    // The limits a caller bounds its lists by: at the limit a list converts, and past it it does not.
+    const anchors_max = record.ClientConfig.anchors_max;
+    const most_anchors = [_]values.Anchor{support.anchors[0]} ** anchors_max;
+    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &most_anchors, .server_name = "a" } }, .alpn = &support.protocols });
+    // A session starts from it, so chapulin takes that many too.
+    try client.start(config, support.now_seconds, null);
+    client.close();
+    const many_anchors = [_]values.Anchor{support.anchors[0]} ** (anchors_max + 1);
     try testing.expectError(error.TooManyAnchors, config.init(.{ .trust = .{ .web_pki = .{ .anchors = &many_anchors, .server_name = "a" } }, .alpn = &support.protocols }));
-    const many_protocols = [_][]const u8{"h2"} ** 9;
+    // chapulin refuses a protocol named twice, so each name differs.
+    const most_protocols = comptime distinct_protocols(record.ClientConfig.protocols_max);
+    try config.init(.{ .trust = support.web_pki.trust, .alpn = &most_protocols });
+    try client.start(config, support.now_seconds, null);
+    client.close();
+    const many_protocols = [_][]const u8{"h2"} ** (record.ClientConfig.protocols_max + 1);
     try testing.expectError(error.TooManyProtocols, config.init(.{ .trust = support.web_pki.trust, .alpn = &many_protocols }));
     const server_config = &support.server_config;
+    const server_most = comptime distinct_protocols(record.ServerConfig.protocols_max);
+    try server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &server_most,
+    });
+    try server.start(server_config, support.now_seconds);
+    server.close();
+    const server_protocols = [_][]const u8{"h2"} ** (record.ServerConfig.protocols_max + 1);
+    try testing.expectError(error.TooManyProtocols, server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &server_protocols,
+    }));
     const long_chain = [_][]const u8{support.leaf} ** 17;
     try testing.expectError(error.TooManyCertificates, server_config.init(.{
         .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },

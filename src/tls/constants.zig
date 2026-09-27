@@ -1,6 +1,9 @@
 //! The limits of colibri's `tls` module (design §8 step 16). A limit chapulin names stays
 //! chapulin's, under its C name in `chapulin.c`, such as `CH_WEBPKI_ANCHOR_MAX` and `CH_ALPN_MAX`;
-//! these are the ones colibri chooses.
+//! these are the ones colibri chooses. A caller cannot reach `chapulin.c`, so the few it sizes its
+//! buffers and lists by are exported where their object is known: `record.alert_record_len`,
+//! `record.Client.handshake_output_len_min`, and each configuration's `anchors_max` and
+//! `protocols_max`.
 const std = @import("std");
 const assert = std.debug.assert;
 

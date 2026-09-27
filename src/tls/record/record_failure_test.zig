@@ -4,7 +4,7 @@
 //! `record_test.zig` for length.
 const std = @import("std");
 const tls_provider = @import("tls_provider");
-const chapulin = @import("chapulin_tcp");
+const record = @import("record.zig");
 const values = @import("../values.zig");
 const support = @import("record_test_support.zig");
 
@@ -75,7 +75,7 @@ test "RFC 9846 §6.2: a client that refuses the server's chain sends the alert s
     try server_flight();
     try testing.expectError(error.HandshakeFailed, client.handshake(to_client.held(), to_server.free()));
     // The client's write key is installed after the ServerHello, so the alert is sealed.
-    try testing.expectEqual(chapulin.record.alert_record_len, client.failure_written());
+    try testing.expectEqual(record.alert_record_len, client.failure_written());
     to_server.len += client.failure_written();
     // The server reads it as the client's fatal alert, which nothing answers.
     try testing.expectError(error.HandshakeFailed, server.handshake(to_server.held(), to_client.free()));
@@ -94,7 +94,7 @@ test "RFC 9846 §6.2: a server that refuses the client's Finished sends the aler
     // RFC 9846 §5.2: a record changed in its last octet fails authentication.
     to_server.held()[to_server.len - 1] ^= 1;
     try testing.expectError(error.HandshakeFailed, server.handshake(to_server.held(), to_client.free()));
-    try testing.expectEqual(chapulin.record.alert_record_len, server.failure_written());
+    try testing.expectEqual(record.alert_record_len, server.failure_written());
     to_client.len += server.failure_written();
     // The client, whose handshake completed, opens it as the server's fatal alert.
     const provider = client.provider();
@@ -106,7 +106,7 @@ test "a client reads nothing while its output cannot take a whole alert" {
     try support.configure(support.web_pki, .{});
     try start_and_hello();
     try server_flight();
-    var short: [chapulin.record.alert_record_len - 1]u8 = undefined;
+    var short: [record.alert_record_len - 1]u8 = undefined;
     const waited = try client.handshake(to_client.held(), &short);
     try testing.expectEqual(0, waited.consumed + waited.written);
     // With room for the alert, it reads the flight and writes its Finished.

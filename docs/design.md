@@ -4557,6 +4557,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 4 mutations, each **CAUGHT**: each TLS check sending nothing, which Go read as an EOF; the server
     layer counting no octets; and the client loop closing before its alert went out.
 
+  **The limits a caller sizes by, 2026-09-27.** A caller cannot reach `chapulin.c`, so `tls` names
+  the limits a caller sizes its buffers and lists by. cocuyo asked for them.
+  - `record.alert_record_len` is chapulin's sealed alert record, 24 octets.
+  - `record.Client.handshake_output_len_min` is chapulin's `REC_HDR + CH_TX_HELLO`, 2,421 octets on
+    an object with AES-GCM: an output that long takes a whole ClientHello in one call.
+  - Each configuration's `anchors_max` and `protocols_max` are chapulin's `CH_WEBPKI_ANCHOR_MAX`
+    and `CH_ALPN_MAX`.
+
+  `zig build test-tls test-tls-keylog`: 84 of 84, with and without `-Dcpu=generic`. A ClientHello
+  that offers a ticket took 1,568 octets. 5 mutations, each **CAUGHT**: each list limit one above
+  chapulin's, a hello bound shorter than a ClientHello, and an alert record one octet short.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

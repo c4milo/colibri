@@ -233,7 +233,9 @@ object borrows. It then starts a session for each connection. Over TCP, `handsha
 socket read and writes what the session owes the peer. Once the handshake completes, the session's
 `provider()` goes to the connection's `attach_tls`. When it fails, `failure_written()` counts the
 octets it wrote at the front of the output, the alert that says why last (RFC 9846 §6.2). The
-program sends them, then closes the connection.
+program sends them, then closes the connection. An output of `tls.record.Client.handshake_output_len_min`
+octets takes all a client owes in one call. Each configuration names the most anchors and ALPN
+protocols it takes, `anchors_max` and `protocols_max`.
 
 ```zig
 const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
