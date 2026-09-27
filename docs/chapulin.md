@@ -211,6 +211,9 @@ One contract note, smaller than a gap. Every change design §8 step 16b asked of
   5,514 octets, which colibri's client, pinning the runner's key, now reads. A session's buffer,
   `receive_len`, is 20 KiB, above the 16,410 octets chapulin's `docs/webpki.md` gives for the
   largest Certificate message over TCP.
+- `157d2ac`, which colibri did not ask for, has each driver write a failed handshake's alert
+  itself: in the clear before the failing side's write key is installed, sealed after it. It drops
+  `ch_record_alert`. colibri's sessions count the alert in `failure_written`.
 
 **A caller that buffers no whole record has no way to say so.** `ch_read` and `ch_write` call
 `cfg.recv` and `cfg.send`, which return 1..n bytes or -1, so a caller must hold the bytes before

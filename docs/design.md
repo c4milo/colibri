@@ -4518,6 +4518,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     client against quic-go's server. `ecn` was unsupported in the two pairings with quic-go.
     `amplificationlimit` now passes in all three.
 
+  **After 0.1.0: chapulin `157d2ac`, 2026-09-27.** The pin moved to chapulin `157d2ac`, in which
+  the call that fails a handshake writes its alert itself. The alert is in the clear before the
+  failing side's write key is installed and sealed after it, and none follows the peer's own fatal
+  alert. `ch_record_alert` is gone. Each record session's `failure_written` counts the octets a
+  failed `handshake` wrote at the front of its output, the alert last, which the caller sends
+  before it closes. A client reads nothing while its output has no room for a whole alert record,
+  so the alert always fits the call that fails.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1948 of 1948 tests; `zig build test-tls test-tls-keylog -Dcpu=generic`: 82
+    of 82. `src/tls/record/record_failure_test.zig` adds four tests: a server's alert in the clear
+    and sealed, a client's sealed, each read by the peer as its fatal alert, and a client's read
+    waiting for room.
+  - `tools/tls_handshake.sh`, `tools/tls_accept.sh`, `tools/quic_loopback.sh`, `tools/quic_udp.sh`,
+    `tools/quic_aioquic.sh` and `tools/consumer_check.sh`: ok. `tools/h3spec.sh`: 49 examples, 0
+    failures.
+  - `tools/h2spec.sh 18443 --tls`: 144 passed in cleartext and over TLS, the 2 skipped by name. The
+    h2 and h11 interop scripts with `--tls`: every exchange and request ended as planned.
+  - 6 mutations, each **CAUGHT**: the client's alert left out of its count, the server's count not
+    kept, a client read with no room for the alert, an alert counted after the peer's own, and each
+    `failure_written` answering 0.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

@@ -231,7 +231,9 @@ comptime {
 The program converts its values once into a configuration, which every session of one chapulin
 object borrows. It then starts a session for each connection. Over TCP, `handshake` takes what the
 socket read and writes what the session owes the peer. Once the handshake completes, the session's
-`provider()` goes to the connection's `attach_tls`.
+`provider()` goes to the connection's `attach_tls`. When it fails, `failure_written()` counts the
+octets it wrote at the front of the output, the alert that says why last (RFC 9846 §6.2). The
+program sends them, then closes the connection.
 
 ```zig
 const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};

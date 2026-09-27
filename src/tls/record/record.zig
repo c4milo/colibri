@@ -26,9 +26,11 @@ pub const Error = error{
     /// chapulin refused the values: a configuration it does not accept, or a ticket past its
     /// lifetime or seven days old (RFC 9846 §4.7.1). Nothing was sent.
     Refused,
-    /// The handshake did not complete (RFC 9846 §6). `alert` names what chapulin chose.
+    /// The handshake did not complete (RFC 9846 §6). `alert` names what chapulin chose, and
+    /// `failure_written` counts the octets of the output to send before closing.
     HandshakeFailed,
     /// The output could not hold a record of a server's flight, which fails the handshake.
+    /// `failure_written` counts the octets of the output to send before closing.
     OutputTooSmall,
 };
 
@@ -83,15 +85,35 @@ pub const Client = struct {
         var written = try client.collect(output);
         var consumed: usize = 0;
         // RFC 9846 §4.2.4: a client that owes its second ClientHello reads nothing before sending
-        // it, and chapulin refuses the records until it is collected.
-        if (!client.owed and input.len > 0) {
-            // RFC 9846 §6.2: a flight chapulin refuses ends the handshake, and `alert` names why.
-            consumed = client.session.recordIn(input) catch return error.HandshakeFailed;
+        // it, and chapulin refuses the records until it is collected. RFC 9846 §6.2: nor does it
+        // read before the output has room for the alert a refused flight owes the server, whole.
+        if (!client.owed and input.len > 0 and output.len - written >= chapulin.record.alert_record_len) {
+            consumed = client.session.recordIn(input) catch {
+                // The alert that says why goes out after what this call wrote. `alert` names it.
+                client.state.failure_written = written + client.failure_alert(output[written..]);
+                // RFC 9846 §6.2: a flight chapulin refuses ends the handshake.
+                return error.HandshakeFailed;
+            };
             client.owed = true;
             written += try client.collect(output[written..]);
         }
         client.state.completed = client.session.recordState() == .connected;
         return .{ .consumed = consumed, .written = written, .complete = client.state.completed };
+    }
+
+    /// The alert record a failed read staged, sealed once the client's write key is installed.
+    /// None follows the server's own fatal alert (RFC 9846 §6.2).
+    fn failure_alert(client: *Client, output: []u8) usize {
+        assert(output.len >= chapulin.record.alert_record_len);
+        const alert_len = client.session.recordOut(output) catch return 0;
+        assert(alert_len > 0 and alert_len <= chapulin.record.alert_record_len);
+        return alert_len;
+    }
+
+    /// After `handshake` failed, the octets it wrote at the front of its output, which the caller
+    /// sends before it closes the connection: what the client owed, then the alert (RFC 9846 §6.2).
+    pub fn failure_written(client: *const Client) usize {
+        return client.state.failure_written;
     }
 
     /// What chapulin has staged, as much as `output` holds; the rest stays staged for the next call.
@@ -160,14 +182,26 @@ pub const Server = struct {
     /// `output`, which must hold all of it.
     pub fn handshake(server: *Server, input: []u8, output: []u8) Error!Progress {
         assert(!server.state.completed);
-        const progress = server.session.recordIn(input, output) catch |failure| return switch (failure) {
-            // chapulin writes a flight record by record and fails the handshake on one that does
-            // not fit (`srv_cfg.h`).
-            error.Io => error.OutputTooSmall,
-            else => error.HandshakeFailed,
+        const progress = server.session.recordIn(input, output) catch |failure| {
+            // RFC 9846 §6.2: chapulin wrote the alert that says why after the flight's records.
+            server.state.failure_written = server.session.outputLen();
+            assert(server.state.failure_written <= output.len);
+            return switch (failure) {
+                // chapulin writes a flight record by record and fails the handshake on one that
+                // does not fit (`srv_cfg.h`).
+                error.Io => error.OutputTooSmall,
+                else => error.HandshakeFailed,
+            };
         };
         server.state.completed = server.session.recordState() == .connected;
         return .{ .consumed = progress.consumed, .written = progress.written, .complete = server.state.completed };
+    }
+
+    /// After `handshake` failed, the octets it wrote at the front of its output, which the caller
+    /// sends before it closes the connection: the records of the flight that went out, then the
+    /// alert (RFC 9846 §6.2), as much of it as the output held.
+    pub fn failure_written(server: *const Server) usize {
+        return server.state.failure_written;
     }
 
     pub fn provider(server: *Server) tls_provider.Provider {
@@ -197,6 +231,7 @@ pub const Server = struct {
 
 test {
     _ = @import("record_test.zig");
+    _ = @import("record_failure_test.zig");
     // Sealing a peer's KeyUpdate needs the traffic secrets, which only a `KEYLOG=on` object logs.
     if (@hasDecl(chapulin.c, "ch_keylog")) _ = @import("record_keylog_test.zig");
 }

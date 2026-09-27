@@ -39,6 +39,8 @@ pub const State = struct {
     closed: bool = false,
     /// Whether the handshake completed, which a closed session still did.
     completed: bool = false,
+    /// The octets a failed `handshake` wrote at the front of its output (RFC 9846 §6.2).
+    failure_written: usize = 0,
 };
 
 /// The vtable for a role's session type `Held`.
