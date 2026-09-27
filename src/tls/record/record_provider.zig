@@ -32,6 +32,9 @@ pub const State = struct {
     owed_len: usize = 0,
     /// The peer's close_notify, which `take_alert` reports once (RFC 9846 §6.1).
     pending_alert: ?tls_provider.AlertReport = null,
+    /// Whether `take_alert` has reported the fatal alert the peer sent, and the one this side sent.
+    received_taken: bool = false,
+    sent_taken: bool = false,
     /// Whether this side's close_notify has gone out (RFC 9846 §6.1).
     closed: bool = false,
     /// Whether the handshake completed, which a closed session still did.
@@ -89,7 +92,7 @@ pub fn Provider(comptime Held: type) type {
         }
 
         fn take_alert(context: *anyopaque) ?tls_provider.AlertReport {
-            return peer_alert(&held(context).state);
+            return next_alert(held(context));
         }
 
         fn send_close_notify(context: *anyopaque, output: []u8) provider_module.CloseError!usize {
@@ -183,12 +186,25 @@ fn parameters(role: anytype) ?tls_provider.Negotiated {
 /// such a build alone (chapulin's `srv_cfg.h`).
 pub const aes_gcm = @hasField(c.ch_srv_cfg, "cipher_suites");
 
-/// The peer's close_notify, once. A read that fails sent its own alert from inside chapulin, which
-/// keeps no description of it or of a fatal alert it received, so neither is reported (reported to
-/// chapulin on 2026-09-26). A failed handshake's alert is the session's `alert`.
-fn peer_alert(state: *State) ?tls_provider.AlertReport {
-    defer state.pending_alert = null;
-    return state.pending_alert;
+/// The peer's close_notify, then what a failure left (RFC 9846 §6): the fatal alert the peer sent,
+/// then the one this side sent, each once. chapulin sends its own alert from inside a read or a
+/// write, and names both (`ch_alert_sent`, `ch_alert_received`).
+fn next_alert(role: anytype) ?tls_provider.AlertReport {
+    const state = &role.state;
+    if (state.pending_alert) |report| {
+        state.pending_alert = null;
+        return report;
+    }
+    if (role.session.recordState() != .failed) return null;
+    if (!state.received_taken) {
+        state.received_taken = true;
+        if (role.session.alertReceived()) |description| return .{ .description = @enumFromInt(description), .origin = .peer };
+    }
+    if (!state.sent_taken) {
+        state.sent_taken = true;
+        if (role.session.alertSent()) |description| return .{ .description = @enumFromInt(description), .origin = .local };
+    }
+    return null;
 }
 
 /// RFC 9846 §6.1's close_notify, once. chapulin's `close` wipes the keys whether or not the alert

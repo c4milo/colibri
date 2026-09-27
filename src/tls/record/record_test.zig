@@ -104,9 +104,15 @@ test "RFC 9846 §6: a record that does not authenticate fails, and its alert is 
     try support.handshake_both(null);
     const sender = client.provider();
     const receiver = server.provider();
+    // A live session has raised nothing, and asking does not use up what a failure leaves.
+    try testing.expectEqual(null, receiver.vtable.take_alert(receiver.context));
     const sealed = try sender.vtable.encrypt_record(sender.context, "tampered", to_server.free());
     to_server.octets[sealed.written - 1] ^= 1;
     try testing.expectError(error.TlsFailed, receiver.vtable.decrypt_record(receiver.context, to_server.octets[0..sealed.written], scratch));
+    const local = receiver.vtable.take_alert(receiver.context).?;
+    try testing.expectEqual(tls_provider.Alert.bad_record_mac, local.description);
+    try testing.expectEqual(tls_provider.AlertReport.Origin.local, local.origin);
+    try testing.expectEqual(null, receiver.vtable.take_alert(receiver.context));
     // The alert chapulin sent from inside the read goes out through `handshake_write`, whole and
     // once, and the peer's read fails on it.
     var short: [1]u8 = undefined;
@@ -116,6 +122,11 @@ test "RFC 9846 §6: a record that does not authenticate fails, and its alert is 
     to_client.len += written;
     try testing.expectEqual(0, try receiver.vtable.handshake_write(receiver.context, to_client.free(), 0));
     try testing.expectError(error.TlsFailed, sender.vtable.decrypt_record(sender.context, to_client.held(), scratch));
+    // RFC 9846 §6.2: the peer names the alert it received, and sends none in answer.
+    const received = sender.vtable.take_alert(sender.context).?;
+    try testing.expectEqual(tls_provider.Alert.bad_record_mac, received.description);
+    try testing.expectEqual(tls_provider.AlertReport.Origin.peer, received.origin);
+    try testing.expectEqual(null, sender.vtable.take_alert(sender.context));
 }
 
 test "RFC 9846 §6.1: close_notify goes out once, reaches the peer, and the peer still writes" {

@@ -4465,6 +4465,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   client, which waits for chapulin to read a pinned leaf longer than `CH_WEBPKI_CERT_MAX`. The owner
   approved that change on 2026-09-27, and it has not landed.
 
+  **16b at chapulin `6fda41f`, 2026-09-27.** The pin moved to chapulin `6fda41f`, whose `df428cd`
+  adds `ch_alert_sent` and `ch_alert_received`: a failed read now names the alert it sent and the
+  fatal alert the peer sent. The record provider's `take_alert` reports the peer's close_notify
+  first, then the peer's fatal alert as `peer`, then this side's as `local`, each once. chapulin no
+  longer answers a peer's fatal alert. The same push refuses a KeyUpdate whose `request_update` is
+  neither 0 nor 1 with illegal_parameter (RFC 9846 §4.7.3). A new keylog test sends one and reads
+  that alert as `local`.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1940 of 1940 tests; `zig build test-tls test-tls-keylog -Dcpu=generic`: 74
+    of 74.
+  - `tools/tls_handshake.sh`, `tools/tls_accept.sh`, `tools/quic_loopback.sh`, `tools/quic_udp.sh`,
+    `tools/quic_aioquic.sh` and `tools/consumer_check.sh`: ok. `tools/h3spec.sh`: 49 examples, 0
+    failures.
+  - `tools/h2spec.sh 18443 --tls`: 144 passed in cleartext and over TLS, the 2 skipped by name. The
+    h2 and h11 interop scripts with `--tls`: every exchange and request ended as planned.
+  - The QUIC Interop Runner, `tools/interop.sh quic-go`. colibri's server passed every case against
+    colibri's client but `amplificationlimit` and `rebind-port`. Against quic-go's client it passed
+    every case but `rebind-addr`, and `ecn` was unsupported. colibri's client passed every case
+    against quic-go's server but `amplificationlimit`, and `ecn` was unsupported.
+    `amplificationlimit` waits for the leaf-size change above.
+  - Two more rounds of `rebind-port` and `rebind-addr`, colibri as the server, against both
+    clients: 7 of 8 passed, and `rebind-addr` against colibri's client failed once. Each rebinding
+    failure printed a PATH_CHALLENGE with no PATH_RESPONSE. Only the last run's trace was kept. In
+    it, the datagram that carried the server's first challenge on the new path never reached the
+    client. The server's next challenge carried new data, as RFC 9000 §13.3 requires, and the
+    client answered it. The runner checks only the first challenge on each new path, so losing that
+    one datagram fails the case.
+  - 5 mutations of the new `take_alert`, each **CAUGHT**: reporting before the session failed, each
+    report made twice, and each origin swapped.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

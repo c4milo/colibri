@@ -199,23 +199,18 @@ answers that.
 
 ## What is left
 
-Two things chapulin owes from design §8 step 16b, and one contract note that is smaller than a gap.
+One change chapulin owes from design §8 step 16b, and one contract note that is smaller than a gap.
 
 **Pins alone refuse a certificate longer than 3,072 octets.** Pins alone read the leaf only as
 far as its key, but chapulin reads it, and each entry after it, under `CH_WEBPKI_CERT_MAX`. The
 QUIC Interop Runner's `amplificationlimit` case sends a leaf of 5,514 octets, so colibri's client,
-which pins the runner's key, fails that case with bad_certificate. Reported on 2026-09-27.
+which pins the runner's key, fails that case with bad_certificate. Reported on 2026-09-27; the
+owner approved the change the same day, and it has not landed.
 
-**A failed read names no alert.** After a record-layer failure, chapulin has sent its alert and
-keeps no description of it, and it drops the description of a fatal alert it received.
-`tls_provider`'s `take_alert` is meant to name both. chapulin adds `ch_alert_sent` and
-`ch_alert_received`, with `alertSent()` and `alertReceived()` in its Zig API, and stops answering a
-received fatal alert with unexpected_message (RFC 9846 §6.2). Until then `tls`'s provider reports
-the peer's close_notify alone.
-
-Two fixes the same step asked for are in: `9d604f7` ends the connection when a handshake message
-before a key change does not end its record (RFC 9846 §5.1), and `e802399` has pins alone take any
-number of certificates after the leaf.
+The step's other requests are in. `9d604f7` ends the connection when a handshake message before a
+key change does not end its record (RFC 9846 §5.1). `e802399` has pins alone take any number of
+certificates after the leaf. `df428cd` adds `ch_alert_sent` and `ch_alert_received`, so a failed
+read names the alert it sent or received, and colibri's `take_alert` reports both.
 
 **A caller that buffers no whole record has no way to say so.** `ch_read` and `ch_write` call
 `cfg.recv` and `cfg.send`, which return 1..n bytes or -1, so a caller must hold the bytes before

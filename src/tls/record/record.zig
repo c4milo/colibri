@@ -124,9 +124,9 @@ pub const Client = struct {
         return client.session.pskSelected();
     }
 
-    /// The alert a failed handshake chose (RFC 9846 §6), or null.
+    /// The alert a failure chose (RFC 9846 §6), or null: chapulin's `ch_alert_sent`.
     pub fn alert(client: *const Client) ?u8 {
-        return client.session.recordAlert();
+        return client.session.alertSent();
     }
 
     /// Wipes every secret the session holds, the offered ticket's copy included, and ends it.
@@ -184,8 +184,9 @@ pub const Server = struct {
         return server.session.pskSelected();
     }
 
+    /// The alert a failure chose (RFC 9846 §6), or null: chapulin's `ch_alert_sent`.
     pub fn alert(server: *const Server) ?u8 {
-        return server.session.recordAlert();
+        return server.session.alertSent();
     }
 
     /// Wipes every secret the session holds and ends it.

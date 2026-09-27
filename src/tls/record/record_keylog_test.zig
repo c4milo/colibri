@@ -188,6 +188,17 @@ test "RFC 9846 §5.1: a KeyUpdate that does not end its record fails the connect
     try testing.expect(owed < chapulin.record.key_update_record_len);
 }
 
+test "RFC 9846 §4.7.3: a KeyUpdate asking for neither answer fails with illegal_parameter" {
+    try connect();
+    const receiver = support.server.provider();
+    const neither = [_]u8{ handshake_key_update, 0, 0, 1, 2 };
+    const update = try seal(Keys.of(logged.client), 0, content_handshake, &neither, &sealed_storage);
+    try testing.expectError(error.TlsFailed, receiver.vtable.decrypt_record(receiver.context, update, &support.scratch));
+    const report = receiver.vtable.take_alert(receiver.context).?;
+    try testing.expectEqual(tls_provider.Alert.illegal_parameter, report.description);
+    try testing.expectEqual(tls_provider.AlertReport.Origin.local, report.origin);
+}
+
 test "replies owed past `key_update_replies_max` fail the read that would owe one more" {
     try connect();
     const receiver = support.server.provider();
