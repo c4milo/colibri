@@ -28,12 +28,12 @@ const status_fields_too_large: u16 = 431;
 /// The field line colibri adds to the last response on a connection (RFC 9112 §9.6).
 const close_field: Field = .{ .name = "Connection", .value = "close" };
 
-pub fn receive(target: *Connection, input: []const u8) connection.Error!Received {
+pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
     return switch (target.phase) {
         .closed, .waiting => .{ .consumed = 0, .event = null },
         .tunnel => .{ .consumed = input.len, .event = if (input.len == 0) null else .{ .tunnel = input } },
         .head => read_request(target, input),
-        .body => read_body(target, input),
+        .body => read_body(target, input, decoded),
     };
 }
 
@@ -50,6 +50,8 @@ fn read_request(target: *Connection, input: []const u8) connection.Error!Receive
     target.responded = false;
     target.reader = connection_body.Reader.start(request.body.length);
     target.phase = if (target.reader.open()) .body else .waiting;
+    // Decision 91: a body carrying gzip or deflate takes a decoder before its first octet.
+    target.begin_decoding(request.body) catch |failure| return target.fail(failure, status_of(failure));
     return .{ .consumed = request.head_len, .event = .{ .request = .{
         .line = request.line,
         .form = request.form,
@@ -57,8 +59,8 @@ fn read_request(target: *Connection, input: []const u8) connection.Error!Receive
     } } };
 }
 
-fn read_body(target: *Connection, input: []const u8) connection.Error!Received {
-    const read = connection_body.read(&target.reader, .request, input, &target.trailers) catch |failure| {
+fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
+    const read = target.read_body(.request, input, decoded) catch |failure| {
         return target.fail(failure, status_of(failure));
     };
     // decision 92: the next request waits for this one's final response.
@@ -129,6 +131,7 @@ pub fn finish_response(target: *Connection) void {
     if (target.phase == .body) target.close_after = true;
     if (target.close_after) {
         target.phase = .closed;
+        target.release_decoding();
         return;
     }
     assert(target.phase == .waiting);
@@ -149,8 +152,11 @@ fn status_of(failure: anyerror) u16 {
         error.StartLineTooLong => @intFromEnum(Code.uri_too_long),
         // RFC 6585 §5: header fields too large, in total or one at a time.
         error.HeadTooLarge, error.SectionTooLarge, error.TooManyLines => status_fields_too_large,
-        // RFC 9112 §6.1: a transfer coding the server does not understand is a 501.
-        error.CodingUnsupported, error.CodingsStacked => @intFromEnum(Code.not_implemented),
+        // RFC 9112 §6.1: a transfer coding the server does not understand is a 501, and so is a
+        // coding it has no decoder pool for, and a feature of one that stdx refuses (decision 91).
+        error.CodingUnsupported, error.CodingsStacked, error.CodingUndecoded, error.CodingFeatureRefused => @intFromEnum(Code.not_implemented),
+        // RFC 9110 §15.6.4: every decoder is taken, a temporary overload (decision 91).
+        error.DecodersExhausted => @intFromEnum(Code.service_unavailable),
         // RFC 9110 §15.6.6: a major version the server does not support.
         error.VersionUnsupported => @intFromEnum(Code.http_version_not_supported),
         // RFC 9112 §2.2, §3.2, §5.1 and §6.3: a malformed request is a 400.
@@ -164,6 +170,7 @@ fn reason_of(status: u16) []const u8 {
     return switch (@as(Code, @enumFromInt(status))) {
         .uri_too_long => "URI Too Long",
         .not_implemented => "Not Implemented",
+        .service_unavailable => "Service Unavailable",
         .http_version_not_supported => "HTTP Version Not Supported",
         else => "Bad Request",
     };

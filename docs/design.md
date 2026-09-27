@@ -4008,6 +4008,42 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   simulator check with coded bodies, the corrupt and refused verdicts each with a case, and
   mutations.
 
+  **The codings, 2026-09-26.** `src/h11/coding.zig` holds the pool and one message's decoding, and
+  the connection decodes a body carrying `gzip` or `deflate` into the buffer the caller passes to
+  `receive` ([decision 98](decisions.md)).
+  - A server with no pool answers a coded request 501 (RFC 9112 §6.1). With one, it answers 503
+    when every decoder is taken (RFC 9110 §15.6.4), 400 when the body is corrupt or when octets
+    follow a zlib stream inside the body, and 501 for a feature stdx refuses, such as a zlib preset
+    dictionary. Every refusal gives the decoder back, and so does a server that answers before the
+    body ends and closes (RFC 9112 §9.3).
+  - A client with a pool sends `TE: gzip, deflate` with `Connection: TE` (RFC 9112 §7.4). One
+    without refuses a response that uses either coding, because with no TE only chunked is
+    acceptable. A coded response that runs until the close ended only if its stream did.
+  - A chunked read that decoded only part of its data gives the rest back
+    (`chunked.Decoder.give_back`), so the next call returns it again.
+  - stdx sorts its refusals into corrupt and unsupported, and h11 keeps them apart. A zlib window
+    size RFC 1950 does not allow is corrupt in stdx, so it is a 400, not the 501 decision 91 first
+    named for it.
+  - The test-only server gives its cleartext h11 connections a pool of
+    `h11_decoders_per_worker` per worker and a decoded buffer of `h11_decoded_len`, so `--echo`
+    returns a coded request decoded. Over TLS its sessions have none, and a coded request is a 501.
+
+  What was checked, on macOS arm64 with Zig 0.16.0:
+  - `zig build test` passes. `src/h11/coding.zig` and `connection_coding_test.zig` read gzip and
+    deflate in any pieces, into rooms of 1, 7 and 11 octets and one that holds the whole body,
+    with two gzip members, and with each refusal above.
+  - `http-server --h11 --echo` returned, decoded, a two-member gzip body and a deflate body that
+    Python's `gzip` and `zlib` modules coded, which are encoders other than stdx's. It answered a
+    wrong CRC-32 with 400 and a preset dictionary with 501.
+  - Mutations, each against `zig build test-h11`, all **CAUGHT**: undecoded octets not given back,
+    every octet of a run counted as consumed, a body ending mid-stream not checked, octets after a
+    zlib stream starting another, a second gzip member refused, a refused feature called corrupt,
+    a stream cut short accepted, the free list not advanced, the stream's end not noted, 503
+    answered as 400, a refused feature answered 400, a server or a client taking no decoder, an
+    early close keeping its decoder, TE left out of the head, a close-delimited body whole without
+    its stream, a failure keeping its decoder, and a given-back chunk keeping its `data_end` state.
+    The TE mutation first did not compile and was rewritten so it did.
+
 - **Step 15d — the endpoints and conformance.**
   - The test-only h11 server and client on Rotor.
   - TLS over chapulin, with ALPN `http/1.1`, and the server choosing `h2` or `http/1.1`.

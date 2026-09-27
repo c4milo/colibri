@@ -103,7 +103,7 @@ fn serve() !void {
     for (0..receive_calls_max) |_| {
         if (answered == exchanges) return;
         const input = try link.receive(.server);
-        const step = try server.receive(input);
+        const step = try server.receive(input, &.{});
         if (step.event) |event| switch (event) {
             .request => |request| {
                 std.debug.print("server: {s} {s}\n", .{ request.line.method, request.line.target });
@@ -181,7 +181,7 @@ fn read_responses() !void {
     for (0..receive_calls_max) |_| {
         if (ended == exchanges) return;
         const input = try link.receive(.client);
-        const step = try client.receive(input);
+        const step = try client.receive(input, &.{});
         if (step.event) |event| switch (event) {
             .response => |response| {
                 try read_status(response.line.status.code);

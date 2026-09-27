@@ -120,7 +120,7 @@ pub const Session = struct {
         // Every pass consumes an octet or ends a response, and a response takes at least one
         // octet, so n octets take at most 2n passes, and one more finds them short.
         for (0..passes_per_octet * input.len + 1) |_| {
-            const received = session.connection.receive(input[consumed..]) catch {
+            const received = session.connection.receive(input[consumed..], &.{}) catch {
                 session.failed = true;
                 return consumed;
             };

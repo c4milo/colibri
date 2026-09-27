@@ -130,7 +130,7 @@ pub const Run = struct {
         // Every pass consumes an octet or ends a message, and a message takes at least one octet,
         // so n octets take at most 2n passes, and one more finds them short.
         for (0..passes_per_octet * run.to_server.held().len + 1) |_| {
-            const received = try run.server.receive(run.to_server.held());
+            const received = try run.server.receive(run.to_server.held(), &.{});
             run.to_server.consumed += received.consumed;
             const event = received.event orelse return;
             // decision 92: a server reads no request past the one it has not answered.
@@ -197,7 +197,7 @@ pub const Run = struct {
     pub fn read_responses(run: *Run) Error!void {
         // Bounded as `serve` is: at most 2n passes for n octets, and one more.
         for (0..passes_per_octet * run.to_client.held().len + 1) |_| {
-            const received = try run.client.receive(run.to_client.held());
+            const received = try run.client.receive(run.to_client.held(), &.{});
             run.to_client.consumed += received.consumed;
             try run.read(received.event orelse return);
         }

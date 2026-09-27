@@ -26,7 +26,7 @@ fn get(target: *Connection, method: []const u8) !void {
 }
 
 fn expect_status(target: *Connection, input: []const u8, status: u16) !usize {
-    const received = try target.receive(input);
+    const received = try target.receive(input, &.{});
     try testing.expectEqual(status, received.event.?.response.line.status.code);
     return received.consumed;
 }
@@ -37,8 +37,8 @@ test "a response goes to its request, and its body arrives as data then end" {
     try testing.expectEqualStrings("GET /a HTTP/1.1\r\nHost: h\r\n\r\n", test_output[0..written]);
     const input = "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
     const head = try expect_status(target, input, 200);
-    try testing.expectEqualStrings("ok", (try target.receive(input[head..])).event.?.data);
-    try testing.expectEqual(connection.Event.end, (try target.receive(input[input.len..])).event.?);
+    try testing.expectEqualStrings("ok", (try target.receive(input[head..], &.{})).event.?.data);
+    try testing.expectEqual(connection.Event.end, (try target.receive(input[input.len..], &.{})).event.?);
     try testing.expectEqual(0, target.outstanding_len);
     try testing.expectEqual(connection.Phase.head, target.phase);
 }
@@ -60,7 +60,7 @@ test "decision 88: no pipelining after a non-idempotent request until its final 
     try get(target, "POST");
     try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
     // An interim response is not the final one (RFC 9112 §9.2).
-    try testing.expectEqual(100, (try target.receive("HTTP/1.1 100 Continue\r\n\r\n")).event.?.interim.status.code);
+    try testing.expectEqual(100, (try target.receive("HTTP/1.1 100 Continue\r\n\r\n", &.{})).event.?.interim.status.code);
     try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
     _ = try expect_status(target, "HTTP/1.1 204 \r\n\r\n", 204);
     try get(target, "GET");
@@ -117,7 +117,7 @@ test "RFC 9112 §8 and §6.3 rule 8: a close ends a close-delimited body, and cu
     try get(target, "GET");
     const input = "HTTP/1.0 200 OK\r\n\r\nall of it";
     const head = try expect_status(target, input, 200);
-    try testing.expectEqualStrings("all of it", (try target.receive(input[head..])).event.?.data);
+    try testing.expectEqualStrings("all of it", (try target.receive(input[head..], &.{})).event.?.data);
     const ended = target.transport_closed();
     try testing.expect(ended.ended_body and !ended.incomplete);
     try testing.expectEqual(1, ended.unanswered);
@@ -131,9 +131,9 @@ test "RFC 9112 §8 and §6.3 rule 8: a close ends a close-delimited body, and cu
 
 test "RFC 9112 §9.2: octets with no request outstanding are refused, unless they are CRLF" {
     const target = client(.{});
-    try testing.expectEqual(connection.Received{ .consumed = 2, .event = null }, try target.receive("\r\nHT"));
-    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive("\r"));
-    try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 200 OK\r\n\r\n"));
+    try testing.expectEqual(connection.Received{ .consumed = 2, .event = null }, try target.receive("\r\nHT", &.{}));
+    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive("\r", &.{}));
+    try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 200 OK\r\n\r\n", &.{}));
     try testing.expectEqual(error.ResponseUnexpected, target.failure.?);
     try testing.expect(!target.has_pending());
 }
@@ -141,18 +141,18 @@ test "RFC 9112 §9.2: octets with no request outstanding are refused, unless the
 test "101 and malformed responses fail the connection, and a 2xx to CONNECT tunnels" {
     var target = client(.{});
     try get(target, "GET");
-    try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 101 Switching Protocols\r\n\r\n"));
+    try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 101 Switching Protocols\r\n\r\n", &.{}));
     try testing.expectEqual(error.UpgradeUnsupported, target.failure.?);
     target = client(.{});
     try get(target, "GET");
-    try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n"));
+    try testing.expectError(error.ConnectionFailed, target.receive("HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n", &.{}));
     try testing.expectEqual(error.TransferEncodingWithContentLength, target.failure.?);
     try testing.expectEqual(1, target.transport_closed().unanswered);
     target = client(.{});
     _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});
     _ = try expect_status(target, "HTTP/1.1 200 OK\r\n\r\n", 200);
     try testing.expectEqual(connection.Phase.tunnel, target.phase);
-    try testing.expectEqualStrings("raw", (try target.receive("raw")).event.?.tunnel);
+    try testing.expectEqualStrings("raw", (try target.receive("raw", &.{})).event.?.tunnel);
     try testing.expectEqual(3, try target.write_body(&test_output, "raw"));
 }
 

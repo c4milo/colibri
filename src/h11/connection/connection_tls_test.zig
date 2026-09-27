@@ -208,16 +208,16 @@ test "RFC 9112 §9.8: over TLS, a body that runs until the close ends only at a 
     var target = try attached(.client, &state);
     const input = "HTTP/1.1 200 OK\r\n\r\nrest";
     _ = try target.write_request(&test_output, "GET", "/", &.{.{ .name = "Host", .value = "a" }});
-    const head = try target.receive(input);
-    _ = try target.receive(input[head.consumed..]);
+    const head = try target.receive(input, &.{});
+    _ = try target.receive(input[head.consumed..], &.{});
     // The transport closed with no closure alert: the body may be truncated.
     const cut = target.transport_closed();
     try testing.expect(!cut.ended_body and cut.incomplete);
     try testing.expectEqual(1, cut.unanswered);
     target = try attached(.client, &state);
     _ = try target.write_request(&test_output, "GET", "/", &.{.{ .name = "Host", .value = "a" }});
-    const again = try target.receive(input);
-    _ = try target.receive(input[again.consumed..]);
+    const again = try target.receive(input, &.{});
+    _ = try target.receive(input[again.consumed..], &.{});
     state.content = .alert;
     state.alert_held = .{ .description = .close_notify, .origin = .peer };
     _ = try decrypt(target, "record", &test_plaintext);

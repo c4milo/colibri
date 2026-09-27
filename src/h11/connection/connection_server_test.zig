@@ -25,7 +25,7 @@ fn server() *Connection {
 fn drain(target: *Connection, input: []const u8) !usize {
     var offset: usize = 0;
     for (0..input.len + test_calls_past_len) |_| {
-        const received = try target.receive(input[offset..]);
+        const received = try target.receive(input[offset..], &.{});
         offset += received.consumed;
         if (received.consumed == 0 and received.event == null) return offset;
     }
@@ -33,7 +33,7 @@ fn drain(target: *Connection, input: []const u8) !usize {
 }
 
 fn expect_request(target: *Connection, input: []const u8, method: []const u8) !usize {
-    const received = try target.receive(input);
+    const received = try target.receive(input, &.{});
     try testing.expectEqualStrings(method, received.event.?.request.line.method);
     return received.consumed;
 }
@@ -43,12 +43,12 @@ test "requests are read one at a time, each after the last one's final response"
     const input = "GET /a HTTP/1.1\r\nHost: h\r\n\r\nGET /b HTTP/1.1\r\nHost: h\r\n\r\n";
     const first = try expect_request(target, input, "GET");
     // decision 92: the second request stays unread until the first is answered.
-    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..]));
+    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..], &.{}));
     const written = try target.write_response(&test_output, 200, "OK", &.{.{ .name = "Content-Length", .value = "2" }});
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n", test_output[0..written]);
     try testing.expectEqual(2, try target.write_body(&test_output, "ok"));
     try testing.expectEqual(0, try target.write_end(&test_output, &.{}));
-    const second = try target.receive(input[first..]);
+    const second = try target.receive(input[first..], &.{});
     try testing.expectEqualStrings("/b", second.event.?.request.line.target);
     try testing.expectEqual(connection.Phase.waiting, target.phase);
 }
@@ -57,9 +57,9 @@ test "a request body arrives as data then end, and a chunked one leaves its trai
     var target = server();
     const fixed = "POST / HTTP/1.1\r\nHost: h\r\nContent-Length: 3\r\n\r\nabc";
     const head = try expect_request(target, fixed, "POST");
-    const data = try target.receive(fixed[head..]);
+    const data = try target.receive(fixed[head..], &.{});
     try testing.expectEqualStrings("abc", data.event.?.data);
-    try testing.expectEqual(connection.Event.end, (try target.receive(fixed[head + data.consumed ..])).event.?);
+    try testing.expectEqual(connection.Event.end, (try target.receive(fixed[head + data.consumed ..], &.{})).event.?);
     try testing.expectEqual(connection.Phase.waiting, target.phase);
     target = server();
     const coded = "POST / HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\nT: v\r\n\r\n";
@@ -85,7 +85,7 @@ test "RFC 9112 §9.6: a response that carries the close option ends the connecti
     _ = try target.write_response(&test_output, 204, "", &.{.{ .name = "Connection", .value = "close" }});
     try testing.expect(target.should_close());
     // The server processes no further request received on the connection.
-    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..]));
+    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(input[first..], &.{}));
 }
 
 test "decision 92: a malformed request owes an error response with the close, by its status" {
@@ -97,7 +97,7 @@ test "decision 92: a malformed request owes an error response with the close, by
     };
     for (cases) |case| {
         const target = server();
-        try testing.expectError(error.ConnectionFailed, target.receive(case.input));
+        try testing.expectError(error.ConnectionFailed, target.receive(case.input, &.{}));
         try testing.expect(target.has_pending() and !target.should_close());
         const written = try target.write_pending(&test_output);
         try testing.expect(std.mem.startsWith(u8, test_output[0..written], "HTTP/1.1 "));
@@ -116,7 +116,7 @@ test "decision 92: a request line too long is a 414, and too many field lines a 
     var target = server();
     @memcpy(test_long[0..5], "GET /");
     @memset(test_long[5..8200], 'a');
-    try testing.expectError(error.ConnectionFailed, target.receive(test_long[0..8200]));
+    try testing.expectError(error.ConnectionFailed, target.receive(test_long[0..8200], &.{}));
     try testing.expectEqual(414, target.reply_status.?);
     target = server();
     var length: usize = 0;
@@ -128,7 +128,7 @@ test "decision 92: a request line too long is a 414, and too many field lines a 
         length += 6;
     }
     @memcpy(test_long[length..][0..2], "\r\n");
-    try testing.expectError(error.ConnectionFailed, target.receive(test_long[0 .. length + 2]));
+    try testing.expectError(error.ConnectionFailed, target.receive(test_long[0 .. length + 2], &.{}));
     try testing.expectEqual(431, target.reply_status.?);
 }
 
@@ -175,7 +175,7 @@ test "RFC 9112 §6.3 rule 2: a 2xx to CONNECT turns the connection into a tunnel
     _ = try expect_request(target, "CONNECT a:443 HTTP/1.1\r\nHost: a:443\r\n\r\n", "CONNECT");
     _ = try target.write_response(&test_output, 200, "", &.{});
     try testing.expectEqual(connection.Phase.tunnel, target.phase);
-    try testing.expectEqualStrings("raw", (try target.receive("raw")).event.?.tunnel);
+    try testing.expectEqualStrings("raw", (try target.receive("raw", &.{})).event.?.tunnel);
     try testing.expectEqual(3, try target.write_body(&test_output, "raw"));
 }
 

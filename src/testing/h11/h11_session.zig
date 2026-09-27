@@ -73,6 +73,9 @@ pub const Session = struct {
     echo: ?*h11_echo.Echo,
     /// Octets of the response's content written so far.
     content_sent: usize,
+    /// Where the connection decodes a gzip or deflate request body, or empty when it has no
+    /// decoders (decision 98).
+    decoded: []u8,
 
     /// Makes a server connection that has read nothing and written nothing.
     pub fn init(session: *Session) void {
@@ -80,7 +83,17 @@ pub const Session = struct {
         session.owed = .nothing;
         session.echo = null;
         session.content_sent = 0;
+        session.decoded = &.{};
         assert(session.connection.phase == .head);
+    }
+
+    /// Gives the connection the decoders of the gzip and deflate transfer codings and the buffer it
+    /// decodes into (decisions 91 and 98). Called after `init`, before the first octet.
+    pub fn decode_with(session: *Session, decoders: h11.coding.Storage, decoded: []u8) void {
+        assert(session.connection.phase == .head and session.connection.scanner.scanned == 0);
+        assert(decoded.len > 0);
+        session.connection.decoders = decoders;
+        session.decoded = decoded;
     }
 
     /// Consumes what it can of `input` and writes what it can into `output`. See the header.
@@ -93,7 +106,7 @@ pub const Session = struct {
             written += session.write_owed(output[written..]);
             // A connection waiting for its response to be written reads nothing, so a response
             // the output has no room for ends the step here.
-            const received = session.connection.receive(input[consumed..]) catch |failure| {
+            const received = session.connection.receive(input[consumed..], session.decoded) catch |failure| {
                 // Decision 92: the refusal's error response is owed, and the next pass writes it.
                 assert(failure == error.ConnectionFailed);
                 continue;

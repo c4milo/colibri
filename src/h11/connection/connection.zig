@@ -28,6 +28,7 @@ const http = @import("http");
 const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const message = @import("../message/message.zig");
+const coding = @import("../coding.zig");
 const connection_body = @import("connection_body.zig");
 const connection_server = @import("connection_server.zig");
 const connection_client = @import("connection_client.zig");
@@ -55,7 +56,8 @@ pub const Event = union(enum) {
     interim: message.StatusLine,
     /// A final response to the oldest outstanding request, at a client.
     response: Response,
-    /// Body octets, a slice of the caller's input valid until the next call.
+    /// Body octets: a slice of the caller's input valid until the next call, or, for a body
+    /// carrying `gzip` or `deflate`, a slice of the `decoded` buffer passed to `receive`.
     data: []const u8,
     /// The body ended. A chunked body's trailer fields are in `Connection.trailers`.
     end,
@@ -116,6 +118,10 @@ pub const Options = struct {
     /// A client connection opened to retry requests an earlier one left unanswered: it sends one
     /// request and waits for its response before pipelining (RFC 9112 §9.3.2).
     retrying: bool = false,
+    /// The decoders of the `gzip` and `deflate` transfer codings, in a pool the caller places and
+    /// may share among connections (decision 91). With none, a server answers such a request 501
+    /// and a client offers neither coding, so it refuses a response in one (RFC 9112 §7.4).
+    decoders: ?coding.Storage = null,
 };
 
 /// What the transport's close meant (RFC 9112 §8).
@@ -169,6 +175,10 @@ pub const Connection = struct {
     /// Whether the peer's `close_notify` arrived (RFC 9846 §6.1). Over TLS it alone ends a body
     /// that runs until the close (RFC 9112 §9.8).
     close_notify_received: bool,
+    /// `Options.decoders`.
+    decoders: ?coding.Storage,
+    /// The decoding of the body being read, when it carries `gzip` or `deflate`.
+    decoding: coding.Decoding,
 
     pub fn init(connection: *Connection, role: Role, options: Options) void {
         connection.role = role;
@@ -193,6 +203,8 @@ pub const Connection = struct {
         connection.records_without_data = 0;
         connection.handshake_owed = false;
         connection.close_notify_received = false;
+        connection.decoders = options.decoders;
+        connection.decoding = .{};
         assert(connection.phase == .head and connection.failure == null);
         assert(role == .client or !options.retrying);
     }
@@ -203,16 +215,45 @@ pub const Connection = struct {
         return connection_tls.attach(connection, provider);
     }
 
-    /// Consumes the octets of at most one event from the start of `input`.
-    pub fn receive(connection: *Connection, input: []const u8) Error!Received {
+    /// Consumes the octets of at most one event from the start of `input`. The octets of a body
+    /// carrying `gzip` or `deflate` are decoded into `decoded`, which a caller that placed no
+    /// decoder pool passes empty (decision 98).
+    pub fn receive(connection: *Connection, input: []const u8, decoded: []u8) Error!Received {
         if (connection.end_owed) {
             connection.end_owed = false;
             return .{ .consumed = 0, .event = .end };
         }
         return switch (connection.role) {
-            .server => connection_server.receive(connection, input),
-            .client => connection_client.receive(connection, input),
+            .server => connection_server.receive(connection, input, decoded),
+            .client => connection_client.receive(connection, input, decoded),
         };
+    }
+
+    /// Takes a decoder when the body of the head just read carries `gzip` or `deflate`
+    /// (decision 91). With no pool, a server does not decode the coding and a client did not offer
+    /// it.
+    pub fn begin_decoding(connection: *Connection, body: message.Body) (coding.Error || error{CodingUndecoded})!void {
+        if (body.coding == .none) return;
+        // RFC 9112 §6.1: a server answers a coding it does not decode 501, and RFC 9112 §7.4: a
+        // client that sent no TE accepts chunked alone.
+        const storage = connection.decoders orelse return error.CodingUndecoded;
+        try coding.start(&connection.decoding, storage, body.coding);
+    }
+
+    /// Reads body octets from `input`, decoding them into `decoded` when the body carries a
+    /// compression coding (decision 98).
+    pub fn read_body(connection: *Connection, role: message.Role, input: []const u8, decoded: []u8) (connection_body.ReadError || coding.Error)!connection_body.Read {
+        if (!connection.decoding.active()) {
+            return connection_body.read(&connection.reader, role, input, &connection.trailers);
+        }
+        // Decision 98: a caller that placed a decoder pool passes room for what it decodes.
+        assert(decoded.len > 0);
+        return connection_body.read_coded(&connection.reader, &connection.decoding, connection.decoders.?, role, input, &connection.trailers, decoded);
+    }
+
+    /// Gives back the decoder of a body that will not be read to its end.
+    pub fn release_decoding(connection: *Connection) void {
+        coding.release(&connection.decoding, connection.decoders);
     }
 
     /// Writes a request head (a client's call). See `connection_client.zig`.
@@ -283,7 +324,10 @@ pub const Connection = struct {
         // RFC 9112 §9.8: over TLS, a response with neither chunked nor Content-Length is complete
         // only if a valid closure alert has been received.
         const secure_close = connection.provider == null or connection.close_notify_received;
-        const ended = close_delimited and secure_close;
+        // Decision 91: a coded body that runs until the close is whole only if its stream ended.
+        const stream_whole = !connection.decoding.active() or connection.decoding.stream_ended;
+        const ended = close_delimited and secure_close and stream_whole;
+        connection.release_decoding();
         const mid_message = !ended and (connection.phase == .body or connection.scanner.scanned > 0);
         const unanswered = if (ended) connection.outstanding_len - 1 else connection.outstanding_len;
         connection.phase = .closed;
@@ -297,6 +341,7 @@ pub const Connection = struct {
         connection.failure = failure;
         connection.phase = .closed;
         connection.writer = .{};
+        connection.release_decoding();
         if (connection.role == .server and !connection.answered) connection.reply_status = status;
         // RFC 9112 §2.2 and §9.6: a peer that breaks the message framing leaves no next message to
         // read, so the connection closes.

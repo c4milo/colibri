@@ -82,7 +82,7 @@ It then hands colibri the octets that arrived, and gets at most one event per ca
 
 ```zig
 const input = try link.receive(.client);
-const step = try client.receive(input);
+const step = try client.receive(input, &.{});
 if (step.event) |event| switch (event) {
     .response => |response| {
         try read_status(response.line.status.code);

@@ -182,6 +182,16 @@ pub const Decoder = struct {
         return .{ .consumed = reader.offset, .data = data, .done = false };
     }
 
+    /// Takes back the last `octets` of the chunk data the last call returned, which the caller
+    /// could not use yet, so the next call returns them again. The last call returned data and
+    /// nothing after it, so they are the end of one chunk's data.
+    pub fn give_back(decoder: *Decoder, octets: u64) void {
+        if (octets == 0) return;
+        assert(decoder.state == .data or decoder.state == .data_end);
+        decoder.remaining += octets;
+        decoder.state = .data;
+    }
+
     /// Reads the CRLF after a chunk's data, or returns false when it has not arrived.
     fn read_data_end(decoder: *Decoder, reader: *Reader) Error!bool {
         const octets = reader.take(line_end.len) catch return false;
@@ -323,4 +333,18 @@ test "a call on a body that is not whole consumes what it can and waits" {
     try testing.expectEqualStrings("ab", second.data);
     try testing.expectEqual(State.data, decoder.state);
     try testing.expectEqual(3, decoder.remaining);
+}
+
+test "RFC 9112 §7.1: chunk data given back is returned again, then the chunk ends as before" {
+    var decoder: Decoder = .{};
+    const input = "5\r\nhello\r\n0\r\n\r\n";
+    const first = try decoder.decode(.request, input, &test_trailers);
+    try testing.expectEqualStrings("hello", first.data);
+    decoder.give_back(2);
+    const offset = first.consumed - 2;
+    const again = try decoder.decode(.request, input[offset..], &test_trailers);
+    try testing.expectEqualStrings("lo", again.data);
+    const rest = try decoder.decode(.request, input[offset + again.consumed ..], &test_trailers);
+    try testing.expect(rest.done);
+    try testing.expectEqual(input.len, offset + again.consumed + rest.consumed);
 }

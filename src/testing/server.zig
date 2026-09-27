@@ -34,6 +34,7 @@ const constants = @import("constants.zig");
 const session_module = @import("session.zig");
 const server_tls = @import("tls/server_tls.zig");
 const server_options = @import("server_options.zig");
+const h11 = @import("h11");
 const h11_echo = @import("h11/h11_echo.zig");
 const server_identity = @import("tls/server_identity.zig");
 const chapulin = @import("tls/chapulin.zig");
@@ -98,6 +99,10 @@ const Worker = struct {
     accepting: bool,
     connections: [constants.connections_per_worker_max]Connection,
     events: [loop_options.operations]rotor.Event,
+    /// The decoders the worker's cleartext h11 connections share, and the buffer they decode into
+    /// (decisions 91 and 98).
+    decoders: h11.coding.Pool(constants.h11_decoders_per_worker),
+    decoded: [constants.h11_decoded_len]u8,
 };
 
 /// The workers, in static storage: each is large, and there is one per core at most.
@@ -147,6 +152,8 @@ fn run_worker(index: usize, port: u16) !void {
     if (index == 0) std.debug.print("http-server: listening on port {d}, rotor backend {t}\n", .{ port, rotor.backend() });
     for (&worker.connections) |*connection| connection.live = false;
     worker.accepting = false;
+    // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
+    worker.decoders.storage().reset(h11.coding.Features.detect());
     while (true) try turn(worker);
 }
 
@@ -196,6 +203,9 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     connection.session.init(cleartext_protocol);
     // `server_options.read` refuses `--echo` but for h11 in cleartext.
     if (echo_mode) connection.session.h11.echo = &echoes[worker.index][slot];
+    // Decision 91: a cleartext h11 connection decodes gzip and deflate request bodies. Over TLS,
+    // `server_tls.step` makes the session again, with no decoders, so a coded request gets 501.
+    if (connection.session == .h11) connection.session.h11.decode_with(worker.decoders.storage(), &worker.decoded);
     connection.input_len = 0;
     connection.output_len = 0;
     connection.output_sent = 0;

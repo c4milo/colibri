@@ -28,6 +28,14 @@ pub const tick_ns: u64 = 1_000_000;
 /// `http/1.1`, in decision 88's order.
 pub const alpn_offered_max: u32 = 2;
 
+/// Decoders of the gzip and deflate transfer codings each worker's cleartext h11 connections share
+/// (decision 91). The HTTP Garden sends one coded request at a time on each connection.
+pub const h11_decoders_per_worker: u32 = 4;
+
+/// Octets a worker's h11 connection decodes into per call (decision 98). The echo copies what it
+/// gets at once, so a worker's connections share the buffer.
+pub const h11_decoded_len: u32 = 16384;
+
 /// Most octets of request content the server's `--echo` mode returns (`h11/h11_echo.zig`). A
 /// request with more is answered with 413 (RFC 9110 §15.5.14) and no echo.
 pub const echo_body_len_max: u32 = 16384;

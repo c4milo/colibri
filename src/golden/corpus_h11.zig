@@ -186,7 +186,7 @@ fn serve(reader: *core.reader.Reader) h11.connection.Error!void {
     // Every pass consumes an octet or ends a request, and a request takes at least one octet, so
     // n octets take at most 2n passes, and one more finds them short.
     for (0..passes_per_octet * reader.remaining_len() + 1) |_| {
-        const received = try connection.receive(reader.peek_rest());
+        const received = try connection.receive(reader.peek_rest(), &.{});
         _ = reader.take(received.consumed) catch unreachable;
         const event = received.event orelse return;
         // The request is read whole once the server waits, and its `end` is not still owed.

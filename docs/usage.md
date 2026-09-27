@@ -66,9 +66,10 @@ such as h2's GOAWAY or an h11 server's 400, are waiting to be written.
 
 ## h11
 
-One `h11.connection.Connection` is one HTTP/1.1 connection. `receive` consumes the octets of at
-most one event: a head, a run of body data, or the end of a body. Loop over it until it consumes
-nothing and returns no event.
+One `h11.connection.Connection` is one HTTP/1.1 connection. `receive(input, decoded)` consumes the
+octets of at most one event: a head, a run of body data, or the end of a body. Loop over it until
+it consumes nothing and returns no event. `decoded` is where the body of a message coded with
+`gzip` or `deflate` goes; a program that places no decoders passes it empty.
 
 The code below is from [`examples/h11_exchange.zig`](../examples/h11_exchange.zig), where `link`
 stands in for a program's socket. A client writes a request head into a buffer it owns and sends
@@ -94,7 +95,7 @@ A server hands colibri what arrived and answers each request once it has read it
 no body ends with its head, so no `end` event follows it:
 
 ```zig
-const step = try server.receive(input);
+const step = try server.receive(input, &.{});
 if (step.event) |event| switch (event) {
     .request => |request| {
         std.debug.print("server: {s} {s}\n", .{ request.line.method, request.line.target });
@@ -134,6 +135,23 @@ to close the transport, and `transport_closed` reports what a close cut short.
 
 Over TLS, call `attach_tls` once the handshake completes, and pass every record through
 `h11.connection_tls`'s `decrypt` and `encrypt`.
+
+### The gzip and deflate transfer codings
+
+A body may arrive coded with `gzip` or `deflate` under `chunked` (RFC 9112 §7.2). stdx decodes it,
+and each decoder holds a window of 32,768 octets, so a connection keeps none of its own. Your
+program places a pool, `h11.coding.DefaultPool` or `h11.coding.Pool(count)`, calls
+`storage().reset(features)` on it once, and gives the storage to each connection in
+`Options.decoders`. Connections share the pool, and one takes a decoder only while a message
+carries a coding (decision 91). `features` is `h11.coding.Features.detect()` to use the CPU's
+fastest paths, or `.target()` for what the build target guarantees; colibri never asks the CPU
+itself.
+
+With a pool, `receive` decodes straight into the `decoded` buffer you pass it, and each `data`
+event is a slice of that buffer, valid until you pass it again (decision 98). A larger buffer means
+fewer calls. A server answers a coded request 501 when it has no pool, 503 when every decoder is
+taken, 400 when the body is corrupt, and 501 when it uses a feature stdx refuses. A client with a
+pool offers both codings in TE (RFC 9112 §7.4), and one without refuses a response that uses them.
 
 ## h2
 
@@ -207,7 +225,8 @@ Every connection is a struct your program places, and its size is fixed at compi
 
 | Struct | Octets |
 | --- | --- |
-| `h11.connection.Connection` | 35,008 |
+| `h11.connection.Connection` | 35,040 |
+| `h11.coding.DefaultPool` | 691,472, 16 decoders the connections given it share |
 | `h2.connection.Connection` | 162,192 |
 | `quic.connection.Connection` | 141,232 |
 | `h3.connection.Connection` | 145,496, beside the QUIC connection it runs over |

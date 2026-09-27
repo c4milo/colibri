@@ -11,6 +11,7 @@
 //! upgrade.
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
 const http = @import("http");
 const constants = @import("../constants.zig");
 const message = @import("../message/message.zig");
@@ -32,6 +33,13 @@ pub const Error = error{
 /// The line end a client may discard before a response it has no request for (RFC 9112 §2.2).
 const line_end = "\r\n";
 
+/// RFC 9112 §7.4: a client that decodes gzip and deflate names them in TE, and names TE in
+/// Connection, so no intermediary forwards it.
+const te_fields = [_]Field{
+    .{ .name = "TE", .value = "gzip, deflate" },
+    .{ .name = "Connection", .value = "TE" },
+};
+
 /// Writes a request head and puts the request at the back of the queue.
 pub fn write_request(target: *Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field) connection.SendError!usize {
     // RFC 9112 §9.6: a client that sent the close option sends no further request.
@@ -41,11 +49,22 @@ pub fn write_request(target: *Connection, output: []u8, method: []const u8, targ
     // RFC 9112 §9.2: a client keeps its outstanding requests in order, in a queue colibri bounds.
     if (target.outstanding_len == constants.pipeline_depth_max) return error.PipelineFull;
     if (target.outstanding_len > 0) try check_pipelining(target);
-    const written = try message.write_request_head(output, method, target_uri, fields);
+    const written = try write_head(target, output, method, target_uri, fields);
     push(target, .{ .asked = connection.asked_of(method), .idempotent = connection.is_idempotent(method) });
     target.writer = connection_body.declared(fields, .none);
     target.close_sent = connection.fields_ask_close(fields);
     return written;
+}
+
+/// The request head, with TE when the connection has decoders to offer (decision 91).
+fn write_head(target: *const Connection, output: []u8, method: []const u8, target_uri: []const u8, fields: []const Field) connection.SendError!usize {
+    if (target.decoders == null) return message.write_request_head(output, method, target_uri, fields);
+    var with_te: [core.constants.field_count_max]Field = undefined;
+    // RFC 9110 §5.4: no predefined limit on a section, so colibri's applies to what it sends.
+    if (fields.len + te_fields.len > with_te.len) return error.TooManyFields;
+    @memcpy(with_te[0..fields.len], fields);
+    @memcpy(with_te[fields.len..][0..te_fields.len], &te_fields);
+    return message.write_request_head(output, method, target_uri, with_te[0 .. fields.len + te_fields.len]);
 }
 
 /// Decision 88: whether another request may follow those outstanding (RFC 9112 §9.3.2).
@@ -59,12 +78,12 @@ fn check_pipelining(target: *const Connection) connection.SendError!void {
     }
 }
 
-pub fn receive(target: *Connection, input: []const u8) connection.Error!Received {
+pub fn receive(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
     return switch (target.phase) {
         .closed => .{ .consumed = 0, .event = null },
         .tunnel => .{ .consumed = input.len, .event = if (input.len == 0) null else .{ .tunnel = input } },
         .head => read_response(target, input),
-        .body => read_body(target, input),
+        .body => read_body(target, input, decoded),
         .waiting => unreachable,
     };
 }
@@ -82,6 +101,9 @@ fn read_response(target: *Connection, input: []const u8) connection.Error!Receiv
     }
     // RFC 9112 §9.2: an interim response precedes the final one to the same request.
     if (response.line.status.is_interim()) return .{ .consumed = response.head_len, .event = .{ .interim = response.line } };
+    // RFC 9112 §7.4: with no TE sent, chunked is the only acceptable coding, and a client sends TE
+    // only when it has decoders; with them, a coded body takes one (decision 91).
+    target.begin_decoding(response.body) catch |failure| return target.fail(failure, null);
     // RFC 9112 §9.3: a response with the close option, or an HTTP/1.0 one, is the last.
     if (response.line.version.minor == 0 or connection.section_asks_close(&target.section)) target.close_after = true;
     target.reader = connection_body.Reader.start(response.body.length);
@@ -108,8 +130,8 @@ fn read_unrequested(target: *Connection, input: []const u8) connection.Error!Rec
     return target.fail(error.ResponseUnexpected, null);
 }
 
-fn read_body(target: *Connection, input: []const u8) connection.Error!Received {
-    const read = connection_body.read(&target.reader, .response, input, &target.trailers) catch |failure| {
+fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
+    const read = target.read_body(.response, input, decoded) catch |failure| {
         return target.fail(failure, null);
     };
     if (read.ended) complete_response(target);

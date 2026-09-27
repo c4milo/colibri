@@ -15,7 +15,7 @@ pub fn main() !void {
         .{ .name = "Host", .value = "example.test" },
     });
     if (!std.mem.startsWith(u8, output[0..head_len], "GET / HTTP/1.1\r\n")) return error.RequestWrong;
-    const step = try client.receive("HTTP/1.1 204 No Content\r\n\r\n");
+    const step = try client.receive("HTTP/1.1 204 No Content\r\n\r\n", &.{});
     const status = step.event.?.response.line.status.code;
     if (status != 204) return error.ResponseWrong;
 

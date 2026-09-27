@@ -7,6 +7,7 @@ const core = @import("core");
 const http = @import("http");
 const message = @import("../message/message.zig");
 const chunked = @import("../chunked/chunked.zig");
+const coding = @import("../coding.zig");
 
 const Length = message.Length;
 const Role = message.Role;
@@ -68,6 +69,46 @@ pub fn read(reader: *Reader, role: Role, input: []const u8, trailers: *http.Fiel
         },
         // RFC 9112 §6.3 rules 2 and 8: every octet until the close belongs to the body or tunnel.
         .close_delimited, .tunnel => return .{ .consumed = input.len, .data = input, .ended = false },
+    }
+}
+
+/// Reads as `read` does, and decodes the data of a body carrying `gzip` or `deflate` into
+/// `decoded` (decision 98). What the decoder could not take yet is given back, so the next call
+/// reads it again.
+pub fn read_coded(
+    reader: *Reader,
+    decoding: *coding.Decoding,
+    storage: coding.Storage,
+    role: Role,
+    input: []const u8,
+    trailers: *http.FieldSection,
+    decoded: []u8,
+) (ReadError || coding.Error)!Read {
+    assert(decoding.active());
+    const run = try read(reader, role, input, trailers);
+    if (run.data.len == 0) {
+        // RFC 9112 §6.3 and decision 91: the body ended, and its coded stream must end with it.
+        if (run.ended) try coding.finish(decoding, storage);
+        return run;
+    }
+    // A read that returns data returns nothing after it (`chunked.Decoder.decode`).
+    assert(!run.ended);
+    const progress = try coding.decode(decoding, storage, run.data, decoded);
+    const left = run.data.len - progress.consumed;
+    give_back(reader, left);
+    var written = core.reader.Reader.init(decoded);
+    const data = written.take(progress.written) catch unreachable;
+    return .{ .consumed = run.consumed - left, .data = data, .ended = false };
+}
+
+/// Takes back the last `octets` of the data the last read returned.
+fn give_back(reader: *Reader, octets: usize) void {
+    switch (reader.kind) {
+        .chunked => reader.decoder.give_back(octets),
+        // Every octet until the close is the body's, so octets not taken are simply not consumed.
+        .close_delimited => {},
+        // RFC 9112 §6.1 and §6.3: a compression coding comes with chunked, or runs until the close.
+        .none, .fixed, .tunnel => assert(octets == 0),
     }
 }
 

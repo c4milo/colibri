@@ -30,6 +30,12 @@ pub const trailer_len_max: u32 = head_len_max - start_line_len_max;
 /// size of the queue `connection_client` keeps (RFC 9112 §9.2).
 pub const pipeline_depth_max: u32 = 16;
 
+/// Decoders in a `coding.DefaultPool`: how many messages carrying `gzip` or `deflate` the
+/// connections given one pool decode at once (decision 91). RFC 9112 sets no number, so this is
+/// policy. Each decoder holds a window of 32,768 octets (RFC 1951 §2), so the pool costs about
+/// that times this, whatever the number of connections.
+pub const decoders_default: u32 = 16;
+
 /// The octets RFC 9112 §2.3 gives an HTTP-version: `HTTP-name "/" DIGIT "." DIGIT`.
 pub const version_len: u32 = 8;
 
