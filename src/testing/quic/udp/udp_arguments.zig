@@ -3,7 +3,7 @@
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
 //!         [connections=<n>] [seconds=<unix-seconds>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
-//!         [keyupdate] [resumption] [h3] <path>...
+//!         [keyupdate] [resumption] [h3] [pin] <path>...
 //!
 //! An address is IPv4 in dotted decimal or IPv6 in RFC 4291 §2.2's text form. The server binds
 //! `<address>:<port>` and serves `<www>`, over h3 or hq-interop, whichever its client asks for:
@@ -24,6 +24,8 @@
 //! - `resumption` fetches the first path on one connection, keeps the ticket the server issues,
 //!   and fetches the rest on a second connection that presents it (RFC 9846 §2.2).
 //! - `h3` fetches over h3 (RFC 9114) in place of hq-interop.
+//! - `pin` trusts the server by the SHA-256 of its key, in `<anchor-prefix>.pin`, and judges no
+//!   chain, date or name: the QUIC Interop Runner's certificates fail the Web PKI profile.
 //!
 //! The instant is a clock the command line cannot give, so it comes from Rotor (decision 63); the
 //! Unix seconds are the certificate check's and the tickets', which the caller reads
@@ -77,6 +79,9 @@ pub const Client = struct {
     resumption: bool = false,
     /// Whether the client fetches over h3 (RFC 9114) rather than hq-interop.
     h3: bool = false,
+    /// Whether the client trusts the server by the SHA-256 of its key in `<anchor-prefix>.pin`,
+    /// judging no chain, date or name, rather than by the root the prefix names.
+    pin: bool = false,
 };
 
 pub const Arguments = union(Role) {
@@ -129,12 +134,13 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
     return server;
 }
 
-/// The client's words for one key update and for a second, resumed connection. Every path starts
-/// with `/`, so neither is a path.
+/// The client's words for one key update, a second, resumed connection, h3 and a pinned key.
+/// Every path starts with `/`, so none is a path.
 const key_update_word = "keyupdate";
 const resumption_word = "resumption";
 const h3_word = "h3";
-const client_options_count: usize = 3;
+const pin_word = "pin";
+const client_options_count: usize = 4;
 
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
@@ -192,6 +198,8 @@ fn parse_client_options(arguments: *std.process.Args.Iterator, client: *Client) 
             client.resumption = true;
         } else if (std.mem.eql(u8, next, h3_word)) {
             client.h3 = true;
+        } else if (std.mem.eql(u8, next, pin_word)) {
+            client.pin = true;
         } else break;
         next = arguments.next() orelse usage();
     }
@@ -228,7 +236,7 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 pub fn usage() noreturn {
     std.debug.print(
         "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]\n" ++
-            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] <path>...\n",
+            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] <path>...\n",
         .{},
     );
     std.process.exit(check_file.exit_usage);

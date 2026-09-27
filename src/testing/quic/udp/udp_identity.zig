@@ -1,66 +1,70 @@
 //! What each UDP QUIC endpoint holds besides its connection (design §8 step 9e, piece 11): the
-//! entropy chapulin draws on, the connection IDs the endpoint chooses, the certificate files, and
-//! the key log. The endpoint may read the operating system's entropy; the library may not, and
-//! does not (invariant 5).
+//! keys the endpoint draws, the connection IDs it chooses, the configuration its sessions borrow,
+//! converted once from the certificate files (design §8 step 16b), and the key log. The endpoint
+//! may read the operating system's entropy; the library may not, and does not (invariant 5).
 const std = @import("std");
+const tls = @import("tls");
 const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
-const chapulin_quic_c = @import("../chapulin_quic_c.zig");
 const entropy = @import("../../entropy.zig");
-const chapulin_quic = @import("../chapulin_quic.zig");
+const keylog_module = @import("../keylog.zig");
+const quic_session = @import("../quic_session.zig");
 const quic = @import("quic");
-const chapulin_quic_suite = @import("../chapulin_quic_suite.zig");
 const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
 const hq = @import("../hq/hq.zig");
 const h2 = @import("h2");
 
-const c = chapulin_quic_c.c;
-
 /// The length of every connection ID this endpoint chooses. RFC 9000 §7.2: a client's first
 /// Destination Connection ID "MUST be at least 8 bytes in length".
 pub const id_len: usize = 8;
 
-/// What `srv_cfg.h` fixes for the ecdsa_secp256r1_sha256 slot, and RFC 9846 §4.3.2's cookie key.
-const private_scalar_len: usize = 32;
-const public_point_len: usize = 64;
-const cookie_key_len: usize = 32;
-
-var keylog: chapulin_quic_c.Keylog align(@alignOf(chapulin_quic_c.Keylog)) = .{};
+var log: keylog_module.Keylog align(@alignOf(keylog_module.Keylog)) = .{};
 var local_id: [id_len]u8 = undefined;
 var original_id: [id_len]u8 = undefined;
 var retry_source_id: [id_len]u8 = undefined;
 /// The deployment's Retry token key and its lifetime (decision 55).
-var retry: chapulin_quic_suite.Retry align(@alignOf(chapulin_quic_suite.Retry)) = undefined;
-var cookie_storage: [cookie_key_len]u8 = undefined;
+var retry_key: [tls.quic.token_key_len]u8 = undefined;
+var retry: tls.quic.Retry align(@alignOf(tls.quic.Retry)) = undefined;
+var cookie_storage: [tls.constants.server_key_len]u8 = undefined;
 /// The key the server seals its session tickets under (chapulin's decision 51).
-var ticket_key_storage: [c.CH_SRV_TICKET_KEY_LEN]u8 = undefined;
+var ticket_key_storage: [tls.constants.server_key_len]u8 = undefined;
 var chain_storage: [constants.quic_chain_len_max][constants.tls_der_len_max]u8 = undefined;
 var chain: [constants.quic_chain_len_max][]const u8 = undefined;
-var private_storage: [private_scalar_len]u8 = undefined;
-var public_storage: [public_point_len]u8 = undefined;
+var private_storage: [tls.constants.p256_private_key_len]u8 = undefined;
+var public_storage: [tls.constants.p256_public_key_len]u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
-/// chapulin keeps a pointer to the anchors, so they live as long as the session.
-var anchors: [1]chapulin_quic.Anchor align(@alignOf(chapulin_quic.Anchor)) = undefined;
+var pin_storage: [1]tls.Pin align(@alignOf(tls.Pin)) = undefined;
+/// The configuration every session of the run borrows, in the run's one role.
+var server_config: tls.quic.ServerConfig align(@alignOf(tls.quic.ServerConfig)) = undefined;
+var client_config: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
 
-/// Checks the linked object, then draws the keys, before any session starts. chapulin draws the
-/// rest of its entropy through `ch_rand_bytes` (`entropy.zig`).
-pub fn seed() !void {
-    try chapulin_quic_c.check_build();
+/// Draws the keys and converts the run's configuration, before any session starts. chapulin draws
+/// the rest of its entropy through `ch_rand_bytes` (`entropy.zig`).
+pub fn seed(asked: udp_arguments.Arguments) !void {
     // RFC 9846 §4.3.2: one key per deployment, and a run is one deployment.
     entropy.fill(&cookie_storage);
     // Decision 55: so is the Retry token's key, which only this process ever holds.
-    entropy.fill(&retry.key);
+    entropy.fill(&retry_key);
+    retry = .{ .key = &retry_key, .lifetime_seconds = constants.quic_retry_token_lifetime_seconds };
     // chapulin's `srv_cfg.h`: one ticket key per deployment, and a ticket resumes only on a server
     // that holds it, which here is this process.
     entropy.fill(&ticket_key_storage);
-    retry.lifetime_seconds = constants.quic_retry_token_lifetime_seconds;
+    switch (asked) {
+        .server => |server| try configure_server(server),
+        .client => |client| try configure_client(client),
+    }
 }
 
 /// The suite a server writes a Retry and reads a returned token with (RFC 9000 §8.1.2).
 pub fn retry_suite() quic.crypto.Suite {
     return retry.suite();
+}
+
+/// Where every session of the run logs its secrets.
+pub fn keylog() *keylog_module.Keylog {
+    return &log;
 }
 
 /// The PATH_CHALLENGE data a move owes (decision 72), drawn at random: RFC 9000 §8.2.1 wants it
@@ -125,56 +129,54 @@ pub fn server_ids(destination: []const u8, source: []const u8) udp_peer.Identity
     return .{ .local_source = &local_id, .original_destination = destination, .peer_source = source };
 }
 
-/// A client's session options. `receive` is chapulin's buffer for this connection alone. The
-/// ticket the server issues goes to `ticket_store`, and `resumption` presents one.
-pub fn client_options(
-    asked: udp_arguments.Client,
-    receive: []u8,
-    ticket_store: ?*chapulin_quic.Ticket,
-    resumption: ?chapulin_quic.Resumption,
-) !chapulin_quic.Options {
-    return .{
-        .role = .client,
-        .alpn = if (asked.h3) &client_alpn_h3 else &client_alpn_hq,
-        .receive = receive,
-        .trust = try client_trust(asked),
-        .keylog = &keylog,
-        .ticket_store = ticket_store,
-        .resumption = resumption,
-    };
+/// A client session's start: the run's configuration, the clock the command line gave, and the
+/// ticket to present, if any.
+pub fn client_start(asked: udp_arguments.Client, resumption: ?tls.Resumption) quic_session.Start {
+    return .{ .client = .{ .config = &client_config, .now_seconds = asked.now_seconds, .resumption = resumption } };
 }
 
-/// A Web PKI build pins the root's Subject Name and SubjectPublicKeyInfo, and checks the chain
-/// and the host name. A raw-pin build pins the server's own P-256 point, from `<prefix>.pub`.
-fn client_trust(asked: udp_arguments.Client) !chapulin_quic.Trust {
+/// A server session's start: `now_seconds` is the Unix seconds its ticket carries, or 0 to issue
+/// none.
+pub fn server_start(now_seconds: u64) quic_session.Start {
+    return .{ .server = .{ .config = &server_config, .now_seconds = now_seconds } };
+}
+
+/// The client offers h3 or hq-interop, as asked. By default it trusts the root the prefix names,
+/// and checks the chain and the host name; with `pin` it trusts the server's key alone, whose
+/// SHA-256 `<prefix>.pin` holds.
+fn configure_client(asked: udp_arguments.Client) !void {
     const prefix = asked.anchor_prefix;
-    if (!chapulin_quic.webpki) {
-        return .{ .pinned = .{ .public_point = try check_file.read_part(prefix, ".pub", &public_storage) } };
+    const alpn: []const []const u8 = if (asked.h3) &client_alpn_h3 else &client_alpn_hq;
+    if (asked.pin) {
+        try read_key(prefix, ".pin", &pin_storage[0]);
+        return client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn });
     }
-    const name = try check_file.read_part(prefix, ".name", &name_storage);
-    const spki = try check_file.read_part(prefix, ".spki", &spki_storage);
-    anchors[0] = .{ .name = name.ptr, .name_len = name.len, .spki = spki.ptr, .spki_len = spki.len };
-    return .{ .webpki = .{ .anchors = &anchors, .hostname = asked.hostname, .now_seconds = asked.now_seconds } };
+    const anchors = [_]tls.Anchor{.{
+        .subject = try check_file.read_part(prefix, ".name", &name_storage),
+        .spki = try check_file.read_part(prefix, ".spki", &spki_storage),
+    }};
+    return client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn });
 }
 
-/// A server's session options. `receive` is chapulin's buffer for this connection alone, and
-/// `now_seconds` the Unix seconds its ticket carries, or 0 to issue none.
-pub fn server_options(asked: udp_arguments.Server, receive: []u8, now_seconds: u64) !chapulin_quic.Options {
+fn configure_server(asked: udp_arguments.Server) !void {
     const prefix = asked.identity_prefix;
-    return .{
-        .role = .server,
+    try read_key(prefix, ".priv", &private_storage);
+    try read_key(prefix, ".pub", &public_storage);
+    try server_config.init(.{
+        .ecdsa_p256 = .{ .chain = try read_chain(prefix), .public_key = &public_storage, .private_key = &private_storage },
+        .cookie_key = &cookie_storage,
+        .ticket_key = &ticket_key_storage,
         .alpn = &server_alpn,
-        .receive = receive,
-        .identity = .{
-            .chain = try read_chain(prefix),
-            .private_scalar = try check_file.read_part(prefix, ".priv", &private_storage),
-            .public_point = try check_file.read_part(prefix, ".pub", &public_storage),
-            .cookie_key = &cookie_storage,
-            .ticket_key = &ticket_key_storage,
-            .now_seconds = now_seconds,
-        },
-        .keylog = &keylog,
-    };
+    });
+    try server_config.check();
+}
+
+/// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
+fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
+    var read_storage: [tls.constants.p256_public_key_len + 1]u8 = undefined;
+    const read = try check_file.read_part(prefix, suffix, &read_storage);
+    if (read.len != into.len) return error.KeyLengthWrong;
+    @memcpy(into, read);
 }
 
 /// The certificates the server presents. `tools/quic_interop/qns_identity.py` writes the QUIC
@@ -205,8 +207,8 @@ const chain_suffix_len_max: usize = 16;
 /// when it names one, and empties the log so no line is written twice. With none gathered it
 /// opens no file, so a caller may call it after every step.
 pub fn write_keylog() void {
-    if (keylog.len == 0 and !keylog.overflowed) return;
-    defer keylog.clear();
+    if (log.len == 0 and !log.overflowed) return;
+    defer log.clear();
     const path = std.c.getenv("SSLKEYLOGFILE") orelse return;
-    if (!keylog.append_to_file(std.mem.span(path))) std.debug.print("quic-udp: cannot write the key log\n", .{});
+    if (!log.append_to_file(std.mem.span(path))) std.debug.print("quic-udp: cannot write the key log\n", .{});
 }

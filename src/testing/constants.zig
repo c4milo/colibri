@@ -177,16 +177,6 @@ comptime {
     assert(response_content_length.len == 1 and response_content_length[0] - '0' == response_body.len);
 }
 
-/// chapulin's receive buffer in the TLS endpoints, whose size less record overhead it advertises
-/// to the peer as `record_size_limit`, so the peer can never overflow it.
-///
-/// It is above chapulin's own floor, which a `TRUST=webpki` build computes as
-/// `4 * (3072 + 5) + 8 + 22`, or 12,338 octets: four certificates of 3,072. Measured on
-/// 2026-09-20 with `tools/tls_handshake.sh`, that floor is what binds, not the flight — a Go
-/// server presenting two RSA-2048 certificates completes at exactly it, and one octet less is
-/// refused as a configuration error rather than a capacity one.
-pub const tls_receive_len: usize = 20 * 1024;
-
 /// The largest DER the TLS checks read from one file: a certificate, a Subject Name or a
 /// SubjectPublicKeyInfo. An RSA-4096 certificate runs to about 1,400 octets and an RSA-4096 SPKI
 /// to about 550. The QUIC Interop Runner's amplification case pads its leaf with twenty 250-octet
@@ -239,12 +229,6 @@ pub const udp_buffer_bytes: u32 = 2048;
 /// design §9's endpoints stay within.
 pub const udp_payload_len_min: u32 = 1500;
 
-/// The handshake octets the QUIC provider holds at one encryption level until colibri takes them
-/// into CRYPTO frames (RFC 9001 §4.1.3). The server's Handshake flight is the largest: the Go
-/// tool's Certificate message carries two certificates of at most `tls_der_len_max` octets each,
-/// and the QUIC Interop Runner's amplification case nine, 9,663 octets in all.
-pub const quic_crypto_out_len: usize = 20 * 1024;
-
 /// The peer's transport parameters the QUIC provider keeps (RFC 9001 §8.2). RFC 9000 §18 sets no
 /// bound, and this holds every parameter §18.2 defines with room for a peer's own.
 pub const quic_peer_params_len_max: usize = 1024;
@@ -292,10 +276,6 @@ pub const h3_qpack_blocked_streams: u64 = 16;
 /// The body the h3 server answers `/` with, as design §9's h2 server answers `GET /`.
 pub const h3_root_body = "colibri\n";
 
-/// The protocols one QUIC session offers at most: a server offers h3 and hq-interop, and serves
-/// whichever its client picked (RFC 9001 §8.1).
-pub const quic_alpn_protocols_max: usize = 2;
-
 /// Requests the hq-interop server answers at once, which is the `initial_max_streams_bidi` it
 /// grants: one slot, with its request line, per stream the client may have open.
 pub const hq_requests_max: usize = 100;
@@ -328,12 +308,8 @@ pub const quic_retry_token_lifetime_seconds: u64 = 10;
 /// chapulin counts a Retry token's instants in seconds, and colibri passes nanoseconds.
 pub const nanoseconds_per_second: u64 = 1_000_000_000;
 
-/// RFC 9846 §4.2.11 counts a ticket's age in milliseconds, and Rotor's instant is in nanoseconds.
+/// RFC 9846 §4.3.11.1 counts a ticket's age in milliseconds, and Rotor's instant is in nanoseconds.
 pub const nanoseconds_per_millisecond: u64 = 1_000_000;
-
-/// The longest ticket identity a UDP QUIC client keeps (RFC 9846 §4.7.1). chapulin's server issues
-/// 104 octets and other servers a few hundred; a longer ticket is not kept, and the client says so.
-pub const quic_ticket_identity_len_max: usize = 1024;
 
 /// The longest one tick of a UDP QUIC endpoint waits. A connection's next deadline is usually
 /// sooner, and a wait this short keeps a lost wakeup cheap.
@@ -349,7 +325,6 @@ comptime {
     assert(hq_paths_max >= hq_requests_max);
     assert(udp_send_slots > 0);
     assert(hq_request_len_max > "GET /\r\n".len);
-    assert(quic_crypto_out_len > 2 * tls_der_len_max);
     assert(quic_datagram_len_max <= udp_buffer_bytes);
     assert(quic_rounds_max > 0 and quic_round_ns > 0);
 }
@@ -361,7 +336,6 @@ comptime {
 }
 
 comptime {
-    assert(tls_receive_len > tls_record_buffer_len);
     assert(tls_record_buffer_len > 1 << 14);
     assert(tls_der_len_max > 0);
     // The server's output holds a whole flight, and its input a whole record.

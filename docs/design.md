@@ -59,7 +59,7 @@ core   <- http   <- h2, h3, h11
 core   <- tls_provider <- h2, h11, quic, tls
 chapulin <- tls, tls_keylog, testing_quic, testing_udp
 stdx   <- h11, sim_run
-core   <- crypto <- quic
+core   <- crypto <- quic, tls
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic <- sim_run
@@ -67,7 +67,8 @@ core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2, tls, rotor <- testing, testing_client
 core, h2, tls    <- testing_tls, testing_tls_server
-h2, h3, rotor    <- testing_udp
+h2, h3, tls, rotor <- testing_udp
+h2, quic, tls    <- testing_quic
 core, qpack      <- testing_qif
 ```
 
@@ -84,8 +85,8 @@ core, qpack      <- testing_qif
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
-| `tls` | TLS 1.3 over chapulin: colibri's values, converted once per chapulin object, and record-mode sessions behind `tls_provider.Provider` ([decisions 94 and 97](decisions.md)) | `tls_provider`, and chapulin's TCP object, built `KEYLOG=off` | 9846, 7301 |
-| `tls_keylog` | `tls` again over a TCP object built `KEYLOG=on`, for the tests that seal a peer's records under the secrets chapulin logs; test-only | `tls_provider`, and chapulin's TCP object built `KEYLOG=on` | — |
+| `tls` | TLS 1.3 over chapulin: colibri's values, converted once per chapulin object; record-mode sessions behind `tls_provider.Provider`; and QUIC sessions behind `tls_provider.QuicProvider` and `crypto.Suite` ([decisions 94 and 97](decisions.md)) | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects, built `KEYLOG=off` | 9846, 7301, 9001 |
+| `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects built `KEYLOG=on` | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, and stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26) | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
@@ -94,8 +95,8 @@ core, qpack      <- testing_qif
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
 | `testing_tls`, `testing_tls_server` | the two one-connection TLS checks of §8 step 5, a root each for its `main` | `core`, `h2` for the shared constants, `tls_provider` and `tls` | — |
 | `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
-| `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over chapulin's QUIC mode in one process | `h2` for the shared constants, and `quic` | — |
-| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)) | `h2` for the shared constants, `h3` from step 12, `quic`, and `rotor` | — |
+| `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over `tls.quic` in one process | `h2` for the shared constants, `quic`, `tls_keylog` as `tls`, and its QUIC object's module for `ch_keylog` | — |
+| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)) | `h2` for the shared constants, `h3` from step 12, `quic`, `rotor`, and `tls_keylog` as `tls` with its QUIC object's module | — |
 
 The architecture depends on four of these edges and forbids one.
 
@@ -4365,6 +4366,56 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     assertion and `key_update_replies_max`. Two first attempts said otherwise: a completion test
     on a state no failed call reaches was equivalent, and colibri's refusal of an empty exporter
     label duplicated chapulin's, so it was removed.
+
+  **16b, the QUIC side, 2026-09-27.** `tls.quic` holds chapulin's QUIC sessions: `Client` and
+  `Server` behind `tls_provider.QuicProvider` and `crypto.Suite`, and `Retry`, the suite a server
+  writes a Retry and checks its token with, under a key the caller draws once.
+  - `config.zig` converts the values once for either object, as a function of the object's module,
+    and `ticket.zig` converts a ticket both ways.
+  - chapulin's session starts when colibri gives the provider its transport parameters (RFC 9001
+    §8.2), so `start` prepares the connection's values alone. Every call that reads the session
+    checks first that it started, so a struct reused for a new connection reports nothing of the
+    last one.
+  - The library links the QUIC object, and `tls_keylog` its `KEYLOG=on` copy, which
+    `src/testing/`'s QUIC endpoints now use. `chapulin_quic.zig`, `chapulin_quic_suite.zig` and
+    `chapulin_quic_c.zig` are gone, and `protection_vectors.zig` is
+    `src/tls/quic/quic_vectors_test.zig`.
+  - The owner ruled two things on 2026-09-26. `certificate_chain_len_max` is 16, for the runner's
+    chain of nine. The interop endpoint is the UDP endpoint over the library's `TRUST=webpki`
+    object, whose client pins the server's key with `pin`, in place of a `TRUST=raw-ecdsa` object;
+    `qns_identity.py` writes the pin.
+  - chapulin refuses `SUITE=aesgcm` with `AES=soft` (its `ct.h`, INV-26), which decision 97 did not
+    know. An object for a target without the AES instructions carries `SUITE=chacha`: a server's
+    suite order is then refused with `SuitesUnavailable`, and a client, which records no suite,
+    reports ChaCha20. `zig build test-tls test-tls-keylog -Dcpu=generic` runs the tests over such
+    objects, and `tools/ci.sh` runs it. Decision 97 carries a note for the owner to confirm.
+
+  A chapulin limit, reported on 2026-09-27: pins alone read the leaf alone, but chapulin refuses a
+  chain of more than `CH_WEBPKI_FLIGHT_ENTRIES`, four entries, with bad_certificate. The runner's
+  `amplificationlimit` case sends nine, so colibri as the client fails it, which it passed over
+  `TRUST=raw-ecdsa`. The case waits for chapulin's answer.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1938 of 1938 tests. `zig build test-tls test-tls-keylog -Dcpu=generic`: 68 of
+    68.
+  - `tools/tls_handshake.sh` and `tools/tls_accept.sh`: ok.
+  - `tools/quic_loopback.sh`, `tools/quic_udp.sh` over h3 and hq-interop with resumption, and
+    `tools/quic_aioquic.sh` against aioquic 1.3.0: ok.
+  - `tools/h3spec.sh`: 49 examples, 0 failures.
+  - `tools/interop.sh quic-go`, every case of its default list: colibri as the server passed every
+    case against quic-go, whose client does not run `ecn`, and every case but `amplificationlimit`
+    against colibri's client. As the client against quic-go, colibri passed every case but
+    `amplificationlimit` and `handshakeloss`, and quic-go's server does not run `ecn`.
+  - `handshakeloss` with colibri as the client against quic-go failed 3 runs of 11 with "Expected
+    50 handshakes. Got: 51", the failure recorded at `169c91d` above, and passed the other 8. The
+    client's key log held 50 handshakes in the failed run. The cause is not yet found.
+  - 41 mutations of `src/tls/quic/`, each **CAUGHT** by `zig build test-tls test-tls-keylog`, and
+    the two checks of an object without AES-GCM, each **CAUGHT** under `-Dcpu=generic`. The first
+    run left eleven otherwise. The session struct the tests reuse still held the previous test's
+    closed session, so nine checks before chapulin's session starts read harmless answers; a test
+    now restarts a session that resumed and was not closed. Two more tests were missing: an open at
+    a level with no keys, and a Retry token checked a second later. A mapping of a capacity error
+    chapulin cannot return with `receive_len` is gone.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

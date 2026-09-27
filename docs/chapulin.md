@@ -225,15 +225,15 @@ pre-buffering, and because nothing in chapulin states that the contract is delib
 incidental.
 
 **What colibri has done with the two new values.** Both are off in chapulin's default build. The
-exporter is on: both TLS objects are built `EXPORTER=on`, `link_chapulin` passes `CH_EXPORTER`,
-and `src/tls/record/record_provider.zig` answers `export_keying_material` through `ch_export`.
+exporter is on in the library's TCP object, built `EXPORTER=on`, and
+`src/tls/record/record_provider.zig` answers `export_keying_material` through `ch_export`.
 `tools/tls_handshake.sh` and `tools/tls_accept.sh` require colibri's value to match the Go peer's.
-The key log is on too. `src/testing/` links one chapulin QUIC object built `TRANSPORT=quic
-ROLE=both KEYLOG=on`, in the loopback check and the UDP endpoint, and
-`src/testing/quic/chapulin_quic.zig` defines `ch_keylog`. A QUIC object can carry `CH_KEYLOG` and
-cannot carry `CH_EXPORTER`, so `export_keying_material` answers `Unsupported` there. The object is
-`TRUST=webpki` on this machine and `TRUST=raw-ecdsa` in the interop runner's image, whose
-certificates carry no extended key usage.
+The key log is on in the objects of `tls_keylog`, which `src/testing/`'s QUIC endpoints and the
+tests that seal a peer's records link, and `src/testing/quic/keylog.zig` defines `ch_keylog`. A
+QUIC object can carry `CH_KEYLOG` and cannot carry `CH_EXPORTER`, so `export_keying_material`
+answers `Unsupported` there. Every object is `TRUST=webpki`; the interop runner's client pins the
+server's key with chapulin's pins alone, because the runner's certificates fail the Web PKI
+profile.
 
 **chapulin's QUIC mode has met another implementation.** `tools/quic_aioquic.sh` runs the UDP
 endpoint against aioquic 1.3.0 over chapulin `9c903d8`, as a client and as a server, and both

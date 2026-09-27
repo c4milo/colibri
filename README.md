@@ -24,7 +24,7 @@ The name is Spanish for hummingbird.
 | Memory | No allocator anywhere in `src/`, tests included. Your program owns every struct and buffer, and each size is a comptime constant. |
 | I/O | None. colibri parses octets you already read and writes into buffers you own. A call that would block returns what it needs instead. |
 | Time | A value you pass. No source file reads a clock. |
-| TLS and packet protection | Vtables you fill: `tls_provider.Provider` for h11 and h2, and `tls_provider.QuicProvider` and `crypto.Suite` for QUIC. [chapulin](https://github.com/c4milo/chapulin) becomes the library's own TLS stack in design §8 step 16, which is in progress. |
+| TLS and packet protection | Vtables: `tls_provider.Provider` for h11 and h2, and `tls_provider.QuicProvider` and `crypto.Suite` for QUIC. The `tls` module fills all three from [chapulin](https://github.com/c4milo/chapulin), the library's TLS stack, and a program may fill them itself. |
 | Language | Zig 0.16.0 |
 | License | Apache-2.0 |
 
@@ -35,13 +35,12 @@ Until then, depend on a commit.
 
 | Protocol | Built | Checked against |
 | --- | --- | --- |
-| h11 | Client and server, pipelining, `chunked` | Go's `net/http`, h2o and curl, in cleartext and over TLS; the [HTTP Garden](https://github.com/narfindustries/http-garden) against 34 other servers |
+| h11 | Client and server, pipelining, `chunked`, and `gzip` and `deflate` bodies decoded | Go's `net/http`, h2o and curl, in cleartext and over TLS; the [HTTP Garden](https://github.com/narfindustries/http-garden) against 34 other servers |
 | h2 | Client and server, HPACK with the dynamic table | [h2spec](https://github.com/summerwind/h2spec) 2.6.0: 144 of 146 in cleartext and over TLS, the other 2 test an RFC 7540 rule RFC 9113 dropped; curl, nghttp, Go, nghttpd and h2o |
 | h3 and QUIC | Client and server, QPACK with the dynamic table, Retry, resumption, key update, loss recovery and congestion control | The [QUIC Interop Runner](https://github.com/quic-interop/quic-interop-runner) against quic-go, ngtcp2, neqo and quinn; [h3spec](https://github.com/kazu-yamamoto/h3spec) 0.1.13: 49 examples, 0 failures; `h2load --h3`: 1,000 of 1,000 requests; aioquic in both directions; QPACK against ls-qpack |
 
 Still to come:
-- the `gzip` and `deflate` transfer codings for h11 (design §8 step 15c);
-- chapulin linked into the library (step 16);
+- the last part of design §8 step 16, 16d, and the first release after it;
 - published benchmarks from Linux (step 13).
 
 [`docs/design.md`](docs/design.md) §8 records each check: what ran, on what machine, and what it

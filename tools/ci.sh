@@ -106,6 +106,9 @@ throughput() {
 section "Format" zig fmt --check build.zig build examples src tools
 section "Lint and tests" zig build test --summary all
 tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
+# Decision 97: a target without the AES instructions builds chapulin with software AES and
+# ChaCha20 alone. A generic CPU has none, so the TLS tests run over those objects too.
+section "TLS tests over objects without AES-GCM" zig build test-tls test-tls-keylog -Dcpu=generic --summary all
 # Decision 96: every program in examples/ builds and runs.
 section "Examples" zig build examples
 # Every Zig block in README.md and the docs is an excerpt of code that runs, and a project that

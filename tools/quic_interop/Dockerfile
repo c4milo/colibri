@@ -2,9 +2,9 @@
 # from a staged context: colibri's tree with its fetched packages in zig-pkg/, chapulin's among
 # them (design §8 step 16a), and the two files beside this one.
 #
-# `zig build interop-endpoint` links chapulin built TRUST=raw-ecdsa: the runner's certificates
-# carry no extended key usage, so they fail the Web PKI profile, and the client pins the server's
-# key from the /certs it shares.
+# `zig build interop-endpoint` builds the UDP endpoint over the library's TRUST=webpki object. The
+# runner's certificates carry no extended key usage, so they fail the Web PKI profile, and the
+# client pins the server's key, which qns_identity.py hashes from the /certs it shares.
 FROM martenseemann/quic-network-simulator-endpoint:latest
 
 ARG ZIG_VERSION=0.16.0

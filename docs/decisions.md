@@ -2499,6 +2499,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     one literal per object in chapulin's types. It copies nothing, but a program that speaks h2 and
     h3 configures both, with C element types such as `ch_trust_anchor`.
 
+    A constraint found in design §8 step 16b, for the owner to confirm: chapulin refuses
+    `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed with the key (its `ct.h`, INV-26). So an
+    object built for a target without the AES instructions carries `SUITE=chacha`, and holds
+    TLS_CHACHA20_POLY1305_SHA256 alone.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.

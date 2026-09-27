@@ -56,12 +56,15 @@ colibri makes no system call, holds no allocator, and reads no clock. Four thing
   nanoseconds from any fixed origin. The same instants and the same octets give the same output,
   which is what lets the simulator replay a connection.
 - **Your program starts the TLS sessions.** h11 and h2 take a `tls_provider.Provider`, and QUIC
-  takes a `tls_provider.QuicProvider` and a `crypto.Suite`. The `tls` module fills the first from
-  chapulin's record sessions: convert your values once into a `tls.record.ClientConfig` or
-  `ServerConfig`, start a `tls.record.Client` or `Server` for each connection, and hand its
-  `provider()` to the connection's `attach_tls` once `handshake` completes. A program that links
-  `tls` defines chapulin's two hooks, `ch_rand_bytes` and `ch_assert_fail`. QUIC's provider and
-  suite follow in design §8 step 16b, and a program without TLS never links chapulin.
+  takes a `tls_provider.QuicProvider` and a `crypto.Suite`. The `tls` module fills all three from
+  chapulin. Convert your values once into a configuration: `tls.record.ClientConfig` or
+  `ServerConfig` over TCP, `tls.quic.ClientConfig` or `ServerConfig` for QUIC. Start a session of
+  the matching kind for each connection. Over TCP, hand its `provider()` to the connection's
+  `attach_tls` once `handshake` completes. For QUIC, hand `provider()` and `suite()` to the
+  connection, which starts chapulin's session when it sets its transport parameters. A server that
+  sends Retry packets checks their tokens with a `tls.quic.Retry` under a key it draws once. A
+  program that links `tls` defines chapulin's two hooks, `ch_rand_bytes` and `ch_assert_fail`, and
+  a program without TLS never links chapulin.
 
 A peer that breaks a protocol rule never crashes colibri. `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,

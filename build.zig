@@ -71,15 +71,12 @@ pub fn build(b: *std.Build) void {
     // build, like this one, offers ReleaseSafe as `-Drelease` and no `-Doptimize`.
     const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
     const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
-    // Design §8 step 16: the QUIC object `src/testing/` links, compiled from the pinned package with
-    // `RAND=extern` (decision 94) and `KEYLOG=on`. The TCP endpoints reach chapulin through `tls`.
-    const chapulin_quic = modules.chapulin_quic(b, target, .webpki);
-    modules.link_chapulin_quic(graph, chapulin_quic);
-    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), chapulin_quic, target, optimize);
-    // The QUIC Interop Runner's endpoint, the same program over a `TRUST=raw-ecdsa` object, which
-    // only `zig build interop-endpoint` compiles.
-    const interop_quic = modules.chapulin_quic(b, target, .@"raw-ecdsa");
-    add_interop_endpoint_step(b, modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), interop_quic, target, optimize));
+    // Design §8 step 16b: the UDP endpoint's sessions are `tls`'s, over the `KEYLOG=on` objects.
+    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), target, optimize);
+    // The QUIC Interop Runner's endpoint is the same program, under the name its image copies. It
+    // pins the server's key, because the runner's certificates fail the Web PKI profile (the
+    // owner's ruling of 2026-09-26, design §8 step 16b).
+    add_interop_endpoint_step(b, testing_udp);
     // https://github.com/c4milo/colibri/issues/61 amends decision 58: the h2 endpoints run on
     // Rotor's loop too.
     graph.testing.addImport("rotor", rotor_dependency.module("rotor"));
@@ -399,11 +396,11 @@ fn add_quic_udp_step(b: *std.Build, testing_udp: *std.Build.Module) void {
     b.installArtifact(endpoint);
 }
 
-/// `zig build interop-endpoint`: installs the UDP QUIC endpoint over a `TRUST=raw-ecdsa` object as
-/// `quic-udp-interop`, which `tools/quic_interop/Dockerfile` copies into the runner's image.
+/// `zig build interop-endpoint`: installs the UDP QUIC endpoint as `quic-udp-interop`, which
+/// `tools/quic_interop/Dockerfile` copies into the runner's image.
 fn add_interop_endpoint_step(b: *std.Build, module: *std.Build.Module) void {
     const endpoint = b.addExecutable(.{ .name = "quic-udp-interop", .root_module = module });
-    const step = b.step("interop-endpoint", "Install the UDP QUIC endpoint built TRUST=raw-ecdsa, for the QUIC Interop Runner");
+    const step = b.step("interop-endpoint", "Install the UDP QUIC endpoint for the QUIC Interop Runner");
     step.dependOn(&b.addInstallArtifact(endpoint, .{}).step);
 }
 

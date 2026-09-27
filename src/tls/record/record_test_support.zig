@@ -3,6 +3,7 @@
 //! which `tools/h2_interop/tls_identity.go` minted at `now_seconds`.
 const std = @import("std");
 const tls_provider = @import("tls_provider");
+const chapulin = @import("chapulin_tcp");
 const record = @import("record.zig");
 const values = @import("../values.zig");
 const constants = @import("../constants.zig");
@@ -62,6 +63,17 @@ pub const Wire = struct {
         wire.len -= consumed;
     }
 };
+
+/// The suites the linked object holds: the three colibri admits with AES-GCM, and ChaCha20 alone
+/// without it (decision 97).
+pub const aes_gcm = @hasField(chapulin.c.ch_srv_cfg, "cipher_suites");
+pub const suites_held: []const u16 = if (aes_gcm) &tls_provider.constants.cipher_suites_admitted else &.{chacha};
+pub const chacha = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256;
+
+/// A server order naming `suite` alone, or none in an object that holds one suite and no order.
+pub fn order_of(suite: *const [1]u16) []const u16 {
+    return if (aes_gcm) suite else &.{};
+}
 
 /// What the tests vary on the server.
 pub const ServerChoice = struct {

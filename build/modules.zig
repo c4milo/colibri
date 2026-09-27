@@ -52,10 +52,13 @@ pub const Modules = struct {
     /// The TCP object `tls` links. `src/testing/`'s TCP endpoints link it too, because two objects
     /// of one transport define the same names.
     chapulin_tcp: *std.Build.Dependency,
-    /// `tls` again, over the TCP object built `KEYLOG=on`: its tests seal records under the traffic
+    /// `tls` again, over the objects built `KEYLOG=on`: its tests seal records under the traffic
     /// secrets chapulin logs, such as a peer's KeyUpdate, which no chapulin session sends in record
-    /// mode. A test-only module, which nothing imports.
+    /// mode, and `src/testing/`'s QUIC endpoints, which write the secrets to SSLKEYLOGFILE, import
+    /// it as `tls`. Test-only.
     tls_keylog: *std.Build.Module,
+    /// The QUIC object `tls_keylog` links, which the QUIC endpoints' `ch_keylog` reads the hook of.
+    chapulin_quic_keylog: *std.Build.Dependency,
     /// The deterministic harness: clock, byte pipe, datagram network, and null providers for both
     /// vtables. Design §10.
     sim: *std.Build.Module,
@@ -147,10 +150,15 @@ pub fn add(
     const chapulin_tcp = chapulin_record_object(b, target, .off);
     const tls = library(b, "tls", target, optimize);
     tls.addImport("tls_provider", tls_provider);
+    tls.addImport("crypto", crypto);
     tls.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
+    tls.addImport("chapulin_quic", chapulin_quic_object(b, target, .off).module("chapulin"));
+    const chapulin_quic_keylog = chapulin_quic_object(b, target, .on);
     const tls_keylog = create(b, "src/tls/tls.zig", target, optimize);
     tls_keylog.addImport("tls_provider", tls_provider);
+    tls_keylog.addImport("crypto", crypto);
     tls_keylog.addImport("chapulin_tcp", chapulin_record_object(b, target, .on).module("chapulin"));
+    tls_keylog.addImport("chapulin_quic", chapulin_quic_keylog.module("chapulin"));
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
@@ -249,6 +257,10 @@ pub fn add(
     const testing_quic = create(b, "src/testing/quic_loopback.zig", target, optimize);
     testing_quic.addImport("h2", h2);
     testing_quic.addImport("quic", quic);
+    // Design §8 step 16b: its sessions are `tls`'s, over the `KEYLOG=on` objects, and its
+    // `ch_keylog` reads the hook through the QUIC object's module.
+    testing_quic.addImport("tls", tls_keylog);
+    testing_quic.addImport("chapulin", chapulin_quic_keylog.module("chapulin"));
     testing_quic.link_libc = true;
 
     return .{
@@ -266,6 +278,7 @@ pub fn add(
         .tls = tls,
         .chapulin_tcp = chapulin_tcp,
         .tls_keylog = tls_keylog,
+        .chapulin_quic_keylog = chapulin_quic_keylog,
         .sim = sim,
         .sim_run = sim_run,
         .sim_run_quic = sim_run_quic,
@@ -283,12 +296,12 @@ pub fn add(
 /// imports rotor (decision 58). It is made apart from `add` because rotor is a lazy package that
 /// only colibri's own build requests, after a dependent project's build has stopped. `h2` is
 /// there for `src/testing/constants.zig`, which every module of `src/testing/` shares; `quic` is
-/// the module the endpoint serves, and chapulin's QUIC object fills its two vtables (decision 10).
+/// the module the endpoint serves, and `tls` over the `KEYLOG=on` objects fills its two vtables
+/// (design §8 step 16b).
 pub fn add_testing_udp(
     b: *std.Build,
     graph: Modules,
     rotor: *std.Build.Module,
-    chapulin_quic_object: *std.Build.Dependency,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Module {
@@ -298,8 +311,9 @@ pub fn add_testing_udp(
     // The h3 server and client of design §9, ruled by the owner on 2026-09-24.
     module.addImport("h3", graph.h3);
     module.addImport("rotor", rotor);
+    module.addImport("tls", graph.tls_keylog);
+    module.addImport("chapulin", graph.chapulin_quic_keylog.module("chapulin"));
     module.link_libc = true;
-    link_chapulin(module, chapulin_quic_object);
     return module;
 }
 
@@ -333,14 +347,10 @@ fn create(
     });
 }
 
-/// The trust modes chapulin's QUIC object is built with, spelled as its build spells them: `webpki`
-/// for every check, and `raw-ecdsa` for the endpoint the QUIC Interop Runner runs, whose
-/// certificates carry no extended key usage and so fail the Web PKI profile.
-pub const QuicTrust = enum { webpki, @"raw-ecdsa" };
-
-/// chapulin's `AES` values the library's objects choose between, and its `KEYLOG` values, spelled
-/// as its build spells them.
+/// chapulin's `AES`, `SUITE` and `KEYLOG` values the library's objects choose between, spelled as
+/// its build spells them.
 const Aes = enum { soft, hw };
+const Suite = enum { chacha, aesgcm };
 const Keylog = enum { on, off };
 
 /// Decision 97's TCP object: `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`,
@@ -360,7 +370,7 @@ fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylo
         .ROLE = .both,
         .TRUST = .webpki,
         .EXPORTER = .on,
-        .SUITE = .aesgcm,
+        .SUITE = if (native) Suite.aesgcm else Suite.chacha,
         .AES = if (native) Aes.hw else Aes.soft,
         .CH_NATIVE_AES = native,
         .TX_RECORD = "16384",
@@ -371,7 +381,9 @@ fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylo
 /// Decision 97: `AES=hw`, with the builder's statement `CH_NATIVE_AES`, on a target whose features
 /// include the instructions chapulin's `aes_hw.c` runs on, and `AES=soft` on any other. Those are
 /// the AES instructions and the carry-less multiply: aes and pclmul on x86, and aes on Arm, where
-/// the 64-bit PMULL is part of the AES extension (chapulin's `aesTarget`).
+/// the 64-bit PMULL is part of the AES extension (chapulin's `aesTarget`). chapulin refuses
+/// `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed with the key (its `ct.h`, INV-26), so an
+/// object with software AES carries `SUITE=chacha`, TLS_CHACHA20_POLY1305_SHA256 alone.
 fn aes_native(target: std.Build.ResolvedTarget) bool {
     const cpu = target.result.cpu;
     return switch (cpu.arch) {
@@ -381,33 +393,22 @@ fn aes_native(target: std.Build.ResolvedTarget) bool {
     };
 }
 
-/// The QUIC object `src/testing/` links in the trust mode `trust`: `TRANSPORT=quic-nonblocking
-/// ROLE=both SUITE=aesgcm AES=hw KEYLOG=on`, with the builder's statement that the part's AES
-/// instructions run in constant time (decision 85). `KEYLOG=on` hands the checks each traffic
-/// secret, so a capture can be decrypted.
-pub fn chapulin_quic(b: *std.Build, target: std.Build.ResolvedTarget, trust: QuicTrust) *std.Build.Dependency {
+/// Decision 97's QUIC object: `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki SUITE=aesgcm`,
+/// compiled from the pinned package with `RAND=extern` (decision 94), with the AES choice of the
+/// TCP object. `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, which is also
+/// the only kind of suite h3spec offers. The library's object is `KEYLOG=off`; `tls_keylog` builds
+/// one `on`, which hands the tests and the endpoints each traffic secret.
+fn chapulin_quic_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
+    const native = aes_native(target);
     return b.dependency("chapulin", .{
         .target = target,
         .RAND = .@"extern",
         .TRANSPORT = .@"quic-nonblocking",
         .ROLE = .both,
-        .TRUST = trust,
-        .SUITE = .aesgcm,
-        .AES = .hw,
-        .KEYLOG = .on,
-        .CH_NATIVE_AES = true,
+        .TRUST = .webpki,
+        .SUITE = if (native) Suite.aesgcm else Suite.chacha,
+        .AES = if (native) Aes.hw else Aes.soft,
+        .CH_NATIVE_AES = native,
+        .KEYLOG = keylog,
     });
-}
-
-/// Links the QUIC object into the loopback check. The UDP endpoint gets it where it is made
-/// (`add_testing_udp`), and the TCP endpoints reach chapulin through `tls`.
-pub fn link_chapulin_quic(graph: Modules, quic_object: *std.Build.Dependency) void {
-    link_chapulin(graph.testing_quic, quic_object);
-}
-
-/// One object's module, which `src/testing/` imports as `chapulin`: chapulin's Zig API, with the
-/// translated headers as its `c`. The module carries the object, so it is linked once through the
-/// import; a second `addObjectFile` would define every symbol twice.
-fn link_chapulin(module: *std.Build.Module, dependency: *std.Build.Dependency) void {
-    module.addImport("chapulin", dependency.module("chapulin"));
 }

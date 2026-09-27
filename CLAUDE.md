@@ -291,25 +291,26 @@ section when a step adds or renames a command.
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
-  the package, each `RAND=extern`. The library's `tls` module links the TCP object,
-  `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on SUITE=aesgcm TX_RECORD=16384`, with
-  `AES=hw` and the builder's statement `CH_NATIVE_AES` on a target whose features include the AES
-  instructions and `AES=soft` on any other (decision 97). `TRANSPORT=tcp-nonblocking` drives the
-  handshake from octets the caller read, so an endpoint runs it inside its loop (decisions 46 and
-  82), and `TRUST=webpki` is the one client trust mode that compiles ALPN in, without which no
-  client negotiates h2 (RFC 9113 §3.1). `src/testing/`'s h11 and h2 endpoints and TLS checks reach
-  it through `tls`, and `tls_keylog`'s tests link a copy built `KEYLOG=on`. The QUIC object,
-  `TRANSPORT=quic-nonblocking ROLE=both SUITE=aesgcm AES=hw KEYLOG=on` with `CH_NATIVE_AES`, serves
-  `src/testing/`'s QUIC endpoints until step 16b moves them onto `tls` too: `SUITE=aesgcm` adds RFC
-  9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, `KEYLOG=on` hands the checks the traffic secrets,
-  and `CH_NATIVE_AES` is the builder's statement that the part's AES instructions run in constant
-  time (decision 85, chapulin's INV-26). The package exports each object's module `chapulin`:
-  chapulin's Zig API (its `docs/zig.md`), which carries the object, with the public headers
-  translated under the object's own defines as its `c`. Because the module carries the object,
-  nothing else may add it: a second copy fails the link. A program that links `tls` defines
-  chapulin's hooks `ch_rand_bytes` and `ch_assert_fail`; each image of `src/testing/` defines them
-  (`src/testing/entropy.zig` and `src/testing/tls/hooks.zig`), and `ch_keylog` beside the QUIC
-  object. A bump is `zig fetch --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
+  the package, each `RAND=extern`. The library's `tls` module links two: the TCP object,
+  `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
+  object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. On a target whose features include
+  the AES instructions each is `SUITE=aesgcm AES=hw` with the builder's statement `CH_NATIVE_AES`,
+  which adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256; on any other it is `AES=soft` with
+  ChaCha20 alone, because chapulin refuses AES-GCM over software AES (decision 97, chapulin's
+  INV-26). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
+  endpoint runs it inside its loop (decisions 46 and 82), and `TRUST=webpki` is the one client
+  trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
+  `src/testing/`'s h11 and h2 endpoints and TLS checks reach chapulin through `tls`; its QUIC
+  endpoints, and `tls_keylog`'s tests, through `tls_keylog`, whose objects are built `KEYLOG=on`
+  so a capture can be decrypted. The package exports each object's module `chapulin`: chapulin's
+  Zig API (its `docs/zig.md`), which carries the object, with the public headers translated under
+  the object's own defines as its `c`. Because the module carries the object, nothing else may add
+  it: a second copy fails the link. A program that links `tls` defines chapulin's hooks
+  `ch_rand_bytes` and `ch_assert_fail`; each image of `src/testing/` defines them
+  (`src/testing/entropy.zig` and `src/testing/tls/hooks.zig`), and a QUIC image `ch_keylog` too
+  (`src/testing/quic/keylog.zig`). `zig build test-tls test-tls-keylog -Dcpu=generic` runs the
+  `tls` tests over the objects without AES-GCM, and `tools/ci.sh` runs it. A bump is `zig fetch
+  --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
 - TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,
   which also moves a record each way and ends on the client's `close_notify`. Both need a Go
@@ -319,8 +320,10 @@ section when a step adds or renames a command.
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
   [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]` and `-- client <address>
-  <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3]
-  <path>...` run design §9's servers and clients over Rotor's UDP loop and the QUIC object. The
+  <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin]
+  <path>...` run design §9's servers and clients over Rotor's UDP loop and `tls.quic`. With `pin`
+  the client trusts the server's key, whose SHA-256 `<anchor-prefix>.pin` holds, and judges no
+  chain, date or name. The
   server serves h3 or hq-interop, whichever its client's ALPN asks for, and a client with `h3`
   fetches over h3. An address is IPv4 or IPv6; a server bound to `::` takes both on Linux.
   `tools/quic_udp.sh [port]` runs a client against a server on 127.0.0.1 over both protocols,
@@ -337,9 +340,10 @@ section when a step adds or renames a command.
 - QUIC Interop Runner: `tools/interop.sh [peers] [tests]`, whose tests include `http3`, builds the
   `colibri-qns` image from this working tree, its fetched packages included, and runs it in the
   runner, pinned by commit, as a server and as a client against each peer. The image's endpoint is
-  `zig build interop-endpoint`'s `quic-udp-interop`: the UDP endpoint over a QUIC object built
-  `TRUST=raw-ecdsa`, because the runner's certificates fail the Web PKI profile. It needs Docker
-  with docker compose, `python3` and `tshark` from Wireshark 4.5.0 or newer.
+  `zig build interop-endpoint`'s `quic-udp-interop`: the UDP endpoint, whose client runs with
+  `pin`, because the runner's certificates fail the Web PKI profile (the owner's ruling of
+  2026-09-26). It needs Docker with docker compose, `python3` and `tshark` from Wireshark 4.5.0 or
+  newer.
 - Models: `zig build tla [-- <configuration>...]` model-checks the TLA+ specifications in
   `spec/tla/` with TLC, through pepegrillo's `tla` tool. `tools/tla.zig` pins TLC by release and
   SHA-256, and the jar is cached on first use; it needs Java. The first line of each

@@ -19,7 +19,6 @@ const quic = @import("quic");
 const constants = @import("../../constants.zig");
 const udp = @import("../../udp.zig");
 const check_file = @import("../../tls/check_file.zig");
-const chapulin_quic_c = @import("../chapulin_quic_c.zig");
 const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
 const udp_identity = @import("udp_identity.zig");
@@ -45,8 +44,6 @@ pub const Connection = struct {
     server: hq_server.Server,
     /// A server's h3 state for this connection.
     h3_server: h3_server.Server,
-    /// chapulin's buffer for this connection's handshake messages.
-    receive: [constants.tls_receive_len]u8,
     /// Where this connection's datagrams go, which is where its client sent from.
     outbound: udp.Outbound,
     /// Whether the spare connection IDs have been issued (`issue_spare_ids`).
@@ -85,7 +82,7 @@ fn any_address(family: udp.Address.Family) udp.Address {
 
 pub fn main(init: std.process.Init.Minimal) !void {
     arguments = udp_arguments.parse(init);
-    try udp_identity.seed();
+    try udp_identity.seed(arguments);
     for (&connections) |*connection| connection.live = false;
     const bind = switch (arguments) {
         .server => |asked| asked.address,
@@ -168,7 +165,7 @@ fn on_datagram(delivery: udp.Delivery, now_ns: u64) void {
     // frames whose data is drawn here.
     if (received.migrated) quic.connection_migration.challenge(&connection.peer.connection, udp_identity.challenge_data());
     issue_spare_ids(connection);
-    if (arguments == .client) udp_run_client.on_received(now_ns);
+    if (arguments == .client) udp_run_client.on_received(connection, now_ns);
     // The step may have derived secrets. They go out now, because a server's connections step
     // through their handshakes together and the log holds one step's lines, not a run's.
     udp_identity.write_keylog();
@@ -289,9 +286,8 @@ fn free_slot() ?usize {
 fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Connection {
     const connection = free_connection() orelse return null;
     const asked = arguments.server;
-    const options = udp_identity.server_options(asked, &connection.receive, asked.seconds_at(started_ns, now_ns)) catch |failure|
-        fail("cannot read the identity: {t}", .{failure});
-    connection.peer.init(options, identity, server_parameters(), now_ns, delivery.from.peer, arguments.server.ecn) catch |failure|
+    const how = udp_identity.server_start(asked.seconds_at(started_ns, now_ns));
+    connection.peer.init(how, udp_identity.keylog(), identity, server_parameters(), now_ns, delivery.from.peer, arguments.server.ecn) catch |failure|
         fail("the server did not start: {t}", .{failure});
     connection.outbound = outbound_to(delivery.from.peer);
     connection.spare_ids_issued = false;

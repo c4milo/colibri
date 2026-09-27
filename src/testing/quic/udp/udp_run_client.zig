@@ -7,9 +7,9 @@
 //! that finishes resumed the first one's session.
 const std = @import("std");
 const assert = std.debug.assert;
+const tls = @import("tls");
 const quic = @import("quic");
 const constants = @import("../../constants.zig");
-const chapulin_quic = @import("../chapulin_quic.zig");
 const hq_client = @import("../hq/hq_client.zig");
 const h3_client = @import("../h3/h3_client.zig");
 const h3 = @import("h3");
@@ -28,7 +28,7 @@ var over_h3: bool = false;
 /// Whether the one key update has started.
 var keys_updated: bool = false;
 /// The ticket the first connection's server issued, and the instant it arrived.
-var ticket: chapulin_quic.Ticket align(@alignOf(chapulin_quic.Ticket)) = .{};
+var ticket: ?tls.Ticket align(@alignOf(?tls.Ticket)) = null;
 var ticket_received_ns: ?u64 = null;
 /// Whether the connection in use presented the ticket.
 var resuming: bool = false;
@@ -39,20 +39,18 @@ var received_before: u64 = 0;
 /// Starts the first connection, which fetches every path, or with `resumption` the first alone.
 pub fn connect(connection: *Connection, asked: udp_arguments.Client, now_ns: u64) void {
     const paths = if (asked.resumption) asked.paths[0..1] else asked.paths;
-    start(connection, asked, paths, &ticket, null, now_ns);
+    start(connection, asked, paths, null, now_ns);
 }
 
 fn start(
     connection: *Connection,
     asked: udp_arguments.Client,
     paths: []const []const u8,
-    ticket_store: ?*chapulin_quic.Ticket,
-    resumption: ?chapulin_quic.Resumption,
+    resumption: ?tls.Resumption,
     now_ns: u64,
 ) void {
-    const options = udp_identity.client_options(asked, &connection.receive, ticket_store, resumption) catch |failure|
-        udp_run.fail("cannot read the trust anchor: {t}", .{failure});
-    connection.peer.init(options, udp_identity.client_ids(), parameters(), now_ns, asked.address, true) catch |failure|
+    const how = udp_identity.client_start(asked, resumption);
+    connection.peer.init(how, udp_identity.keylog(), udp_identity.client_ids(), parameters(), now_ns, asked.address, true) catch |failure|
         udp_run.fail("the client did not start: {t}", .{failure});
     connection.outbound = udp_run.outbound_to(asked.address);
     connection.spare_ids_issued = false;
@@ -65,10 +63,13 @@ fn start(
     connection.live = true;
 }
 
-/// Notes the instant a ticket arrived, which its age on the second connection counts from
-/// (RFC 9846 §4.2.11). chapulin hands it over inside a receive.
-pub fn on_received(now_ns: u64) void {
-    if (ticket.held and ticket_received_ns == null) ticket_received_ns = now_ns;
+/// Takes the first ticket the server sent, which chapulin keeps in the session until it is taken,
+/// and notes the instant it arrived: its age on the second connection counts from there (RFC 9846
+/// §4.3.11.1).
+pub fn on_received(connection: *Connection, now_ns: u64) void {
+    if (ticket != null or resuming) return;
+    ticket = connection.peer.session.client.take_ticket() orelse return;
+    ticket_received_ns = now_ns;
 }
 
 /// Starts the client's one key update once RFC 9001 §6.1 permits it: the handshake confirmed, and
@@ -123,24 +124,22 @@ pub fn finished(connection: *Connection, asked: udp_arguments.Client, now_ns: u6
     return false;
 }
 
-/// Starts the second connection, presenting the first one's ticket.
+/// Starts the second connection, presenting the first one's ticket. chapulin drops a ticket whose
+/// identity is longer than it keeps, so a server that sent one sent none this client holds.
 fn resume_session(connection: *Connection, asked: udp_arguments.Client, now_ns: u64) void {
-    if (ticket.too_long) udp_run.fail("the server's ticket is longer than {d} octets", .{ticket.identity.len});
-    if (!ticket.held) udp_run.fail("the server issued no ticket", .{});
+    const kept = if (ticket) |*held| held else udp_run.fail("the server issued no ticket this client keeps", .{});
     fetched_before = finished_count();
     received_before = received_len();
     resuming = true;
-    const age = obfuscated_age(ticket_received_ns.?, now_ns, ticket.age_add);
-    // The second connection keeps no ticket: the one it presents stays where chapulin reads it.
-    start(connection, asked, asked.paths[1..], null, .{ .ticket = &ticket, .obfuscated_age = age }, now_ns);
+    const age = age_ms(ticket_received_ns.?, now_ns);
+    start(connection, asked, asked.paths[1..], .{ .ticket = kept, .age_ms = age }, now_ns);
 }
 
-/// RFC 9846 §4.2.11: the age of a ticket received at `received_ns`, in milliseconds, "added to
-/// the ticket_age_add value that was included with the ticket ... modulo 2^32".
-fn obfuscated_age(received_ns: u64, now_ns: u64, age_add: u32) u32 {
+/// RFC 9846 §4.3.11.1: a ticket's age is the time since it was received, in milliseconds, which
+/// chapulin adds `ticket_age_add` to.
+fn age_ms(received_ns: u64, now_ns: u64) u64 {
     assert(now_ns >= received_ns);
-    const age_ms = (now_ns - received_ns) / constants.nanoseconds_per_millisecond;
-    return @truncate(age_ms +% age_add);
+    return (now_ns - received_ns) / constants.nanoseconds_per_millisecond;
 }
 
 pub fn report(connection: *Connection, asked: udp_arguments.Client) void {
@@ -170,10 +169,9 @@ fn parameters() Parameters {
 
 const testing = std.testing;
 
-test "RFC 9846 §4.2.11: the obfuscated age is the age in milliseconds plus age_add, modulo 2^32" {
+test "RFC 9846 §4.3.11.1: a ticket's age is the whole milliseconds since it arrived" {
     const received_ns: u64 = 5 * constants.nanoseconds_per_second;
     const now_ns = received_ns + 1_500 * constants.nanoseconds_per_millisecond + 999_999;
-    try testing.expectEqual(1_500 + 7, obfuscated_age(received_ns, now_ns, 7));
-    try testing.expectEqual(1_499, obfuscated_age(received_ns, now_ns, std.math.maxInt(u32)));
-    try testing.expectEqual(7, obfuscated_age(received_ns, received_ns, 7));
+    try testing.expectEqual(1_500, age_ms(received_ns, now_ns));
+    try testing.expectEqual(0, age_ms(received_ns, received_ns));
 }

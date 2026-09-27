@@ -13,12 +13,13 @@ const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin_tcp");
 const constants = @import("../constants.zig");
 const values = @import("../values.zig");
-const record_config = @import("record_config.zig");
+const config_module = @import("../config.zig");
+const ticket = @import("../ticket.zig");
 const record_provider = @import("record_provider.zig");
 
-pub const ClientConfig = record_config.ClientConfig;
-pub const ServerConfig = record_config.ServerConfig;
-pub const ConfigError = record_config.Error;
+pub const ClientConfig = config_module.ClientConfig(chapulin);
+pub const ServerConfig = config_module.ServerConfig(chapulin);
+pub const ConfigError = config_module.Error;
 pub const State = record_provider.State;
 
 pub const Error = error{
@@ -64,13 +65,7 @@ pub const Client = struct {
         }
         if (resumption) |offer| {
             // RFC 9846 §4.7.1: a ticket's PSK is a hash length, which chapulin checks here.
-            client.offered = chapulin.Ticket.fromFields(.{
-                .identity = offer.ticket.identity[0..offer.ticket.identity_len],
-                .psk = offer.ticket.psk[0..offer.ticket.psk_len],
-                .age_add = offer.ticket.age_add,
-                .lifetime_s = offer.ticket.lifetime_s,
-                .binding = &offer.ticket.binding,
-            }) catch return error.Refused;
+            client.offered = ticket.offered(chapulin, offer) catch return error.Refused;
             chosen.ticket = &client.offered;
             chosen.ticket_age_ms = offer.age_ms;
         }
@@ -121,7 +116,7 @@ pub const Client = struct {
     pub fn take_ticket(client: *Client) ?values.Ticket {
         var taken = client.session.takeTicket() orelse return null;
         defer std.crypto.secureZero(u8, std.mem.asBytes(&taken));
-        return ticket_of(&taken);
+        return ticket.value_of(chapulin, &taken);
     }
 
     /// Whether a ticket this client offered authenticated the handshake (RFC 9846 §2.2).
@@ -198,22 +193,6 @@ pub const Server = struct {
         server.session.recordClose();
     }
 };
-
-/// chapulin's ticket in step 16c's fixed-size fields.
-fn ticket_of(taken: *const chapulin.Ticket) values.Ticket {
-    const issued = &taken.ticket;
-    var ticket: values.Ticket = std.mem.zeroes(values.Ticket);
-    // chapulin copies no identity longer than `CH_TICKET_ID_MAX` and no PSK longer than its hash.
-    assert(issued.identity_len <= ticket.identity.len and issued.psk_len <= ticket.psk.len);
-    @memcpy(ticket.identity[0..issued.identity_len], taken.identity[0..issued.identity_len]);
-    ticket.identity_len = @intCast(issued.identity_len);
-    @memcpy(ticket.psk[0..issued.psk_len], issued.psk[0..issued.psk_len]);
-    ticket.psk_len = @intCast(issued.psk_len);
-    ticket.age_add = issued.age_add;
-    ticket.lifetime_s = issued.lifetime_s;
-    ticket.binding = issued.binding;
-    return ticket;
-}
 
 test {
     _ = @import("record_test.zig");

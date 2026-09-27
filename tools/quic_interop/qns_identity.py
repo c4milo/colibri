@@ -10,12 +10,16 @@ parses no container:
     <prefix>.chain.<i>.der  each certificate of cert.pem, the end-entity first
     <prefix>.priv           the 32-octet private scalar
     <prefix>.pub            the 64-octet public point X||Y
-    <prefix>.name           the root's Subject Name DER, which a client pins
+    <prefix>.name           the root's Subject Name DER, which a Web PKI client trusts
     <prefix>.spki           the root's SubjectPublicKeyInfo DER, likewise
+    <prefix>.pin            the SHA-256 of the end-entity's SubjectPublicKeyInfo DER, which the
+                            client pins with its `pin` option: the runner's certificates fail the
+                            Web PKI profile, and a pin alone judges no chain, date or name
 
 It uses the standard library alone, and reads DER as RFC 5280 §4.1 and SEC 1 §C.4 lay it out.
 """
 import base64
+import hashlib
 import sys
 
 SEQUENCE = 0x30
@@ -95,11 +99,13 @@ def main():
     name, spki = root_name_and_spki(root)
     open(f"{prefix}.name", "wb").write(name)
     open(f"{prefix}.spki", "wb").write(spki)
+    _, leaf_spki = root_name_and_spki(chain[0])
+    open(f"{prefix}.pin", "wb").write(hashlib.sha256(leaf_spki).digest())
     key = pem_blocks(open(f"{certs}/priv.key").read(), "EC PRIVATE KEY")[0]
     scalar, point = scalar_and_point(key)
     open(f"{prefix}.priv", "wb").write(scalar)
     open(f"{prefix}.pub", "wb").write(point)
-    print(f"qns_identity: {len(chain)} certificates, root pinned")
+    print(f"qns_identity: {len(chain)} certificates, the end-entity's key pinned")
 
 
 if __name__ == "__main__":

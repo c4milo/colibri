@@ -2,10 +2,10 @@
 //! process, until the client's stream has arrived. Part of design §8 step 9e, piece 11.
 //!
 //! What it proves, which the simulator's check cannot: colibri's connection completes a real
-//! TLS 1.3 handshake through `tls.QuicProvider` and protects real packets through
-//! `crypto.Suite`, with every key inside chapulin (decision 48). The client verifies the server's
-//! certificate chain, both select "hq-interop" by ALPN (RFC 9001 §8.1), and the server reads
-//! every octet of the client's stream.
+//! TLS 1.3 handshake through `tls.quic`'s `tls_provider.QuicProvider` and protects real packets
+//! through its `crypto.Suite`, with every key inside chapulin (decision 48). The client verifies
+//! the server's certificate chain, both select "hq-interop" by ALPN (RFC 9001 §8.1), and the
+//! server reads every octet of the client's stream.
 //!
 //! What it does not prove is interoperability: both ends are colibri and both are chapulin, so a
 //! shared misreading of an RFC passes. `tools/interop.sh` is that check.
@@ -13,15 +13,14 @@
 //! Datagrams move in memory, in the order each endpoint sends them, and the instant is the
 //! check's own, advanced by `quic_round_ns` each round. Nothing is lost or reordered.
 const std = @import("std");
+const tls = @import("tls");
 const quic = @import("quic");
 const constants = @import("../constants.zig");
 const check_file = @import("../tls/check_file.zig");
-const chapulin_quic_c = @import("chapulin_quic_c.zig");
 const entropy = @import("../entropy.zig");
-const chapulin_quic = @import("chapulin_quic.zig");
+const keylog_module = @import("keylog.zig");
 const loopback_endpoint = @import("loopback_endpoint.zig");
 
-const c = chapulin_quic_c.c;
 const Endpoint = loopback_endpoint.Endpoint;
 const exit_usage = check_file.exit_usage;
 const exit_failed = check_file.exit_failed;
@@ -29,12 +28,13 @@ const exit_failed = check_file.exit_failed;
 /// The protocol the QUIC Interop Runner's transfer cases speak, which both ends select.
 const alpn = "hq-interop";
 
-/// The two endpoints, outside any stack frame: each carries a session, a pool and buffers.
+/// The two endpoints and their configurations, outside any stack frame: each endpoint carries a
+/// session, a pool and buffers.
 var client: Endpoint align(@alignOf(Endpoint)) = undefined;
 var server: Endpoint align(@alignOf(Endpoint)) = undefined;
-var client_receive: [constants.tls_receive_len]u8 = undefined;
-var server_receive: [constants.tls_receive_len]u8 = undefined;
-var keylog: chapulin_quic_c.Keylog align(@alignOf(chapulin_quic_c.Keylog)) = .{};
+var client_config: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
+var server_config: tls.quic.ServerConfig align(@alignOf(tls.quic.ServerConfig)) = undefined;
+var keylog: keylog_module.Keylog align(@alignOf(keylog_module.Keylog)) = .{};
 
 var leaf_storage: [constants.tls_der_len_max]u8 = undefined;
 var issuer_storage: [constants.tls_der_len_max]u8 = undefined;
@@ -43,14 +43,9 @@ const go_chain_len: usize = 2;
 var chain: [go_chain_len][]const u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
-var private_storage: [private_scalar_len]u8 = undefined;
-var public_storage: [public_point_len]u8 = undefined;
-var cookie_storage: [cookie_key_len]u8 = undefined;
-
-/// What `srv_cfg.h` fixes for the ecdsa_secp256r1_sha256 slot, and RFC 9846 §4.3.2's cookie key.
-const private_scalar_len: usize = 32;
-const public_point_len: usize = 64;
-const cookie_key_len: usize = 32;
+var private_storage: [tls.constants.p256_private_key_len]u8 = undefined;
+var public_storage: [tls.constants.p256_public_key_len]u8 = undefined;
+var cookie_storage: [tls.constants.server_key_len]u8 = undefined;
 
 const Arguments = struct {
     /// The prefix of the files `tools/h2_interop/tls_identity.go` wrote.
@@ -75,54 +70,56 @@ fn parse(init: std.process.Init.Minimal) Arguments {
     };
 }
 
-/// Checks the linked object, then draws the cookie key. The check may read the operating system's
-/// entropy; the library may not, and does not.
-fn seed_chapulin() !void {
-    try chapulin_quic_c.check_build();
+/// Draws the cookie key. The check may read the operating system's entropy; the library may not,
+/// and does not.
+fn seed_chapulin() void {
     entropy.fill(&cookie_storage);
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const asked = parse(init);
-    try seed_chapulin();
-    const prefix = asked.identity_prefix;
-    // A chapulin anchor is the root's Subject Name and its SubjectPublicKeyInfo, each the whole
-    // DER TLV. The client pins this one root, or in a raw-pin build the server's own key.
-    const anchor_name = try check_file.read_part(prefix, ".name", &name_storage);
-    const spki = try check_file.read_part(prefix, ".spki", &spki_storage);
-    const anchors = [_]chapulin_quic.Anchor{if (chapulin_quic.webpki) .{
-        .name = anchor_name.ptr,
-        .name_len = anchor_name.len,
-        .spki = spki.ptr,
-        .spki_len = spki.len,
-    } else {}};
-    chain[0] = try check_file.read_part(prefix, ".leaf.der", &leaf_storage);
-    chain[1] = try check_file.read_part(prefix, ".ca.der", &issuer_storage);
-    const identity: chapulin_quic.Identity = .{
-        .chain = &chain,
-        .private_scalar = try check_file.read_part(prefix, ".priv", &private_storage),
-        .public_point = try check_file.read_part(prefix, ".pub", &public_storage),
-        .cookie_key = &cookie_storage,
-    };
-    server.init(.{
-        .role = .server,
-        .alpn = &.{alpn},
-        .receive = &server_receive,
-        .identity = identity,
-        .keylog = &keylog,
-    }, 0) catch |failure| fail("the server did not start: {t}", .{failure});
-    if (!server.session.check_identity()) fail("chapulin refused the server's identity", .{});
-    client.init(.{
-        .role = .client,
-        .alpn = &.{alpn},
-        .receive = &client_receive,
-        .trust = trust_of(&anchors, asked),
-        .keylog = &keylog,
-    }, 0) catch |failure| fail("the client did not start: {t}", .{failure});
+    seed_chapulin();
+    try configure(asked);
+    server.init(.{ .server = .{ .config = &server_config, .now_seconds = 0 } }, &keylog, 0) catch |failure|
+        fail("the server did not start: {t}", .{failure});
+    client.init(.{ .client = .{ .config = &client_config, .now_seconds = asked.now_seconds } }, &keylog, 0) catch |failure|
+        fail("the client did not start: {t}", .{failure});
     const run = exchange();
     report(run);
     check_keylog();
     if (asked.keylog_path) |path| write_keylog(path);
+}
+
+/// Reads the identity `tls_identity.go` minted and converts both ends' values. The client trusts
+/// the one root that signed the server's certificate, its Subject Name and SubjectPublicKeyInfo.
+fn configure(asked: Arguments) !void {
+    const prefix = asked.identity_prefix;
+    const anchors = [_]tls.Anchor{.{
+        .subject = try check_file.read_part(prefix, ".name", &name_storage),
+        .spki = try check_file.read_part(prefix, ".spki", &spki_storage),
+    }};
+    chain[0] = try check_file.read_part(prefix, ".leaf.der", &leaf_storage);
+    chain[1] = try check_file.read_part(prefix, ".ca.der", &issuer_storage);
+    try read_key(prefix, ".priv", &private_storage);
+    try read_key(prefix, ".pub", &public_storage);
+    try server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &chain, .public_key = &public_storage, .private_key = &private_storage },
+        .cookie_key = &cookie_storage,
+        .alpn = &.{alpn},
+    });
+    server_config.check() catch fail("chapulin refused the server's identity", .{});
+    try client_config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
+        .alpn = &.{alpn},
+    });
+}
+
+/// Reads a key file, which must fill `into` exactly: one octet more is read to tell a longer file.
+fn read_key(prefix: []const u8, suffix: []const u8, into: []u8) !void {
+    var read_storage: [tls.constants.p256_public_key_len + 1]u8 = undefined;
+    const read = try check_file.read_part(prefix, suffix, &read_storage);
+    if (read.len != into.len) fail("{s}{s} is {d} octets, not {d}", .{ prefix, suffix, read.len, into.len });
+    @memcpy(into, read);
 }
 
 /// Each endpoint derives four traffic secrets, and `keylog.h` names one line for each: both
@@ -135,13 +132,6 @@ fn check_keylog() void {
     if (keylog.overflowed) fail("the key log did not fit", .{});
     const lines = std.mem.count(u8, keylog.written(), "\n");
     if (lines != keylog_lines_per_endpoint * endpoints) fail("the key log holds {d} lines", .{lines});
-}
-
-/// What the client judges the server by: the root in a Web PKI build, the server's own key in a
-/// raw-pin build.
-fn trust_of(anchors: []const chapulin_quic.Anchor, asked: Arguments) chapulin_quic.Trust {
-    if (chapulin_quic.webpki) return .{ .webpki = .{ .anchors = anchors, .hostname = asked.hostname, .now_seconds = asked.now_seconds } };
-    return .{ .pinned = .{ .public_point = &public_storage } };
 }
 
 /// What a run counted.

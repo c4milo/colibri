@@ -53,7 +53,8 @@ address="$(getent ahostsv4 "$host" | awk 'NR == 1 { print $1 }' || true)"
 [ -n "$address" ] || address="$(getent ahostsv6 "$host" | awk 'NR == 1 { print $1 }' || true)"
 [ -n "$address" ] || exit 127
 
-client_options=()
+# The runner's certificates fail the Web PKI profile, so the client pins the server's key.
+client_options=(pin)
 [ "$TESTCASE" = keyupdate ] && client_options+=(keyupdate)
 [ "$TESTCASE" = resumption ] && client_options+=(resumption)
 [ "$TESTCASE" = http3 ] && client_options+=(h3)

@@ -3,14 +3,17 @@
 //! connection, and hands the session's provider to the connection. The HTTP modules import none of
 //! this: a cleartext program never links chapulin.
 //!
-//! Record mode serves h2 and h11 over the TCP object (`record/`). chapulin holds every key, and
-//! colibri passes it pointers to the caller's keys and never reads one (non-negotiable 2). The
-//! program defines chapulin's two hooks, `ch_rand_bytes` and `ch_assert_fail` (decision 94).
+//! Record mode serves h2 and h11 over the TCP object (`record/`), and QUIC mode serves h3 over the
+//! QUIC object (`quic/`), filling `tls_provider.QuicProvider` and `crypto.Suite`. chapulin holds
+//! every key, and colibri passes it pointers to the caller's keys and never reads one
+//! (non-negotiable 2). The program defines chapulin's two hooks, `ch_rand_bytes` and
+//! `ch_assert_fail` (decision 94).
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
 pub const values = @import("values.zig");
 pub const record = @import("record/record.zig");
+pub const quic = @import("quic/quic.zig");
 
 pub const Anchor = values.Anchor;
 pub const Pin = values.Pin;

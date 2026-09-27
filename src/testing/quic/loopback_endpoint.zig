@@ -1,8 +1,8 @@
 //! One endpoint of the QUIC loopback check (design §8 step 9e): a `quic.Connection` over a
 //! chapulin session, and the part of a caller a real endpoint plays around them.
 //!
-//! It is `src/sim/quic_endpoint.zig` with chapulin in place of the null provider and suite, so the
-//! caller's four duties are the same (decisions 48, 57, 60 and 61):
+//! It is `src/sim/quic_endpoint.zig` with `tls.quic`'s session in place of the null provider and
+//! suite, so the caller's four duties are the same (decisions 48, 57, 60 and 61):
 //! - It derives the Initial keys from the client's first Destination Connection ID (RFC 9001
 //!   §5.2).
 //! - It gives the provider this endpoint's transport parameters before the handshake (§8.2).
@@ -16,11 +16,12 @@ const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const constants = @import("../constants.zig");
-const chapulin_quic = @import("chapulin_quic.zig");
+const quic_session = @import("quic_session.zig");
+const keylog_module = @import("keylog.zig");
 
 const Connection = quic.Connection;
 const Parameters = quic.transport_parameters.Parameters;
-const Session = chapulin_quic.Session;
+const Session = quic_session.Session;
 
 pub const Error = quic.connection_datagram.Error || quic.connection_send.Error || quic.connection_recovery.Error ||
     quic.connection_stream_send.Error || quic.stream.stream_table.OpenError || quic.connection_stream_read.Error ||
@@ -74,9 +75,9 @@ pub const Endpoint = struct {
     transfer_read_len: u64,
     transfer_read: bool,
 
-    /// Starts the connection and its session. `options` is the session's.
-    pub fn init(endpoint: *Endpoint, options: chapulin_quic.Options, now_ns: u64) Error!void {
-        const role = options.role;
+    /// Starts the connection and its session, whose secrets go to `keylog`.
+    pub fn init(endpoint: *Endpoint, start: quic_session.Start, keylog: ?*keylog_module.Keylog, now_ns: u64) Error!void {
+        const role = start.role();
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
         endpoint.connection.init(.{
             .role = role,
@@ -85,7 +86,7 @@ pub const Endpoint = struct {
             .identity = .{ .local_initial_source = local_source, .original_destination = &original_id },
             .receive = endpoint.pool.storage(),
         });
-        endpoint.session.init(options);
+        endpoint.session.start(start, keylog) catch return error.SessionRefused;
         endpoint.send_scratch = .{};
         endpoint.transfer_started = false;
         endpoint.transfer_done = false;

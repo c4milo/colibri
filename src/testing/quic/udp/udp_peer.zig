@@ -11,7 +11,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const constants = @import("../../constants.zig");
-const chapulin_quic = @import("../chapulin_quic.zig");
+const quic_session = @import("../quic_session.zig");
+const keylog_module = @import("../keylog.zig");
 const udp = @import("../../udp.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
@@ -151,23 +152,24 @@ const version_negotiation_unused_bits: u7 = 0x40;
 
 pub const Peer = struct {
     connection: quic.Connection,
-    session: chapulin_quic.Session,
+    session: quic_session.Session,
     send_scratch: quic.connection_send.DefaultScratch,
     scratch: quic.connection_datagram.Scratch,
     pool: quic.stream.stream_incoming.DefaultPool,
 
-    /// Starts the connection and its session. `options` is the session's, and `ecn` says whether
-    /// the connection reads and marks ECN codepoints (decision 68).
+    /// Starts the connection and its session, whose secrets go to `keylog`. `ecn` says whether the
+    /// connection reads and marks ECN codepoints (decision 68).
     pub fn init(
         peer: *Peer,
-        options: chapulin_quic.Options,
+        start: quic_session.Start,
+        keylog: ?*keylog_module.Keylog,
         identity: Identity,
         parameters: Parameters,
         now_ns: u64,
         address: udp.Address,
         ecn: bool,
     ) Error!void {
-        const role = options.role;
+        const role = start.role();
         peer.connection.init(.{
             .role = role,
             .local_parameters = parameters,
@@ -186,7 +188,7 @@ pub const Peer = struct {
             // Decision 72: where the peer is, which a NAT may change under a client.
             .peer_address = peer_address(address),
         });
-        peer.session.init(options);
+        peer.session.start(start, keylog) catch return error.SessionRefused;
         peer.send_scratch = .{};
         // RFC 9001 §8.2: the parameters travel in the handshake. `Connection.init` wrote the
         // connection IDs into them (RFC 9000 §7.3).

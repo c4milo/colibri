@@ -170,12 +170,18 @@ fn selected_protocol(role: anytype) ?[]const u8 {
     return role.session.alpnSelected();
 }
 
-/// RFC 9846 §4.3.1 and Appendix B.4: the version and the suite the handshake selected.
+/// RFC 9846 §4.3.1 and Appendix B.4: the version and the suite the handshake selected. A client
+/// of an object without AES-GCM offers ChaCha20 alone and records no suite (chapulin's
+/// `ch_tls.suite`), so that is the suite it reports.
 fn parameters(role: anytype) ?tls_provider.Negotiated {
     if (!role.state.completed) return null;
-    const suite = role.session.suite() orelse return null;
+    const suite = role.session.suite() orelse if (aes_gcm) return null else chapulin.Suite.chacha20_poly1305_sha256;
     return .{ .version = tls_1_3, .cipher_suite = @intFromEnum(suite) };
 }
+
+/// Whether the object holds the AES-GCM suites beside ChaCha20: a server's suite order exists in
+/// such a build alone (chapulin's `srv_cfg.h`).
+pub const aes_gcm = @hasField(c.ch_srv_cfg, "cipher_suites");
 
 /// The peer's close_notify, once. A read that fails sent its own alert from inside chapulin, which
 /// keeps no description of it or of a fatal alert it received, so neither is reported (reported to

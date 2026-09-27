@@ -1,7 +1,7 @@
-//! RFC 9001 Appendix A's sample packet protection, through colibri's `crypto.Suite` as chapulin's
-//! QUIC object fills it (design §8 step 7, https://github.com/c4milo/colibri/issues/9). Decision
-//! 48 has the suite hold every key, so the vectors check the provider through the vtable, from
-//! `src/testing/`, where chapulin is linked.
+//! RFC 9001 Appendix A's sample packet protection, through the `crypto.Suite` a `tls.quic` session
+//! fills from chapulin's QUIC object (design §8 steps 7 and 16b,
+//! https://github.com/c4milo/colibri/issues/9). Decision 48 has the suite hold every key, so the
+//! vectors check the suite through the vtable.
 //!
 //! One client session covers A.1 to A.4. A session's role is fixed when it starts, and a
 //! client's Initial keys are the server's in the other direction (RFC 9001 §5.2), so:
@@ -16,14 +16,11 @@
 //!
 //! The hex is copied from `docs/rfcs/rfc9001.txt` line for line, and each constant names the lines.
 const std = @import("std");
-const entropy = @import("../entropy.zig");
-const quic = @import("quic");
-const constants = @import("../constants.zig");
-const chapulin_quic_c = @import("chapulin_quic_c.zig");
-const chapulin_quic = @import("chapulin_quic.zig");
+const crypto = @import("crypto");
+const tls_provider = @import("tls_provider");
+const quic = @import("quic.zig");
+const identity = @import("../record/record_test_support.zig");
 
-const c = chapulin_quic_c.c;
-const crypto = quic.crypto;
 const testing = std.testing;
 
 /// The octets a string of hex digits spells, at compile time.
@@ -120,32 +117,19 @@ const client_packet_number_len = 4;
 const server_packet_number = 1;
 
 /// A client session with the A.1 connection ID's Initial keys installed, as colibri's client has
-/// them before its first packet. Its trust is placeholder octets, which chapulin reads only to
-/// judge a server's chain, and these tests receive none. Test-only.
-var test_session: chapulin_quic.Session align(@alignOf(chapulin_quic.Session)) = undefined;
-var test_receive: [constants.tls_receive_len]u8 = undefined;
-const placeholder_octet: u8 = 0x30;
-const placeholder_len = 8;
-const placeholder: [placeholder_len]u8 = @splat(placeholder_octet);
-/// A P-256 point's length, X||Y, which a raw-pin build takes.
-const point_len = 64;
-const placeholder_point: [point_len]u8 = @splat(placeholder_octet);
-const test_now_seconds: u64 = 1;
+/// them before its first packet. It trusts the record tests' root, and receives no certificate.
+var test_config: quic.ClientConfig align(@alignOf(quic.ClientConfig)) = undefined;
+var test_session: quic.Client align(@alignOf(quic.Client)) = undefined;
+/// Transport parameters, which chapulin carries without reading them (RFC 9001 §8.2).
+const placeholder_parameters = "parameters";
 
 fn start_client() !crypto.Suite {
-    entropy.use_fixed(0);
-    const anchors = [_]chapulin_quic.Anchor{if (chapulin_quic.webpki) .{
-        .name = &placeholder,
-        .name_len = placeholder.len,
-        .spki = &placeholder,
-        .spki_len = placeholder.len,
-    } else {}};
-    const trust: chapulin_quic.Trust = if (chapulin_quic.webpki)
-        .{ .webpki = .{ .anchors = &anchors, .hostname = "example.com", .now_seconds = test_now_seconds } }
-    else
-        .{ .pinned = .{ .public_point = &placeholder_point } };
-    test_session.init(.{ .role = .client, .alpn = &.{"hq-interop"}, .receive = &test_receive, .trust = trust });
-    try test_session.provider().set_transport_params(&placeholder);
+    try test_config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = "example.com" } },
+        .alpn = &.{"hq-interop"},
+    });
+    try test_session.start(&test_config, identity.now_seconds, null);
+    try test_session.provider().set_transport_params(placeholder_parameters);
     const suite = test_session.suite();
     try suite.vtable.install_initial_keys(suite.context, .client, &client_dcid);
     return suite;
@@ -184,20 +168,28 @@ test "RFC 9001 Appendix A.3: the server's Initial opens to its header and payloa
 }
 const server_packet_number_len = 2;
 
-test "RFC 9001 Appendix A.4: the Retry Integrity Tag over colibri's pseudo-packet" {
+test "RFC 9001 Appendix A.4: the Retry Integrity Tag over the Retry pseudo-packet" {
     const suite = try start_client();
     const tag_len = crypto.constants.retry_integrity_tag_len;
     const without_tag = retry_packet[0 .. retry_packet.len - tag_len];
     const tag = retry_packet[retry_packet.len - tag_len ..];
-    var pseudo_buffer: [quic.constants.retry_pseudo_packet_len_max]u8 = undefined;
-    var pseudo = quic.core.Writer.init(&pseudo_buffer);
-    try quic.packet.header_write.write_retry_pseudo_packet(&pseudo, &client_dcid, without_tag);
-    try testing.expect(suite.vtable.retry_tag_valid(suite.context, pseudo.written(), tag));
+    var pseudo_buffer: [retry_packet.len + client_dcid.len + 1]u8 = undefined;
+    const pseudo = try retry_pseudo_packet(&client_dcid, without_tag, &pseudo_buffer);
+    try testing.expect(suite.vtable.retry_tag_valid(suite.context, pseudo, tag));
     var written: [tag_len]u8 = undefined;
-    try suite.vtable.retry_tag_write(suite.context, pseudo.written(), &written);
+    try suite.vtable.retry_tag_write(suite.context, pseudo, &written);
     try testing.expectEqualSlices(u8, tag, &written);
     // Another original connection ID is another pseudo-packet, whose tag this is not.
-    var other = quic.core.Writer.init(&pseudo_buffer);
-    try quic.packet.header_write.write_retry_pseudo_packet(&other, "other-id", without_tag);
-    try testing.expect(!suite.vtable.retry_tag_valid(suite.context, other.written(), tag));
+    const other = try retry_pseudo_packet("other-id", without_tag, &pseudo_buffer);
+    try testing.expect(!suite.vtable.retry_tag_valid(suite.context, other, tag));
+}
+
+/// RFC 9001 §5.8: the Retry pseudo-packet is the ODCID Length, the Original Destination
+/// Connection ID, and the Retry packet without its tag.
+fn retry_pseudo_packet(original: []const u8, retry: []const u8, output: []u8) ![]const u8 {
+    var writer = tls_provider.core.Writer.init(output);
+    try writer.write_byte(@intCast(original.len));
+    try writer.write_bytes(original);
+    try writer.write_bytes(retry);
+    return writer.written();
 }

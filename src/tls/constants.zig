@@ -16,9 +16,9 @@ pub const receive_len: usize = 20 * 1024;
 pub const server_name_len_max: usize = 255;
 
 /// Certificates in one identity's chain, the end-entity first (RFC 9846 §4.5.1). chapulin sets no
-/// limit on a chain it sends, and a flight of four certificates is what its client reads, so this
-/// is policy.
-pub const certificate_chain_len_max: usize = 4;
+/// limit on a chain it sends. The QUIC Interop Runner's amplification case presents a leaf under
+/// eight intermediates, and the owner set this on 2026-09-26 with room past it.
+pub const certificate_chain_len_max: usize = 16;
 
 /// KeyUpdate answers one record may owe (RFC 9846 §4.7.3). A peer that asks for more in one record
 /// than this fails the read, and with it the connection, which is the fail-closed answer to a
@@ -36,6 +36,19 @@ pub const ticket_psk_len_max: usize = 48;
 /// Octets of the SHA-256 a ticket is bound to (chapulin's `webpki_ticket.h`) and of an SPKI pin.
 pub const sha256_len: usize = 32;
 
+/// Octets of the handshake messages a QUIC session holds at one encryption level until colibri
+/// frames them as CRYPTO data (RFC 9001 §4.1.3). A server's Handshake flight is the largest: the
+/// QUIC Interop Runner's amplification case, a leaf under eight intermediates, takes 9,663.
+pub const crypto_out_len: usize = 20 * 1024;
+
+/// Octets of the peer's transport parameters a QUIC session keeps (RFC 9001 §8.2). RFC 9000 §18
+/// sets no bound, and this holds every parameter §18.2 defines with room for a peer's own.
+pub const transport_parameters_len_max: usize = 1024;
+
+/// Nanoseconds in a second: colibri passes instants in nanoseconds, and chapulin counts a Retry
+/// token's lifetime in seconds.
+pub const nanoseconds_per_second: u64 = 1_000_000_000;
+
 /// Octets of an ecdsa_secp256r1_sha256 identity's keys: the point X||Y and the scalar.
 pub const p256_public_key_len: usize = 64;
 pub const p256_private_key_len: usize = 32;
@@ -49,4 +62,5 @@ comptime {
     assert(server_name_len_max > 0 and certificate_chain_len_max > 0);
     assert(key_update_replies_max > 0 and cipher_suites_max > 0);
     assert(ticket_psk_len_max >= sha256_len);
+    assert(crypto_out_len > 0 and transport_parameters_len_max > 0);
 }

@@ -1,13 +1,13 @@
 //! The root of `zig build quic-udp` and of the `testing_udp` module: design §9's UDP QUIC
 //! endpoint, which runs as the hq-interop server or client over one Rotor socket (decision 58),
-//! with chapulin's QUIC mode behind colibri's two vtables (decision 10). Part of design §8 step
-//! 9e, piece 11. It reaches Rotor through `udp.zig`.
+//! with `tls.quic`'s sessions behind colibri's two vtables (design §8 step 16b). Part of design §8
+//! step 9e, piece 11. It reaches Rotor through `udp.zig`.
 const std = @import("std");
 
 pub const udp = @import("udp.zig");
-pub const chapulin_quic_c = @import("quic/chapulin_quic_c.zig");
-pub const chapulin_quic = @import("quic/chapulin_quic.zig");
-pub const chapulin_quic_suite = @import("quic/chapulin_quic_suite.zig");
+pub const hooks = @import("tls/hooks.zig");
+pub const keylog = @import("quic/keylog.zig");
+pub const quic_session = @import("quic/quic_session.zig");
 pub const hq = @import("quic/hq/hq.zig");
 pub const hq_file = @import("quic/hq/hq_file.zig");
 pub const hq_server = @import("quic/hq/hq_server.zig");
@@ -21,11 +21,11 @@ pub const udp_run = @import("quic/udp/udp_run.zig");
 pub const udp_run_client = @import("quic/udp/udp_run_client.zig");
 
 comptime {
-    // The chapulin object imports `ch_assert_fail` and `ch_keylog`, which these two files export.
-    // Zig analyses a file only when something references it, so these keep the exports in a build
-    // with no tests.
-    _ = chapulin_quic_c;
-    _ = chapulin_quic;
+    // chapulin's objects import `ch_assert_fail`, `ch_rand_bytes` and `ch_keylog`, which these two
+    // files export. Zig analyses a file only when something references it, so these keep the
+    // exports in a build with no tests.
+    _ = hooks;
+    _ = keylog;
 }
 
 pub const main = udp_run.main;
@@ -33,6 +33,9 @@ pub const main = udp_run.main;
 test {
     std.testing.refAllDecls(@This());
     _ = udp;
+    _ = hooks;
+    _ = keylog;
+    _ = quic_session;
     _ = hq;
     _ = hq_server;
     _ = hq_client;

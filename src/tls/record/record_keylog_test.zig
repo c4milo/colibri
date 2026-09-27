@@ -117,7 +117,7 @@ fn open(keys: Keys, sequence: u64, sealed: []const u8, output: []u8) ?Opened {
 /// Runs a handshake whose server selects `chacha` and sends no ticket, so each side's first
 /// record after it is its record 0 under its first application traffic secret.
 fn connect() !void {
-    try support.configure(support.web_pki, .{ .suites = &.{chacha} });
+    try support.configure(support.web_pki, .{ .suites = support.order_of(&.{chacha}) });
     try support.handshake_both(null);
     try testing.expect(!std.mem.allEqual(u8, &logged.client, 0));
 }

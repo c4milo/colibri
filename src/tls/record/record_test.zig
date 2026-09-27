@@ -29,10 +29,10 @@ test "a client and a server complete the handshake and report what they chose" {
     try testing.expect(!client.resumed() and !server.resumed());
 }
 
-test "RFC 9846 §9.1: each suite colibri admits, named alone in a server's order, carries records" {
-    for (tls_provider.constants.cipher_suites_admitted) |suite| {
+test "RFC 9846 §9.1: each suite the object holds, named alone in a server's order, carries records" {
+    for (support.suites_held) |suite| {
         const order = [_]u16{suite};
-        try support.configure(support.web_pki, .{ .suites = &order });
+        try support.configure(support.web_pki, .{ .suites = support.order_of(&order) });
         try support.handshake_both(null);
         for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
             try testing.expectEqual(suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
@@ -269,14 +269,16 @@ test "a list longer than the one it is copied into is refused when it is convert
     const many_protocols = [_][]const u8{"h2"} ** 9;
     try testing.expectError(error.TooManyProtocols, config.init(.{ .trust = support.web_pki.trust, .alpn = &many_protocols }));
     const server_config = &support.server_config;
-    const long_chain = [_][]const u8{support.leaf} ** 5;
+    const long_chain = [_][]const u8{support.leaf} ** 17;
     try testing.expectError(error.TooManyCertificates, server_config.init(.{
         .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
     }));
-    const many_suites = [_]u16{tls_provider.constants.cipher_suite_chacha20_poly1305_sha256} ** 4;
-    try testing.expectError(error.TooManySuites, server_config.init(.{
+    const many_suites = [_]u16{support.chacha} ** 4;
+    // An object without AES-GCM has no order to set at all (decision 97).
+    const refused = if (support.aes_gcm) error.TooManySuites else error.SuitesUnavailable;
+    try testing.expectError(refused, server_config.init(.{
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
