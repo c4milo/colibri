@@ -2499,10 +2499,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     one literal per object in chapulin's types. It copies nothing, but a program that speaks h2 and
     h3 configures both, with C element types such as `ch_trust_anchor`.
 
-    A constraint found in design §8 step 16b, for the owner to confirm: chapulin refuses
-    `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed with the key (its `ct.h`, INV-26). So an
-    object built for a target without the AES instructions carries `SUITE=chacha`, and holds
+    **Confirmed by the owner on 2026-09-27**, for a constraint found in design §8 step 16b: an object
+    built for a target without the AES instructions carries `SUITE=chacha`, and holds
     TLS_CHACHA20_POLY1305_SHA256 alone.
+    - chapulin refuses `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed with the key (its
+      `ct.h`, INV-26).
+    - ChaCha20-Poly1305 is also the faster AEAD in software. chapulin's `bench/aead.sh` timed a
+      1200-octet seal on an AMD EPYC 7763 under Linux, built by gcc 13.3 at `-O2`: 6.04 ns per
+      octet for ChaCha20-Poly1305, and 135 for AES-128-GCM over `AES=soft`. chapulin's
+      `docs/quic.md` holds the run, under "What the AES axis costs in time, measured".
+
+    The alternative refused: AES-GCM in software on those targets. chapulin lets no software AES
+    hold a traffic key, and its table cipher sealed 17 to 23 times slower than ChaCha20-Poly1305
+    in that run.
+
+    Cost: on such a target, colibri connects to no server that offers AES-GCM alone.
 
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the

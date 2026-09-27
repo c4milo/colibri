@@ -4389,7 +4389,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     suite order is then refused with `SuitesUnavailable`, and a client, which records no suite,
     reports ChaCha20. `zig build test-tls test-tls-keylog -Dcpu=<model>`, on a model without the
     AES instructions, runs the tests over such objects, and `tools/ci.sh` runs it. Decision 97
-    carries a note for the owner to confirm.
+    carries a note for the owner to confirm, which the owner confirmed on 2026-09-27.
 
   A chapulin limit, reported on 2026-09-27: pins alone read the leaf alone, but chapulin refuses a
   chain of more than `CH_WEBPKI_FLIGHT_ENTRIES`, four entries, with bad_certificate. The runner's
