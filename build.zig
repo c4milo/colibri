@@ -291,7 +291,8 @@ fn add_tla_step(b: *std.Build, pepegrillo: *std.Build.Module) void {
 
 /// `zig build lean [-- write]`: pepegrillo's lake runner over the Lean proofs in spec/lean/, then
 /// the check that the vector files the Zig tests read are what the proved definitions give
-/// (decision 77). Not part of `zig build test`: lake needs elan, which tools/ci.sh looks for.
+/// (decision 77). Not part of `zig build test`: it needs lake, from elan or a Lean release, which
+/// tools/ci.sh looks for.
 fn add_lean_step(b: *std.Build, pepegrillo: *std.Build.Module) void {
     const tool = b.addExecutable(.{
         .name = "lean",

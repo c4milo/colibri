@@ -934,6 +934,28 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     leaves no record between runs; and CLAUDE.md corrected to say both run by hand, with nothing
     added to CI.
 
+    Amended again by the owner on 2026-09-27, after those jobs first ran, so that CI runs four
+    checks it did not:
+
+    - The push job runs the tests in ReleaseSafe as well as in Debug. ReleaseSafe is the mode
+      colibri ships in, and until then only the simulator ran in both.
+    - The push job builds the Lean proofs. It installs the Lean release that
+      `spec/lean/lean-toolchain` pins, checked against its SHA-256, and fails when the workflow and
+      that file name different releases. Until then `tools/ci.sh` skipped the proofs, because no
+      hosted runner has lake.
+    - A job of its own runs `zig build test` on Linux arm64 on each push. Every simulator check
+      pins its census in its test, so a pass shows that a seed replays byte-identically on a second
+      architecture, and the tests run over chapulin's objects built with the Arm AES instructions.
+      The job is the third exception to the rule that a new check joins `tools/ci.sh`: its work is
+      one `zig build` step, which a person on an arm64 machine runs as it is.
+    - The runner job runs against ngtcp2, neqo and quinn as well as quic-go. Each pairing of a
+      server and a client takes about 7 minutes, so that job's limit rises from 90 minutes to 150,
+      and the push job's from 45 to 60 for the two sections it gains.
+
+    The alternatives offered and not taken: commit messages linted in CI, as the pre-push hook
+    lints them; more simulator seeds and coverage-guided fuzzing every Monday; and
+    `tools/h3load.sh` in CI, which stays a check a person runs.
+
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three

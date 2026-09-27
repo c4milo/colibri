@@ -108,6 +108,9 @@ throughput() {
 section "Format" zig fmt --check build.zig build examples src tools
 section "Lint and tests" zig build test --summary all
 tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
+# Decision 47 as amended: the tests in ReleaseSafe too, the mode colibri ships in.
+section "Tests in ReleaseSafe" zig build test -Drelease --summary all
+release_tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
 # Decision 97: a target without the AES instructions builds chapulin with software AES and
 # ChaCha20 alone, so the TLS tests run over those objects too, on a CPU model that has none:
 # x86-64's baseline, `x86_64`, or Arm's `generic`. Each architecture names its own models.
@@ -198,7 +201,9 @@ fi
   echo
   echo "A change in any of these is a change in the code."
   echo
-  echo "${tests_line}" | fenced
+  echo "Tests in Debug, then in ReleaseSafe:"
+  echo
+  printf '%s\n%s\n' "${tests_line}" "${release_tests_line}" | fenced
   echo
   echo "Simulator censuses, identical in Debug and ReleaseSafe:"
   echo
