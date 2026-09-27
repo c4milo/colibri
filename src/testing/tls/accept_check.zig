@@ -1,8 +1,8 @@
 //! Runs one TLS 1.3 handshake as the server, against a client that is not colibri's, and then
 //! moves one record each way through the vtable. The second half of design §8 step 5's check.
 //!
-//! What it proves, which the client half cannot: chapulin's server behind colibri's
-//! `tls_provider.Provider` completes a handshake with Go's `crypto/tls`, the two agree on "h2"
+//! What it proves, which the client half cannot: colibri's `tls.record.Server` over chapulin,
+//! behind colibri's `tls_provider.Provider`, completes a handshake with Go's `crypto/tls`, the two agree on "h2"
 //! (RFC 9113 §3.1), and the record phase works from the server side — `decrypt_record` opens what
 //! the peer sealed, `encrypt_record` seals the answer, and the peer's `close_notify` arrives as
 //! the end of its data rather than as a failure (RFC 9846 §6.1).
@@ -10,23 +10,20 @@
 //! What it does not do is speak h2. That follows once the handshake and the records are proved,
 //! because it is the same session with `attach_tls` on top.
 const std = @import("std");
+const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
-const chapulin = @import("chapulin.zig");
-const chapulin_server = @import("chapulin_server.zig");
 const check_file = @import("check_file.zig");
 const server_identity = @import("server_identity.zig");
 const check_socket = @import("check_socket.zig");
 
-const Server = chapulin_server.Server;
 const exit_usage = check_file.exit_usage;
 const exit_failed = check_file.exit_failed;
 
-/// The server, placed outside any stack frame: it carries chapulin's session, which is larger
-/// than a stack frame should hold.
-var server: Server align(@alignOf(Server)) = undefined;
-/// chapulin's receive buffer, which bounds the ClientHello this server will accept.
-var receive_storage: [constants.tls_receive_len]u8 = undefined;
+/// The server and its configuration, placed outside any stack frame: the server carries
+/// chapulin's session, which is larger than a stack frame should hold.
+var server: tls.record.Server align(@alignOf(tls.record.Server)) = undefined;
+var config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
 /// The identity and the cookie key the server loads once.
 var identity_storage: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
 /// The octets this run reads from the socket, and the plaintext it opens them into.
@@ -103,23 +100,23 @@ fn admitted(suite: u16) bool {
 
 pub fn main(init: std.process.Init.Minimal) !void {
     const asked = parse(init);
-    try chapulin.check_build();
-    try server_identity.seed(&identity_storage);
+    server_identity.seed(&identity_storage);
+    const identity = try server_identity.load(asked.identity_prefix, &identity_storage, &.{&tls_provider.constants.alpn_h2});
+    config.init(identity) catch |failure| {
+        std.debug.print("tls-accept: the configuration was refused: {t}\n", .{failure});
+        std.process.exit(exit_failed);
+    };
+    // chapulin's boot check: every provisioned key signs and verifies under its own public key.
+    config.check() catch {
+        std.debug.print("tls-accept: chapulin refused the identity\n", .{});
+        std.process.exit(exit_failed);
+    };
     const socket = try accept_one(asked.port);
     defer _ = std.c.close(socket);
 
-    server.init(.{
-        .identity = try server_identity.load(asked.identity_prefix, &identity_storage),
-        .cookie_key = &identity_storage.cookie_key,
-        .receive = &receive_storage,
-    });
-    // The boot-time self-test: every provisioned key signs and verifies under its own public key.
-    server.check() catch {
-        std.debug.print("tls-accept: ch_srv_check refused the identity\n", .{});
-        std.process.exit(exit_failed);
-    };
-    server.start() catch {
-        std.debug.print("tls-accept: ch_srv_record_init refused the configuration\n", .{});
+    // The server issues no ticket, so it reads no clock: chapulin's 0 for none.
+    server.start(&config, 0) catch {
+        std.debug.print("tls-accept: chapulin refused the configuration\n", .{});
         std.process.exit(exit_failed);
     };
     try run_handshake(socket);
@@ -130,20 +127,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
     std.debug.print("tls-accept: records ok, peer closed cleanly\n", .{});
 }
 
-/// Hands what the peer sends to chapulin's record-mode handshake and writes back the server's
-/// flight, until the handshake completes. The socket blocks, which decision 46 permits here: this
-/// check serves one connection and exits, and is not one of design §9's endpoints.
+/// Hands what the peer sends to the server's handshake and writes back its flight, until the
+/// handshake completes. The socket blocks, which decision 46 permits here: this check serves one
+/// connection and exits, and is not one of design §9's endpoints.
 fn run_handshake(socket: std.c.fd_t) !void {
     // Bounded: each pass reads at least one octet, and a handshake is a few records.
     for (0..check_socket.handshake_reads_max) |_| {
         try input.read_more(socket);
         const progress = server.handshake(input.unread(), &output_storage) catch |failure| {
-            std.debug.print("tls-accept: {t}: {s} (code {d}, alert {d})\n", .{
-                failure,
-                chapulin_server.reason(server.code),
-                server.code,
-                server.alert(),
-            });
+            std.debug.print("tls-accept: {t} (alert {?d})\n", .{ failure, server.alert() });
             std.process.exit(exit_failed);
         };
         try check_socket.write_all(socket, output_storage[0..progress.written]);

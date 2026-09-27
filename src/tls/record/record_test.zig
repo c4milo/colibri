@@ -1,0 +1,317 @@
+//! The tests of the record-mode sessions (`record.zig`), split out for length: a client and a server
+//! of the library's TCP object run against each other in memory (`record_test_support.zig`).
+const std = @import("std");
+const tls_provider = @import("tls_provider");
+const chapulin = @import("chapulin_tcp");
+const record = @import("record.zig");
+const values = @import("../values.zig");
+const support = @import("record_test_support.zig");
+
+const testing = std.testing;
+const client = &support.client;
+const server = &support.server;
+const to_server = &support.to_server;
+const to_client = &support.to_client;
+const scratch = &support.scratch;
+
+test "a client and a server complete the handshake and report what they chose" {
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
+        try testing.expect(provider.vtable.handshake_complete(provider.context));
+        // RFC 7301 §3.2: the server selects the first protocol it offers that the client does.
+        try testing.expectEqualStrings("h2", provider.vtable.negotiated_alpn(provider.context).?);
+        const chosen = provider.vtable.negotiated_parameters(provider.context).?;
+        try testing.expectEqual(tls_provider.constants.version_tls_1_3, chosen.version);
+        try testing.expect(tls_provider.provider.cipher_suite_admitted(chosen.cipher_suite));
+    }
+    try testing.expectEqualStrings("localhost", server.sni().?);
+    try testing.expect(!client.resumed() and !server.resumed());
+}
+
+test "RFC 9846 §9.1: each suite colibri admits, named alone in a server's order, carries records" {
+    for (tls_provider.constants.cipher_suites_admitted) |suite| {
+        const order = [_]u16{suite};
+        try support.configure(support.web_pki, .{ .suites = &order });
+        try support.handshake_both(null);
+        for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
+            try testing.expectEqual(suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
+        }
+        const sender = client.provider();
+        const sealed = try sender.vtable.encrypt_record(sender.context, "suite", to_server.free());
+        to_server.len += sealed.written;
+        try testing.expectEqualStrings("suite", scratch[0..try support.open_all(server.provider(), to_server, scratch)]);
+    }
+}
+
+test "RFC 9846 §5.2: records carry data each way, and a seal takes only what fits" {
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    const sender = client.provider();
+    const receiver = server.provider();
+    const sealed = try sender.vtable.encrypt_record(sender.context, "hello", to_server.free());
+    try testing.expectEqual(5, sealed.consumed);
+    to_server.len += sealed.written;
+    try testing.expectEqualStrings("hello", scratch[0..try support.open_all(receiver, to_server, scratch)]);
+    // Three records' worth goes out whole into an output that holds them.
+    const long: [40_000]u8 = @splat('x');
+    const whole = try receiver.vtable.encrypt_record(receiver.context, &long, to_client.free());
+    try testing.expectEqual(long.len, whole.consumed);
+    to_client.len += whole.written;
+    try testing.expectEqual(long.len, try support.open_all(sender, to_client, scratch));
+    // An output short of the whole takes what fits, and one that holds no sealed octet takes none.
+    var small: [64]u8 = undefined;
+    const part = try sender.vtable.encrypt_record(sender.context, &long, &small);
+    try testing.expect(part.consumed > 0 and part.consumed < long.len and part.written <= small.len);
+    try testing.expectError(error.NoSpaceLeft, sender.vtable.encrypt_record(sender.context, &long, small[0..20]));
+    // No plaintext seals nothing, whatever room there is.
+    const nothing = try sender.vtable.encrypt_record(sender.context, "", &small);
+    try testing.expectEqual(0, nothing.consumed + nothing.written);
+}
+
+test "a session reports nothing it chose before its handshake completes" {
+    try support.configure(support.web_pki, .{});
+    to_server.* = .{};
+    to_client.* = .{};
+    try client.start(&support.client_config, support.now_seconds, null);
+    try server.start(&support.server_config, support.now_seconds);
+    to_server.len += (try client.handshake(&.{}, to_server.free())).written;
+    // The server has read the ClientHello and chosen, and waits for the client's Finished.
+    const flight = try server.handshake(to_server.held(), to_client.free());
+    try testing.expect(!flight.complete);
+    const provider = server.provider();
+    try testing.expect(!provider.vtable.handshake_complete(provider.context));
+    try testing.expectEqual(null, provider.vtable.negotiated_alpn(provider.context));
+    try testing.expectEqual(null, provider.vtable.negotiated_parameters(provider.context));
+    var exported: [32]u8 = undefined;
+    try testing.expectError(error.HandshakeIncomplete, provider.vtable.export_keying_material(provider.context, "EXPORTER-test", null, &exported));
+}
+
+test "RFC 9846 §5.1: a record not yet whole is incomplete, and a short plaintext buffer is refused" {
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    const sender = client.provider();
+    const receiver = server.provider();
+    const sealed = try sender.vtable.encrypt_record(sender.context, "abcdef", to_server.free());
+    const opened = try receiver.vtable.decrypt_record(receiver.context, to_server.octets[0 .. sealed.written - 1], scratch);
+    try testing.expectEqual(tls_provider.Content.incomplete, opened.content);
+    try testing.expectEqual(0, opened.consumed);
+    try testing.expectError(error.NoSpaceLeft, receiver.vtable.decrypt_record(receiver.context, to_server.octets[0..sealed.written], scratch[0..2]));
+}
+
+test "RFC 9846 §6: a record that does not authenticate fails, and its alert is owed to the peer" {
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    const sender = client.provider();
+    const receiver = server.provider();
+    const sealed = try sender.vtable.encrypt_record(sender.context, "tampered", to_server.free());
+    to_server.octets[sealed.written - 1] ^= 1;
+    try testing.expectError(error.TlsFailed, receiver.vtable.decrypt_record(receiver.context, to_server.octets[0..sealed.written], scratch));
+    // The alert chapulin sent from inside the read goes out through `handshake_write`, whole and
+    // once, and the peer's read fails on it.
+    var short: [1]u8 = undefined;
+    try testing.expectError(error.NoSpaceLeft, receiver.vtable.handshake_write(receiver.context, &short, 0));
+    const written = try receiver.vtable.handshake_write(receiver.context, to_client.free(), 0);
+    try testing.expectEqual(chapulin.record.alert_record_len, written);
+    to_client.len += written;
+    try testing.expectEqual(0, try receiver.vtable.handshake_write(receiver.context, to_client.free(), 0));
+    try testing.expectError(error.TlsFailed, sender.vtable.decrypt_record(sender.context, to_client.held(), scratch));
+}
+
+test "RFC 9846 §6.1: close_notify goes out once, reaches the peer, and the peer still writes" {
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    const closing = client.provider();
+    const peer = server.provider();
+    var short: [8]u8 = undefined;
+    try testing.expectError(error.NoSpaceLeft, closing.vtable.send_close_notify(closing.context, &short));
+    const written = try closing.vtable.send_close_notify(closing.context, to_server.free());
+    try testing.expect(written > 0);
+    to_server.len += written;
+    try testing.expectEqual(0, try closing.vtable.send_close_notify(closing.context, to_server.free()));
+    // Once sent, there is nothing more to send, whatever the room.
+    try testing.expectEqual(0, try closing.vtable.send_close_notify(closing.context, &short));
+    const opened = try peer.vtable.decrypt_record(peer.context, to_server.held(), scratch);
+    try testing.expectEqual(tls_provider.Content.alert, opened.content);
+    const report = peer.vtable.take_alert(peer.context).?;
+    try testing.expectEqual(tls_provider.Alert.close_notify, report.description);
+    try testing.expectEqual(tls_provider.AlertReport.Origin.peer, report.origin);
+    try testing.expectEqual(null, peer.vtable.take_alert(peer.context));
+    const sealed = try peer.vtable.encrypt_record(peer.context, "after", to_client.free());
+    try testing.expectEqual(5, sealed.consumed);
+}
+
+test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a stale one is refused" {
+    try support.configure(support.web_pki, .{ .tickets = true });
+    try support.handshake_both(null);
+    // The ticket rides a record after the handshake, which the client opens.
+    const receiver = client.provider();
+    const opened = try receiver.vtable.decrypt_record(receiver.context, to_client.held(), scratch);
+    try testing.expectEqual(tls_provider.Content.new_session_ticket, opened.content);
+    var ticket = client.take_ticket().?;
+    defer ticket.wipe();
+    try testing.expectEqual(null, client.take_ticket());
+    try testing.expect(ticket.lifetime_s > 0 and ticket.psk_len > 0);
+    client.close();
+    server.close();
+    try support.handshake_both(.{ .ticket = &ticket, .age_ms = support.ms_per_second });
+    try testing.expect(client.resumed() and server.resumed());
+    // Closing wipes the copy of the ticket the connection offered.
+    client.close();
+    try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&client.offered), 0));
+    const stale_ms = (@as(u64, ticket.lifetime_s) + 1) * support.ms_per_second;
+    try testing.expectError(error.Refused, client.start(&support.client_config, support.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms }));
+}
+
+test "RFC 9846 §7.5: both sides export the same keying material" {
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    var from_client: [32]u8 = undefined;
+    var from_server: [32]u8 = undefined;
+    const sides = [_]tls_provider.Provider{ client.provider(), server.provider() };
+    try sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER-test", null, &from_client);
+    try sides[1].vtable.export_keying_material(sides[1].context, "EXPORTER-test", null, &from_server);
+    try testing.expectEqualSlices(u8, &from_client, &from_server);
+    var too_long: [256]u8 = undefined;
+    try testing.expectError(error.OutputTooLong, sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER-test", null, &too_long));
+    // chapulin takes a label as a C string of at most `CH_EXPORT_LABEL_MAX` octets, and refuses an
+    // empty one itself.
+    try testing.expectError(error.Unsupported, sides[0].vtable.export_keying_material(sides[0].context, "", null, &from_client));
+    try testing.expectError(error.Unsupported, sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER\x00", null, &from_client));
+    const long_label: [chapulin.c.CH_EXPORT_LABEL_MAX + 1]u8 = @splat('x');
+    try testing.expectError(error.Unsupported, sides[0].vtable.export_keying_material(sides[0].context, &long_label, null, &from_client));
+    // An empty output asks for nothing, which it gets.
+    try sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER-test", null, from_client[0..0]);
+}
+
+test "RFC 9846 §6: a chain no anchor signed, or one past its validity, fails with an alert" {
+    // The leaf's own key is no anchor of the chain.
+    const impostor = [_]values.Anchor{.{ .subject = support.root_name, .spki = support.public_key }};
+    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols }, .{});
+    try testing.expectError(error.HandshakeFailed, support.handshake_both(null));
+    try testing.expect(client.alert() != null);
+    // Two days on, the certificates have expired.
+    try support.configure(support.web_pki, .{});
+    to_server.* = .{};
+    to_client.* = .{};
+    try client.start(&support.client_config, support.now_seconds + 2 * support.day_seconds, null);
+    try server.start(&support.server_config, support.now_seconds);
+    to_server.len += (try client.handshake(&.{}, to_server.free())).written;
+    to_client.len += (try server.handshake(to_server.held(), to_client.free())).written;
+    try testing.expectError(error.HandshakeFailed, client.handshake(to_client.held(), to_server.free()));
+    // A clock of 0 with anchors is no clock at all.
+    try testing.expectError(error.Refused, client.start(&support.client_config, 0, null));
+}
+
+test "a pin of the server's key authenticates it with no anchor, clock or name" {
+    // The DER SubjectPublicKeyInfo of a P-256 key is this prefix, then the point X||Y.
+    const spki_prefix = [_]u8{
+        0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
+        0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04,
+    };
+    var pin: values.Pin = undefined;
+    var hash = std.crypto.hash.sha2.Sha256.init(.{});
+    hash.update(&spki_prefix);
+    hash.update(support.public_key);
+    hash.final(&pin);
+    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols }, .{});
+    try support.handshake_both(null);
+    // No server_name was sent.
+    try testing.expectEqual(null, server.sni());
+    // Another key's pin fails the handshake.
+    pin[0] ^= 1;
+    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols }, .{});
+    try testing.expectError(error.HandshakeFailed, support.handshake_both(null));
+}
+
+test "a ClientHello longer than the output goes out over several calls, and nothing is read before it" {
+    try support.configure(support.web_pki, .{});
+    to_server.* = .{};
+    to_client.* = .{};
+    try client.start(&support.client_config, support.now_seconds, null);
+    var piece: [100]u8 = undefined;
+    var progress = try client.handshake(&.{}, &piece);
+    try testing.expectEqual(piece.len, progress.written);
+    // A record offered while the ClientHello is still owed is left for a later call.
+    var early = [_]u8{ 0x16, 0x03, 0x03, 0x00, 0x00 };
+    progress = try client.handshake(&early, piece[0..0]);
+    try testing.expectEqual(0, progress.consumed + progress.written);
+    // The rest arrives in pieces, and ends when a call writes less than it could.
+    @memcpy(to_server.free()[0..piece.len], &piece);
+    to_server.len += piece.len;
+    for (0..support.wire_len / piece.len) |_| {
+        progress = try client.handshake(&.{}, &piece);
+        @memcpy(to_server.free()[0..progress.written], piece[0..progress.written]);
+        to_server.len += progress.written;
+        if (progress.written < piece.len) break;
+    }
+    // The server reads the ClientHello whole, which it would refuse had any octet changed.
+    try server.start(&support.server_config, support.now_seconds);
+    const flight = try server.handshake(to_server.held(), to_client.free());
+    try testing.expectEqual(to_server.len, flight.consumed);
+    try testing.expect(flight.written > 0);
+}
+
+test "a server whose output cannot hold its flight fails the handshake" {
+    try support.configure(support.web_pki, .{});
+    to_server.* = .{};
+    try client.start(&support.client_config, support.now_seconds, null);
+    to_server.len += (try client.handshake(&.{}, to_server.free())).written;
+    try server.start(&support.server_config, support.now_seconds);
+    var short: [64]u8 = undefined;
+    try testing.expectError(error.OutputTooSmall, server.handshake(to_server.held(), &short));
+}
+
+test "a list longer than the one it is copied into is refused when it is converted" {
+    const config = &support.client_config;
+    const many_anchors = [_]values.Anchor{support.anchors[0]} ** 13;
+    try testing.expectError(error.TooManyAnchors, config.init(.{ .trust = .{ .web_pki = .{ .anchors = &many_anchors, .server_name = "a" } }, .alpn = &support.protocols }));
+    const many_protocols = [_][]const u8{"h2"} ** 9;
+    try testing.expectError(error.TooManyProtocols, config.init(.{ .trust = support.web_pki.trust, .alpn = &many_protocols }));
+    const server_config = &support.server_config;
+    const long_chain = [_][]const u8{support.leaf} ** 5;
+    try testing.expectError(error.TooManyCertificates, server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &support.protocols,
+    }));
+    const many_suites = [_]u16{tls_provider.constants.cipher_suite_chacha20_poly1305_sha256} ** 4;
+    try testing.expectError(error.TooManySuites, server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &support.protocols,
+        .cipher_suites = &many_suites,
+    }));
+}
+
+test "a rule of chapulin's is chapulin's to report, when a session starts or a server is checked" {
+    // chapulin's `webpki_cfg.h` takes at most `CH_SPKI_PIN_MAX` pins.
+    const many_pins = [_]values.Pin{@splat(1)} ** 5;
+    try support.client_config.init(.{ .trust = .{ .pins = .{ .pins = &many_pins } }, .alpn = &support.protocols });
+    try testing.expectError(error.Refused, client.start(&support.client_config, support.now_seconds, null));
+    // A server with no identity has no key to check, and none to serve from.
+    try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols });
+    try testing.expectError(error.IdentityRefused, support.server_config.check());
+    try testing.expectError(error.Refused, server.start(&support.server_config, support.now_seconds));
+    // No protocol offered is no ALPN extension, which a client that speaks h11 alone may send.
+    try support.client_config.init(.{ .trust = support.web_pki.trust, .alpn = &.{} });
+    try support.server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &support.protocols,
+    });
+    try support.handshake_both(null);
+    try testing.expectEqual(null, client.provider().vtable.negotiated_alpn(client.provider().context));
+}
+
+test "a server's identity passes chapulin's check, and a key that does not match fails it" {
+    try support.configure(support.web_pki, .{});
+    try support.server_config.check();
+    const wrong_key: [32]u8 = @splat(0x42);
+    try support.server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = &wrong_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &support.protocols,
+    });
+    try testing.expectError(error.IdentityRefused, support.server_config.check());
+}

@@ -3,7 +3,7 @@
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
 //! It speaks cleartext h2 with prior knowledge (RFC 9113 §3.3), or with `--tls` h2 over TLS
-//! through chapulin's record-mode client (RFC 9113 §3.2, decision 82, `client_tls.zig`).
+//! through colibri's `tls.record.Client` (RFC 9113 §3.2, decision 82, `client_tls.zig`).
 //!
 //! No call here waits but the loop's `tick` (decisions 46 and 58,
 //! https://github.com/c4milo/colibri/issues/61). One thread holds every connection of a run on
@@ -24,6 +24,7 @@ const constants = @import("../constants.zig");
 const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
 const client_tls = @import("../tls/client_tls.zig");
+const tls = @import("tls");
 const session_module = @import("../session.zig");
 
 const Run = client_options.Run;
@@ -348,27 +349,31 @@ const testing = std.testing;
 /// Test-only.
 const test_der = [_]u8{ der_sequence_tag, 0 };
 const der_sequence_tag: u8 = 0x30;
+const test_anchors = [_]tls.Anchor{.{ .subject = &test_der, .spki = &test_der }};
+var test_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
 /// An instant chapulin accepts. A constant because no file under `src/` may read a clock.
 /// Test-only.
 const test_now_seconds: u64 = 1_780_000_000;
 
+fn test_shared() !client_tls.Shared {
+    try test_config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &test_anchors, .server_name = "localhost" } },
+        .alpn = &session_module.alpn_both,
+    });
+    return .{ .config = &test_config, .now_seconds = test_now_seconds };
+}
+
 test "a TLS connection's session is wiped when its connection closes" {
-    const anchors = [_]client_tls.Anchor{.{
-        .name = &test_der,
-        .name_len = test_der.len,
-        .spki = &test_der,
-        .spki_len = test_der.len,
-    }};
-    const shared: client_tls.Shared = .{ .anchors = &anchors, .hostname = "localhost", .now_seconds = test_now_seconds };
+    const shared = try test_shared();
     const connection = &connections[0];
     connection.* = undefined;
     connection.state = .closing;
     connection.layer = try start_tls(0, &shared);
-    try testing.expect(client_tls.session_state(&tls_layers[0]) != client_tls.chapulin_closed);
+    try testing.expect(!client_tls.wiped(&tls_layers[0]));
     // Rotor's close of the connection is its last operation.
     on_event(connections[0..1], .{ .user_data = user_data(0, .close), .result = 0, .flags = .{} });
     try testing.expectEqual(.closed, connection.state);
-    try testing.expectEqual(client_tls.chapulin_closed, client_tls.session_state(&tls_layers[0]));
+    try testing.expect(client_tls.wiped(&tls_layers[0]));
 }
 
 test "RFC 9113 §8.3.1: a run's requests name https over TLS and http in cleartext" {
@@ -376,12 +381,6 @@ test "RFC 9113 §8.3.1: a run's requests name https over TLS and http in clearte
     defer tls_shared = saved;
     tls_shared = null;
     try testing.expectEqualStrings("http", request_scheme());
-    const anchors = [_]client_tls.Anchor{.{
-        .name = &test_der,
-        .name_len = test_der.len,
-        .spki = &test_der,
-        .spki_len = test_der.len,
-    }};
-    tls_shared = .{ .anchors = &anchors, .hostname = "localhost", .now_seconds = test_now_seconds };
+    tls_shared = try test_shared();
     try testing.expectEqualStrings("https", request_scheme());
 }

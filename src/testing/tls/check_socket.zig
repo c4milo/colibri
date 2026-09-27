@@ -2,12 +2,12 @@
 //! (design §8 step 5). Each serves one connection and exits, so decision 46 does not govern it,
 //! and a blocking read or write here waits for its peer and nothing else.
 //!
-//! `Input` holds what was read and not yet taken, since chapulin takes whole records and leaves a
+//! `Input` holds what was read and not yet taken, since a session takes whole records and leaves a
 //! partial one for the next call.
 const std = @import("std");
 const assert = std.debug.assert;
+const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
-const chapulin_record = @import("chapulin_record.zig");
 
 /// The reads a handshake may take on either side: a ClientHello, a second one after a
 /// HelloRetryRequest, and the flight that answers it, each possibly split across reads.
@@ -18,7 +18,7 @@ pub const Input = struct {
     octets: [constants.tls_record_buffer_len]u8 = undefined,
     len: usize = 0,
 
-    /// The octets not yet taken, which chapulin may unprotect in place.
+    /// The octets not yet taken, which a session may unprotect in place.
     pub fn unread(input: *Input) []u8 {
         return input.octets[0..input.len];
     }
@@ -37,7 +37,7 @@ pub const Input = struct {
     pub fn read_record(input: *Input, socket: std.c.fd_t) ![]u8 {
         // Bounded: each pass reads at least one octet, and a record fits the buffer.
         for (0..input.octets.len) |_| {
-            if (chapulin_record.whole_record_len(input.unread()) != null) break;
+            if (whole_record(input.unread())) break;
             try input.read_more(socket);
         }
         return input.unread();
@@ -50,6 +50,20 @@ pub const Input = struct {
         input.len -= consumed;
     }
 };
+
+/// Whether `octets` begins with a whole record: its header, and the length that names (RFC 9846
+/// §5.1).
+fn whole_record(octets: []const u8) bool {
+    var reader = tls_provider.core.Reader.init(octets);
+    _ = reader.take(record_length_offset) catch return false;
+    const length = reader.read_int(u16) catch return false;
+    _ = reader.take(length) catch return false;
+    return true;
+}
+
+/// Where the length sits in a record's header: after the content type and the legacy version
+/// (RFC 9846 §5.1).
+const record_length_offset: usize = 3;
 
 /// Writes every octet, looping because a blocking send may still move fewer than it was asked.
 pub fn write_all(socket: std.c.fd_t, octets: []const u8) !void {

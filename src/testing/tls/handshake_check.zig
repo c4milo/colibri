@@ -1,8 +1,9 @@
 //! Runs one TLS 1.3 handshake against a real server and reports what it negotiated. The first
 //! half of design §8 step 5's check.
 //!
-//! What it proves: chapulin's client, behind colibri's `tls_provider.Provider`, completes a handshake with
-//! a server that is not colibri's, and the two agree on ALPN. RFC 9113 §3.1 makes that agreement
+//! What it proves: colibri's `tls.record.Client` over chapulin, behind colibri's
+//! `tls_provider.Provider`, completes a handshake with a server that is not colibri's, and the two
+//! agree on ALPN. RFC 9113 §3.1 makes that agreement
 //! the thing h2 over TLS rests on.
 //!
 //! What it does not do is speak h2. That follows once the handshake is proved, because it is the
@@ -11,26 +12,21 @@
 //! The trust anchor is the SubjectPublicKeyInfo of the CA the peer minted, read from the file the
 //! peer wrote. colibri pins that one root and nothing else, so a chain from any other root fails.
 const std = @import("std");
+const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
-const chapulin = @import("chapulin.zig");
-const chapulin_client = @import("chapulin_client.zig");
 const check_file = @import("check_file.zig");
 const check_socket = @import("check_socket.zig");
-
-const c = chapulin.c;
-const Client = chapulin_client.Client;
 
 /// The largest SubjectPublicKeyInfo the check reads. An RSA-4096 SPKI is about 550 octets, so
 /// this holds any key the peer is likely to mint.
 const spki_len_max: usize = 1024;
 
-/// The client, placed outside any stack frame: it carries chapulin's session and its receive
-/// buffer, which are larger than a stack frame should hold.
-var client: Client align(@alignOf(Client)) = undefined;
+/// The client and its configuration, placed outside any stack frame: the client carries
+/// chapulin's session and its receive buffer, which are larger than a stack frame should hold.
+var client: tls.record.Client align(@alignOf(tls.record.Client)) = undefined;
+var config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
 var spki_storage: [spki_len_max]u8 = undefined;
-/// chapulin's receive buffer, which the run may shrink to measure the smallest that works.
-var receive_storage: [constants.tls_receive_len]u8 = undefined;
 /// The root's Subject Name DER, which the anchor carries beside the key.
 var name_storage: [spki_len_max]u8 = undefined;
 /// What this run reads from the socket, the plaintext it opens it into, and the room chapulin
@@ -48,9 +44,6 @@ const Arguments = struct {
     /// under `src/` may read a clock (non-negotiable 3), so the caller reads it and passes it in.
     /// `tools/tls_handshake.sh` passes `date +%s`.
     now_seconds: u64,
-    /// How much of the receive buffer to lend chapulin, which a run shrinks to measure the
-    /// smallest a real server's flight fits in.
-    receive_len: usize,
 };
 
 fn parse(init: std.process.Init.Minimal) Arguments {
@@ -60,22 +53,16 @@ fn parse(init: std.process.Init.Minimal) Arguments {
     const anchor_prefix = arguments.next() orelse usage();
     const hostname = arguments.next() orelse usage();
     const now_text = arguments.next() orelse usage();
-    const receive_len = if (arguments.next()) |text|
-        std.fmt.parseUnsigned(usize, text, decimal) catch usage()
-    else
-        receive_storage.len;
-    if (receive_len == 0 or receive_len > receive_storage.len) usage();
     return .{
         .port = std.fmt.parseUnsigned(u16, port_text, decimal) catch usage(),
         .anchor_prefix = anchor_prefix,
         .hostname = hostname,
         .now_seconds = std.fmt.parseUnsigned(u64, now_text, decimal) catch usage(),
-        .receive_len = receive_len,
     };
 }
 
 /// Reports what the handshake negotiated, and refuses anything but h2.
-fn report(receive_len: usize) void {
+fn report() void {
     const held = client.provider();
     const alpn = held.vtable.negotiated_alpn(held.context) orelse {
         // RFC 9113 §3.1: without "h2" there is no HTTP/2 to speak, and colibri's `attach_tls`
@@ -85,8 +72,8 @@ fn report(receive_len: usize) void {
     };
     const negotiated = held.vtable.negotiated_parameters(held.context).?;
     std.debug.print(
-        "tls-handshake: complete alpn={s} version=0x{x:0>4} suite=0x{x:0>4} buf_len={d}\n",
-        .{ alpn, negotiated.version, negotiated.cipher_suite, receive_len },
+        "tls-handshake: complete alpn={s} version=0x{x:0>4} suite=0x{x:0>4}\n",
+        .{ alpn, negotiated.version, negotiated.cipher_suite },
     );
     if (!std.mem.eql(u8, alpn, "h2")) std.process.exit(exit_failed);
     if (!admitted(negotiated.cipher_suite)) {
@@ -127,36 +114,31 @@ pub fn main(init: std.process.Init.Minimal) !void {
     const asked = parse(init);
     const anchor_name = try check_file.read_part(asked.anchor_prefix, ".name", &name_storage);
     const spki = try check_file.read_part(asked.anchor_prefix, ".spki", &spki_storage);
-    try chapulin.check_build();
+    // A chapulin anchor is the root's Subject Name and its SubjectPublicKeyInfo, each the whole
+    // DER TLV. colibri pins this one root and nothing else, so a chain from any other fails.
+    const anchors = [_]tls.Anchor{.{ .subject = anchor_name, .spki = spki }};
+    config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
+        .alpn = &.{&tls_provider.constants.alpn_h2},
+    }) catch |failure| {
+        std.debug.print("tls-handshake: the configuration was refused: {t}\n", .{failure});
+        std.process.exit(exit_failed);
+    };
 
     const socket = try connect(asked.port);
     defer _ = std.c.close(socket);
 
-    // A chapulin anchor is the root's Subject Name and its SubjectPublicKeyInfo, each the whole
-    // DER TLV. colibri pins this one root and nothing else, so a chain from any other fails.
-    const anchors = [_]c.ch_trust_anchor{.{
-        .name = anchor_name.ptr,
-        .name_len = anchor_name.len,
-        .spki = spki.ptr,
-        .spki_len = spki.len,
-    }};
-    client.init(.{
-        .anchors = &anchors,
-        .hostname = asked.hostname,
-        .now_seconds = asked.now_seconds,
-        .receive = receive_storage[0..asked.receive_len],
-    });
-    client.start() catch {
-        std.debug.print("tls-handshake: ch_record_init refused the configuration\n", .{});
+    client.start(&config, asked.now_seconds, null) catch {
+        std.debug.print("tls-handshake: chapulin refused the configuration\n", .{});
         std.process.exit(exit_failed);
     };
     try run_handshake(socket);
-    report(asked.receive_len);
+    report();
     report_exporter();
     try read_until_data(socket);
 }
 
-/// Writes what chapulin owes the server and hands it what the server sends, until the handshake
+/// Writes what the client owes the server and hands it what the server sends, until the handshake
 /// completes. The socket blocks, which decision 46 permits here: this check serves one connection
 /// and exits, and is not one of design §9's endpoints.
 fn run_handshake(socket: std.c.fd_t) !void {
@@ -164,12 +146,7 @@ fn run_handshake(socket: std.c.fd_t) !void {
     // records.
     for (0..check_socket.handshake_reads_max) |_| {
         const progress = client.handshake(input.unread(), &output_storage) catch |failure| {
-            std.debug.print("tls-handshake: {t}: {s} (code {d}, alert {d})\n", .{
-                failure,
-                chapulin_client.reason(client.code),
-                client.code,
-                client.alert(),
-            });
+            std.debug.print("tls-handshake: {t} (alert {?d})\n", .{ failure, client.alert() });
             std.process.exit(exit_failed);
         };
         try check_socket.write_all(socket, output_storage[0..progress.written]);
@@ -238,7 +215,7 @@ fn connect(port: u16) !std.c.fd_t {
 }
 
 fn usage() noreturn {
-    std.debug.print("usage: tls-handshake <port> <anchor-prefix> <hostname> <unix-seconds> [buf-len]\n", .{});
+    std.debug.print("usage: tls-handshake <port> <anchor-prefix> <hostname> <unix-seconds>\n", .{});
     std.process.exit(exit_usage);
 }
 

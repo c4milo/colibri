@@ -46,6 +46,16 @@ pub const Modules = struct {
     h3: *std.Build.Module,
     /// HTTP/1.1 (decisions 88 and 91, design §8 step 15).
     h11: *std.Build.Module,
+    /// TLS 1.3 over chapulin (decisions 94 and 97, design §8 step 16b): colibri's values, converted
+    /// once per object, and chapulin's sessions behind `tls_provider.Provider`.
+    tls: *std.Build.Module,
+    /// The TCP object `tls` links. `src/testing/`'s TCP endpoints link it too, because two objects
+    /// of one transport define the same names.
+    chapulin_tcp: *std.Build.Dependency,
+    /// `tls` again, over the TCP object built `KEYLOG=on`: its tests seal records under the traffic
+    /// secrets chapulin logs, such as a peer's KeyUpdate, which no chapulin session sends in record
+    /// mode. A test-only module, which nothing imports.
+    tls_keylog: *std.Build.Module,
     /// The deterministic harness: clock, byte pipe, datagram network, and null providers for both
     /// vtables. Design §10.
     sim: *std.Build.Module,
@@ -132,6 +142,16 @@ pub fn add(
     h11.addImport("gzip", stdx.module("gzip"));
     h11.addImport("zlib", stdx.module("zlib"));
 
+    // Decision 97: `tls` fills `tls_provider.Provider` from chapulin's sessions. No HTTP module
+    // imports it, so a cleartext program never links chapulin.
+    const chapulin_tcp = chapulin_record_object(b, target, .off);
+    const tls = library(b, "tls", target, optimize);
+    tls.addImport("tls_provider", tls_provider);
+    tls.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
+    const tls_keylog = create(b, "src/tls/tls.zig", target, optimize);
+    tls_keylog.addImport("tls_provider", tls_provider);
+    tls_keylog.addImport("chapulin_tcp", chapulin_record_object(b, target, .on).module("chapulin"));
+
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
     sim.addImport("tls_provider", tls_provider);
@@ -176,11 +196,11 @@ pub fn add(
     testing.addImport("core", core);
     testing.addImport("h2", h2);
     testing.addImport("h11", h11);
-    // Step 5's TLS half: the endpoint fills `tls_provider.Provider` from chapulin, so it needs the vtable
-    // the library declares. The library still links no TLS stack; this module is not in it.
+    // Step 5's TLS half, over the library's `tls` since step 16b: the endpoint hands a session's
+    // `tls_provider.Provider` to the connection, so it names both.
     testing.addImport("tls_provider", tls_provider);
-    // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's. The library links
-    // no C at all; this module is excluded from it, and decision 10 links chapulin here too.
+    testing.addImport("tls", tls);
+    // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's.
     testing.link_libc = true;
 
     const testing_client = create(b, "src/testing/client.zig", target, optimize);
@@ -188,6 +208,7 @@ pub fn add(
     testing_client.addImport("h2", h2);
     testing_client.addImport("h11", h11);
     testing_client.addImport("tls_provider", tls_provider);
+    testing_client.addImport("tls", tls);
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;
 
@@ -200,14 +221,16 @@ pub fn add(
     // that reads it needs the module those limits come from.
     testing_tls.addImport("h2", h2);
     testing_tls.addImport("tls_provider", tls_provider);
+    testing_tls.addImport("tls", tls);
     testing_tls.link_libc = true;
 
     // The other half of step 5's check, and a fourth root for the same reason as the third: one
-    // `main` per executable, and one role per chapulin object (decision 10). This one accepts.
+    // `main` per executable. This one accepts.
     const testing_tls_server = create(b, "src/testing/tls_accept.zig", target, optimize);
     testing_tls_server.addImport("core", core);
     testing_tls_server.addImport("h2", h2);
     testing_tls_server.addImport("tls_provider", tls_provider);
+    testing_tls_server.addImport("tls", tls);
     testing_tls_server.link_libc = true;
 
     // Design §9's QIF tools, a root of their own for their `main`. They serve `qpack`, and keep
@@ -240,6 +263,9 @@ pub fn add(
         .h2 = h2,
         .h3 = h3,
         .h11 = h11,
+        .tls = tls,
+        .chapulin_tcp = chapulin_tcp,
+        .tls_keylog = tls_keylog,
         .sim = sim,
         .sim_run = sim_run,
         .sim_run_quic = sim_run_quic,
@@ -312,40 +338,55 @@ fn create(
 /// certificates carry no extended key usage and so fail the Web PKI profile.
 pub const QuicTrust = enum { webpki, @"raw-ecdsa" };
 
-/// The two chapulin objects `src/testing/` links, each compiled from the pinned package with
-/// `RAND=extern` (design §8 step 16a, decision 94). The package also translates the public headers
-/// under the defines its object compiled with, so the declarations colibri reads always match the
-/// object it links.
-pub const Chapulin = struct {
-    /// `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`: the h11 and h2 endpoints,
-    /// client and server in one object. The handshake runs from octets the endpoint read, so it
-    /// runs inside the endpoint's loop (decisions 46 and 82), and `TRUST=webpki` is the one client
-    /// trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
-    tcp: *std.Build.Dependency,
-    /// `TRANSPORT=quic-nonblocking ROLE=both SUITE=aesgcm AES=hw KEYLOG=on`, with the builder's
-    /// statement that the part's AES instructions run in constant time (decision 85). `KEYLOG=on`
-    /// hands the checks each traffic secret, so a capture can be decrypted.
-    quic: *std.Build.Dependency,
-};
+/// chapulin's `AES` values the library's objects choose between, and its `KEYLOG` values, spelled
+/// as its build spells them.
+const Aes = enum { soft, hw };
+const Keylog = enum { on, off };
 
-/// Requests both objects, the QUIC one `TRUST=webpki`, or null while the package is still being
-/// fetched.
-pub fn chapulin_objects(b: *std.Build, target: std.Build.ResolvedTarget) ?Chapulin {
-    const tcp = b.lazyDependency("chapulin", .{
+/// Decision 97's TCP object: `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`,
+/// compiled from the pinned package with `RAND=extern` (decision 94). `SUITE=aesgcm` adds RFC 9846
+/// §9.1's mandatory TLS_AES_128_GCM_SHA256, and `TX_RECORD=16384` lets a record carry TLS's largest
+/// plaintext (RFC 9846 §5.1). `TRUST=webpki` is the one client trust mode that compiles ALPN in,
+/// without which no client negotiates h2 (RFC 9113 §3.1). The package also translates the public
+/// headers under the defines its object compiled with, so the declarations colibri reads always
+/// match the object it links. The library's object is `KEYLOG=off` (decision 94); only the tests
+/// of `tls_keylog` build one `on`.
+fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
+    const native = aes_native(target);
+    return b.dependency("chapulin", .{
         .target = target,
         .RAND = .@"extern",
         .TRANSPORT = .@"tcp-nonblocking",
         .ROLE = .both,
         .TRUST = .webpki,
         .EXPORTER = .on,
+        .SUITE = .aesgcm,
+        .AES = if (native) Aes.hw else Aes.soft,
+        .CH_NATIVE_AES = native,
+        .TX_RECORD = "16384",
+        .KEYLOG = keylog,
     });
-    const quic = chapulin_quic(b, target, .webpki);
-    return .{ .tcp = tcp orelse return null, .quic = quic orelse return null };
 }
 
-/// The QUIC object in the trust mode `trust`, or null while the package is still being fetched.
-pub fn chapulin_quic(b: *std.Build, target: std.Build.ResolvedTarget, trust: QuicTrust) ?*std.Build.Dependency {
-    return b.lazyDependency("chapulin", .{
+/// Decision 97: `AES=hw`, with the builder's statement `CH_NATIVE_AES`, on a target whose features
+/// include the instructions chapulin's `aes_hw.c` runs on, and `AES=soft` on any other. Those are
+/// the AES instructions and the carry-less multiply: aes and pclmul on x86, and aes on Arm, where
+/// the 64-bit PMULL is part of the AES extension (chapulin's `aesTarget`).
+fn aes_native(target: std.Build.ResolvedTarget) bool {
+    const cpu = target.result.cpu;
+    return switch (cpu.arch) {
+        .x86, .x86_64 => std.Target.x86.featureSetHasAll(cpu.features, .{ .aes, .pclmul }),
+        .aarch64, .aarch64_be => std.Target.aarch64.featureSetHas(cpu.features, .aes),
+        else => false,
+    };
+}
+
+/// The QUIC object `src/testing/` links in the trust mode `trust`: `TRANSPORT=quic-nonblocking
+/// ROLE=both SUITE=aesgcm AES=hw KEYLOG=on`, with the builder's statement that the part's AES
+/// instructions run in constant time (decision 85). `KEYLOG=on` hands the checks each traffic
+/// secret, so a capture can be decrypted.
+pub fn chapulin_quic(b: *std.Build, target: std.Build.ResolvedTarget, trust: QuicTrust) *std.Build.Dependency {
+    return b.dependency("chapulin", .{
         .target = target,
         .RAND = .@"extern",
         .TRANSPORT = .@"quic-nonblocking",
@@ -358,14 +399,10 @@ pub fn chapulin_quic(b: *std.Build, target: std.Build.ResolvedTarget, trust: Qui
     });
 }
 
-/// Links chapulin into every `src/testing/` module that needs it: the TCP object into the h11 and
-/// h2 endpoints and the TLS checks, the QUIC object into the loopback check. The UDP endpoint gets
-/// the QUIC object where it is made (`add_testing_udp`).
-pub fn link_chapulin_all(graph: Modules, chapulin: Chapulin) void {
-    for ([_]*std.Build.Module{ graph.testing, graph.testing_client, graph.testing_tls, graph.testing_tls_server }) |module| {
-        link_chapulin(module, chapulin.tcp);
-    }
-    link_chapulin(graph.testing_quic, chapulin.quic);
+/// Links the QUIC object into the loopback check. The UDP endpoint gets it where it is made
+/// (`add_testing_udp`), and the TCP endpoints reach chapulin through `tls`.
+pub fn link_chapulin_quic(graph: Modules, quic_object: *std.Build.Dependency) void {
+    link_chapulin(graph.testing_quic, quic_object);
 }
 
 /// One object's module, which `src/testing/` imports as `chapulin`: chapulin's Zig API, with the

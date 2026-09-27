@@ -1,0 +1,122 @@
+//! What the record-mode tests share (`record_test.zig`, `record_keylog_test.zig`): a client and a
+//! server of one TCP object, run against each other in memory over the identity in `../testdata/`,
+//! which `tools/h2_interop/tls_identity.go` minted at `now_seconds`.
+const std = @import("std");
+const tls_provider = @import("tls_provider");
+const record = @import("record.zig");
+const values = @import("../values.zig");
+const constants = @import("../constants.zig");
+
+pub const leaf = @embedFile("../testdata/identity.leaf.der");
+pub const root = @embedFile("../testdata/identity.ca.der");
+pub const root_name = @embedFile("../testdata/identity.name");
+pub const root_spki = @embedFile("../testdata/identity.spki");
+pub const private_key: *const [constants.p256_private_key_len]u8 = @embedFile("../testdata/identity.priv");
+pub const public_key: *const [constants.p256_public_key_len]u8 = @embedFile("../testdata/identity.pub");
+
+/// The instant the identity was minted, inside the 48 hours its certificates are valid for.
+pub const now_seconds: u64 = 1_790_477_172;
+/// A day in seconds, past which the identity's certificates have expired.
+pub const day_seconds: u64 = 86_400;
+/// Milliseconds in a second, for a ticket's age.
+pub const ms_per_second: u64 = 1000;
+
+pub const cookie_key: [constants.server_key_len]u8 = @splat(cookie_key_octet);
+pub const ticket_key: [constants.server_key_len]u8 = @splat(ticket_key_octet);
+/// The octet each test key repeats, which only has to differ from the other key's.
+const cookie_key_octet: u8 = 0x07;
+const ticket_key_octet: u8 = 0x09;
+pub const chain = [_][]const u8{ leaf, root };
+pub const anchors = [_]values.Anchor{.{ .subject = root_name, .spki = root_spki }};
+pub const protocols = [_][]const u8{ "h2", "http/1.1" };
+
+/// The configurations, sessions and wires the tests use, placed outside any stack frame.
+pub var client_config: record.ClientConfig align(@alignOf(record.ClientConfig)) = undefined;
+pub var server_config: record.ServerConfig align(@alignOf(record.ServerConfig)) = undefined;
+pub var client: record.Client align(@alignOf(record.Client)) = undefined;
+pub var server: record.Server align(@alignOf(record.Server)) = undefined;
+pub var to_server: Wire align(@alignOf(Wire)) = .{};
+pub var to_client: Wire align(@alignOf(Wire)) = .{};
+pub var scratch: [wire_len]u8 = undefined;
+
+/// Octets one direction holds in flight: a server's whole flight and the records after it.
+pub const wire_len: usize = 65_536;
+/// Calls each side makes before a handshake in memory must have completed.
+const handshake_rounds_max = 8;
+
+/// One direction's octets, written at the back and consumed from the front.
+pub const Wire = struct {
+    octets: [wire_len]u8 = undefined,
+    len: usize = 0,
+
+    pub fn held(wire: *Wire) []u8 {
+        return wire.octets[0..wire.len];
+    }
+
+    pub fn free(wire: *Wire) []u8 {
+        return wire.octets[wire.len..];
+    }
+
+    pub fn take(wire: *Wire, consumed: usize) void {
+        std.mem.copyForwards(u8, &wire.octets, wire.octets[consumed..wire.len]);
+        wire.len -= consumed;
+    }
+};
+
+/// What the tests vary on the server.
+pub const ServerChoice = struct {
+    tickets: bool = false,
+    /// The suites the server selects from, in its order; empty for chapulin's.
+    suites: []const u16 = &.{},
+};
+
+pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
+    try client_config.init(client_values);
+    try server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &chain, .public_key = public_key, .private_key = private_key },
+        .cookie_key = &cookie_key,
+        .ticket_key = if (choice.tickets) &ticket_key else null,
+        .alpn = &protocols,
+        .cipher_suites = choice.suites,
+    });
+}
+
+pub const web_pki: values.Client = .{
+    .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } },
+    .alpn = &protocols,
+};
+
+/// Starts both sides and runs the handshake until both complete, leaving in `to_client` what the
+/// server wrote after it, such as its ticket.
+pub fn handshake_both(resumption: ?values.Resumption) !void {
+    to_server = .{};
+    to_client = .{};
+    try client.start(&client_config, now_seconds, resumption);
+    try server.start(&server_config, now_seconds);
+    for (0..handshake_rounds_max) |_| {
+        if (!client.state.completed) {
+            const progress = try client.handshake(to_client.held(), to_server.free());
+            to_client.take(progress.consumed);
+            to_server.len += progress.written;
+        }
+        if (!server.state.completed) {
+            const progress = try server.handshake(to_server.held(), to_client.free());
+            to_server.take(progress.consumed);
+            to_client.len += progress.written;
+        }
+        if (client.state.completed and server.state.completed) return;
+    }
+    return error.TestUnexpectedResult;
+}
+
+/// Opens every whole record `wire` holds through `provider`, gathering the plaintext.
+pub fn open_all(provider: tls_provider.Provider, wire: *Wire, plaintext: []u8) !usize {
+    var gathered: usize = 0;
+    for (0..wire_len) |_| {
+        const opened = try provider.vtable.decrypt_record(provider.context, wire.held(), plaintext[gathered..]);
+        if (opened.content == .incomplete) return gathered;
+        wire.take(opened.consumed);
+        gathered += opened.plaintext_len;
+    }
+    return error.TestUnexpectedResult;
+}

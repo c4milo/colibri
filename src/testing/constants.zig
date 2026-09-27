@@ -24,10 +24,6 @@ pub const wire_read_len: u32 = @max(read_buffer_len, h2.tls_provider.constants.r
 /// of RFC 9113 §10.5 advancing without a clock, and keeps one run byte-identical to the next.
 pub const tick_ns: u64 = 1_000_000;
 
-/// Most application protocols an endpoint offers through ALPN (RFC 7301 §3.1): `h2` and
-/// `http/1.1`, in decision 88's order.
-pub const alpn_offered_max: u32 = 2;
-
 /// Decoders of the gzip and deflate transfer codings each worker's cleartext h11 connections share
 /// (decision 91). The HTTP Garden sends one coded request at a time on each connection.
 pub const h11_decoders_per_worker: u32 = 4;
@@ -212,9 +208,10 @@ pub const tls_plaintext_in_len: usize = read_buffer_len + h2.tls_provider.consta
 pub const tls_flight_len_max: usize = 2 * tls_der_len_max + tls_flight_rest_len;
 
 /// The rest of the flight: ServerHello, the compatibility ChangeCipherSpec, EncryptedExtensions,
-/// CertificateVerify and Finished, and a header and tag around every record. chapulin seals at
-/// most 512 octets of plaintext per record, so two 8 KiB certificates alone take 32 records and
-/// 704 octets of overhead; the other messages are a few hundred more.
+/// CertificateVerify and Finished, and a header and tag around every record. The library's object
+/// seals up to 16,384 octets of plaintext per record (`TX_RECORD`, decision 97), so two 8 KiB
+/// certificates take two records and their overhead; the other messages are a few hundred octets
+/// more.
 pub const tls_flight_rest_len: usize = 4 * 1024;
 
 /// The label, context and length both TLS checks export under (RFC 9846 §7.5). The Go peers in

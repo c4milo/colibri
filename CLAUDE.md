@@ -148,7 +148,7 @@ exists — never propose a second one.
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The eleven
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The twelve
   library modules are exported by name, so a dependent reaches them with `dependency.module`
   (decision 86); the simulator, the corpus and `src/testing/` are not. A module can only
   `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not
@@ -290,25 +290,26 @@ section when a step adds or renames a command.
   amended).
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
-- chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles two objects from
-  the package, each `RAND=extern`, and links them into `src/testing/` and nowhere else until design
-  §8 step 16b (design §8 step 16a). The TCP object, `TRANSPORT=tcp-nonblocking ROLE=both
-  TRUST=webpki EXPORTER=on`, serves the h11 and h2 endpoints and the TLS checks:
-  `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so the endpoints run
-  it inside their loops (decisions 46 and 82), and `TRUST=webpki` is the one client trust mode that
-  compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1). The QUIC object,
+- chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
+  the package, each `RAND=extern`. The library's `tls` module links the TCP object,
+  `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on SUITE=aesgcm TX_RECORD=16384`, with
+  `AES=hw` and the builder's statement `CH_NATIVE_AES` on a target whose features include the AES
+  instructions and `AES=soft` on any other (decision 97). `TRANSPORT=tcp-nonblocking` drives the
+  handshake from octets the caller read, so an endpoint runs it inside its loop (decisions 46 and
+  82), and `TRUST=webpki` is the one client trust mode that compiles ALPN in, without which no
+  client negotiates h2 (RFC 9113 §3.1). `src/testing/`'s h11 and h2 endpoints and TLS checks reach
+  it through `tls`, and `tls_keylog`'s tests link a copy built `KEYLOG=on`. The QUIC object,
   `TRANSPORT=quic-nonblocking ROLE=both SUITE=aesgcm AES=hw KEYLOG=on` with `CH_NATIVE_AES`, serves
-  the QUIC endpoints: `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256,
-  `KEYLOG=on` hands the checks the traffic secrets, and `CH_NATIVE_AES` is the builder's statement
-  that the part's AES instructions run in constant time (decision 85, chapulin's INV-26). The
-  package exports each object's module `chapulin`: chapulin's Zig API (its `docs/zig.md`), which
-  carries the object, with the public headers translated under the object's own defines as its
-  `c`. `src/testing/` imports that `c` until step 16b moves the adapters onto the API, and each
-  endpoint still calls `ch_build_matches` before anything else. Because the module carries the
-  object, nothing else may add it: a second copy fails the link. Each image defines chapulin's hooks: `ch_rand_bytes` from `getentropy`
-  (`src/testing/entropy.zig`), `ch_assert_fail`, and `ch_keylog` beside the QUIC object. A bump is
-  `zig fetch --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`, and `.lazy = true`
-  must survive it.
+  `src/testing/`'s QUIC endpoints until step 16b moves them onto `tls` too: `SUITE=aesgcm` adds RFC
+  9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, `KEYLOG=on` hands the checks the traffic secrets,
+  and `CH_NATIVE_AES` is the builder's statement that the part's AES instructions run in constant
+  time (decision 85, chapulin's INV-26). The package exports each object's module `chapulin`:
+  chapulin's Zig API (its `docs/zig.md`), which carries the object, with the public headers
+  translated under the object's own defines as its `c`. Because the module carries the object,
+  nothing else may add it: a second copy fails the link. A program that links `tls` defines
+  chapulin's hooks `ch_rand_bytes` and `ch_assert_fail`; each image of `src/testing/` defines them
+  (`src/testing/entropy.zig` and `src/testing/tls/hooks.zig`), and `ch_keylog` beside the QUIC
+  object. A bump is `zig fetch --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
 - TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,
   which also moves a record each way and ends on the client's `close_notify`. Both need a Go

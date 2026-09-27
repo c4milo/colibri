@@ -199,7 +199,21 @@ answers that.
 
 ## What is left
 
-Nothing chapulin owes, and one contract note that is smaller than a gap.
+Two fixes chapulin owes from design §8 step 16b, and one contract note that is smaller than a gap.
+Both fixes were reported on 2026-09-26, and chapulin confirmed both.
+
+**A handshake message that precedes a key change must end its record.** RFC 9846 §5.1 has an
+implementation end the connection with unexpected_message when one does not. chapulin's record mode
+reads on past a KeyUpdate in the same record (`handshake_post.c`'s `handle_post_handshake`), and
+chapulin found the same gap after a ServerHello and after a server's Finished. colibri's test,
+which seals two KeyUpdates into one record, waits for the fix.
+
+**A failed read names no alert.** After a record-layer failure, chapulin has sent its alert and
+keeps no description of it, and it drops the description of a fatal alert it received.
+`tls_provider`'s `take_alert` is meant to name both. chapulin adds `ch_alert_sent` and
+`ch_alert_received`, with `alertSent()` and `alertReceived()` in its Zig API, and stops answering a
+received fatal alert with unexpected_message (RFC 9846 §6.2). Until then `tls`'s provider reports
+the peer's close_notify alone.
 
 **A caller that buffers no whole record has no way to say so.** `ch_read` and `ch_write` call
 `cfg.recv` and `cfg.send`, which return 1..n bytes or -1, so a caller must hold the bytes before
@@ -212,7 +226,7 @@ incidental.
 
 **What colibri has done with the two new values.** Both are off in chapulin's default build. The
 exporter is on: both TLS objects are built `EXPORTER=on`, `link_chapulin` passes `CH_EXPORTER`,
-and `src/testing/tls/chapulin_record.zig` answers `export_keying_material` through `ch_export`.
+and `src/tls/record/record_provider.zig` answers `export_keying_material` through `ch_export`.
 `tools/tls_handshake.sh` and `tools/tls_accept.sh` require colibri's value to match the Go peer's.
 The key log is on too. `src/testing/` links one chapulin QUIC object built `TRANSPORT=quic
 ROLE=both KEYLOG=on`, in the loopback check and the UDP endpoint, and

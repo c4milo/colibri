@@ -1,8 +1,8 @@
 //! The socket around `session.zig`: the server of design §9, which `tools/h2spec.sh` runs the
 //! pinned h2spec against and h2load measures. `zig build http-server -- --port <port>` runs it in
 //! cleartext, speaking h2 with prior knowledge (RFC 9113 §3.3), or h11 with `--h11` (design §8
-//! step 15d). With `--tls <identity-prefix>` it serves TLS instead, through chapulin's
-//! record-mode server and `tls/server_tls.zig` (design §8 step 5). Over TLS it offers `h2` and `http/1.1` through ALPN, or `http/1.1` alone
+//! step 15d). With `--tls <identity-prefix>` it serves TLS instead, through colibri's
+//! `tls.record.Server` and `tls/server_tls.zig` (design §8 steps 5 and 16b). Over TLS it offers `h2` and `http/1.1` through ALPN, or `http/1.1` alone
 //! with `--h11`, and each connection speaks what its handshake selected (decision 88).
 //!
 //! One worker per core, sharing nothing. Each worker has its own Rotor loop and its own listening
@@ -37,8 +37,7 @@ const server_options = @import("server_options.zig");
 const h11 = @import("h11");
 const h11_echo = @import("h11/h11_echo.zig");
 const server_identity = @import("tls/server_identity.zig");
-const chapulin = @import("tls/chapulin.zig");
-const chapulin_server = @import("tls/chapulin_server.zig");
+const tls = @import("tls");
 
 const Session = session_module.Session;
 const Protocol = session_module.Protocol;
@@ -117,9 +116,11 @@ comptime {
     assert(constants.connections_per_worker_max < accept_user_data >> kind_bits);
 }
 
-/// The TLS mode's shared state, which `main` loads when `--tls` names an identity, and one TLS
-/// layer per connection slot of the one worker the mode runs.
-var tls_shared: ?server_tls.Shared align(@alignOf(server_tls.Shared)) = null;
+/// The TLS mode's configuration, which `main` converts once when `--tls` names an identity and
+/// every connection borrows, the storage it points into, and one TLS layer per connection slot of
+/// the one worker the mode runs.
+var tls_shared: ?*const tls.record.ServerConfig = null;
+var tls_config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
 var tls_identity: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
 var tls_layers: [constants.connections_per_worker_max]server_tls.Layer align(@alignOf(server_tls.Layer)) = undefined;
 
@@ -217,8 +218,8 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     connection.failed = false;
     connection.layer = null;
     connection.live = true;
-    if (tls_shared) |*shared| {
-        connection.layer = start_tls(slot, shared) catch blk: {
+    if (tls_shared) |config| {
+        connection.layer = start_tls(slot, config) catch blk: {
             connection.failed = true;
             break :blk null;
         };
@@ -227,9 +228,9 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
 }
 
 /// Gives a new connection the TLS layer of its slot, ready to read a ClientHello.
-fn start_tls(index: usize, shared: *const server_tls.Shared) !*server_tls.Layer {
+fn start_tls(index: usize, config: *const tls.record.ServerConfig) !*server_tls.Layer {
     const layer = &tls_layers[index];
-    try server_tls.start(layer, shared);
+    try server_tls.start(layer, config);
     return layer;
 }
 
@@ -388,21 +389,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try listen_and_serve(options.port);
 }
 
-/// Checks the linked object's build, loads what every TLS connection shares, and runs chapulin's
-/// boot check on the identity once. With `--h11` the server offers `http/1.1` alone.
+/// Loads the identity, converts what every TLS connection borrows, and runs chapulin's check on
+/// the identity once. With `--h11` the server offers `http/1.1` alone.
 fn load_tls(prefix: []const u8, protocol: Protocol) !void {
-    try chapulin.check_build();
-    try server_identity.seed(&tls_identity);
-    const shared: server_tls.Shared = .{
-        .identity = try server_identity.load(prefix, &tls_identity),
-        .cookie_key = &tls_identity.cookie_key,
-        .protocols = if (protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both,
-    };
-    // `ch_srv_check` reads the configuration alone, so the first slot's server carries it.
-    const probe = &tls_layers[0];
-    probe.server.init(.{ .identity = shared.identity, .cookie_key = shared.cookie_key, .receive = &probe.receive, .protocols = shared.protocols });
-    try probe.server.check();
-    tls_shared = shared;
+    server_identity.seed(&tls_identity);
+    const protocols: []const []const u8 = if (protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both;
+    try tls_config.init(try server_identity.load(prefix, &tls_identity, protocols));
+    try tls_config.check();
+    tls_shared = &tls_config;
 }
 
 /// The exit status of a run asked for something this build cannot do.
@@ -411,18 +405,20 @@ const exit_usage: u8 = 2;
 const testing = std.testing;
 
 /// An identity of the right lengths that nothing signs with: the test's handshake never runs.
-/// Test-only.
+/// Each certificate is an empty DER SEQUENCE. Test-only.
 const test_der = [_]u8{ der_sequence_tag, 0 };
 const der_sequence_tag: u8 = 0x30;
-const test_scalar: [chapulin_server.private_scalar_len]u8 = @splat(1);
-const test_point: [chapulin_server.public_point_len]u8 = @splat(1);
-const test_cookie: [chapulin_server.cookie_key_len]u8 = @splat(1);
+const test_chain = [_][]const u8{&test_der};
+const test_private_key: [tls.constants.p256_private_key_len]u8 = @splat(1);
+const test_public_key: [tls.constants.p256_public_key_len]u8 = @splat(1);
+const test_cookie: [tls.constants.server_key_len]u8 = @splat(1);
 
 test "a TLS connection's session is wiped when its slot is freed" {
-    const shared: server_tls.Shared = .{
-        .identity = .{ .leaf = &test_der, .issuer = &test_der, .private_scalar = &test_scalar, .public_point = &test_point },
+    try tls_config.init(.{
+        .ecdsa_p256 = .{ .chain = &test_chain, .public_key = &test_public_key, .private_key = &test_private_key },
         .cookie_key = &test_cookie,
-    };
+        .alpn = &session_module.alpn_both,
+    });
     const worker = &workers[0];
     const slot: usize = 0;
     const connection = &worker.connections[slot];
@@ -431,10 +427,11 @@ test "a TLS connection's session is wiped when its slot is freed" {
     connection.receiving = false;
     connection.sending = false;
     connection.closed = false;
-    connection.layer = try start_tls(slot, &shared);
+    connection.layer = try start_tls(slot, &tls_config);
+    try testing.expect(!server_tls.wiped(&tls_layers[slot]));
     // Rotor's close of the connection is its last operation: the slot is freed on it.
     const user_data = (@as(u64, slot) << kind_bits) | @intFromEnum(Kind.close);
     on_event(worker, .{ .user_data = user_data, .result = 0, .flags = .{} });
     try testing.expect(!connection.live);
-    try testing.expectEqual(server_tls.chapulin_closed, server_tls.session_state(&tls_layers[slot]));
+    try testing.expect(server_tls.wiped(&tls_layers[slot]));
 }

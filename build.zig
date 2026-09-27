@@ -15,10 +15,10 @@
 //! points this clone's core.hooksPath at .githooks; neither is part of `zig build test`, because
 //! commit shape is a property of the history, not of the code.
 //!
-//! The library has no dependencies, and colibri is meant to keep it that way (CLAUDE.md, Ask
-//! before). The tools take one: pepegrillo, a lazy package in build.zig.zon that only the root
-//! build requests, so a project depending on colibri never fetches it (decision 36). The module
-//! graph is build/modules.zig.
+//! The library has two dependencies: chapulin, its TLS stack (decision 94), and stdx, its gzip and
+//! deflate decoders (decision 90). Adding another needs the owner (CLAUDE.md, Ask before). The
+//! tools take lazy packages, pepegrillo first, which only the root build requests, so a project
+//! depending on colibri never fetches them (decision 36). The module graph is build/modules.zig.
 const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
@@ -71,15 +71,14 @@ pub fn build(b: *std.Build) void {
     // build, like this one, offers ReleaseSafe as `-Drelease` and no `-Doptimize`.
     const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
     const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
-    // Design §8 step 16a: chapulin, compiled from the pinned package with `RAND=extern` in each
-    // configuration `src/testing/` links (decision 94). Requested here, after a dependent's build
-    // has stopped, until step 16b moves the adapters into the library.
-    const chapulin = modules.chapulin_objects(b, target) orelse return;
-    modules.link_chapulin_all(graph, chapulin);
-    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), chapulin.quic, target, optimize);
+    // Design §8 step 16: the QUIC object `src/testing/` links, compiled from the pinned package with
+    // `RAND=extern` (decision 94) and `KEYLOG=on`. The TCP endpoints reach chapulin through `tls`.
+    const chapulin_quic = modules.chapulin_quic(b, target, .webpki);
+    modules.link_chapulin_quic(graph, chapulin_quic);
+    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), chapulin_quic, target, optimize);
     // The QUIC Interop Runner's endpoint, the same program over a `TRUST=raw-ecdsa` object, which
     // only `zig build interop-endpoint` compiles.
-    const interop_quic = modules.chapulin_quic(b, target, .@"raw-ecdsa") orelse return;
+    const interop_quic = modules.chapulin_quic(b, target, .@"raw-ecdsa");
     add_interop_endpoint_step(b, modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), interop_quic, target, optimize));
     // https://github.com/c4milo/colibri/issues/61 amends decision 58: the h2 endpoints run on
     // Rotor's loop too.
@@ -115,6 +114,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "h2", .module = graph.h2 },
         .{ .name = "h3", .module = graph.h3 },
         .{ .name = "h11", .module = graph.h11 },
+        .{ .name = "tls", .module = graph.tls },
+        .{ .name = "tls-keylog", .module = graph.tls_keylog },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "sim-run-quic", .module = graph.sim_run_quic },

@@ -7,18 +7,16 @@
 //! pair for h2spec and h2load (design §8 steps 4 and 15d).
 const std = @import("std");
 
-pub const chapulin = @import("tls/chapulin.zig");
-// The server adapter lives here and not in the client roots: `ch_srv_record_init` and
-// `ch_srv_check` are exported by a `ROLE=server` object alone.
-pub const chapulin_server = @import("tls/chapulin_server.zig");
+pub const hooks = @import("tls/hooks.zig");
+pub const server_identity = @import("tls/server_identity.zig");
 pub const constants = @import("constants.zig");
 
 comptime {
-    // The chapulin object from the package is always linked (design §8 step 16a), and it imports
-    // `ch_assert_fail`, which `tls/chapulin.zig` exports. Zig analyses a file only when something
-    // references it, and in a build with no tests nothing here does, so the export would be
-    // missing and the link would fail. This reference is what forces the analysis.
-    _ = chapulin;
+    // The `tls` module links chapulin's TCP object (design §8 step 16b), which imports
+    // `ch_assert_fail` and `ch_rand_bytes`, and `tls/hooks.zig` exports both. Zig analyses a file
+    // only when something references it, and in a build with no tests nothing here does, so the
+    // exports would be missing and the link would fail. This reference is what forces the analysis.
+    _ = hooks;
 }
 
 pub const h2_session = @import("h2/h2_session.zig");
@@ -39,8 +37,8 @@ pub const main = server.main;
 
 test {
     std.testing.refAllDecls(@This());
-    _ = chapulin;
-    _ = chapulin_server;
+    _ = hooks;
+    _ = server_identity;
     _ = constants;
     _ = h2_session;
     _ = h11_session;

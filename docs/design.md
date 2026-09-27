@@ -56,7 +56,8 @@ build and not by review. An arrow reads "imports".
 core   <- wire   <- hpack <- h2
                  <- qpack <- h3
 core   <- http   <- h2, h3, h11
-core   <- tls_provider <- h2, h11, quic
+core   <- tls_provider <- h2, h11, quic, tls
+chapulin <- tls, tls_keylog, testing_quic, testing_udp
 stdx   <- h11, sim_run
 core   <- crypto <- quic
 core   <- wire   <- quic  <- h3
@@ -64,7 +65,8 @@ core, tls_provider, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
-core, h2, rotor  <- testing, testing_client
+core, h2, tls, rotor <- testing, testing_client
+core, h2, tls    <- testing_tls, testing_tls_server
 h2, h3, rotor    <- testing_udp
 core, qpack      <- testing_qif
 ```
@@ -74,7 +76,7 @@ core, qpack      <- testing_qif
 | `core` | limits, assertions, the bounded reader and writer, the slot pool | nothing | — |
 | `wire` | varint, prefixed integer, Huffman, string literal | `core` | 9000 §16, 7541 §5.1, §5.2, App. B |
 | `http` | the version-independent semantics core | `core` | 9110 |
-| `tls_provider` | the TLS provider vtable, which chapulin and the simulator fill ([decision 97](decisions.md)) | `core` | 9846, 7301, 9001 §4 |
+| `tls_provider` | the TLS provider vtable, which `tls` and the simulator fill ([decision 97](decisions.md)) | `core` | 9846, 7301, 9001 §4 |
 | `crypto` | the packet-protection vtable, no production implementation | `core` | 9001 §5 |
 | `hpack` | HPACK | `core`, `wire`, `http` | 7541 |
 | `qpack` | QPACK | `core`, `wire`, `http` | 9204 |
@@ -82,17 +84,20 @@ core, qpack      <- testing_qif
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
+| `tls` | TLS 1.3 over chapulin: colibri's values, converted once per chapulin object, and record-mode sessions behind `tls_provider.Provider` ([decisions 94 and 97](decisions.md)) | `tls_provider`, and chapulin's TCP object, built `KEYLOG=off` | 9846, 7301 |
+| `tls_keylog` | `tls` again over a TCP object built `KEYLOG=on`, for the tests that seal a peer's records under the secrets chapulin logs; test-only | `tls_provider`, and chapulin's TCP object built `KEYLOG=on` | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, and stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26) | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
-| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, and `rotor` ([decision 83](decisions.md)) | — |
+| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, `tls` for its TLS mode, and `rotor` ([decision 83](decisions.md)) | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
+| `testing_tls`, `testing_tls_server` | the two one-connection TLS checks of §8 step 5, a root each for its `main` | `core`, `h2` for the shared constants, `tls_provider` and `tls` | — |
 | `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
 | `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over chapulin's QUIC mode in one process | `h2` for the shared constants, and `quic` | — |
 | `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)) | `h2` for the shared constants, `h3` from step 12, `quic`, and `rotor` | — |
 
-The architecture depends on three of these edges and forbids one.
+The architecture depends on four of these edges and forbids one.
 
 - **`quic` does not import `http`, `h2`, `h3`, `h11`, `hpack` or `qpack`.** This is
   [invariant 26](invariants.md#inv-26--quic-imports-no-http-module) and
@@ -110,6 +115,9 @@ The architecture depends on three of these edges and forbids one.
 - **`wire` is shared by both families and holds two different integer codecs.**
   [decision 11](decisions.md#what-is-shared-between-h2-and-h3) explains why the split is *field
   compression against framing* and not h2 against h3.
+- **No protocol module imports `tls`.** h11, h2 and quic take a provider, and a program makes a
+  session with `tls` and hands its provider over, so a cleartext program never links chapulin
+  ([decision 97](decisions.md)).
 - **Nothing imports `h2`, `h3` or `h11`.** They are the roots. A consumer picks any of them, and
   `testing` is a consumer like any other: the library it drives cannot use the socket it opens,
   because the edge runs one way and nothing imports `testing` back.
@@ -4175,13 +4183,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Amended by the owner on 2026-09-26 (decision 97's amendment). chapulin's Zig API gives each
     object types of its own, so these values are colibri's, defined in `tls`. `tls` converts them
     once per object into that object's chapulin values, and a server identity types its keys.
+  - Amended in 16b. The clock and a ticket to offer change with each connection, and a value
+    converted once per object would carry a stale one, so a session's `start` takes them:
+    `Client.start(config, now_seconds, resumption)` and `Server.start(config, now_seconds)`.
 
   ```zig
   pub const Anchor = struct { subject: []const u8, spki: []const u8 };
   pub const Pin = [32]u8; // SHA-256 of a DER SubjectPublicKeyInfo
 
   pub const Trust = union(enum) {
-      web_pki: struct { anchors: []const Anchor, server_name: []const u8, now_seconds: u64,
+      web_pki: struct { anchors: []const Anchor, server_name: []const u8,
                         pins: []const Pin = &.{} },
       pins: struct { pins: []const Pin, server_name: ?[]const u8 = null },
   };
@@ -4191,9 +4202,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
                               psk: [ticket_psk_len_max]u8, psk_len: u8, age_add: u32,
                               lifetime_s: u32, binding: [32]u8 };
 
-  pub const Client = struct { trust: Trust, alpn: []const []const u8,
-                              ticket: ?*const Ticket = null, ticket_age_ms: u64 = 0,
-                              require_pq: bool = false };
+  pub const Client = struct { trust: Trust, alpn: []const []const u8, require_pq: bool = false };
+
+  // What one connection offers, which a client session's `start` takes with the clock.
+  pub const Resumption = struct { ticket: *const Ticket, age_ms: u64 };
 
   pub const EcdsaP256Identity = struct { chain: []const []const u8, public_key: *const [64]u8,
                                          private_key: *const [32]u8 };
@@ -4204,7 +4216,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   pub const Server = struct { ecdsa_p256: ?EcdsaP256Identity = null,
                               rsa_pss: ?RsaPssIdentity = null,
                               cookie_key: *const [32]u8, ticket_key: ?*const [32]u8 = null,
-                              now_seconds: u64, alpn: []const []const u8,
+                              alpn: []const []const u8,
                               require_server_name: bool = false,
                               cipher_suites: []const u16 = &.{} };
   ```
@@ -4309,6 +4321,50 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   copied into every thread, and glibc places a thread's static TLS on its stack. Mutations, each
   **CAUGHT** by `zig build lint`: `none_context` shared again, the rule unregistered (the
   canary), and the rule reading `*_test_support.zig`.
+
+  **16b, the record side, 2026-09-26.** The library module `tls` (§3) holds step 16c's values and
+  chapulin's record-mode sessions, on chapulin's Zig API at `13f4692`.
+  - `tls.record.ClientConfig` and `ServerConfig` convert the values once per object. A conversion
+    refuses only a list longer than the array it copies into. Every other rule is chapulin's, and
+    a session's `start` or the server's `check` reports it.
+  - A caller places a `tls.record.Client` or `Server` beside each connection, and the h11 or h2
+    connection holds the session's provider, which settles what 16c left to 16b. A client's
+    `handshake` writes what it owes before it reads, because chapulin reads no record while the
+    client owes the server octets.
+  - The provider hands a KeyUpdate's reply over through `handshake_write`, under the keys it
+    replaces, and holds at most `key_update_replies_max` replies.
+  - The TCP object is decision 97's: `SUITE=aesgcm`, `AES=hw` with `CH_NATIVE_AES` where the
+    target has the AES instructions, and `TX_RECORD=16384`. `build.zig.zon` no longer marks
+    chapulin lazy.
+  - `src/testing/`'s h11 and h2 endpoints and the TLS checks run on `tls.record`. The adapters
+    `chapulin_client.zig`, `chapulin_server.zig` and `chapulin_record.zig` are gone, and so is
+    `zero_key_records.zig`, which faked a connected session the API cannot make. The endpoints'
+    record tests run over a provider that protects nothing (`records_test_support.zig`), and
+    `src/tls/` tests chapulin's records with real sessions.
+  - `tls_keylog` runs the module's tests over a `KEYLOG=on` object. Its own tests seal a peer's
+    KeyUpdate and an empty record under the logged secrets, because chapulin sends neither in
+    record mode.
+
+  Two chapulin defects, reported to chapulin on 2026-09-26 and confirmed there:
+  - A record holding two KeyUpdates is answered twice. RFC 9846 §5.1 requires the connection to
+    end with unexpected_message. colibri's test of it waits for chapulin's fix.
+  - After a failed read, chapulin keeps no description of the alert it sent or received, so
+    `take_alert` reports the peer's close_notify alone. chapulin adds `alertSent()` and
+    `alertReceived()`.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1919 of 1919 tests.
+  - `tools/tls_handshake.sh` and `tools/tls_accept.sh`: ok, each with `alpn=h2 version=0x0304
+    suite=0x1303` and the two exporters equal.
+  - `tools/h2spec.sh 18443 --tls`: 144 passed in cleartext and over TLS, the 2 skipped by name.
+  - The h2 and h11 interop scripts with `--tls`: every exchange and request ended as planned,
+    against Go, nghttpd and h2o, and from curl, nghttp and Go.
+  - 41 mutations of `src/tls/`, each **CAUGHT** by `zig build test-tls test-tls-keylog`: the
+    owed ClientHello four ways, the clock, the ticket's fields, age and wipe, the server's clock
+    and short output, every provider check, every copy bound, the identity check, the build-record
+    assertion and `key_update_replies_max`. Two first attempts said otherwise: a completion test
+    on a state no failed call reaches was equivalent, and colibri's refusal of an empty exporter
+    label duplicated chapulin's, so it was removed.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

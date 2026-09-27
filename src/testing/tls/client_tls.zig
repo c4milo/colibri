@@ -1,7 +1,7 @@
 //! The TLS layer of design §9's client, which `tools/h2_interop.sh` runs against other
-//! implementations' servers over TLS (design §8 step 5): the handshake over chapulin's
-//! record-mode client, then the record half the server shares, `records.zig`.
-//! `client/client_loop.zig` reads and writes the socket around it.
+//! implementations' servers over TLS (design §8 step 5): the handshake over colibri's
+//! `tls.record.Client` (design §8 step 16b), then the record half the server shares,
+//! `records.zig`. `client/client_loop.zig` reads and writes the socket around it.
 //!
 //! The client offers `h2` and then `http/1.1` through ALPN, or `http/1.1` alone, as decision 88
 //! orders them, and once the handshake completes the session speaks what the server selected
@@ -14,58 +14,51 @@
 //! makes the connection preface the first h2 octet a client sends, and RFC 9112 §9.7 has an h11
 //! client send its first request once the handshake has finished.
 const std = @import("std");
-const h2 = @import("h2");
+const tls = @import("tls");
 const constants = @import("../constants.zig");
-const chapulin = @import("chapulin.zig");
-const chapulin_client = @import("chapulin_client.zig");
 const check_file = @import("check_file.zig");
 const session_module = @import("../session.zig");
 const client_session = @import("../client/client_session.zig");
 const tls_records = @import("records.zig");
 
-const c = chapulin.c;
 const Session = client_session.Session;
 
 /// Why a connection ends here. The socket around it closes it either way.
-pub const Error = chapulin_client.Error || tls_records.AttachError || tls_records.Error;
+pub const Error = tls.record.Error || tls_records.AttachError || tls_records.Error;
 
-/// chapulin's trust anchor, which `Shared` holds: a root's Subject Name and SubjectPublicKeyInfo.
-pub const Anchor = c.ch_trust_anchor;
-
-/// What every connection of a run shares, loaded once: the one root the client trusts, the name
-/// the server's certificate must carry, the instant chapulin judges the chain at, and the
-/// protocols the client offers through ALPN (`session.alpn_both` or `session.alpn_h11`).
+/// What every connection of a run shares, loaded once: the configuration its sessions borrow, and
+/// the instant the server's chain is judged at, which the run was given.
 pub const Shared = struct {
-    anchors: []const Anchor,
-    hostname: []const u8,
+    config: *const tls.record.ClientConfig,
     now_seconds: u64,
-    protocols: []const []const u8 = &session_module.alpn_both,
 };
 
 /// The root the client trusts, read once from the files `tools/h2_interop/tls_identity.go` wrote:
-/// its Subject Name and its SubjectPublicKeyInfo, each a whole DER TLV, and the anchor that points
-/// at them.
+/// its Subject Name and its SubjectPublicKeyInfo, each a whole DER TLV, and the configuration
+/// converted from them.
 pub const Anchors = struct {
     name: [constants.tls_der_len_max]u8,
     spki: [constants.tls_der_len_max]u8,
-    anchors: [1]c.ch_trust_anchor,
+    anchors: [1]tls.Anchor,
+    config: tls.record.ClientConfig,
 };
 
-/// What a run does once before its first connection: checks the linked object, and reads the root
-/// `prefix` names into `storage`.
+/// What a run does once before its first connection: reads the root `prefix` names into `storage`,
+/// and converts it, the name the server's certificate must carry and the protocols to offer.
 pub fn load(storage: *Anchors, prefix: []const u8, hostname: []const u8, now_seconds: u64, protocols: []const []const u8) !Shared {
-    try chapulin.check_build();
     const name = try check_file.read_part(prefix, ".name", &storage.name);
     const spki = try check_file.read_part(prefix, ".spki", &storage.spki);
-    storage.anchors[0] = .{ .name = name.ptr, .name_len = name.len, .spki = spki.ptr, .spki_len = spki.len };
-    return .{ .anchors = &storage.anchors, .hostname = hostname, .now_seconds = now_seconds, .protocols = protocols };
+    storage.anchors[0] = .{ .subject = name, .spki = spki };
+    try storage.config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &storage.anchors, .server_name = hostname } },
+        .alpn = protocols,
+    });
+    return .{ .config = &storage.config, .now_seconds = now_seconds };
 }
 
 /// One connection's TLS state, in static storage `client/client_loop.zig` places.
 pub const Layer = struct {
-    client: chapulin_client.Client,
-    /// chapulin's receive buffer (`chapulin_client.Options.receive`).
-    receive: [constants.tls_receive_len]u8,
+    client: tls.record.Client,
     /// The protocol's byte stream in both directions, once the handshake completes.
     records: tls_records.Records,
     /// Whether `attach_tls` accepted the finished handshake.
@@ -76,39 +69,26 @@ pub const Step = tls_records.Step;
 
 /// Prepares a layer for a connection whose connect is in flight, with its ClientHello staged.
 pub fn start(layer: *Layer, shared: *const Shared) Error!void {
-    layer.client.init(.{
-        .anchors = shared.anchors,
-        .hostname = shared.hostname,
-        .now_seconds = shared.now_seconds,
-        .receive = &layer.receive,
-        .protocols = shared.protocols,
-    });
-    try layer.client.start();
+    try layer.client.start(shared.config, shared.now_seconds, null);
     layer.records.reset();
     layer.attached = false;
 }
 
 /// Wipes what the layer's session still holds, once its connection is over, whether it closed or
-/// failed (chapulin's `rec.h`).
+/// failed.
 pub fn finish(layer: *Layer) void {
     layer.client.close();
 }
 
-/// The state of the layer's session, and the one `finish` leaves, for the client's tests.
-pub fn session_state(layer: *const Layer) u8 {
-    return c.ch_record_state(&layer.client.record);
+/// Whether `finish` has wiped the layer's session, for the client's tests.
+pub fn wiped(layer: *const Layer) bool {
+    return layer.client.session.recordState() == .closed;
 }
-pub const chapulin_closed = c.CH_ST_CLOSED;
 
-/// Prints why a connection's TLS failed: chapulin's code, and the alert it chose. It runs once for
-/// a failed connection, never for each record.
+/// Prints why a connection's TLS failed, and the alert the session chose. It runs once for a
+/// failed connection, never for each record.
 pub fn print_failure(layer: *const Layer, index: usize, failure: Error) void {
-    std.debug.print("connection={d} tls_error={t} chapulin={s} alert={d}\n", .{
-        index,
-        failure,
-        chapulin_client.reason(layer.client.code),
-        layer.client.alert(),
-    });
+    std.debug.print("connection={d} tls_error={t} alert={?d}\n", .{ index, failure, layer.client.alert() });
 }
 
 /// Runs the handshake over what the socket read until it completes, then the record half.
@@ -119,13 +99,14 @@ pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!S
         taken.consumed = progress.consumed;
         taken.written = progress.written;
         if (!progress.complete) return taken;
+        const provider = layer.client.provider();
         // RFC 7301 §3.2: the protocol the server selected is definitive for the connection, and a
         // selection of none is h11 (decision 88). Over TLS the scheme is "https" (RFC 9110
         // §4.2.2).
-        session.choose(session_module.protocol_of(layer.client.negotiated_alpn()), "https");
+        session.choose(session_module.protocol_of(provider.vtable.negotiated_alpn(provider.context)), "https");
         // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet
         // moves.
-        try tls_records.attach(session, layer.client.provider());
+        try tls_records.attach(session, provider);
         layer.attached = true;
     }
     const stepped = try layer.records.step(session, input[taken.consumed..], output[taken.written..]);
@@ -136,41 +117,46 @@ pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!S
 }
 
 const testing = std.testing;
+const h2 = @import("h2");
 const tls_provider = @import("tls_provider");
-const zero_key_records = @import("zero_key_records.zig");
-const chapulin_record = @import("chapulin_record.zig");
 const client_exchange = @import("../client/client_exchange.zig");
+const support = @import("records_test_support.zig");
 
-/// A layer and a session the tests drive, outside any stack frame. Test-only.
+/// A layer, a session and the configuration the tests drive, outside any stack frame. Test-only.
 var test_layer: Layer align(@alignOf(Layer)) = undefined;
 var test_session: Session align(@alignOf(Session)) = undefined;
+var test_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
+var test_provider: support.PlainProvider align(@alignOf(support.PlainProvider)) = undefined;
 var test_output: [constants.write_buffer_len]u8 = undefined;
 const test_plans = [_]client_exchange.Plan{.{ .method = "GET", .path = "/", .content_len = 0 }};
 
-/// One anchor whose name and key are each an empty DER SEQUENCE. chapulin refuses a configuration
-/// with no anchor, and no test here reaches a certificate. Test-only.
+/// One anchor whose name and key are each an empty DER SEQUENCE. No test here reaches a
+/// certificate. Test-only.
 const test_der = [_]u8{ der_sequence_tag, 0 };
 const der_sequence_tag: u8 = 0x30;
-const test_anchors = [_]c.ch_trust_anchor{.{
-    .name = &test_der,
-    .name_len = test_der.len,
-    .spki = &test_der,
-    .spki_len = test_der.len,
-}};
-const test_shared: Shared = .{ .anchors = &test_anchors, .hostname = "localhost", .now_seconds = test_now_seconds };
+const test_anchors = [_]tls.Anchor{.{ .subject = &test_der, .spki = &test_der }};
 /// An instant chapulin accepts. A constant because no file under `src/` may read a clock.
 /// Test-only.
 const test_now_seconds: u64 = 1_780_000_000;
+
+fn test_shared() !Shared {
+    try test_config.init(.{
+        .trust = .{ .web_pki = .{ .anchors = &test_anchors, .server_name = "localhost" } },
+        .alpn = &session_module.alpn_both,
+    });
+    return .{ .config = &test_config, .now_seconds = test_now_seconds };
+}
 
 /// RFC 9846 §4: the HandshakeType of a ClientHello. Test-only.
 const handshake_client_hello: u8 = 1;
 
 test "RFC 9113 §3.4: the ClientHello goes out first, and no h2 octet before the handshake ends" {
     test_session.init(.h2, "https", "localhost", &test_plans);
-    try start(&test_layer, &test_shared);
+    const shared = try test_shared();
+    try start(&test_layer, &shared);
     const stepped = try step(&test_layer, &test_session, &.{}, &test_output);
     // RFC 9846 §5.1: one plaintext handshake record carrying the ClientHello.
-    try testing.expectEqual(zero_key_records.content_handshake, test_output[0]);
+    try testing.expectEqual(support.content_handshake, test_output[0]);
     try testing.expectEqual(handshake_client_hello, test_output[tls_provider.constants.record_header_len]);
     try testing.expect(stepped.written > tls_provider.constants.record_header_len);
     try testing.expect(!stepped.done);
@@ -178,11 +164,13 @@ test "RFC 9113 §3.4: the ClientHello goes out first, and no h2 octet before the
     try testing.expect(!test_layer.attached);
     try testing.expectEqual(0, test_session.h2.now_ns);
     finish(&test_layer);
+    try testing.expect(wiped(&test_layer));
 }
 
-test "RFC 9846 §6: a server flight chapulin refuses ends the connection" {
+test "RFC 9846 §6: a server flight the client refuses ends the connection" {
     test_session.init(.h2, "https", "localhost", &test_plans);
-    try start(&test_layer, &test_shared);
+    const shared = try test_shared();
+    try start(&test_layer, &shared);
     _ = try step(&test_layer, &test_session, &.{}, &test_output);
     // RFC 9846 §4.1.3: a handshake record holding a ServerHello whose body is empty.
     var hello = [_]u8{ 0x16, 0x03, 0x03, 0x00, 0x04, 0x02, 0x00, 0x00, 0x00 };
@@ -193,17 +181,12 @@ test "RFC 9846 §6: a server flight chapulin refuses ends the connection" {
 
 test "RFC 9113 §3.4: once connected, the client's preface is the first record it seals" {
     test_session.init(.h2, "https", "localhost", &test_plans);
-    try start(&test_layer, &test_shared);
-    // What a finished handshake leaves, keyed with zeros (`zero_key_records.zig`).
-    zero_key_records.connect(&test_layer.client.held, &test_layer.client.record.t, &test_layer.receive);
-    try tls_records.attach(&test_session, test_layer.client.provider());
+    test_layer.records.reset();
+    test_provider = .{ .alpn = &tls_provider.constants.alpn_h2 };
+    try tls_records.attach(&test_session, test_provider.provider());
     test_layer.attached = true;
     const stepped = try step(&test_layer, &test_session, &.{}, &test_output);
-    const record_len = chapulin_record.whole_record_len(test_output[0..stepped.written]) orelse
-        return error.TestUnexpectedResult;
-    var inner: [tls_provider.constants.record_plaintext_len_max + 1]u8 = undefined;
-    const first = zero_key_records.open(0, test_output[0..record_len], &inner) orelse
-        return error.TestUnexpectedResult;
-    try testing.expectEqual(zero_key_records.content_application_data, first.content_type);
+    const first = support.open(test_output[0..stepped.written]).?;
+    try testing.expectEqual(support.content_application_data, first.content_type);
     try testing.expect(std.mem.startsWith(u8, first.content, h2.constants.client_preface));
 }

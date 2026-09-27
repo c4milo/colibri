@@ -22,14 +22,15 @@ exe.root_module.addImport("http", colibri.module("http"));
 exe.root_module.addImport("h2", colibri.module("h2"));
 ```
 
-The library is eleven modules, each exported by name:
+The library is twelve modules, each exported by name:
 
 | Module | What it holds |
 | --- | --- |
 | `core` | The bounds-checked reader and writer, and the limits two modules share |
 | `wire` | The integer and string codecs of RFC 7541 and RFC 9000 §16, and the Huffman code |
 | `http` | What h11, h2 and h3 share: field lines and sections, methods, status codes, URIs, and the message rules of RFC 9110 |
-| `tls_provider` | The `tls_provider.Provider` and `tls_provider.QuicProvider` vtables your TLS stack fills |
+| `tls_provider` | The `tls_provider.Provider` and `tls_provider.QuicProvider` vtables a TLS stack fills |
+| `tls` | TLS 1.3 over [chapulin](https://github.com/c4milo/chapulin): the values you set, and the sessions whose provider h11 and h2 take |
 | `crypto` | The `crypto.Suite` vtable that protects QUIC packets |
 | `hpack` | HPACK (RFC 7541) |
 | `qpack` | QPACK (RFC 9204) |
@@ -54,11 +55,13 @@ colibri makes no system call, holds no allocator, and reads no clock. Four thing
 - **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
   nanoseconds from any fixed origin. The same instants and the same octets give the same output,
   which is what lets the simulator replay a connection.
-- **Your program chooses the TLS stack.** h11 and h2 take a `tls_provider.Provider`, and QUIC
-  takes a `tls_provider.QuicProvider` and a `crypto.Suite`. Design §8 step 16 links
-  [chapulin](https://github.com/c4milo/chapulin) into the library to fill all three. Until it
-  lands, `src/testing/` holds chapulin adapters you can copy, and a program without TLS runs in
-  cleartext.
+- **Your program starts the TLS sessions.** h11 and h2 take a `tls_provider.Provider`, and QUIC
+  takes a `tls_provider.QuicProvider` and a `crypto.Suite`. The `tls` module fills the first from
+  chapulin's record sessions: convert your values once into a `tls.record.ClientConfig` or
+  `ServerConfig`, start a `tls.record.Client` or `Server` for each connection, and hand its
+  `provider()` to the connection's `attach_tls` once `handshake` completes. A program that links
+  `tls` defines chapulin's two hooks, `ch_rand_bytes` and `ch_assert_fail`. QUIC's provider and
+  suite follow in design §8 step 16b, and a program without TLS never links chapulin.
 
 A peer that breaks a protocol rule never crashes colibri. `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
