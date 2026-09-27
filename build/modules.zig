@@ -125,6 +125,12 @@ pub fn add(
     h11.addImport("http", http);
     // Decision 88: h11 attaches to a finished handshake and checks what ALPN selected.
     h11.addImport("tls_provider", tls_provider);
+    // Decisions 90 and 91: stdx decodes the gzip and deflate transfer codings. `codec` carries
+    // the streaming contract both decoders share.
+    const stdx = b.dependency("stdx", .{ .target = target, .release = optimize == .ReleaseSafe });
+    h11.addImport("codec", stdx.module("codec"));
+    h11.addImport("gzip", stdx.module("gzip"));
+    h11.addImport("zlib", stdx.module("zlib"));
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);

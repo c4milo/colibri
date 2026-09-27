@@ -209,8 +209,9 @@ tree. Design §11 holds the method and the numbers.
 ## Ask before
 
 - Changing a named limit.
-- Adding a dependency. The library has one, chapulin, which it links for TLS and packet
-  protection (decision 94), and no allocator at all (decision 35). Five more are ruled for the
+- Adding a dependency. The library has two: chapulin, which it links for TLS and packet
+  protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports (decisions 90 and
+  91). It has no allocator at all (decision 35). Five more are ruled for the
   tooling and the tests, and the library imports none of them: pepegrillo, the tooling `tools/`
   builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and `examples/` run on
   (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
@@ -363,7 +364,9 @@ section when a step adds or renames a command.
   linter the hook runs. `.githooks/pre-push` is a copy of pepegrillo's `hooks/pre-push`, and
   `zig build test` fails when the two differ.
 - Tooling: the first build on a machine fetches pepegrillo (decision 36), Rotor (decision 58), the
-  `qifs` vectors (decision 75) and chapulin (decision 94).
+  `qifs` vectors (decision 75), chapulin (decision 94) and stdx (decision 90). stdx is not lazy,
+  because the library imports it; a bump is `zig fetch --save=stdx
+  git+https://github.com/c4milo/stdx#<commit>`, to a commit whose CI passed.
   A Rotor bump is `zig fetch --save=rotor git+https://github.com/c4milo/rotor#<commit>`, and
   `.lazy = true` must survive it too. After a pepegrillo bump with `zig
   fetch --save=pepegrillo git+https://github.com/c4milo/pepegrillo#<commit>`, confirm `.lazy = true`
