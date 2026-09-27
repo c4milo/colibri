@@ -40,7 +40,7 @@ Until then, depend on a commit.
 | h3 and QUIC | Client and server, QPACK with the dynamic table, Retry, resumption, key update, loss recovery and congestion control | The [QUIC Interop Runner](https://github.com/quic-interop/quic-interop-runner) against quic-go, ngtcp2, neqo and quinn; [h3spec](https://github.com/kazu-yamamoto/h3spec) 0.1.13: 49 examples, 0 failures; `h2load --h3`: 1,000 of 1,000 requests; aioquic in both directions; QPACK against ls-qpack |
 
 Still to come:
-- the last part of design §8 step 16, 16d, and the first release after it;
+- the first release, now that design §8 step 16 is done;
 - published benchmarks from Linux (step 13).
 
 [`docs/design.md`](docs/design.md) §8 records each check: what ran, on what machine, and what it

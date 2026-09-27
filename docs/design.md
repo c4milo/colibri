@@ -4496,6 +4496,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 5 mutations of the new `take_alert`, each **CAUGHT**: reporting before the session failed, each
     report made twice, and each origin swapped.
 
+  **16d at chapulin `9bf41c9`, 2026-09-27.** The pin moved to chapulin `9bf41c9`, and step 16 is
+  done. Under pins alone, chapulin now reads the leaf and each entry after it up to
+  `CH_WEBPKI_LEAF_PIN_CERT_MAX`, 16,375 octets, the most one entry holds in the 16 KiB body
+  chapulin allows a handshake message. The walk with anchors keeps `CH_WEBPKI_CERT_MAX`, 3,072. A session's buffer,
+  `receive_len`, is 20 KiB, above the 16,410 octets chapulin's `docs/webpki.md` gives for the
+  largest Certificate message over TCP. `827b5d4`, in the same push, answers a KeyUpdate whose
+  body is not one octet, and a NewSessionTicket whose fields do not fill it, with decode_error in
+  place of unexpected_message.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 1940 of 1940 tests; `zig build test-tls test-tls-keylog -Dcpu=generic`: 74
+    of 74.
+  - `tools/tls_handshake.sh`, `tools/tls_accept.sh`, `tools/quic_loopback.sh`, `tools/quic_udp.sh`,
+    `tools/quic_aioquic.sh` and `tools/consumer_check.sh`: ok. `tools/h3spec.sh`: 49 examples, 0
+    failures.
+  - `tools/h2spec.sh 18443 --tls`: 144 passed in cleartext and over TLS, the 2 skipped by name. The
+    h2 and h11 interop scripts with `--tls`: every exchange and request ended as planned.
+  - The QUIC Interop Runner, `tools/interop.sh quic-go`: every case passed with colibri's server
+    against colibri's client, with colibri's server against quic-go's client, and with colibri's
+    client against quic-go's server. `ecn` was unsupported in the two pairings with quic-go.
+    `amplificationlimit` now passes in all three.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
