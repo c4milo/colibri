@@ -4450,6 +4450,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `generic` elsewhere. Built for x86_64 Linux with `-Dcpu=x86_64` and run in an amd64 container on
   macOS arm64, the two test binaries passed 34 of 34 and 39 of 39.
 
+  **16d, 2026-09-27.** Every check that linked chapulin through `src/testing/` has run over the
+  library's `tls` since 16b, whose records hold what each printed, and the `-Dchapulin-*` options
+  left CLAUDE.md in 16a. 16d adds the rest of the step's check, in `tools/consumer_check.sh`:
+  - The consumer, a project that depends on colibri as a package, now links `tls`, defines the two
+    hooks and starts a handshake. So a dependent links chapulin through colibri and runs it.
+  - A second program links `tls` and defines no `ch_rand_bytes`, and the check requires its link to
+    fail naming the hook. On macOS arm64 the linker printed `undefined symbol: _ch_rand_bytes`. Zig
+    links an executable only when its file is used, so the step installs it.
+  - Mutation: the second program given a `ch_rand_bytes` of its own links, and the check fails:
+    **CAUGHT**.
+
+  One case of the step's check still fails: the runner's `amplificationlimit` with colibri as the
+  client, which waits for chapulin to read a pinned leaf longer than `CH_WEBPKI_CERT_MAX`. The owner
+  approved that change on 2026-09-27, and it has not landed.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

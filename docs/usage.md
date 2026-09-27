@@ -199,6 +199,54 @@ exchange. A client opens a stream with `write_request`, a server answers with `w
 and both send content with `write_data`, which writes as much as the flow-control windows allow.
 `reset_stream` ends one stream, and `shutdown` begins a graceful close.
 
+## TLS
+
+The `tls` module runs chapulin's TLS 1.3 sessions behind the vtables h11, h2 and QUIC take. A
+program that links it defines chapulin's two hooks: `ch_rand_bytes`, which fills a buffer with
+random octets, and `ch_assert_fail`, which a failed chapulin assertion calls.
+
+```zig
+extern "c" fn getentropy(buffer: [*]u8, len: usize) c_int;
+const getentropy_len_max = 256;
+
+fn rand_bytes(pointer: [*]u8, len: usize) callconv(.c) void {
+    var filled: usize = 0;
+    while (filled < len) {
+        const part = @min(len - filled, getentropy_len_max);
+        if (getentropy(pointer + filled, part) != 0) @panic("getentropy failed");
+        filled += part;
+    }
+}
+
+fn assert_fail(condition: [*:0]const u8, file: [*:0]const u8, line: c_int) callconv(.c) noreturn {
+    std.debug.panic("chapulin assertion failed: {s} ({s}:{d})", .{ condition, file, line });
+}
+
+comptime {
+    @export(&rand_bytes, .{ .name = "ch_rand_bytes", .linkage = .strong });
+    @export(&assert_fail, .{ .name = "ch_assert_fail", .linkage = .strong });
+}
+```
+
+The program converts its values once into a configuration, which every session of one chapulin
+object borrows. It then starts a session for each connection. Over TCP, `handshake` takes what the
+socket read and writes what the session owes the peer. Once the handshake completes, the session's
+`provider()` goes to the connection's `attach_tls`.
+
+```zig
+const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
+try tls_config.init(.{
+    .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
+    .alpn = &.{ "h2", "http/1.1" },
+});
+try tls_client.start(&tls_config, now_seconds, null);
+const hello = try tls_client.handshake(&.{}, &output);
+```
+
+For QUIC, a `tls.quic.Client` or `tls.quic.Server` hands `provider()` and `suite()` to the
+`quic.Connection`, which starts chapulin's session when it sets its transport parameters. A server
+that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.
+
 ## QUIC and h3
 
 A `quic.connection.Connection` is one QUIC connection. Your program moves datagrams and time
