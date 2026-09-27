@@ -127,18 +127,18 @@ section "Simulator checks, Debug and ReleaseSafe" simulator_checks
 section "h2spec, cleartext and TLS" tools/h2spec.sh 18443 --tls
 h2spec_lines="$(grep -E "^h2spec.sh: [a-z]+: [0-9]+ passed" "${scratch}/last.log")"
 section "Interop, client direction, cleartext and TLS" tools/h2_interop.sh --tls
-interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|over TLS|every exchange)|^http-client:" "${scratch}/last.log")"
+interop_lines="$(grep -E "^h2_interop.sh: (go version|nghttpd|h2o version|over TLS|a refused handshake|every exchange)|^http-client:" "${scratch}/last.log")"
 section "Interop, server direction, cleartext and TLS" tools/h2_server_interop.sh --tls
-server_interop_lines="$(grep -E "^h2_server_interop.sh: (curl|nghttp|go|over TLS|every request)" "${scratch}/last.log")"
+server_interop_lines="$(grep -E "^h2_server_interop.sh: (curl|nghttp|go|over TLS|a refused handshake|every request)" "${scratch}/last.log")"
 # The same two directions over h11 (design §8 step 15d).
 section "h11 interop, client direction, cleartext and TLS" tools/h11_interop.sh --tls
 h11_interop_lines="$(grep -E "^h11_interop.sh: (go version|h2o version|over TLS|every exchange)" "${scratch}/last.log")"
 section "h11 interop, server direction, cleartext and TLS" tools/h11_server_interop.sh --tls
 h11_server_interop_lines="$(grep -E "^h11_server_interop.sh: (curl|go|over TLS|every request)" "${scratch}/last.log")"
 section "TLS handshake, colibri as client" tools/tls_handshake.sh
-tls_lines="$(grep -E "^tls-handshake:" "${scratch}/last.log")"
+tls_lines="$(grep -E "^tls-handshake:|^tls_handshake: a refused handshake" "${scratch}/last.log")"
 section "TLS handshake, colibri as server" tools/tls_accept.sh
-tls_lines="${tls_lines}"$'\n'"$(grep -E "^tls-accept: complete|^tls-accept: records|^tls_client:" "${scratch}/last.log")"
+tls_lines="${tls_lines}"$'\n'"$(grep -E "^tls-accept: complete|^tls-accept: records|^tls_client:|^tls_accept: a refused handshake" "${scratch}/last.log")"
 # Design §8 step 9e's QUIC checks: a colibri client and server over chapulin's QUIC object, in one
 # process and over UDP, and colibri against aioquic.
 section "QUIC handshake, colibri to colibri over chapulin" tools/quic_loopback.sh
