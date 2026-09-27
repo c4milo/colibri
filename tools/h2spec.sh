@@ -72,7 +72,10 @@ run_suite() {
 
   local report="${scratch}/${label}.txt"
   echo "h2spec.sh: running h2spec ${h2spec_version} against 127.0.0.1:${port} (${label})"
-  h2spec "$@" -h 127.0.0.1 -p "${port}" generic hpack http2 >"${report}" 2>&1 || true
+  # The release binary of h2spec 2.6.0, which CI installs, is built with Go 1.12, whose TLS client
+  # offers TLS 1.3 only when GODEBUG sets tls13=1. chapulin speaks TLS 1.3 alone, so without it the
+  # server refuses the handshake and every TLS case ends in EOF. A later Go ignores the setting.
+  GODEBUG=tls13=1 h2spec "$@" -h 127.0.0.1 -p "${port}" generic hpack http2 >"${report}" 2>&1 || true
   kill "${server_pid}" 2>/dev/null || true
   wait "${server_pid}" 2>/dev/null || true
   server_pid=""

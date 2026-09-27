@@ -4192,6 +4192,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - the rule left unregistered fails the lint's canary;
     - the examples' shared array fails `zig build examples -Dtarget=x86_64-linux-gnu`.
 
+  With that fixed, CI's h2spec over TLS still ended in EOF. CI installs h2spec 2.6.0's release
+  binary, built with Go 1.12, whose TLS client offers TLS 1.3 only with `GODEBUG=tls13=1`, and
+  chapulin speaks TLS 1.3 alone. Homebrew builds h2spec with a current Go, so macOS passed.
+  `tools/h2spec.sh` now sets the variable. Run in Docker against the server on macOS, that binary
+  passes 144 of 146 over TLS, the 2 skipped by name, and without the variable it ends in EOF:
+  **CAUGHT**.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
