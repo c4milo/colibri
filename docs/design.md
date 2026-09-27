@@ -58,7 +58,7 @@ core   <- wire   <- hpack <- h2
 core   <- http   <- h2, h3, h11
 core   <- tls_provider <- h2, h11, quic, tls
 chapulin <- tls, tls_keylog, testing_quic, testing_udp
-stdx   <- h11, sim_run
+stdx   <- h11, sim_run, client, server
 core   <- crypto <- quic, tls
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
@@ -87,8 +87,8 @@ core, http, h11, h2, h3, quic, tls <- client, server
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
 | `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
 | `tls` | TLS 1.3 over chapulin: colibri's values, converted once per chapulin object; record-mode sessions behind `tls_provider.Provider`; and QUIC sessions behind `tls_provider.QuicProvider` and `crypto.Suite` ([decisions 94 and 97](decisions.md)) | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects, built `KEYLOG=off` | 9846, 7301, 9001 |
-| `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls` | 9110, 9112, 9113, 9114, 7838, 9460 |
-| `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls` | 9110, 9112, 9113, 9114, 7838 |
+| `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838, 9460 |
+| `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838 |
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects built `KEYLOG=on` | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, and stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26) | — |
@@ -4743,7 +4743,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
-  [#70](https://github.com/c4milo/colibri/issues/70). Five parts, in order:
+  [#70](https://github.com/c4milo/colibri/issues/70). Six parts, in order:
   - **17a**, the server over TCP. It takes octets tagged by connection, runs the handshake
     through `tls.record.Server`, and serves h11 or h2 as ALPN chose. One set of calls covers
     both: a request is an event with an id, and a response is written by that id, its status,
@@ -4767,7 +4767,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     **Check:** the simulator runs the choice over seeds that lose, delay and refuse QUIC, and
     every seed ends with one completed request per request made. The client fetches over h3 from
     quic-go and aioquic, and falls back to h2 against a server with no UDP.
-  - **17e**, what a dependent reads: an example of each module, docs/usage.md, and a release.
+  - **17e**, content codings ([decision 101](decisions.md)). The server codes a response in
+    `gzip` or `deflate` when the request accepts it and the caller marks the response, and the
+    client offers both and decodes them. `zstd` decoding follows a stdx bump. colibri's package
+    exports stdx's `codec`, `gzip`, `zlib`, `zstd` and `brotli`.
+    **Check:** the simulator sends coded and uncoded responses through both modules over seeds,
+    and every body arrives octet for octet. curl with `--compressed` and Go's client decode the
+    server's coded responses, and the client decodes coded responses from Go's server and h2o.
+    Each rule of decision 101 has a mutation that a test catches.
+  - **17f**, what a dependent reads: an example of each module, docs/usage.md, and a release.
     **Check:** `zig build examples` and `tools/doc_snippets.sh` pass.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
