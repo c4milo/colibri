@@ -284,8 +284,8 @@ section when a step adds or renames a command.
   main (decision 47). A new check joins `tools/ci.sh`, never the workflow file, so CI and a person
   run the same thing. There are three exceptions (decision 47 as amended). The HTTP Garden and the
   QUIC Interop Runner have jobs the workflow starts by hand and every Monday. The `arm64` job runs
-  `zig build test` on each push on Linux arm64, where a person on an arm64 machine runs the same
-  command.
+  `zig build test` on each push on Linux and macOS arm64, where a person on either machine runs
+  the same command.
 - HTTP Garden: `tools/http_garden.sh [origin...]` builds the Garden, pinned by commit and cached,
   with colibri's server added as an origin in its `--echo` mode (`tools/http_garden/`), and feeds
   every stream of `tools/http_garden/driver.py` to colibri and each origin, all of them by

@@ -1,8 +1,8 @@
-# Every check of this repository, with a report (docs/decisions.md entry 47): tools/ci.sh and the
-# unit tests on arm64 on each push to main, and the HTTP Garden and the QUIC Interop Runner by
-# hand and every Monday. Each job's work is one script or one zig build step, which a person can
-# run by hand for the same answer; this file only installs what that work needs, each download
-# pinned by checksum or commit.
+# Every check of this repository, with a report (docs/decisions.md entry 47): tools/ci.sh, and the
+# unit tests on Linux and macOS arm64, on each push to main, and the HTTP Garden and the QUIC
+# Interop Runner by hand and every Monday. Each job's work is one script or one zig build step,
+# which a person can run by hand for the same answer; this file only installs what that work
+# needs, each download pinned by checksum or commit.
 name: main
 on:
   push:
@@ -17,7 +17,6 @@ permissions:
 env:
   ZIG_VERSION: 0.16.0
   ZIG_SHA256: 70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00
-  ZIG_AARCH64_SHA256: ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
   LEAN_VERSION: 4.34.0
   LEAN_SHA256: caaa98356098c85dc0fcbbd28e1ec66f39eb6551829972b752ff20e1286b646b
   H2SPEC_VERSION: 2.6.0
@@ -136,28 +135,41 @@ jobs:
           path: ci-report.md
           retention-days: 90
 
-  # The unit tests on a second architecture (decision 47 as amended). Every simulator check pins
-  # its census in its test, so a pass shows that a seed replays byte-identically on arm64
-  # (non-negotiable 5), and the tests run over chapulin's objects built with the Arm AES
-  # instructions (decision 97). The work is `zig build test`, which a person on an arm64 machine
-  # runs for the same answer.
+  # The unit tests on arm64, on Linux and on macOS (decision 47 as amended). Every simulator check
+  # pins its census in its test, so a pass shows that a seed replays byte-identically on a second
+  # architecture and a second system (non-negotiable 5). The tests run over chapulin's objects
+  # built with the Arm AES instructions (decision 97), and on macOS the test endpoints run on
+  # Rotor's kqueue backend. The work is `zig build test`, which a person on either machine runs
+  # for the same answer.
   arm64:
+    name: arm64 (${{ matrix.runner }})
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04-arm
+            zig_target: aarch64-linux
+            zig_sha256: ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
+          - runner: macos-26
+            zig_target: aarch64-macos
+            zig_sha256: b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     concurrency:
-      group: arm64
+      group: arm64-${{ matrix.runner }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # shasum, because macOS has no sha256sum.
       - name: Install Zig
         run: |
-          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-linux-${ZIG_VERSION}.tar.xz"
-          echo "${ZIG_AARCH64_SHA256}  zig.tar.xz" | sha256sum -c -
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-${{ matrix.zig_target }}-${ZIG_VERSION}.tar.xz"
+          echo "${{ matrix.zig_sha256 }}  zig.tar.xz" | shasum -a 256 -c -
           mkdir -p "${HOME}/zig" && tar -xJf zig.tar.xz -C "${HOME}/zig" --strip-components=1
           rm zig.tar.xz
           echo "${HOME}/zig" >>"${GITHUB_PATH}"
-      # The same caches as the checks job's, under keys that name the architecture.
+      # The same caches as the checks job's, under keys that name the system and the architecture.
       - name: Restore the Zig caches
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:

@@ -4914,8 +4914,8 @@ figure beside it, which is indicative and carries no threshold: a hosted runner 
 - **The QPACK vectors are stale.** `qpackers/qifs` targets draft-05 and has not moved since 2021.
   RFC 9204 Appendix B is the authority where they disagree.
 - **CI runs what a hosted runner can.** [Decision 47](decisions.md) runs the checks on each push
-  to main and leaves a report, runs the module tests on arm64 too, and runs the HTTP Garden and
-  the QUIC Interop Runner every Monday.
+  to main and leaves a report, runs the module tests on Linux and macOS arm64 too, and runs the
+  HTTP Garden and the QUIC Interop Runner every Monday.
   What needs a machine it does not have — the published numbers of §11 — is still run by a
   person, and the step's entry in §8 records what was run, on what, and what it printed.
 - **Every check that needs crypto waits on chapulin.**

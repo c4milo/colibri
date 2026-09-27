@@ -956,6 +956,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     lints them; more simulator seeds and coverage-guided fuzzing every Monday; and
     `tools/h3load.sh` in CI, which stays a check a person runs.
 
+    Amended a third time by the owner on 2026-09-27: the arm64 job runs on macOS 26 as well as on
+    Linux, on GitHub's standard macOS runners, which cost a public repository nothing. macOS on
+    arm64 is the development host, where until then a person ran every check by hand; the job runs
+    `zig build test` there on each push, with the test endpoints on Rotor's kqueue backend. The
+    checks that need Docker stay on Linux, because GitHub's Apple Silicon runners have no Docker.
+
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second
     caller-supplied vtable, and its members become whole-packet operations at one of the three

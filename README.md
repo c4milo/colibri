@@ -135,16 +135,17 @@ CI runs [`tools/ci.sh`](tools/ci.sh) on every push to main: the lints, every mod
 both build modes, the examples, the simulator in both build modes, the TLA+ models and the h3
 traces, the Lean proofs, h2spec and the interop scripts in cleartext and over TLS, h3spec, the TLS
 handshakes against Go, and the QUIC checks against colibri and aioquic. Every push also runs the
-module tests on arm64. The HTTP Garden and the QUIC Interop Runner, against quic-go, ngtcp2, neqo
-and quinn, run every Monday.
+module tests on arm64, on Linux and on macOS. The HTTP Garden and the QUIC Interop Runner,
+against quic-go, ngtcp2, neqo and quinn, run every Monday.
 
 ## Platforms
 
-CI runs on Linux: Ubuntu 24.04 on x86-64 for every check and on arm64 for the module tests, and
-Ubuntu 26.04 on x86-64 for the QUIC Interop Runner, whose tshark must be 4.5.0 or newer. macOS on
-arm64 is the development host, where every check also runs, the TLS and QUIC ones included.
-colibri makes no system call, so it builds wherever Zig 0.16.0 does, but only these platforms are
-checked. Published performance numbers come from Linux alone.
+CI runs every check on Ubuntu 24.04 on x86-64, the module tests on Ubuntu 24.04 and macOS 26 on
+arm64, and the QUIC Interop Runner on Ubuntu 26.04 on x86-64, because it needs tshark 4.5.0 or
+newer.
+macOS on arm64 is also the development host, where every check runs, the TLS and QUIC ones
+included. colibri makes no system call, so it builds wherever Zig 0.16.0 does, but only these
+platforms are checked. Published performance numbers come from Linux alone.
 
 ## Documentation
 
