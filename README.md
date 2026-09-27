@@ -119,7 +119,7 @@ shape: octets in, at most one event out, and the frames colibri owes written int
   against the h3 model.
 - **Proofs.** [`spec/lean/`](spec/lean/) holds [Lean 4](https://lean-lang.org/) proofs of
   QUIC's variable-length integer, packet number and ACK ranges, HPACK's and QPACK's prefixed
-  integer, and QPACK's Required Insert Count encoding. The Zig tests read vectors the proved definitions
+  integer and Huffman code, and QPACK's Required Insert Count encoding. The Zig tests read vectors the proved definitions
   produce.
 - **Golden corpus.** [`src/golden/`](src/golden/) holds exact bytes with a manifest that names
   each case's length, checksum and expected verdict, including the request smuggling shapes of

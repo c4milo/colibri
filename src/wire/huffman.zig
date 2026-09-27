@@ -352,3 +352,87 @@ test "fuzz: a string that decodes re-encodes to the same octets" {
 test "sweep: every input of up to two octets that decodes re-encodes to itself" {
     try core.fuzz.sweep(fuzz_decode, null);
 }
+
+const vector_radix = 10;
+const vector_code_lines = 257;
+const vector_encode_lines = 271;
+const vector_decode_lines = 1288;
+/// The octet values, 0 to 255: the longest vector string holds each once.
+const vector_octet_values = std.math.maxInt(u8) + 1;
+/// Room for any vector string or its encoding.
+const vector_octets_max = encoded_len_max(vector_octet_values);
+
+/// A vector's octets: hex, or `-` for none.
+fn vector_octets(text: []const u8, storage: []u8) ![]u8 {
+    if (std.mem.eql(u8, text, "-")) return storage[0..0];
+    return std.fmt.hexToBytes(storage, text);
+}
+
+/// `code symbol code bits`: the table's row for that symbol.
+fn expect_code_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    const symbol = try std.fmt.parseUnsigned(u16, fields.next().?, vector_radix);
+    const code = try std.fmt.parseUnsigned(u32, fields.next().?, vector_radix);
+    const bit_count = try std.fmt.parseUnsigned(u8, fields.next().?, vector_radix);
+    try testing.expectEqual(table.Code{ .code = code, .bit_count = bit_count }, table.codes[symbol]);
+}
+
+/// `encode octets encoded`: `encode` writes those octets, and `encoded_len` counts them.
+fn expect_encode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    var input_storage: [vector_octets_max]u8 = undefined;
+    const octets = try vector_octets(fields.next().?, &input_storage);
+    var expected_storage: [vector_octets_max]u8 = undefined;
+    const expected = try vector_octets(fields.next().?, &expected_storage);
+    var buffer: [vector_octets_max]u8 = undefined;
+    var writer = Writer.init(&buffer);
+    try encode(octets, &writer);
+    try testing.expectEqualSlices(u8, expected, writer.written());
+    try testing.expectEqual(expected.len, encoded_len(octets));
+}
+
+/// `decode encoded outcome`: `decode` gives those octets, or the error, and writes nothing then.
+fn expect_decode_line(fields: *std.mem.TokenIterator(u8, .scalar)) !void {
+    var encoded_storage: [vector_octets_max]u8 = undefined;
+    const encoded = try vector_octets(fields.next().?, &encoded_storage);
+    const answer = fields.next().?;
+    var buffer: [vector_octets_max]u8 = undefined;
+    var writer = Writer.init(&buffer);
+    const expected_error: ?DecodeError = if (std.mem.eql(u8, answer, "eos_in_data"))
+        error.HuffmanEosInData
+    else if (std.mem.eql(u8, answer, "padding_too_long"))
+        error.HuffmanPaddingTooLong
+    else if (std.mem.eql(u8, answer, "padding_not_eos"))
+        error.HuffmanPaddingNotEos
+    else
+        null;
+    if (expected_error) |failure| {
+        try testing.expectError(failure, decode(encoded, &writer));
+        try testing.expectEqual(0, writer.written().len);
+        return;
+    }
+    try decode(encoded, &writer);
+    var expected_storage: [vector_octets_max]u8 = undefined;
+    try testing.expectEqualSlices(u8, try vector_octets(answer, &expected_storage), writer.written());
+}
+
+test "the coder gives what the proved definitions give (spec/lean/Colibri/Wire/Huffman.lean)" {
+    var lines = std.mem.splitScalar(u8, @embedFile("huffman_vectors.txt"), '\n');
+    var counts: [3]usize = @splat(0);
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (line.len == 0 or line[0] == '#') continue;
+        var fields = std.mem.tokenizeScalar(u8, line, ' ');
+        const kind = fields.next().?;
+        if (std.mem.eql(u8, kind, "code")) {
+            try expect_code_line(&fields);
+            counts[0] += 1;
+        } else if (std.mem.eql(u8, kind, "encode")) {
+            try expect_encode_line(&fields);
+            counts[1] += 1;
+        } else {
+            try testing.expectEqualStrings("decode", kind);
+            try expect_decode_line(&fields);
+            counts[2] += 1;
+        }
+    }
+    try testing.expectEqual([3]usize{ vector_code_lines, vector_encode_lines, vector_decode_lines }, counts);
+}

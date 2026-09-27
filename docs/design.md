@@ -695,6 +695,34 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   was caught only after the vectors gained an input whose tenth octet ends the integer. 1 in the
   Lean definitions stops the proofs, and 1 edit to the vector file is refused by `zig build lean`.
 
+  **The Huffman code proved, 2026-09-26.** `spec/lean/Colibri/Wire/Huffman.lean` states RFC 7541
+  Appendix B's code and §5.2's padding as `huffman.zig` encodes them. Its decoder reads one bit at
+  a time and looks the bits read so far up in the table. It proves:
+  - `prefix_free`: no symbol's code is a prefix of another's. The kernel checks this over the
+    codes as numbers in 9 seconds, where a check over the codes as bits took 100, and a lemma
+    carries it to the bits;
+  - `eos_ones`: EOS is thirty ones;
+  - `decode_encode`: every string of octets decodes back from its encoding, padding included;
+  - `decode_octets`: whatever a decoding accepts is octets below 256, so EOS never reaches the
+    output.
+
+  `spec/lean/Colibri/Wire/HuffmanTable.lean` copies the 257 rows of `huffman_table.zig`.
+  `src/wire/huffman_vectors.txt` names each row, and holds 271 encodings and 1,288 decodings, 796
+  of them refused. The encodings cover every octet, RFC 7541 Appendix C.4's and C.6's strings, and
+  all 256 octets in one string. A test in `huffman.zig` requires the Zig table and coder to give
+  each line. `huffman.zig` decodes through the table's canonical ranges, so these vectors are what
+  tie it to the decoder the proofs are about.
+
+  Mutations:
+  - 8 in `huffman.zig` and `huffman_table.zig`, each **CAUGHT** by that test. Two first failed to
+    compile and were rewritten to compile: zero padding, which left a constant unused, and a table
+    row, which the comptime Kraft check refused and which became two 5-bit codes swapped.
+  - 4 in the Lean definitions. Three make a theorem false: EOS reaching the output, zero padding,
+    and two rows sharing a code. The fourth, eight bits of padding accepted, first broke only a
+    proof script that named the constant 7. That script now uses `split`, so the mutant builds,
+    and `zig build lean` refuses it for the vectors it changes.
+  - 1 edit to the vector file, which `zig build lean` refuses.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
