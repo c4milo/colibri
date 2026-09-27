@@ -105,7 +105,7 @@ pub fn build(format: Format, case: *const Case, output: *Writer) core.writer.Err
 }
 
 /// The decoder every hpack case runs in, placed outside any stack frame and reset per case.
-var hpack_decoder: hpack.Decoder = undefined;
+var hpack_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 
 /// Decodes `octets` as one value of `case`'s format, and requires every octet consumed.
 pub fn decode(format: Format, case: *const Case, octets: []const u8) DecodeError!void {

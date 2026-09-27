@@ -11,8 +11,8 @@ const Levels = crypto_stream.Levels;
 
 /// The stream the tests drive, placed outside any stack frame: its window is larger than a stack
 /// frame should hold.
-var test_stream: CryptoStream = undefined;
-var test_levels: Levels = undefined;
+var test_stream: CryptoStream align(@alignOf(CryptoStream)) = undefined;
+var test_levels: Levels align(@alignOf(Levels)) = undefined;
 
 test "RFC 9000 §19.6: frames in order are readable as they arrive" {
     test_stream.init();

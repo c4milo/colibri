@@ -209,7 +209,7 @@ fn fold(digest: *std.hash.Crc32, value: u64) void {
     digest.update(&octets);
 }
 
-var check_storage: Storage = .zeroed;
+var check_storage: Storage align(@alignOf(Storage)) = .zeroed;
 
 test "loss recovery carries a transfer over loss, reordering and a blackhole" {
     var census: Census = .{};

@@ -218,7 +218,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
 const testing = std.testing;
 
 /// The storage the check test runs in, placed outside any stack frame.
-var test_storage: Storage = undefined;
+var test_storage: Storage align(@alignOf(Storage)) = undefined;
 
 test "h3 check: every seed's exchanges arrive as planned over a lossy network, and replay" {
     test_storage.shape = .normal;

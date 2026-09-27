@@ -52,10 +52,16 @@ const post_ticks_max = 8;
 
 const loop_options: rotor.Loop.Options = .{ .operations = operations_max };
 
+/// One loop's memory, at Rotor's alignment on its own. An array of byte arrays aligns only the
+/// first: a loop takes 1,456 octets on Linux, which is not a multiple of 64.
+const LoopMemory = struct {
+    bytes: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+};
+
 pub const Link = struct {
     registry_memory: [rotor.Registry.memory_bytes(side_count)]u8 align(rotor.memory_alignment),
     registry: rotor.Registry,
-    loop_memory: [side_count][rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
+    loop_memory: [side_count]LoopMemory,
     loops: [side_count]rotor.Loop,
     queues: [side_count][queue_len_max]u8,
     queue_lens: [side_count]usize,
@@ -67,7 +73,7 @@ pub const Link = struct {
             var options = loop_options;
             options.id = @intCast(index);
             options.registry = &link.registry;
-            try link.loops[index].init(&link.loop_memory[index], options);
+            try link.loops[index].init(&link.loop_memory[index].bytes, options);
         }
         link.queue_lens = @splat(0);
     }

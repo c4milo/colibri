@@ -109,8 +109,8 @@ pub fn open(sequence: u64, record: []const u8, output: []u8) ?Opened {
 const testing = std.testing;
 
 /// A connected session the test drives. Test-only.
-var test_session: c.ch_tls = undefined;
-var test_held: Held = undefined;
+var test_session: c.ch_tls align(@alignOf(c.ch_tls)) = undefined;
+var test_held: Held align(@alignOf(Held)) = undefined;
 var test_receive: [tls_provider.constants.record_write_len_min]u8 = undefined;
 
 test "a record sealed here is the record chapulin seals under the zero key" {

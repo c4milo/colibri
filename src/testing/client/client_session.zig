@@ -108,7 +108,7 @@ pub const Session = union(Protocol) {
 };
 
 /// A session the test switches, outside any stack frame. Test-only.
-var test_session: Session = undefined;
+var test_session: Session align(@alignOf(Session)) = undefined;
 
 test "RFC 7301 §3.2: a session switched to the protocol ALPN chose keeps its plan" {
     const plans = [_]Plan{

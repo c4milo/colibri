@@ -276,8 +276,8 @@ const Crc32 = std.hash.Crc32;
 
 /// The two sessions the tests run, and the octets each has written that the other has not read.
 /// Placed outside any stack frame. Test-only.
-var test_client: Session = undefined;
-var test_server: h11_session.Session = undefined;
+var test_client: Session align(@alignOf(Session)) = undefined;
+var test_server: h11_session.Session align(@alignOf(h11_session.Session)) = undefined;
 var test_to_server: [constants.write_buffer_len]u8 = @splat(0);
 var test_to_client: [constants.write_buffer_len]u8 = @splat(0);
 

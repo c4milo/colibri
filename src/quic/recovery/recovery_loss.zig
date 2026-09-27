@@ -188,8 +188,8 @@ const testing = std.testing;
 /// The table the tests drive, and a slice long enough to take every record out of it. Test-only.
 const test_capacity: usize = 8;
 const TestTable = recovery_sent.Sent(test_capacity);
-var test_table: TestTable = undefined;
-var test_lost: [test_capacity]Record = undefined;
+var test_table: TestTable align(@alignOf(TestTable)) = undefined;
+var test_lost: [test_capacity]Record align(@alignOf(Record)) = undefined;
 /// A packet size the tests can add up by eye, and the instants they measure from.
 const test_len: u16 = 100;
 const test_first_sent_at_ns: u64 = 200;

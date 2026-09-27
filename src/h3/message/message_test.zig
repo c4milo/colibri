@@ -13,7 +13,7 @@ const Field = http.field.Field;
 const FieldSection = http.FieldSection;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// Fills `test_section` with `fields`, in order.
 fn section_of(fields: []const Field) !*const FieldSection {

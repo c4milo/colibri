@@ -159,8 +159,8 @@ const testing = std.testing;
 
 /// A receiver and a sender. Test-only.
 const test_endpoint_count: usize = 2;
-var test_memory: [test_endpoint_count]Memory = undefined;
-var test_endpoints: [test_endpoint_count]Endpoint = undefined;
+var test_memory: [test_endpoint_count]Memory align(@alignOf(Memory)) = undefined;
+var test_endpoints: [test_endpoint_count]Endpoint align(@alignOf(Endpoint)) = undefined;
 /// Loopback, 127.0.0.1 as one big-endian word, port 0, so the kernel picks a free port for each
 /// endpoint. Test-only.
 const loopback_word: u32 = 0x7f00_0001;

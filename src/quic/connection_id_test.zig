@@ -11,7 +11,7 @@ const connection_error_code = connection_id.connection_error_code;
 const testing = std.testing;
 
 /// The sets the tests drive. Test-only.
-var test_remote: Remote = undefined;
+var test_remote: Remote align(@alignOf(Remote)) = undefined;
 /// Connection IDs a test issues. RFC 9000 §5.1 wants them unpredictable and invariant 5 forbids
 /// colibri a random number, so a test states them.
 const issued_len: usize = 4;
@@ -23,7 +23,7 @@ const issued_b: [issued_len]u8 = @splat(issued_b_octet);
 const issued_c: [issued_len]u8 = @splat(issued_c_octet);
 const issued_each = [_][]const u8{ &issued_a, &issued_b, &issued_c };
 
-var test_local: Local = undefined;
+var test_local: Local align(@alignOf(Local)) = undefined;
 /// The Stateless Reset Token every connection ID after the first carries in these tests.
 const test_token_octet: u8 = 0x7e;
 const test_token: [constants.stateless_reset_token_len]u8 = @splat(test_token_octet);

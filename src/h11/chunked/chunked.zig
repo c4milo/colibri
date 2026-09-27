@@ -210,7 +210,7 @@ pub const Decoder = struct {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_trailers: FieldSection = undefined;
+var test_trailers: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// Decodes `input` whole, one call after another, and returns the data it held.
 fn decode_all(role: Role, input: []const u8, data: []u8) ![]const u8 {

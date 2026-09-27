@@ -45,7 +45,7 @@ pub fn check(seen: Seen) Error!bool {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// A request of the pseudo-headers given, each left out when null, in RFC 9113 §8.3.1's order.
 fn request_of(method: ?[]const u8, scheme: ?[]const u8, authority: ?[]const u8, path: ?[]const u8) !*const FieldSection {

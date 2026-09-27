@@ -156,9 +156,9 @@ pub const server = [_]Case{
 const line_end = "\r\n";
 
 /// The storage a case decodes in, placed outside any stack frame and reset per case.
-var section: http.FieldSection = undefined;
-var trailers: http.FieldSection = undefined;
-var connection: h11.connection.Connection = undefined;
+var section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
+var trailers: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
+var connection: h11.connection.Connection align(@alignOf(h11.connection.Connection)) = undefined;
 var response_octets: [response_len_max]u8 = undefined;
 
 /// The octets of the 204 a server case answers each request with, at most.

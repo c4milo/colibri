@@ -224,7 +224,7 @@ fn fold(digest: *std.hash.Crc32, value: u64) void {
     digest.update(&octets);
 }
 
-var check_storage: Storage = undefined;
+var check_storage: Storage align(@alignOf(Storage)) = undefined;
 
 test "two endpoints finish a handshake and a stream over a lossy network, invariants 17 to 21 holding" {
     check_storage.fault = .none;
@@ -243,7 +243,7 @@ test "two endpoints finish a handshake and a stream over a lossy network, invari
 }
 
 /// The storage a fault test runs in, apart from the check's own. Test-only.
-var fault_storage: Storage = undefined;
+var fault_storage: Storage align(@alignOf(Storage)) = undefined;
 
 test "each way the driver fails is reported, so no report of it is unproved" {
     var census: Census = .{};

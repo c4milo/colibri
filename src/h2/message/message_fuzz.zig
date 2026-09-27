@@ -67,7 +67,7 @@ const fuzz_lines = [_]Field{
 };
 
 /// The section the property fills, placed outside any stack frame.
-var fuzz_section: FieldSection = undefined;
+var fuzz_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// Builds `fuzz_section` from the fuzz input and runs all three entry points over it.
 fn fuzz_message(_: void, smith: *std.testing.Smith) anyerror!void {

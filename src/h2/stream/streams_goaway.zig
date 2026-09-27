@@ -75,7 +75,7 @@ const testing = std.testing;
 const Lookup = table.Lookup;
 
 /// The table the tests run in, placed outside any stack frame.
-var test_table: Streams = undefined;
+var test_table: Streams align(@alignOf(Streams)) = undefined;
 
 /// The peer's SETTINGS_INITIAL_WINDOW_SIZE in the tests.
 const test_send_window: u32 = 1000;

@@ -196,9 +196,9 @@ fn grow(held: *Recovery, removed: recovery_sent.Removed, used: Utilization) void
 const testing = std.testing;
 
 /// The recovery state these tests drive, and room for what one ACK takes out. Test-only.
-var test_recovery: Recovery = undefined;
-var test_acknowledged: [constants.sent_packets_max]Record = undefined;
-var test_lost: [constants.sent_packets_max]Record = undefined;
+var test_recovery: Recovery align(@alignOf(Recovery)) = undefined;
+var test_acknowledged: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
+var test_lost: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
 const test_datagram_len: u16 = 1_200;
 const test_start_ns: u64 = 1_000_000_000;
 const test_interval_ns: u64 = 1_000_000;

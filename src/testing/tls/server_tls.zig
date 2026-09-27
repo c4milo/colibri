@@ -103,8 +103,8 @@ pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!S
 const testing = std.testing;
 
 /// A layer and a session the tests drive, outside any stack frame. Test-only.
-var test_layer: Layer = undefined;
-var test_session: Session = undefined;
+var test_layer: Layer align(@alignOf(Layer)) = undefined;
+var test_session: Session align(@alignOf(Session)) = undefined;
 var test_input: [test_input_len]u8 = undefined;
 var test_output: [constants.write_buffer_len]u8 = undefined;
 

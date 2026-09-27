@@ -103,8 +103,8 @@ fn read_kept(context: *anyopaque, stream_id: u64, offset: u64, output: []u8) usi
     return len;
 }
 
-pub var client: Endpoint = undefined;
-pub var server: Endpoint = undefined;
+pub var client: Endpoint align(@alignOf(Endpoint)) = undefined;
+pub var server: Endpoint align(@alignOf(Endpoint)) = undefined;
 var frame_octets: [quic.constants.datagram_len_min]u8 = undefined;
 var packet_number: u64 = 0;
 
@@ -222,7 +222,7 @@ pub fn section_of(section: *FieldSection, lines: []const Line) !*const FieldSect
     return section;
 }
 
-pub var test_section: FieldSection = undefined;
+pub var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// Sends a request of `lines` from the client with `content`, and ends the stream. Returns its ID.
 pub fn request(lines: []const Line, content: []const u8) !u64 {

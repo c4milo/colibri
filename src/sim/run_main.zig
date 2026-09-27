@@ -77,17 +77,17 @@ pub const Command = union(enum) {
 };
 
 /// The storage each check writes into, placed outside any stack frame.
-var chunk_storage: chunk_check.Storage = .zeroed;
-var connection_storage: connection_check.Storage = .zeroed;
-var tls_storage: tls_check.Storage = .zeroed;
-var qpack_storage: qpack_check.Storage = undefined;
-var qpack_input_storage: qpack_input_check.Storage = undefined;
-var h2_input_storage: h2_input_check.Storage = undefined;
-var h3_storage: h3_check.Storage = undefined;
-var h3_trace_storage: h3_trace_check.Storage = undefined;
+var chunk_storage: chunk_check.Storage align(@alignOf(chunk_check.Storage)) = .zeroed;
+var connection_storage: connection_check.Storage align(@alignOf(connection_check.Storage)) = .zeroed;
+var tls_storage: tls_check.Storage align(@alignOf(tls_check.Storage)) = .zeroed;
+var qpack_storage: qpack_check.Storage align(@alignOf(qpack_check.Storage)) = undefined;
+var qpack_input_storage: qpack_input_check.Storage align(@alignOf(qpack_input_check.Storage)) = undefined;
+var h2_input_storage: h2_input_check.Storage align(@alignOf(h2_input_check.Storage)) = undefined;
+var h3_storage: h3_check.Storage align(@alignOf(h3_check.Storage)) = undefined;
+var h3_trace_storage: h3_trace_check.Storage align(@alignOf(h3_trace_check.Storage)) = undefined;
 var h3_trace_module: [constants.h3_trace_module_len_max]u8 = undefined;
-var h11_split_storage: h11_split_check.Storage = undefined;
-var h11_exchange_storage: h11_exchange_check.Storage = undefined;
+var h11_split_storage: h11_split_check.Storage align(@alignOf(h11_split_check.Storage)) = undefined;
+var h11_exchange_storage: h11_exchange_check.Storage align(@alignOf(h11_exchange_check.Storage)) = undefined;
 
 pub fn main(init: std.process.Init) !void {
     var arguments: [arguments_max][]const u8 = @splat("");

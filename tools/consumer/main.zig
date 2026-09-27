@@ -5,8 +5,8 @@ const std = @import("std");
 const h11 = @import("h11");
 const h2 = @import("h2");
 
-var client: h11.connection.Connection = undefined;
-var h2_client: h2.connection.Connection = undefined;
+var client: h11.connection.Connection align(@alignOf(h11.connection.Connection)) = undefined;
+var h2_client: h2.connection.Connection align(@alignOf(h2.connection.Connection)) = undefined;
 var output: [4096]u8 = undefined;
 
 pub fn main() !void {

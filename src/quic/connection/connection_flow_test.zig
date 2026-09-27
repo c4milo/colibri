@@ -32,14 +32,14 @@ const datagram_module = @import("connection_datagram.zig");
 const testing = std.testing;
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
-var client: Connection = undefined;
-var server: Connection = undefined;
-var scratch: send.DefaultScratch = .{};
+var client: Connection align(@alignOf(Connection)) = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
+var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
 var datagram: [constants.datagram_len_min]u8 = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const id_len: usize = 4;
@@ -411,7 +411,7 @@ test "RFC 9000 §4.6, §19.14: a stream the peer's limit refused is what STREAMS
 }
 
 /// Where a whole datagram's work is written (decision 60). Test-only.
-var datagram_scratch: datagram_module.Scratch = undefined;
+var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
 
 /// Takes `sent` at `reader` the way a caller does, so each packet is recorded in its space and
 /// an acknowledgment is owed (RFC 9000 §13.1).

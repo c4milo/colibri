@@ -129,7 +129,7 @@ fn slot_at(head: usize, from: usize) usize {
 
 const testing = std.testing;
 
-var test_lost: LostRanges = undefined;
+var test_lost: LostRanges align(@alignOf(LostRanges)) = undefined;
 /// A packet's worth of octets, and two streams to tell apart. Test-only.
 const test_len: u64 = 1_000;
 const test_stream: u64 = 0;

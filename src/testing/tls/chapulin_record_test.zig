@@ -63,8 +63,8 @@ test "a record-mode server's flight goes into the output whole, or the call fail
 /// session. A zeroed session's `alpn_selected` is 0, which names the one protocol offered here.
 /// Test-only.
 const test_alpn = [_]c.ch_alpn_protocol{.{ .name = chapulin_record.alpn_h2.ptr, .name_len = chapulin_record.alpn_h2.len }};
-var test_session: c.ch_tls = undefined;
-var test_held: Held = undefined;
+var test_session: c.ch_tls align(@alignOf(c.ch_tls)) = undefined;
+var test_held: Held align(@alignOf(Held)) = undefined;
 
 fn test_provider() tls_provider.Provider {
     test_session = std.mem.zeroes(c.ch_tls);
@@ -113,8 +113,8 @@ test "in record mode, `recv` answers 0 between records, which `ch_read` reads as
 }
 
 /// A session keyed with zeros (`zero_key_records.zig`), and records sealed for it. Test-only.
-var keyed_session: c.ch_tls = undefined;
-var keyed_held: Held = undefined;
+var keyed_session: c.ch_tls align(@alignOf(c.ch_tls)) = undefined;
+var keyed_held: Held align(@alignOf(Held)) = undefined;
 var keyed_receive: [tls_provider.constants.record_write_len_min]u8 = undefined;
 var keyed_input: [keyed_input_len]u8 = undefined;
 /// Room for one empty record and part of the next. Test-only.

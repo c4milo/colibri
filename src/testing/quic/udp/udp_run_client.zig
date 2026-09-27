@@ -21,14 +21,14 @@ const Connection = udp_run.Connection;
 const Parameters = quic.transport_parameters.Parameters;
 const StreamProvider = quic.stream.stream_provider.StreamProvider;
 
-var client: hq_client.Client = undefined;
-var h3_side: h3_client.Client = undefined;
+var client: hq_client.Client align(@alignOf(hq_client.Client)) = undefined;
+var h3_side: h3_client.Client align(@alignOf(h3_client.Client)) = undefined;
 /// Whether the run fetches over h3, which the `h3` option asks for.
 var over_h3: bool = false;
 /// Whether the one key update has started.
 var keys_updated: bool = false;
 /// The ticket the first connection's server issued, and the instant it arrived.
-var ticket: chapulin_quic.Ticket = .{};
+var ticket: chapulin_quic.Ticket align(@alignOf(chapulin_quic.Ticket)) = .{};
 var ticket_received_ns: ?u64 = null;
 /// Whether the connection in use presented the ticket.
 var resuming: bool = false;

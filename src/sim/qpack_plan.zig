@@ -107,7 +107,7 @@ fn draw_indexing(random: *Random) Indexing {
 const testing = std.testing;
 
 /// The plan the tests draw, placed outside any stack frame. Test-only.
-var test_plan: Plan = undefined;
+var test_plan: Plan align(@alignOf(Plan)) = undefined;
 
 test "a seed draws the same plan every time" {
     var first = Random.init(1);

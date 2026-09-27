@@ -53,8 +53,8 @@ const test_now_ns: u64 = 1_000_000;
 
 /// The connection, the suite and the octets one case runs over, outside any stack frame and reset
 /// per case (decision 35).
-var connection: Connection = undefined;
-var suite_state: GoldenSuite = .{};
+var connection: Connection align(@alignOf(Connection)) = undefined;
+var suite_state: GoldenSuite align(@alignOf(GoldenSuite)) = .{};
 var octets_held: [constants.case_len_max]u8 = undefined;
 
 pub fn decode(state: ReceiveState, octets: []const u8) Error!void {

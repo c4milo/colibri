@@ -19,8 +19,8 @@ const Role = null_quic_provider.Role;
 
 /// The two endpoints, placed at file level: each holds a buffer per encryption level and a test
 /// places the struct rather than a stack frame (CLAUDE.md non-negotiable 4).
-var test_client: NullQuicProvider = undefined;
-var test_server: NullQuicProvider = undefined;
+var test_client: NullQuicProvider align(@alignOf(NullQuicProvider)) = undefined;
+var test_server: NullQuicProvider align(@alignOf(NullQuicProvider)) = undefined;
 
 /// Octets one flight is written into before it is handed to the peer, which is the part a CRYPTO
 /// frame would carry. Larger than any flight below.

@@ -168,7 +168,7 @@ fn ends_request(event: Event) ?u32 {
 const testing = std.testing;
 
 /// The session the tests run on, placed outside any stack frame. Test-only.
-var test_session: Session = undefined;
+var test_session: Session align(@alignOf(Session)) = undefined;
 
 /// Where the tests read and write. Test-only.
 var test_output: [constants.write_buffer_len]u8 = @splat(0);

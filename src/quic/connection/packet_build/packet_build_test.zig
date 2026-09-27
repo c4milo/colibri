@@ -26,17 +26,17 @@ const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
-pub var test_connection: Connection = undefined;
+pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
 /// The endpoint that reads what `test_connection` built. A packet must be walked back by the
 /// other side: RFC 9000 §12.3 gives each endpoint its own record of what it received, and
 /// walking a packet into the space that sent it would see its own number as a duplicate.
-pub var peer_connection: Connection = undefined;
-var scratch: packet_build.DefaultScratch = .{};
+pub var peer_connection: Connection align(@alignOf(Connection)) = undefined;
+var scratch: packet_build.DefaultScratch align(@alignOf(packet_build.DefaultScratch)) = .{};
 pub var datagram: [constants.datagram_len_min]u8 = undefined;
-pub var fake: Fake = undefined;
-var round_trip: RoundTrip = undefined;
+pub var fake: Fake align(@alignOf(Fake)) = undefined;
+var round_trip: RoundTrip align(@alignOf(RoundTrip)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;
@@ -422,7 +422,7 @@ pub const long_flight: [constants.datagram_len_min]u8 = @splat(handshake_octet);
 
 /// Storage for the small-scratch case, which is what shows the comptime parameter binds.
 const small_payload_len: usize = 16;
-var small_scratch: packet_build.Scratch(small_payload_len) = .{};
+var small_scratch: packet_build.Scratch(small_payload_len) align(@alignOf(packet_build.Scratch(small_payload_len))) = .{};
 
 test "RFC 9000 §17.3: a 1-RTT packet is built with a short header and read back" {
     open_connection();

@@ -26,12 +26,12 @@ const private_scalar_len: usize = 32;
 const public_point_len: usize = 64;
 const cookie_key_len: usize = 32;
 
-var keylog: chapulin_quic_c.Keylog = .{};
+var keylog: chapulin_quic_c.Keylog align(@alignOf(chapulin_quic_c.Keylog)) = .{};
 var local_id: [id_len]u8 = undefined;
 var original_id: [id_len]u8 = undefined;
 var retry_source_id: [id_len]u8 = undefined;
 /// The deployment's Retry token key and its lifetime (decision 55).
-var retry: chapulin_quic_suite.Retry = undefined;
+var retry: chapulin_quic_suite.Retry align(@alignOf(chapulin_quic_suite.Retry)) = undefined;
 var cookie_storage: [cookie_key_len]u8 = undefined;
 /// The key the server seals its session tickets under (chapulin's decision 51).
 var ticket_key_storage: [c.SRV_TICKET_KEY_LEN]u8 = undefined;
@@ -42,7 +42,7 @@ var public_storage: [public_point_len]u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
 var spki_storage: [constants.tls_der_len_max]u8 = undefined;
 /// chapulin keeps a pointer to the anchors, so they live as long as the session.
-var anchors: [1]chapulin_quic.Anchor = undefined;
+var anchors: [1]chapulin_quic.Anchor align(@alignOf(chapulin_quic.Anchor)) = undefined;
 
 /// Checks the linked object, then draws the keys, before any session starts. chapulin draws the
 /// rest of its entropy through `ch_rand_bytes` (`entropy.zig`).

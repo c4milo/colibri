@@ -4140,6 +4140,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - With the export of `ch_rand_bytes` removed, the link fails with `undefined symbol:
     _ch_rand_bytes`.
 
+  **CI on Linux, 2026-09-26.** From 16a on, every CI check that starts a server failed on x86_64
+  Linux, and the examples had failed to compile there since their first commit. macOS showed
+  neither.
+  - Zig 0.16's own x86_64 backend, which builds Debug there, placed `udp_run.memory`, a global
+    whose type is 64-aligned, 16 octets past a multiple of 64. Rotor's io_uring loop then
+    panicked on its first table. LLVM, which builds aarch64, places it right.
+  - A global that states `align(@alignOf(T))` is placed right by both backends. pepegrillo
+    `6fcb273`'s `static-alignment` rule requires that of every container-level `var` under `src`,
+    `examples` and `tools`, and `zig build lint` now runs it. It found 325, each now stating its
+    alignment.
+  - `examples/link.zig` held both loops' memory in one array of byte arrays, which aligns only the
+    first: a loop takes 1,456 octets on Linux, not a multiple of 64. Each loop's memory is now a
+    struct of its own.
+
+  What was checked, on macOS arm64:
+  - A `quic-udp` cross-built for x86_64 Linux places `udp_run.memory` at a multiple of 64.
+  - Both examples, built for arm64 Linux, run in Docker and print that every octet arrived as
+    sent, and the h2 server keeps running.
+  - Mutations, each **CAUGHT**:
+    - `udp_run.memory` without its stated alignment fails the lint, and the cross-built binary
+      places it 48 octets past a multiple of 64 again;
+    - the rule left unregistered fails the lint's canary;
+    - the examples' shared array fails `zig build examples -Dtarget=x86_64-linux-gnu`.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

@@ -126,7 +126,7 @@ fn is_whitespace(octet: u8) bool {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 fn expect_fields(role: Role, octets: []const u8, expected: []const http.field.Field) !void {
     try parse(role, octets, &test_section);

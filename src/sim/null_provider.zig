@@ -51,7 +51,7 @@ pub const NullProvider = struct {
 
     /// The vtable, filled once and shared. Every connection in a run uses the same one, which is
     /// what `Provider.vtable` being read-only is for.
-    var table: tls_provider.VTable = undefined;
+    var table: tls_provider.VTable align(@alignOf(tls_provider.VTable)) = undefined;
 
     /// Fills the shared vtable. Called once before any provider is handed out.
     pub fn install() void {

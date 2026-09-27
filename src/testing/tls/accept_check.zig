@@ -24,13 +24,13 @@ const exit_failed = check_file.exit_failed;
 
 /// The server, placed outside any stack frame: it carries chapulin's session, which is larger
 /// than a stack frame should hold.
-var server: Server = undefined;
+var server: Server align(@alignOf(Server)) = undefined;
 /// chapulin's receive buffer, which bounds the ClientHello this server will accept.
 var receive_storage: [constants.tls_receive_len]u8 = undefined;
 /// The identity and the cookie key the server loads once.
-var identity_storage: server_identity.Storage = undefined;
+var identity_storage: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
 /// The octets this run reads from the socket, and the plaintext it opens them into.
-var input: check_socket.Input = .{};
+var input: check_socket.Input align(@alignOf(check_socket.Input)) = .{};
 var plaintext_storage: [constants.tls_record_buffer_len]u8 = undefined;
 var output_storage: [constants.tls_record_buffer_len]u8 = undefined;
 

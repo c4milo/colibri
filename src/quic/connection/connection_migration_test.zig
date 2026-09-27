@@ -20,13 +20,13 @@ const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 const testing = std.testing;
 
-var client: Connection = undefined;
-var server: Connection = undefined;
-var scratch: send.DefaultScratch = .{};
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
-var datagram_scratch: datagram_module.Scratch = undefined;
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var client: Connection align(@alignOf(Connection)) = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
+var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
+var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 /// Two buffers, so a test can hold one datagram back and deliver it after the next. Test-only.
 const buffer_count: usize = 2;
 var buffers: [buffer_count][constants.datagram_len_min]u8 = undefined;

@@ -17,7 +17,7 @@ const Connection = connection_module.Connection;
 const test_now_ns: u64 = 1_000_000;
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
 test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
     fixture.open_connection();

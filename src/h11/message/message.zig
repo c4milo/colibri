@@ -113,7 +113,7 @@ fn read_head(scanner: *Scanner, role: Role, input: []const u8) Error!?struct { [
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 test "a request head reads into its request line and field section, and says how long it was" {
     const input = "\r\nPOST /upload HTTP/1.1\r\nHost: example.org\r\nContent-Length: 2\r\n\r\nok";

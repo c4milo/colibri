@@ -14,7 +14,7 @@ const Level = core.Level;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-var test_connection: Connection = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
 const test_now_ns: u64 = 1_000_000;
 
 /// RFC 9000 §7.3's C1 and S1 as fixed octets: §5.1 wants a connection ID unpredictable and

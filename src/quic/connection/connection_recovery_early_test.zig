@@ -17,8 +17,8 @@ const Connection = connection_module.Connection;
 const Level = core.Level;
 const testing = std.testing;
 
-var endpoint: Connection = undefined;
-var scratch: recovery.Scratch = undefined;
+var endpoint: Connection align(@alignOf(Connection)) = undefined;
+var scratch: recovery.Scratch align(@alignOf(recovery.Scratch)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;

@@ -21,14 +21,14 @@ const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 const testing = std.testing;
 
-var endpoint: Connection = undefined;
+var endpoint: Connection align(@alignOf(Connection)) = undefined;
 /// Larger than §14.1's smallest allowed maximum, so a peer that accepts more lets the window be
 /// what bounds a packet. Test-only.
 const datagram_buffer_len: usize = 3000;
-var scratch: send.Scratch(datagram_buffer_len) = .{};
+var scratch: send.Scratch(datagram_buffer_len) align(@alignOf(send.Scratch(datagram_buffer_len))) = .{};
 var datagram: [datagram_buffer_len]u8 = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;

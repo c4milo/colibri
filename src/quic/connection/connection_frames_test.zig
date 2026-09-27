@@ -27,9 +27,9 @@ const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
-var test_connection: Connection = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
 const payload_len: usize = 256;
 var payload: [payload_len]u8 = undefined;
 

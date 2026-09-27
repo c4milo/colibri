@@ -163,7 +163,7 @@ const message = @import("message.zig");
 /// The buffer and section the tests use, placed outside any stack frame.
 var test_output: [test_output_len]u8 = undefined;
 const test_output_len = 256;
-var test_section: http.FieldSection = undefined;
+var test_section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
 
 test "a request head written is read back as written" {
     const written = try write_request_head(&test_output, "POST", "/upload?x=1", &.{

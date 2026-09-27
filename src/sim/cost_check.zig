@@ -206,7 +206,7 @@ pub fn measure_server_tls(storage: *Storage) !Cost {
     return cost;
 }
 
-var check_storage: Storage = .zeroed;
+var check_storage: Storage align(@alignOf(Storage)) = .zeroed;
 
 test "the cost of one request at a cleartext server is what the tree says it is" {
     const measured = try measure_server_cleartext(&check_storage);

@@ -148,7 +148,7 @@ const testing = std.testing;
 /// Room for what a test writes, and the record it drives. Test-only.
 const test_room: usize = 64;
 var test_octets: [test_room]u8 = undefined;
-var test_opened: Opened = undefined;
+var test_opened: Opened align(@alignOf(Opened)) = undefined;
 
 /// Writes a header and reads it back. Test-only.
 fn round_trip(kind: Kind) !Kind {

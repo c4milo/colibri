@@ -107,7 +107,7 @@ fn one_packet_sent(body: *Body) !struct { id: StreamId, framed: u64 } {
 }
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
 test "RFC 9000 §19.4: a reset stream sends RESET_STREAM with what was framed as its final size" {
     open_pair();

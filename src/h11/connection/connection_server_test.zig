@@ -9,7 +9,7 @@ const Connection = connection.Connection;
 const Field = http.field.Field;
 
 /// The connection and buffer the tests use, placed outside any stack frame.
-var test_connection: Connection = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
 var test_output: [test_output_len]u8 = undefined;
 const test_output_len = 512;
 

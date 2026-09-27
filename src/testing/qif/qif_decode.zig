@@ -35,13 +35,13 @@ pub const Counts = struct {
 };
 
 /// The decoder and its buffers, placed outside any stack frame.
-var decoder: qpack.decoder.Decoder = undefined;
-var decoded: FieldSection = undefined;
+var decoder: qpack.decoder.Decoder align(@alignOf(qpack.decoder.Decoder)) = undefined;
+var decoded: FieldSection align(@alignOf(FieldSection)) = undefined;
 var strings: [core.constants.field_section_size_max]u8 = undefined;
 /// Encoder stream octets not yet read: an instruction may span two blocks.
 var unread: [constants.file_len_max]u8 = undefined;
 var unread_len: usize = 0;
-var held: [qpack.constants.blocked_streams_max]qif_block.Block = undefined;
+var held: [qpack.constants.blocked_streams_max]qif_block.Block align(@alignOf(qif_block.Block)) = undefined;
 var held_len: usize = 0;
 
 /// A section is read at most twice: once more after the decoder's full queue is written out.

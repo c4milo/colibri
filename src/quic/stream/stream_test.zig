@@ -267,7 +267,7 @@ const stream_table = @import("stream_table.zig");
 const stream_lost = @import("stream_lost.zig");
 
 /// A table whose streams this endpoint opens, as a client. Test-only.
-var test_streams: stream_table.Streams = undefined;
+var test_streams: stream_table.Streams align(@alignOf(stream_table.Streams)) = undefined;
 const test_stream_limit: u64 = 4;
 const test_stream_limits: [constants.stream_directionalities]u64 = @splat(test_stream_limit);
 /// A stream's octets, sent in two frames of half each. Test-only.

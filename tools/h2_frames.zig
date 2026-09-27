@@ -75,12 +75,12 @@ const LastFailure = struct {
     code: ?u32 = null,
 };
 
-var last_failure: LastFailure = .{};
+var last_failure: LastFailure align(@alignOf(LastFailure)) = .{};
 
 /// The decoded wire and the frame written back, placed outside any stack frame.
 var wire_buffer: [wire_len_max]u8 = undefined;
 var round_trip_buffer: [wire_len_max]u8 = undefined;
-var settings_buffer: [constants.settings_per_frame_max]frame.Setting = undefined;
+var settings_buffer: [constants.settings_per_frame_max]frame.Setting align(@alignOf(frame.Setting)) = undefined;
 
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();

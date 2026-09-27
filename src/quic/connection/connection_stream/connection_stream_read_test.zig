@@ -23,18 +23,18 @@ const Parameters = transport_parameters.Parameters;
 const StreamId = stream_module.StreamId;
 const testing = std.testing;
 
-var client: Connection = undefined;
-var server: Connection = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
-var send_scratch: send.DefaultScratch = .{};
-var datagram_scratch: datagram_module.Scratch = undefined;
+var client: Connection align(@alignOf(Connection)) = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
+var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
 
 /// The server's receive pool: sixteen blocks' capacity, which is also its window cap. Test-only.
 const pool_blocks: usize = 16;
 const pool_capacity: usize = pool_blocks * stream_module.stream_incoming.block_len;
-var pool: stream_module.stream_incoming.Pool(pool_capacity) = .{};
-var client_pool: stream_module.stream_incoming.Pool(pool_capacity) = .{};
+var pool: stream_module.stream_incoming.Pool(pool_capacity) align(@alignOf(stream_module.stream_incoming.Pool(pool_capacity))) = .{};
+var client_pool: stream_module.stream_incoming.Pool(pool_capacity) align(@alignOf(stream_module.stream_incoming.Pool(pool_capacity))) = .{};
 
 /// Datagrams held while a test decides when each arrives. Test-only.
 const held_max: usize = 8;

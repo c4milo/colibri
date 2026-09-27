@@ -115,7 +115,7 @@ pub const Plan = struct {
 const testing = std.testing;
 
 /// The plan the tests draw, outside any stack frame. Test-only.
-var test_plan: Plan = undefined;
+var test_plan: Plan align(@alignOf(Plan)) = undefined;
 
 test "a seed draws the same plan every time, and a line repeats only one made new" {
     for (0..constants.check_seeds_default) |seed| {

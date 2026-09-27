@@ -317,7 +317,7 @@ const testing = std.testing;
 
 /// A client session whose trust is placeholder octets: `ch_quic_init` checks the anchors' shape
 /// and reads them only to judge a server's chain, which these tests never receive. Test-only.
-var test_session: Session = undefined;
+var test_session: Session align(@alignOf(Session)) = undefined;
 var test_receive: [constants.tls_receive_len]u8 = undefined;
 const placeholder_octet: u8 = 0x30;
 const placeholder_len: usize = 8;

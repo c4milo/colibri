@@ -235,7 +235,7 @@ fn line_size(name_len: u16, value_len: u16) u32 {
 const testing = std.testing;
 
 /// The section the tests run in, placed outside any stack frame.
-var test_section: FieldSection = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// A value as long as a value may be, for the tests that fill a section.
 const test_value: [limits.field_value_len_max]u8 = @splat('v');

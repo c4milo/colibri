@@ -12,7 +12,7 @@ const testing = std.testing;
 /// read three blocks at once. Test-only.
 const capacity_blocks: usize = 4;
 const TestPool = stream_incoming.Pool(capacity_blocks * block_len);
-var test_pool: TestPool = .{};
+var test_pool: TestPool align(@alignOf(TestPool)) = .{};
 const output_blocks: usize = 3;
 var output: [output_blocks * block_len]u8 = undefined;
 

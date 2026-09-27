@@ -353,14 +353,14 @@ const testing = std.testing;
 
 /// The connection the tests run on, placed outside any stack frame. Test-only, and the other
 /// files of this directory run their tests on it too.
-pub var test_connection: Connection = undefined;
+pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
 
 /// Where the tests write frames. Test-only.
 pub var test_output: [constants.frame_header_len + constants.frame_size_max]u8 = @splat(0);
 
 /// The encoder the tests build the peer's field blocks with, which is the peer's and not
 /// colibri's. Test-only.
-pub var test_encoder: hpack.Encoder = undefined;
+pub var test_encoder: hpack.Encoder align(@alignOf(hpack.Encoder)) = undefined;
 
 /// Where the tests build the frames they feed: one header and the largest payload. Test-only.
 pub var test_input: [constants.frame_header_len + constants.frame_size_max]u8 = @splat(0);

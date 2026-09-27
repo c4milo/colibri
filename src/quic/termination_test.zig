@@ -12,7 +12,7 @@ const Permission = termination_module.Permission;
 const testing = std.testing;
 
 /// The connection the tests drive, and the instants they use. Test-only.
-var test_termination: Termination = undefined;
+var test_termination: Termination align(@alignOf(Termination)) = undefined;
 const millisecond_ns = constants.nanoseconds_per_millisecond;
 const test_pto_milliseconds = 100;
 const test_pto_ns = test_pto_milliseconds * millisecond_ns;

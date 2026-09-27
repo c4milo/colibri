@@ -206,7 +206,7 @@ fn write_goaway(replies: *Replies, writer: *Writer) void {
 const testing = std.testing;
 
 /// The queues the tests run on, placed outside any stack frame. Test-only.
-var test_replies: Replies = undefined;
+var test_replies: Replies align(@alignOf(Replies)) = undefined;
 
 /// Where the tests write frames. Test-only.
 var test_output: [constants.frame_size_max]u8 = @splat(0);

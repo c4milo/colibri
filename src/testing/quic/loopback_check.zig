@@ -30,11 +30,11 @@ const exit_failed = check_file.exit_failed;
 const alpn = "hq-interop";
 
 /// The two endpoints, outside any stack frame: each carries a session, a pool and buffers.
-var client: Endpoint = undefined;
-var server: Endpoint = undefined;
+var client: Endpoint align(@alignOf(Endpoint)) = undefined;
+var server: Endpoint align(@alignOf(Endpoint)) = undefined;
 var client_receive: [constants.tls_receive_len]u8 = undefined;
 var server_receive: [constants.tls_receive_len]u8 = undefined;
-var keylog: chapulin_quic_c.Keylog = .{};
+var keylog: chapulin_quic_c.Keylog align(@alignOf(chapulin_quic_c.Keylog)) = .{};
 
 var leaf_storage: [constants.tls_der_len_max]u8 = undefined;
 var issuer_storage: [constants.tls_der_len_max]u8 = undefined;

@@ -177,7 +177,7 @@ pub fn permitted_len(triggered_by_len: usize) ?PermittedLen {
 const testing = std.testing;
 
 /// The tokens the tests drive, and three distinct ones. Test-only.
-var test_tokens: Tokens = undefined;
+var test_tokens: Tokens align(@alignOf(Tokens)) = undefined;
 const octet_a = 0x11;
 const octet_b = 0x22;
 const octet_c = 0x33;

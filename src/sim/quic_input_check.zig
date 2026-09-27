@@ -140,7 +140,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
 const testing = std.testing;
 
 /// The storage the check test runs in, placed outside any stack frame.
-var test_storage: Storage = undefined;
+var test_storage: Storage align(@alignOf(Storage)) = undefined;
 
 test "quic input check: what colibri writes it reads, every edit is read or refused, and it replays" {
     var census: Census = .{};

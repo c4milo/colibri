@@ -22,9 +22,9 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-pub var test_connection: Connection = undefined;
-pub var opener: Opener = undefined;
-pub var walk: receive.Walk = undefined;
+pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
+pub var opener: Opener align(@alignOf(Opener)) = undefined;
+pub var walk: receive.Walk align(@alignOf(receive.Walk)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;

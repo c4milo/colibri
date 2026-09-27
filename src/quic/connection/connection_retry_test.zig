@@ -28,8 +28,8 @@ const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-pub var test_connection: Connection = undefined;
-pub var checker: TagChecker = undefined;
+pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
+pub var checker: TagChecker align(@alignOf(TagChecker)) = undefined;
 pub var pseudo: [constants.retry_pseudo_packet_len_max]u8 = undefined;
 
 pub const test_now_ns: u64 = 1_000_000;

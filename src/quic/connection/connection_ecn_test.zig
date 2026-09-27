@@ -22,14 +22,14 @@ const Parameters = transport_parameters.Parameters;
 const Ecn = send.Ecn;
 const testing = std.testing;
 
-var client: Connection = undefined;
-var server: Connection = undefined;
-var scratch: send.DefaultScratch = .{};
+var client: Connection align(@alignOf(Connection)) = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
+var scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
 var datagram: [constants.datagram_len_min]u8 = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
-var datagram_scratch: datagram_module.Scratch = undefined;
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
+var datagram_scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const id_len: usize = 4;

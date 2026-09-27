@@ -20,7 +20,7 @@ const Parameters = transport_parameters.Parameters;
 
 /// The connection the tests drive, placed outside any stack frame: it carries three CRYPTO
 /// windows and a stream table, which are larger than a stack frame should hold.
-var test_connection: Connection = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
 
 /// An instant the tests begin at. A constant, because no file under `src/` reads a clock.
 const test_now_ns: u64 = 1_000_000;

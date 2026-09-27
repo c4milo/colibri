@@ -204,7 +204,7 @@ pub const EncoderState = struct {
 const testing = std.testing;
 
 /// The state the tests drive, placed outside any stack frame. Test-only.
-var test_state: EncoderState = undefined;
+var test_state: EncoderState align(@alignOf(EncoderState)) = undefined;
 /// A blocked-stream limit small enough to reach by hand, and two stream identifiers.
 const test_blocked_max: u64 = 2;
 const stream_a: u64 = 0;

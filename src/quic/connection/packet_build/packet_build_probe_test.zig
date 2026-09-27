@@ -38,7 +38,7 @@ fn read_back(built: anytype) !frames.Report {
 }
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
 test "RFC 9002 §6.2.4: a probe with nothing to send is a PING, and each owed probe is one packet" {
     open_application();

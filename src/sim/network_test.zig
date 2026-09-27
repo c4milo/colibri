@@ -14,7 +14,7 @@ const testing = std.testing;
 
 /// The network the tests drive, placed outside any stack frame: it holds every datagram in
 /// flight. Test-only.
-var test_network: Network = undefined;
+var test_network: Network align(@alignOf(Network)) = undefined;
 
 /// A schedule with no drops, no duplicates and no marking, whose delay is fixed. Test-only.
 fn fixed_delay(delay_ns: u64) Schedule {

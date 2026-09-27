@@ -17,10 +17,10 @@ const testing = std.testing;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-var test_connection: Connection = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 /// Where the loss timer's lost packets go (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;

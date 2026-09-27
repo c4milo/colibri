@@ -122,7 +122,7 @@ const server_packet_number = 1;
 /// A client session with the A.1 connection ID's Initial keys installed, as colibri's client has
 /// them before its first packet. Its trust is placeholder octets, which chapulin reads only to
 /// judge a server's chain, and these tests receive none. Test-only.
-var test_session: chapulin_quic.Session = undefined;
+var test_session: chapulin_quic.Session align(@alignOf(chapulin_quic.Session)) = undefined;
 var test_receive: [constants.tls_receive_len]u8 = undefined;
 const placeholder_octet: u8 = 0x30;
 const placeholder_len = 8;

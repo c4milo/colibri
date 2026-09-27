@@ -186,7 +186,7 @@ pub const Received = struct {
 const testing = std.testing;
 
 /// The set the tests drive. Test-only.
-var test_received: Received = .empty;
+var test_received: Received align(@alignOf(Received)) = .empty;
 
 /// Feeds each number and requires the verdict. Test-only.
 fn receive_all(numbers: []const u64, expected: Verdict) !void {

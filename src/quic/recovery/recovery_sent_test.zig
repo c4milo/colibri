@@ -14,7 +14,7 @@ const testing = std.testing;
 /// The table the tests drive. Its capacity is small so a test can fill it and wrap it. Test-only.
 const test_capacity: usize = 4;
 const TestTable = Sent(test_capacity);
-var test_table: TestTable = undefined;
+var test_table: TestTable align(@alignOf(TestTable)) = undefined;
 /// A packet size the tests can add up by eye, and an instant to measure sends from.
 const test_len: u16 = 100;
 const test_sent_at_ns: u64 = 7;

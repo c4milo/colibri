@@ -27,7 +27,7 @@ const spki_len_max: usize = 1024;
 
 /// The client, placed outside any stack frame: it carries chapulin's session and its receive
 /// buffer, which are larger than a stack frame should hold.
-var client: Client = undefined;
+var client: Client align(@alignOf(Client)) = undefined;
 var spki_storage: [spki_len_max]u8 = undefined;
 /// chapulin's receive buffer, which the run may shrink to measure the smallest that works.
 var receive_storage: [constants.tls_receive_len]u8 = undefined;
@@ -35,7 +35,7 @@ var receive_storage: [constants.tls_receive_len]u8 = undefined;
 var name_storage: [spki_len_max]u8 = undefined;
 /// What this run reads from the socket, the plaintext it opens it into, and the room chapulin
 /// writes what it owes the server into.
-var input: check_socket.Input = .{};
+var input: check_socket.Input align(@alignOf(check_socket.Input)) = .{};
 var plaintext_storage: [constants.tls_record_buffer_len]u8 = undefined;
 var output_storage: [constants.tls_record_buffer_len]u8 = undefined;
 

@@ -360,7 +360,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
     assert(census.seeds == seeds);
 }
 
-var check_storage: Storage = .zeroed;
+var check_storage: Storage align(@alignOf(Storage)) = .zeroed;
 
 test "sealed packets survive a network that delays, drops, duplicates and marks them" {
     var census: Census = .{};
@@ -379,7 +379,7 @@ test "sealed packets survive a network that delays, drops, duplicates and marks 
 }
 
 /// The storage a fault test runs in, apart from the check's own. Test-only.
-var fault_storage: Storage = .zeroed;
+var fault_storage: Storage align(@alignOf(Storage)) = .zeroed;
 
 test "each fault the check can report is reported, so no assertion of it is unproved" {
     const cases = [_]struct { fault: Fault, violation: Violation }{

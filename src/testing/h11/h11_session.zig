@@ -223,7 +223,7 @@ fn no_room(failure: anyerror) usize {
 const testing = std.testing;
 
 /// The session and buffer the tests use, outside any stack frame. Test-only.
-var test_session: Session = undefined;
+var test_session: Session align(@alignOf(Session)) = undefined;
 var test_output: [test_output_len]u8 = undefined;
 const test_output_len = 1024;
 
@@ -318,7 +318,7 @@ test "RFC 9110 §10.1.1: an HTTP/1.1 request expecting 100-continue gets it befo
 }
 
 /// The echo the `--echo` tests attach, outside any stack frame. Test-only.
-var test_echo: h11_echo.Echo = undefined;
+var test_echo: h11_echo.Echo align(@alignOf(h11_echo.Echo)) = undefined;
 
 fn echo_session() *Session {
     const target = fresh_session();

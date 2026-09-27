@@ -244,7 +244,7 @@ fn content_length_of(section: *const FieldSection, seen: Seen) Error!?u64 {
 const testing = std.testing;
 
 /// The section the tests fill, placed outside any stack frame.
-var test_section: FieldSection = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 fn line_of(name: []const u8, value: []const u8) Field {
     return .{ .name = name, .value = value };

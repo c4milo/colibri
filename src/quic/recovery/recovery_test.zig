@@ -16,9 +16,9 @@ const testing = std.testing;
 
 /// The recovery state the tests drive, and room for everything one pass can acknowledge or
 /// declare lost.
-var test_recovery: recovery.Recovery = undefined;
-var test_acknowledged: [constants.sent_packets_max]Record = undefined;
-var test_lost: [constants.sent_packets_max]Record = undefined;
+var test_recovery: recovery.Recovery align(@alignOf(recovery.Recovery)) = undefined;
+var test_acknowledged: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
+var test_lost: [constants.sent_packets_max]Record align(@alignOf(Record)) = undefined;
 /// A path of 1200-octet datagrams. Every instant is written whole in nanoseconds, because the
 /// magic-numbers rule reads a constant's whole value.
 const test_datagram_len: u16 = 1_200;

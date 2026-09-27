@@ -27,14 +27,14 @@ const Parameters = transport_parameters.Parameters;
 const Record = recovery_sent.Record;
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
-var client: Connection = undefined;
-var server: Connection = undefined;
+var client: Connection align(@alignOf(Connection)) = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
 /// As large as the datagram buffer, so what bounds a datagram in these tests is the rule under
 /// test and never the scratch. A caller that places a smaller one gets smaller packets, which
 /// `packet_build_test.zig` pins.
-var scratch: send.Scratch(datagram_buffer_len) = .{};
+var scratch: send.Scratch(datagram_buffer_len) align(@alignOf(send.Scratch(datagram_buffer_len))) = .{};
 /// Larger than §14.1's smallest allowed maximum, so what bounds a datagram is §14.2's rule and
 /// never the buffer.
 const datagram_buffer_len: usize = 2000;
@@ -42,8 +42,8 @@ var datagram: [datagram_buffer_len]u8 = undefined;
 /// Longer than any datagram these tests build, so the provider always has more to give.
 const long_flight_len: usize = datagram_buffer_len;
 const long_flight: [long_flight_len]u8 = @splat(flight_octet);
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;

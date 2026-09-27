@@ -20,7 +20,7 @@ var datagram: [constants.datagram_len_min]u8 = @splat(0);
 /// Where a Version Negotiation packet is written. Test-only.
 var output: [constants.datagram_len_min]u8 = @splat(0);
 /// The connection the client tests drive. Test-only.
-var test_connection: Connection = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
 
 /// The version colibri does not speak, which every unsupported-version test uses. Test-only.
 const other_version: u32 = 0xfaceb00c;

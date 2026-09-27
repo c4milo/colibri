@@ -142,8 +142,8 @@ const chapulin_record = @import("chapulin_record.zig");
 const client_exchange = @import("../client/client_exchange.zig");
 
 /// A layer and a session the tests drive, outside any stack frame. Test-only.
-var test_layer: Layer = undefined;
-var test_session: Session = undefined;
+var test_layer: Layer align(@alignOf(Layer)) = undefined;
+var test_session: Session align(@alignOf(Session)) = undefined;
 var test_output: [constants.write_buffer_len]u8 = undefined;
 const test_plans = [_]client_exchange.Plan{.{ .method = "GET", .path = "/", .content_len = 0 }};
 

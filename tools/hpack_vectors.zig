@@ -75,12 +75,12 @@ const Mismatch = struct {
     decode_error: ?anyerror = null,
 };
 
-var last_mismatch: Mismatch = .{};
+var last_mismatch: Mismatch align(@alignOf(Mismatch)) = .{};
 
 /// The contexts a run decodes and encodes in, placed outside any stack frame.
-var decoder: hpack.Decoder = undefined;
-var encoder: hpack.Encoder = undefined;
-var round_trip_decoder: hpack.Decoder = undefined;
+var decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
+var encoder: hpack.Encoder align(@alignOf(hpack.Encoder)) = undefined;
+var round_trip_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 var block_buffer: [block_len_max]u8 = undefined;
 var wire_buffer: [block_len_max]u8 = undefined;
 

@@ -90,7 +90,7 @@ const Fake = struct {
         return 1;
     }
 
-    var table: tls_provider.VTable = undefined;
+    var table: tls_provider.VTable align(@alignOf(tls_provider.VTable)) = undefined;
 
     fn init_table() void {
         table.negotiated_alpn = alpn;

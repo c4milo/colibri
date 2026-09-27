@@ -36,8 +36,8 @@ pub const Counts = struct {
 };
 
 /// The encoder and its buffers, placed outside any stack frame.
-var encoder: qpack.encoder.Encoder = undefined;
-var section: FieldSection = undefined;
+var encoder: qpack.encoder.Encoder align(@alignOf(qpack.encoder.Encoder)) = undefined;
+var section: FieldSection align(@alignOf(FieldSection)) = undefined;
 var section_octets: [constants.section_len_max]u8 = undefined;
 var instruction_octets: [constants.section_len_max]u8 = undefined;
 

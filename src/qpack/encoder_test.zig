@@ -16,10 +16,10 @@ const Encoder = encoder_module.Encoder;
 const Indexing = encoder_module.Indexing;
 
 /// The pair the tests drive, and room for what they write. Test-only.
-var test_encoder: Encoder = undefined;
-var test_decoder: decoder_module.Decoder = undefined;
-var test_section: FieldSection = undefined;
-var decoded_section: FieldSection = undefined;
+var test_encoder: Encoder align(@alignOf(Encoder)) = undefined;
+var test_decoder: decoder_module.Decoder align(@alignOf(decoder_module.Decoder)) = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
+var decoded_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 const test_room: usize = 1024;
 var section_octets: [test_room]u8 = undefined;
 var stream_octets: [test_room]u8 = undefined;

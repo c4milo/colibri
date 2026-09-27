@@ -89,7 +89,7 @@ const Fake = struct {
         return 1;
     }
 
-    var table: tls_provider.VTable = undefined;
+    var table: tls_provider.VTable align(@alignOf(tls_provider.VTable)) = undefined;
 
     fn init_table() void {
         table.negotiated_alpn = alpn;
@@ -104,7 +104,7 @@ const Fake = struct {
 };
 
 /// The connection and buffers the tests use, outside any stack frame. Test-only.
-var test_connection: Connection = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
 var test_plaintext: [test_buffer_len]u8 = undefined;
 var test_output: [test_buffer_len]u8 = undefined;
 const test_buffer_len = 64;

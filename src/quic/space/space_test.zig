@@ -23,7 +23,7 @@ const before_delay_milliseconds: u64 = 5;
 const before_delay_ns: u64 = before_delay_milliseconds * millisecond_ns;
 
 /// The space the tests drive, and where an ACK frame is written. Test-only.
-var test_space: Space = undefined;
+var test_space: Space align(@alignOf(Space)) = undefined;
 const ack_buffer_len = 512;
 var buffer: [ack_buffer_len]u8 = @splat(0);
 

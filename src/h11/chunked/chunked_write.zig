@@ -86,7 +86,7 @@ const chunked = @import("chunked.zig");
 /// The buffer and section the tests use, placed outside any stack frame.
 var test_output: [test_output_len]u8 = undefined;
 const test_output_len = 128;
-var test_trailers: http.FieldSection = undefined;
+var test_trailers: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
 
 test "chunks written decode back to their data and trailers" {
     var length = try write_chunk(&test_output, "Wiki");

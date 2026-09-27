@@ -222,11 +222,11 @@ const Writer = core.Writer;
 
 /// The slot the tests of this file and of `field_block_decode.zig` run on, placed outside any
 /// stack frame. Test-only.
-pub var test_block: FieldBlock = undefined;
+pub var test_block: FieldBlock align(@alignOf(FieldBlock)) = undefined;
 /// The decoder those tests run on. Test-only.
-pub var test_decoder: hpack.Decoder = undefined;
+pub var test_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 /// The encoder those tests build fragments with. Test-only.
-pub var test_encoder: hpack.Encoder = undefined;
+pub var test_encoder: hpack.Encoder align(@alignOf(hpack.Encoder)) = undefined;
 /// One frame of octets the tests write fragments into. Test-only.
 pub var test_frame: [constants.frame_size_max]u8 = @splat('v');
 /// A value as long as a value may be. Test-only.
@@ -363,9 +363,9 @@ test "abandon clears a half-fed block, and the slot takes a new one" {
 }
 
 /// A second slot, fed each fuzzed block in one fragment. Test-only.
-var whole_block: FieldBlock = undefined;
+var whole_block: FieldBlock align(@alignOf(FieldBlock)) = undefined;
 /// The decoder `whole_block` runs on. Test-only.
-var whole_decoder: hpack.Decoder = undefined;
+var whole_decoder: hpack.Decoder align(@alignOf(hpack.Decoder)) = undefined;
 
 /// Feeds a fuzzed block once whole and once cut in two where the fuzzer says, and requires the
 /// two to end the same way (RFC 9113 §4.3: a field block is logically equivalent to one frame).

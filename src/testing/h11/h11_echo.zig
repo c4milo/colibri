@@ -103,8 +103,8 @@ const version_len = "HTTP/1.1".len;
 const testing = std.testing;
 
 /// An echo and a section the tests fill, outside any stack frame. Test-only.
-var test_echo: Echo = undefined;
-var test_section: h11.http.FieldSection = undefined;
+var test_echo: Echo align(@alignOf(Echo)) = undefined;
+var test_section: h11.http.FieldSection align(@alignOf(h11.http.FieldSection)) = undefined;
 
 test "a request is echoed as the Garden's JSON, every value base64-encoded" {
     test_section.init();

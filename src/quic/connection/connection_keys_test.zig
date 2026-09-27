@@ -16,8 +16,8 @@ const Level = core.Level;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
-var test_connection: Connection = undefined;
-var recorder: Recorder = undefined;
+var test_connection: Connection align(@alignOf(Connection)) = undefined;
+var recorder: Recorder align(@alignOf(Recorder)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const local_id_octet: u8 = 0xc1;

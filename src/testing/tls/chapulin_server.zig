@@ -218,7 +218,7 @@ const testing = std.testing;
 
 /// A server the test drives, and an identity of the right lengths that nothing signs with. The
 /// handshake fails before chapulin reads a key. Test-only.
-var test_server: Server = undefined;
+var test_server: Server align(@alignOf(Server)) = undefined;
 var test_receive: [tls_provider.constants.record_write_len_min]u8 = undefined;
 var test_output: [tls_provider.constants.record_write_len_min]u8 = undefined;
 /// Each certificate is an empty DER SEQUENCE. Test-only.

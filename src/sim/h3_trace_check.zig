@@ -240,7 +240,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
 const testing = std.testing;
 
 /// The storage the check test runs in, outside any stack frame.
-var test_storage: Storage = undefined;
+var test_storage: Storage align(@alignOf(Storage)) = undefined;
 
 test "h3 trace run: every seed's requests end, cancelled, rejected or answered, and it settles" {
     var census: Census = .{};

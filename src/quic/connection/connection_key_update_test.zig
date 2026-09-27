@@ -30,13 +30,13 @@ const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 
 /// Where an ACK frame's packets go while RFC 9002 takes them (decision 59). Test-only.
-var recovery_scratch: connection_recovery.Scratch = undefined;
+var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_recovery.Scratch)) = undefined;
 
-pub var test_connection: Connection = undefined;
-pub var suite_holder: build_test.RoundTrip = undefined;
-pub var provider_holder: build_test.Fake = undefined;
-var scratch: packet_build.DefaultScratch = .{};
-var walk: receive.Walk = undefined;
+pub var test_connection: Connection align(@alignOf(Connection)) = undefined;
+pub var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+pub var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
+var scratch: packet_build.DefaultScratch align(@alignOf(packet_build.DefaultScratch)) = .{};
+var walk: receive.Walk align(@alignOf(receive.Walk)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const test_max_data: u64 = 1_048_576;

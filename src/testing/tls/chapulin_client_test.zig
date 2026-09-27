@@ -20,7 +20,7 @@ const alpn_h2 = chapulin_client.alpn_h2;
 
 /// The client the tests drive, placed outside any stack frame: it carries chapulin's session,
 /// which is larger than a stack frame should hold.
-var test_client: Client = undefined;
+var test_client: Client align(@alignOf(Client)) = undefined;
 const test_hostname = "localhost";
 /// An instant inside any certificate a test would use. A constant because no file under `src/`
 /// may read a clock.

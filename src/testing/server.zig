@@ -101,7 +101,7 @@ const Worker = struct {
 };
 
 /// The workers, in static storage: each is large, and there is one per core at most.
-var workers: [constants.workers_max]Worker = undefined;
+var workers: [constants.workers_max]Worker align(@alignOf(Worker)) = undefined;
 
 comptime {
     // The loop's memory leads the struct, so its alignment is the struct's, and every worker
@@ -114,9 +114,9 @@ comptime {
 
 /// The TLS mode's shared state, which `main` loads when `--tls` names an identity, and one TLS
 /// layer per connection slot of the one worker the mode runs.
-var tls_shared: ?server_tls.Shared = null;
-var tls_identity: server_identity.Storage = undefined;
-var tls_layers: [constants.connections_per_worker_max]server_tls.Layer = undefined;
+var tls_shared: ?server_tls.Shared align(@alignOf(server_tls.Shared)) = null;
+var tls_identity: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
+var tls_layers: [constants.connections_per_worker_max]server_tls.Layer align(@alignOf(server_tls.Layer)) = undefined;
 
 /// Runs one worker per core until the process is stopped, every one listening on `port`.
 pub fn listen_and_serve(port: u16) !void {
@@ -354,14 +354,14 @@ fn consume(connection: *Connection, consumed: usize) void {
 }
 
 /// What the command line asked for, which `main` sets before any worker starts.
-var cleartext_protocol: Protocol = .h2;
+var cleartext_protocol: Protocol align(@alignOf(Protocol)) = .h2;
 var listen_address: [server_options.ipv4_octets]u8 = server_options.loopback_octets;
 var echo_mode: bool = false;
 
 /// Where each connection slot of each worker keeps its echo in the `--echo` mode. Apart from the
 /// sessions, so the mode costs every other one nothing, and mapped by the operating system only
 /// when a connection touches it.
-var echoes: [constants.workers_max][constants.connections_per_worker_max]h11_echo.Echo = undefined;
+var echoes: [constants.workers_max][constants.connections_per_worker_max]h11_echo.Echo align(@alignOf(h11_echo.Echo)) = undefined;
 
 /// Runs the server: `zig build http-server -- [options]` (`server_options.zig`).
 pub fn main(init: std.process.Init.Minimal) !void {

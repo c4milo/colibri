@@ -109,7 +109,7 @@ const testing = std.testing;
 
 /// The decoder the tests of this file and of decoder_block.zig run in, placed outside any stack
 /// frame. Test-only.
-pub var test_decoder: Decoder = undefined;
+pub var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
 
 /// Requires `octets` to decode over `test_decoder` to exactly `expected`. Test-only.
 pub fn expect_lines(octets: []const u8, expected: []const Field) !void {

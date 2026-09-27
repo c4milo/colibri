@@ -337,7 +337,7 @@ pub fn run_check(
 const testing = std.testing;
 
 /// The storage the check tests run in, placed outside any stack frame.
-var test_storage: Storage = .zeroed;
+var test_storage: Storage align(@alignOf(Storage)) = .zeroed;
 
 test "connection check: seeds replay, chunking changes no verdict, and traces hash as committed" {
     var census: Census = .{};

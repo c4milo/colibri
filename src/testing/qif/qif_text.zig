@@ -67,7 +67,7 @@ pub fn write_set(writer: *Writer, stream_id: u64, section: *const FieldSection) 
 const testing = std.testing;
 
 /// The section and output the tests fill, placed outside any stack frame. Test-only.
-var test_section: FieldSection = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 const test_room: usize = 256;
 var test_output: [test_room]u8 = undefined;
 

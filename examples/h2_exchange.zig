@@ -56,9 +56,9 @@ pub const Error = error{
 };
 
 // The connections and the link hold tens of kilobytes each, so they live outside the stack.
-var link: Link = undefined;
-var client: Connection = undefined;
-var server: Connection = undefined;
+var link: Link align(@alignOf(Link)) = undefined;
+var client: Connection align(@alignOf(Connection)) = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
 var output: [output_len]u8 = undefined;
 
 pub fn main() !void {

@@ -186,7 +186,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
 const testing = std.testing;
 
 /// The storage the check test runs in, placed outside any stack frame.
-var test_storage: Storage = undefined;
+var test_storage: Storage align(@alignOf(Storage)) = undefined;
 
 test "qpack input check: every edited input is taken or refused, replays, and hashes as committed" {
     var census: Census = .{};

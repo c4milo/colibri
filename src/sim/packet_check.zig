@@ -335,7 +335,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
     assert(census.seeds == seeds);
 }
 
-var check_storage: Storage = .zeroed;
+var check_storage: Storage align(@alignOf(Storage)) = .zeroed;
 
 test "what colibri frames and a suite seals, the peer reads, opens and gets back" {
     var census: Census = .{};

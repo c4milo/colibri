@@ -231,7 +231,9 @@ section when a step adds or renames a command.
   then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG, outside `src/testing`),
   testing-clock (no clock in `src/testing`, decision 63), unbounded-loop,
   relative-import, module-graph, magic-numbers, markdown GFM, file length, rfc-citation
-  (a validation branch with no RFC section comment) and peer-index (invariant 3). Every rule
+  (a validation branch with no RFC section comment), peer-index (invariant 3) and
+  static-alignment (a global states `align(@alignOf(T))`, which Zig 0.16's x86_64 backend needs
+  to place it right). Every rule
   `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it.
 - Test: `zig build test` — depends on `lint`, then every module's unit tests and `golden-check`.
   `zig build test-<module>` runs one target's tests with nothing else in the graph, which is what

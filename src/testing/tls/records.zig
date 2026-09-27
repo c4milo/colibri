@@ -300,8 +300,8 @@ const OneRecordProvider = struct {
 
 /// The records half, the session and the output the test drives, outside any stack frame.
 /// Test-only.
-var test_records: Records = undefined;
-var test_session: session_module.Session = undefined;
+var test_records: Records align(@alignOf(Records)) = undefined;
+var test_session: session_module.Session align(@alignOf(session_module.Session)) = undefined;
 var test_output: [constants.write_buffer_len]u8 = undefined;
 var test_context: u8 = 0;
 /// More steps than the session's frames take records. Test-only.

@@ -68,15 +68,15 @@ const Connection = struct {
 /// The loop and the connections, in static storage: each connection is large, and a run holds up
 /// to the limit of them.
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
-var loop: rotor.Loop = undefined;
-var events: [loop_options.operations]rotor.Event = undefined;
-var connections: [constants.client_connections_max]Connection = undefined;
+var loop: rotor.Loop align(@alignOf(rotor.Loop)) = undefined;
+var events: [loop_options.operations]rotor.Event align(@alignOf(rotor.Event)) = undefined;
+var connections: [constants.client_connections_max]Connection align(@alignOf(Connection)) = undefined;
 
 /// The TLS mode's shared state, which `main` loads when `--tls` names a root, and one TLS layer per
 /// connection.
-var tls_shared: ?client_tls.Shared = null;
-var tls_anchors: client_tls.Anchors = undefined;
-var tls_layers: [constants.client_connections_max]client_tls.Layer = undefined;
+var tls_shared: ?client_tls.Shared align(@alignOf(client_tls.Shared)) = null;
+var tls_anchors: client_tls.Anchors align(@alignOf(client_tls.Anchors)) = undefined;
+var tls_layers: [constants.client_connections_max]client_tls.Layer align(@alignOf(client_tls.Layer)) = undefined;
 
 /// Opens every connection of `run`, serves them until each is closed, and returns how many
 /// finished with every exchange answered.

@@ -18,8 +18,8 @@ const Error = decoder_module.Error;
 const Outcome = decoder_module.Outcome;
 
 /// The decoder the tests drive, the section it fills, and room for what they write.
-var test_decoder: Decoder = undefined;
-var test_section: FieldSection = undefined;
+var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
+var test_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 const test_room: usize = 1024;
 var test_strings: [test_room]u8 = undefined;
 var test_octets: [test_room]u8 = undefined;

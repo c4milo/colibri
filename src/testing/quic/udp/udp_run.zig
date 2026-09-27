@@ -53,17 +53,17 @@ pub const Connection = struct {
     spare_ids_issued: bool,
 };
 
-var memory: udp.Memory = undefined;
-var socket: udp.Endpoint = undefined;
+var memory: udp.Memory align(@alignOf(udp.Memory)) = undefined;
+var socket: udp.Endpoint align(@alignOf(udp.Endpoint)) = undefined;
 /// Sized for the most a server may hold, because `src/` has no heap (CLAUDE.md non-negotiable 4).
 /// `table` is the part in use.
-var connections: [constants.quic_connections_max]Connection = undefined;
-var arguments: udp_arguments.Arguments = undefined;
+var connections: [constants.quic_connections_max]Connection align(@alignOf(Connection)) = undefined;
+var arguments: udp_arguments.Arguments align(@alignOf(udp_arguments.Arguments)) = undefined;
 var slots: [constants.udp_send_slots][constants.quic_datagram_len_max]u8 = undefined;
 var slot_busy: [constants.udp_send_slots]bool = @splat(false);
 /// Where each slot's datagram goes, which its send reads until its event (Rotor's rule 3).
-var slot_outbound: [constants.udp_send_slots]udp.Outbound = undefined;
-var events: [constants.udp_operations_max]udp.Event = undefined;
+var slot_outbound: [constants.udp_send_slots]udp.Outbound align(@alignOf(udp.Outbound)) = undefined;
+var events: [constants.udp_operations_max]udp.Event align(@alignOf(udp.Event)) = undefined;
 /// Whether a connection ended on a connection error, which fails the run unless the server was
 /// asked to expect them (`errors`), and how many did.
 var connection_failed: bool = false;

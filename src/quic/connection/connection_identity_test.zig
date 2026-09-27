@@ -31,7 +31,7 @@ const s2: []const u8 = &s2_storage;
 const s3: []const u8 = &s3_storage;
 const c1: []const u8 = &c1_storage;
 
-var test_identity: Identity = undefined;
+var test_identity: Identity align(@alignOf(Identity)) = undefined;
 
 fn client() void {
     test_identity.init(.{ .local_initial_source = c1, .original_destination = s1 });

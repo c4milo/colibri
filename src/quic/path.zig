@@ -289,7 +289,7 @@ const expanded_len: usize = constants.datagram_len_min;
 const small_len: usize = constants.datagram_len_min - 1;
 
 /// The path the tests drive, and what they measure against. Test-only.
-var test_path: Path = undefined;
+var test_path: Path align(@alignOf(Path)) = undefined;
 const challenge_octet_a = 0xa5;
 const challenge_octet_b = 0x5a;
 const challenge_a: [constants.path_challenge_len]u8 = @splat(challenge_octet_a);

@@ -18,8 +18,8 @@ const fuzz_input_len_max = 96;
 const head_end = "\r\n\r\n";
 
 /// The sections the properties fill, placed outside any stack frame.
-var fuzz_section: FieldSection = undefined;
-var fuzz_trailers: FieldSection = undefined;
+var fuzz_section: FieldSection align(@alignOf(FieldSection)) = undefined;
+var fuzz_trailers: FieldSection align(@alignOf(FieldSection)) = undefined;
 
 /// Reads the input as a request head and as a response head, and checks what each accepts.
 fn fuzz_head(_: void, smith: *Smith) anyerror!void {

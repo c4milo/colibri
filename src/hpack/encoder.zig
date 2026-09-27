@@ -202,7 +202,7 @@ const testing = std.testing;
 const Field = dynamic_table.Field;
 
 /// The encoder the tests run in, placed outside any stack frame.
-var test_encoder: Encoder = undefined;
+var test_encoder: Encoder align(@alignOf(Encoder)) = undefined;
 
 /// Octets of block the tests write. Test-only.
 const test_block_len_max = 256;

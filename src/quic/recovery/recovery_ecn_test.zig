@@ -11,7 +11,7 @@ const EcnCounts = frame_ack.EcnCounts;
 const Removed = recovery_sent.Removed;
 const Verdict = recovery_ecn.Verdict;
 
-var test_state: recovery_ecn.State = undefined;
+var test_state: recovery_ecn.State align(@alignOf(recovery_ecn.State)) = undefined;
 
 /// What an ACK frame newly acknowledged, as the counts §13.4.2.1 reads off it.
 fn acknowledged(ect_0: usize, ect_1: usize) Removed {
@@ -117,7 +117,7 @@ test "RFC 9000 §13.4.2.1: counts larger than what was acknowledged are permitte
     try testing.expectEqual(Verdict.passed, recovery_ecn.validate(&test_state, counts_of(4, 0, 0), acknowledged(1, 0), true));
 }
 
-var test_path: recovery_ecn.Path = undefined;
+var test_path: recovery_ecn.Path align(@alignOf(recovery_ecn.Path)) = undefined;
 
 /// A Probe Timeout the path tests use, and the instant their first marked packet goes out.
 /// Test-only.

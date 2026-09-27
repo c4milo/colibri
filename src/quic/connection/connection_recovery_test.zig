@@ -24,8 +24,8 @@ const Record = recovery_sent.Record;
 const StreamId = stream_module.StreamId;
 const testing = std.testing;
 
-var server: Connection = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
 
 const test_now_ns: u64 = 1_000_000;
 const id_len: usize = 4;
@@ -152,7 +152,7 @@ test "decision 59: an acknowledged packet reaches every piece that waits on one"
 }
 
 /// Where an ACK frame's packets go while RFC 9002 takes them. Test-only.
-var scratch: recovery.Scratch = undefined;
+var scratch: recovery.Scratch align(@alignOf(recovery.Scratch)) = undefined;
 /// When the tests send, and two round trips a path might show. Test-only.
 const sent_at_ns: u64 = 1_000_000_000;
 const round_trip_ns: u64 = 100_000_000;

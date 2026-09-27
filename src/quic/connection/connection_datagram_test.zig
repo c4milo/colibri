@@ -24,12 +24,12 @@ const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 const testing = std.testing;
 
-var client: Connection = undefined;
-var server: Connection = undefined;
-var suite_holder: build_test.RoundTrip = undefined;
-var provider_holder: build_test.Fake = undefined;
-var send_scratch: send.DefaultScratch = .{};
-var scratch: datagram_module.Scratch = undefined;
+var client: Connection align(@alignOf(Connection)) = undefined;
+var server: Connection align(@alignOf(Connection)) = undefined;
+var suite_holder: build_test.RoundTrip align(@alignOf(build_test.RoundTrip)) = undefined;
+var provider_holder: build_test.Fake align(@alignOf(build_test.Fake)) = undefined;
+var send_scratch: send.DefaultScratch align(@alignOf(send.DefaultScratch)) = .{};
+var scratch: datagram_module.Scratch align(@alignOf(datagram_module.Scratch)) = undefined;
 var datagram: [constants.datagram_len_min]u8 = undefined;
 
 const test_now_ns: u64 = 1_000_000;
@@ -261,7 +261,7 @@ const Recorder = struct {
     };
 };
 
-var recorder: Recorder = .{};
+var recorder: Recorder align(@alignOf(Recorder)) = .{};
 /// The client's transport parameters as its ClientHello would carry them (RFC 9001 §8.2).
 var client_body: [constants.datagram_len_min]u8 = undefined;
 
@@ -433,7 +433,7 @@ const RetrySuite = struct {
     };
 };
 
-var retry_suite: RetrySuite = .{};
+var retry_suite: RetrySuite align(@alignOf(RetrySuite)) = .{};
 
 /// A Retry answering the client's first Initial (RFC 9000 §17.2.5.1), written into `datagram`.
 fn write_retry() !usize {

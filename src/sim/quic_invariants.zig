@@ -106,9 +106,9 @@ fn check_path(endpoint: *const Endpoint, octets: []const u8) Violation!void {
 const testing = std.testing;
 
 /// The endpoints a test drives, placed outside any stack frame (decision 35). Test-only.
-var test_client: Endpoint = undefined;
-var test_server: Endpoint = undefined;
-var test_history: History = undefined;
+var test_client: Endpoint align(@alignOf(Endpoint)) = undefined;
+var test_server: Endpoint align(@alignOf(Endpoint)) = undefined;
+var test_history: History align(@alignOf(History)) = undefined;
 const test_now_ns: u64 = 1_000_000;
 
 /// The client's first datagram, which is a real one: its ClientHello in a padded Initial.

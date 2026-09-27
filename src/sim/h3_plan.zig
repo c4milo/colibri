@@ -140,7 +140,7 @@ pub const trailer_line: Line = .{ .name = "x-checksum", .value = "sim" };
 const testing = std.testing;
 
 /// The plan the tests draw, placed outside any stack frame. Test-only.
-var test_plan: Plan = undefined;
+var test_plan: Plan align(@alignOf(Plan)) = undefined;
 
 test "a seed draws the same plan every time, and a 204 carries no content" {
     for (0..constants.check_seeds_default) |seed| {

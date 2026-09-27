@@ -59,7 +59,7 @@ fn write_one(decoder: *Decoder, writer: *Writer, owed: Owed) core.writer.Error!v
 const testing = std.testing;
 
 /// The decoder the tests drive, placed outside any stack frame. Test-only.
-var test_decoder: Decoder = undefined;
+var test_decoder: Decoder align(@alignOf(Decoder)) = undefined;
 /// A table capacity that holds every entry the tests insert, and room for what they write.
 /// Test-only.
 const test_capacity: u64 = 220;
