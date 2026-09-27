@@ -220,6 +220,10 @@ Every change design §8 step 16b asked of chapulin is in:
 - `157d2ac`, which colibri did not ask for, has each driver write a failed handshake's alert
   itself: in the clear before the failing side's write key is installed, sealed after it. It drops
   `ch_record_alert`. colibri's sessions count the alert in `failure_written`.
+- `19d6a13` sends a KeyUpdate before an AES-GCM write key reaches 2^24 records, under RFC 9846
+  §5.5's limit of 2^24.5. `ch_writable_len` counts the 27-octet record, and colibri's
+  `encrypt_record` sizes every write through it. A KeyUpdate the caller starts over TCP is not
+  offered, so `initiate_key_update` answers `Unsupported` there.
 
 **A caller that buffers no whole record has no way to say so.** `ch_read` and `ch_write` call
 `cfg.recv` and `cfg.send`, which return 1..n bytes or -1, so a caller must hold the bytes before

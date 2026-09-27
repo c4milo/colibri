@@ -4725,6 +4725,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     counted as final, a final response or a request not recorded, either field-line check
     removed, trailers without END_STREAM, and each arm of `ended_stream` wrong.
 
+  **chapulin `0adcf33`, 2026-09-27.** The pin moved to chapulin `0adcf33`, whose `19d6a13` sends
+  a KeyUpdate before an AES-GCM write key reaches 2^24 records, under RFC 9846 §5.5's limit of
+  2^24.5. colibri changes nothing: `encrypt_record` sizes each write with `writableLen`, which
+  counts the 27-octet KeyUpdate, and `initiate_key_update` stays `Unsupported` over TCP.
+
+  What each check printed, on macOS arm64, at `b31bce6`, whose code `0adcf33` keeps: it changes one
+  proof floor. `zig build test`: 1970 of 1970 tests; `zig build test-tls test-tls-keylog
+  -Dcpu=generic`: 88 of 88. The two TLS checks, h2spec's 144 in cleartext
+  and over TLS, the h2 and h11 interop scripts with `--tls`, `tools/consumer_check.sh` and
+  `tools/quic_udp.sh`: ok.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
