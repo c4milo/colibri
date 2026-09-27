@@ -48,6 +48,8 @@ pub const NullProvider = struct {
     alert_held: ?tls_provider.AlertReport = null,
     /// Whether `send_close_notify` has already written its record (RFC 9846 §6.1).
     close_sent: bool = false,
+    /// Key updates `initiate_key_update` has written, which RFC 9846 §4.7.3 caps.
+    key_updates_sent: u64 = 0,
 
     /// The vtable, filled once and shared. Every connection in a run uses the same one, which is
     /// what `Provider.vtable` being read-only is for.
@@ -165,10 +167,15 @@ pub const NullProvider = struct {
         request: tls_provider.provider.KeyUpdateRequest,
         output: []u8,
     ) tls_provider.provider.KeyUpdateError!usize {
-        _ = context;
+        const self = of(context);
+        assert(self.key_updates_sent <= tls_provider.constants.key_updates_max);
+        // RFC 9846 §4.7.3: a sender MUST NOT let its count of key updates exceed 2^48-1.
+        if (self.key_updates_sent == tls_provider.constants.key_updates_max) return error.EpochExhausted;
         // RFC 9846 §4.7.3: the KeyUpdate message carries the request as its one octet.
         const body = [_]u8{ @intFromEnum(HandshakeType.key_update), @intFromEnum(request) };
-        return write_record(output, .handshake, &body) catch error.NoSpaceLeft;
+        const written = write_record(output, .handshake, &body) catch return error.NoSpaceLeft;
+        self.key_updates_sent += 1;
+        return written;
     }
 
     fn export_keying_material(
@@ -357,4 +364,34 @@ test "the exporter is the member a provider without one refuses" {
         error.Unsupported,
         view.vtable.export_keying_material(view.context, "label", null, &secret),
     );
+}
+
+test "§4.7.3: the last key update is written, and the one past the cap is refused" {
+    NullProvider.install();
+    var endpoint: NullProvider = .{ .key_updates_sent = tls_provider.constants.key_updates_max - 1 };
+    const view = endpoint.provider();
+    var output: [tls_provider.constants.record_write_len_min]u8 = undefined;
+    const written = try view.vtable.initiate_key_update(view.context, .update_not_requested, &output);
+    try testing.expect(written > 0);
+    try testing.expectEqual(tls_provider.constants.key_updates_max, endpoint.key_updates_sent);
+    try testing.expectError(
+        error.EpochExhausted,
+        view.vtable.initiate_key_update(view.context, .update_requested, &output),
+    );
+    // The refusal leaves the count and the connection as they were: records still go out.
+    try testing.expectEqual(tls_provider.constants.key_updates_max, endpoint.key_updates_sent);
+    const sealed = try view.vtable.encrypt_record(view.context, "after", &output);
+    try testing.expectEqual("after".len, sealed.consumed);
+}
+
+test "§4.7.3: a key update that does not fit counts nothing" {
+    NullProvider.install();
+    var endpoint: NullProvider = .{};
+    const view = endpoint.provider();
+    var output: [header_len]u8 = undefined;
+    try testing.expectError(
+        error.NoSpaceLeft,
+        view.vtable.initiate_key_update(view.context, .update_not_requested, &output),
+    );
+    try testing.expectEqual(0, endpoint.key_updates_sent);
 }

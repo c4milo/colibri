@@ -47,7 +47,8 @@ pub const SealError = error{
     HandshakeIncomplete,
     /// RFC 9846 §5.5's usage limit for the AEAD is reached. §5.5 requires the provider to close
     /// or update before this, so it is a backstop: the recovery is `initiate_key_update` and a
-    /// retry, which is why it is not `TlsFailed`.
+    /// retry, which is why it is not `TlsFailed`. When that call answers `EpochExhausted`, no
+    /// update is left and the connection has to close.
     KeyExhausted,
 };
 
@@ -73,6 +74,11 @@ pub const KeyUpdateError = error{
     HandshakeIncomplete,
     /// The provider does not offer key updates.
     Unsupported,
+    /// RFC 9846 §4.7.3: this sender has made `constants.key_updates_max` key updates, and one more
+    /// would pass the cap. Nothing was written and the sending keys did not change, so the
+    /// connection goes on under them. It is not `TlsFailed`, which ends the connection, and not
+    /// `Unsupported`, which says the provider offers no key updates at all.
+    EpochExhausted,
 };
 
 /// Why a provider did not export keying material (RFC 9846 §7.5).
@@ -107,7 +113,8 @@ pub const Content = enum {
     /// RFC 9113 §9.2.3 permits it after the handshake, and h2 does nothing with it.
     new_session_ticket,
     /// RFC 9113 §9.2.3 permits it. RFC 9846 §4.7.3 may require an answering KeyUpdate, which
-    /// `handshake_write` carries.
+    /// `handshake_write` carries. A provider at §4.7.3's cap ignores the request and carries
+    /// nothing, as that section says it SHOULD, and the connection goes on.
     key_update,
     /// RFC 9113 §9.2.3: an HTTP/2 client MUST treat a post-handshake CertificateRequest as a
     /// connection error of type PROTOCOL_ERROR.

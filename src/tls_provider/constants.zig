@@ -41,6 +41,10 @@ pub const cipher_suites_admitted = [_]u16{
 /// RFC 7301 §3.1: a ProtocolName is `opaque ProtocolName<1..2^8-1>`, so it is at most 255 octets.
 pub const alpn_protocol_name_len_max: u32 = 255;
 
+/// RFC 9846 §4.7.3: a sender MUST NOT let its epoch, and so its count of key updates, exceed
+/// 2^48-1. A receiver MUST NOT enforce it, so this binds what a provider sends alone.
+pub const key_updates_max: u64 = (1 << 48) - 1;
+
 /// RFC 9113 §3.1: the "h2" protocol identifier, serialized as the two octets 0x68 and 0x32.
 pub const alpn_h2: [2]u8 = .{ 0x68, 0x32 };
 

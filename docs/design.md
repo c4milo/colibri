@@ -1255,6 +1255,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Every check step 5 names has passed, and the step owes nothing more.
 
+  **The KeyUpdate cap, 2026-09-26** ([#19](https://github.com/c4milo/colibri/issues/19)). RFC 9846
+  §4.7.3 forbids a sender more than 2^48-1 key updates, which `tls_provider.constants` names
+  `key_updates_max`. A provider that lets its caller start a key update now has an answer for the
+  cap: `KeyUpdateError.EpochExhausted`. It means nothing was written and the keys did not change,
+  so the connection goes on; `TlsFailed` would end the connection and `Unsupported` would be false.
+  colibri itself never starts a key update, and at the cap a provider ignores a peer's
+  `update_requested` and owes no reply, which `handshake_write` already reports by writing nothing.
+  chapulin does that at `handshake_post.c` and has no call that starts one, so its adapter answers
+  `Unsupported` as before. The null provider now counts its key updates and refuses at the cap.
+  Mutations of that count, each **CAUGHT** by a §4.7.3 test in `null_provider.zig`: a cap never
+  reached, the cap reported as `TlsFailed`, an update not counted, and an update counted before it
+  fits its output.
+
 - **Step 6 — the counted-cost check.** Syscalls the caller would have made, copies and bytes per
   request, counted inside the simulator and committed as exact numbers. Allocations are not
   counted: [decision 35](decisions.md#memory) makes them zero, and `tools/lint/heap.zig` holds
