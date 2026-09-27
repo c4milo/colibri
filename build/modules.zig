@@ -368,9 +368,9 @@ pub fn link_chapulin_all(graph: Modules, chapulin: Chapulin) void {
     link_chapulin(graph.testing_quic, chapulin.quic);
 }
 
-/// One object and the module translated from its headers, which `src/testing/` imports as
-/// `chapulin`.
+/// One object's module, which `src/testing/` imports as `chapulin`: chapulin's Zig API, with the
+/// translated headers as its `c`. The module carries the object, so it is linked once through the
+/// import; a second `addObjectFile` would define every symbol twice.
 fn link_chapulin(module: *std.Build.Module, dependency: *std.Build.Dependency) void {
     module.addImport("chapulin", dependency.module("chapulin"));
-    module.addObjectFile(dependency.namedLazyPath("chapulin.o"));
 }

@@ -34,7 +34,7 @@ var retry_source_id: [id_len]u8 = undefined;
 var retry: chapulin_quic_suite.Retry align(@alignOf(chapulin_quic_suite.Retry)) = undefined;
 var cookie_storage: [cookie_key_len]u8 = undefined;
 /// The key the server seals its session tickets under (chapulin's decision 51).
-var ticket_key_storage: [c.SRV_TICKET_KEY_LEN]u8 = undefined;
+var ticket_key_storage: [c.CH_SRV_TICKET_KEY_LEN]u8 = undefined;
 var chain_storage: [constants.quic_chain_len_max][constants.tls_der_len_max]u8 = undefined;
 var chain: [constants.quic_chain_len_max][]const u8 = undefined;
 var private_storage: [private_scalar_len]u8 = undefined;

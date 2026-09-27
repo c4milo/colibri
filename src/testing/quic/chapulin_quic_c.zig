@@ -21,7 +21,7 @@ const check_file = @import("../tls/check_file.zig");
 const entropy = @import("../entropy.zig");
 
 /// chapulin's own declarations, translated from its headers by its package rather than copied.
-pub const c = @import("chapulin");
+pub const c = @import("chapulin").c;
 
 pub const BuildError = error{
     /// The linked object was built with other defines than the ones its headers were translated

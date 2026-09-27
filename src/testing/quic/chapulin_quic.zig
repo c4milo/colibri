@@ -236,7 +236,7 @@ pub const Session = struct {
         session.config.srv.cookie_key = identity.cookie_key.ptr;
         session.config.srv.on_crypto_out = on_crypto_out;
         const ticket_key = identity.ticket_key orelse return;
-        assert(ticket_key.len == c.SRV_TICKET_KEY_LEN);
+        assert(ticket_key.len == c.CH_SRV_TICKET_KEY_LEN);
         session.config.srv.ticket_key = ticket_key.ptr;
         session.config.srv.now_seconds = identity.now_seconds;
     }

@@ -24,7 +24,7 @@ const entropy = @import("../entropy.zig");
 /// chapulin's own declarations, translated from its headers by its package rather than copied. A
 /// struct chapulin grows grows here with it, and a signature it changes stops this build rather
 /// than passing the wrong octets.
-pub const c = @import("chapulin");
+pub const c = @import("chapulin").c;
 
 pub const BuildError = error{
     /// The linked object was built with other defines than the ones its headers were translated

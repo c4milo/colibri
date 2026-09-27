@@ -301,9 +301,11 @@ section when a step adds or renames a command.
   the QUIC endpoints: `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256,
   `KEYLOG=on` hands the checks the traffic secrets, and `CH_NATIVE_AES` is the builder's statement
   that the part's AES instructions run in constant time (decision 85, chapulin's INV-26). The
-  package translates chapulin's public headers under the object's own defines into the module
-  `chapulin`, which `src/testing/` imports, and each endpoint still calls `ch_build_matches` before
-  anything else. Each image defines chapulin's hooks: `ch_rand_bytes` from `getentropy`
+  package exports each object's module `chapulin`: chapulin's Zig API (its `docs/zig.md`), which
+  carries the object, with the public headers translated under the object's own defines as its
+  `c`. `src/testing/` imports that `c` until step 16b moves the adapters onto the API, and each
+  endpoint still calls `ch_build_matches` before anything else. Because the module carries the
+  object, nothing else may add it: a second copy fails the link. Each image defines chapulin's hooks: `ch_rand_bytes` from `getentropy`
   (`src/testing/entropy.zig`), `ch_assert_fail`, and `ch_keylog` beside the QUIC object. A bump is
   `zig fetch --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`, and `.lazy = true`
   must survive it.

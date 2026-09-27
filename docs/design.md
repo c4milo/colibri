@@ -4233,6 +4233,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/ci.sh` runs the TLS and QUIC checks on every push.
   - chapulin's module at `8a813e2` lacked `SRV_TICKET_KEY_LEN`, which its `srv_cfg.h` names but
     `srv_ticket.h` defined. chapulin `64e2f25` defines it and `SRV_COOKIE_KEY_LEN` in `srv_cfg.h`.
+  - The pin moved to chapulin `13f4692` on 2026-09-26, once its Zig API landed (`797fc73`). The
+    module `chapulin` is now that API and carries the object, so `link_chapulin` no longer adds the
+    object itself, and `src/testing/` imports the translated headers as `chapulin.c`. The key
+    lengths are `CH_SRV_TICKET_KEY_LEN` and `CH_SRV_COOKIE_KEY_LEN` (chapulin `3ecd148`). The
+    adapters still call the C API; 16b moves them onto the Zig one. On macOS arm64 at the new pin:
+    `zig build test` passes; `tools/tls_handshake.sh`, `tools/tls_accept.sh`,
+    `tools/quic_loopback.sh`, `tools/quic_udp.sh`, `tools/quic_aioquic.sh` and `tools/h3spec.sh`
+    pass; `tools/h2spec.sh 18443 --tls` passes 144 of 146 both ways, the 2 skipped by name; and the
+    h2 and h11 interop scripts pass in both directions over TLS.
 
   What each check printed, on macOS arm64 with no chapulin option passed:
   - `zig build test`: 1941 of 1941 tests, none skipped; before, 1823 of 1893 with 70 skipped for
