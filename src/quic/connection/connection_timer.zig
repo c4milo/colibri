@@ -59,7 +59,7 @@ pub fn next(connection: *Connection) ?Deadline {
     var earliest = of(connection_recovery.loss_deadline_ns(connection), .loss);
     earliest = nearer(earliest, of(connection.termination.idle_deadline_ns(idle_probe_timeout_ns(connection)), .idle));
     earliest = nearer(earliest, of(connection.termination.period_deadline_ns(), .period));
-    earliest = nearer(earliest, of(migration.challenge_deadline_ns(connection), .path));
+    earliest = nearer(earliest, of(challenge_deadline_ns(connection), .path));
     earliest = nearer(earliest, of(key_update.previous_keys_deadline_ns(connection), .previous_keys));
     earliest = nearer(earliest, of(acknowledgment_deadline_ns(connection), .acknowledgment));
     earliest = nearer(earliest, of(connection_flow.blocked_deadline_ns(connection), .blocked));
@@ -81,8 +81,19 @@ fn pacing_deadline_ns(connection: *const Connection) ?u64 {
 /// every ack-eliciting Initial and Handshake packet acknowledged "immediately", which
 /// `Space.receive` records, so those two are owed at once and want no timer for it.
 fn acknowledgment_deadline_ns(connection: *const Connection) ?u64 {
+    // RFC 9000 §10.2.1: a closing endpoint "retains only enough information to generate a
+    // packet containing a CONNECTION_CLOSE frame", and a draining one sends nothing, so neither
+    // owes an ACK. A deadline `send` cannot meet would come due again at every instant.
+    if (connection.termination.state != .active) return null;
     const space = &connection.spaces[@intFromEnum(core.Level.application)];
     return space.ack_deadline_ns(connection.max_ack_delay_ns());
+}
+
+/// The instant the PATH_CHALLENGE this endpoint waits on times out or is owed again (RFC 9000
+/// §8.2.4), or null. RFC 9000 §10.2.1: a closing or draining connection validates no path.
+fn challenge_deadline_ns(connection: *const Connection) ?u64 {
+    if (connection.termination.state != .active) return null;
+    return migration.challenge_deadline_ns(connection);
 }
 
 /// What the instant set off. More than one can come due at once, so this is a set and not a

@@ -236,6 +236,18 @@ test "RFC 9000 §13.2.1: an unacknowledged ack-eliciting packet is a deadline of
     try testing.expectEqual(timer.Kind.idle, next().?.kind);
 }
 
+test "RFC 9000 §10.2.1: a closing connection owes no ACK and no PATH_CHALLENGE, so its period is next" {
+    open_connection(idle_timeout_ms);
+    _ = test_connection.space_at(.application).receive(0, test_now_ns, true, .not_ect);
+    test_connection.path.on_challenge_sent(challenge_data, constants.datagram_len_min, test_now_ns, challenge_timeout_ns);
+    try testing.expectEqual(timer.Kind.path, next().?.kind);
+    const probe_timeout_ns = test_connection.recovery.rtt.probe_timeout_ns(true);
+    test_connection.termination.on_close_sent(test_now_ns, probe_timeout_ns);
+    const deadline = next().?;
+    try testing.expectEqual(timer.Kind.period, deadline.kind);
+    try testing.expectEqual(test_connection.termination.period_deadline_ns().?, deadline.at_ns);
+}
+
 test "RFC 9000 §10.1: an idle timeout shorter than three Probe Timeouts waits for three" {
     const short_ms: u64 = 1;
     open_connection(short_ms);
