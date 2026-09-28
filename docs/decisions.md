@@ -2796,7 +2796,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      at each place a connection logs.
 
 103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
-     response body until the server reports it done.** Ruled by the owner on 2026-09-28, for
+     response body until the server reports it done.** Ruled by the owner on 2026-09-27, for
      design §8 step 17b and [#70](https://github.com/c4milo/colibri/issues/70).
      - A `server.Endpoint` holds up to a build-time number of QUIC connections. It routes each
        datagram by its first packet's Destination Connection ID (RFC 9000 §5.2), starts a
@@ -2823,7 +2823,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      the server's events for every version.
 
 104. **An h2 connection model, and a trace check of colibri's h2 against it.** Ruled by the owner
-     on 2026-09-28, for [#75](https://github.com/c4milo/colibri/issues/75), after c32cabe found that
+     on 2026-09-27, for [#75](https://github.com/c4milo/colibri/issues/75), after c32cabe found that
      h2's `write_data` let a server send DATA before its response's head (RFC 9113 §8.1). It comes
      before design §8 step 17b.
      - `spec/tla/h2_connection` models a colibri client and server over one connection. It holds

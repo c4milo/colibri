@@ -4841,7 +4841,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **17f**, what a dependent reads: an example of each module, docs/usage.md, and a release.
     **Check:** `zig build examples` and `tools/doc_snippets.sh` pass.
 
-  **17a, 2026-09-28.** `src/server/` is the `server` module, exported by name. It imports `core`,
+  **17a, 2026-09-27.** `src/server/` is the `server` module, exported by name. It imports `core`,
   `http`, `h11`, `h2`, `tls` and `tls_provider`.
   - A `Connection` serves one TCP connection. `receive(input, now_ns)` takes the octets the
     transport read and returns at most one event: a request's head, octets of its content, its
@@ -4873,7 +4873,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - §9's h11 and h2 server runs each connection on `server` (`src/testing/server_session.zig`),
     in place of its own record half and protocol sessions.
 
-  **17a check,** run on macOS 26.6.2 arm64 on 2026-09-28, the peers in Docker where the scripts
+  **17a check,** run on macOS 26.6.2 arm64 on 2026-09-27, the peers in Docker where the scripts
   put them:
   - `tools/h2spec.sh 18443 --tls`: h2spec 2.6.0 passed 144 of 146 cases in cleartext and 144 of
     146 over TLS. The two it fails are the cases the script names as skipped: RFC 7540 §5.3.1's
