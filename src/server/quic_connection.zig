@@ -305,7 +305,9 @@ pub const QuicConnection = struct {
         // stream QUIC grants for it finds a record free (RFC 9000 §4.6).
         quic_connection_h3.settle(connection);
         // RFC 9000 §10: once the connection stops being active, no request is read or answered.
-        if (connection.transport.termination.state != .active and !connection.stopped) connection.fail();
+        // The peer closed it, or it went idle, and neither is a failure this side found: the
+        // endpoint's `ended` reports it once its closing or draining period is over.
+        if (connection.transport.termination.state != .active and !connection.stopped) connection.stop();
     }
 
     /// Issues spare connection IDs once the handshake is confirmed, as many as the peer's
@@ -342,22 +344,27 @@ pub const QuicConnection = struct {
         connection.started = true;
     }
 
-    /// Ends the connection on a failure: no request is read or answered from here on, QUIC's
-    /// CONNECTION_CLOSE still goes out, and the next `receive` fails once.
+    /// Stops the connection: no request is read or answered from here on, and no stream reads the
+    /// caller's octets again, because a connection that is not active sends none (RFC 9000
+    /// §10.2.1).
+    fn stop(connection: *QuicConnection) void {
+        connection.stopped = true;
+        connection.owed.clear();
+        for (&connection.requests.records) |*record| record.in_use = false;
+    }
+
+    /// Ends the connection on a failure: it stops, QUIC's CONNECTION_CLOSE still goes out, and
+    /// the next `receive` fails once.
     pub fn fail(connection: *QuicConnection) void {
         if (connection.stopped) return;
-        connection.stopped = true;
+        connection.stop();
         connection.failure_owed = true;
-        connection.owed.clear();
         const transport = &connection.transport;
         // RFC 9000 §10.2: an active connection that ends owes its CONNECTION_CLOSE, unless h3 or
         // QUIC already owes one. RFC 9000 §20.1: with no more specific code, INTERNAL_ERROR.
         if (transport.termination.state == .active and !quic.connection_close.owes(transport)) {
             quic.connection_close.owe(transport, quic.connection_close.transport(quic.error_code.internal_error, null));
         }
-        // RFC 9000 §10.2.1: a closing connection sends only its CONNECTION_CLOSE, so no stream
-        // reads the caller's octets again.
-        for (&connection.requests.records) |*record| record.in_use = false;
     }
 };
 
