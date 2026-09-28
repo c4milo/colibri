@@ -115,6 +115,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "tls", .module = graph.tls },
         .{ .name = "tls-keylog", .module = graph.tls_keylog },
         .{ .name = "server", .module = graph.server },
+        .{ .name = "client", .module = graph.client },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "sim-run-quic", .module = graph.sim_run_quic },

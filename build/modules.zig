@@ -55,6 +55,9 @@ pub const Modules = struct {
     /// HTTP responses behind one set of calls for h11 and h2, which runs the TLS handshake itself
     /// (decision 100, design §8 step 17a).
     server: *std.Build.Module,
+    /// HTTP requests behind one set of calls for h11 and h2, which runs the TLS handshake itself
+    /// (decision 100, design §8 step 17c).
+    client: *std.Build.Module,
     /// The TCP object `tls` links. `src/testing/`'s TCP endpoints link it too, because two objects
     /// of one transport define the same names.
     chapulin_tcp: *std.Build.Dependency,
@@ -179,6 +182,15 @@ pub fn add(
     server.addImport("h2", h2);
     server.addImport("tls", tls);
     server.addImport("tls_provider", tls_provider);
+    // Decision 100: `client` sends requests over h11 and h2 behind one set of calls, and drives
+    // `tls` itself, as `server` does.
+    const client = library(b, "client", target, optimize);
+    client.addImport("core", core);
+    client.addImport("http", http);
+    client.addImport("h11", h11);
+    client.addImport("h2", h2);
+    client.addImport("tls", tls);
+    client.addImport("tls_provider", tls_provider);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
@@ -302,6 +314,7 @@ pub fn add(
         .h11 = h11,
         .tls = tls,
         .server = server,
+        .client = client,
         .chapulin_tcp = chapulin_tcp,
         .tls_keylog = tls_keylog,
         .chapulin_quic_keylog = chapulin_quic_keylog,

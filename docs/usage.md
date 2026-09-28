@@ -22,7 +22,7 @@ exe.root_module.addImport("http", colibri.module("http"));
 exe.root_module.addImport("h2", colibri.module("h2"));
 ```
 
-The library is thirteen modules, each exported by name:
+The library is fifteen modules, each exported by name:
 
 | Module | What it holds |
 | --- | --- |
@@ -32,6 +32,7 @@ The library is thirteen modules, each exported by name:
 | `tls_provider` | The `tls_provider.Provider` and `tls_provider.QuicProvider` vtables a TLS stack fills |
 | `tls` | TLS 1.3 over [chapulin](https://github.com/c4milo/chapulin): the values you set, and the sessions whose provider h11 and h2 take |
 | `crypto` | The `crypto.Suite` vtable that protects QUIC packets |
+| `qlog` | A qlog log in the caller's buffer, which `quic` and `h3` fill when the caller asks ([decision 102](decisions.md)) |
 | `hpack` | HPACK (RFC 7541) |
 | `qpack` | QPACK (RFC 9204) |
 | `quic` | QUIC version 1 (RFC 9000, 9001, 9002). It imports no HTTP module. |
@@ -39,6 +40,7 @@ The library is thirteen modules, each exported by name:
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
 | `server` | Responses to h11 and h2 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC follows (design §8 step 17b). |
+| `client` | Requests over h11 and h2 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC and the choice between the transports follow (design §8 step 17d). |
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
