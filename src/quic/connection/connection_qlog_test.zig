@@ -14,6 +14,7 @@ const send = @import("connection_send.zig");
 const close_module = @import("connection_close.zig");
 const datagram_module = @import("connection_datagram.zig");
 const connection_qlog = @import("connection_qlog.zig");
+const connection_timer = @import("connection_timer.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
 
 const Level = core.Level;
@@ -46,6 +47,15 @@ const peer_octet: u8 = 0x51;
 const local_id: [id_len]u8 = @splat(local_octet);
 const peer_id: [id_len]u8 = @splat(peer_octet);
 const schemas = [_][]const u8{qlog.quic_event_schema};
+/// Probes enough for RFC 9002 §6.1.1's packet threshold of three to lose the first when the last
+/// is acknowledged. Test-only.
+const threshold_probes: usize = 4;
+/// The server acknowledges the last probe 5 ms after the probes left at `later_ns`, and the client
+/// reads the acknowledgment 5 ms later, a round trip of 10 ms. Test-only.
+const ack_sent_ns: u64 = 7_500_000;
+const ack_read_ns: u64 = 12_500_000;
+/// Past RFC 9002 §6.1.2's time threshold for the probes, 9/8 of that round trip. Test-only.
+const past_loss_time_ns: u64 = 22_500_000;
 /// A frame type RFC 9000 §12.4 does not define: the one after the last of Table 3.
 const unknown_frame_type: u8 = constants.frame_handshake_done + 1;
 
@@ -202,6 +212,40 @@ test "a frame that does not parse ends a packet's frame list, and the packet is 
     // Both packets are logged, each with the PING a reader could follow.
     try testing.expectEqual(2, count_of(&server_log, "\"frames\":[{\"frame_type\":\"ping\"}]}}\n"));
     try testing.expectEqual(0, server_log.dropped);
+}
+
+test "a lost packet is logged with its cause, when one cause alone explains it" {
+    try open_pair(&.{.handshake});
+    var last: send.Sent = undefined;
+    for (0..threshold_probes) |_| {
+        send.owe_probes(&client, .handshake, 1);
+        last = try send_from(&client, later_ns);
+    }
+    // The server reads the last probe alone, and its ACK names that one.
+    _ = try receive(&server, last.len, ack_sent_ns);
+    const ack = try send_from(&server, ack_sent_ns);
+    _ = try receive(&client, ack.len, ack_read_ns);
+    // Either threshold may declare a packet an ACK reveals lost, so no cause is logged.
+    try expect_record(&client_log, "\"name\":\"quic:packet_lost\",\"data\":{\"header\":" ++
+        "{\"packet_type\":\"handshake\",\"packet_number\":0}}}\n");
+    // The two between wait for the time threshold, which the loss timer is set for.
+    _ = try connection_timer.on_instant(&client, suite_holder.suite(), &scratch.recovery, past_loss_time_ns);
+    try expect_record(&client_log, "\"packet_number\":1},\"trigger\":\"time_threshold\"}}\n");
+    try expect_record(&client_log, "\"packet_number\":2},\"trigger\":\"time_threshold\"}}\n");
+    try testing.expectEqual(3, count_of(&client_log, "quic:packet_lost"));
+}
+
+test "a probe timeout logs the packets it declares lost, and counts itself" {
+    try open_pair(&.{.handshake});
+    send.owe_probes(&client, .handshake, 1);
+    _ = try send_from(&client, later_ns);
+    const deadline = connection_timer.next(&client).?;
+    try testing.expectEqual(connection_timer.Kind.loss, deadline.kind);
+    _ = try connection_timer.on_instant(&client, suite_holder.suite(), &scratch.recovery, deadline.at_ns);
+    // Decision 64 declares every Handshake packet in flight lost on a probe timeout.
+    try expect_record(&client_log, "\"name\":\"quic:packet_lost\",\"data\":{\"header\":" ++
+        "{\"packet_type\":\"handshake\",\"packet_number\":0},\"trigger\":\"pto_expired\"}}\n");
+    try expect_record(&client_log, "\"pto_count\":1");
 }
 
 test "a packet that does not open is logged as dropped, with the octets it held" {

@@ -4954,7 +4954,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Delay exponent; two drop triggers; the version's byte order; the initiator of a connection's
     own parameters; a sent close's code; and a frame that does not parse, which was NOT CAUGHT
     until its test was written.
-  - Not built yet: `packet_lost`, and the simulator check that a log changes no census.
+  - Each packet recovery declares lost is logged as `packet_lost`: with `time_threshold` from the
+    loss timer, with `pto_expired` from a probe timeout (RFC 9002 §6.2.4), and with no trigger
+    from an ACK, where either threshold of §6.1 could have declared it. 2 tests, and 5 mutations,
+    each CAUGHT by `zig build test-quic`: each of the three triggers, the ACK's losses logged at
+    all, and the lost packet's number.
+  - Not built yet: the simulator check that a log changes no census.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

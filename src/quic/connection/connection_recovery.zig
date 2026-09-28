@@ -30,6 +30,7 @@ const connection_crypto = @import("connection_crypto.zig");
 const connection_flow = @import("connection_flow.zig");
 const connection_handshake = @import("connection_handshake.zig");
 const connection_id_frames = @import("connection_id_frames.zig");
+const connection_qlog = @import("connection_qlog.zig");
 const stream_recovery = @import("connection_stream/connection_stream_recovery.zig");
 
 const Level = core.Level;
@@ -89,7 +90,10 @@ pub fn on_ack_received(
     // Each list holds a whole table, so no packet is left unreported.
     assert(outcome.unwritten == 0 and outcome.lost.unwritten == 0);
     const acknowledged = on_packets_acknowledged(connection, level, scratch.acknowledged[0..outcome.written], scratch.completed[completed_from..]);
-    try on_packets_lost(connection, level, scratch.lost[0..outcome.lost.written]);
+    const lost = scratch.lost[0..outcome.lost.written];
+    // Either threshold of RFC 9002 §6.1 may have declared each of these, so no cause is logged.
+    connection_qlog.on_packets_lost(connection, level, lost, null, now_ns);
+    try on_packets_lost(connection, level, lost);
     return acknowledged.written;
 }
 
@@ -114,23 +118,26 @@ pub fn on_loss_timer(connection: *Connection, now_ns: u64, scratch: *Scratch) Er
         .lost => |lost| {
             // The list holds a whole table, so no packet is left unreported.
             assert(lost.found.unwritten == 0);
-            try on_packets_lost(connection, level_of(lost.space), scratch.lost[0..lost.found.written]);
+            const declared = scratch.lost[0..lost.found.written];
+            // RFC 9002 §6.1.2: the timer was set for the time threshold.
+            connection_qlog.on_packets_lost(connection, level_of(lost.space), declared, .time_threshold, now_ns);
+            try on_packets_lost(connection, level_of(lost.space), declared);
         },
-        .probe => |probe| try on_probe_timeout(connection, probe.space, probe.count, scratch),
+        .probe => |probe| try on_probe_timeout(connection, probe.space, probe.count, scratch, now_ns),
     }
     return true;
 }
 
 /// RFC 9002 §6.2.4's probes: `count` in the space whose timer expired, and one in each other
 /// space with ack-eliciting packets in flight (decision 70), which `send` coalesces.
-fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch) Error!void {
-    try owe_probes(connection, kind, count, scratch);
+fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch, now_ns: u64) Error!void {
+    try owe_probes(connection, kind, count, scratch, now_ns);
     // Bounded by the three spaces of RFC 9000 §12.3.
     for (std.enums.values(space_module.Kind)) |other| {
         // RFC 9002 §6.2.4: "the sender SHOULD send ack-eliciting packets from other packet number
         // spaces with in-flight data, coalescing packets if possible."
         if (other == kind or connection.recovery.table_of(other).ack_eliciting_count() == 0) continue;
-        try owe_probes(connection, other, 1, scratch);
+        try owe_probes(connection, other, 1, scratch, now_ns);
     }
 }
 
@@ -138,13 +145,16 @@ fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8,
 /// Handshake levels decision 64 declares every packet in flight lost, so the probes carry their
 /// CRYPTO octets. At the application level decision 66 declares the oldest ack-eliciting ones
 /// lost, one for each probe owed.
-fn owe_probes(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch) Error!void {
+fn owe_probes(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch, now_ns: u64) Error!void {
     const level = level_of(kind);
     const lost_count = if (level == .application)
         connection.recovery.declare_oldest_lost(kind, count, &scratch.lost)
     else
         declare_all_lost(connection, kind, scratch);
-    try on_packets_lost(connection, level, scratch.lost[0..lost_count]);
+    const lost = scratch.lost[0..lost_count];
+    // RFC 9002 §6.2.4 lets a sender whose PTO expired "mark any packets still in flight as lost".
+    connection_qlog.on_packets_lost(connection, level, lost, .pto_expired, now_ns);
+    try on_packets_lost(connection, level, lost);
     connection_send.owe_probes(connection, level, count);
 }
 

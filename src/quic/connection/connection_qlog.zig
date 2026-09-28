@@ -22,6 +22,7 @@ const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
 const receive_module = @import("connection_receive.zig");
 const frames = @import("connection_frames.zig");
+const recovery_sent = @import("../recovery/recovery_sent.zig");
 
 const Level = core.Level;
 const Reader = core.Reader;
@@ -122,6 +123,23 @@ pub fn on_packet_read(connection: *const Connection, outcome: receive_module.Out
             .trigger = dropped_trigger(why),
         }),
     }
+}
+
+/// Quic-events §7.4 for each packet of `level`'s space that recovery declared lost. `trigger` is
+/// the cause, or null when more than one could have declared the packet.
+pub fn on_packets_lost(
+    connection: *const Connection,
+    level: Level,
+    lost: []const recovery_sent.Record,
+    trigger: ?quic_event.LossTrigger,
+    now_ns: u64,
+) void {
+    const log = connection.qlog.log orelse return;
+    // Bounded by the caller's list, which holds at most one table of sent packets.
+    for (lost) |record| log.event(quic_event.name.packet_lost, now_ns, quic_event.PacketLost{
+        .header = .{ .packet_type = packet_type_of(level), .packet_number = record.number },
+        .trigger = trigger,
+    });
 }
 
 /// Quic-events §4.3 for the peer's CONNECTION_CLOSE, which is what names its error. A close the
