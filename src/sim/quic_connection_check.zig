@@ -49,6 +49,9 @@ pub const Violation = quic_invariants.Violation || error{
     /// An endpoint stopped marking ECT(0) because RFC 9000 §13.4.2.1's validation failed, over a
     /// network that marks nothing but ECN-CE.
     EcnValidationFailed,
+    /// An event did not fit in an endpoint's qlog between two steps, so the records the run took
+    /// are missing it.
+    QlogEventDropped,
 };
 
 /// One seed's counts.
@@ -68,6 +71,9 @@ pub const Result = struct {
     handshake_ns: u64 = 0,
     /// How many times the server's path moved to its client's new address (RFC 9000 §9.3).
     migrations: u64 = 0,
+    /// Octets of qlog both endpoints wrote, and their digest, which are zero unless the run logs.
+    qlog_len: u64 = 0,
+    qlog_crc32: u32 = 0,
 };
 
 /// What the whole run counted, which the test compares across build modes and hosts.
@@ -89,6 +95,11 @@ pub const Census = struct {
     rebinds: u64 = 0,
     misrouted: u64 = 0,
     migrations: u64 = 0,
+    /// Octets of qlog the endpoints wrote, and the digest of every record, which are zero unless
+    /// the run logs. Both stay out of `crc32`, so a run with logs and one without must agree on
+    /// it.
+    qlog_len: u64 = 0,
+    qlog_crc32: u32 = 0,
 };
 
 /// What a run's network does beside, or instead of, its random schedule.
@@ -141,6 +152,9 @@ pub const Fault = enum {
     /// The network carries every datagram Not-ECT, as a path that clears the ECN field does,
     /// which RFC 9000 §13.4.2.1's validation must catch.
     ecn_cleared,
+    /// Each endpoint's qlog holds the fewest octets `qlog.Log` takes, so a step's events do not
+    /// fit, which the run must report rather than take the records short.
+    qlog_overflow,
 };
 
 /// The storage one run needs, placed outside any stack frame (decision 35).
@@ -152,6 +166,10 @@ pub const Storage = struct {
     network: sim.Network,
     /// The error an endpoint stopped with, for the trace of a failed seed.
     failure: ?quic_endpoint.Error,
+    /// Whether each endpoint writes a qlog (decision 102), which must change nothing it sends.
+    logged: bool,
+    logs: [sim.network.Endpoint.count]quic.qlog.Log,
+    log_buffers: [sim.network.Endpoint.count][constants.quic_qlog_len]u8,
 };
 
 /// The instant a run starts, and the longest step it takes when nothing is due sooner.
@@ -183,6 +201,8 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.rebinds += storage.network.census.rebinds;
         census.misrouted += storage.network.census.misrouted;
         census.migrations += result.migrations;
+        census.qlog_len += result.qlog_len;
+        census.qlog_crc32 = combine_qlog(census.qlog_crc32, result);
         census.crc32 = combine(census.crc32, result);
     }
     failed_seed.* = null;
@@ -217,6 +237,15 @@ fn combine(held: u32, result: Result) u32 {
     return digest.final();
 }
 
+/// Folds one seed's qlog into the digest of the logs.
+fn combine_qlog(held: u32, result: Result) u32 {
+    var digest = std.hash.Crc32.init();
+    fold(&digest, held);
+    fold(&digest, result.qlog_len);
+    fold(&digest, result.qlog_crc32);
+    return digest.final();
+}
+
 /// Feeds one value in network byte order, so the digest does not follow the host's (CLAUDE.md).
 fn fold(digest: *std.hash.Crc32, value: u64) void {
     var octets: [@sizeOf(u64)]u8 = undefined;
@@ -229,6 +258,7 @@ var check_storage: Storage align(@alignOf(Storage)) = undefined;
 test "two endpoints finish a handshake and a stream over a lossy network, invariants 17 to 21 holding" {
     check_storage.fault = .none;
     check_storage.adversary = .none;
+    check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
@@ -249,6 +279,7 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     fault_storage.adversary = .none;
+    fault_storage.logged = false;
     // An endpoint that stops ends the run, and the run keeps the error it stopped with.
     fault_storage.fault = .server_alert;
     try std.testing.expectError(Violation.ConnectionError, run_check(&fault_storage, 1, &census, &failed_seed));
@@ -265,6 +296,11 @@ test "each way the driver fails is reported, so no report of it is unproved" {
     // Each endpoint's ECN validation is read when the run ends.
     fault_storage.fault = .ecn_cleared;
     try std.testing.expectError(Violation.EcnValidationFailed, run_check(&fault_storage, 1, &census, &failed_seed));
+    // Each step's qlog records are taken whole.
+    fault_storage.fault = .qlog_overflow;
+    fault_storage.logged = true;
+    try std.testing.expectError(Violation.QlogEventDropped, run_check(&fault_storage, 1, &census, &failed_seed));
+    fault_storage.logged = false;
     // A check that dropped nothing proved nothing of loss recovery, and says so.
     fault_storage.fault = .none;
     try std.testing.expectError(Violation.ScheduleUnexercised, run_check(&fault_storage, 0, &census, &failed_seed));
@@ -278,6 +314,7 @@ pub const adversary_census_dropped_expected: u64 = 1_665;
 test "decisions 64 and 66: a network that drops every datagram of ACK frames alone loses no frame for good" {
     check_storage.fault = .none;
     check_storage.adversary = .drop_ack_only;
+    check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
@@ -300,6 +337,7 @@ pub const runner_census_handshake_max_ns_expected: u64 = 8_397_000_000;
 test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
     check_storage.fault = .none;
     check_storage.adversary = .runner_handshake_loss;
+    check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
@@ -325,6 +363,7 @@ pub const rebind_address_census_migrations_expected: u64 = 275;
 fn run_rebinding(adversary: Adversary) !Census {
     check_storage.fault = .none;
     check_storage.adversary = adversary;
+    check_storage.logged = false;
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
@@ -346,4 +385,34 @@ test "decision 72: a NAT that gives the client a new host and port leaves the se
     try std.testing.expectEqual(rebind_address_census_datagrams_expected, census.datagrams);
     try std.testing.expectEqual(rebind_address_census_migrations_expected, census.migrations);
     try std.testing.expectEqual(rebind_address_census_crc32_expected, census.crc32);
+}
+
+test "decision 102: every check gives the same census when both endpoints write a qlog" {
+    // Each check's census without a log, and the logs it writes with one: their octets and the
+    // digest of every record. The logs change when an event or its fields change, and are
+    // committed with the new values after both build modes agree.
+    const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32 }{
+        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_786_196, .qlog_crc32 = 0x2b631625 },
+        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_699_739, .qlog_crc32 = 0x2bb84a63 },
+        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_771_247, .qlog_crc32 = 0xc015b290 },
+        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_082_392, .qlog_crc32 = 0x211d2efd },
+        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 9_860_654, .qlog_crc32 = 0xcb1c0d0a },
+    };
+    // Bounded by the checks above.
+    for (checks) |logged| {
+        check_storage.fault = .none;
+        check_storage.adversary = logged.adversary;
+        check_storage.logged = true;
+        var census: Census = .{};
+        var failed_seed: ?u64 = null;
+        run_check(&check_storage, constants.check_seeds_default, &census, &failed_seed) catch |failure| {
+            std.debug.print("QUIC {t} check with qlog: seed 0x{x} broke {t}, endpoint error {?}\n", .{ logged.adversary, failed_seed orelse 0, failure, check_storage.failure });
+            return failure;
+        };
+        // The digest folds in every datagram's octets, so the same digest is the same datagrams.
+        try std.testing.expectEqual(logged.crc32, census.crc32);
+        // A seed replays its logs byte for byte (invariant 5).
+        try std.testing.expectEqual(logged.qlog_len, census.qlog_len);
+        try std.testing.expectEqual(logged.qlog_crc32, census.qlog_crc32);
+    }
 }

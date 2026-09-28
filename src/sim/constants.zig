@@ -274,6 +274,11 @@ pub const null_quic_params_len_max: u32 = 512;
 /// after it.
 pub const null_quic_pending_len_max: u32 = 1024;
 
+/// Octets of one endpoint's qlog in the QUIC connection check (decision 102). The run takes the
+/// records after each step, as a caller that writes them to a file would, so this holds one step's
+/// events: at most `quic_connection_check.sends_per_step_max` datagrams each way.
+pub const quic_qlog_len: usize = 262_144;
+
 /// Steps in the longest role script of `null_quic_provider.zig`, which bounds the loop that reads
 /// a flight (CLAUDE.md non-negotiable 4).
 pub const null_quic_steps_max: u32 = 5;

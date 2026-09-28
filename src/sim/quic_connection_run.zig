@@ -28,12 +28,18 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     // Bounded by the two sides of the network.
     for (std.enums.values(Side)) |side| {
         const at = @intFromEnum(side);
-        storage.endpoints[at].init(role_of(side), check.start_ns);
+        storage.endpoints[at].init(role_of(side), check.start_ns, log_of(storage, side));
         storage.histories[at].init(&storage.endpoints[at]);
     }
     apply_fault(storage);
     apply_adversary(storage);
-    var run: Run = .{ .storage = storage, .now_ns = check.start_ns, .result = .{}, .digest = std.hash.Crc32.init() };
+    var run: Run = .{
+        .storage = storage,
+        .now_ns = check.start_ns,
+        .result = .{},
+        .digest = std.hash.Crc32.init(),
+        .qlog_digest = std.hash.Crc32.init(),
+    };
     // Bounded by `steps_max`, which is a named limit.
     for (0..check.steps_max) |_| {
         if (try run.step()) {
@@ -53,7 +59,7 @@ fn apply_fault(storage: *Storage) void {
         .keys_refused => server.suite.keys_unavailable = 1,
         .number_reused => storage.histories[@intFromEnum(Side.client)].largest_sent[@intFromEnum(quic.core.Level.initial)] = 0,
         .wrong_octet => storage.endpoints[@intFromEnum(Side.client)].supplies_wrong_octet = true,
-        .ecn_cleared => {},
+        .ecn_cleared, .qlog_overflow => {},
     }
 }
 
@@ -113,6 +119,18 @@ fn check_ecn(storage: *const Storage) Violation!void {
     }
 }
 
+/// `side`'s qlog, started afresh, when the run logs (decision 102), and null when it does not.
+fn log_of(storage: *Storage, side: Side) ?*quic.qlog.Log {
+    if (!storage.logged) return null;
+    const at = @intFromEnum(side);
+    const buffer: []u8 = if (storage.fault == .qlog_overflow)
+        storage.log_buffers[at][0..quic.qlog.constants.log_len_min]
+    else
+        &storage.log_buffers[at];
+    quic_endpoint.start_log(&storage.logs[at], buffer, role_of(side), check.start_ns);
+    return &storage.logs[at];
+}
+
 fn role_of(side: Side) quic.connection.Role {
     return switch (side) {
         .client => .client,
@@ -126,6 +144,8 @@ const Run = struct {
     now_ns: u64,
     result: Result,
     digest: std.hash.Crc32,
+    /// The digest of every qlog record the run took, in order.
+    qlog_digest: std.hash.Crc32,
 
     /// One step. Returns whether the run is over.
     fn step(run: *Run) Violation!bool {
@@ -134,11 +154,23 @@ const Run = struct {
         for (std.enums.values(Side)) |side| try run.fire(side);
         for (std.enums.values(Side)) |side| try run.send_owed(side);
         for (std.enums.values(Side)) |side| try run.storage.histories[@intFromEnum(side)].check(&run.storage.endpoints[@intFromEnum(side)]);
+        for (std.enums.values(Side)) |side| try run.take_log(side);
         run.result.steps += 1;
         run.note_handshake();
         if (run.is_done()) return true;
         run.now_ns = run.next_instant();
         return false;
+    }
+
+    /// Takes the records `side` logged this step, as a caller that writes them to a file does
+    /// (decision 102). Every event of the step must have fit.
+    fn take_log(run: *Run, side: Side) Violation!void {
+        if (!run.storage.logged) return;
+        const log = &run.storage.logs[@intFromEnum(side)];
+        if (log.dropped > 0) return Violation.QlogEventDropped;
+        run.result.qlog_len += log.bytes().len;
+        run.qlog_digest.update(log.bytes());
+        log.clear();
     }
 
     /// Gives `side` every datagram the network has for it now.
@@ -251,6 +283,7 @@ const Run = struct {
         var result = run.result;
         result.finished_ns = run.now_ns - check.start_ns;
         result.octets_crc32 = run.digest.final();
+        result.qlog_crc32 = run.qlog_digest.final();
         const client = &run.storage.endpoints[@intFromEnum(Side.client)];
         result.round_trip_ns = client.connection.recovery.rtt.smoothed_ns;
         result.migrations = run.storage.endpoints[@intFromEnum(Side.server)].migrations;

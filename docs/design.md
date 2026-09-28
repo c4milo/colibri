@@ -4959,7 +4959,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     from an ACK, where either threshold of §6.1 could have declared it. 2 tests, and 5 mutations,
     each CAUGHT by `zig build test-quic`: each of the three triggers, the ACK's losses logged at
     all, and the lost packet's number.
-  - Not built yet: the simulator check that a log changes no census.
+  - The simulator check, 2026-09-28. The QUIC connection check runs its five networks again
+    with a qlog on each endpoint, and each gives the digest it gives without one, which folds in
+    every datagram's octets. The run takes each endpoint's records after every step, as a caller
+    that writes them to a file would, and fails when an event was dropped. The logs replay too:
+    Debug and ReleaseSafe wrote the same octets with the same digest on each network, 9,786,196
+    octets over the lossy network's 256 seeds, and the test pins each network's length and
+    digest.
+  - 5 mutations, each CAUGHT by `zig build test-sim-run-quic`: the endpoints given no log, a
+    dropped event left unreported, the records not taken after a step, and two changes a logger
+    could make to what a connection sends: the count a PING waits for, and the congestion window.
+    The third was NOT CAUGHT until the digest was pinned.
+  - Not built yet: the check that each record parses as JSON and carries the fields its event
+    requires. It waits for stdx's JSON decoder (decision 102 as amended).
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

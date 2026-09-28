@@ -46,6 +46,23 @@ const client_id: [id_len]u8 = @splat(client_octet);
 const server_id: [id_len]u8 = @splat(server_octet);
 const original_id: [id_len]u8 = @splat(original_octet);
 
+/// The event schema of the logs `start_log` starts (quic-events §2.1).
+const event_schemas = [_][]const u8{quic.qlog.quic_event_schema};
+
+/// Starts `log` over `buffer` for the endpoint of `role`, as a caller that logs does before it
+/// opens the connection. The trace is grouped by the original destination connection ID, which
+/// quic-events §1.1 recommends.
+pub fn start_log(log: *quic.qlog.Log, buffer: []u8, role: Role, now_ns: u64) void {
+    log.* = quic.qlog.Log.init(buffer);
+    const trace: quic.qlog.Trace = .{
+        .vantage_point = if (role == .client) .client else .server,
+        .group_id = &original_id,
+        .event_schemas = &event_schemas,
+    };
+    // `Log.init` asserts `log_len_min` octets, which the header of an 8-octet group ID fits.
+    log.start(trace, now_ns) catch unreachable;
+}
+
 /// What each endpoint grants its peer (RFC 9000 §18.2): room for the one stream the client sends,
 /// and an idle timeout long enough that only a dead path reaches it.
 pub const stream_window: u64 = 65_536;
@@ -95,12 +112,13 @@ pub const Endpoint = struct {
     /// With one, the endpoint sends and reads no stream of its own: the application does.
     application: ?StreamProvider,
 
-    pub fn init(endpoint: *Endpoint, role: Role, now_ns: u64) void {
-        endpoint.init_with(role, now_ns, parameters());
+    /// An endpoint of `role` whose connection writes its qlog events into `log`, or none.
+    pub fn init(endpoint: *Endpoint, role: Role, now_ns: u64, log: ?*quic.qlog.Log) void {
+        endpoint.init_with(role, now_ns, parameters(), log);
     }
 
     /// `init` with the transport parameters an application protocol needs (RFC 9000 §18.2).
-    pub fn init_with(endpoint: *Endpoint, role: Role, now_ns: u64, local_parameters: Parameters) void {
+    pub fn init_with(endpoint: *Endpoint, role: Role, now_ns: u64, local_parameters: Parameters, log: ?*quic.qlog.Log) void {
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
         endpoint.connection.init(.{
             .role = role,
@@ -113,6 +131,7 @@ pub const Endpoint = struct {
             .ecn_marks = true,
             // Decision 72: where the peer is before the network rebinds anything.
             .peer_address = peer_address(if (role == .client) sim.network.server_address else sim.network.client_address_initial),
+            .qlog = log,
         });
         endpoint.provider = .{ .role = role, .suite = &endpoint.suite };
         endpoint.suite = .{};

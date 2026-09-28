@@ -89,7 +89,7 @@ pub const Endpoint = struct {
     expected: FieldSection,
 
     pub fn init(endpoint: *Endpoint, role: quic.connection.Role, plan: *const Plan, now_ns: u64) void {
-        endpoint.transport.init_with(role, now_ns, parameters());
+        endpoint.transport.init_with(role, now_ns, parameters(), null);
         endpoint.h3.init(if (role == .client) plan.client else plan.server);
         endpoint.transport.application = endpoint.h3.provider(.{ .context = endpoint, .vtable = &kept_vtable });
         endpoint.plan = plan;
