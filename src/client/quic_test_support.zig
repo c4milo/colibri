@@ -11,7 +11,7 @@ const quic_connection = @import("quic_connection.zig");
 const event = @import("event.zig");
 
 pub const QuicConnection = quic_connection.QuicConnection;
-pub const Exchange = event.Exchange;
+pub const HttpExchange = event.HttpExchange;
 pub const Event = event.Event;
 
 /// The connection IDs and grease value the client starts from. Test-only.

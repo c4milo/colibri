@@ -8,7 +8,7 @@ const event = @import("event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const Exchange = support.Exchange;
+const HttpExchange = support.HttpExchange;
 
 const ok: u16 = 200;
 
@@ -22,7 +22,7 @@ const values_len: usize = 64;
 test "RFC 9114 §4.1: a GET goes out on stream 0, and its response fills the exchange" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     var wanted = [_]event.Wanted{.{ .name = "content-type" }};
-    var exchange: Exchange = .{ .method = "GET", .path = "/dns-query", .body = &bodies[0], .wanted = &wanted, .values = &values };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/dns-query", .body = &bodies[0], .wanted = &wanted, .values = &values };
     _ = try connection.request(&exchange);
     try support.pump(support.rounds_default);
     try testing.expectEqual(event.Protocol.h3, support.find(.connected).?.connected);
@@ -44,7 +44,7 @@ const upload_len: usize = 600_000;
 test "RFC 9000 §4.1: a POST's content goes out whole as the server grants more, and it is answered" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     @memset(&upload, 'x');
-    var post: Exchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
     _ = try connection.request(&post);
     try support.pump(support.rounds_default * 4);
     try testing.expectEqual(upload_len, support.answers[0].received);
@@ -59,7 +59,7 @@ test "RFC 9000 §3.1: an answered exchange is not reported while its stream may 
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_early = true;
     @memset(&upload, 'y');
-    var post: Exchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
     _ = try connection.request(&post);
     var answered_while_live = false;
     for (0..support.rounds_default * 4) |_| {
@@ -76,8 +76,8 @@ test "RFC 9000 §3.1: an answered exchange is not reported while its stream may 
 test "RFC 9114 §4.1.1: H3_REQUEST_REJECTED ends an exchange refused, and another code ends it reset" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
-    var first: Exchange = .{ .method = "GET", .path = "/a", .body = &bodies[0] };
-    var second: Exchange = .{ .method = "GET", .path = "/b", .body = &bodies[1] };
+    var first: HttpExchange = .{ .method = "GET", .path = "/a", .body = &bodies[0] };
+    var second: HttpExchange = .{ .method = "GET", .path = "/b", .body = &bodies[1] };
     _ = try connection.request(&first);
     _ = try connection.request(&second);
     try support.pump(support.rounds_default);
@@ -92,18 +92,18 @@ test "RFC 9114 §4.1.1: H3_REQUEST_REJECTED ends an exchange refused, and anothe
 test "RFC 9114 §5.2: a GOAWAY refuses the exchanges at or past its stream, and the connection drains" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_answers = false;
-    var first: Exchange = .{ .method = "GET", .path = "/a", .body = &bodies[0] };
+    var first: HttpExchange = .{ .method = "GET", .path = "/a", .body = &bodies[0] };
     _ = try connection.request(&first);
     try support.pump(support.rounds_default);
     // The server took stream 0 alone, so its GOAWAY names stream 4, which the second exchange
     // then opens or would open: the server processes none of it.
     try support.server_h3.shutdown(&support.server, support.now_ns);
-    var second: Exchange = .{ .method = "GET", .path = "/b", .body = &bodies[1] };
+    var second: HttpExchange = .{ .method = "GET", .path = "/b", .body = &bodies[1] };
     _ = try connection.request(&second);
     try support.pump(support.rounds_default);
     try testing.expect(support.find(.draining) != null);
     try testing.expectEqual(.refused, second.outcome);
-    var third: Exchange = .{ .method = "GET", .path = "/c", .body = &bodies[1] };
+    var third: HttpExchange = .{ .method = "GET", .path = "/c", .body = &bodies[1] };
     try testing.expectError(error.Draining, connection.request(&third));
     // The exchange the server took is still answered.
     support.server_answers = true;
@@ -114,7 +114,7 @@ test "RFC 9114 §5.2: a GOAWAY refuses the exchanges at or past its stream, and 
 test "RFC 9114 §4.1: interim responses are counted, and the final one gives the status" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_interims = 2;
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&exchange);
     try support.pump(support.rounds_default);
     try testing.expectEqual(2, exchange.interims);
@@ -125,7 +125,7 @@ test "RFC 9114 §4.1: interim responses are counted, and the final one gives the
 test "RFC 9114 §4.1.2: content shorter than its content-length is malformed, and ends the exchange so" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_malformed = true;
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&exchange);
     try support.pump(support.rounds_default);
     // The content arrived before the stream's end showed its length was wrong, so the outcome,
@@ -136,8 +136,8 @@ test "RFC 9114 §4.1.2: content shorter than its content-length is malformed, an
 test "RFC 9000 §4.6: an exchange past the server's stream limit waits for its MAX_STREAMS" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.server_streams_bidi = 1;
-    var first: Exchange = .{ .method = "GET", .path = "/a", .body = &bodies[0] };
-    var second: Exchange = .{ .method = "GET", .path = "/b", .body = &bodies[1] };
+    var first: HttpExchange = .{ .method = "GET", .path = "/a", .body = &bodies[0] };
+    var second: HttpExchange = .{ .method = "GET", .path = "/b", .body = &bodies[1] };
     _ = try connection.request(&first);
     _ = try connection.request(&second);
     try support.pump(support.rounds_default * 2);

@@ -7,7 +7,7 @@ const support = @import("connection_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const Exchange = support.Exchange;
+const HttpExchange = support.HttpExchange;
 const Field = support.Field;
 
 const ok: u16 = 200;
@@ -26,7 +26,7 @@ fn start() !void {
     support.peer_events_len = 0;
 }
 
-fn get(body: []u8) Exchange {
+fn get(body: []u8) HttpExchange {
     return .{ .method = "GET", .path = "/", .body = body };
 }
 
@@ -53,7 +53,7 @@ fn peer_setting(id: u16, value: u32) !void {
 test "RFC 9113 §8.1: a response that ends before the upload does closes the stream with CANCEL" {
     try start();
     @memset(&upload, 'x');
-    var post: Exchange = .{ .method = "POST", .path = "/", .content = &upload, .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/", .content = &upload, .body = &bodies[0] };
     _ = try connection.request(&post);
     support.client_send();
     try support.peer_h2_read();
@@ -123,7 +123,7 @@ test "RFC 9113 §4.3: a field section past what h2 sends in one block ends its e
         .{ .name = "x-a", .value = &value }, .{ .name = "x-b", .value = &value }, .{ .name = "x-c", .value = &value },
         .{ .name = "x-d", .value = &value }, .{ .name = "x-e", .value = &value },
     };
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .fields = &fields, .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .fields = &fields, .body = &bodies[0] };
     _ = try connection.request(&exchange);
     try support.pump_h2();
     try testing.expectEqual(.invalid, exchange.outcome);
@@ -167,7 +167,7 @@ test "RFC 7541 §7.1.3: the path and a marked field line go out never-indexed, a
     try start();
     const fields = [_]Field{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
     const marks = [_]bool{ true, false };
-    var exchange: Exchange = .{
+    var exchange: HttpExchange = .{
         .method = "GET",
         .path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE",
         .fields = &fields,

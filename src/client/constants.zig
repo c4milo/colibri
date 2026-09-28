@@ -90,9 +90,9 @@ const h3_events_per_exchange_max: usize = 4;
 /// judge.
 pub const moves_max: u8 = 1;
 
-/// Events the origin reads from its connections in one call at most: each connection's version,
+/// Events the channel reads from its connections in one call at most: each connection's version,
 /// ticket, draining and close, and one `finished` event for each exchange it may hold.
-pub const origin_events_per_poll_max: usize = transports_count * (exchanges_max + connection_events_max);
+pub const channel_events_per_poll_max: usize = transports_count * (exchanges_max + connection_events_max);
 const transports_count: usize = 2;
 const connection_events_max: usize = 4;
 

@@ -1,19 +1,19 @@
-//! The tests of the client for one origin (`origin.zig`, `origin_events.zig`) with QUIC offered:
+//! The tests of the channel to one origin (`channel.zig`, `channel_events.zig`) with QUIC offered:
 //! QUIC goes first, TCP opens after it fails or the fallback delay passes, the first handshake to
 //! complete takes the exchanges, and an exchange refused by a draining connection moves. The h3
 //! server of `quic_test_support.zig` answers in the same process, through
-//! `origin_quic_test_support.zig`.
+//! `channel_quic_test_support.zig`.
 const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
 const quic_support = @import("quic_test_support.zig");
-const fixture = @import("origin_quic_test_support.zig");
-const origin_module = @import("origin.zig");
+const fixture = @import("channel_quic_test_support.zig");
+const channel_module = @import("channel.zig");
 const event = @import("event.zig");
 
 const testing = std.testing;
-const Transport = origin_module.Transport;
-const origin = &fixture.origin;
+const Transport = channel_module.Transport;
+const channel = &fixture.channel;
 const bodies = &fixture.bodies;
 const start = fixture.start;
 const values_at = fixture.values_at;
@@ -35,12 +35,12 @@ const datagrams_per_round_max = fixture.datagrams_per_round_max;
 test "RFC 9114 §3.1: with h3 offered, QUIC opens first and carries the exchange, and TCP never opens" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     var exchange = get(&bodies[0]);
-    const id = try origin.request(&exchange);
+    const id = try channel.request(&exchange);
     try collect();
     try testing.expectEqual(Transport.quic, opened(0).?.transport);
     try testing.expectEqual(https_port, opened(0).?.to.port);
-    // RFC 9000 §9: the connection's datagrams go to the address and port the origin opened.
-    const first = origin.send_datagram(&fixture.datagram, quic_support.now_ns).?;
+    // RFC 9000 §9: the connection's datagrams go to the address and port the channel opened.
+    const first = channel.send_datagram(&fixture.datagram, quic_support.now_ns).?;
     try testing.expect(first.to.eql(&opened(0).?.to));
     try quic_support.server_receive(@constCast(first.octets));
     try pump(quic_support.rounds_default);
@@ -55,32 +55,32 @@ test "RFC 9114 §3.1: a QUIC handshake that selects no h3 fails, and TCP opens" 
     try start(&quic_support.alpn_other, values_at(https_port), true);
     try quic_support.prepare(&offered, &quic_support.alpn_other, false);
     var exchange = get(&bodies[0]);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try collect();
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
-    try testing.expectEqual(origin_module.Phase.handshake, origin.phase(.tcp));
+    try testing.expectEqual(channel_module.Phase.handshake, channel.phase(.tcp));
     try testing.expectEqual(.pending, exchange.outcome);
     // The fallback delay counts only while QUIC's handshake runs, and QUIC's failed.
     try pump(rounds_before_fallback);
-    try testing.expect(!origin.fallback);
+    try testing.expect(!channel.fallback);
 }
 
 test "RFC 9114 §3.1: TCP opens beside a QUIC handshake once the fallback delay passes, and not before" {
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     fixture.blocked = true;
     var exchange = get(&bodies[0]);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try collect();
     const fallback_at = quic_support.now_ns + fallback_delay_ns;
-    try testing.expect(origin.deadline_ns().? <= fallback_at);
+    try testing.expect(channel.deadline_ns().? <= fallback_at);
     try pump(rounds_before_fallback);
-    try testing.expectEqual(fallback_at, origin.deadline_ns().?);
+    try testing.expectEqual(fallback_at, channel.deadline_ns().?);
     quic_support.now_ns = fallback_at - 1;
     try collect();
     try testing.expectEqual(null, opened(1));
     quic_support.now_ns = fallback_at;
-    origin.on_instant(fallback_at);
+    channel.on_instant(fallback_at);
     try collect();
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
 }
@@ -89,7 +89,7 @@ test "the first handshake to complete takes the exchange, and the transport stil
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     fixture.blocked = true;
     var exchange = get(&bodies[0]);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try collect();
     try pump(rounds_before_fallback + 1);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
@@ -98,7 +98,7 @@ test "the first handshake to complete takes the exchange, and the transport stil
     try pump(rounds_past_probe);
     try testing.expectEqual(event.Protocol.h3, nth(.connected, 0).?.connected);
     try testing.expectEqual(Transport.tcp, nth(.close, 0).?.close);
-    try testing.expectEqual(origin_module.Phase.closed, origin.phase(.tcp));
+    try testing.expectEqual(channel_module.Phase.closed, channel.phase(.tcp));
     try testing.expectEqual(.response, exchange.outcome);
 }
 
@@ -108,13 +108,13 @@ test "RFC 9114 §5.2: an exchange a GOAWAY left unprocessed moves, and TCP opens
     quic_support.server_streams_bidi = 1;
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);
-    _ = try origin.request(&first);
-    const second_id = try origin.request(&second);
+    _ = try channel.request(&first);
+    const second_id = try channel.request(&second);
     try pump(quic_support.rounds_default);
     // The server took stream 0 alone, and the second exchange waits for its stream limit.
     try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
     try pump(quic_support.rounds_default);
-    try testing.expectEqual(origin_module.Phase.draining, origin.phase(.quic));
+    try testing.expectEqual(channel_module.Phase.draining, channel.phase(.quic));
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     // RFC 9114 §4.1.1: the refused exchange is made again as though never sent, so no event
     // reports it, and its outcome is pending once more.
@@ -131,7 +131,7 @@ test "RFC 9114 §4.1.1: a request an open connection rejects reaches the caller 
     try start(&quic_support.alpn_h3, values_at(https_port), true);
     quic_support.server_answers = false;
     var exchange = get(&bodies[0]);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try pump(quic_support.rounds_default);
     quic_support.server_h3.cancel(&quic_support.server, 0, h3.constants.error_request_rejected);
     try pump(quic_support.rounds_default);
@@ -141,49 +141,49 @@ test "RFC 9114 §4.1.1: a request an open connection rejects reaches the caller 
 }
 
 test "RFC 9460 §7.1.2, §7.2: an HTTPS record's ALPN set chooses the transport, and its port applies" {
-    const without_h3: origin_module.Values = .{ .addresses = &addresses, .port = https_port, .https = .{ .h3 = false, .port = other_port } };
+    const without_h3: channel_module.Values = .{ .addresses = &addresses, .port = https_port, .https = .{ .h3 = false, .port = other_port } };
     try start(&quic_support.alpn_h3, without_h3, true);
     var exchange = get(&bodies[0]);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try collect();
     try testing.expectEqual(Transport.tcp, opened(0).?.transport);
     try testing.expectEqual(other_port, opened(0).?.to.port);
-    const with_h3: origin_module.Values = .{ .addresses = &addresses, .port = https_port, .https = .{ .h3 = true, .port = other_port } };
+    const with_h3: channel_module.Values = .{ .addresses = &addresses, .port = https_port, .https = .{ .h3 = true, .port = other_port } };
     try start(&quic_support.alpn_h3, with_h3, false);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try collect();
     try testing.expectEqual(Transport.quic, opened(0).?.transport);
     try testing.expectEqual(other_port, opened(0).?.to.port);
 }
 
 test "RFC 7838 §2.2: a fresh Alt-Svc alternative sends QUIC to its port first, and a stale one does not" {
-    const fresh: origin_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns + 1 } };
+    const fresh: channel_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns + 1 } };
     try start(&quic_support.alpn_h3, fresh, false);
     var exchange = get(&bodies[0]);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try collect();
     try testing.expectEqual(Transport.quic, opened(0).?.transport);
     try testing.expectEqual(alternative_port, opened(0).?.to.port);
-    const stale: origin_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns } };
+    const stale: channel_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = quic_support.start_ns } };
     try start(&quic_support.alpn_h3, stale, false);
-    _ = try origin.request(&exchange);
+    _ = try channel.request(&exchange);
     try collect();
     try testing.expectEqual(Transport.tcp, opened(0).?.transport);
 }
 
-test "RFC 7838 §3.1: what Alt-Svc says replaces what the origin knew, fresh for its max-age" {
+test "RFC 7838 §3.1: what Alt-Svc says replaces what the channel knew, fresh for its max-age" {
     try start(&quic_support.alpn_h3, values_at(https_port), false);
     const now_ns = quic_support.now_ns;
     const max_age_s: u64 = 60;
-    origin.learn(.{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
-    try testing.expectEqual(alternative_port, origin.alternative().?.port);
-    try testing.expectEqual(now_ns + max_age_s * 1_000_000_000, origin.alternative().?.fresh_until_ns);
-    try testing.expect(origin.quic_allowed(now_ns));
-    origin.learn(.none, now_ns);
-    try testing.expectEqual(null, origin.alternative());
-    origin.learn(.{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
-    origin.learn(.clear, now_ns);
-    try testing.expectEqual(null, origin.alternative());
+    channel.learn(.{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
+    try testing.expectEqual(alternative_port, channel.alternative().?.port);
+    try testing.expectEqual(now_ns + max_age_s * 1_000_000_000, channel.alternative().?.fresh_until_ns);
+    try testing.expect(channel.quic_allowed(now_ns));
+    channel.learn(.none, now_ns);
+    try testing.expectEqual(null, channel.alternative());
+    channel.learn(.{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
+    channel.learn(.clear, now_ns);
+    try testing.expectEqual(null, channel.alternative());
 }
 
 test "decision 100: once every transport failed, each waiting exchange ends refused" {
@@ -191,12 +191,12 @@ test "decision 100: once every transport failed, each waiting exchange ends refu
     try start(&quic_support.alpn_other, values_at(https_port), true);
     try quic_support.prepare(&offered, &quic_support.alpn_other, false);
     var exchange = get(&bodies[0]);
-    const id = try origin.request(&exchange);
+    const id = try channel.request(&exchange);
     try collect();
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     // The caller's TCP connection failed before its handshake began.
-    origin.transport_closed(.tcp);
+    channel.transport_closed(.tcp);
     try pump(quic_support.rounds_default);
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
     try testing.expectEqual(.refused, exchange.outcome);

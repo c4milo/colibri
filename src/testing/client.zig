@@ -9,8 +9,8 @@ pub const client_options = @import("client/client_options.zig");
 pub const client_session = @import("client/client_session.zig");
 pub const client_exchange = @import("client/client_exchange.zig");
 pub const client_tls = @import("tls/client_tls.zig");
-pub const origin_loop = @import("client/origin_loop.zig");
-pub const origin_tcp = @import("client/origin_tcp.zig");
+pub const channel_loop = @import("client/channel_loop.zig");
+pub const channel_tcp = @import("client/channel_tcp.zig");
 
 comptime {
     // The `tls` module links chapulin's TCP object (design §8 step 16b), which imports
@@ -30,6 +30,6 @@ test {
     _ = client_session;
     _ = client_exchange;
     _ = client_tls;
-    _ = origin_loop;
-    _ = origin_tcp;
+    _ = channel_loop;
+    _ = channel_tcp;
 }

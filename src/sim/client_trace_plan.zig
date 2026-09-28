@@ -1,6 +1,6 @@
 //! One seed's plan for the client trace run (decision 105, design §8 step 17d): the exchanges the
-//! caller makes and cancels, how the origin chooses QUIC, what happens to QUIC on the network and
-//! at its server, how each server answers, and when the caller shuts the origin down. The plan is
+//! caller makes and cancels, how the channel chooses QUIC, what happens to QUIC on the network and
+//! at its server, how each server answers, and when the caller shuts the channel down. The plan is
 //! drawn from the seed alone before the run, so a seed replays (invariant 5).
 const std = @import("std");
 const assert = std.debug.assert;
@@ -12,7 +12,7 @@ const limits = sim.constants.client_trace;
 /// A draw that comes out one way half the time.
 const one_in_two: u64 = 2;
 
-/// How the origin chooses QUIC, as spec/tla/client_exchanges's `QuicPolicy` names it.
+/// How the channel chooses QUIC, as spec/tla/client_exchanges's `QuicPolicy` names it.
 pub const Policy = enum {
     /// QUIC first: the configuration says to try it, or an HTTPS record names h3.
     first,
@@ -64,7 +64,7 @@ pub const Plan = struct {
     cancel_at_ns: [limits.exchanges_max]?u64,
     /// Octets of each request's content: none for a GET, some for a POST.
     content_len: [limits.exchanges_max]u32,
-    /// Whether the caller cancels a POST once its connection ended it and before the origin
+    /// Whether the caller cancels a POST once its connection ended it and before the channel
     /// reported it, while its stream may still send the content (RFC 9000 §3.1).
     cancel_on_end: [limits.exchanges_max]bool,
     policy: Policy,
@@ -84,7 +84,7 @@ pub const Plan = struct {
     /// The instant a connection breaks, and how, in a rough seed that draws one.
     break_at_ns: ?u64,
     break_kind: Break,
-    /// The instant the caller shuts the origin down, after its last exchange is made.
+    /// The instant the caller shuts the channel down, after its last exchange is made.
     shutdown_at_ns: u64,
     /// Whether every exchange that is not cancelled must end in a response: the servers only
     /// respond, and at most one GOAWAY refuses an exchange (design §8 step 17d's check).
@@ -131,7 +131,7 @@ pub const Plan = struct {
         if (plan.policy == .never) plan.quic = .works;
     }
 
-    /// A seed's one GOAWAY, if it draws one. A learning origin's TCP server sends it, so a later
+    /// A seed's one GOAWAY, if it draws one. A learning channel's TCP server sends it, so a later
     /// connection goes over the h3 it learned.
     fn draw_goaway(plan: *Plan, random: *Random) void {
         plan.goaway_at_ns = null;
@@ -157,7 +157,7 @@ pub const Plan = struct {
 
 const testing = std.testing;
 
-test "a plan is drawn from its seed alone, and its caller shuts the origin down after its last exchange" {
+test "a plan is drawn from its seed alone, and its caller shuts the channel down after its last exchange" {
     var first: Plan = undefined;
     var second: Plan = undefined;
     for (0..sim.constants.check_seeds_default) |seed| {

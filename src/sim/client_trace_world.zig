@@ -1,4 +1,4 @@
-//! The world of the client trace run (decision 105): the caller of a `client.Origin`, the QUIC
+//! The world of the client trace run (decision 105): the caller of a `client.Channel`, the QUIC
 //! server over the simulator's datagram network, and the TCP server over an ordered link, acting
 //! out one seed's plan. Time moves from one instant something is due to the next: a datagram or
 //! TCP octets arriving, a deadline, a server's answer, or the plan's next action. At each instant
@@ -26,14 +26,14 @@ const Random = sim.Random;
 const Plan = plan_module.Plan;
 const Ledger = ledger_module.Ledger;
 const Direction = link_module.Direction;
-const Origin = client.Origin;
-const Transport = client.origin.Transport;
+const Channel = client.Channel;
+const Transport = client.channel.Transport;
 
 pub const Error = error{
     /// An exchange was reported twice, or after the caller cancelled it.
     ReportedTwice,
     ReportedAfterCancel,
-    /// Nothing is due and the origin has not closed.
+    /// Nothing is due and the channel has not closed.
     Stuck,
     /// An instant's receives and sends did not settle within `settle_rounds_max` rounds.
     Unsettled,
@@ -43,7 +43,7 @@ pub const Error = error{
 const body_len: usize = 64;
 const datagram_len: usize = sim.constants.network_datagram_len_max;
 const segment_len: usize = 65_536;
-/// The addresses the origin is told of: one, as a caller that resolved one would pass.
+/// The addresses the channel is told of: one, as a caller that resolved one would pass.
 const server_octet: u8 = 0x7f;
 const ipv4_len: usize = 4;
 const server_host: [ipv4_len]u8 = @splat(server_octet);
@@ -58,14 +58,14 @@ pub const World = struct {
     random: Random,
     tls_random: Random,
     now_ns: u64,
-    origin: Origin,
-    origin_config: client.OriginConfig,
+    channel: Channel,
+    channel_config: client.ChannelConfig,
     tcp_tls: tls.record.ClientConfig,
     tcp_config: client.Config,
     quic_tls: tls.quic.ClientConfig,
     quic_config: client.QuicConfig,
-    addresses: [1]client.origin.Address,
-    exchanges: [limits.exchanges_max]client.Exchange,
+    addresses: [1]client.channel.Address,
+    exchanges: [limits.exchanges_max]client.HttpExchange,
     bodies: [limits.exchanges_max][body_len]u8,
     paths: [limits.exchanges_max][body_len]u8,
     ids: [limits.exchanges_max]?client.Id,
@@ -107,7 +107,7 @@ pub const World = struct {
         world.to_client.clear();
         world.network.init(seed, world.schedule());
         try world.configure();
-        world.origin.init(&world.origin_config, world.values());
+        world.channel.init(&world.channel_config, world.values());
         world.quic_server.started = false;
         world.tcp_server.running = false;
     }
@@ -123,7 +123,7 @@ pub const World = struct {
             .alpn = &alpn_quic,
         });
         world.quic_config = .{ .tls = &world.quic_tls, .authority = identity.authority };
-        world.origin_config = .{
+        world.channel_config = .{
             .tcp = &world.tcp_config,
             .quic = if (world.plan.policy == .never) null else &world.quic_config,
             .quic_first = world.plan.policy == .first,
@@ -133,10 +133,10 @@ pub const World = struct {
         try world.tcp_server.configure();
     }
 
-    fn values(world: *World) client.origin.Values {
-        world.addresses = .{client.origin.Address.of(&server_host, 0)};
-        var held: client.origin.Values = .{ .addresses = &world.addresses, .port = https_port };
-        // RFC 9460 §7.1.2: an HTTPS record naming h3 has the origin try QUIC first, and one naming
+    fn values(world: *World) client.channel.Values {
+        world.addresses = .{client.channel.Address.of(&server_host, 0)};
+        var held: client.channel.Values = .{ .addresses = &world.addresses, .port = https_port };
+        // RFC 9460 §7.1.2: an HTTPS record naming h3 has the channel try QUIC first, and one naming
         // no h3 has it wait for Alt-Svc.
         if (world.plan.https) held.https = .{ .h3 = world.plan.policy == .first };
         return held;
@@ -158,7 +158,7 @@ pub const World = struct {
         at = earliest(at, world.network.next_arrival_ns());
         at = earliest(at, world.to_server.next_arrival_ns(world.now_ns));
         at = earliest(at, world.to_client.next_arrival_ns(world.now_ns));
-        at = earliest(at, world.origin.deadline_ns());
+        at = earliest(at, world.channel.deadline_ns());
         if (world.quic_server.started) {
             at = earliest(at, world.quic_server.deadline_ns());
             at = earliest(at, world.quic_server.due_ns(&world.plan));
@@ -172,14 +172,14 @@ pub const World = struct {
         world.now_ns = @max(world.now_ns, at);
         try world.act_on_plan();
         try world.deliver();
-        const deadline = world.origin.deadline_ns();
-        if (deadline != null and deadline.? <= world.now_ns) world.origin.on_instant(world.now_ns);
+        const deadline = world.channel.deadline_ns();
+        if (deadline != null and deadline.? <= world.now_ns) world.channel.on_instant(world.now_ns);
         if (world.quic_server.started) world.quic_server.on_instant(world.now_ns);
         try world.settle();
         if (world.cancel_on_end()) try world.settle();
     }
 
-    /// Cancels each exchange the plan cancels once its connection ended it, before the origin
+    /// Cancels each exchange the plan cancels once its connection ended it, before the channel
     /// reported it. Returns whether it cancelled one.
     fn cancel_on_end(world: *World) bool {
         var cancelled = false;
@@ -187,7 +187,7 @@ pub const World = struct {
             if (!world.plan.cancel_on_end[index] or world.cancelled[index] or world.reported[index]) continue;
             const id = world.ids[index] orelse continue;
             if (world.exchanges[index].outcome == .pending) continue;
-            world.origin.cancel(id);
+            world.channel.cancel(id);
             world.cancelled[index] = true;
             world.settled_ns = world.now_ns;
             cancelled = true;
@@ -224,7 +224,7 @@ pub const World = struct {
             world.cancel_if_due(index);
         }
         if (!world.shut and world.plan.shutdown_at_ns <= world.now_ns) {
-            world.origin.shutdown();
+            world.channel.shutdown();
             world.shut = true;
         }
         world.goaway_if_due();
@@ -239,12 +239,12 @@ pub const World = struct {
         switch (world.plan.break_kind) {
             .quic_close => if (world.quic_server.started) world.quic_server.close_with_error(),
             .quic_flow => {
-                world.origin.transport_closed(.quic);
+                world.channel.transport_closed(.quic);
                 world.network.init(world.random.next(), world.schedule());
                 world.quic_server.started = false;
             },
             .tcp_flow => {
-                world.origin.transport_closed(.tcp);
+                world.channel.transport_closed(.tcp);
                 world.to_server.clear();
                 world.to_client.clear();
                 world.tcp_server.stop();
@@ -256,7 +256,7 @@ pub const World = struct {
         const cancel_at = world.plan.cancel_at_ns[index] orelse return;
         const id = world.ids[index] orelse return;
         if (cancel_at > world.now_ns or world.cancelled[index] or world.reported[index]) return;
-        world.origin.cancel(id);
+        world.channel.cancel(id);
         world.cancelled[index] = true;
         world.settled_ns = world.now_ns;
     }
@@ -282,7 +282,7 @@ pub const World = struct {
             .content = content_source[0..content_len],
             .body = &world.bodies[index],
         };
-        world.ids[index] = try world.origin.request(&world.exchanges[index]);
+        world.ids[index] = try world.channel.request(&world.exchanges[index]);
     }
 
     /// Hands each side what arrived by now.
@@ -298,35 +298,35 @@ pub const World = struct {
         for (0..sim.constants.network_in_flight_max) |_| {
             const delivery = world.network.receive(world.now_ns, .client) orelse break;
             @memcpy(world.crossing[0..delivery.octets.len], delivery.octets);
-            try world.to_origin(.{ .datagram = .{ .octets = world.crossing[0..delivery.octets.len], .from = world.origin.links.get(.quic).to } });
+            try world.to_channel(.{ .datagram = .{ .octets = world.crossing[0..delivery.octets.len], .from = world.channel.links.get(.quic).to } });
         }
         const arrived = world.to_server.arrived(world.now_ns);
         world.tcp_server.take(arrived) catch {};
         world.to_server.consume(arrived.len);
-        try world.stream_to_origin();
+        try world.stream_to_channel();
     }
 
     fn quic_open(world: *const World) bool {
-        return world.origin.links.get(.quic).state == .running;
+        return world.channel.links.get(.quic).state == .running;
     }
 
-    /// Passes a datagram to the origin, reporting each event it owes first.
-    fn to_origin(world: *World, input: client.origin.Input) Error!void {
-        // Bounded: each pass consumes the datagram or reports one of the origin's events.
+    /// Passes a datagram to the channel, reporting each event it owes first.
+    fn to_channel(world: *World, input: client.channel.Input) Error!void {
+        // Bounded: each pass consumes the datagram or reports one of the channel's events.
         for (0..limits.settle_rounds_max) |_| {
-            const received = world.origin.receive(input, world.now_ns);
+            const received = world.channel.receive(input, world.now_ns);
             if (received.event) |reported| try world.handle(reported);
             if (received.consumed > 0 or received.event == null) return;
         }
         return error.Unsettled;
     }
 
-    /// Passes what the TCP link carried to the origin until it consumes nothing more.
-    fn stream_to_origin(world: *World) Error!void {
+    /// Passes what the TCP link carried to the channel until it consumes nothing more.
+    fn stream_to_channel(world: *World) Error!void {
         // Bounded: each pass consumes octets or reports an event.
         for (0..limits.tcp_chunks_max) |_| {
             const arrived = world.to_client.arrived(world.now_ns);
-            const received = world.origin.receive(.{ .stream = arrived }, world.now_ns);
+            const received = world.channel.receive(.{ .stream = arrived }, world.now_ns);
             world.to_client.consume(received.consumed);
             if (received.event) |reported| try world.handle(reported);
             if (received.consumed == 0 and received.event == null) return;
@@ -334,23 +334,23 @@ pub const World = struct {
         return error.Unsettled;
     }
 
-    /// Runs the origin's receives and sends and the servers' until nothing moves.
+    /// Runs the channel's receives and sends and the servers' until nothing moves.
     fn settle(world: *World) Error!void {
         for (0..limits.settle_rounds_max) |_| {
             var moved = try world.collect();
-            moved = try world.origin_sends() or moved;
+            moved = try world.channel_sends() or moved;
             moved = try world.servers_serve() or moved;
-            try world.stream_to_origin();
+            try world.stream_to_channel();
             if (!moved) return;
         }
         return error.Unsettled;
     }
 
-    /// Reports every event the origin owes, and handles each. Returns whether there was one.
+    /// Reports every event the channel owes, and handles each. Returns whether there was one.
     fn collect(world: *World) Error!bool {
         var any = false;
         for (0..limits.settle_rounds_max) |_| {
-            const received = world.origin.receive(.none, world.now_ns);
+            const received = world.channel.receive(.none, world.now_ns);
             const reported = received.event orelse return any;
             try world.handle(reported);
             any = true;
@@ -358,14 +358,14 @@ pub const World = struct {
         return error.Unsettled;
     }
 
-    fn origin_sends(world: *World) Error!bool {
+    fn channel_sends(world: *World) Error!bool {
         var moved = false;
         for (0..limits.datagrams_per_round_max) |_| {
-            const sent = world.origin.send_datagram(&world.datagram, world.now_ns) orelse break;
+            const sent = world.channel.send_datagram(&world.datagram, world.now_ns) orelse break;
             _ = world.network.send(world.now_ns, .client, sent.octets, .not_ect);
             moved = true;
         }
-        const written = world.origin.send_stream(&world.segment, world.now_ns);
+        const written = world.channel.send_stream(&world.segment, world.now_ns);
         if (written > 0) {
             try world.to_server.push(world.segment[0..written], world.now_ns + limits.tcp_delay_ns);
             moved = true;
@@ -387,8 +387,8 @@ pub const World = struct {
         return served or moved;
     }
 
-    /// What the caller does with each of the origin's events.
-    fn handle(world: *World, reported: client.origin.Event) Error!void {
+    /// What the caller does with each of the channel's events.
+    fn handle(world: *World, reported: client.channel.Event) Error!void {
         switch (reported) {
             .open => |open| switch (open.transport) {
                 .quic => world.open_quic(),
@@ -406,7 +406,7 @@ pub const World = struct {
                     world.tcp_server.stop();
                 },
             },
-            .ticket => |transport| if (world.origin.take_ticket(transport)) |ticket| {
+            .ticket => |transport| if (world.channel.take_ticket(transport)) |ticket| {
                 var held = ticket;
                 held.wipe();
             },
@@ -416,23 +416,23 @@ pub const World = struct {
         }
     }
 
-    /// Starts the QUIC connection the origin asked for, over a fresh flow to a fresh server.
+    /// Starts the QUIC connection the channel asked for, over a fresh flow to a fresh server.
     fn open_quic(world: *World) void {
         world.network.init(world.random.next(), world.schedule());
-        world.quic_server.reset(world.origin.links.get(.quic).opens);
+        world.quic_server.reset(world.channel.links.get(.quic).opens);
         var start: client.QuicStart = undefined;
         fill(&world.random, &start.source_id);
         fill(&world.random, &start.original_destination_id);
         start.grease = world.random.next();
-        // A start chapulin refuses is the origin's to report.
-        world.origin.start_quic(start, tls_source(&world.tls_random), identity.now_seconds, world.now_ns, null) catch {};
+        // A start chapulin refuses is the channel's to report.
+        world.channel.start_quic(start, tls_source(&world.tls_random), identity.now_seconds, world.now_ns, null) catch {};
     }
 
     fn open_tcp(world: *World) void {
         world.to_server.clear();
         world.to_client.clear();
-        world.tcp_server.reset(world.origin.links.get(.tcp).opens, tls_source(&world.tls_random)) catch {};
-        world.origin.start_tcp(tls_source(&world.tls_random), identity.now_seconds, null) catch {};
+        world.tcp_server.reset(world.channel.links.get(.tcp).opens, tls_source(&world.tls_random)) catch {};
+        world.channel.start_tcp(tls_source(&world.tls_random), identity.now_seconds, null) catch {};
     }
 
     fn report(world: *World, finished: client.Finished) Error!void {
@@ -444,8 +444,8 @@ pub const World = struct {
     }
 
     /// The index of the exchange at `exchange`, which the world placed.
-    pub fn index_of(world: *const World, exchange: *const client.Exchange) usize {
-        const index = (@intFromPtr(exchange) - @intFromPtr(&world.exchanges[0])) / @sizeOf(client.Exchange);
+    pub fn index_of(world: *const World, exchange: *const client.HttpExchange) usize {
+        const index = (@intFromPtr(exchange) - @intFromPtr(&world.exchanges[0])) / @sizeOf(client.HttpExchange);
         assert(index < limits.exchanges_max and &world.exchanges[index] == exchange);
         return index;
     }

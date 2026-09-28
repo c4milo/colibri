@@ -27,7 +27,7 @@ const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
 const client_exchange = @import("client_exchange.zig");
 const client_tls = @import("../tls/client_tls.zig");
-const origin_loop = @import("origin_loop.zig");
+const channel_loop = @import("channel_loop.zig");
 const entropy = @import("../entropy.zig");
 const alpn = @import("../alpn.zig");
 
@@ -292,8 +292,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     client_exchange.fill_content();
     client_config = .{ .authority = run.authority, .cleartext = protocol_of(run.protocol) };
     if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
-    if (run.origin) {
-        if (!try origin_loop.run_origin(&run, &client_config, &tls_anchors)) std.process.exit(exit_failed);
+    if (run.channel) {
+        if (!try channel_loop.run_channel(&run, &client_config, &tls_anchors)) std.process.exit(exit_failed);
         return;
     }
     const succeeded = try run_connections(&run);

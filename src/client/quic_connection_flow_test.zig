@@ -9,7 +9,7 @@ const event = @import("event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const Exchange = support.Exchange;
+const HttpExchange = support.HttpExchange;
 
 /// Where the tests' exchanges put their responses, outside any stack frame. Test-only.
 var bodies: [bodies_count][body_len]u8 = undefined;
@@ -18,7 +18,7 @@ const body_len: usize = 1024;
 /// Rounds that run past the closing period, three times the Probe Timeout (RFC 9000 §10.2).
 const closing_rounds: usize = 128;
 
-fn get(body: []u8) Exchange {
+fn get(body: []u8) HttpExchange {
     return .{ .method = "GET", .path = "/dns-query", .body = body };
 }
 
@@ -60,7 +60,7 @@ test "RFC 9114 §4.1.1: a cancel after the response resets the stream still send
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     support.answer_early = true;
     @memset(&upload, 'z');
-    var post: Exchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
     const id = try connection.request(&post);
     // Bounded: the server answers once the request's head arrives.
     for (0..support.rounds_default) |_| {
@@ -131,8 +131,8 @@ test "RFC 9204 §4.5.4: a marked path and field line go out as literals with the
     const path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE";
     const fields = [_]event.Field{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
     const marks = [_]bool{ true, false };
-    var marked: Exchange = .{ .method = "GET", .path = path, .fields = &fields, .never_indexed = .{ .path = true, .fields = &marks }, .body = &bodies[0] };
-    var plain: Exchange = .{ .method = "GET", .path = path, .fields = &fields, .body = &bodies[1] };
+    var marked: HttpExchange = .{ .method = "GET", .path = path, .fields = &fields, .never_indexed = .{ .path = true, .fields = &marks }, .body = &bodies[0] };
+    var plain: HttpExchange = .{ .method = "GET", .path = path, .fields = &fields, .body = &bodies[1] };
     _ = try connection.request(&marked);
     _ = try connection.request(&plain);
     try support.pump(support.rounds_default);

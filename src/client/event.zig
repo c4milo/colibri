@@ -52,7 +52,7 @@ pub const Outcome = enum {
 };
 
 /// One request and where its response goes, in the caller's memory.
-pub const Exchange = struct {
+pub const HttpExchange = struct {
     /// The request method (RFC 9110 §9).
     method: []const u8,
     /// The target's path and query in origin form (RFC 9112 §3.2.1), which h2 sends as `:path`
@@ -90,7 +90,7 @@ pub const Exchange = struct {
     error_code: u32 = 0,
 
     /// Clears what the client writes, so the exchange can be made again.
-    pub fn clear(exchange: *Exchange) void {
+    pub fn clear(exchange: *HttpExchange) void {
         exchange.outcome = .pending;
         exchange.status = 0;
         exchange.interims = 0;
@@ -105,7 +105,7 @@ pub const Exchange = struct {
     /// The Content-Length value of the request, written into `digits`, or null when it sends none.
     /// RFC 9110 §8.6: a user agent sends one when the request has content, or when its method gives
     /// content a meaning, as POST's and PUT's do (RFC 9110 §9.3.3, §9.3.4).
-    pub fn content_length(exchange: *const Exchange, digits: []u8) ?[]const u8 {
+    pub fn content_length(exchange: *const HttpExchange, digits: []u8) ?[]const u8 {
         const method = http.method.standard(exchange.method);
         const defines_content = method == .post or method == .put;
         if (exchange.content.len == 0 and !defines_content) return null;
@@ -113,7 +113,7 @@ pub const Exchange = struct {
     }
 
     /// The response's content, once the outcome is `response`.
-    pub fn content_received(exchange: *const Exchange) []const u8 {
+    pub fn content_received(exchange: *const HttpExchange) []const u8 {
         assert(exchange.outcome == .response);
         return exchange.body[0..exchange.body_len];
     }
@@ -130,7 +130,7 @@ pub const NeverIndexed = struct {
 /// An exchange that ended: its id, and the exchange, whose outcome says how.
 pub const Finished = struct {
     id: Id,
-    exchange: *Exchange,
+    exchange: *HttpExchange,
 };
 
 pub const Event = union(enum) {
@@ -159,7 +159,7 @@ pub const Received = struct {
 
 test "clearing an exchange makes it pending again, and leaves its request alone" {
     var wanted = [_]Wanted{.{ .name = "content-type", .value = "text/plain" }};
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .wanted = &wanted };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .wanted = &wanted };
     exchange.outcome = .response;
     exchange.status = 200;
     exchange.body_len = 3;

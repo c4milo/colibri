@@ -29,7 +29,7 @@ const request_fields = [_]client.Field{.{ .name = "user-agent", .value = constan
 /// One exchange: its plan, the module's exchange carrying it, and its id on the connection.
 pub const Exchange = struct {
     plan: Plan,
-    carried: client.Exchange,
+    carried: client.HttpExchange,
     id: client.Id,
     /// Whether the exchange's `finished` event arrived.
     finished: bool,

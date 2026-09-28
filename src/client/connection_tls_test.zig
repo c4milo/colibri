@@ -11,7 +11,7 @@ const event = @import("event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const Exchange = support.Exchange;
+const HttpExchange = support.HttpExchange;
 
 const ok: u16 = 200;
 
@@ -139,7 +139,7 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and an exchange goes out 
     try testing.expectEqual(event.Protocol.h2, support.find(.connected).?.connected);
     support.peer_h2.init(.server);
     try support.peer_h2.attach_tls(server.provider());
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&exchange);
     support.client_send();
     try server_open();
@@ -156,7 +156,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     try testing.expectEqual(event.Protocol.h11, support.find(.connected).?.connected);
     support.peer_h11.init(.server, .{});
     try support.peer_h11.attach_tls(server.provider());
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&exchange);
     support.client_send();
     try server_open();
@@ -184,7 +184,7 @@ test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_
     try start_tls(&support.protocols_h11, &support.protocols_both, "localhost", false);
     support.peer_h11.init(.server, .{});
     try support.peer_h11.attach_tls(server.provider());
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&exchange);
     support.client_send();
     try server_open();
@@ -205,7 +205,7 @@ test "RFC 7838 §3: an h2 response's Alt-Svc over TLS names h3 for take_alt_svc"
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
     support.peer_h2.init(.server);
     try support.peer_h2.attach_tls(server.provider());
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&exchange);
     support.client_send();
     try server_open();
@@ -229,7 +229,7 @@ test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket 
 }
 
 test "RFC 9846 §6.2: a handshake the client refuses ends the connection, and its exchange is refused" {
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     // The certificate names localhost, and the client asks for another name.
     try prepare_tls(&support.protocols_h2, &support.protocols_both, "example.com", false);
     _ = try connection.request(&exchange);
@@ -249,7 +249,7 @@ test "RFC 9846 §6.2: a handshake the client refuses ends the connection, and it
 
 test "RFC 9846 §6.1: the server's close_notify ends the exchange awaiting its response" {
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&exchange);
     support.client_send();
     const provider = server.provider();

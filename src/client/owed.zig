@@ -53,7 +53,7 @@ const testing = std.testing;
 test "the version comes first, then the ticket, each exchange's end, draining, and the close" {
     var slots: Slots = undefined;
     slots.init();
-    var exchange: event.Exchange = .{ .method = "GET", .path = "/" };
+    var exchange: event.HttpExchange = .{ .method = "GET", .path = "/" };
     const id = slots.take(&exchange).?;
     slots_module.end(slots.of_id(id).?, .response);
     var owed: Owed = .{ .connected = true, .ticket = true, .draining = true };

@@ -17,7 +17,7 @@ const response = @import("response.zig");
 const event = @import("event.zig");
 
 const Connection = connection_module.Connection;
-const Exchange = event.Exchange;
+const HttpExchange = event.HttpExchange;
 const Field = event.Field;
 const Slot = slots_module.Slot;
 
@@ -206,7 +206,7 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
 /// The field lines of `exchange`'s request as h11 writes them: Host first, which RFC 9110 §7.2
 /// asks of a user agent, the caller's, then the Content-Length the client adds (RFC 9110 §8.6).
 /// Null when they pass `request_fields_max`.
-fn request_fields(connection: *const Connection, exchange: *const Exchange, lines: *[constants.request_fields_max]Field, digits: *[constants.content_length_digits_max]u8) ?[]const Field {
+fn request_fields(connection: *const Connection, exchange: *const HttpExchange, lines: *[constants.request_fields_max]Field, digits: *[constants.content_length_digits_max]u8) ?[]const Field {
     if (exchange.fields.len + constants.added_fields_max > lines.len) return null;
     // RFC 9112 §3.2: "A client MUST send a Host header field in all HTTP/1.1 request messages."
     lines[0] = .{ .name = "Host", .value = connection.config.authority };

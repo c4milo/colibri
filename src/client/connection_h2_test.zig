@@ -8,7 +8,7 @@ const event = @import("event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const Exchange = support.Exchange;
+const HttpExchange = support.HttpExchange;
 
 const ok: u16 = 200;
 /// RFC 9110 §15.2.4: 103 Early Hints, an interim response.
@@ -22,7 +22,7 @@ const bodies_count: usize = 2;
 const values_len: usize = 256;
 
 /// The one exchange a test sends, and the stream the peer read it on. Test-only.
-fn get(body: []u8) Exchange {
+fn get(body: []u8) HttpExchange {
     return .{ .method = "GET", .path = "/dns-query", .body = body };
 }
 
@@ -77,7 +77,7 @@ test "RFC 9113 §6.9: content past the stream's window goes out as the peer gran
     const content_len = 3 * h2.constants.initial_window_size_initial;
     const content = bodies[1][0..content_len];
     @memset(content, 'x');
-    var exchange: Exchange = .{ .method = "POST", .path = "/upload", .content = content, .body = &bodies[0] };
+    var exchange: HttpExchange = .{ .method = "POST", .path = "/upload", .content = content, .body = &bodies[0] };
     _ = try connection.request(&exchange);
     var received: usize = 0;
     for (0..support.events_max) |_| {
@@ -184,7 +184,7 @@ test "RFC 9113 §6.4: a cancelled exchange's stream is reset with CANCEL, and no
 
 test "RFC 9113 §8.3.1: a method h2 refuses to send ends its exchange invalid and spends no stream" {
     try start();
-    var bad: Exchange = .{ .method = "G ET", .path = "/", .body = &bodies[0] };
+    var bad: HttpExchange = .{ .method = "G ET", .path = "/", .body = &bodies[0] };
     var good = get(&bodies[1]);
     _ = try connection.request(&bad);
     _ = try connection.request(&good);

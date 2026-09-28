@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Trace validation of spec/tla/client_exchanges against colibri (decision 105). The simulator's
-# client trace run has a `client.Origin` carry each seed's exchanges over QUIC and TCP, and logs
+# client trace run has a `client.Channel` carry each seed's exchanges over QUIC and TCP, and logs
 # the model's state after each instant; TLC then checks every seed's log is a behavior of the
 # model (spec/tla/client_exchanges/ClientExchangesTrace.tla).
 #

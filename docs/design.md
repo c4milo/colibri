@@ -4920,7 +4920,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **17c, 2026-09-28.** `src/client/` is the `client` module, exported by name. It imports `core`,
   `http`, `h11`, `h2`, `tls` and `tls_provider`, as `server` does.
   - A `Connection` carries exchanges over one TCP connection to one origin, whose authority
-    `Config` names. For each request the caller places an `Exchange` in its own memory: the
+    `Config` names. For each request the caller places an `HttpExchange` in its own memory: the
     method, the path, its field lines and its content, and where the response goes, a body buffer
     and the names of the response fields it reads. `request(exchange)` returns an id, `send` writes
     the request when the protocol, the room and the server allow, and `cancel(id)` ends one. The
@@ -4963,7 +4963,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `QuicConnection` (`35dfbde`) carries exchanges over h3 on QUIC with the TCP connection's calls
     and events. An exchange's `finished` event waits until its stream reads nothing more of the
     exchange (RFC 9000 §3.1), so the caller may reuse its memory once the event arrives.
-  - `Origin` (`289bd69`) carries a caller's exchanges to one origin over a QUIC and a TCP
+  - `Channel` (`289bd69`) carries a caller's exchanges to one origin over a QUIC and a TCP
     connection it chooses between. It opens QUIC first when a fresh Alt-Svc alternative names h3,
     when an HTTPS record does, or, with no record, when `Config.quic_first` says to try it (RFC 9114
     §3.1, RFC 9460 §7.1.2). It opens TCP when QUIC is not allowed, when QUIC's attempt failed, or
@@ -4977,10 +4977,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A TCP response's Alt-Svc over TLS teaches the origin h3 on its host (RFC 7838 §3) for its next
     connection, and `alternative()` hands it to the caller to keep. RFC 7838 and RFC 9460 joined
     `docs/rfcs/` (`31091af`).
-  - An `Origin` is 2,492,448 octets: a QUIC connection of 2,205,760 and a TCP one of 285,928.
+  - A `Channel` is 2,492,448 octets: a QUIC connection of 2,205,760 and a TCP one of 285,928.
   - Decision 105's model, `spec/tla/client_exchanges` (`10352d2`), holds in 4 scopes, 3.2 million
     states in all, and each of its 6 rules turned off finds a violation.
-  - The client trace run, `src/sim/client_trace_*.zig`, has an `Origin` carry each seed's exchanges
+  - The client trace run, `src/sim/client_trace_*.zig`, has a `Channel` carry each seed's exchanges
     to a QUIC server over the simulator's network and to an h2 server over TLS on an ordered link,
     both built from colibri's modules over chapulin. Its plans block, refuse, slow and lose QUIC,
     and its rough seeds reject and reset requests and break connections. Each seed must end with
@@ -5000,9 +5000,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and TLC alone caught a fallback flag kept after its attempt ended. The run reaches neither of
     the other two, an abandoned handshake reported as connected and a move past `moves_max`, and
     unit tests catch both (`215782c`).
-  - `http-client --origin` (§9) hands its plan to one `Origin` on one Rotor loop, which holds the
+  - `http-client --channel` (§9) hands its plan to one `Channel` on one Rotor loop, which holds the
     UDP socket every QUIC connection shares and one TCP socket at a time.
-    `tools/origin_interop.sh` runs it three times on an Apple M1 Pro, macOS 26.6.2:
+    `tools/channel_interop.sh` runs it three times on an Apple M1 Pro, macOS 26.6.2:
     - Against aioquic 1.3.0 and quic-go `9d085cc`, the QUIC Interop Runner's image pinned by
       digest: each fetched 1,000, 100,000 and 1,000,000 octets with matching CRC-32s, sent a POST
       of 300,000 octets whole, and read a 404. Every exchange ran over h3, and TCP never opened.
@@ -5011,10 +5011,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       octets that Go echoed.
     - The whole script took 7.7 s. The fallback run waits about 3 s for the abandoned QUIC
       connection's closing state, which lasts three PTOs (RFC 9000 §10.2).
-  - Mutations of the origin mode, each CAUGHT: the script catches offering no h3, reporting every
+  - Mutations of the channel mode, each CAUGHT: the script catches offering no h3, reporting every
     exchange as h2, a fallback delay of 0 and TCP input that never advances; unit tests catch
-    `--origin` without `--tls`, `--fallback-ms` ignored, and the TCP socket's first operation read
+    `--channel` without `--tls`, `--fallback-ms` ignored, and the TCP socket's first operation read
     as a UDP send's.
+  - The owner renamed `Origin` to `Channel` and `Exchange` to `HttpExchange` on 2026-09-28, before
+    the v0.4.0 tag:
+    - `Origin` reads as RFC 9110 §3.6's origin server, and no other HTTP client names this object
+      so. `Channel` is gRPC's name for what sends requests to one target over connections it
+      chooses.
+    - `HttpExchange` names the struct's two halves, the request and where its response goes: RFC
+      9113 §8.1 calls the pair an "HTTP request/response exchange".
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
@@ -5192,9 +5199,9 @@ only place in the tree permitted to touch a socket
    them h11 as well. In cleartext, `--h11` makes either speak h11 instead of h2 with prior
    knowledge. Over TLS, both offer `h2` and then `http/1.1` through ALPN, or `http/1.1` alone
    with `--h11`, and each connection speaks what the handshake selected: h2 for `h2`, and h11
-   for `http/1.1` or for no selection (decision 88). With `--origin` and `--tls` the client hands
-   its plan to one `client.Origin` instead, which tries h3 over QUIC first and falls back to TCP
-   (step 17d), and `tools/origin_interop.sh` runs it.
+   for `http/1.1` or for no selection (decision 88). With `--channel` and `--tls` the client hands
+   its plan to one `client.Channel` instead, which tries h3 over QUIC first and falls back to TCP
+   (step 17d), and `tools/channel_interop.sh` runs it.
 2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
    `h2load --h3`. Lands with step 12.
 3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a

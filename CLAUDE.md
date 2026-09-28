@@ -349,10 +349,10 @@ section when a step adds or renames a command.
   against aioquic's, pinned and installed once into a cached virtual environment, over both
   protocols in both directions, and checks that a handshake colibri's server refuses ends with its
   CONNECTION_CLOSE; it also needs `python3`. `tools/ci.sh` runs both.
-- Origin check: `zig build http-client -- --origin --tls <anchor-prefix> --seconds <unix-seconds>
-  [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Origin`, which
+- Channel check: `zig build http-client -- --channel --tls <anchor-prefix> --seconds <unix-seconds>
+  [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Channel`, which
   opens QUIC first and TCP once QUIC fails or the fallback delay passes (design §8 step 17d).
-  `tools/origin_interop.sh [port]` runs it against aioquic's h3 server, against quic-go's from the
+  `tools/channel_interop.sh [port]` runs it against aioquic's h3 server, against quic-go's from the
   QUIC Interop Runner's image, pinned by digest, and against Go's h2 server over TLS, which has no
   UDP and which the client falls back to. It needs `python3`, `docker` and `go`, and
   `tools/ci.sh` runs it.

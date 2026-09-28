@@ -34,7 +34,7 @@ pub const Id = event.Id;
 pub const Protocol = event.Protocol;
 pub const Event = event.Event;
 pub const Received = event.Received;
-pub const Exchange = event.Exchange;
+pub const HttpExchange = event.HttpExchange;
 pub const Field = event.Field;
 const Slot = slots_module.Slot;
 
@@ -193,7 +193,7 @@ pub const Connection = struct {
 
     /// Takes `exchange`, which `send` writes when the protocol, the room and the peer allow, and
     /// returns its id. The caller keeps the exchange in place until its `finished` event.
-    pub fn request(connection: *Connection, exchange: *Exchange) RequestError!Id {
+    pub fn request(connection: *Connection, exchange: *HttpExchange) RequestError!Id {
         // RFC 9113 §5.4.1 and RFC 9112 §9.6: a connection that failed or closed carries no request.
         if (connection.phase == .closed or connection.stopped) return error.ConnectionClosed;
         // RFC 9113 §6.8 and §5.1.1, RFC 9112 §9.6: a connection that heard GOAWAY, spent its
@@ -299,7 +299,7 @@ pub const Connection = struct {
         connection.wipe_ticket();
     }
 
-    /// The protocol serving the connection, or null while the TLS handshake runs or after it failed.
+    /// The protocol serving the connection, or null during the TLS handshake or after it failed.
     pub fn protocol(connection: *const Connection) ?Protocol {
         return switch (connection.session) {
             .none => null,
@@ -465,7 +465,7 @@ pub const Connection = struct {
 };
 
 /// Refuses what no protocol could send as an exchange, before the exchange takes a slot.
-pub fn check_request(exchange: *const Exchange) RequestError!void {
+pub fn check_request(exchange: *const HttpExchange) RequestError!void {
     // The caller marks each of its field lines, or none.
     assert(exchange.never_indexed.fields.len == 0 or exchange.never_indexed.fields.len == exchange.fields.len);
     // RFC 9110 §9.1: a method is a token, which is never empty.

@@ -1,10 +1,10 @@
-//! The TCP connection of the test-only client's origin mode (`origin_loop.zig`): one socket at a
-//! time, on the loop the UDP flow runs on, opened and closed when `client.Origin` asks.
+//! The TCP connection of the test-only client's channel mode (`channel_loop.zig`): one socket at a
+//! time, on the loop the UDP flow runs on, opened and closed when `client.Channel` asks.
 //!
-//! As in `client_loop.zig`, a receive writes into `received` and its octets are appended to
-//! `input` when its event arrives, and at most one receive and one send are in flight. A socket the
-//! origin asks to close sends what it owes first. An open the origin asks for while the last socket
-//! is still closing waits for that close's event, so the loop never holds two sockets.
+//! As in `client_loop.zig`, a receive writes into `received` and its octets are appended to `input`
+//! when its event arrives, and at most one receive and one send are in flight. A socket the channel
+//! asks to close sends what it owes first. An open the channel asks for while the last socket is
+//! still closing waits for that close's event, so the loop never holds two sockets.
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -15,16 +15,16 @@ pub const Kind = enum(u8) { connect, receive, send, close };
 
 /// The user data of the socket's operations: just above the index of every UDP send slot, and far
 /// below the UDP receive's.
-pub const user_data_base: u64 = constants.origin_udp_send_slots;
+pub const user_data_base: u64 = constants.channel_udp_send_slots;
 
-/// What an event meant, which the loop tells the origin.
+/// What an event meant, which the loop tells the channel.
 pub const Happened = enum {
-    /// Nothing the origin needs to hear of.
+    /// Nothing the channel needs to hear of.
     none,
-    /// The connect succeeded, and the origin starts its connection.
+    /// The connect succeeded, and the channel starts its connection.
     connected,
-    /// The socket failed, or the peer closed it, before the origin asked for the close: the origin
-    /// hears `transport_closed`.
+    /// The socket failed, or the peer closed it, before the channel asked for the close: the
+    /// channel hears `transport_closed`.
     failed,
     /// The socket closed, and the open that waited for it, if any, failed to start.
     open_failed,
@@ -45,10 +45,10 @@ pub const Socket = struct {
     output_sent: usize,
     receiving: bool,
     sending: bool,
-    /// The origin asked for the close. The socket closes once its octets are sent, and the origin
+    /// The channel asked for the close. The socket closes once its octets are sent, and the channel
     /// hears nothing more of it.
     close_asked: bool,
-    /// An open the origin asked for while the last socket was still closing.
+    /// An open the channel asked for while the last socket was still closing.
     open_pending: ?rotor.Address,
 
     pub const State = enum { idle, connecting, open, closing };
@@ -69,7 +69,7 @@ pub const Socket = struct {
     }
 
     /// Opens a socket to `to` and starts its connect, or waits for the last socket's close. False
-    /// when the system gave no socket, which the origin hears as `transport_closed`.
+    /// when the system gave no socket, which the channel hears as `transport_closed`.
     pub fn open(socket: *Socket, loop: *rotor.Loop, to: rotor.Address) bool {
         assert(socket.open_pending == null);
         if (socket.state != .idle) {
@@ -84,8 +84,8 @@ pub const Socket = struct {
         return true;
     }
 
-    /// The origin is done with the connection. An open still waiting for the last close is the
-    /// one the origin gave up, and it never starts.
+    /// The channel is done with the connection. An open still waiting for the last close is the
+    /// one the channel gave up, and it never starts.
     pub fn close(socket: *Socket, loop: *rotor.Loop) void {
         if (socket.open_pending != null) {
             socket.open_pending = null;
@@ -135,7 +135,7 @@ pub const Socket = struct {
     }
 
     /// Counts what a send took. Every octet gone and no send in flight, the buffer starts again
-    /// at its front, and a socket the origin is done with closes.
+    /// at its front, and a socket the channel is done with closes.
     fn on_sent(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
         socket.sending = false;
         if (socket.state != .open) return .none;
@@ -159,7 +159,7 @@ pub const Socket = struct {
         return if (socket.open(loop, pending)) .none else .open_failed;
     }
 
-    /// Closes the socket, and says whether the origin must hear that its transport failed: it
+    /// Closes the socket, and says whether the channel must hear that its transport failed: it
     /// must unless it asked for the close. Rotor's close cancels the receive and the send first.
     fn end(socket: *Socket, loop: *rotor.Loop) Happened {
         assert(socket.state == .connecting or socket.state == .open);
@@ -173,8 +173,8 @@ pub const Socket = struct {
         if (socket.output_sent == socket.output_len and !socket.sending) _ = socket.end(loop);
     }
 
-    /// Whether the origin's connection writes into the socket and reads from it: it is open, and
-    /// the origin has not closed it.
+    /// Whether the channel's connection writes into the socket and reads from it: it is open, and
+    /// the channel has not closed it.
     pub fn carrying(socket: *const Socket) bool {
         return socket.state == .open and !socket.close_asked;
     }
@@ -184,7 +184,7 @@ pub const Socket = struct {
         return socket.input[0..socket.input_len];
     }
 
-    /// Drops the `consumed` octets the origin took, moving what is left to the front.
+    /// Drops the `consumed` octets the channel took, moving what is left to the front.
     pub fn consume(socket: *Socket, consumed: usize) void {
         assert(consumed <= socket.input_len);
         const rest = socket.input_len - consumed;
@@ -192,7 +192,7 @@ pub const Socket = struct {
         socket.input_len = rest;
     }
 
-    /// Where the origin writes what the socket sends next.
+    /// Where the channel writes what the socket sends next.
     pub fn room(socket: *Socket) []u8 {
         return socket.output[socket.output_len..];
     }
@@ -234,7 +234,7 @@ fn user_data(kind: Kind) u64 {
     return user_data_base + @intFromEnum(kind);
 }
 
-/// Submits one operation. The loop keeps `origin_tcp_operations_max` of its operations for the
+/// Submits one operation. The loop keeps `channel_tcp_operations_max` of its operations for the
 /// socket, so it always has room.
 fn submit(loop: *rotor.Loop, operation: rotor.Operation) void {
     const taken = loop.submit(&.{operation}, &.{});
@@ -245,6 +245,6 @@ const testing = std.testing;
 
 test "the socket's user data lies between the UDP send slots' and the UDP receive's" {
     try testing.expect(owns(user_data(.connect)) and owns(user_data(.close)));
-    try testing.expect(!owns(constants.origin_udp_send_slots - 1));
+    try testing.expect(!owns(constants.channel_udp_send_slots - 1));
     try testing.expect(!owns(std.math.maxInt(u64)));
 }

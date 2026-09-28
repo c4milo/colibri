@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const http = @import("http");
 const event = @import("event.zig");
 
-const Exchange = event.Exchange;
+const HttpExchange = event.HttpExchange;
 const FieldSection = http.FieldSection;
 
 pub const Error = error{
@@ -19,7 +19,7 @@ const separator = ", ";
 
 /// Records a final response's status and the values of the fields the caller named, from the
 /// regular field lines of `section`, which start at index `first`.
-pub fn record_head(exchange: *Exchange, status: u16, section: *const FieldSection, first: u32) Error!void {
+pub fn record_head(exchange: *HttpExchange, status: u16, section: *const FieldSection, first: u32) Error!void {
     assert(exchange.status == 0 and exchange.values_len == 0);
     assert(first <= section.len());
     exchange.status = status;
@@ -30,7 +30,7 @@ pub fn record_head(exchange: *Exchange, status: u16, section: *const FieldSectio
 
 /// The value of every field line of `section` named `name`, joined into the exchange's `values`,
 /// or null when none is.
-fn join(exchange: *Exchange, name: []const u8, section: *const FieldSection, first: u32) Error!?[]const u8 {
+fn join(exchange: *HttpExchange, name: []const u8, section: *const FieldSection, first: u32) Error!?[]const u8 {
     const start = exchange.values_len;
     var found = false;
     var iterator: http.field_section.Iterator = .{ .section = section, .index = first };
@@ -48,7 +48,7 @@ fn join(exchange: *Exchange, name: []const u8, section: *const FieldSection, fir
     return exchange.values[start..exchange.values_len];
 }
 
-fn append(exchange: *Exchange, octets: []const u8) Error!void {
+fn append(exchange: *HttpExchange, octets: []const u8) Error!void {
     const room = exchange.values.len - exchange.values_len;
     if (octets.len > room) return error.NoSpaceLeft;
     @memcpy(exchange.values[exchange.values_len..][0..octets.len], octets);
@@ -56,7 +56,7 @@ fn append(exchange: *Exchange, octets: []const u8) Error!void {
 }
 
 /// Copies octets of the response's content after those already in `body`.
-pub fn append_body(exchange: *Exchange, octets: []const u8) Error!void {
+pub fn append_body(exchange: *HttpExchange, octets: []const u8) Error!void {
     const room = exchange.body.len - exchange.body_len;
     if (octets.len > room) return error.NoSpaceLeft;
     @memcpy(exchange.body[exchange.body_len..][0..octets.len], octets);
@@ -77,7 +77,7 @@ test "RFC 9110 §5.3: the field lines of a wanted name are joined in order, and 
     try test_section.append("Cache-Control", "no-transform");
     var wanted = [_]event.Wanted{ .{ .name = "cache-control" }, .{ .name = "age" }, .{ .name = "Content-Type" } };
     var values: [64]u8 = undefined;
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .wanted = &wanted, .values = &values };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .wanted = &wanted, .values = &values };
     try record_head(&exchange, 200, &test_section, 1);
     try testing.expectEqual(200, exchange.status);
     try testing.expectEqualStrings("max-age=60, no-transform", wanted[0].value.?);
@@ -91,7 +91,7 @@ test "a value or content past the caller's memory is refused whole" {
     var wanted = [_]event.Wanted{.{ .name = "content-type" }};
     var values: [8]u8 = undefined;
     var body: [4]u8 = undefined;
-    var exchange: Exchange = .{ .method = "GET", .path = "/", .wanted = &wanted, .values = &values, .body = &body };
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .wanted = &wanted, .values = &values, .body = &body };
     try testing.expectError(error.NoSpaceLeft, record_head(&exchange, 200, &test_section, 0));
     try append_body(&exchange, "abc");
     try testing.expectError(error.NoSpaceLeft, append_body(&exchange, "de"));

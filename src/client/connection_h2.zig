@@ -17,7 +17,7 @@ const response = @import("response.zig");
 const event = @import("event.zig");
 
 const Connection = connection_module.Connection;
-const Exchange = connection_module.Exchange;
+const HttpExchange = connection_module.HttpExchange;
 const Slot = slots_module.Slot;
 
 /// Reads frames from `plaintext` until an exchange ends or the connection owes the caller an
@@ -242,7 +242,7 @@ fn refused(connection: *Connection, slot: *Slot, failure: h2.connection.RequestE
 /// The field lines of `exchange`'s request as h2 writes them, with the content-length the client
 /// adds, and how each is written, or null when they pass `request_fields_max`.
 fn request_fields(
-    exchange: *const Exchange,
+    exchange: *const HttpExchange,
     lines: *[constants.request_fields_max]h2.hpack.Field,
     indexing: *[constants.request_fields_max]h2.connection.RequestIndexing,
     digits: *[constants.content_length_digits_max]u8,

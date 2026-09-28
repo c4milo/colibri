@@ -30,7 +30,7 @@ const quic_h3 = @import("quic_connection_h3.zig");
 pub const Id = event.Id;
 pub const Event = event.Event;
 pub const Received = event.Received;
-pub const Exchange = event.Exchange;
+pub const HttpExchange = event.HttpExchange;
 pub const RequestError = connection_module.RequestError;
 pub const PeerAddress = quic.peer_address.PeerAddress;
 const Parameters = quic.transport_parameters.Parameters;
@@ -155,7 +155,7 @@ pub const QuicConnection = struct {
 
     /// Takes `exchange`, which goes out on a stream of its own once h3 runs and the server's
     /// stream limit allows (RFC 9000 §4.6), and returns its id.
-    pub fn request(connection: *QuicConnection, exchange: *Exchange) RequestError!Id {
+    pub fn request(connection: *QuicConnection, exchange: *HttpExchange) RequestError!Id {
         // RFC 9000 §10 and RFC 9114 §8: a connection that closed or failed carries no request.
         if (connection.closed or connection.stopped) return error.ConnectionClosed;
         // RFC 9114 §5.2: a connection that heard GOAWAY, or is shutting down, opens no request.

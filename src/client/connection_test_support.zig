@@ -13,7 +13,7 @@ const event = @import("event.zig");
 
 pub const Connection = connection_module.Connection;
 pub const Config = connection_module.Config;
-pub const Exchange = event.Exchange;
+pub const HttpExchange = event.HttpExchange;
 pub const Event = event.Event;
 pub const Field = event.Field;
 

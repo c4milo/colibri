@@ -8,7 +8,7 @@ const constants = @import("constants.zig");
 const event = @import("event.zig");
 
 const Id = event.Id;
-const Exchange = event.Exchange;
+const HttpExchange = event.HttpExchange;
 const Outcome = event.Outcome;
 
 pub const Stage = enum {
@@ -28,7 +28,7 @@ pub const Stage = enum {
 pub const Slot = struct {
     stage: Stage = .free,
     id: Id = 0,
-    exchange: *Exchange = undefined,
+    exchange: *HttpExchange = undefined,
     /// The stream the request opened, 0 before it opened one: h2's (RFC 9113 §5.1.1), or QUIC's
     /// (RFC 9000 §2.1), whose client-initiated bidirectional streams start at 0 too, so a QUIC
     /// slot says whether it opened one with `stage`.
@@ -62,7 +62,7 @@ pub const Slots = struct {
     }
 
     /// Takes a free slot for `exchange` and returns its id, or null when every slot is taken.
-    pub fn take(slots: *Slots, exchange: *Exchange) ?Id {
+    pub fn take(slots: *Slots, exchange: *HttpExchange) ?Id {
         const slot = slots.first(.free) orelse return null;
         slot.* = .{ .stage = .queued, .id = slots.next_id, .exchange = exchange };
         slots.next_id += 1;
@@ -193,7 +193,7 @@ const testing = std.testing;
 test "ids rise in the order exchanges are taken, and a released slot is taken again" {
     var slots: Slots = undefined;
     slots.init();
-    var exchanges: [constants.exchanges_max + 1]Exchange = @splat(.{ .method = "GET", .path = "/" });
+    var exchanges: [constants.exchanges_max + 1]HttpExchange = @splat(.{ .method = "GET", .path = "/" });
     for (exchanges[0..constants.exchanges_max], 1..) |*exchange, expected| {
         try testing.expectEqual(expected, slots.take(exchange).?);
     }
@@ -206,7 +206,7 @@ test "ids rise in the order exchanges are taken, and a released slot is taken ag
 test "the oldest exchange awaiting its response may be sent or dropping" {
     var slots: Slots = undefined;
     slots.init();
-    var exchanges: [3]Exchange = @splat(.{ .method = "GET", .path = "/" });
+    var exchanges: [3]HttpExchange = @splat(.{ .method = "GET", .path = "/" });
     for (&exchanges) |*exchange| _ = slots.take(exchange).?;
     for (&slots.slots) |*slot| {
         if (slot.stage == .queued) slot.stage = .sent;

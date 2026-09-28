@@ -1,5 +1,5 @@
 //! The state of spec/tla/client_exchanges's model in a client trace run (decision 105): what the
-//! run logs after each instant, computed from the caller's record, the origin, its connections
+//! run logs after each instant, computed from the caller's record, the channel, its connections
 //! and the servers' ledger.
 //!
 //! Whether a QUIC stream holds an exchange's octets is read from the stream itself, not from the
@@ -16,7 +16,7 @@ const ledger_module = @import("client_trace_ledger.zig");
 
 const limits = sim.constants.client_trace;
 const World = world_module.World;
-const Transport = client.origin.Transport;
+const Transport = client.channel.Transport;
 const exchanges_max = limits.exchanges_max;
 /// QUIC and TCP.
 const transports: usize = 2;
@@ -24,7 +24,7 @@ const transports: usize = 2;
 pub const Stage = enum { unmade, waiting, queued, sent, ended, reported, cancelled };
 pub const Carrier = enum { none, quic, tcp };
 pub const Outcome = enum { pending, response, refused, failed };
-pub const Phase = client.origin.Phase;
+pub const Phase = client.channel.Phase;
 
 pub const State = struct {
     stage: [exchanges_max]Stage,
@@ -43,7 +43,7 @@ pub const State = struct {
     shut: bool,
 };
 
-/// What the run remembers of each exchange across instants, which the origin forgets once the
+/// What the run remembers of each exchange across instants, which the channel forgets once the
 /// exchange is reported: the connection that carried it last, the times it moved, and its QUIC
 /// stream.
 pub const Tracker = struct {
@@ -61,9 +61,9 @@ pub const Tracker = struct {
         tracker.stream_generation = @splat(0);
     }
 
-    /// Notes where each exchange the origin holds is.
+    /// Notes where each exchange the channel holds is.
     pub fn update(tracker: *Tracker, world: *World) void {
-        for (world.origin.entries) |entry| {
+        for (world.channel.entries) |entry| {
             if (entry.stage == .free) continue;
             const index = world.index_of(entry.exchange);
             tracker.moved[index] = entry.moves;
@@ -75,14 +75,14 @@ pub const Tracker = struct {
         }
     }
 
-    fn note_carried(tracker: *Tracker, world: *World, index: usize, entry: client.origin.Entry) void {
+    fn note_carried(tracker: *Tracker, world: *World, index: usize, entry: client.channel.Entry) void {
         tracker.carrier[index] = if (entry.carrier == .quic) .quic else .tcp;
-        tracker.generation[index] = world.origin.links.get(entry.carrier).opens;
+        tracker.generation[index] = world.channel.links.get(entry.carrier).opens;
         if (entry.carrier != .quic) return;
-        const slot = world.origin.quic.slots.of_id(entry.carried_id) orelse return;
+        const slot = world.channel.quic.slots.of_id(entry.carried_id) orelse return;
         if (slot.stage == .queued) return;
         tracker.stream_id[index] = slot.stream_id;
-        tracker.stream_generation[index] = world.origin.links.get(.quic).opens;
+        tracker.stream_generation[index] = world.channel.links.get(.quic).opens;
     }
 };
 
@@ -98,14 +98,14 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
         state.seen[index] = seen(world, tracker, index);
         state.processed[index] = world.ledger.processed[index];
     }
-    const origin = &world.origin;
-    state.phase = .{ origin.phase(.quic), origin.phase(.tcp) };
-    state.opens = .{ origin.links.get(.quic).opens, origin.links.get(.tcp).opens };
-    state.tried = .{ origin.tried.get(.quic), origin.tried.get(.tcp) };
-    state.fallback = origin.fallback;
-    // The model learns only under its "learn" policy, and nothing in a run makes the origin forget.
-    state.learned = world.plan.policy == .learn and origin.alternative() != null;
-    state.shut = origin.shut;
+    const channel = &world.channel;
+    state.phase = .{ channel.phase(.quic), channel.phase(.tcp) };
+    state.opens = .{ channel.links.get(.quic).opens, channel.links.get(.tcp).opens };
+    state.tried = .{ channel.tried.get(.quic), channel.tried.get(.tcp) };
+    state.fallback = channel.fallback;
+    // The model learns only under its "learn" policy, and no run makes the channel forget.
+    state.learned = world.plan.policy == .learn and channel.alternative() != null;
+    state.shut = channel.shut;
     return state;
 }
 
@@ -116,17 +116,17 @@ fn stage_of(world: *World, index: usize) Stage {
     const entry = entry_of(world, index) orelse unreachable;
     return switch (entry.stage) {
         .waiting => .waiting,
-        // The origin reports an exchange it ended itself before the run logs again.
+        // The channel reports an exchange it ended itself before the run logs again.
         .ended => .reported,
         .carried => carried_stage(world, entry),
         .free => unreachable,
     };
 }
 
-fn carried_stage(world: *World, entry: client.origin.Entry) Stage {
+fn carried_stage(world: *World, entry: client.channel.Entry) Stage {
     const slot = switch (entry.carrier) {
-        .quic => world.origin.quic.slots.of_id(entry.carried_id),
-        .tcp => world.origin.tcp.slots.of_id(entry.carried_id),
+        .quic => world.channel.quic.slots.of_id(entry.carried_id),
+        .tcp => world.channel.tcp.slots.of_id(entry.carried_id),
     } orelse unreachable;
     return switch (slot.stage) {
         .queued => .queued,
@@ -136,8 +136,8 @@ fn carried_stage(world: *World, entry: client.origin.Entry) Stage {
     };
 }
 
-fn entry_of(world: *World, index: usize) ?client.origin.Entry {
-    for (world.origin.entries) |entry| {
+fn entry_of(world: *World, index: usize) ?client.channel.Entry {
+    for (world.channel.entries) |entry| {
         if (entry.stage != .free and entry.exchange == &world.exchanges[index]) return entry;
     }
     return null;
@@ -157,9 +157,9 @@ fn outcome_of(outcome: client.Outcome) Outcome {
 /// running and active, and the stream's sending part may still send (RFC 9000 §3.1).
 fn holds(world: *World, tracker: *const Tracker, index: usize) bool {
     const stream_id = tracker.stream_id[index] orelse return false;
-    const link = world.origin.links.get(.quic);
+    const link = world.channel.links.get(.quic);
     if (link.state != .running or tracker.stream_generation[index] != link.opens) return false;
-    const transport = &world.origin.quic.transport;
+    const transport = &world.channel.quic.transport;
     // RFC 9000 §10.2: a closing or draining connection sends no stream data.
     if (transport.termination.state != .active) return false;
     const stream = switch (transport.streams.lookup(.{ .value = stream_id })) {

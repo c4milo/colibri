@@ -1,11 +1,11 @@
-//! The client trace run (decision 105, design §8 step 17d): a `client.Origin` carries a seed's
+//! The client trace run (decision 105, design §8 step 17d): a `client.Channel` carries a seed's
 //! exchanges over QUIC and TCP while the plan loses, delays or refuses QUIC, and its servers
 //! answer, reject, reset and send GOAWAY (`client_trace_world.zig`). After each instant the run
 //! computes spec/tla/client_exchanges's state (`client_trace_state.zig`) and keeps it when it
 //! differs from the last one kept, which is the trace `client_trace_tla.zig` writes for TLC.
 //!
 //! The model's safety property is checked here too, without TLC, and every seed must end with
-//! the origin closed, each exchange reported once or cancelled, and, in a clean seed, each one
+//! the channel closed, each exchange reported once or cancelled, and, in a clean seed, each one
 //! that was not cancelled ended in a response: design §8 step 17d's "one completed request per
 //! request made". Each seed runs twice and must go through the same states (invariant 5).
 const std = @import("std");
@@ -33,7 +33,7 @@ pub const Violation = world_module.Error || error{
     /// often than a step can revisit it, or kept more states than `states_max`.
     Unfinished,
     TraceFull,
-    /// The run ended with the origin open or closed too late after its shutdown, an exchange
+    /// The run ended with the channel open or closed too late after its shutdown, an exchange
     /// neither reported nor cancelled, or, in a clean seed, an exchange that ended without a
     /// response.
     NotClosed,
@@ -75,7 +75,7 @@ pub const Result = struct {
 pub const Census = struct {
     seeds: u64 = 0,
     result: Result = .{},
-    /// The longest a seed's origin took to close once it had nothing left to carry.
+    /// The longest a seed's channel took to close once it had nothing left to carry.
     closing_max_ns: u64 = 0,
 
     fn count(census: *Census, result: Result, closing_ns: u64) void {
@@ -170,7 +170,7 @@ fn check_end(world: *const World) Violation!void {
     }
 }
 
-/// The instant the origin has nothing left to carry: its shutdown, or its last exchange's end.
+/// The instant the channel has nothing left to carry: its shutdown, or its last exchange's end.
 fn closing_from_ns(world: *const World) u64 {
     return @max(world.plan.shutdown_at_ns, world.settled_ns);
 }
@@ -180,10 +180,10 @@ fn result_of(storage: *const Storage) Result {
     var result: Result = .{
         .states = storage.states_len,
         .exchanges = world.plan.exchanges,
-        .quic_connections = world.origin.links.get(.quic).opens,
-        .tcp_connections = world.origin.links.get(.tcp).opens,
+        .quic_connections = world.channel.links.get(.quic).opens,
+        .tcp_connections = world.channel.links.get(.tcp).opens,
         .goaways = world.ledger.goaways,
-        .learned = @intFromBool(world.plan.policy == .learn and world.origin.alternative() != null),
+        .learned = @intFromBool(world.plan.policy == .learn and world.channel.alternative() != null),
     };
     const last = &storage.states[storage.states_len - 1];
     for (0..world.plan.exchanges) |index| {
@@ -215,7 +215,7 @@ const testing = std.testing;
 /// The storage the check test runs in, outside any stack frame.
 var test_storage: Storage align(@alignOf(Storage)) = undefined;
 
-test "client trace run: every seed closes the origin with each exchange reported once, and clean ones answered" {
+test "client trace run: every seed closes the channel with each exchange reported once, and clean ones answered" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
     run_check(&test_storage, sim.constants.check_seeds_default, &census, &failed_seed) catch |failure| {
@@ -223,7 +223,7 @@ test "client trace run: every seed closes the origin with each exchange reported
         return failure;
     };
     // The seeds reached the paths the model checks: QUIC and TCP carried exchanges, exchanges
-    // moved after a refusal, a GOAWAY went out, the origin learned h3, and some were cancelled.
+    // moved after a refusal, a GOAWAY went out, the channel learned h3, and some were cancelled.
     // A seed replays in every build mode (invariant 5), so the census is pinned, as Debug and
     // `-Drelease` both give it.
     try testing.expectEqual(Result{

@@ -1,6 +1,6 @@
 //! The choice between QUIC and TCP for one origin (decision 100, design §8 step 17d), as
 //! spec/tla/client_exchanges models it (decision 105): which transport the client opens next, and
-//! when it gives up on the exchanges waiting for a connection. It reads a view of the origin and
+//! when it gives up on the exchanges waiting for a connection. It reads a view of the channel and
 //! changes nothing.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -37,12 +37,12 @@ pub const Phase = enum {
     }
 };
 
-/// What the choice reads of the origin at one instant.
+/// What the choice reads of the channel at one instant.
 pub const View = struct {
     phases: std.EnumArray(Transport, Phase),
     /// An exchange waits for a connection.
     waiting: bool,
-    /// QUIC may carry the origin's exchanges: h3 is offered, and known or tried first.
+    /// QUIC may carry the channel's exchanges: h3 is offered, and known or tried first.
     quic_allowed: bool,
     /// The transports this attempt opened.
     tried: std.EnumArray(Transport, bool),

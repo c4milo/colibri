@@ -17,7 +17,7 @@ const response = @import("response.zig");
 const quic_connection = @import("quic_connection.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
-const Exchange = event.Exchange;
+const HttpExchange = event.HttpExchange;
 const Slot = slots_module.Slot;
 const Indexing = h3.qpack.encoder.Indexing;
 const StreamProvider = quic.stream.StreamProvider;
@@ -92,7 +92,7 @@ const pseudo_fields: usize = 4;
 /// Builds `exchange`'s field section in the connection's section, and how each line is written:
 /// the pseudo-header fields first (RFC 9114 §4.3), then the caller's lines and the content-length
 /// the client adds. Returns the line count, or null when the section does not fit.
-fn build_section(connection: *QuicConnection, exchange: *const Exchange, indexing: *[constants.request_fields_max + pseudo_fields]Indexing) ?usize {
+fn build_section(connection: *QuicConnection, exchange: *const HttpExchange, indexing: *[constants.request_fields_max + pseudo_fields]Indexing) ?usize {
     const section = &connection.section;
     section.init();
     append_pseudo(connection, exchange, indexing) orelse return null;
@@ -110,7 +110,7 @@ fn build_section(connection: *QuicConnection, exchange: *const Exchange, indexin
 
 /// Appends the request's pseudo-header fields (RFC 9114 §4.3.1), `:path` never-indexed when the
 /// caller marked it (RFC 9204 §4.5.4).
-fn append_pseudo(connection: *QuicConnection, exchange: *const Exchange, indexing: []Indexing) ?void {
+fn append_pseudo(connection: *QuicConnection, exchange: *const HttpExchange, indexing: []Indexing) ?void {
     const section = &connection.section;
     // RFC 9114 §4.3.1: `https` is the scheme of every request an h3 connection carries.
     const lines = [pseudo_fields]event.Field{
@@ -128,7 +128,7 @@ fn append_pseudo(connection: *QuicConnection, exchange: *const Exchange, indexin
 
 /// Appends the caller's field lines after the pseudo-header fields, each marked one written
 /// never-indexed (RFC 9204 §4.5.4, §7.1.3).
-fn append_fields(section: *h3.http.FieldSection, exchange: *const Exchange, indexing: []Indexing) ?void {
+fn append_fields(section: *h3.http.FieldSection, exchange: *const HttpExchange, indexing: []Indexing) ?void {
     const marked = exchange.never_indexed.fields;
     for (exchange.fields, 0..) |field, index| {
         section.append(field.name, field.value) catch return null;
@@ -292,7 +292,7 @@ test "RFC 9114 §5.2: a GOAWAY refuses the streams at or past its ID and those n
     connection.slots.init();
     connection.owed = .{};
     connection.draining = false;
-    var exchanges: [3]Exchange = @splat(.{ .method = "GET", .path = "/" });
+    var exchanges: [3]HttpExchange = @splat(.{ .method = "GET", .path = "/" });
     for (&exchanges) |*exchange| _ = connection.slots.take(exchange).?;
     // Streams 0 and 4 are written; the third waits.
     for (connection.slots.slots[0..2], [_]u64{ 0, 4 }) |*slot, id| {

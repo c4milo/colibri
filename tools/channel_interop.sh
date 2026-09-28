@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The check of docs/design.md §8 step 17d: the test-only client's origin mode (§9) fetches over h3
+# The check of docs/design.md §8 step 17d: the test-only client's channel mode (§9) fetches over h3
 # from other implementations' servers, aioquic's and quic-go's, and falls back to h2 over TLS
 # against Go's server, which listens on TCP alone. Every exchange must end the way the plan says,
 # over the protocol its phase names, with the octets the server holds.
@@ -9,7 +9,7 @@
 # an h3 server of this run's files. The run needs python3, docker and go, and it is not part of
 # `zig build test`.
 #
-# Usage: tools/origin_interop.sh [port]
+# Usage: tools/channel_interop.sh [port]
 #        (aioquic listens on <port>, quic-go on <port>+1, and Go's h2 server on <port>+2)
 set -euo pipefail
 
@@ -35,7 +35,7 @@ readonly h3_fallback_ms=5000
 readonly listen_wait_tenths=300
 
 fail() {
-  echo "origin_interop.sh: $*" >&2
+  echo "channel_interop.sh: $*" >&2
   exit 1
 }
 
@@ -79,10 +79,10 @@ report=""
 run_client() {
   local protocol="$1" port="$2"
   shift 2
-  report="$("${client}" --origin --port "${port}" --tls "${identity}" --seconds "$(date +%s)" "$@" 2>&1)" ||
+  report="$("${client}" --channel --port "${port}" --tls "${identity}" --seconds "$(date +%s)" "$@" 2>&1)" ||
     { echo "${report}"; fail "the client exited non-zero"; }
   echo "${report}"
-  ! grep -E "^origin " <<<"${report}" | grep -qv " protocol=${protocol} " ||
+  ! grep -E "^channel " <<<"${report}" | grep -qv " protocol=${protocol} " ||
     fail "an exchange ran over another protocol than ${protocol}"
 }
 
@@ -97,7 +97,7 @@ expect() {
 # carries <text>.
 expect_opened() {
   local line
-  line="$(grep -E "^http-client: origin " <<<"${report}" || true)"
+  line="$(grep -E "^http-client: channel " <<<"${report}" || true)"
   [[ "${line}" == *"$1"* ]] || fail "the origin did not end with: $1"
 }
 
@@ -117,7 +117,7 @@ plan_h3() {
 }
 
 run_aioquic() {
-  echo "origin_interop.sh: aioquic ${aioquic_version}"
+  echo "channel_interop.sh: aioquic ${aioquic_version}"
   HQ_PEER_SCRATCH="${scratch}" "${venv}/bin/python" "${repository_root}/tools/quic_interop/h3_peer.py" \
     server 127.0.0.1 "${aioquic_port}" "${identity}" "${scratch}/www" >"${scratch}/aioquic.log" 2>&1 &
   server_pid=$!
@@ -127,7 +127,7 @@ run_aioquic() {
 }
 
 run_quic_go() {
-  echo "origin_interop.sh: quic-go $(quic_go_version) from ${quic_go_image}"
+  echo "channel_interop.sh: quic-go $(quic_go_version) from ${quic_go_image}"
   mkdir -p "${scratch}/certs" "${scratch}/logs"
   # The runner's server reads its chain and key from /certs, and writes into /logs.
   cp "${identity}.chain.pem" "${scratch}/certs/cert.pem"
@@ -157,7 +157,7 @@ quic_go_version() {
 # Go's server listens on TCP alone, so QUIC's handshake is never answered: TCP opens once the
 # fallback delay passes, and its h2 connection takes every exchange (RFC 9114 §3.1).
 run_fallback() {
-  echo "origin_interop.sh: $(go version), no UDP"
+  echo "channel_interop.sh: $(go version), no UDP"
   (cd "${repository_root}/tools/h2_interop" && go build -o "${scratch}/go_server" go_server.go)
   "${scratch}/go_server" "${go_port}" "${identity}" >"${scratch}/go.log" 2>&1 &
   server_pid=$!
@@ -175,7 +175,7 @@ run_fallback() {
 for tool in python3 docker go nc; do
   command -v "${tool}" >/dev/null 2>&1 || fail "${tool} is not installed"
 done
-echo "origin_interop.sh: building the test-only client"
+echo "channel_interop.sh: building the test-only client"
 (cd "${repository_root}" && zig build install)
 [ -x "${client}" ] || fail "the client was not built at ${client}"
 (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${identity}")
@@ -192,4 +192,4 @@ head -c 1000000 /dev/urandom >"${scratch}/www/large"
 run_aioquic
 run_quic_go
 run_fallback
-echo "origin_interop.sh: every exchange ended as planned: over h3 from aioquic and quic-go, and over h2 from Go's server with no UDP"
+echo "channel_interop.sh: every exchange ended as planned: over h3 from aioquic and quic-go, and over h2 from Go's server with no UDP"

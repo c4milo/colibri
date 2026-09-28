@@ -1,7 +1,7 @@
 //! The QUIC server of the client trace run (decision 105): h3 over `quic`, with its handshake run
 //! through `tls.quic.Server` over the identity in `testdata/`. It answers each request as the
 //! seed's plan says: it responds, rejects it unprocessed, or resets it after processing it, and
-//! it may send the seed's GOAWAY (RFC 9114 §5.2). Each QUIC connection the origin opens meets a
+//! it may send the seed's GOAWAY (RFC 9114 §5.2). Each QUIC connection the channel opens meets a
 //! fresh server, which starts from the connection's first Initial (RFC 9000 §7.2).
 const std = @import("std");
 const assert = std.debug.assert;

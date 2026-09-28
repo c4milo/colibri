@@ -7,7 +7,7 @@ const event = @import("event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
-const Exchange = support.Exchange;
+const HttpExchange = support.HttpExchange;
 const Field = support.Field;
 
 const ok: u16 = 200;
@@ -24,7 +24,7 @@ const body_len: usize = 1024;
 const values_len: usize = 64;
 var upload: [support.buffer_len]u8 = undefined;
 
-fn get(body: []u8) Exchange {
+fn get(body: []u8) HttpExchange {
     return .{ .method = "GET", .path = "/dns-query", .body = body };
 }
 
@@ -75,7 +75,7 @@ test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the
 
 test "decision 88: a POST's content goes out whole, and the GET after it waits for its response" {
     try start();
-    var post: Exchange = .{ .method = "POST", .path = "/upload", .content = "query", .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/upload", .content = "query", .body = &bodies[0] };
     var after = get(&bodies[1]);
     _ = try connection.request(&post);
     _ = try connection.request(&after);
@@ -98,7 +98,7 @@ test "decision 88: a POST's content goes out whole, and the GET after it waits f
 
 test "RFC 9110 §8.6: a POST without content sends Content-Length 0" {
     try start();
-    var post: Exchange = .{ .method = "POST", .path = "/", .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/", .body = &bodies[0] };
     _ = try connection.request(&post);
     support.client_send();
     try testing.expect(sent("Content-Length: 0\r\n\r\n"));
@@ -155,7 +155,7 @@ test "RFC 9112 §9.2: a cancelled exchange's response is read and dropped, and r
 
 test "RFC 9112 §9.6: a response that closes refuses the exchange waiting, and the connection ends" {
     try start();
-    var post: Exchange = .{ .method = "POST", .path = "/", .content = "query", .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/", .content = "query", .body = &bodies[0] };
     var waiting = get(&bodies[1]);
     _ = try connection.request(&post);
     _ = try connection.request(&waiting);
@@ -177,7 +177,7 @@ test "RFC 9112 §6.3: a body that runs until the close ends with it, and one cut
     var exchange = get(&bodies[0]);
     _ = try connection.request(&exchange);
     support.client_send();
-    // RFC 9112 §6.3 rule 8: a response with neither Content-Length nor chunked runs until the close.
+    // RFC 9112 §6.3 rule 8: a response with neither Content-Length nor chunked ends at the close.
     const response = "HTTP/1.1 200 OK\r\n\r\nhello";
     @memcpy(support.to_client[0..response.len], response);
     support.to_client_len = response.len;
@@ -219,7 +219,7 @@ test "RFC 9112 §8: a malformed response ends its exchange malformed, and the co
 test "RFC 9112 §6.2: a cancel while the content is going out ends the connection" {
     try start();
     @memset(&upload, 'x');
-    var post: Exchange = .{ .method = "POST", .path = "/", .content = &upload, .body = &bodies[0] };
+    var post: HttpExchange = .{ .method = "POST", .path = "/", .content = &upload, .body = &bodies[0] };
     const id = try connection.request(&post);
     support.client_send();
     // The output holds less than the content, so some of it is still to go.

@@ -1,12 +1,13 @@
-//! The client for one origin (decision 100, design §8 step 17d): it carries the caller's exchanges
-//! over the QUIC and TCP connections it chooses between, and tells the caller which transport to
-//! open, to which address and port. spec/tla/client_exchanges models the choice (decision 105).
+//! The client's channel to one origin (decision 100, design §8 step 17d): it carries the caller's
+//! exchanges over the QUIC and TCP connections it chooses between, and tells the caller which
+//! transport to open, to which address and port. spec/tla/client_exchanges models the choice
+//! (decision 105).
 //!
 //! The caller passes what DNS knows as values and never a name to resolve: the server's addresses,
 //! and an HTTPS record's `alpn` and `port` (RFC 9460 §7.1, §7.2). QUIC goes first when h3 is known,
 //! or when the configuration says to try it (RFC 9114 §3.1), and TCP opens when QUIC fails or the
 //! fallback delay passes. The first connection whose handshake completes takes the exchanges, and
-//! the other closes. A TCP response's Alt-Svc teaches the origin h3 for its next connection (RFC
+//! the other closes. A TCP response's Alt-Svc teaches the channel h3 for its next connection (RFC
 //! 7838 §3). An exchange that a connection taking no new exchange refused unprocessed moves to
 //! another connection once (RFC 9113 §8.7, RFC 9114 §4.1.1).
 //!
@@ -25,13 +26,13 @@ const event = @import("event.zig");
 const connection_module = @import("connection.zig");
 const quic_connection = @import("quic_connection.zig");
 const alt_svc = @import("alt_svc.zig");
-const choice = @import("origin_choice.zig");
-const origin_events = @import("origin_events.zig");
+const choice = @import("channel_choice.zig");
+const channel_events = @import("channel_events.zig");
 
 pub const Transport = choice.Transport;
 pub const Phase = choice.Phase;
 pub const Id = event.Id;
-pub const Exchange = event.Exchange;
+pub const HttpExchange = event.HttpExchange;
 pub const Protocol = event.Protocol;
 pub const Finished = event.Finished;
 pub const RequestError = connection_module.RequestError;
@@ -48,7 +49,7 @@ pub const Values = struct {
     port: u16,
     /// An HTTPS record's values (RFC 9460 §9), or null when DNS had none.
     https: ?Https = null,
-    /// An h3 alternative an earlier origin learned from Alt-Svc, which the caller kept, or null.
+    /// An h3 alternative an earlier channel learned from Alt-Svc, which the caller kept, or null.
     alternative: ?Alternative = null,
 };
 
@@ -71,7 +72,7 @@ pub const Config = struct {
     /// The TCP connections' configuration. It is over TLS whenever `quic` is set: h3 serves only
     /// "https" origins (RFC 9114 §3.1.2).
     tcp: *const connection_module.Config,
-    /// The QUIC connections' configuration, or null when the caller offers no h3. The origin names
+    /// The QUIC connections' configuration, or null when the caller offers no h3. The channel names
     /// each connection's `server_address` itself.
     quic: ?*const quic_connection.Config = null,
     /// Whether QUIC goes first when neither an HTTPS record nor Alt-Svc says whether the origin
@@ -90,7 +91,7 @@ pub const Open = struct {
 pub const Event = union(enum) {
     /// Open this transport, then start its connection with `start_quic` or `start_tcp`.
     open: Open,
-    /// Close this transport: its connection is over, and the origin reads and writes nothing more
+    /// Close this transport: its connection is over, and the channel reads and writes nothing more
     /// on it.
     close: Transport,
     /// The connection carrying the exchanges speaks `Protocol`.
@@ -99,7 +100,7 @@ pub const Event = union(enum) {
     ticket: Transport,
     /// An exchange ended, and the caller may reuse its memory.
     finished: Finished,
-    /// The origin was shut down, every exchange has finished, and every transport closed.
+    /// The channel was shut down, every exchange has finished, and every transport closed.
     closed,
 };
 
@@ -123,28 +124,28 @@ pub const Received = struct {
     event: ?Event,
 };
 
-/// Where an exchange is, at the origin.
+/// Where an exchange is, at the channel.
 pub const Stage = enum {
     free,
-    /// The origin holds it until a connection is open to take it.
+    /// The channel holds it until a connection is open to take it.
     waiting,
     /// A connection holds it, by `carried_id`.
     carried,
-    /// It ended at the origin, refused, and its `finished` event is owed.
+    /// It ended at the channel, refused, and its `finished` event is owed.
     ended,
 };
 
 pub const Entry = struct {
     stage: Stage = .free,
     id: Id = 0,
-    exchange: *Exchange = undefined,
+    exchange: *HttpExchange = undefined,
     carrier: Transport = .quic,
     carried_id: Id = 0,
     /// Times it moved to another connection.
     moves: u8 = 0,
 };
 
-/// One transport's connection, as the origin tracks it.
+/// One transport's connection, as the channel tracks it.
 pub const Link = struct {
     state: State = .none,
     /// Connections this transport opened.
@@ -176,7 +177,7 @@ pub const Link = struct {
     };
 };
 
-pub const Origin = struct {
+pub const Channel = struct {
     config: *const Config,
     values: Values,
     /// The QUIC connections' configuration, with the address the current one sends to.
@@ -193,85 +194,85 @@ pub const Origin = struct {
     fallback: bool,
     /// The instant the fallback delay passes, once QUIC's connection started.
     fallback_at_ns: ?u64,
-    /// The caller shut the origin down, and the `closed` event went out.
+    /// The caller shut the channel down, and the `closed` event went out.
     shut: bool,
     closed_reported: bool,
 
-    /// Prepares an origin with nothing opened.
-    pub fn init(origin: *Origin, config: *const Config, values: Values) void {
+    /// Prepares a channel with nothing opened.
+    pub fn init(channel: *Channel, config: *const Config, values: Values) void {
         assert(values.addresses.len > 0);
         if (config.quic) |quic_config| {
             // RFC 9114 §3.1.2: h3 cannot reach an "http" origin, so TCP runs over TLS here.
             assert(config.tcp.tls != null);
             assert(std.mem.eql(u8, quic_config.authority, config.tcp.authority));
         }
-        origin.config = config;
-        origin.values = values;
-        origin.links = .initFill(.{});
-        origin.entries = @splat(.{});
-        origin.next_id = 1;
-        origin.tried = .initFill(false);
-        origin.fallback = false;
-        origin.fallback_at_ns = null;
-        origin.shut = false;
-        origin.closed_reported = false;
+        channel.config = config;
+        channel.values = values;
+        channel.links = .initFill(.{});
+        channel.entries = @splat(.{});
+        channel.next_id = 1;
+        channel.tried = .initFill(false);
+        channel.fallback = false;
+        channel.fallback_at_ns = null;
+        channel.shut = false;
+        channel.closed_reported = false;
     }
 
     /// Takes `exchange`, which goes out on the first connection open to take it, and returns its
     /// id. The caller makes no request after `shutdown`.
-    pub fn request(origin: *Origin, exchange: *Exchange) RequestError!Id {
-        assert(!origin.shut);
+    pub fn request(channel: *Channel, exchange: *HttpExchange) RequestError!Id {
+        assert(!channel.shut);
         try connection_module.check_request(exchange);
-        const entry = origin.free_entry() orelse return error.Full;
+        const entry = channel.free_entry() orelse return error.Full;
         exchange.clear();
-        entry.* = .{ .stage = .waiting, .id = origin.next_id, .exchange = exchange };
-        origin.next_id += 1;
-        origin_events.assign_waiting(origin);
+        entry.* = .{ .stage = .waiting, .id = channel.next_id, .exchange = exchange };
+        channel.next_id += 1;
+        channel_events.assign_waiting(channel);
         return entry.id;
     }
 
     /// Ends exchange `id`, and reports nothing for it. Its memory is the caller's again.
-    pub fn cancel(origin: *Origin, id: Id) void {
-        const entry = origin.entry_of(id) orelse return;
+    pub fn cancel(channel: *Channel, id: Id) void {
+        const entry = channel.entry_of(id) orelse return;
         if (entry.stage == .carried) switch (entry.carrier) {
-            .quic => origin.quic.cancel(entry.carried_id),
-            .tcp => origin.tcp.cancel(entry.carried_id),
+            .quic => channel.quic.cancel(entry.carried_id),
+            .tcp => channel.tcp.cancel(entry.carried_id),
         };
         entry.* = .{};
     }
 
     /// Takes no new exchange, and ends every connection once the exchanges it holds have finished.
-    pub fn shutdown(origin: *Origin) void {
-        origin.shut = true;
+    pub fn shutdown(channel: *Channel) void {
+        channel.shut = true;
     }
 
-    /// Reports what the origin owes, then passes `input` to the connection of the transport that
+    /// Reports what the channel owes, then passes `input` to the connection of the transport that
     /// read it, and reports what that changed.
-    pub fn receive(origin: *Origin, input: Input, now_ns: u64) Received {
-        if (origin.report(now_ns)) |owed| return .{ .consumed = 0, .event = owed };
-        const fed = origin_events.feed(origin, input, now_ns);
+    pub fn receive(channel: *Channel, input: Input, now_ns: u64) Received {
+        if (channel.report(now_ns)) |owed| return .{ .consumed = 0, .event = owed };
+        const fed = channel_events.feed(channel, input, now_ns);
         return .{ .consumed = fed.len, .event = fed.event };
     }
 
     /// The next datagram the QUIC connection owes, written into `output`, or null for none.
-    pub fn send_datagram(origin: *Origin, output: []u8, now_ns: u64) ?Sent {
-        if (origin.links.get(.quic).state != .running) return null;
-        return origin.quic.send(output, now_ns);
+    pub fn send_datagram(channel: *Channel, output: []u8, now_ns: u64) ?Sent {
+        if (channel.links.get(.quic).state != .running) return null;
+        return channel.quic.send(output, now_ns);
     }
 
     /// The octets the TCP connection owes, written into `output`.
-    pub fn send_stream(origin: *Origin, output: []u8, now_ns: u64) usize {
-        if (origin.links.get(.tcp).state != .running) return 0;
-        return origin.tcp.send(output, now_ns);
+    pub fn send_stream(channel: *Channel, output: []u8, now_ns: u64) usize {
+        if (channel.links.get(.tcp).state != .running) return 0;
+        return channel.tcp.send(output, now_ns);
     }
 
-    /// The instant the origin next wants `on_instant` at: QUIC's next deadline, or the end of the
+    /// The instant the channel next wants `on_instant` at: QUIC's next deadline, or the end of the
     /// fallback delay. Null for none.
-    pub fn deadline_ns(origin: *Origin) ?u64 {
+    pub fn deadline_ns(channel: *Channel) ?u64 {
         var deadline: ?u64 = null;
-        if (origin.links.get(.quic).state == .running) deadline = origin.quic.deadline_ns();
-        if (!origin.fallback and origin.phase(.quic) == .handshake) {
-            const fallback_at = origin.fallback_at_ns orelse return deadline;
+        if (channel.links.get(.quic).state == .running) deadline = channel.quic.deadline_ns();
+        if (!channel.fallback and channel.phase(.quic) == .handshake) {
+            const fallback_at = channel.fallback_at_ns orelse return deadline;
             deadline = @min(deadline orelse fallback_at, fallback_at);
         }
         return deadline;
@@ -279,34 +280,34 @@ pub const Origin = struct {
 
     /// Fires whichever deadlines `now_ns` has reached. The end of the fallback delay counts at the
     /// next `receive`.
-    pub fn on_instant(origin: *Origin, now_ns: u64) void {
-        if (origin.links.get(.quic).state == .running) origin.quic.on_instant(now_ns);
+    pub fn on_instant(channel: *Channel, now_ns: u64) void {
+        if (channel.links.get(.quic).state == .running) channel.quic.on_instant(now_ns);
     }
 
     /// Starts the QUIC connection the `open` event asked for. Every draw its handshake makes comes
     /// from `random`, and `resumption` offers a ticket an earlier QUIC connection took.
-    pub fn start_quic(origin: *Origin, start: QuicStart, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) quic_connection.StartError!void {
-        const link = origin.links.getPtr(.quic);
+    pub fn start_quic(channel: *Channel, start: QuicStart, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) quic_connection.StartError!void {
+        const link = channel.links.getPtr(.quic);
         if (link.state != .opening) return;
         assert(!link.open_owed);
-        origin.quic_config = origin.config.quic.?.*;
-        origin.quic_config.server_address = link.to;
-        origin.quic.init(&origin.quic_config, start, random, now_seconds, now_ns, resumption) catch |failure| {
+        channel.quic_config = channel.config.quic.?.*;
+        channel.quic_config.server_address = link.to;
+        channel.quic.init(&channel.quic_config, start, random, now_seconds, now_ns, resumption) catch |failure| {
             // The attempt ended before it began: the model's FailHandshake, then Close.
-            origin_events.close_unstarted(origin, .quic);
+            channel_events.close_unstarted(channel, .quic);
             return failure;
         };
         link.state = .running;
-        origin.fallback_at_ns = now_ns + origin.config.fallback_delay_ns;
+        channel.fallback_at_ns = now_ns + channel.config.fallback_delay_ns;
     }
 
     /// Starts the TCP connection the `open` event asked for, as `start_quic` does QUIC's.
-    pub fn start_tcp(origin: *Origin, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
-        const link = origin.links.getPtr(.tcp);
+    pub fn start_tcp(channel: *Channel, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+        const link = channel.links.getPtr(.tcp);
         if (link.state != .opening) return;
         assert(!link.open_owed);
-        origin.tcp.init(origin.config.tcp, random, now_seconds, resumption) catch |failure| {
-            origin_events.close_unstarted(origin, .tcp);
+        channel.tcp.init(channel.config.tcp, random, now_seconds, resumption) catch |failure| {
+            channel_events.close_unstarted(channel, .tcp);
             return failure;
         };
         link.state = .running;
@@ -314,16 +315,16 @@ pub const Origin = struct {
 
     /// The caller's transport closed on its own: the peer closed it, or it failed. Every exchange
     /// its connection held ends, as the connection's own `transport_closed` rules.
-    pub fn transport_closed(origin: *Origin, transport: Transport) void {
-        const link = origin.links.getPtr(transport);
+    pub fn transport_closed(channel: *Channel, transport: Transport) void {
+        const link = channel.links.getPtr(transport);
         switch (link.state) {
             .none, .closed => {},
-            .opening => origin_events.close_unstarted(origin, transport),
+            .opening => channel_events.close_unstarted(channel, transport),
             .running => {
                 link.gone = true;
                 switch (transport) {
-                    .quic => origin.quic.transport_closed(),
-                    .tcp => origin.tcp.transport_closed(),
+                    .quic => channel.quic.transport_closed(),
+                    .tcp => channel.tcp.transport_closed(),
                 }
             },
         }
@@ -331,39 +332,39 @@ pub const Origin = struct {
 
     /// The resumption ticket the `ticket` event announced for `transport`, which the call hands
     /// over and clears.
-    pub fn take_ticket(origin: *Origin, transport: Transport) ?tls.Ticket {
-        if (origin.links.get(transport).state != .running) return null;
+    pub fn take_ticket(channel: *Channel, transport: Transport) ?tls.Ticket {
+        if (channel.links.get(transport).state != .running) return null;
         return switch (transport) {
-            .quic => origin.quic.take_ticket(),
-            .tcp => origin.tcp.take_ticket(),
+            .quic => channel.quic.take_ticket(),
+            .tcp => channel.tcp.take_ticket(),
         };
     }
 
-    /// The h3 alternative the origin knows of, from the values or a TCP response's Alt-Svc, which
-    /// a caller keeps for a later origin (RFC 7838 §2.2).
-    pub fn alternative(origin: *const Origin) ?Alternative {
-        return origin.values.alternative;
+    /// The h3 alternative the channel knows of, from the values or a TCP response's Alt-Svc, which
+    /// a caller keeps for a later channel (RFC 7838 §2.2).
+    pub fn alternative(channel: *const Channel) ?Alternative {
+        return channel.values.alternative;
     }
 
     /// Where `transport`'s connection stands, as spec/tla/client_exchanges's `phase` names it.
-    pub fn phase(origin: *const Origin, transport: Transport) Phase {
-        const link = origin.links.get(transport);
+    pub fn phase(channel: *const Channel, transport: Transport) Phase {
+        const link = channel.links.get(transport);
         return switch (link.state) {
             .none => .none,
             .closed => .closed,
             .opening => if (link.abandoned) .failed else .handshake,
-            .running => origin.running_phase(transport, link),
+            .running => channel.running_phase(transport, link),
         };
     }
 
-    fn running_phase(origin: *const Origin, transport: Transport, link: Link) Phase {
+    fn running_phase(channel: *const Channel, transport: Transport, link: Link) Phase {
         const failed = switch (transport) {
-            .quic => origin.quic.failed,
-            .tcp => origin.tcp.failed,
+            .quic => channel.quic.failed,
+            .tcp => channel.tcp.failed,
         };
         const draining = switch (transport) {
-            .quic => origin.quic.draining,
-            .tcp => origin.tcp.draining,
+            .quic => channel.quic.draining,
+            .tcp => channel.tcp.draining,
         };
         if (failed) return .failed;
         if (draining) return .draining;
@@ -372,59 +373,59 @@ pub const Origin = struct {
 
     /// Whether QUIC may carry the exchanges at `now_ns`: h3 is offered, and a fresh Alt-Svc
     /// alternative, an HTTPS record or the configuration says to try it.
-    pub fn quic_allowed(origin: *const Origin, now_ns: u64) bool {
-        if (origin.config.quic == null) return false;
-        if (origin.fresh_alternative(now_ns)) |_| return true;
+    pub fn quic_allowed(channel: *const Channel, now_ns: u64) bool {
+        if (channel.config.quic == null) return false;
+        if (channel.fresh_alternative(now_ns)) |_| return true;
         // RFC 9460 §7.1.2: a client uses the transports of the protocols the record names.
-        if (origin.values.https) |https| return https.h3;
-        return origin.config.quic_first;
+        if (channel.values.https) |https| return https.h3;
+        return channel.config.quic_first;
     }
 
     /// The Alt-Svc alternative, while it is fresh (RFC 7838 §2.2).
-    pub fn fresh_alternative(origin: *const Origin, now_ns: u64) ?Alternative {
-        const held = origin.values.alternative orelse return null;
+    pub fn fresh_alternative(channel: *const Channel, now_ns: u64) ?Alternative {
+        const held = channel.values.alternative orelse return null;
         return if (now_ns < held.fresh_until_ns) held else null;
     }
 
-    /// Keeps what a TCP response's Alt-Svc said at `now_ns`, which replaces what the origin knew
+    /// Keeps what a TCP response's Alt-Svc said at `now_ns`, which replaces what the channel knew
     /// (RFC 7838 §3.1).
-    pub fn learn(origin: *Origin, advert: alt_svc.Advert, now_ns: u64) void {
-        origin.values.alternative = switch (advert) {
+    pub fn learn(channel: *Channel, advert: alt_svc.Advert, now_ns: u64) void {
+        channel.values.alternative = switch (advert) {
             .clear, .none => null,
             .h3 => |h3| .{ .port = h3.port, .fresh_until_ns = now_ns +| h3.max_age_s *| constants.nanoseconds_per_second },
         };
     }
 
-    /// The first event the origin owes, after it has read what its connections owe and chosen what
+    /// The first event the channel owes, after it has read what its connections owe and chosen what
     /// to open, or null.
-    fn report(origin: *Origin, now_ns: u64) ?Event {
-        origin.check_fallback(now_ns);
+    fn report(channel: *Channel, now_ns: u64) ?Event {
+        channel.check_fallback(now_ns);
         // Bounded: each pass reads a connection's event, or plans and stops.
-        for (0..constants.origin_events_per_poll_max + 1) |_| {
-            origin_events.plan(origin, now_ns);
-            if (origin_events.owed(origin)) |owed| return owed;
-            const read = origin_events.poll(origin, now_ns) orelse return null;
+        for (0..constants.channel_events_per_poll_max + 1) |_| {
+            channel_events.plan(channel, now_ns);
+            if (channel_events.owed(channel)) |owed| return owed;
+            const read = channel_events.poll(channel, now_ns) orelse return null;
             if (read.event) |reported| return reported;
         }
         unreachable;
     }
 
     /// The fallback delay passed while QUIC's handshake runs, and TCP may open beside it.
-    fn check_fallback(origin: *Origin, now_ns: u64) void {
-        const fallback_at = origin.fallback_at_ns orelse return;
-        if (origin.fallback or origin.phase(.quic) != .handshake) return;
-        if (now_ns >= fallback_at) origin.fallback = true;
+    fn check_fallback(channel: *Channel, now_ns: u64) void {
+        const fallback_at = channel.fallback_at_ns orelse return;
+        if (channel.fallback or channel.phase(.quic) != .handshake) return;
+        if (now_ns >= fallback_at) channel.fallback = true;
     }
 
-    fn free_entry(origin: *Origin) ?*Entry {
-        for (&origin.entries) |*entry| {
+    fn free_entry(channel: *Channel) ?*Entry {
+        for (&channel.entries) |*entry| {
             if (entry.stage == .free) return entry;
         }
         return null;
     }
 
-    fn entry_of(origin: *Origin, id: Id) ?*Entry {
-        for (&origin.entries) |*entry| {
+    fn entry_of(channel: *Channel, id: Id) ?*Entry {
+        for (&channel.entries) |*entry| {
             if (entry.stage != .free and entry.id == id) return entry;
         }
         return null;
