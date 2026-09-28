@@ -47,6 +47,7 @@ test {
     _ = @import("origin_choice.zig");
     _ = @import("origin_test.zig");
     _ = @import("origin_quic_test.zig");
+    _ = @import("origin_quic_flow_test.zig");
     _ = @import("quic_connection_test.zig");
     _ = @import("quic_connection_flow_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.

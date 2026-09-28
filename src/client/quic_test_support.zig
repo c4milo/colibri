@@ -151,6 +151,14 @@ pub fn prepare(client_protocols: []const []const u8, server_protocols: []const [
     answer_content = "hello";
 }
 
+/// A server with no connection, which starts from the next Initial it takes, as a second
+/// connection's server does. Time and each test's settings stay as they are.
+pub fn reset_server() void {
+    server_started = false;
+    server_h3_started = false;
+    answers_len = 0;
+}
+
 /// Moves datagrams both ways for `rounds` rounds, moving time on and firing each side's timers, and
 /// keeps the client's events.
 pub fn pump(rounds: usize) !void {

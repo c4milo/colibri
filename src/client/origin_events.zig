@@ -123,16 +123,16 @@ fn handle(origin: *Origin, transport: Transport, reported: event.Event) ?Event {
     }
 }
 
-/// A connection's handshake completed (the model's Handshake). The first one open takes the
-/// waiting exchanges and ends the attempt, and one that completes after it drains at once.
+/// A connection's handshake completed (the model's Handshake): it takes the waiting exchanges and
+/// ends the attempt. One the client abandoned owes its close but has not sent it, so datagrams in
+/// flight may still complete its handshake, and it carries nothing.
 fn on_connected(origin: *Origin, transport: Transport, protocol: event.Protocol) ?Event {
     const link = origin.links.getPtr(transport);
     link.connected = true;
+    if (link.abandoned) return null;
     const other = choice.other(transport);
-    if (origin.phase(other) == .open) {
-        shut_connection(origin, transport);
-        return null;
-    }
+    // The client abandons a handshake the moment another connection is open, so none is.
+    assert(origin.phase(other) != .open);
     link.won = true;
     end_attempt(origin);
     if (origin.phase(other) == .handshake) abandon(origin, other);
