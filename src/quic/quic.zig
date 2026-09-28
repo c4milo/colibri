@@ -6,6 +6,9 @@ pub const core = @import("core");
 pub const wire = @import("wire");
 pub const crypto = @import("crypto");
 pub const tls_provider = @import("tls_provider");
+/// The log a connection writes qlog events into (decision 102), so a caller of `quic` names its
+/// types without importing the module itself.
+pub const qlog = @import("qlog");
 pub const constants = @import("constants.zig");
 pub const packet = @import("packet/packet.zig");
 pub const frame = @import("frame/frame.zig");
@@ -53,6 +56,7 @@ pub const connection_flow = @import("connection/connection_flow.zig");
 pub const connection_id_frames = @import("connection/connection_id_frames.zig");
 pub const connection_recovery = @import("connection/connection_recovery.zig");
 pub const connection_datagram = @import("connection/connection_datagram.zig");
+pub const connection_qlog = @import("connection/connection_qlog.zig");
 pub const Connection = connection.Connection;
 pub const crypto_stream = @import("crypto_stream.zig");
 pub const transport_parameters = @import("transport_parameters.zig");
