@@ -2667,6 +2667,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509)
       carries the same count, and the patch is its commit.
 
+    Amended again by the owner on 2026-09-27. The count above scored 2 for one quic-go handshake
+    against quic-go's own server, a pairing colibri's runs do not include. quic-go's server sends
+    NEW_CONNECTION_ID in the datagram of its Handshake flight, and quic-go's client sends its last
+    Initial packet, an ACK, to one of those IDs. The patch now counts only the Destination
+    Connection IDs of client Initial packets that carry CRYPTO data at offset 0, the start of the
+    ClientHello, less the Source Connection IDs of the server's Initial and Retry packets.
+    - quic-go against itself: `handshake` and `retry` count 1, where the count above gave 2;
+      `resumption` and `zerortt` count 2, where it gave 4; `handshakeloss` counts 50, where it
+      gave 66.
+    - All 151 captures of run 36359234791, and 16 more from this machine, give each test's
+      expected number. That includes a colibri `handshakeloss` run the runner's own count
+      scores 52.
+    - Mutations, all CAUGHT: without the offset test, quic-go's `handshake` counts 2; without the
+      subtraction, every `retry` counts 2 or 3; without the Retry packets, every `retry` counts 2.
+    - [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509)
+      carries this count, and the patch is its commit.
+
 100. **A version-choosing HTTP client and a server of the same shape, above h11, h2 and h3.**
      Ruled by the owner on 2026-09-27, for
      [#70](https://github.com/c4milo/colibri/issues/70), which cocuyo asked for.

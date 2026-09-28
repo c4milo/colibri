@@ -3504,6 +3504,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   job's 150. In the push job, h3spec 0.1.13 printed "49 examples, 0 failures" (run 36357580797,
   at `54335d0`).
 
+  The count at `a1f557c` scored 2 for one quic-go handshake against quic-go's own server, a
+  pairing the job does not run: quic-go's client sends its last Initial packet to an ID from
+  NEW_CONNECTION_ID. Decision 99, amended again, counts only client Initial packets that carry
+  the start of the ClientHello. It gives each test's expected number on all 151 captures of run
+  36359234791 and on 16 from macOS arm64.
+
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
