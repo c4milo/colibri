@@ -20,6 +20,7 @@ const quic = @import("quic");
 const h3_plan = @import("h3_plan.zig");
 const h3_endpoint = @import("h3_endpoint.zig");
 const quic_endpoint = @import("quic_endpoint.zig");
+const qlog_records = @import("qlog_records.zig");
 
 const Random = sim.random.Random;
 pub const Shape = h3_plan.Shape;
@@ -29,12 +30,13 @@ const constants = sim.constants;
 /// The digest of every seed's run, committed after both build modes agree on it.
 pub const census_crc32_expected: u32 = 0x9b0e056e;
 pub const long_census_crc32_expected: u32 = 0x54703ac4;
-/// The logs of `h3_qlog_check_seeds` seeds with a qlog on each endpoint: their octets and the
-/// digest of every record. They change when an event or its fields change.
+/// The logs of `h3_qlog_check_seeds` seeds with a qlog on each endpoint: their octets, the digest
+/// of every record and the events read back. They change when an event or its fields change.
 pub const qlog_census_len_expected: u64 = 10_818_498;
 pub const qlog_census_crc32_expected: u32 = 0x9f48ceaf;
+pub const qlog_census_events_expected: u64 = 47_715;
 
-pub const Violation = h3_endpoint.Error || error{
+pub const Violation = h3_endpoint.Error || qlog_records.Error || error{
     /// The network was asked to carry a datagram and had no slot, which is a harness defect.
     NetworkFull,
     /// An endpoint was still sending at the bound on one step's sends.
@@ -66,6 +68,9 @@ pub const Storage = struct {
     log_len: usize,
     logs: [Side.count]quic.qlog.Log,
     log_buffers: [Side.count][constants.quic_qlog_len]u8,
+    /// Where the check of each record writes its names, strings and numbers
+    /// (`qlog_records.zig`): as long as a log, so the longest of them fits.
+    record_storage: [constants.quic_qlog_len]u8,
 };
 
 /// One seed's counts.
@@ -78,9 +83,11 @@ pub const Result = struct {
     inserts: u64 = 0,
     /// Octets of h3's own streams dropped once the peer acknowledged them (decision 78).
     acknowledged_dropped: u64 = 0,
-    /// Octets of qlog both endpoints wrote, and their digest, which are zero unless the run logs.
+    /// Octets of qlog both endpoints wrote, their digest, and the events the check of each record
+    /// read back, which are zero unless the run logs.
     qlog_len: u64 = 0,
     qlog_crc32: u32 = 0,
+    qlog_events: u64 = 0,
 };
 
 pub const Census = struct {
@@ -92,10 +99,11 @@ pub const Census = struct {
     acknowledged_dropped: u64 = 0,
     dropped: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
-    /// Octets of qlog the endpoints wrote, and the digest of every record, which stay out of
-    /// `crc32`, so a run with logs and one without must agree on it.
+    /// Octets of qlog the endpoints wrote, the digest of every record, and the events read back,
+    /// which stay out of `crc32`, so a run with logs and one without must agree on it.
     qlog_len: u64 = 0,
     qlog_crc32: std.hash.Crc32 = .init(),
+    qlog_events: u64 = 0,
 
     fn count(census: *Census, storage: *const Storage, result: Result) void {
         census.seeds += 1;
@@ -109,6 +117,7 @@ pub const Census = struct {
         std.mem.writeInt(u32, &octets, result.octets_crc32, .big);
         census.crc32.update(&octets);
         census.qlog_len += result.qlog_len;
+        census.qlog_events += result.qlog_events;
         std.mem.writeInt(u32, &octets, result.qlog_crc32, .big);
         census.qlog_crc32.update(&octets);
     }
@@ -167,6 +176,8 @@ const Run = struct {
     /// The digest of every qlog record the run took, and their octets.
     qlog_digest: std.hash.Crc32,
     qlog_len: u64 = 0,
+    /// Each endpoint's records read back so far.
+    records: [Side.count]qlog_records.Records = @splat(.{}),
 
     fn endpoint(run: *Run, side: Side) *h3_endpoint.Endpoint {
         return &run.storage.endpoints[@intFromEnum(side)];
@@ -188,6 +199,7 @@ const Run = struct {
         if (!run.storage.logged) return;
         const log = &run.storage.logs[@intFromEnum(side)];
         if (log.dropped > 0) return error.QlogEventDropped;
+        try run.records[@intFromEnum(side)].check(log.bytes(), &run.storage.record_storage);
         run.qlog_len += log.bytes().len;
         run.qlog_digest.update(log.bytes());
         log.clear();
@@ -233,6 +245,8 @@ const Run = struct {
             .qlog_len = run.qlog_len,
             .qlog_crc32 = run.qlog_digest.final(),
         };
+        // Bounded by the two sides.
+        for (run.records) |held| result.qlog_events += held.events;
         for (&run.storage.endpoints) |*held| {
             const local = &held.h3.local;
             result.inserts += held.h3.encoder.table.insert_count();
@@ -322,6 +336,8 @@ test "decision 102: the h3 check gives the same census when both endpoints write
     // A seed replays its logs byte for byte (invariant 5).
     try testing.expectEqual(qlog_census_len_expected, census[1].qlog_len);
     try testing.expectEqual(qlog_census_crc32_expected, census[1].qlog_crc32.final());
+    // Every record read back, which the check of each proves it read (`qlog_records.zig`).
+    try testing.expectEqual(qlog_census_events_expected, census[1].qlog_events);
 }
 
 test "decision 102: an event that does not fit in a step's log is reported" {

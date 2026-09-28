@@ -11,6 +11,7 @@ const quic = @import("quic");
 const constants = sim.constants;
 const quic_endpoint = @import("quic_endpoint.zig");
 const quic_invariants = @import("quic_invariants.zig");
+const qlog_records = @import("qlog_records.zig");
 const check = @import("quic_connection_check.zig");
 
 const Random = sim.random.Random;
@@ -146,6 +147,8 @@ const Run = struct {
     digest: std.hash.Crc32,
     /// The digest of every qlog record the run took, in order.
     qlog_digest: std.hash.Crc32,
+    /// Each endpoint's records read back so far.
+    records: [Side.count]qlog_records.Records = @splat(.{}),
 
     /// One step. Returns whether the run is over.
     fn step(run: *Run) Violation!bool {
@@ -168,6 +171,7 @@ const Run = struct {
         if (!run.storage.logged) return;
         const log = &run.storage.logs[@intFromEnum(side)];
         if (log.dropped > 0) return Violation.QlogEventDropped;
+        try run.records[@intFromEnum(side)].check(log.bytes(), &run.storage.record_storage);
         run.result.qlog_len += log.bytes().len;
         run.qlog_digest.update(log.bytes());
         log.clear();
@@ -284,6 +288,8 @@ const Run = struct {
         result.finished_ns = run.now_ns - check.start_ns;
         result.octets_crc32 = run.digest.final();
         result.qlog_crc32 = run.qlog_digest.final();
+        // Bounded by the two sides.
+        for (run.records) |held| result.qlog_events += held.events;
         const client = &run.storage.endpoints[@intFromEnum(Side.client)];
         result.round_trip_ns = client.connection.recovery.rtt.smoothed_ns;
         result.migrations = run.storage.endpoints[@intFromEnum(Side.server)].migrations;

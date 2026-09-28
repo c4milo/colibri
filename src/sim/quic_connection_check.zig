@@ -20,6 +20,7 @@ const quic = @import("quic");
 const constants = sim.constants;
 const quic_endpoint = @import("quic_endpoint.zig");
 const quic_invariants = @import("quic_invariants.zig");
+const qlog_records = @import("qlog_records.zig");
 const quic_connection_run = @import("quic_connection_run.zig");
 
 pub const run_seed = quic_connection_run.run_seed;
@@ -34,7 +35,7 @@ pub const census_dropped_expected: u64 = 684;
 pub const census_marked_expected: u64 = 541;
 
 /// How a seed failed.
-pub const Violation = quic_invariants.Violation || error{
+pub const Violation = quic_invariants.Violation || qlog_records.Error || error{
     /// An endpoint stopped with a connection error or a refused send. Two colibri endpoints
     /// never give each other a reason to close, so any is a defect. `Storage.failure` says which.
     ConnectionError,
@@ -71,9 +72,11 @@ pub const Result = struct {
     handshake_ns: u64 = 0,
     /// How many times the server's path moved to its client's new address (RFC 9000 §9.3).
     migrations: u64 = 0,
-    /// Octets of qlog both endpoints wrote, and their digest, which are zero unless the run logs.
+    /// Octets of qlog both endpoints wrote, their digest, and the events the check of each record
+    /// read back, which are zero unless the run logs.
     qlog_len: u64 = 0,
     qlog_crc32: u32 = 0,
+    qlog_events: u64 = 0,
 };
 
 /// What the whole run counted, which the test compares across build modes and hosts.
@@ -95,11 +98,12 @@ pub const Census = struct {
     rebinds: u64 = 0,
     misrouted: u64 = 0,
     migrations: u64 = 0,
-    /// Octets of qlog the endpoints wrote, and the digest of every record, which are zero unless
-    /// the run logs. Both stay out of `crc32`, so a run with logs and one without must agree on
-    /// it.
+    /// Octets of qlog the endpoints wrote, the digest of every record, and the events read back,
+    /// which are zero unless the run logs. They stay out of `crc32`, so a run with logs and one
+    /// without must agree on it.
     qlog_len: u64 = 0,
     qlog_crc32: u32 = 0,
+    qlog_events: u64 = 0,
 };
 
 /// What a run's network does beside, or instead of, its random schedule.
@@ -170,6 +174,9 @@ pub const Storage = struct {
     logged: bool,
     logs: [sim.network.Endpoint.count]quic.qlog.Log,
     log_buffers: [sim.network.Endpoint.count][constants.quic_qlog_len]u8,
+    /// Where the check of each record writes its names, strings and numbers
+    /// (`qlog_records.zig`): as long as a log, so the longest of them fits.
+    record_storage: [constants.quic_qlog_len]u8,
 };
 
 /// The instant a run starts, and the longest step it takes when nothing is due sooner.
@@ -202,6 +209,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.misrouted += storage.network.census.misrouted;
         census.migrations += result.migrations;
         census.qlog_len += result.qlog_len;
+        census.qlog_events += result.qlog_events;
         census.qlog_crc32 = combine_qlog(census.qlog_crc32, result);
         census.crc32 = combine(census.crc32, result);
     }
@@ -390,15 +398,15 @@ test "decision 72: a NAT that gives the client a new host and port leaves the se
 }
 
 test "decision 102: every check gives the same census when both endpoints write a qlog" {
-    // Each check's census without a log, and the logs it writes with one: their octets and the
-    // digest of every record. The logs change when an event or its fields change, and are
-    // committed with the new values after both build modes agree.
-    const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32 }{
-        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_640_673, .qlog_crc32 = 0xb3573ad0 },
-        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_660_872, .qlog_crc32 = 0xb5032b0a },
-        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_692_700, .qlog_crc32 = 0xfd2d92ec },
-        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 9_963_824, .qlog_crc32 = 0x3e5aaa2b },
-        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 9_743_872, .qlog_crc32 = 0x03d5a87e },
+    // Each check's census without a log, and the logs it writes with one: their octets, the
+    // digest of every record and the events read back. The logs change when an event or its
+    // fields change, and are committed with the new values after both build modes agree.
+    const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32, qlog_events: u64 }{
+        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_640_673, .qlog_crc32 = 0xb3573ad0, .qlog_events = 49_865 },
+        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_660_872, .qlog_crc32 = 0xb5032b0a, .qlog_events = 19_285 },
+        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_692_700, .qlog_crc32 = 0xfd2d92ec, .qlog_events = 18_956 },
+        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 9_963_824, .qlog_crc32 = 0x3e5aaa2b, .qlog_events = 51_133 },
+        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 9_743_872, .qlog_crc32 = 0x03d5a87e, .qlog_events = 49_974 },
     };
     // Bounded by the checks above.
     for (checks) |logged| {
@@ -416,5 +424,7 @@ test "decision 102: every check gives the same census when both endpoints write 
         // A seed replays its logs byte for byte (invariant 5).
         try std.testing.expectEqual(logged.qlog_len, census.qlog_len);
         try std.testing.expectEqual(logged.qlog_crc32, census.qlog_crc32);
+        // Every record read back, which the check of each proves it read (`qlog_records.zig`).
+        try std.testing.expectEqual(logged.qlog_events, census.qlog_events);
     }
 }

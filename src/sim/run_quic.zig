@@ -14,6 +14,7 @@ pub const recovery_check = @import("recovery_check.zig");
 pub const recovery_check_run = @import("recovery_check_run.zig");
 pub const quic_connection_check = @import("quic_connection_check.zig");
 pub const quic_input_check = @import("quic_input_check.zig");
+pub const qlog_records = @import("qlog_records.zig");
 
 test {
     std.testing.refAllDecls(@This());
@@ -23,4 +24,5 @@ test {
     _ = recovery_check_run;
     _ = quic_connection_check;
     _ = quic_input_check;
+    _ = qlog_records;
 }

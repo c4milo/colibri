@@ -5144,6 +5144,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     after SETTINGS had gone out changed nothing sent, and was rightly NOT CAUGHT.
   - Not built yet: parsing each record as JSON in the simulator, which waits for stdx's decoder.
 
+  **18b and 18d, the record check, 2026-09-28.** stdx's `json` module is pinned at eb0f0c7, so
+  `qlog` writes each record with its `TextWriter`, `src/qlog/json.zig` is gone, and `qlog` imports
+  stdx's `json` in place of `core` (decision 102 as amended). `member.zig` writes one member of an
+  object, its name and its value. Every byte-exact test passes unchanged, and so do the
+  simulator's pinned logs.
+  - `src/sim/qlog_records.zig` reads back, with stdx's `TextReader`, each record a logged run
+    takes. A log's first record must be the header, with the members main schema §3 and §5
+    require. Every other record must be an event with a time, a name and data (§7), no earlier
+    than the event before it (§7.1), and with the members its event requires: a packet's header
+    and its type, each frame's type, a state's `new`, and a stream's ID and type. The QUIC
+    connection check and the h3 check call it after each step and pin the events it read: 49,865
+    on the lossy network's 256 seeds, and 47,715 on the h3 check's 32. Debug and ReleaseSafe
+    agree.
+  - 7 tests, and 12 mutations, each CAUGHT. `zig build test-sim-run-quic` caught the check not
+    called, packet events without their header, and seven breaks of the check itself: the
+    header's members, the event's members, a member `packet_sent` requires, a member an object
+    must hold, a packet's frames skipped, a time that goes back, and a time without three digits
+    of fraction. `zig build test-sim-run` caught the check not called, h3 frames without their
+    type, and frames read at the instant of the call before. A DATA frame header written at the
+    instant of the call before was NOT CAUGHT by the simulator, which writes each at the same
+    instant as that call; `zig build test-h3` catches it (18d).
+  - Cost, as user CPU time on an Apple M1 Pro. `zig build test-sim-run-quic` took 2.41 s in
+    ReleaseSafe at a5a97d2, 2.57 s with stdx's writer, and 2.79 s with the check; in Debug, 15.3,
+    16.7 and 18.8 s. The logged runs write 36.7 MB, so stdx's writer costs about 4 ns more per
+    octet in ReleaseSafe. The check added 1.2 s to the 71.5 s of `zig build test-sim-run` in
+    Debug.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
