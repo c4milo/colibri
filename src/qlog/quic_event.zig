@@ -5,12 +5,12 @@
 //! `quic_frame` between `begin_frames` and `end_frames`.
 const std = @import("std");
 const assert = std.debug.assert;
-const json_module = @import("json.zig");
-const Json = json_module.Json;
+const member = @import("member.zig");
+const TextWriter = @import("json").TextWriter;
 const quic_frame = @import("quic_frame.zig");
 const VantagePoint = @import("log.zig").VantagePoint;
 
-pub const Error = json_module.Error;
+pub const Error = member.Error;
 
 /// The names of the events (quic-events §3).
 pub const name = struct {
@@ -63,8 +63,8 @@ pub const PacketDropped = struct {
     raw: ?Raw = null,
     trigger: enum { internal_error, rejected, unsupported, invalid, duplicate, connection_unknown, decryption_failure, key_unavailable, general },
 
-    pub fn write(event: PacketDropped, json: *Json) Error!void {
-        try fields(json, event);
+    pub fn write(event: PacketDropped, text: *TextWriter) Error!void {
+        try fields(text, event);
     }
 };
 
@@ -76,8 +76,8 @@ pub const PacketLost = struct {
     header: PacketHeader,
     trigger: ?LossTrigger = null,
 
-    pub fn write(event: PacketLost, json: *Json) Error!void {
-        try fields(json, event);
+    pub fn write(event: PacketLost, text: *TextWriter) Error!void {
+        try fields(text, event);
     }
 };
 
@@ -92,8 +92,8 @@ pub const RecoveryMetricsUpdated = struct {
     bytes_in_flight: ?u64 = null,
     ssthresh: ?u64 = null,
 
-    pub fn write(event: RecoveryMetricsUpdated, json: *Json) Error!void {
-        try fields(json, event);
+    pub fn write(event: RecoveryMetricsUpdated, text: *TextWriter) Error!void {
+        try fields(text, event);
     }
 };
 
@@ -104,8 +104,8 @@ pub const ConnectionStateUpdated = struct {
     old: ?ConnectionState = null,
     new: ConnectionState,
 
-    pub fn write(event: ConnectionStateUpdated, json: *Json) Error!void {
-        try fields(json, event);
+    pub fn write(event: ConnectionStateUpdated, text: *TextWriter) Error!void {
+        try fields(text, event);
     }
 };
 
@@ -117,13 +117,13 @@ pub const ConnectionClosed = struct {
     error_code: u64 = 0,
     trigger: enum { idle_timeout, application, @"error", version_mismatch, stateless_reset, aborted, unspecified },
 
-    pub fn write(event: ConnectionClosed, json: *Json) Error!void {
-        try json.field_string("initiator", @tagName(event.initiator));
+    pub fn write(event: ConnectionClosed, text: *TextWriter) Error!void {
+        try member.string(text, "initiator", @tagName(event.initiator));
         if (event.error_space) |space| switch (space) {
-            .transport => try quic_frame.transport_error(json, "connection_error", event.error_code),
-            .application => try quic_frame.application_error(json, "application_error", event.error_code),
+            .transport => try quic_frame.transport_error(text, "connection_error", event.error_code),
+            .application => try quic_frame.application_error(text, "application_error", event.error_code),
         };
-        try json.field_string("trigger", @tagName(event.trigger));
+        try member.string(text, "trigger", @tagName(event.trigger));
     }
 };
 
@@ -133,15 +133,15 @@ pub const VersionInformation = struct {
     vantage_point: VantagePoint,
     version: Hex,
 
-    pub fn write(event: VersionInformation, json: *Json) Error!void {
-        try json.key(switch (event.vantage_point) {
+    pub fn write(event: VersionInformation, text: *TextWriter) Error!void {
+        try text.name(switch (event.vantage_point) {
             .client => "client_versions",
             .server => "server_versions",
         });
-        try json.begin_array();
-        try json.hexstring(event.version.octets);
-        try json.end_array();
-        try json.field_hexstring("chosen_version", event.version.octets);
+        try text.begin_array();
+        try text.hex(event.version.octets);
+        try text.end_array();
+        try member.hex(text, "chosen_version", event.version.octets);
     }
 };
 
@@ -152,8 +152,8 @@ pub const AlpnIdentifier = struct { byte_value: Hex };
 pub const AlpnInformation = struct {
     chosen_alpn: AlpnIdentifier,
 
-    pub fn write(event: AlpnInformation, json: *Json) Error!void {
-        try fields(json, event);
+    pub fn write(event: AlpnInformation, text: *TextWriter) Error!void {
+        try fields(text, event);
     }
 };
 
@@ -177,51 +177,51 @@ pub const ParametersSet = struct {
     initial_max_streams_bidi: ?u64 = null,
     initial_max_streams_uni: ?u64 = null,
 
-    pub fn write(event: ParametersSet, json: *Json) Error!void {
-        try fields(json, event);
+    pub fn write(event: ParametersSet, text: *TextWriter) Error!void {
+        try fields(text, event);
     }
 };
 
 /// Opens the `frames` array of a `packet_sent` or `packet_received` event (quic-events §5.5).
-pub fn begin_frames(json: *Json) Error!void {
-    try json.key("frames");
-    try json.begin_array();
+pub fn begin_frames(text: *TextWriter) Error!void {
+    try text.name("frames");
+    try text.begin_array();
 }
 
-pub fn end_frames(json: *Json) Error!void {
-    try json.end_array();
+pub fn end_frames(text: *TextWriter) Error!void {
+    try text.end_array();
 }
 
 /// Each field of the struct `value` that is not null, under its own name.
-pub fn fields(json: *Json, value: anytype) Error!void {
+pub fn fields(text: *TextWriter, value: anytype) Error!void {
     const Value = @TypeOf(value);
     comptime assert(@typeInfo(Value) == .@"struct");
-    inline for (@typeInfo(Value).@"struct".fields) |member| {
-        try field(json, member.name, @field(value, member.name));
+    inline for (@typeInfo(Value).@"struct".fields) |declared| {
+        try field(text, declared.name, @field(value, declared.name));
     }
 }
 
 /// One member named `member_name` whose value is `value`, or nothing when `value` is null.
-pub fn field(json: *Json, comptime member_name: []const u8, value: anytype) Error!void {
+pub fn field(text: *TextWriter, comptime member_name: []const u8, value: anytype) Error!void {
     const Value = @TypeOf(value);
     switch (@typeInfo(Value)) {
-        .optional => if (value) |present| try field(json, member_name, present),
-        .bool => try json.field_boolean(member_name, value),
-        .int => try json.field_unsigned(member_name, value),
-        .@"enum" => try json.field_string(member_name, @tagName(value)),
-        .@"struct" => try struct_field(json, member_name, value),
+        .optional => if (value) |present| try field(text, member_name, present),
+        .bool => try member.boolean(text, member_name, value),
+        .int => try member.unsigned(text, member_name, value),
+        .@"enum" => try member.string(text, member_name, @tagName(value)),
+        .@"struct" => try struct_field(text, member_name, value),
         else => @compileError("qlog writes no " ++ @typeName(Value)),
     }
 }
 
-fn struct_field(json: *Json, comptime member_name: []const u8, value: anytype) Error!void {
+fn struct_field(text: *TextWriter, comptime member_name: []const u8, value: anytype) Error!void {
     const Value = @TypeOf(value);
-    if (Value == Duration) return json.field_milliseconds(member_name, value.ns);
-    if (Value == Hex) return json.field_hexstring(member_name, value.octets);
-    try json.key(member_name);
-    try json.begin_object();
-    try fields(json, value);
-    try json.end_object();
+    if (Value == Duration) return member.milliseconds(text, member_name, value.ns);
+    if (Value == Hex) return member.hex(text, member_name, value.octets);
+    try text.name(member_name);
+    try text.begin_object();
+    try fields(text, value);
+    try text.end_object();
 }
 
 const testing = std.testing;
@@ -231,11 +231,11 @@ const test_buffer_len = 512;
 
 fn expect_event(expected: []const u8, event: anytype) !void {
     var buffer: [test_buffer_len]u8 = undefined;
-    var json = Json.init(&buffer);
-    try json.begin_object();
-    try event.write(&json);
-    try json.end_object();
-    try testing.expectEqualStrings(expected, json.written());
+    var text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try event.write(&text);
+    try text.end_object();
+    try testing.expectEqualStrings(expected, text.written());
 }
 
 test "a lost packet's header and trigger, with the draft's packet type names" {
@@ -262,18 +262,18 @@ test "recovery metrics write only what is present, and durations in milliseconds
 
 test "a long header carries its version and connection IDs as hexstrings" {
     var buffer: [256]u8 = undefined;
-    var json = Json.init(&buffer);
-    try json.begin_object();
-    try field(&json, "header", PacketHeader{
+    var text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try field(&text, "header", PacketHeader{
         .packet_type = .initial,
         .packet_number = 0,
         .version = .{ .octets = &.{ 0, 0, 0, 1 } },
         .scid = .{ .octets = &.{0xab} },
         .dcid = .{ .octets = &.{ 0xcd, 0xef } },
     });
-    try json.end_object();
+    try text.end_object();
     try testing.expectEqualStrings("{\"header\":{\"packet_type\":\"initial\",\"packet_number\":0,\"version\":\"00000001\"," ++
-        "\"scid\":\"ab\",\"dcid\":\"cdef\"}}", json.written());
+        "\"scid\":\"ab\",\"dcid\":\"cdef\"}}", text.written());
 }
 
 test "a closed connection names a transport error, and an application's as unknown" {

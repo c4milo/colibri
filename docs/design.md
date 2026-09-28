@@ -60,7 +60,7 @@ core   <- tls_provider <- h2, h11, quic, tls
 chapulin <- tls, tls_keylog, testing_quic, testing_udp
 stdx   <- h11, sim_run, client, server
 core   <- crypto <- quic, tls
-core   <- qlog   <- quic, h3
+stdx   <- qlog   <- quic, h3
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic, client, tls <- sim_run
@@ -83,7 +83,7 @@ core, http, h11, h2, h3, quic, tls <- client, server
 | `crypto` | the packet-protection vtable, no production implementation | `core` | 9001 §5 |
 | `hpack` | HPACK | `core`, `wire`, `http` | 7541 |
 | `qpack` | QPACK | `core`, `wire`, `http` | 9204 |
-| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | `core` | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
+| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | stdx's `json` ([decision 102](decisions.md) as amended) | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
 | `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls_provider`, `qlog` | 8999, 9000, 9001, 9002 |
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic`, `qlog` | 9114 |

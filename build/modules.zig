@@ -6,7 +6,8 @@
 //! transport that carries streams and never interprets their payloads; decision 5 keeps it that
 //! way: `quic` receives `core`, `wire`, `crypto`, `tls_provider` and `qlog`, and nothing else.
 //! `src/quic/` naming `http`, `h2`, `h3`, `h11`, `hpack` or `qpack` does not compile, which is
-//! invariant 26 and the check of design §8 step 0. `qlog` imports `core` alone (decision 102).
+//! invariant 26 and the check of design §8 step 0. `qlog` imports stdx's `json` alone (decision
+//! 102 as amended).
 //!
 //! `sim` receives `core`, `tls_provider` and `crypto` because it implements the two caller-supplied
 //! vtables (decisions 8 and 9) and passes its own null providers to the protocol modules in place
@@ -39,7 +40,7 @@ pub const Modules = struct {
     /// The packet-protection vtable. No production implementation (decision 9).
     crypto: *std.Build.Module,
     /// A qlog log in the caller's buffer, and the event records `quic` and `h3` fill (decision
-    /// 102). Imports `core` alone.
+    /// 102). Imports stdx's `json` alone.
     qlog: *std.Build.Module,
     hpack: *std.Build.Module,
     qpack: *std.Build.Module,
@@ -111,8 +112,11 @@ pub fn add(
     const crypto = library(b, "crypto", target, optimize);
     crypto.addImport("core", core);
 
+    // Decision 90: stdx holds the codecs, which carry no protocol knowledge.
+    const stdx = b.dependency("stdx", .{ .target = target, .release = optimize == .ReleaseSafe });
+
     const qlog = library(b, "qlog", target, optimize);
-    qlog.addImport("core", core);
+    qlog.addImport("json", stdx.module("json"));
 
     const hpack = library(b, "hpack", target, optimize);
     hpack.addImport("core", core);
@@ -154,7 +158,6 @@ pub fn add(
     h11.addImport("tls_provider", tls_provider);
     // Decisions 90 and 91: stdx decodes the gzip and deflate transfer codings. `codec` carries
     // the streaming contract both decoders share.
-    const stdx = b.dependency("stdx", .{ .target = target, .release = optimize == .ReleaseSafe });
     h11.addImport("codec", stdx.module("codec"));
     h11.addImport("gzip", stdx.module("gzip"));
     h11.addImport("zlib", stdx.module("zlib"));

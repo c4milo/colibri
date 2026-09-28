@@ -1,13 +1,19 @@
 //! qlog, the structured log of draft-ietf-quic-qlog-main-schema-14, in a buffer the caller owns
 //! (decision 102). `quic` and `h3` fill its event records when their caller gives them a log, and
-//! the caller writes the records where it wants. Imports `core` alone (docs/design.md §3).
+//! the caller writes the records where it wants. Imports `core` and stdx's `json` (docs/design.md
+//! §3).
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
 
-/// The JSON text of RFC 8259 that every record is.
-pub const json = @import("json.zig");
-pub const Json = json.Json;
+/// stdx's JSON module (decision 102 as amended). Every record is one text of a JSON text sequence
+/// that its `TextWriter` writes, and its `TextReader` reads one back.
+pub const json = @import("json");
+pub const TextWriter = json.TextWriter;
+
+/// One member of an object, its name and its value, which every record is made of.
+pub const member = @import("member.zig");
+pub const Error = member.Error;
 
 /// The log: the header record and one record per event, as JSON Text Sequences (RFC 7464).
 pub const log = @import("log.zig");
@@ -34,7 +40,7 @@ pub const http3_event_schema = "urn:ietf:params:qlog:events:http3-13";
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
-    _ = json;
+    _ = member;
     _ = log;
     _ = quic_frame;
     _ = quic_event;

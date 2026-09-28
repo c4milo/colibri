@@ -7,11 +7,11 @@
 //! counted in `dropped`: a log never fails the connection that writes it.
 const std = @import("std");
 const assert = std.debug.assert;
+const TextWriter = @import("json").TextWriter;
 const constants = @import("constants.zig");
-const json_module = @import("json.zig");
-const Json = json_module.Json;
+const member = @import("member.zig");
 
-pub const Error = json_module.Error;
+pub const Error = member.Error;
 
 /// The file schema of a log written as JSON Text Sequences (main schema §5).
 pub const file_schema = "urn:ietf:params:qlog:file:sequential";
@@ -53,22 +53,19 @@ pub const Log = struct {
     pub fn start(log: *Log, trace: Trace, now_ns: u64) Error!void {
         assert(!log.started);
         assert(trace.event_schemas.len > 0);
-        var json = Json.init(log.buffer[log.len..]);
-        try json.writer.write_byte(constants.record_separator);
-        try json.begin_object();
-        try json.field_string("file_schema", file_schema);
-        try json.field_string("serialization_format", serialization_format);
-        try json.key("trace");
-        try write_trace(&json, trace);
-        try json.end_object();
-        try json.writer.write_byte(constants.line_feed);
-        assert(json.depth == 0);
-        log.len += json.written().len;
+        var text = TextWriter.init(log.buffer[log.len..], .sequence);
+        try text.begin_object();
+        try member.string(&text, "file_schema", file_schema);
+        try member.string(&text, "serialization_format", serialization_format);
+        try text.name("trace");
+        try write_trace(&text, trace);
+        try text.end_object();
+        log.len += text.written().len;
         log.start_ns = now_ns;
         log.started = true;
     }
 
-    /// Writes one event named `name` at `now_ns`, whose data `data.write(json)` writes as the
+    /// Writes one event named `name` at `now_ns`, whose data `data.write(text)` writes as the
     /// members of the `data` object (main schema §7), or drops it whole when it does not fit.
     pub fn event(log: *Log, name: []const u8, now_ns: u64, data: anytype) void {
         assert(log.started);
@@ -95,47 +92,44 @@ pub const Log = struct {
 };
 
 /// Main schema §5.1's TraceSeq, with the common fields of §7.5 that every event shares.
-fn write_trace(json: *Json, trace: Trace) Error!void {
-    try json.begin_object();
-    try json.key("common_fields");
-    try json.begin_object();
-    try json.field_hexstring("group_id", trace.group_id);
-    try json.field_string("time_format", "relative_to_epoch");
-    try json.key("reference_time");
-    try json.begin_object();
+fn write_trace(text: *TextWriter, trace: Trace) Error!void {
+    try text.begin_object();
+    try text.name("common_fields");
+    try text.begin_object();
+    try member.hex(text, "group_id", trace.group_id);
+    try member.string(text, "time_format", "relative_to_epoch");
+    try text.name("reference_time");
+    try text.begin_object();
     // Main schema §7.1: a monotonic clock's epoch MUST be "unknown".
-    try json.field_string("clock_type", "monotonic");
-    try json.field_string("epoch", "unknown");
-    try json.end_object();
-    try json.end_object();
-    try json.key("vantage_point");
-    try json.begin_object();
-    try json.field_string("type", @tagName(trace.vantage_point));
-    try json.end_object();
-    try json.key("event_schemas");
-    try json.begin_array();
+    try member.string(text, "clock_type", "monotonic");
+    try member.string(text, "epoch", "unknown");
+    try text.end_object();
+    try text.end_object();
+    try text.name("vantage_point");
+    try text.begin_object();
+    try member.string(text, "type", @tagName(trace.vantage_point));
+    try text.end_object();
+    try text.name("event_schemas");
+    try text.begin_array();
     // Bounded by the caller's list.
-    for (trace.event_schemas) |schema| try json.string(schema);
-    try json.end_array();
-    try json.end_object();
+    for (trace.event_schemas) |schema| try text.string(schema);
+    try text.end_array();
+    try text.end_object();
 }
 
 /// One event record into `buffer`, and its length. Nothing is committed until it all fit, so a
-/// failed record leaves only scratch past the log's length (`core.Writer`).
+/// failed record leaves only scratch past the log's length.
 fn write_event(buffer: []u8, name: []const u8, time_ns: u64, data: anytype) Error!usize {
-    var json = Json.init(buffer);
-    try json.writer.write_byte(constants.record_separator);
-    try json.begin_object();
-    try json.field_milliseconds("time", time_ns);
-    try json.field_string("name", name);
-    try json.key("data");
-    try json.begin_object();
-    try data.write(&json);
-    try json.end_object();
-    try json.end_object();
-    try json.writer.write_byte(constants.line_feed);
-    assert(json.depth == 0);
-    return json.written().len;
+    var text = TextWriter.init(buffer, .sequence);
+    try text.begin_object();
+    try member.milliseconds(&text, "time", time_ns);
+    try member.string(&text, "name", name);
+    try text.name("data");
+    try text.begin_object();
+    try data.write(&text);
+    try text.end_object();
+    try text.end_object();
+    return text.written().len;
 }
 
 const testing = std.testing;
@@ -143,8 +137,8 @@ const testing = std.testing;
 const Marker = struct {
     message: []const u8,
 
-    pub fn write(marker: Marker, json: *Json) Error!void {
-        try json.field_string("message", marker.message);
+    pub fn write(marker: Marker, text: *TextWriter) Error!void {
+        try member.string(text, "message", marker.message);
     }
 };
 

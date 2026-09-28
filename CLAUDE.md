@@ -213,8 +213,8 @@ tree. Design §11 holds the method and the numbers.
 
 - Changing a named limit.
 - Adding a dependency. The library has two: chapulin, which it links for TLS and packet
-  protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports (decisions 90 and
-  91). It has no allocator at all (decision 35). Five more are ruled for the
+  protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports and whose JSON
+  module qlog imports (decisions 90, 91 and 102). It has no allocator at all (decision 35). Five more are ruled for the
   tooling and the tests, and the library imports none of them: pepegrillo, the tooling `tools/`
   builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and `examples/` run on
   (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);

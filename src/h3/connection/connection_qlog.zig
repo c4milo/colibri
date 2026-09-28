@@ -16,7 +16,7 @@ const frame = @import("../frame.zig");
 const stream = @import("../stream.zig");
 const connection_module = @import("connection.zig");
 
-const Json = qlog.Json;
+const TextWriter = qlog.TextWriter;
 const Reader = core.Reader;
 const Connection = connection_module.Connection;
 const FieldSection = http.FieldSection;
@@ -115,69 +115,69 @@ const FrameEvent = struct {
     stream_id: u64,
     frame: Frame,
 
-    pub fn write(event: FrameEvent, json: *Json) qlog.json.Error!void {
+    pub fn write(event: FrameEvent, text: *TextWriter) qlog.Error!void {
         switch (event.frame) {
-            .data => |payload_len| try write_empty(json, event.stream_id, "data", payload_len),
-            .headers => |headers| try write_headers(json, event.stream_id, headers),
-            .settings => |payload| try write_settings(json, event.stream_id, payload),
-            .goaway => |held| try write_identified(json, event.stream_id, "goaway", "id", held),
-            .max_push_id => |held| try write_identified(json, event.stream_id, "max_push_id", "push_id", held),
-            .cancel_push => |held| try write_identified(json, event.stream_id, "cancel_push", "push_id", held),
-            .other => |other| try write_other(json, event.stream_id, other),
+            .data => |payload_len| try write_empty(text, event.stream_id, "data", payload_len),
+            .headers => |headers| try write_headers(text, event.stream_id, headers),
+            .settings => |payload| try write_settings(text, event.stream_id, payload),
+            .goaway => |held| try write_identified(text, event.stream_id, "goaway", "id", held),
+            .max_push_id => |held| try write_identified(text, event.stream_id, "max_push_id", "push_id", held),
+            .cancel_push => |held| try write_identified(text, event.stream_id, "cancel_push", "push_id", held),
+            .other => |other| try write_other(text, event.stream_id, other),
         }
     }
 };
 
-fn write_empty(json: *Json, stream_id: u64, frame_type: []const u8, payload_len: u64) qlog.json.Error!void {
-    try h3_event.begin_frame(json, stream_id, frame_type);
-    try h3_event.end_frame(json, payload_len);
+fn write_empty(text: *TextWriter, stream_id: u64, frame_type: []const u8, payload_len: u64) qlog.Error!void {
+    try h3_event.begin_frame(text, stream_id, frame_type);
+    try h3_event.end_frame(text, payload_len);
 }
 
 fn write_identified(
-    json: *Json,
+    text: *TextWriter,
     stream_id: u64,
     frame_type: []const u8,
     comptime id_key: []const u8,
     held: Frame.Identified,
-) qlog.json.Error!void {
-    try h3_event.begin_frame(json, stream_id, frame_type);
-    try json.field_unsigned(id_key, held.id);
-    try h3_event.end_frame(json, held.payload_len);
+) qlog.Error!void {
+    try h3_event.begin_frame(text, stream_id, frame_type);
+    try qlog.member.unsigned(text, id_key, held.id);
+    try h3_event.end_frame(text, held.payload_len);
 }
 
-fn write_other(json: *Json, stream_id: u64, other: Frame.Other) qlog.json.Error!void {
+fn write_other(text: *TextWriter, stream_id: u64, other: Frame.Other) qlog.Error!void {
     // RFC 9114 §7.2.8: a reserved type is one the grease formula gives, and h3-events §4.2.8
     // names it apart from an unknown one.
-    try h3_event.begin_frame(json, stream_id, if (constants.is_reserved(other.frame_type)) "reserved" else "unknown");
-    try h3_event.frame_type_bytes(json, other.frame_type);
-    try h3_event.end_frame(json, other.payload_len);
+    try h3_event.begin_frame(text, stream_id, if (constants.is_reserved(other.frame_type)) "reserved" else "unknown");
+    try h3_event.frame_type_bytes(text, other.frame_type);
+    try h3_event.end_frame(text, other.payload_len);
 }
 
-fn write_headers(json: *Json, stream_id: u64, headers: Frame.Headers) qlog.json.Error!void {
-    try h3_event.begin_frame(json, stream_id, "headers");
-    try h3_event.begin_headers(json);
+fn write_headers(text: *TextWriter, stream_id: u64, headers: Frame.Headers) qlog.Error!void {
+    try h3_event.begin_frame(text, stream_id, "headers");
+    try h3_event.begin_headers(text);
     var lines = headers.section.iterator();
     // Bounded by the section's lines, at most `field_count_max`.
-    while (lines.next()) |line| try h3_event.field_line(json, line.name, line.value);
-    try h3_event.end_headers(json);
-    try h3_event.end_frame(json, headers.payload_len);
+    while (lines.next()) |line| try h3_event.field_line(text, line.name, line.value);
+    try h3_event.end_headers(text);
+    try h3_event.end_frame(text, headers.payload_len);
 }
 
 /// Each setting of a SETTINGS frame's payload (RFC 9114 §7.2.4), read again. A payload that
 /// stops parsing ends the list: `frame.read_payload` refused it, or colibri wrote it.
-fn write_settings(json: *Json, stream_id: u64, payload: []const u8) qlog.json.Error!void {
-    try h3_event.begin_frame(json, stream_id, "settings");
-    try h3_event.begin_settings(json);
+fn write_settings(text: *TextWriter, stream_id: u64, payload: []const u8) qlog.Error!void {
+    try h3_event.begin_frame(text, stream_id, "settings");
+    try h3_event.begin_settings(text);
     var reader = Reader.init(payload);
     // Bounded by the payload: each setting takes two octets at least.
     for (0..payload.len) |_| {
         if (reader.remaining_len() == 0) break;
         const identifier = (wire.varint.decode(&reader) catch break).value;
         const value = (wire.varint.decode(&reader) catch break).value;
-        try h3_event.setting(json, setting_name(identifier), identifier, value);
+        try h3_event.setting(text, setting_name(identifier), identifier, value);
     }
-    try h3_event.end_settings(json);
-    try h3_event.end_frame(json, payload.len);
+    try h3_event.end_settings(text);
+    try h3_event.end_frame(text, payload.len);
 }
 
 /// H3-events §4.2.4's name for the setting `identifier`: the three colibri reads, a reserved one

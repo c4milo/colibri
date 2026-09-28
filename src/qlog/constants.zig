@@ -3,39 +3,18 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// The octet before each record of a log (RFC 7464 §2.2).
-pub const record_separator: u8 = 0x1e;
-
-/// The octet after each record (RFC 7464 §2.2).
-pub const line_feed: u8 = 0x0a;
-
-/// The last of the control characters RFC 8259 §7 requires a string to escape, U+0000 through
-/// U+001F.
-pub const control_character_last: u8 = 0x1f;
-
-/// The first octet that is not ASCII. colibri writes its own ASCII as text and a peer's octets as
-/// hexstrings, but for a field line that is printable ASCII (decision 102 as amended).
-pub const ascii_end: u8 = 0x80;
-
 /// Printable ASCII, the space through the tilde: the octets h3-events §4.2.2 logs a field line's
 /// name and value as text in.
 pub const printable_first: u8 = 0x20;
 pub const printable_last: u8 = 0x7e;
 
-/// The digits of a hexstring, lowercase as main schema §1.2 defines the type.
-pub const hex_digits = "0123456789abcdef";
-
-/// Bits in one hex digit.
-pub const nibble_bits: u3 = 4;
-
-/// Deepest nesting of objects and arrays a record may have. Policy: a QUIC frame's `raw` object
-/// inside a packet's `frames` array inside an event's `data` is four deep.
-pub const json_depth_max: u8 = 8;
-
 /// A qlog time is milliseconds with a fraction (main schema §1.2, §7.1). colibri's instants are
 /// nanoseconds, and it writes microseconds as the fraction.
 pub const nanoseconds_per_millisecond: u64 = 1_000_000;
 pub const nanoseconds_per_microsecond: u64 = 1_000;
+
+/// The digits of that fraction: microseconds of a millisecond.
+pub const millisecond_fraction_digits: u5 = 3;
 
 /// Smallest buffer a log may be given, in octets: the header record fits with room for events.
 /// Policy.
@@ -50,12 +29,10 @@ pub const crypto_error_last: u64 = 0x1ff;
 pub const crypto_error_digits: usize = 3;
 
 comptime {
-    assert(record_separator != line_feed);
-    assert(record_separator <= control_character_last and line_feed <= control_character_last);
-    assert(hex_digits.len == 1 << nibble_bits);
-    assert(json_depth_max >= 4);
     assert(nanoseconds_per_millisecond % nanoseconds_per_microsecond == 0);
+    assert(std.math.pow(u64, 10, millisecond_fraction_digits) == nanoseconds_per_millisecond / nanoseconds_per_microsecond);
     assert(log_len_min > 0);
     assert(crypto_error_last - crypto_error_first == 0xff);
-    assert(printable_first > control_character_last and printable_last < ascii_end);
+    // RFC 8259 §7: a string escapes U+0000 through U+001F, and ASCII ends before 0x80.
+    assert(printable_first > 0x1f and printable_last < 0x80);
 }

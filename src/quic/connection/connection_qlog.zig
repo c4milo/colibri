@@ -26,7 +26,7 @@ const recovery_sent = @import("../recovery/recovery_sent.zig");
 
 const Level = core.Level;
 const Reader = core.Reader;
-const Json = qlog.Json;
+const TextWriter = qlog.TextWriter;
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
 const quic_event = qlog.quic_event;
@@ -326,69 +326,69 @@ const Packet = struct {
     /// The exponent an ACK frame's ACK Delay is scaled by (RFC 9000 §19.3), which is the sender's.
     ack_delay_exponent: u64,
 
-    pub fn write(packet: Packet, json: *Json) qlog.json.Error!void {
-        try quic_event.field(json, "header", packet.header);
-        try quic_event.field(json, "raw", packet.raw);
-        try quic_event.begin_frames(json);
-        try write_frames(json, packet.payload, packet.ack_delay_exponent);
-        try quic_event.end_frames(json);
+    pub fn write(packet: Packet, text: *TextWriter) qlog.Error!void {
+        try quic_event.field(text, "header", packet.header);
+        try quic_event.field(text, "raw", packet.raw);
+        try quic_event.begin_frames(text);
+        try write_frames(text, packet.payload, packet.ack_delay_exponent);
+        try quic_event.end_frames(text);
     }
 };
 
 /// Each frame of `payload`, in order. A frame that does not parse ends the list: the packet is
 /// logged as far as a reader can follow it, which is where `connection_frames` stopped too.
-fn write_frames(json: *Json, payload: []const u8, ack_delay_exponent: u64) qlog.json.Error!void {
+fn write_frames(text: *TextWriter, payload: []const u8, ack_delay_exponent: u64) qlog.Error!void {
     var reader = Reader.init(payload);
     // Bounded by the frames one packet can hold, as `connection_frames.process` is.
     for (0..constants.frames_per_packet_max) |_| {
         if (reader.remaining_len() == 0) return;
         const frame = frame_module.read(&reader) catch return;
-        try write_frame(json, frame, ack_delay_exponent);
+        try write_frame(text, frame, ack_delay_exponent);
     }
 }
 
-fn write_frame(json: *Json, frame: frame_module.Frame, ack_delay_exponent: u64) qlog.json.Error!void {
+fn write_frame(text: *TextWriter, frame: frame_module.Frame, ack_delay_exponent: u64) qlog.Error!void {
     switch (frame) {
-        .padding => |padding| try quic_frame.padding(json, padding.len),
-        .ping => try quic_frame.ping(json),
-        .ack => |ack| try write_ack(json, ack, ack_delay_exponent),
-        .reset_stream => |reset| try quic_frame.reset_stream(json, reset.stream_id, reset.error_code, reset.final_size),
-        .stop_sending => |stop| try quic_frame.stop_sending(json, stop.stream_id, stop.error_code),
-        .crypto => |crypto| try quic_frame.crypto(json, crypto.offset, crypto.data.len),
-        .new_token => |token| try quic_frame.new_token(json, token.token.len),
-        .stream => |stream| try quic_frame.stream(json, stream.stream_id, stream.offset, stream.data.len, stream.fin),
-        .max_data => |limit| try quic_frame.max_data(json, limit.maximum),
-        .max_stream_data => |limit| try quic_frame.max_stream_data(json, limit.stream_id, limit.maximum),
-        .max_streams => |limit| try quic_frame.max_streams(json, directionality_of(limit.directionality), limit.maximum),
-        .data_blocked => |blocked| try quic_frame.data_blocked(json, blocked.limit),
-        .stream_data_blocked => |blocked| try quic_frame.stream_data_blocked(json, blocked.stream_id, blocked.limit),
-        .streams_blocked => |blocked| try quic_frame.streams_blocked(json, directionality_of(blocked.directionality), blocked.limit),
-        .new_connection_id => |issued| try quic_frame.new_connection_id(json, issued.sequence_number, issued.retire_prior_to, issued.connection_id),
-        .retire_connection_id => |retired| try quic_frame.retire_connection_id(json, retired.sequence_number),
-        .path_challenge => |challenge| try quic_frame.path_challenge(json, challenge.data),
-        .path_response => |response| try quic_frame.path_response(json, response.data),
-        .connection_close => |close| try write_close(json, close),
-        .handshake_done => try quic_frame.handshake_done(json),
+        .padding => |padding| try quic_frame.padding(text, padding.len),
+        .ping => try quic_frame.ping(text),
+        .ack => |ack| try write_ack(text, ack, ack_delay_exponent),
+        .reset_stream => |reset| try quic_frame.reset_stream(text, reset.stream_id, reset.error_code, reset.final_size),
+        .stop_sending => |stop| try quic_frame.stop_sending(text, stop.stream_id, stop.error_code),
+        .crypto => |crypto| try quic_frame.crypto(text, crypto.offset, crypto.data.len),
+        .new_token => |token| try quic_frame.new_token(text, token.token.len),
+        .stream => |stream| try quic_frame.stream(text, stream.stream_id, stream.offset, stream.data.len, stream.fin),
+        .max_data => |limit| try quic_frame.max_data(text, limit.maximum),
+        .max_stream_data => |limit| try quic_frame.max_stream_data(text, limit.stream_id, limit.maximum),
+        .max_streams => |limit| try quic_frame.max_streams(text, directionality_of(limit.directionality), limit.maximum),
+        .data_blocked => |blocked| try quic_frame.data_blocked(text, blocked.limit),
+        .stream_data_blocked => |blocked| try quic_frame.stream_data_blocked(text, blocked.stream_id, blocked.limit),
+        .streams_blocked => |blocked| try quic_frame.streams_blocked(text, directionality_of(blocked.directionality), blocked.limit),
+        .new_connection_id => |issued| try quic_frame.new_connection_id(text, issued.sequence_number, issued.retire_prior_to, issued.connection_id),
+        .retire_connection_id => |retired| try quic_frame.retire_connection_id(text, retired.sequence_number),
+        .path_challenge => |challenge| try quic_frame.path_challenge(text, challenge.data),
+        .path_response => |response| try quic_frame.path_response(text, response.data),
+        .connection_close => |close| try write_close(text, close),
+        .handshake_done => try quic_frame.handshake_done(text),
     }
 }
 
-fn write_ack(json: *Json, ack: frame_module.Ack, ack_delay_exponent: u64) qlog.json.Error!void {
+fn write_ack(text: *TextWriter, ack: frame_module.Ack, ack_delay_exponent: u64) qlog.Error!void {
     // RFC 9000 §19.3: microseconds, scaled by 2 to the power of the exponent.
     const delay_ns = (ack.delay <<| @as(u6, @intCast(ack_delay_exponent))) *| constants.nanoseconds_per_microsecond;
-    try quic_frame.ack_begin(json, delay_ns);
+    try quic_frame.ack_begin(text, delay_ns);
     var walk = ack.ranges.iterator();
     // Bounded by the frame's own count of ranges, which `frame_ack.read` walked once already.
-    while (walk.next()) |range| try quic_frame.ack_range(json, range.smallest, range.largest);
-    const ecn = ack.ecn orelse return quic_frame.ack_end(json, null);
-    try quic_frame.ack_end(json, .{ .ect0 = ecn.ect_0, .ect1 = ecn.ect_1, .ce = ecn.ecn_ce });
+    while (walk.next()) |range| try quic_frame.ack_range(text, range.smallest, range.largest);
+    const ecn = ack.ecn orelse return quic_frame.ack_end(text, null);
+    try quic_frame.ack_end(text, .{ .ect0 = ecn.ect_0, .ect1 = ecn.ect_1, .ce = ecn.ecn_ce });
 }
 
-fn write_close(json: *Json, close: frame_module.frame_control.ConnectionClose) qlog.json.Error!void {
+fn write_close(text: *TextWriter, close: frame_module.frame_control.ConnectionClose) qlog.Error!void {
     const space: quic_frame.ErrorSpace = switch (close.layer) {
         .transport => .transport,
         .application => .application,
     };
-    try quic_frame.connection_close(json, space, close.error_code, close.frame_type, close.reason);
+    try quic_frame.connection_close(text, space, close.error_code, close.frame_type, close.reason);
 }
 
 fn directionality_of(directionality: frame_module.Directionality) quic_frame.Directionality {

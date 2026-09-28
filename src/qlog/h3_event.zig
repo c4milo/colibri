@@ -7,11 +7,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
-const json_module = @import("json.zig");
-const Json = json_module.Json;
+const member = @import("member.zig");
+const TextWriter = @import("json").TextWriter;
 const quic_event = @import("quic_event.zig");
 
-pub const Error = json_module.Error;
+pub const Error = member.Error;
 
 /// The names of the events (h3-events §3).
 pub const name = struct {
@@ -28,8 +28,8 @@ pub const ParametersSet = struct {
     max_table_capacity: ?u64 = null,
     blocked_streams_count: ?u64 = null,
 
-    pub fn write(event: ParametersSet, json: *Json) Error!void {
-        try quic_event.fields(json, event);
+    pub fn write(event: ParametersSet, text: *TextWriter) Error!void {
+        try quic_event.fields(text, event);
     }
 };
 
@@ -46,8 +46,8 @@ pub const StreamTypeSet = struct {
     /// The push ID, only when `stream_type` is push.
     associated_push_id: ?u64 = null,
 
-    pub fn write(event: StreamTypeSet, json: *Json) Error!void {
-        try quic_event.fields(json, event);
+    pub fn write(event: StreamTypeSet, text: *TextWriter) Error!void {
+        try quic_event.fields(text, event);
     }
 };
 
@@ -65,80 +65,80 @@ pub const SettingName = enum {
 
 /// Opens the `frame` of a frame_created or frame_parsed event on `stream_id` (h3-events §3.5,
 /// §3.6), whose type is `frame_type`. The frame's own members follow, and `end_frame` closes it.
-pub fn begin_frame(json: *Json, stream_id: u64, frame_type: []const u8) Error!void {
-    try json.field_unsigned("stream_id", stream_id);
-    try json.key("frame");
-    try json.begin_object();
-    try json.field_string("frame_type", frame_type);
+pub fn begin_frame(text: *TextWriter, stream_id: u64, frame_type: []const u8) Error!void {
+    try member.unsigned(text, "stream_id", stream_id);
+    try text.name("frame");
+    try text.begin_object();
+    try member.string(text, "frame_type", frame_type);
 }
 
 /// Closes the frame, whose payload is `payload_len` octets long, which main schema §10's RawInfo
 /// holds.
-pub fn end_frame(json: *Json, payload_len: u64) Error!void {
-    try json.key("raw");
-    try json.begin_object();
-    try json.field_unsigned("payload_length", payload_len);
-    try json.end_object();
-    try json.end_object();
+pub fn end_frame(text: *TextWriter, payload_len: u64) Error!void {
+    try text.name("raw");
+    try text.begin_object();
+    try member.unsigned(text, "payload_length", payload_len);
+    try text.end_object();
+    try text.end_object();
 }
 
 /// A reserved frame type (RFC 9114 §7.2.8) or an unknown one (§9), as its number (h3-events
 /// §4.2.8, §4.2.9).
-pub fn frame_type_bytes(json: *Json, frame_type: u64) Error!void {
-    try json.field_unsigned("frame_type_bytes", frame_type);
+pub fn frame_type_bytes(text: *TextWriter, frame_type: u64) Error!void {
+    try member.unsigned(text, "frame_type_bytes", frame_type);
 }
 
 /// A GOAWAY's identifier (h3-events §4.2.6), and the push ID of MAX_PUSH_ID or CANCEL_PUSH
 /// (§4.2.7, §4.2.3).
-pub fn goaway_id(json: *Json, id: u64) Error!void {
-    try json.field_unsigned("id", id);
+pub fn goaway_id(text: *TextWriter, id: u64) Error!void {
+    try member.unsigned(text, "id", id);
 }
 
-pub fn push_id(json: *Json, id: u64) Error!void {
-    try json.field_unsigned("push_id", id);
+pub fn push_id(text: *TextWriter, id: u64) Error!void {
+    try member.unsigned(text, "push_id", id);
 }
 
 /// Opens a SETTINGS frame's list (h3-events §4.2.4). `setting` writes each entry.
-pub fn begin_settings(json: *Json) Error!void {
-    try json.key("settings");
-    try json.begin_array();
+pub fn begin_settings(text: *TextWriter) Error!void {
+    try text.name("settings");
+    try text.begin_array();
 }
 
 /// One setting. An unknown one carries its identifier, as §4.2.4 asks.
-pub fn setting(json: *Json, setting_name: SettingName, identifier: u64, value: u64) Error!void {
-    try json.begin_object();
-    try json.field_string("name", @tagName(setting_name));
-    if (setting_name == .unknown) try json.field_unsigned("name_bytes", identifier);
-    try json.field_unsigned("value", value);
-    try json.end_object();
+pub fn setting(text: *TextWriter, setting_name: SettingName, identifier: u64, value: u64) Error!void {
+    try text.begin_object();
+    try member.string(text, "name", @tagName(setting_name));
+    if (setting_name == .unknown) try member.unsigned(text, "name_bytes", identifier);
+    try member.unsigned(text, "value", value);
+    try text.end_object();
 }
 
-pub fn end_settings(json: *Json) Error!void {
-    try json.end_array();
+pub fn end_settings(text: *TextWriter) Error!void {
+    try text.end_array();
 }
 
 /// Opens a HEADERS frame's field lines (h3-events §4.2.2). `field_line` writes each one.
-pub fn begin_headers(json: *Json) Error!void {
-    try json.key("headers");
-    try json.begin_array();
+pub fn begin_headers(text: *TextWriter) Error!void {
+    try text.name("headers");
+    try text.begin_array();
 }
 
 /// One field line: its name, and its value, each as text when every octet is printable ASCII and
 /// as a hexstring otherwise (h3-events §4.2.2).
-pub fn field_line(json: *Json, field_name: []const u8, value: []const u8) Error!void {
-    try json.begin_object();
-    try text_or_octets(json, "name", "name_bytes", field_name);
-    try text_or_octets(json, "value", "value_bytes", value);
-    try json.end_object();
+pub fn field_line(text: *TextWriter, field_name: []const u8, value: []const u8) Error!void {
+    try text.begin_object();
+    try text_or_octets(text, "name", "name_bytes", field_name);
+    try text_or_octets(text, "value", "value_bytes", value);
+    try text.end_object();
 }
 
-pub fn end_headers(json: *Json) Error!void {
-    try json.end_array();
+pub fn end_headers(text: *TextWriter) Error!void {
+    try text.end_array();
 }
 
-fn text_or_octets(json: *Json, comptime text_key: []const u8, comptime octets_key: []const u8, octets: []const u8) Error!void {
-    if (is_printable(octets)) return json.field_string(text_key, octets);
-    try json.field_hexstring(octets_key, octets);
+fn text_or_octets(text: *TextWriter, comptime text_key: []const u8, comptime octets_key: []const u8, octets: []const u8) Error!void {
+    if (is_printable(octets)) return member.string(text, text_key, octets);
+    try member.hex(text, octets_key, octets);
 }
 
 /// Whether every octet is printable ASCII, which JSON text holds as it is, `"` and `\` escaped.
@@ -157,76 +157,76 @@ const test_buffer_len = 512;
 
 test "a HEADERS frame's lines are text when printable, and octets otherwise" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var json = Json.init(&buffer);
-    try json.begin_object();
-    try begin_frame(&json, 0, "headers");
-    try begin_headers(&json);
-    try field_line(&json, ":status", "200");
+    var text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try begin_frame(&text, 0, "headers");
+    try begin_headers(&text);
+    try field_line(&text, ":status", "200");
     // A value a peer sent with an octet past ASCII, and one with a control octet.
-    try field_line(&json, "x-tag", &.{ 'a', 0xe9 });
-    try field_line(&json, "x-tab", "a\tb");
-    try end_headers(&json);
-    try end_frame(&json, 12);
-    try json.end_object();
+    try field_line(&text, "x-tag", &.{ 'a', 0xe9 });
+    try field_line(&text, "x-tab", "a\tb");
+    try end_headers(&text);
+    try end_frame(&text, 12);
+    try text.end_object();
     try testing.expectEqualStrings("{\"stream_id\":0,\"frame\":{\"frame_type\":\"headers\",\"headers\":[" ++
         "{\"name\":\":status\",\"value\":\"200\"}," ++
         "{\"name\":\"x-tag\",\"value_bytes\":\"61e9\"}," ++
         "{\"name\":\"x-tab\",\"value_bytes\":\"610962\"}]," ++
-        "\"raw\":{\"payload_length\":12}}}", json.written());
+        "\"raw\":{\"payload_length\":12}}}", text.written());
 }
 
 test "a SETTINGS frame names each setting, and an unknown one carries its identifier" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var json = Json.init(&buffer);
-    try json.begin_object();
-    try begin_frame(&json, 3, "settings");
-    try begin_settings(&json);
-    try setting(&json, .settings_max_field_section_size, 0x06, 65_536);
-    try setting(&json, .reserved, 0x21, 0);
-    try setting(&json, .unknown, 0x4242, 1);
-    try end_settings(&json);
-    try end_frame(&json, 11);
-    try json.end_object();
+    var text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try begin_frame(&text, 3, "settings");
+    try begin_settings(&text);
+    try setting(&text, .settings_max_field_section_size, 0x06, 65_536);
+    try setting(&text, .reserved, 0x21, 0);
+    try setting(&text, .unknown, 0x4242, 1);
+    try end_settings(&text);
+    try end_frame(&text, 11);
+    try text.end_object();
     try testing.expectEqualStrings("{\"stream_id\":3,\"frame\":{\"frame_type\":\"settings\",\"settings\":[" ++
         "{\"name\":\"settings_max_field_section_size\",\"value\":65536}," ++
         "{\"name\":\"reserved\",\"value\":0}," ++
         "{\"name\":\"unknown\",\"name_bytes\":16962,\"value\":1}]," ++
-        "\"raw\":{\"payload_length\":11}}}", json.written());
+        "\"raw\":{\"payload_length\":11}}}", text.written());
 }
 
 test "a GOAWAY names its identifier, and an unknown frame its type" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var json = Json.init(&buffer);
-    try json.begin_object();
-    try begin_frame(&json, 3, "goaway");
-    try goaway_id(&json, 8);
-    try end_frame(&json, 1);
-    try json.end_object();
-    try testing.expectEqualStrings("{\"stream_id\":3,\"frame\":{\"frame_type\":\"goaway\",\"id\":8,\"raw\":{\"payload_length\":1}}}", json.written());
-    json = Json.init(&buffer);
-    try json.begin_object();
-    try begin_frame(&json, 4, "unknown");
-    try frame_type_bytes(&json, 0x2f);
-    try end_frame(&json, 0);
-    try json.end_object();
-    try testing.expectEqualStrings("{\"stream_id\":4,\"frame\":{\"frame_type\":\"unknown\",\"frame_type_bytes\":47,\"raw\":{\"payload_length\":0}}}", json.written());
+    var text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try begin_frame(&text, 3, "goaway");
+    try goaway_id(&text, 8);
+    try end_frame(&text, 1);
+    try text.end_object();
+    try testing.expectEqualStrings("{\"stream_id\":3,\"frame\":{\"frame_type\":\"goaway\",\"id\":8,\"raw\":{\"payload_length\":1}}}", text.written());
+    text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try begin_frame(&text, 4, "unknown");
+    try frame_type_bytes(&text, 0x2f);
+    try end_frame(&text, 0);
+    try text.end_object();
+    try testing.expectEqualStrings("{\"stream_id\":4,\"frame\":{\"frame_type\":\"unknown\",\"frame_type_bytes\":47,\"raw\":{\"payload_length\":0}}}", text.written());
 }
 
 test "settings and stream types, under the draft's names" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var json = Json.init(&buffer);
-    try json.begin_object();
-    try (ParametersSet{ .initiator = .remote, .max_field_section_size = 16_384, .blocked_streams_count = 0 }).write(&json);
-    try json.end_object();
-    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"max_field_section_size\":16384,\"blocked_streams_count\":0}", json.written());
-    json = Json.init(&buffer);
-    try json.begin_object();
-    try (StreamTypeSet{ .initiator = .local, .stream_id = 2, .stream_type = .qpack_encode }).write(&json);
-    try json.end_object();
-    try testing.expectEqualStrings("{\"initiator\":\"local\",\"stream_id\":2,\"stream_type\":\"qpack_encode\"}", json.written());
-    json = Json.init(&buffer);
-    try json.begin_object();
-    try (StreamTypeSet{ .initiator = .remote, .stream_id = 7, .stream_type = .unknown, .stream_type_bytes = 0x54 }).write(&json);
-    try json.end_object();
-    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"stream_id\":7,\"stream_type\":\"unknown\",\"stream_type_bytes\":84}", json.written());
+    var text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try (ParametersSet{ .initiator = .remote, .max_field_section_size = 16_384, .blocked_streams_count = 0 }).write(&text);
+    try text.end_object();
+    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"max_field_section_size\":16384,\"blocked_streams_count\":0}", text.written());
+    text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try (StreamTypeSet{ .initiator = .local, .stream_id = 2, .stream_type = .qpack_encode }).write(&text);
+    try text.end_object();
+    try testing.expectEqualStrings("{\"initiator\":\"local\",\"stream_id\":2,\"stream_type\":\"qpack_encode\"}", text.written());
+    text = TextWriter.init(&buffer, .text);
+    try text.begin_object();
+    try (StreamTypeSet{ .initiator = .remote, .stream_id = 7, .stream_type = .unknown, .stream_type_bytes = 0x54 }).write(&text);
+    try text.end_object();
+    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"stream_id\":7,\"stream_type\":\"unknown\",\"stream_type_bytes\":84}", text.written());
 }

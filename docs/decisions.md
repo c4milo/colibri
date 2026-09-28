@@ -52,8 +52,8 @@ and is re-argued, not edited.
    change plus a vendoring step, because no edge points out of it. Reopen trigger: a second consumer
    wants QUIC without HTTP, or one person can no longer maintain QUIC and HTTP together.
 
-   Entry 102 amends this entry: `quic` also imports `qlog`, which imports `core` alone, so moving
-   `src/quic/` out takes `src/qlog/` with it.
+   Entry 102 amends this entry: `quic` also imports `qlog`, which imports stdx's `json` alone
+   (entry 102 as amended), so moving `src/quic/` out takes `src/qlog/` with it.
 
 4. **Client and server, both, from the first step.** Cost: roughly a third more state machine —
    stream-id parity in both directions (RFC 9113 §5.1.1), the two connection prefaces (§3.4),
@@ -2839,8 +2839,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Amended by the owner on 2026-09-27: a JSON encoder and decoder belong in stdx, beside its
      other codecs, which carry no protocol knowledge (decision 90). `src/qlog/json.zig` stays
-     until stdx has them and is deleted then. The simulator's check that each record parses waits
-     for stdx's decoder, rather than a decoder written in colibri.
+     until stdx has them and is deleted then, and `qlog` then imports stdx's `json` in place of
+     `core`. The simulator's check that each record parses waits for stdx's decoder, rather than a
+     decoder written in colibri.
 
      Amended by the owner on 2026-09-28, for design §8 step 18d:
      - Each h3 call that writes or reads a frame takes the instant, `now_ns`, as `quic`'s calls do

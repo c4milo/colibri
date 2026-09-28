@@ -39,8 +39,8 @@
         // design §8 step 14). The library imports it, so it is not lazy: a project that depends on
         // colibri fetches it too.
         .stdx = .{
-            .url = "git+https://github.com/c4milo/stdx#b969898c5dec48b02f57ff35950978281231cca7",
-            .hash = "stdx-0.0.0-BD60tkPxCADUsa4Okzuxzm3spuhVUEwaDUi6YPZizXK6",
+            .url = "git+https://github.com/c4milo/stdx#eb0f0c7faf3625b5c493f48c9ffcd916a3916a91",
+            .hash = "stdx-0.0.0-BD60tgjNGACjyAQyv_PJSy_C4Dag68twfNCAIW-OdXZH",
         },
     },
     .paths = .{
