@@ -36,6 +36,7 @@ const connection_send = @import("connection_send.zig");
 const connection_request = @import("connection_request.zig");
 const connection_tls = @import("connection_tls.zig");
 const reply = @import("connection_reply.zig");
+const connection_altsvc = @import("connection_altsvc.zig");
 
 const Role = @import("../role.zig").Role;
 const Writer = core.Writer;
@@ -103,6 +104,15 @@ pub const PeerGoaway = struct {
     error_code: u32,
 };
 
+/// An ALTSVC frame the server sent, at a client (RFC 7838 §4): the Alt-Svc field value `value`
+/// names alternatives for the origin of stream `stream_id`, or, on stream 0, for `origin`. Both
+/// slices point into the input `receive` read.
+pub const AltSvc = struct {
+    stream_id: u32,
+    origin: []const u8,
+    value: []const u8,
+};
+
 /// What one frame meant to the caller, at most one per `receive` (decision 39).
 pub const Event = union(enum) {
     /// The peer acknowledged the SETTINGS colibri sent, which are now in force (RFC 9113 §6.5.3).
@@ -120,6 +130,7 @@ pub const Event = union(enum) {
     /// colibri ended a stream and queued the RST_STREAM (§5.4.2).
     stream_refused: StreamReset,
     goaway: PeerGoaway,
+    alt_svc: AltSvc,
 
     /// The stream whose peer side the event ended (RFC 9113 §8.1), or null: a request, a response
     /// or DATA that carried END_STREAM, and every trailer section, which always carries it. One
@@ -289,6 +300,12 @@ pub const Connection = struct {
     /// §8.1): see `connection_send.zig`.
     pub fn write_trailers(connection: *Connection, output: []u8, stream_id: u32, fields: []const hpack.Field) SendError!usize {
         return connection_send.write_trailers(connection, output, stream_id, fields);
+    }
+
+    /// Writes an ALTSVC frame advertising `value` for the origin of `stream_id`'s request (RFC
+    /// 7838 §4): see `connection_altsvc.zig`. A server's call.
+    pub fn write_alt_svc(connection: *Connection, output: []u8, stream_id: u32, value: []const u8) SendError!usize {
+        return connection_altsvc.write_alt_svc(connection, output, stream_id, value);
     }
 
     /// Queues a RST_STREAM for `stream_id` (RFC 9113 §6.4): see `connection_send.zig`.

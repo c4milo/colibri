@@ -67,6 +67,13 @@ pub const frame_type_goaway: u8 = 0x07;
 pub const frame_type_window_update: u8 = 0x08;
 pub const frame_type_continuation: u8 = 0x09;
 
+// Extension frame types (RFC 9113 §5.5), each from the RFC that defines it.
+
+/// RFC 7838 §4: "The ALTSVC frame type is 0xa (decimal 10)."
+pub const frame_type_altsvc: u8 = 0x0a;
+/// RFC 7838 §4: the Origin-Len field that starts an ALTSVC payload, "an unsigned, 16-bit integer".
+pub const altsvc_origin_len_len: u32 = @sizeOf(u16);
+
 // Flags, by the frames that define them (RFC 9113 §6.1 to §6.10). A flag bit a frame type does not
 // define is unused: ignored on receipt and unset on send (§4.1).
 

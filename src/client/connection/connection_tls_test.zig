@@ -8,6 +8,7 @@ const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const support = @import("connection_test_support.zig");
 const event = @import("../event.zig");
+const client_alt_svc = @import("../alt_svc.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -118,6 +119,11 @@ fn peer_h2_answer(content: []const u8) !?h2.connection.Request {
 
 /// `peer_h2_answer`, with `fields` in the response's header section.
 fn peer_h2_answer_with(fields: []const h2.hpack.Field, content: []const u8) !?h2.connection.Request {
+    return peer_h2_answer_after("", fields, content);
+}
+
+/// `peer_h2_answer_with`, with the frames `before` written ahead of the response.
+fn peer_h2_answer_after(before: []const u8, fields: []const h2.hpack.Field, content: []const u8) !?h2.connection.Request {
     var consumed: usize = 0;
     var request: ?h2.connection.Request = null;
     for (0..peer_plain_len + 1) |_| {
@@ -128,6 +134,8 @@ fn peer_h2_answer_with(fields: []const h2.hpack.Field, content: []const u8) !?h2
         if (peer_event == .request) request = peer_event.request;
     }
     var written = support.peer_h2.write_pending(&peer_out, support.now_ns);
+    @memcpy(peer_out[written..][0..before.len], before);
+    written += before.len;
     written += try support.peer_h2.write_response(peer_out[written..], 1, ok, fields, false);
     written += (try support.peer_h2.write_data(peer_out[written..], 1, content, true)).written;
     try server_seal(peer_out[0..written]);
@@ -215,6 +223,39 @@ test "RFC 7838 §3: an h2 response's Alt-Svc over TLS names h3 for take_alt_svc"
     try testing.expectEqual(.response, exchange.outcome);
     const advert = connection.take_alt_svc() orelse return error.TestUnexpectedResult;
     try testing.expectEqual(@as(u16, 443), advert.h3.port);
+}
+
+/// Room for an ALTSVC frame the tests' server writes. Test-only.
+const altsvc_frame_len: usize = 64;
+
+/// What the client learned from an ALTSVC frame on `stream_id` naming `origin`, which the server
+/// writes ahead of its response over h2 and TLS. Test-only.
+fn learned_from_altsvc(stream_id: u32, origin: []const u8) !?client_alt_svc.Advert {
+    try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
+    support.peer_h2.init(.server);
+    try support.peer_h2.attach_tls(server.provider());
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    _ = try connection.request(&exchange);
+    support.client_send();
+    try server_open();
+    var frame_storage: [altsvc_frame_len]u8 = undefined;
+    var writer = h2.core.Writer.init(&frame_storage);
+    try h2.frame.write_altsvc(&writer, stream_id, origin, "h3=\":9443\"; ma=30");
+    _ = try peer_h2_answer_after(writer.written(), &.{}, "hello");
+    try support.client_receive();
+    try testing.expectEqual(.response, exchange.outcome);
+    return connection.take_alt_svc();
+}
+
+test "RFC 7838 §4: an ALTSVC frame on the request's stream names h3 for take_alt_svc" {
+    const advert = (try learned_from_altsvc(1, "")).?;
+    try testing.expectEqual(@as(u16, 9443), advert.h3.port);
+    try testing.expectEqual(@as(u64, 30), advert.h3.max_age_s);
+}
+
+test "RFC 7838 §4: an ALTSVC frame on stream 0 names h3 for its own origin, and not another" {
+    try testing.expectEqual(@as(u16, 9443), (try learned_from_altsvc(0, "https://localhost")).?.h3.port);
+    try testing.expectEqual(null, try learned_from_altsvc(0, "https://example.org"));
 }
 
 test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket hands it over once" {

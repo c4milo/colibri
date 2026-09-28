@@ -15,6 +15,7 @@ const connection_module = @import("connection.zig");
 const slots_module = @import("../slots.zig");
 const response = @import("../response.zig");
 const event = @import("../event.zig");
+const alt_svc = @import("../alt_svc.zig");
 
 const Connection = connection_module.Connection;
 const HttpExchange = connection_module.HttpExchange;
@@ -59,9 +60,25 @@ fn record(connection: *Connection, h2_event: h2.Event) bool {
         .stream_refused => |refusal| end_stream(connection, refusal.stream_id, .malformed),
         .goaway => |goaway| on_goaway(connection, goaway.last_stream_id),
         .settings_acknowledged, .settings_applied, .ping_acknowledged => false,
+        .alt_svc => |advertised| on_alt_svc(connection, advertised),
         // RFC 9113 §8.1: a client receives no request; h2 refuses one before it is an event.
         .request => unreachable,
     };
+}
+
+/// RFC 7838 §4: "Receiving an ALTSVC frame is semantically equivalent to receiving an Alt-Svc
+/// header field" for the origin of its stream, or, on stream 0, for the origin it names. The
+/// client keeps what it says as it keeps a response's Alt-Svc lines, and owes no event for it.
+fn on_alt_svc(connection: *Connection, advertised: h2.connection.AltSvc) bool {
+    // RFC 9114 §3.1.2: h3 cannot reach an "http" origin, which a cleartext connection serves.
+    if (connection.config.tls == null) return false;
+    const on_connection = advertised.stream_id == h2.constants.connection_stream_id;
+    // RFC 7838 §4: "An association with an origin that the client does not consider
+    // authoritative for the current connection MUST be ignored."
+    if (on_connection and !alt_svc.names_origin(advertised.origin, connection.config.authority)) return false;
+    const host = alt_svc.host_of(connection.config.authority);
+    connection.alt_svc = alt_svc.parse(advertised.value, host) orelse return false;
+    return false;
 }
 
 fn on_response(connection: *Connection, head: h2.connection.Response) bool {

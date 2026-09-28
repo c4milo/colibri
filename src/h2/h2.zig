@@ -56,4 +56,5 @@ test {
     _ = @import("connection/connection_send.zig");
     _ = @import("connection/connection_request.zig");
     _ = @import("connection/connection_tls.zig");
+    _ = @import("connection/connection_altsvc.zig");
 }

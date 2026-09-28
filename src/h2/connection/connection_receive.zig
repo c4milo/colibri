@@ -24,6 +24,7 @@ const frame = @import("../frame/frame.zig");
 const connection = @import("connection.zig");
 const control = @import("connection_control.zig");
 const stream_frames = @import("connection_stream.zig");
+const connection_altsvc = @import("connection_altsvc.zig");
 
 const Connection = connection.Connection;
 const Received = connection.Received;
@@ -88,8 +89,9 @@ fn dispatch(target: *Connection, header: frame.Header, payload: []const u8, now_
             control.on_window_update(target, update)
         else
             stream_frames.on_stream_frame(target, header, parsed, now_ns),
-        // RFC 9113 §4.1 and §5.5: a frame of an unknown type is discarded, whatever it carries.
-        .unknown => null,
+        // RFC 9113 §4.1 and §5.5: a frame of a type §6 does not define is discarded, unless it is
+        // an extension colibri reads, here RFC 7838 §4's ALTSVC at a client.
+        .unknown => connection_altsvc.on_unknown(target, header, payload),
         else => stream_frames.on_stream_frame(target, header, parsed, now_ns),
     };
 }

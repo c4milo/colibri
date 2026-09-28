@@ -8,6 +8,7 @@ const tls_provider = @import("tls_provider");
 const connection_module = @import("connection.zig");
 
 const event = @import("../event.zig");
+const alt_svc = @import("../alt_svc.zig");
 
 const Connection = connection_module.Connection;
 const Config = connection_module.Config;
@@ -40,6 +41,11 @@ pub const protocols_both = [_][]const u8{ "h2", "http/1.1" };
 pub const protocols_h11 = [_][]const u8{"http/1.1"};
 pub const protocols_h2 = [_][]const u8{"h2"};
 
+/// The h3 endpoint the next `start_cleartext` or `start_tls` has the connection advertise, or
+/// null. A test that sets it clears it when it ends.
+pub var alternative: ?alt_svc.Alternative align(@alignOf(?alt_svc.Alternative)) = null;
+pub const Alternative = alt_svc.Alternative;
+
 /// The connection the tests drive, its configuration, and what it sends, outside any stack frame.
 pub var connection: Connection align(@alignOf(Connection)) = undefined;
 pub var config: Config align(@alignOf(Config)) = .{};
@@ -52,7 +58,7 @@ pub const input_len: usize = 65_536;
 
 /// A cleartext connection speaking `protocol`, with nothing read or written.
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
-    config = .{ .cleartext = protocol };
+    config = .{ .cleartext = protocol, .h3_alternative = alternative };
     try connection.init(&config, stream.random(), 0);
 }
 
@@ -136,7 +142,7 @@ pub fn start_tls(server_protocols: []const []const u8, client_protocols: []const
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } },
         .alpn = client_protocols,
     });
-    config = .{ .tls = &server_config };
+    config = .{ .tls = &server_config, .h3_alternative = alternative };
     try connection.init(&config, stream.random(), now_seconds);
     try client.start(&client_config, stream.random(), now_seconds, null);
     to_client_len = 0;

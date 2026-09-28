@@ -165,6 +165,7 @@ fn run_worker(index: usize, port: u16) !void {
         },
         .decoders = worker.decoders.storage(),
         .decoded = &worker.decoded,
+        .h3_alternative = h3_alternative,
     };
     while (true) try turn(worker);
 }
@@ -337,6 +338,8 @@ fn consume(connection: *Connection, consumed: usize) void {
 var cleartext_protocol: Protocol align(@alignOf(Protocol)) = .h2;
 var listen_address: [server_options.ipv4_octets]u8 = server_options.loopback_octets;
 var echo_mode: bool = false;
+/// The h3 endpoint each TLS connection advertises (`--h3-port`), or null.
+var h3_alternative: ?server.Alternative align(@alignOf(?server.Alternative)) = null;
 
 /// Where each connection slot of each worker keeps its echo in the `--echo` mode. Apart from the
 /// sessions, so the mode costs every other one nothing, and mapped by the operating system only
@@ -354,6 +357,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     cleartext_protocol = options.protocol;
     listen_address = options.address;
     echo_mode = options.echo;
+    if (options.h3_port) |port| h3_alternative = .{ .port = port };
     if (options.identity_prefix) |prefix| try load_tls(prefix, options.protocol);
     try listen_and_serve(options.port);
 }

@@ -14,6 +14,7 @@ const h11 = @import("h11");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const reason = @import("../reason.zig");
+const alt_svc = @import("../alt_svc.zig");
 const connection_module = @import("connection.zig");
 
 const Connection = connection_module.Connection;
@@ -128,7 +129,7 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
     const session = &connection.session.h11;
     defer note_done(connection, id);
     var lines: [core.constants.field_count_max]Field = undefined;
-    const framed = try framing(connection, status, fields, end, &lines);
+    const framed = try complete(connection, status, fields, end, &lines);
     const interim = status >= http.constants.status_code_min and status < @intFromEnum(Code.ok);
     // A response that ends with its head keeps room for the last chunk a caller's own
     // Transfer-Encoding would need, so the end never fails after the head went out.
@@ -144,24 +145,46 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
     connection.output_len += session.write_end(connection.room(), &.{}) catch |failure| return send_error(connection, failure);
 }
 
-/// The caller's fields, and the framing field the response needs when it names none.
-fn framing(connection: *const Connection, status: u16, fields: []const Field, end: bool, lines: *[core.constants.field_count_max]Field) SendError![]const Field {
-    const session = &connection.session.h11;
+/// The caller's fields and the lines the server adds: the framing field the response needs when
+/// it names none, and the Alt-Svc line that advertises h3.
+fn complete(connection: *const Connection, status: u16, fields: []const Field, end: bool, lines: *[core.constants.field_count_max]Field) SendError![]const Field {
     // RFC 9110 §15: a status code is three digits from 100 to 599.
     const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
+    var added: [lines_added_max]Field = undefined;
+    var added_len: usize = 0;
+    if (framing(connection, code, fields, end)) |line| {
+        added[added_len] = line;
+        added_len += 1;
+    }
+    // RFC 7838 §3: any response may carry Alt-Svc, and the server puts it on each final one.
+    if (connection.advert.value()) |value| if (!code.is_interim()) {
+        added[added_len] = .{ .name = alt_svc.field_name, .value = value };
+        added_len += 1;
+    };
+    if (added_len == 0) return fields;
+    // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
+    if (fields.len + added_len > lines.len) return error.SectionTooLarge;
+    @memcpy(lines[0..fields.len], fields);
+    @memcpy(lines[fields.len..][0..added_len], added[0..added_len]);
+    return lines[0 .. fields.len + added_len];
+}
+
+/// The framing field the response needs when the caller names none, or null.
+fn framing(connection: *const Connection, code: http.status.Status, fields: []const Field, end: bool) ?Field {
+    const session = &connection.session.h11;
+    const status = code.code;
     // RFC 9112 §6.3 rules 1 and 2: an interim response, a response to HEAD, a 204 or 304, and a
     // 2xx to CONNECT have no content to frame.
     const unframed = code.is_interim() or connection.head_request or
         status == @intFromEnum(Code.no_content) or status == @intFromEnum(Code.not_modified) or
         (session.asked == .connect and code.class() == .successful);
-    if (unframed or names_framing(fields)) return fields;
-    const added = if (end) content_length_zero else if (connection.chunked_allowed) transfer_encoding_chunked else return fields;
-    // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
-    if (fields.len >= lines.len) return error.SectionTooLarge;
-    @memcpy(lines[0..fields.len], fields);
-    lines[fields.len] = added;
-    return lines[0 .. fields.len + 1];
+    if (unframed or names_framing(fields)) return null;
+    if (end) return content_length_zero;
+    return if (connection.chunked_allowed) transfer_encoding_chunked else null;
 }
+
+/// The framing field and the Alt-Svc line, the most the server adds to a response's section.
+const lines_added_max: usize = 2;
 
 /// Whether the caller framed the content itself (RFC 9112 §6.1, RFC 9110 §8.6).
 fn names_framing(fields: []const Field) bool {

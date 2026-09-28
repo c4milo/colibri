@@ -21,6 +21,9 @@ readonly peer_directory="${repository_root}/tools/h2_interop"
 # The same image tools/h2_interop.sh builds, tagged by a checksum of what it is built from.
 readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" | shasum -a 256 | cut -c1-16)"
 readonly port=18481
+# The UDP port the server advertises h3 on (design §8 step 17b). No h3 server listens there: the
+# check reads the advertisement alone.
+readonly h3_port=8443
 # Requests each client sends at once on one connection, fewer than the 100 concurrent streams RFC
 # 9113 §6.5.2 recommends a peer allow at least.
 readonly requests=64
@@ -80,12 +83,12 @@ in_container() {
 # --tls was given. The plan reads ${mode}.
 in_both_modes() {
   mode=cleartext
-  start_server
+  start_server --h3-port "${h3_port}"
   "$1"
   if [ -n "${tls}" ]; then
     mode=tls
     echo "h2_server_interop.sh: over TLS"
-    start_server --tls "${identity}"
+    start_server --tls "${identity}" --h3-port "${h3_port}"
     "$1"
   fi
   stop_server
@@ -144,6 +147,22 @@ plan_nghttp() {
   [ "${answered}" -eq $((requests + 1)) ] && [ "${bodies}" -eq $((requests + 1)) ] ||
     fail "nghttp ${mode}: ${answered} of $((requests + 1)) requests ended with 200, ${bodies} with the body"
   echo "h2_server_interop.sh: nghttp ${mode}: ${requests} GETs and a ${content_len}-octet POST ended with 200"
+  altsvc_run "${base}"
+}
+
+# RFC 7838 §3, §4: over TLS the server advertises h3 on `h3_port` in one ALTSVC frame per
+# connection, which nghttp prints, and in cleartext it advertises nothing (RFC 9114 §3.1.2).
+altsvc_run() {
+  local frames advertised
+  frames="$(in_container nghttp -v "$1/get")" || fail "nghttp ${mode}: the ALTSVC run failed"
+  advertised="$(grep -c "recv ALTSVC frame" <<<"${frames}" || true)"
+  if [ "${mode}" = tls ]; then
+    [ "${advertised}" -eq 1 ] && grep -qF "altsvc_field_value=[h3=\":${h3_port}\"; ma=86400]" <<<"${frames}" ||
+      fail "nghttp tls: no ALTSVC frame named h3 on port ${h3_port}"
+    echo "h2_server_interop.sh: nghttp tls: one ALTSVC frame advertised h3 on port ${h3_port}"
+  else
+    [ "${advertised}" -eq 0 ] || fail "nghttp cleartext: the server sent an ALTSVC frame"
+  fi
 }
 
 plan_go() {

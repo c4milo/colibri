@@ -275,12 +275,15 @@ section when a step adds or renames a command.
   it needs `go` and `docker`. With `--tls` each also runs a handshake colibri refuses, the client
   pinning another root and a Go client offering TLS 1.2 alone to the server, and requires Go to
   read colibri's alert. Both endpoints take `--h11`: in cleartext it makes them speak h11,
-  and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`.
-  `tools/h11_interop.sh [--tls] [go] [h2o]` and `tools/h11_server_interop.sh [--tls] [curl] [go]` run the same peers over h11: the client against Go's and h2o's servers,
-  and curl and Go's client against the server, where curl also offers no ALPN over TLS. None is
-  part of `zig build test`. CI runs each of them on every push, except `tools/interop.sh`, which
-  it runs every Monday, and `tools/h3load.sh`, which only a person runs. A person runs each before
-  calling a step done.
+  and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`. The
+  server takes `--h3-port <port>`, the UDP port each TLS connection advertises h3 on, and nghttp
+  must read one ALTSVC frame naming it over TLS and none in cleartext (design §8 step 17b).
+  `tools/h11_interop.sh [--tls] [go] [h2o]` and `tools/h11_server_interop.sh [--tls] [curl]
+  [go]` run the same peers over h11: the client against Go's and h2o's servers, and curl and Go's
+  client against the server, where curl also offers no ALPN over TLS and must read an Alt-Svc
+  line naming h3 over TLS and none in cleartext. None is part of `zig build test`. CI runs each
+  of them on every push, except `tools/interop.sh`, which it runs every Monday, and
+  `tools/h3load.sh`, which only a person runs. A person runs each before calling a step done.
 - CI: `tools/ci.sh [report.md]` runs every check above that exists, except `tools/interop.sh` and
   `tools/h3load.sh`, and writes the report; `.github/workflows/main.yml` runs it on each push to
   main (decision 47). A new check joins `tools/ci.sh`, never the workflow file, so CI and a person

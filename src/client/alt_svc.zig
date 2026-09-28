@@ -216,6 +216,37 @@ fn delta_seconds(digits: []const u8) ?u64 {
     return seconds;
 }
 
+/// Whether `origin`, an origin's ASCII serialization (RFC 6454 §6.2), names the "https" origin
+/// whose authority is `authority`. RFC 6454 §6.2 writes the scheme and the host lowercase and
+/// leaves out the scheme's default port, 443 for "https" (RFC 9110 §4.2.2).
+pub fn names_origin(origin: []const u8, authority: []const u8) bool {
+    // RFC 6454 §6.2: the scheme, then "://", then the host.
+    if (origin.len < https_prefix.len or !std.ascii.eqlIgnoreCase(origin[0..https_prefix.len], https_prefix)) return false;
+    const rest = origin[https_prefix.len..];
+    const host = host_of(authority);
+    // RFC 3986 §3.2.2: a host is case-insensitive.
+    if (rest.len < host.len or !std.ascii.eqlIgnoreCase(rest[0..host.len], host)) return false;
+    const port = port_of_authority(authority[host.len..]) orelse return false;
+    const tail = rest[host.len..];
+    // RFC 6454 §6.2: the port follows a colon unless it is the scheme's default.
+    if (tail.len == 0) return port == https_port;
+    if (tail[0] != ':') return false;
+    return port_of(tail[1..]) == port;
+}
+
+/// The port the rest of an authority after its host names, 443 when it names none (RFC 9110
+/// §4.2.2), or null when it is not a colon and a port.
+fn port_of_authority(after_host: []const u8) ?u16 {
+    if (after_host.len == 0) return https_port;
+    // RFC 3986 §3.2.3: a port follows the host after a colon.
+    if (after_host[0] != ':') return null;
+    return port_of(after_host[1..]);
+}
+
+const https_prefix = "https://";
+/// RFC 9110 §4.2.2: the "https" scheme's default port.
+const https_port: u16 = 443;
+
 /// The origin's host: an authority's `host`, without the port (RFC 3986 §3.2).
 pub fn host_of(authority: []const u8) []const u8 {
     // RFC 3986 §3.2.2: an IP-literal is bracketed, and may hold colons.
@@ -419,4 +450,21 @@ test "RFC 9110 §5.3: the section's Alt-Svc lines are one list, and a malformed 
     try test_section.append("alt-svc", "h3=\":8443\"");
     try test_section.append("alt-svc", "h3=:443");
     try testing.expectEqual(null, from_section(&test_section, 0, "localhost"));
+}
+
+test "RFC 6454 §6.2: an ALTSVC Origin names the https origin of the authority, 443 left out" {
+    try testing.expect(names_origin("https://example.org", "example.org"));
+    try testing.expect(names_origin("https://Example.ORG", "example.org:443"));
+    try testing.expect(names_origin("https://example.org:8443", "example.org:8443"));
+    try testing.expect(names_origin("https://[::1]:8443", "[::1]:8443"));
+    // Another scheme, host or port, and a port the authority does not name.
+    try testing.expect(!names_origin("http://example.org", "example.org"));
+    try testing.expect(!names_origin("https://example.net", "example.org"));
+    try testing.expect(!names_origin("https://example.org.evil", "example.org"));
+    try testing.expect(!names_origin("https://example.org:8443", "example.org"));
+    try testing.expect(!names_origin("https://example.org", "example.org:8443"));
+    try testing.expect(!names_origin("https://example.org:x", "example.org"));
+    try testing.expect(!names_origin("https:/", "example.org"));
+    // An authority whose host runs on into something other than a port names no origin.
+    try testing.expect(!names_origin("https://[::1]", "[::1]x443"));
 }

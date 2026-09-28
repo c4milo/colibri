@@ -64,8 +64,9 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
         .trailers => |trailers| .{ .trailers = .{ .id = trailers.stream_id, .fields = event.Fields.of(session.field_section()) } },
         // RFC 9113 §6.4: the peer ended the stream; §5.4.2: colibri did, on a stream error.
         .stream_reset, .stream_refused => |reset| .{ .cancelled = .{ .id = reset.stream_id } },
-        // RFC 9113 §8.1: a server receives no response; h2 refuses one before it is an event.
-        .settings_acknowledged, .settings_applied, .ping_acknowledged, .goaway, .response => null,
+        // RFC 9113 §8.1: a server receives no response; h2 refuses one before it is an event. RFC
+        // 7838 §4: a server ignores ALTSVC, and h2 reports none to one.
+        .settings_acknowledged, .settings_applied, .ping_acknowledged, .goaway, .response, .alt_svc => null,
     };
 }
 
@@ -76,12 +77,25 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
     // RFC 9113 §8.1: only the final response ends the stream, so an interim one carries no
     // END_STREAM whatever the caller asked.
     const interim = status >= http.constants.status_code_min and status < @intFromEnum(http.status.Code.ok);
+    if (!interim) try advertise(connection, stream_id);
     const written = connection.session.h2.write_response(connection.room(), stream_id, status, converted, end and !interim) catch |failure| {
         return send_error(connection, failure);
     };
     connection.output_len += written;
     // RFC 9113 §8.1: a final response's END_STREAM ends it.
     if (end and !interim) connection.done_owed.push(id);
+}
+
+/// Writes the ALTSVC frame that advertises h3, once per connection, on the stream of its first
+/// final response and before that response can end the stream (RFC 7838 §3, §4).
+fn advertise(connection: *Connection, stream_id: u32) SendError!void {
+    if (connection.advert.sent) return;
+    const value = connection.advert.value() orelse return;
+    const written = connection.session.h2.write_alt_svc(connection.room(), stream_id, value) catch |failure| {
+        return send_error(connection, failure);
+    };
+    connection.output_len += written;
+    connection.advert.sent = true;
 }
 
 pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {

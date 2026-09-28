@@ -266,14 +266,15 @@ The frame header is 9 octets and is not counted in `Length`:
 | Bits | Field | Notes |
 |---:|---|---|
 | 24 | Length | payload octets; > 2^14 only if the peer raised `SETTINGS_MAX_FRAME_SIZE` |
-| 8 | Type | unknown types are ignored and discarded, but must still be consumed |
+| 8 | Type | unknown types are ignored and discarded, but must still be consumed; a client reads ALTSVC |
 | 8 | Flags | unused flags ignored on receipt, unset on send |
 | 1 | Reserved | ignored on receipt, unset on send — mask it, never reject it |
 | 31 | Stream Identifier | 0x00 means the connection as a whole |
 
 Frame types, RFC 9113 §6: `DATA` 0x00, `HEADERS` 0x01, `PRIORITY` 0x02, `RST_STREAM` 0x03,
 `SETTINGS` 0x04, `PUSH_PROMISE` 0x05, `PING` 0x06, `GOAWAY` 0x07, `WINDOW_UPDATE` 0x08,
-`CONTINUATION` 0x09.
+`CONTINUATION` 0x09. One extension (RFC 9113 §5.5), from step 17b: `ALTSVC` 0x0a (RFC 7838 §4),
+which a server writes to advertise h3 and a client reads.
 
 Settings, RFC 9113 §6.5.2:
 
@@ -5050,6 +5051,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Its first run found a defect: the server reported a client's close as a failure (`87fff2f`).
   - Mutations, each CAUGHT by a unit test: 12 in `done`, 24 in the QUIC connection, 13 in the
     endpoint and 2 in the close.
+  - A TCP connection advertises h3 when `Config.h3_alternative` names a UDP port (decision 100),
+    over TLS alone, because h3 cannot reach an "http" origin (RFC 9114 §3.1.2). h11 puts an
+    Alt-Svc line on each final response (RFC 7838 §3). h2 sends one ALTSVC frame per connection
+    instead, on the stream of its first final response, as RFC 7838 §3 asks of an h2 server; the
+    owner ruled on 2026-09-28 to follow the RFC there. h2 gained the frame, its one extension
+    (RFC 7838 §4), and the client learns h3 from it as from the field. §9's `http-server` takes
+    `--h3-port`.
 
   **17b check,** run on macOS 26.6.2 arm64 on 2026-09-28, the peers in Docker where the scripts
   put them:
@@ -5068,6 +5076,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Mutations of the `h3` mode, each CAUGHT by `tools/quic_udp.sh`: a missing path answered 200, a
     file left uncounted, a run with `once` that never ends, content one octet short, and a failed
     connection that does not end the run.
+  - `tools/h2_server_interop.sh --tls nghttp`: nghttp 1.52.0 read one ALTSVC frame naming h3 on
+    port 8443 over TLS, and none in cleartext. `tools/h11_server_interop.sh --tls curl`: curl
+    7.88.1 read the Alt-Svc line over TLS, and none in cleartext.
+  - Mutations of the advertisement, each CAUGHT by a unit test: 13 in h2's frame and connection,
+    8 in the server and 8 in the client.
   - `zig build test` passed: 2226 of 2226 tests.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its

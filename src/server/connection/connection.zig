@@ -32,6 +32,7 @@ const connection_h2 = @import("connection_h2.zig");
 const connection_tls = @import("connection_tls.zig");
 const expect = @import("../expect.zig");
 const done = @import("../done.zig");
+const alt_svc = @import("../alt_svc.zig");
 
 pub const Id = event.Id;
 pub const Protocol = event.Protocol;
@@ -54,6 +55,9 @@ pub const Config = struct {
     /// Where h11 decodes a body carrying `gzip` or `deflate` (decision 98). A `body` event's octets
     /// point into it until the next `receive` of any connection sharing it. Empty with no decoders.
     decoded: []u8 = &.{},
+    /// The h3 endpoint each connection over TLS advertises (decision 100): an Alt-Svc line on each
+    /// final h11 response, and one ALTSVC frame per h2 connection (`alt_svc.zig`). Null for none.
+    h3_alternative: ?alt_svc.Alternative = null,
 };
 
 /// Why `receive` stopped reading for good: the peer broke the protocol, or TLS failed (RFC 9846
@@ -157,6 +161,8 @@ pub const Connection = struct {
     done_owed: done.Owed,
     /// h11: the last request whose `done` event is owed, so its response owes no second one.
     done_id: Id,
+    /// The Alt-Svc value the connection advertises h3 with, if any.
+    advert: alt_svc.Advert,
 
     /// Prepares a connection the listener accepted, with nothing read or written. Over TLS, every
     /// draw the handshake makes comes from `random`, and `now_seconds` is the clock its tickets
@@ -181,6 +187,7 @@ pub const Connection = struct {
         connection.head_request = false;
         connection.done_owed = .{};
         connection.done_id = 0;
+        connection.advert.init(config.tls != null, config.h3_alternative);
         connection.session = .none;
         if (config.tls) |tls_config| {
             connection.phase = .handshake;
@@ -481,4 +488,5 @@ test {
     _ = @import("connection_tls_test.zig");
     _ = @import("connection_records_test.zig");
     _ = @import("connection_done_test.zig");
+    _ = @import("connection_altsvc_test.zig");
 }

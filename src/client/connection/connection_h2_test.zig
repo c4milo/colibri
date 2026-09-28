@@ -232,3 +232,15 @@ test "RFC 9113 §6.8: a shut-down connection sends GOAWAY after its last exchang
     try testing.expectEqual(.goaway, std.meta.activeTag(support.peer_events[0]));
     try testing.expect(connection.should_close());
 }
+
+test "RFC 9114 §3.1.2: an ALTSVC frame over cleartext teaches no h3" {
+    try start();
+    var exchange = get(&bodies[0]);
+    _ = try connection.request(&exchange);
+    try support.pump_h2();
+    support.to_client_len += try support.peer_h2.write_alt_svc(support.to_client[support.to_client_len..], 1, "h3=\":443\"");
+    try support.peer_h2_answer(1, ok, &.{}, "hello");
+    try support.client_receive();
+    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(null, connection.take_alt_svc());
+}

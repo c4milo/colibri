@@ -1,7 +1,7 @@
 //! The h2 frame codec of RFC 9113 §4 and §6: the entry point of `src/h2/frame/`, which re-exports
-//! the header codec (frame_header.zig), the padding rule (frame_padding.zig) and the parsers and
+//! the header codec (frame_header.zig), the padding rule (frame_padding.zig), the parsers and
 //! writers of the ten frame types (frame_data.zig, frame_headers.zig, frame_control.zig,
-//! frame_settings.zig).
+//! frame_settings.zig), and the ALTSVC extension frame of RFC 7838 §4 (frame_altsvc.zig).
 //!
 //! The connection reads a header with `read_header`, checks the Length against
 //! SETTINGS_MAX_FRAME_SIZE (§4.2), collects that many octets and hands both to `parse`, which
@@ -24,6 +24,7 @@ pub const frame_data = @import("frame_data.zig");
 pub const frame_headers = @import("frame_headers.zig");
 pub const frame_control = @import("frame_control.zig");
 pub const frame_settings = @import("frame_settings.zig");
+pub const frame_altsvc = @import("frame_altsvc.zig");
 
 pub const Header = frame_header.Header;
 pub const read_header = frame_header.read;
@@ -53,6 +54,9 @@ pub const write_goaway = frame_control.write_goaway;
 pub const write_window_update = frame_control.write_window_update;
 pub const write_settings = frame_settings.write_settings;
 pub const write_settings_ack = frame_settings.write_settings_ack;
+pub const AltSvc = frame_altsvc.AltSvc;
+pub const parse_altsvc = frame_altsvc.parse;
+pub const write_altsvc = frame_altsvc.write_altsvc;
 
 /// The ten frame types RFC 9113 §6 defines. Non-exhaustive: any other Type octet is an unknown
 /// type, which a receiver ignores and discards (§4.1, §5.5) after consuming its octets.
@@ -288,4 +292,5 @@ test {
     _ = frame_headers;
     _ = frame_control;
     _ = frame_settings;
+    _ = frame_altsvc;
 }

@@ -20,6 +20,9 @@ readonly peer_directory="${repository_root}/tools/h2_interop"
 # The image tools/h2_interop.sh builds, tagged by a checksum of what it is built from.
 readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" | shasum -a 256 | cut -c1-16)"
 readonly port=18581
+# The UDP port the server advertises h3 on (design §8 step 17b). No h3 server listens there: the
+# check reads the advertisement alone.
+readonly h3_port=8443
 # Requests each client sends, curl on one keep-alive connection one after another and Go all at
 # once over as many connections as it opens.
 readonly requests=64
@@ -77,12 +80,12 @@ in_container() {
 # which offers both protocols, when --tls was given. The plan reads ${mode}.
 in_both_modes() {
   mode=cleartext
-  start_server --h11
+  start_server --h11 --h3-port "${h3_port}"
   "$1"
   if [ -n "${tls}" ]; then
     mode=tls
     echo "h11_server_interop.sh: over TLS"
-    start_server --tls "${identity}"
+    start_server --tls "${identity}" --h3-port "${h3_port}"
     "$1"
   fi
   stop_server
@@ -124,6 +127,28 @@ plan_curl() {
   # RFC 9846 §4.2.2: a client that offers no ALPN gets no selection, which the server takes as
   # h11 (decision 88).
   [ "${mode}" = cleartext ] || curl_run "${mode}, no ALPN" --http1.1 --no-alpn
+  alt_svc_run
+}
+
+# RFC 7838 §3: over TLS each final response carries an Alt-Svc line naming h3 on `h3_port`, which
+# curl prints among the response's fields, and in cleartext none does (RFC 9114 §3.1.2).
+alt_svc_run() {
+  local url="http://${container_host}:${port}/get"
+  local arguments=(--http1.1)
+  if [ "${mode}" = tls ]; then
+    url="https://localhost:${port}/get"
+    arguments+=(--cacert /identity/colibri.chain.pem --connect-to "localhost:${port}:${container_host}:${port}")
+  fi
+  local head advertised
+  head="$(in_container curl -s -o /dev/null -D - "${arguments[@]}" "${url}")" || fail "curl ${mode}: the Alt-Svc GET failed"
+  advertised="$(grep -ci '^alt-svc:' <<<"${head}" || true)"
+  if [ "${mode}" = tls ]; then
+    [ "${advertised}" -eq 1 ] && grep -qi "^alt-svc: h3=\":${h3_port}\"; ma=86400" <<<"${head}" ||
+      fail "curl tls: no Alt-Svc line named h3 on port ${h3_port}: ${head}"
+    echo "h11_server_interop.sh: curl tls: the response advertised h3 on port ${h3_port}"
+  else
+    [ "${advertised}" -eq 0 ] || fail "curl cleartext: the response advertised h3: ${head}"
+  fi
 }
 
 plan_go() {

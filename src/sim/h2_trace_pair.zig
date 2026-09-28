@@ -263,7 +263,7 @@ pub const Pair = struct {
             },
             .trailers => |held| seen.request_read[index_of(held.stream_id)] = .ended,
             .stream_refused => seen.malformed = true,
-            .settings_acknowledged, .settings_applied, .ping_acknowledged, .stream_reset, .goaway, .response => {},
+            .settings_acknowledged, .settings_applied, .ping_acknowledged, .stream_reset, .goaway, .response, .alt_svc => {},
         }
     }
 
@@ -280,7 +280,7 @@ pub const Pair = struct {
             },
             .trailers => |held| seen.response_read[index_of(held.stream_id)] = .ended,
             .stream_refused => seen.malformed = true,
-            .settings_acknowledged, .settings_applied, .ping_acknowledged, .stream_reset, .goaway, .request => {},
+            .settings_acknowledged, .settings_applied, .ping_acknowledged, .stream_reset, .goaway, .request, .alt_svc => {},
         }
     }
 

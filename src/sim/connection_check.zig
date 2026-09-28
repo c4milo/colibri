@@ -113,8 +113,9 @@ pub const Subject = struct {
 
     /// Writes what the frame last accepted meant. A frame that meant nothing to the caller, a PING
     /// the connection answered among them, writes `event=none`. The connection is a server, so
-    /// `response` never arrives (RFC 9113 §8.3.2) and neither does `trailers`, which needs a
-    /// second field section on a stream the plan never sends one on (§8.1).
+    /// `response` never arrives (RFC 9113 §8.3.2), nor does `alt_svc`, which a server ignores (RFC
+    /// 7838 §4), and neither does `trailers`, which needs a second field section on a stream the
+    /// plan never sends one on (§8.1).
     pub fn describe(subject: *const Subject, line: *sim.trace.Record) sim.trace.Error!void {
         const event = subject.event orelse return line.word("event", "none");
         try line.word("event", @tagName(event));
@@ -133,7 +134,7 @@ pub const Subject = struct {
                 try line.number("error_code", goaway.error_code);
             },
             .ping_acknowledged => |opaque_data| try line.octets("opaque_data", &opaque_data),
-            .settings_acknowledged, .settings_applied => {},
+            .settings_acknowledged, .settings_applied, .alt_svc => {},
         }
     }
 

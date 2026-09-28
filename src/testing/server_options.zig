@@ -2,10 +2,13 @@
 //! scripts pass it. Split off the server for length.
 //!
 //!     http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--tls <identity-prefix>]
+//!         [--h3-port <port>]
 //!
 //! `--h11` and `--echo` take no value. `--h11` makes a cleartext connection speak h11, or a TLS
 //! server offer `http/1.1` alone. `--echo` answers every h11 request with what h11 read of it
-//! (`h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext.
+//! (`h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
+//! the UDP port each TLS connection advertises h3 on (design §8 step 17b): an Alt-Svc line on each
+//! final h11 response, and one ALTSVC frame per h2 connection.
 const std = @import("std");
 const constants = @import("constants.zig");
 const alpn = @import("alpn.zig");
@@ -25,6 +28,7 @@ const address_option = "--address";
 const tls_option = "--tls";
 const h11_option = "--h11";
 const echo_option = "--echo";
+const h3_port_option = "--h3-port";
 
 /// What the command line asked for.
 pub const Options = struct {
@@ -35,6 +39,8 @@ pub const Options = struct {
     identity_prefix: ?[]const u8 = null,
     protocol: Protocol = .h2,
     echo: bool = false,
+    /// The UDP port each TLS connection advertises h3 on, or null for none.
+    h3_port: ?u16 = null,
 };
 
 /// Reads the options from `arguments`, anything with a `next` that answers the next argument or
@@ -71,10 +77,12 @@ fn read_setting(options: *Options, option: []const u8, value: []const u8) ?void 
         options.address = address.ip4.bytes;
     } else if (eql(u8, option, tls_option)) {
         options.identity_prefix = value;
+    } else if (eql(u8, option, h3_port_option)) {
+        options.h3_port = std.fmt.parseInt(u16, value, constants.port_radix) catch return null;
     } else return null;
 }
 
-pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--tls <identity-prefix>]\n";
+pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--tls <identity-prefix>] [--h3-port <port>]\n";
 
 const testing = std.testing;
 
@@ -104,6 +112,9 @@ test "the options read into what the server runs, and unreadable ones are refuse
     try testing.expectEqualSlices(u8, &loopback_octets, &defaults.address);
     try testing.expectEqual(Protocol.h2, defaults.protocol);
     try testing.expectEqualStrings("id", test_read(&.{ "--tls", "id" }).?.identity_prefix.?);
+    try testing.expectEqual(8443, test_read(&.{ "--h3-port", "8443" }).?.h3_port.?);
+    try testing.expectEqual(null, defaults.h3_port);
+    try testing.expectEqual(null, test_read(&.{ "--h3-port", "65536" }));
     try testing.expectEqual(null, test_read(&.{ "--port", "port" }));
     try testing.expectEqual(null, test_read(&.{ "--address", "::1" }));
     try testing.expectEqual(null, test_read(&.{"--port"}));

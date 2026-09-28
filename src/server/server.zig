@@ -18,6 +18,7 @@ pub const event = @import("event.zig");
 pub const connection = @import("connection/connection.zig");
 pub const quic_connection = @import("quic/quic_connection.zig");
 pub const endpoint = @import("endpoint/endpoint.zig");
+pub const alt_svc = @import("alt_svc.zig");
 
 pub const Config = connection.Config;
 pub const Connection = connection.Connection;
@@ -41,6 +42,7 @@ pub const Trailers = event.Trailers;
 pub const Cancelled = event.Cancelled;
 pub const Done = event.Done;
 pub const Received = event.Received;
+pub const Alternative = alt_svc.Alternative;
 
 test {
     std.testing.refAllDecls(@This());
