@@ -62,6 +62,28 @@ ruled in https://github.com/c4milo/colibri/issues/60.
 | [1950](compression/rfc1950.txt) | ZLIB Compressed Data Format Specification version 3.3 | The wrapper of the `deflate` coding, with its Adler-32 check |
 | [1952](compression/rfc1952.txt) | GZIP file format specification version 4.3 | The wrapper of the `gzip` coding, with its CRC-32 check |
 
+## qlog
+
+These three are Internet-Drafts, not RFCs, in `qlog/`, copied unmodified on 2026-09-27 from
+`https://www.ietf.org/archive/id/<name>.txt`, which keeps each revision unchanged. The owner ruled
+them in until the RFCs publish ([decision 102](../decisions.md)). Each events draft's §2.1 has an
+implementation of a draft name its event schema with the draft number, so colibri writes
+`urn:ietf:params:qlog:events:quic-13` and `urn:ietf:params:qlog:events:http3-13`.
+
+| Draft | Title | What colibri uses it for |
+|---|---|---|
+| [main-schema-14](qlog/draft-ietf-quic-qlog-main-schema-14.txt) | qlog: Structured Logging for Network Protocols | The file header, the event envelope and the JSON Text Sequences serialization of `qlog` |
+| [quic-events-13](qlog/draft-ietf-quic-qlog-quic-events-13.txt) | QUIC event definitions for qlog | The events `quic` logs |
+| [h3-events-13](qlog/draft-ietf-quic-qlog-h3-events-13.txt) | HTTP/3 qlog event definitions | The events `h3` logs |
+
+The main schema's §11.2 writes a log as JSON Text Sequences, so the two RFCs that define them are
+here too, copied from rfc-editor.org on the same day.
+
+| RFC | Title | What colibri uses it for |
+|---|---|---|
+| [7464](qlog/rfc7464.txt) | JavaScript Object Notation (JSON) Text Sequences | The record separator and line feed around each record |
+| [8259](qlog/rfc8259.txt) | The JavaScript Object Notation (JSON) Data Interchange Format | The objects, strings and numbers inside a record |
+
 ## Extensions colibri declines
 
 Each is read so that saying no is done correctly on the wire.

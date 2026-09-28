@@ -60,6 +60,7 @@ core   <- tls_provider <- h2, h11, quic, tls
 chapulin <- tls, tls_keylog, testing_quic, testing_udp
 stdx   <- h11, sim_run, client, server
 core   <- crypto <- quic, tls
+core   <- qlog   <- quic, h3
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic <- sim_run
@@ -82,9 +83,10 @@ core, http, h11, h2, h3, quic, tls <- client, server
 | `crypto` | the packet-protection vtable, no production implementation | `core` | 9001 §5 |
 | `hpack` | HPACK | `core`, `wire`, `http` | 7541 |
 | `qpack` | QPACK | `core`, `wire`, `http` | 9204 |
-| `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls_provider` | 8999, 9000, 9001, 9002 |
+| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | `core` | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
+| `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls_provider`, `qlog` | 8999, 9000, 9001, 9002 |
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
-| `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic` | 9114 |
+| `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic`, `qlog` | 9114 |
 | `h11` | HTTP/1.1 ([decision 88](decisions.md)) | `core`, `http`, `tls_provider`, and stdx's decoders of the `gzip` and `deflate` codings ([decision 90](decisions.md)) | 9112 |
 | `tls` | TLS 1.3 over chapulin: colibri's values, converted once per chapulin object; record-mode sessions behind `tls_provider.Provider`; and QUIC sessions behind `tls_provider.QuicProvider` and `crypto.Suite` ([decisions 94 and 97](decisions.md)) | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects, built `KEYLOG=off` | 9846, 7301, 9001 |
 | `client` | HTTP requests over whichever of h3, h2 and h11 the connection negotiates: it drives the TLS handshake over TCP or QUIC and chooses the transport from the values its caller passes ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's decoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838, 9460 |
@@ -4823,6 +4825,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     cleartext and over TLS, and curl also over TLS with no ALPN.
   - `zig build test` passed. The HTTP Garden, which feeds the `--echo` mode, needs Linux and is
     left to its CI job; the echo's own tests pass over `server`.
+
+- **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
+  caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
+  - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
+    main schema §5, and the event envelope of §7, with each time in milliseconds after the
+    connection's first instant. Each record is a JSON text between RS and LF (RFC 7464) with
+    RFC 8259's escaping. An event that does not fit is dropped whole and counted.
+    **Check:** byte-exact tests of the header and of each record, and a test that fills a buffer
+    until an event is dropped.
+  - **18b**, QUIC events. `Options.qlog`, null by default, and the Core events of quic-events §3:
+    `version_information`, `alpn_information`, `parameters_set`, `packet_sent` and
+    `packet_received` with their frames, `recovery_metrics_updated` and `packet_lost`. Also
+    `connection_closed`, `connection_state_updated` and `packet_dropped`.
+    **Check:** each QUIC check of the simulator gives the same census with a log as without one,
+    and each record of those logs parses as JSON and carries the fields its event requires.
+  - **18c**, the endpoints. §9's UDP endpoint writes each connection's log under `QLOGDIR`, named
+    for its original destination connection ID and its vantage point (main schema §12.1), and
+    the interop image passes on the runner's `QLOGDIR`.
+    **Check:** a runner run leaves one file per connection, and each file parses.
+  - **18d**, HTTP/3 events. h3-events' `parameters_set`, `stream_type_set`, `frame_created` and
+    `frame_parsed`.
+    **Check:** the simulator's h3 checks give the same census with a log as without one, and each
+    record parses.
+
+  **18a, 2026-09-28.** `src/qlog/` is the `qlog` module, exported by name, which imports `core`.
+  - `Json` writes a JSON text through `core.Writer`: objects and arrays with a comma between
+    members, strings of colibri's ASCII with RFC 8259 §7's escapes, hexstrings, unsigned integers,
+    booleans, and milliseconds with a three-digit fraction from nanoseconds.
+  - `Log` holds the records in a buffer the caller owns. `start` writes the QlogFileSeq header
+    with the trace's group ID and vantage point, a monotonic clock whose epoch is "unknown", and
+    the event schemas. `event` writes one record, whose time runs from the header's instant, or
+    drops it whole and counts it. `bytes` and `clear` hand the records to the caller.
+  - The drafts and RFCs 7464 and 8259 are in `docs/rfcs/qlog/`, with their SHA-256 in
+    `docs/rfcs/SHA256SUMS`.
+  - 9 tests, byte-exact, and 8 mutations, each CAUGHT: the record separator, the closing line
+    feed, both escapes, the comma, an event committed in part, the fraction's unit, and the
+    epoch.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

@@ -2755,3 +2755,42 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: a coded response has no `Content-Length`, so h11 sends it chunked, and a strong `ETag`
      on it becomes weak. The server's encoder pool is memory the caller places. Design §3 gains
      edges from `client` and `server` into stdx, and design §8 step 17 gains a part.
+
+102. **colibri writes qlog when its caller asks, from the pinned drafts.** Ruled by the owner on
+     2026-09-27. The QUIC Interop Runner asks each endpoint for a qlog (entry 28), and colibri's
+     had none (design §8 step 9e).
+     - `src/qlog/` is a library module that imports `core` alone. `quic` and `h3` import it and
+       fill its event records from their own state. It imports no protocol module, so `quic`
+       still imports no HTTP module (decision 5), and moving it out later changes only the build.
+     - It is written from three Internet-Drafts, pinned in `docs/rfcs/qlog/` with their SHA-256:
+       draft-ietf-quic-qlog-main-schema-14, draft-ietf-quic-qlog-quic-events-13 and
+       draft-ietf-quic-qlog-h3-events-13. Non-negotiable 10 names RFCs; these three are the
+       exception until the RFCs publish. Each events draft's §2.1 has an implementation name its
+       event schema with the draft number, so colibri writes
+       `urn:ietf:params:qlog:events:quic-13` and `urn:ietf:params:qlog:events:http3-13`.
+     - A connection logs only when its caller gives it a log in its options, which is null by
+       default. With none, each place that would log costs one branch and writes nothing. This is
+       the one exception to CLAUDE.md's rule that nothing logs on the per-frame path, and it is
+       off unless the caller turns it on.
+     - colibri still owns no I/O. A log is a buffer the caller owns, and colibri appends JSON Text
+       Sequences records to it (RFC 7464). The caller writes the records wherever it wants, for
+       example to a file under `QLOGDIR` (main schema §12.1). An event that does not fit is
+       dropped whole and counted, and never fails the connection.
+     - A log never changes what a connection sends. The same seed gives the same datagrams with
+       and without one.
+     - colibri writes a peer's octets, such as a close reason or an ALPN value, as hexstrings and
+       never as text, so every string it writes is its own ASCII and needs no UTF-8 check.
+
+     The alternatives offered:
+     - Its own repository, recommended first and withdrawn: decision 3's reason to move code out
+       is another project that wants it without colibri, and the only producer of QUIC and HTTP/3
+       events among the owner's projects is colibri. The two would change together across two
+       pins, and a package cannot import colibri's types.
+     - stdx, whose codecs carry no protocol knowledge. Decision 90 kept protocol limits out of it.
+     - The test endpoints alone, which would leave a caller of the library with no qlog.
+     - A build option, which costs nothing when off but needs a rebuild to turn on, and a
+       provider the connection calls for each event. The owner chose a runtime setting.
+     - Waiting for the RFCs.
+
+     Cost: a module and two edges in design §3, `quic` → `qlog` and `h3` → `qlog`, and a branch
+     at each place a connection logs.

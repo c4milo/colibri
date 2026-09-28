@@ -38,6 +38,9 @@ pub const Modules = struct {
     tls_provider: *std.Build.Module,
     /// The packet-protection vtable. No production implementation (decision 9).
     crypto: *std.Build.Module,
+    /// A qlog log in the caller's buffer, and the event records `quic` and `h3` fill (decision
+    /// 102). Imports `core` alone.
+    qlog: *std.Build.Module,
     hpack: *std.Build.Module,
     qpack: *std.Build.Module,
     /// The transport of RFC 8999, 9000, 9001 and 9002. Knows nothing about HTTP.
@@ -104,6 +107,9 @@ pub fn add(
 
     const crypto = library(b, "crypto", target, optimize);
     crypto.addImport("core", core);
+
+    const qlog = library(b, "qlog", target, optimize);
+    qlog.addImport("core", core);
 
     const hpack = library(b, "hpack", target, optimize);
     hpack.addImport("core", core);
@@ -286,6 +292,7 @@ pub fn add(
         .http = http,
         .tls_provider = tls_provider,
         .crypto = crypto,
+        .qlog = qlog,
         .hpack = hpack,
         .qpack = qpack,
         .quic = quic,

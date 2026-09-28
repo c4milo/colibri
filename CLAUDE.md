@@ -71,7 +71,9 @@ The architecture depends on every rule in this section.
     do not cite it. An obsoleting revision renumbers, so a section number carried over from the
     older one may name a different rule or none at all; find the section that states the rule and
     cite that. The copies to read are in `docs/rfcs/`, unmodified from rfc-editor.org, with
-    `docs/rfcs/SHA256SUMS` to show they stay that way.
+    `docs/rfcs/SHA256SUMS` to show they stay that way. The one exception to RFCs alone is qlog,
+    written from the three Internet-Drafts pinned in `docs/rfcs/qlog/` until they publish
+    (decision 102).
 
 ## Tests are proved by mutation
 
@@ -133,7 +135,7 @@ exists — never propose a second one.
   `build`, `ci`, `chore` — and a scope, when present, holds lowercase letters, digits and hyphens.
   The scope allows digits because `h2` and `h3` are the two commonest scopes, and a rule admitting
   letters alone would refuse them. Scopes track the module graph: `h2`, `h3`, `quic`, `hpack`,
-  `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`, `h11`, `server`. A
+  `qpack`, `wire`, `http`, `tls`, `crypto`, `core`, `sim`, `golden`, `bench`, `h11`, `server`, `qlog`. A
   scope outside that set is a warning rather than a refusal, because the set grows when the graph
   does and docs/design.md §3 is the authority on it, not the linter.
 - The description is imperative, starts with a lowercase letter, and ends without a period: write
@@ -149,7 +151,7 @@ exists — never propose a second one.
 ## Layout
 
 - `build.zig` stays short: build options and the module graph. Helpers belong in `build/`.
-- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The thirteen
+- `src/<module>/` is one Zig module, declared in `build.zig` with its imports listed. The fourteen
   library modules are exported by name, so a dependent reaches them with `dependency.module`
   (decision 86); the simulator, the corpus and `src/testing/` are not. A module can only
   `@import` what `build.zig` gives it, so the dependency direction is enforced by the build and not

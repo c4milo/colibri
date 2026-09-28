@@ -105,6 +105,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "http", .module = graph.http },
         .{ .name = "tls-provider", .module = graph.tls_provider },
         .{ .name = "crypto", .module = graph.crypto },
+        .{ .name = "qlog", .module = graph.qlog },
         .{ .name = "hpack", .module = graph.hpack },
         .{ .name = "qpack", .module = graph.qpack },
         .{ .name = "quic", .module = graph.quic },
