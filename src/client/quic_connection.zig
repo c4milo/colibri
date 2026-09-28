@@ -161,12 +161,15 @@ pub const QuicConnection = struct {
         return connection.slots.take(exchange) orelse error.Full;
     }
 
-    /// Ends exchange `id` before its response is whole, and reports nothing for it. Its stream is
-    /// reset with H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the exchange,
-    /// so its memory is the caller's again.
+    /// Ends exchange `id` and reports nothing for it. Its stream is reset with
+    /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the exchange, so its
+    /// memory is the caller's again.
     pub fn cancel(connection: *QuicConnection, id: Id) void {
         const slot = connection.slots.of_id(id) orelse return;
-        if (slot.stage == .sent) quic_h3.cancel_stream(connection, slot.stream_id);
+        // RFC 9114 §4.1.1: every direction still open is reset. The stream is live while it holds
+        // the exchange's octets, which QUIC reads until they are acknowledged (RFC 9000 §3.1),
+        // after the response ended too.
+        if (slot.holds_octets) quic_h3.cancel_stream(connection, slot.stream_id);
         slots_module.release(slot);
     }
 

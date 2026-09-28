@@ -51,6 +51,33 @@ test "RFC 9114 §4.1.1: a cancelled exchange's stream is reset, and no event rep
     try testing.expectEqual(.pending, exchange.outcome);
 }
 
+/// Content past the server's stream window, so its stream still sends after the response ends
+/// (RFC 9000 §4.1). Test-only.
+var upload: [upload_len]u8 = undefined;
+const upload_len: usize = 600_000;
+
+test "RFC 9114 §4.1.1: a cancel after the response resets the stream still sending the content" {
+    try support.start(&support.alpn_h3, &support.alpn_h3, false);
+    support.answer_early = true;
+    @memset(&upload, 'z');
+    var post: Exchange = .{ .method = "POST", .path = "/upload", .content = &upload, .body = &bodies[0] };
+    const id = try connection.request(&post);
+    // Bounded: the server answers once the request's head arrives.
+    for (0..support.rounds_default) |_| {
+        if (post.outcome != .pending) break;
+        try support.pump(1);
+    }
+    try testing.expectEqual(.response, post.outcome);
+    try testing.expect(support.answers[0].received < upload_len);
+    connection.cancel(id);
+    try support.pump(support.rounds_default);
+    // RFC 9000 §3.1: the RESET_STREAM ends the request's part, so no side's stream reads the
+    // caller's content again, and the server's stream closes.
+    try testing.expect(support.server.streams.lookup(.{ .value = 0 }) != .live);
+    try testing.expect(connection.transport.streams.lookup(.{ .value = 0 }) != .live);
+    try testing.expectEqual(null, support.find(.finished));
+}
+
 test "RFC 9114 §5.2: a shut-down connection closes with H3_NO_ERROR after its last exchange" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     var exchange = get(&bodies[0]);
