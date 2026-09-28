@@ -11,8 +11,10 @@
 //!
 //! The caller loops over `receive` until it returns nothing consumed and no event, calls `send`
 //! whenever the transport can take octets, and closes the transport once `should_close` says so.
-//! A connection that fails reports it as its exchanges' outcomes and a `closed` event. The caller
-//! owns the struct and every exchange, and colibri allocates nothing (decision 35).
+//! After each `send` it loops over `receive` again, even with no new octets: while the output was
+//! full, h2 read no frame past the replies it owed (RFC 9113 §6.5.3), and those frames are read
+//! then. A connection that fails reports it as its exchanges' outcomes and a `closed` event. The
+//! caller owns the struct and every exchange, and colibri allocates nothing (decision 35).
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");

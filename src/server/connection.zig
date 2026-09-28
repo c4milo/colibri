@@ -14,9 +14,11 @@
 //! lowercase, as h2 sends them (RFC 9113 §8.2), and h11 sends them as given.
 //!
 //! The caller loops over `receive` until it returns nothing consumed and no event, keeping the
-//! octets an event points into until the next call. It closes the transport once `should_close`
-//! says so, after `send` has written everything. The caller owns the struct and colibri allocates
-//! nothing (decision 35).
+//! octets an event points into until the next call. After each `send` it loops over `receive`
+//! again, even with no new octets: while the output was full, h2 read no frame past the replies it
+//! owed (RFC 9113 §6.5.3), and those frames are read then. It closes the transport once
+//! `should_close` says so, after `send` has written everything. The caller owns the struct and
+//! colibri allocates nothing (decision 35).
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
