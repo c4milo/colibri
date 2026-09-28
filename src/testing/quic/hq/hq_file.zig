@@ -1,6 +1,7 @@
 //! The files hq-interop moves (design §8 step 9e, piece 11): a server reads them from the
-//! directory it serves and a client writes them into its downloads directory. This is the only
-//! file I/O of the UDP endpoints, through libc, and it allocates nothing.
+//! directory it serves and a client writes them into its downloads directory. It is all the file
+//! I/O of the UDP endpoints, through libc, and it allocates nothing: `udp_qlog.zig` writes each
+//! connection's qlog through it too.
 //!
 //! A path arrives already checked by `hq.read_request` or `hq.write_request`, so joining it to a
 //! directory names a file inside it.

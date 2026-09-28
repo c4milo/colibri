@@ -3,9 +3,10 @@
 # A colibri client fetches files from a colibri server over real UDP on 127.0.0.1, over
 # hq-interop and over h3, both over chapulin's QUIC mode and Rotor's loop. Part of design §8 steps
 # 9e and 12. Each file must arrive octet for octet, and a client with `resumption` must resume its
-# first connection's session on its second (RFC 9846 §2.2).
+# first connection's session on its second (RFC 9846 §2.2). The hq-interop and h3 runs write each
+# connection's qlog, and every file must pass tools/qlog_check.py (design §8 step 18c).
 #
-# It needs a Go toolchain, for the identity. chapulin comes from the package build.zig.zon pins
+# It needs a Go toolchain, for the identity, and python3. chapulin comes from the package build.zig.zon pins
 # (design §8 step 16a). It is not part of `zig build test`.
 #
 #   tools/quic_udp.sh [port]
@@ -30,7 +31,8 @@ go run tools/h2_interop/tls_identity.go "$scratch/identity"
 
 # Three files: one smaller than a packet, one of many packets, and one past the receive pool,
 # which only arrives if the client's reads give the server credit (RFC 9000 §4.1).
-mkdir -p "$scratch/www" "$scratch/downloads"
+mkdir -p "$scratch/www" "$scratch/downloads" "$scratch/qlog"
+readonly qlogdir="qlogdir=$scratch/qlog/"
 head -c 1000 /dev/urandom >"$scratch/www/small"
 head -c 100000 /dev/urandom >"$scratch/www/medium"
 head -c 3000000 /dev/urandom >"$scratch/www/large"
@@ -57,12 +59,13 @@ client() {
     "$scratch/downloads" "$@"
 }
 
-start_server once
-if ! client /small /medium /large; then
-  echo "quic_udp: the client failed; the server said:" >&2
-  cat "$scratch/server.log" >&2
+start_server once "$qlogdir"
+if ! client "$qlogdir" /small /medium /large >"$scratch/client.log" 2>&1; then
+  echo "quic_udp: the client failed; it and the server said:" >&2
+  cat "$scratch/client.log" "$scratch/server.log" >&2
   exit 1
 fi
+cat "$scratch/client.log"
 # The client's CONNECTION_CLOSE ends the server's connection at once (RFC 9000 §10.2.2). A server
 # still running after a few seconds never received it, and would sit out its idle timeout.
 for _ in $(seq 1 50); do
@@ -80,6 +83,8 @@ wait "$server_pid" || {
 }
 server_pid=""
 cat "$scratch/server.log"
+# The next server writes its own log, and this one's is read with the qlog files below.
+cp "$scratch/server.log" "$scratch/server_hq.log"
 
 for file in small medium large; do
   if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
@@ -103,8 +108,8 @@ server_pid=""
 # The same three files over h3 (design §8 step 12): the server serves h3 to a client that asks
 # for it by ALPN, and a path it does not hold is answered 404, which the client reports.
 rm -f "$scratch/downloads/small" "$scratch/downloads/medium" "$scratch/downloads/large"
-start_server once
-if ! client h3 /small /medium /large >"$scratch/h3.log" 2>&1; then
+start_server once "$qlogdir"
+if ! client h3 "$qlogdir" /small /medium /large >"$scratch/h3.log" 2>&1; then
   echo "quic_udp: the h3 client failed:" >&2
   cat "$scratch/h3.log" "$scratch/server.log" >&2
   exit 1
@@ -130,6 +135,18 @@ if kill -0 "$server_pid" 2>/dev/null; then
   exit 1
 fi
 server_pid=""
+# Two connections, each logged by its client and its server (main schema §12.1), with no event
+# dropped for want of room.
+python3 tools/qlog_check.py "$scratch/qlog" complete
+if grep -h "qlog dropped" "$scratch/client.log" "$scratch/server_hq.log" "$scratch/h3.log" "$scratch/server.log"; then
+  echo "quic_udp: an endpoint's qlog dropped events" >&2
+  exit 1
+fi
+[ "$(find "$scratch/qlog" -name '*.sqlog' | wc -l | tr -d ' ')" = 4 ] || {
+  echo "quic_udp: two connections left no four qlog files:" >&2
+  ls "$scratch/qlog" >&2
+  exit 1
+}
 start_server once
 if client h3 /small /missing >"$scratch/h3_missing.log" 2>&1; then
   echo "quic_udp: the h3 client fetched a file the server does not hold" >&2

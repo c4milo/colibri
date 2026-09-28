@@ -13,6 +13,7 @@ const quic = @import("quic");
 const constants = @import("../../constants.zig");
 const quic_session = @import("../quic_session.zig");
 const keylog_module = @import("../keylog.zig");
+const udp_qlog = @import("udp_qlog.zig");
 const udp = @import("../../udp.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
@@ -156,9 +157,12 @@ pub const Peer = struct {
     send_scratch: quic.connection_send.DefaultScratch,
     scratch: quic.connection_datagram.Scratch,
     pool: quic.stream.stream_incoming.DefaultPool,
+    /// The connection's qlog, which the loop writes to its file each turn (decision 102).
+    qlog: udp_qlog.Qlog,
 
     /// Starts the connection and its session, whose secrets go to `keylog`. `ecn` says whether the
-    /// connection reads and marks ECN codepoints (decision 68).
+    /// connection reads and marks ECN codepoints (decision 68), and `qlogdir` names the directory
+    /// its qlog goes in, or null for none.
     pub fn init(
         peer: *Peer,
         start: quic_session.Start,
@@ -168,6 +172,7 @@ pub const Peer = struct {
         now_ns: u64,
         address: udp.Address,
         ecn: bool,
+        qlogdir: ?[]const u8,
     ) Error!void {
         const role = start.role();
         peer.connection.init(.{
@@ -187,6 +192,7 @@ pub const Peer = struct {
             .ecn_marks = ecn,
             // Decision 72: where the peer is, which a NAT may change under a client.
             .peer_address = peer_address(address),
+            .qlog = peer.qlog.open(qlogdir, role, identity.original_destination, now_ns),
         });
         peer.session.start(start, keylog) catch return error.SessionRefused;
         peer.send_scratch = .{};

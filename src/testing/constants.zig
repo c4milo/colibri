@@ -300,6 +300,11 @@ pub const udp_send_slots: usize = udp_operations_max - 1;
 /// lingers until its idle timeout (RFC 9000 §10.1), so the table holds more than the case opens.
 pub const quic_connections_max: usize = 64;
 
+/// Octets of one UDP QUIC connection's qlog between two turns of the loop (decision 102). A turn
+/// logs the packets of at most `udp_operations_max` datagrams received and as many sent, a few
+/// hundred octets each, and the next turn writes them to the connection's file.
+pub const quic_qlog_len: usize = 256 * 1024;
+
 /// How long a UDP QUIC server accepts a Retry token after minting it. RFC 9000 §8.1.4: "Servers
 /// SHOULD ensure that tokens sent in Retry packets are only accepted for a short time, as they are
 /// returned immediately by clients." Ten seconds covers a client that loses its first reply.

@@ -1,9 +1,9 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [connections=<n>] [seconds=<unix-seconds>]
+//!         [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
-//!         [keyupdate] [resumption] [h3] [pin] <path>...
+//!         [keyupdate] [resumption] [h3] [pin] [qlogdir=<directory>] <path>...
 //!
 //! An address is IPv4 in dotted decimal or IPv6 in RFC 4291 §2.2's text form. The server binds
 //! `<address>:<port>` and serves `<www>`, over h3 or hq-interop, whichever its client asks for:
@@ -18,6 +18,9 @@
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
 //!   tickets carry (RFC 9846 §4.7.1). Without it the server issues no ticket and accepts none.
+//! - `qlogdir=<directory>` writes each connection's qlog into the directory, in a file main
+//!   schema §12.1 names for the connection (`udp_qlog.zig`, decision 102). The client takes it
+//!   too.
 //!
 //! The client sends to `<address>:<port>` and fetches each path into `<downloads>`:
 //! - `keyupdate` updates its keys once, as soon as RFC 9001 §6.1 permits.
@@ -55,6 +58,8 @@ pub const Server = struct {
     connections: usize = constants.quic_connections_max,
     /// The Unix seconds the server started at, or 0 for none.
     now_seconds: u64 = 0,
+    /// The directory each connection's qlog goes in, or null for no qlog.
+    qlogdir: ?[]const u8 = null,
 
     /// The Unix seconds at `now_ns`: `now_seconds` and the seconds Rotor's instant has advanced
     /// since `started_ns`, the first tick's (decision 63). 0 for a server given no clock.
@@ -82,6 +87,8 @@ pub const Client = struct {
     /// Whether the client trusts the server by the SHA-256 of its key in `<anchor-prefix>.pin`,
     /// judging no chain, date or name, rather than by the root the prefix names.
     pin: bool = false,
+    /// The directory each connection's qlog goes in, or null for no qlog.
+    qlogdir: ?[]const u8 = null,
 };
 
 pub const Arguments = union(Role) {
@@ -126,6 +133,8 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
             server.ecn = false;
         } else if (parse_seconds(word)) |seconds| {
             server.now_seconds = seconds;
+        } else if (parse_qlogdir(word)) |directory| {
+            server.qlogdir = directory;
         } else {
             server.connections = parse_connections(word) orelse usage();
         }
@@ -134,22 +143,32 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
     return server;
 }
 
-/// The client's words for one key update, a second, resumed connection, h3 and a pinned key.
-/// Every path starts with `/`, so none is a path.
+/// The client's words for one key update, a second, resumed connection, h3, a pinned key and a
+/// qlog directory. Every path starts with `/`, so none is a path.
 const key_update_word = "keyupdate";
 const resumption_word = "resumption";
 const h3_word = "h3";
 const pin_word = "pin";
-const client_options_count: usize = 4;
+const client_options_count: usize = 5;
 
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `connections=<n>` and `seconds=<unix-seconds>`.
-const server_options_count: usize = 6;
+/// `once`, `retry`, `errors`, `no-ecn`, `connections=<n>`, `seconds=<unix-seconds>` and
+/// `qlogdir=<directory>`.
+const server_options_count: usize = 7;
 
 const connections_prefix = "connections=";
 const seconds_prefix = "seconds=";
+const qlogdir_prefix = "qlogdir=";
+
+/// The directory of `qlogdir=<directory>`, or null for any other word, or for an empty directory.
+fn parse_qlogdir(word: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, word, qlogdir_prefix)) return null;
+    const directory = word[qlogdir_prefix.len..];
+    if (directory.len == 0) return null;
+    return directory;
+}
 
 /// The Unix seconds of `seconds=<unix-seconds>`, or null for any other word, or for 0, which
 /// chapulin reads as no clock.
@@ -200,6 +219,8 @@ fn parse_client_options(arguments: *std.process.Args.Iterator, client: *Client) 
             client.h3 = true;
         } else if (std.mem.eql(u8, next, pin_word)) {
             client.pin = true;
+        } else if (parse_qlogdir(next)) |directory| {
+            client.qlogdir = directory;
         } else break;
         next = arguments.next() orelse usage();
     }
@@ -235,8 +256,8 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]\n" ++
-            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] <path>...\n",
+        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
+            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] [qlogdir=<directory>] <path>...\n",
         .{},
     );
     std.process.exit(check_file.exit_usage);
@@ -292,4 +313,11 @@ test "a server's clock is one word of Unix seconds, and 0 is no clock" {
     try testing.expectEqual(null, parse_seconds("seconds="));
     try testing.expectEqual(null, parse_seconds("second=1790000000"));
     try testing.expectEqual(null, parse_seconds("connections=4"));
+}
+
+test "main schema §12.1: a qlog directory is one word, and an empty one is none" {
+    try testing.expectEqualStrings("/logs/qlog/", parse_qlogdir("qlogdir=/logs/qlog/").?);
+    try testing.expectEqual(null, parse_qlogdir("qlogdir="));
+    try testing.expectEqual(null, parse_qlogdir("qlog=/logs"));
+    try testing.expectEqual(null, parse_qlogdir("/index.html"));
 }

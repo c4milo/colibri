@@ -50,7 +50,7 @@ fn start(
     now_ns: u64,
 ) void {
     const how = udp_identity.client_start(asked, resumption);
-    connection.peer.init(how, udp_identity.keylog(), udp_identity.client_ids(), parameters(), now_ns, asked.address, true) catch |failure|
+    connection.peer.init(how, udp_identity.keylog(), udp_identity.client_ids(), parameters(), now_ns, asked.address, true, asked.qlogdir) catch |failure|
         udp_run.fail("the client did not start: {t}", .{failure});
     connection.outbound = udp_run.outbound_to(asked.address);
     connection.spare_ids_issued = false;
@@ -132,6 +132,8 @@ fn resume_session(connection: *Connection, asked: udp_arguments.Client, now_ns: 
     received_before = received_len();
     resuming = true;
     const age = age_ms(ticket_received_ns.?, now_ns);
+    // The first connection has ended, and the second has an original destination ID of its own.
+    connection.peer.qlog.close();
     start(connection, asked, asked.paths[1..], .{ .ticket = kept, .age_ms = age }, now_ns);
 }
 

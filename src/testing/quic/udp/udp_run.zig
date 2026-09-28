@@ -98,6 +98,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .client => |asked| udp_run_client.connect(&connections[0], asked, started_ns),
     }
     run();
+    close_logs();
     if (connection_failed) fail("a connection ended on a connection error", .{});
     // Rotor makes a send's system call on a later tick, so the client's CONNECTION_CLOSE leaves
     // only once the loop has had every send's final event, which closing the socket waits for.
@@ -125,6 +126,7 @@ fn turn(connection: *Connection, now_ns: u64) void {
     if (arguments == .client and arguments.client.key_update) udp_run_client.update_keys_once(connection, now_ns);
     step_application(connection);
     flush(connection, now_ns);
+    connection.peer.qlog.write();
     // A client's stack derives its last secrets while it writes its Finished, inside `send`.
     udp_identity.write_keylog();
 }
@@ -287,7 +289,7 @@ fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Con
     const connection = free_connection() orelse return null;
     const asked = arguments.server;
     const how = udp_identity.server_start(asked.seconds_at(started_ns, now_ns));
-    connection.peer.init(how, udp_identity.keylog(), identity, server_parameters(), now_ns, delivery.from.peer, arguments.server.ecn) catch |failure|
+    connection.peer.init(how, udp_identity.keylog(), identity, server_parameters(), now_ns, delivery.from.peer, asked.ecn, asked.qlogdir) catch |failure|
         fail("the server did not start: {t}", .{failure});
     connection.outbound = outbound_to(delivery.from.peer);
     connection.spare_ids_issued = false;
@@ -318,7 +320,15 @@ fn end(connection: *Connection) void {
     served += connection.server.served + connection.h3_server.served;
     connection.h3_server.deinit();
     if (connection.peer.session.resumed()) resumed += 1;
+    connection.peer.qlog.close();
     connection.live = false;
+}
+
+/// Writes and closes the qlog of every connection still live, when the run ends or fails.
+fn close_logs() void {
+    for (table()) |*connection| {
+        if (connection.live) connection.peer.qlog.close();
+    }
 }
 
 fn step_application(connection: *Connection) void {
@@ -447,5 +457,7 @@ comptime {
 
 pub fn fail(comptime format: []const u8, values: anytype) noreturn {
     std.debug.print("quic-udp: " ++ format ++ "\n", values);
+    // A failed run is the one whose qlog is read.
+    close_logs();
     std.process.exit(check_file.exit_failed);
 }

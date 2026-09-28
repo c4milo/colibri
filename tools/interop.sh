@@ -10,8 +10,9 @@
 # packet captures with. The runner is cloned at a pinned commit into a cache directory, with its
 # requirements in a virtual environment there, and colibri is registered in that clone's
 # implementations_quic.json. The clone carries one patch, quic_interop/count_handshakes.patch
-# (decision 99). Test cases the endpoint does not build exit 127 and show as unsupported. It is
-# not part of `zig build test`, and it takes minutes.
+# (decision 99). Test cases the endpoint does not build exit 127 and show as unsupported. Every
+# qlog file colibri's endpoint wrote must pass tools/qlog_check.py (design §8 step 18c). It is not
+# part of `zig build test`, and it takes minutes.
 set -euo pipefail
 
 readonly peers="${1:-quic-go}"
@@ -69,6 +70,21 @@ echo "interop: colibri as the client"
 venv/bin/python "$repository_root/tools/quic_interop/run_runner.py" -s "$peers" -c colibri -t "$tests" -l "$scratch/logs-client" \
   -m >"$scratch/client.md" || status=1
 cat "$scratch/server.md" "$scratch/client.md"
+# Design §8 step 18c: the runner keeps each test case's logs, and colibri's side of each holds the
+# qlog files of its connections (main schema §12.1). A connection the runner stopped mid-way ends
+# its file early, so the check asks for well-formed records and not for each connection's close.
+qlog_directories=0
+qlog_failures=0
+for directory in "$scratch"/logs-*/colibri_*/*/server/qlog "$scratch"/logs-*/*_colibri/*/client/qlog; do
+  [ -d "$directory" ] || continue
+  qlog_directories=$((qlog_directories + 1))
+  python3 "$repository_root/tools/qlog_check.py" "$directory" >/dev/null || {
+    echo "interop: $directory failed tools/qlog_check.py" >&2
+    qlog_failures=$((qlog_failures + 1))
+    status=1
+  }
+done
+echo "interop: $qlog_directories test cases left colibri's qlog files, and $qlog_failures failed tools/qlog_check.py"
 if [ "$status" -ne 0 ] && [ -n "${INTEROP_LOGS:-}" ]; then
   mkdir -p "$INTEROP_LOGS"
   cp -R "$scratch/logs-server" "$scratch/logs-client" "$INTEROP_LOGS"/

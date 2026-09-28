@@ -4973,6 +4973,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Not built yet: the check that each record parses as JSON and carries the fields its event
     requires. It waits for stdx's JSON decoder (decision 102 as amended).
 
+  **18c, 2026-09-28.** The UDP endpoint takes `qlogdir=<directory>` in both roles, and each
+  connection writes its qlog there, named as main schema §12.1 recommends:
+  `<ODCID>_<vantage point>.sqlog` (`udp_qlog.zig`). A connection's buffer of `quic_qlog_len`
+  octets holds one turn's events. The loop writes them to the file after each turn, through libc as
+  `hq_file.zig` writes a download, and closes the file when the connection ends or the run fails.
+  `run_endpoint.sh` passes the runner's `QLOGDIR` to both roles.
+  - `tools/qlog_check.py` checks a directory of these files. Each record must be a JSON text
+    between RS and LF (RFC 7464), the header's group ID and vantage point must be the file
+    name's, and each event must carry the members main schema §7 and quic-events §3 require, at a
+    time that never goes back. The packets sent in each space must be numbered without a gap,
+    since colibri skips no number. With `complete` it also requires a client file and a server
+    file per connection, each logging the connection's close.
+  - `tools/quic_udp.sh` runs its hq-interop and h3 connections with `qlogdir`, requires that no
+    event was dropped, and checks the four files with `complete`: 17,283 events, on an Apple M1
+    Pro. `tools/interop.sh` checks every qlog directory colibri's side of a runner test case
+    leaves. A local run against quic-go, handshake and transfer in both roles, left 8, and each
+    passed.
+  - 7 mutations, each CAUGHT. `zig build test-testing-udp` caught three: the file named for the
+    other vantage point, the connection ID left out of its name, and an empty directory taken.
+    `tools/quic_udp.sh` caught four: the records not written each turn, `qlogdir` refused by the
+    server and by the client, and a connection given no log. The first and last of those four were
+    NOT CAUGHT until `complete` required each file to log its connection's close.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

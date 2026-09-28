@@ -24,10 +24,15 @@ esac
 
 python3 /qns_identity.py /certs /tmp/identity
 
+# Main schema §12.1: the runner names the directory each connection's qlog goes in, and keeps it
+# with the run's logs (design §8 step 18c).
+[ -n "${QLOGDIR:-}" ] && mkdir -p "$QLOGDIR"
+
 if [ "$ROLE" = server ]; then
   # The Unix time the server starts at, which its session tickets carry (RFC 9846 §4.7.1).
   server_options=("seconds=$(date +%s)")
   [ "$TESTCASE" = retry ] && server_options+=(retry)
+  [ -n "${QLOGDIR:-}" ] && server_options+=("qlogdir=$QLOGDIR")
   # Bound to the IPv6 wildcard, the one socket takes IPv4 clients too (as IPv4-mapped addresses),
   # because the runner gives the server no hint of which family its IPv6 case uses.
   exec quic-udp server :: 443 /tmp/identity /www "${server_options[@]}"
@@ -58,6 +63,7 @@ client_options=(pin)
 [ "$TESTCASE" = keyupdate ] && client_options+=(keyupdate)
 [ "$TESTCASE" = resumption ] && client_options+=(resumption)
 [ "$TESTCASE" = http3 ] && client_options+=(h3)
+[ -n "${QLOGDIR:-}" ] && client_options+=("qlogdir=$QLOGDIR")
 
 client() {
   quic-udp client "$address" "$port" /tmp/identity "$host" "$(date +%s)" /downloads "${client_options[@]}" "$@"

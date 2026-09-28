@@ -332,16 +332,19 @@ section when a step adds or renames a command.
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
-  [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>]` and `-- client <address>
-  <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin]
-  <path>...` run design §9's servers and clients over Rotor's UDP loop and `tls.quic`. With `pin`
-  the client trusts the server's key, whose SHA-256 `<anchor-prefix>.pin` holds, and judges no
-  chain, date or name. The
-  server serves h3 or hq-interop, whichever its client's ALPN asks for, and a client with `h3`
-  fetches over h3. An address is IPv4 or IPv6; a server bound to `::` takes both on Linux.
-  `tools/quic_udp.sh [port]` runs a client against a server on 127.0.0.1 over both protocols,
-  checks each file arrives octet for octet, that a missing one is refused, and that a second
-  connection resumes the first one's session. `tools/quic_aioquic.sh [port]` runs the same endpoint
+  [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]` and
+  `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
+  [resumption] [h3] [pin] [qlogdir=<directory>] <path>...` run design §9's servers and clients
+  over Rotor's UDP loop and `tls.quic`. With `pin` the client trusts the server's key, whose
+  SHA-256 `<anchor-prefix>.pin` holds, and judges no chain, date or name. With `qlogdir` each
+  connection writes its qlog into the directory, as `<ODCID>_<vantage point>.sqlog` (decision
+  102). The server serves h3 or hq-interop, whichever its client's ALPN asks for, and a client
+  with `h3` fetches over h3. An address is IPv4 or IPv6; a server bound to `::` takes both on
+  Linux. `tools/quic_udp.sh [port]` runs a client against a server on 127.0.0.1 over both
+  protocols, checks each file arrives octet for octet, that a missing one is refused, and that a
+  second connection resumes the first one's session. It also checks each connection's qlog files
+  with `tools/qlog_check.py`, which requires each record to be a JSON text with the members its
+  event requires. `tools/quic_aioquic.sh [port]` runs the same endpoint
   against aioquic's, pinned and installed once into a cached virtual environment, over both
   protocols in both directions, and checks that a handshake colibri's server refuses ends with its
   CONNECTION_CLOSE; it also needs `python3`. `tools/ci.sh` runs both.
@@ -357,9 +360,11 @@ section when a step adds or renames a command.
   attempts as handshakes (decision 99). The image's endpoint is
   `zig build interop-endpoint`'s `quic-udp-interop`: the UDP endpoint, whose client runs with
   `pin`, because the runner's certificates fail the Web PKI profile (the owner's ruling of
-  2026-09-26). It needs Docker with docker compose, `python3` and `tshark` from Wireshark 4.5.0 or
-  newer. The workflow's `quic-interop-runner` job runs it against quic-go, ngtcp2, neqo and quinn
-  on Ubuntu 26.04, which packages tshark 4.6 (decision 47 as amended).
+  2026-09-26). The image passes the runner's `QLOGDIR` to the endpoint, and every qlog file it
+  leaves must pass `tools/qlog_check.py`. It needs Docker with docker compose, `python3` and
+  `tshark` from Wireshark 4.5.0 or newer. The workflow's `quic-interop-runner` job runs it against
+  quic-go, ngtcp2, neqo and quinn on Ubuntu 26.04, which packages tshark 4.6 (decision 47 as
+  amended).
 - Models: `zig build tla [-- <configuration>...]` model-checks the TLA+ specifications in
   `spec/tla/` with TLC, through pepegrillo's `tla` tool. `tools/tla.zig` pins TLC by release and
   SHA-256, and the jar is cached on first use; it needs Java. The first line of each
