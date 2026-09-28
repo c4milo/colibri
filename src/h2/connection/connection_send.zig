@@ -85,6 +85,9 @@ pub fn write_response(
     if (record.final_sent) return error.SectionOutOfOrder;
     const block = try encode_response(target, code, fields);
     const written = try write_block(target, output, stream_id, block, end_stream);
+    // RFC 7541 §4.2: the block is on its way, so the capacity its size updates named is the
+    // peer's now. A block refused for room is never declared, and the next one owes them again.
+    target.encoder.commit_block();
     const verdict = stream.on_send(record.state, record.closed, .headers, end_stream, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .headers, end_stream);
     // RFC 9113 §8.1: zero or more interim responses precede the final one.
@@ -104,6 +107,8 @@ pub fn write_trailers(target: *Connection, output: []u8, stream_id: u32, fields:
     if (!record.final_sent) return error.SectionOutOfOrder;
     const block = try encode_trailers(target, fields);
     const written = try write_block(target, output, stream_id, block, true);
+    // RFC 7541 §4.2: declared once written, as `write_response` does.
+    target.encoder.commit_block();
     const verdict = stream.on_send(record.state, record.closed, .headers, true, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .headers, true);
     return written;
@@ -177,7 +182,8 @@ fn sendable(target: *Connection, stream_id: u32, kind: stream.Kind, end_stream: 
     return record;
 }
 
-/// Encodes the response's field section into the connection's block buffer (RFC 9113 §8.3.2).
+/// Encodes the response's field section into the connection's block buffer (RFC 9113 §8.3.2). The
+/// caller declares the block once its frames are written (`Encoder.commit_block`).
 fn encode_response(target: *Connection, code: http.status.Status, fields: []const hpack.Field) Error![]const u8 {
     var writer = Writer.init(&target.send_block);
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes, and a buffer that
@@ -194,12 +200,11 @@ fn encode_response(target: *Connection, code: http.status.Status, fields: []cons
             return error.OutputTooSmall;
         };
     }
-    // RFC 7541 §4.2: the block is whole, so the capacity its updates named is the peer's now.
-    target.encoder.commit_block();
     return writer.written();
 }
 
 /// Encodes a trailer section into the connection's block buffer: field lines alone (RFC 9113 §8.1).
+/// The caller declares the block once its frames are written.
 fn encode_trailers(target: *Connection, fields: []const hpack.Field) Error![]const u8 {
     var writer = Writer.init(&target.send_block);
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes.
@@ -209,8 +214,17 @@ fn encode_trailers(target: *Connection, fields: []const hpack.Field) Error![]con
         // whole rather than cut.
         target.encoder.write_field(&writer, field_line.name, field_line.value, .without_indexing) catch return error.OutputTooSmall;
     }
-    target.encoder.commit_block();
     return writer.written();
+}
+
+/// Octets of the frames `write_block` cuts a block of `block_len` octets into: a HEADERS frame, the
+/// CONTINUATION frames after it, and a frame header each (RFC 9113 §4.1, §6.10).
+pub fn block_frames_len(target: *const Connection, block_len: usize) usize {
+    const limit = target.peer.max_frame_size;
+    assert(limit > 0);
+    // RFC 9113 §6.2: even an empty block opens in one HEADERS frame.
+    const frames = @max(1, std.math.divCeil(usize, block_len, @as(usize, limit)) catch unreachable);
+    return block_len + frames * constants.frame_header_len;
 }
 
 /// Cuts `block` into a HEADERS frame and the CONTINUATION frames it needs, each at most the peer's
@@ -233,7 +247,10 @@ pub fn write_block(target: *Connection, output: []u8, stream_id: u32, block: []c
             frame.write_continuation(&writer, stream_id, fragment, last) catch return error.OutputTooSmall;
         }
         offset = end;
-        if (last) return writer.written().len;
+        if (last) {
+            assert(writer.written().len == block_frames_len(target, block.len));
+            return writer.written().len;
+        }
     }
     // The block is bounded by `send_block_len_max` and a frame carries at least
     // `max_frame_size_min`, so it never needs more frames than `continuation_count_max` allows.
@@ -439,4 +456,5 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
 
 test {
     _ = @import("connection_send_trailers_test.zig");
+    _ = @import("connection_send_room_test.zig");
 }

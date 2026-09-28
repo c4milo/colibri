@@ -107,6 +107,12 @@ pub fn write_request(
     assert(target.role == .client);
     assert(indexing.len == 0 or indexing.len == fields.len);
     try validate(request, fields);
+    // RFC 9113 §4.3: a field block is one sequence, so a section past the buffer is refused whole
+    // rather than cut. The block is not declared yet (RFC 7541 §4.2).
+    const block = encode_request(target, request, fields, indexing) catch return error.OutputTooSmall;
+    // RFC 9113 §5.1.1: an identifier opened and never used is spent, so a request that finds no
+    // room is refused before its stream opens, and its HEADERS then goes out whole (§6.2).
+    if (output.len < connection_send.block_frames_len(target, block.len)) return error.OutputTooSmall;
     const record = streams_open.open_local(
         &target.streams,
         target.peer.max_concurrent_streams,
@@ -118,12 +124,12 @@ pub fn write_request(
         error.Full => error.Full,
     };
     const stream_id: u32 = @intCast(record.id);
-    // RFC 9113 §4.3: a field block is one sequence, so a section past the buffer is refused whole
-    // rather than cut.
-    const block = encode_request(target, request, fields, indexing) catch return error.OutputTooSmall;
-    // RFC 9113 §6.2: the block opens in a HEADERS frame, whole or not at all.
-    const written = connection_send.write_block(target, output, stream_id, block, end_stream) catch
-        return error.OutputTooSmall;
+    // The room was checked above, so the frames go out whole.
+    const written = connection_send.write_block(target, output, stream_id, block, end_stream) catch unreachable;
+    assert(written == connection_send.block_frames_len(target, block.len));
+    // RFC 7541 §4.2: the block is on its way, so the capacity its size updates named is the
+    // peer's now.
+    target.encoder.commit_block();
     const verdict = stream.on_send(record.state, record.closed, .headers, end_stream, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .headers, end_stream);
     // RFC 9113 §8.1: a request's header section is its final one, and a trailer section may follow.
@@ -209,7 +215,7 @@ fn is_lowercase(name: []const u8) bool {
 }
 
 /// Encodes the request's field section into the connection's block buffer, the pseudo-header
-/// fields first (RFC 9113 §8.3).
+/// fields first (RFC 9113 §8.3). The caller declares the block once its frames are written.
 fn encode_request(target: *Connection, request: Request, fields: []const hpack.Field, indexing: []const Indexing) !([]const u8) {
     var writer = Writer.init(&target.send_block);
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes.
@@ -226,8 +232,6 @@ fn encode_request(target: *Connection, request: Request, fields: []const hpack.F
         const how: Indexing = if (indexing.len == 0) .without_indexing else indexing[index];
         try write_line(target, &writer, line.name, line.value, how);
     }
-    // RFC 7541 §4.2: the block is whole, so the capacity its updates named is the peer's now.
-    target.encoder.commit_block();
     return writer.written();
 }
 
