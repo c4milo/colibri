@@ -11,7 +11,7 @@ const http = @import("http");
 pub const Id = u64;
 
 /// The protocol serving a connection.
-pub const Protocol = enum { h11, h2 };
+pub const Protocol = enum { h11, h2, h3 };
 
 /// The HTTP version a request came in, numbered as RFC 9110 §2.5 numbers it: 1.0 or 1.1 for h11,
 /// and 2.0 for h2.

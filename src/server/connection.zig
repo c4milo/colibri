@@ -162,6 +162,8 @@ pub const Connection = struct {
     /// draw the handshake makes comes from `random`, and `now_seconds` is the clock its tickets
     /// are issued at, or 0 for none.
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64) StartError!void {
+        // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3.
+        assert(config.cleartext != .h3);
         connection.config = config;
         connection.plain_in_len = 0;
         connection.plain_in_read = 0;
@@ -201,6 +203,8 @@ pub const Connection = struct {
                 connection.session = .{ .h11 = undefined };
                 connection.session.h11.init(.server, .{ .decoders = connection.config.decoders });
             },
+            // RFC 9114 §3.1: h3 runs over QUIC alone, which `QuicConnection` serves.
+            .h3 => unreachable,
         }
         connection.phase = .open;
         assert(connection.protocol().? == chosen);

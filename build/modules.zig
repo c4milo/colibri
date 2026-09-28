@@ -186,6 +186,9 @@ pub fn add(
     server.addImport("h2", h2);
     server.addImport("tls", tls);
     server.addImport("tls_provider", tls_provider);
+    // Design §8 step 17b: h3 over QUIC, behind the same calls (design §3).
+    server.addImport("h3", h3);
+    server.addImport("quic", quic);
     // Decision 100: `client` sends requests over h11 and h2 behind one set of calls, and drives
     // `tls` itself, as `server` does.
     const client = library(b, "client", target, optimize);

@@ -4,6 +4,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
+const h3 = @import("h3");
+const quic = @import("quic");
 const tls_provider = @import("tls_provider");
 
 /// Octets of an h2 frame of the largest size colibri advertises, its header included (RFC 9113
@@ -54,6 +56,53 @@ pub const chunk_framing_len_max: usize = @sizeOf(usize) * 2 + 4;
 /// Octets of the last chunk and the empty line after it, `0\r\n\r\n`, which end a chunked body
 /// with no trailer field (RFC 9112 §7.1).
 pub const last_chunk_len: usize = 5;
+
+/// Request streams a QUIC connection's client may have open at once, which the server grants as
+/// `initial_max_streams_bidi` (RFC 9000 §4.6, §18.2) and which sizes each connection's table of
+/// responses. h3 tracks more (`h3.constants.request_streams_max`).
+pub const quic_requests_max: u32 = 32;
+
+/// Octets of the frames one h3 response keeps until the peer acknowledges them (decision 79): its
+/// heads' HEADERS frames, each DATA frame's header, and its trailer section's HEADERS frame.
+pub const quic_response_kept_len: usize = 8192;
+
+/// The runs of octets one h3 response holds until the peer acknowledges them: each kept frame,
+/// and each run of the caller's octets `write_body` took, which stay the caller's (decision 103).
+pub const quic_response_pieces_max: usize = 16;
+
+/// Octets of request content h3 copies out of the receive pool in one event (decision 80).
+pub const quic_read_len: usize = 16_384;
+
+/// The length of every connection ID the endpoint chooses. RFC 9000 §7.2 has a client's first
+/// Destination Connection ID be at least 8 octets, and the server's are as long.
+pub const quic_id_len: usize = 8;
+
+/// The window each QUIC connection grants a request stream's content, and each of the client's
+/// unidirectional streams: h3's control stream and QPACK's two (RFC 9114 §6.2).
+pub const quic_stream_window: u64 = 65_536;
+
+/// Octets of the transport parameters the server sends, encoded (RFC 9000 §18): every parameter
+/// RFC 9000 §18.2 defines fits.
+pub const quic_transport_parameters_len_max: usize = 1024;
+
+/// The idle timeout a QUIC connection advertises unless the caller names another (RFC 9000 §10.1),
+/// in milliseconds.
+pub const quic_idle_timeout_ms_default: u64 = 30_000;
+
+/// Events one `receive` of a QUIC connection reads past at most: one for each octet the receive
+/// pool holds, and a few that consume none, such as a stream's end, for each request.
+pub const quic_events_per_read_max: usize = quic.constants.receive_pool_len_default + quic_requests_max * quic_events_per_request_max + 1;
+/// The events of one request stream that consume nothing: its head, its end and its reset.
+const quic_events_per_request_max: usize = 3;
+
+comptime {
+    assert(quic_requests_max > 0 and quic_requests_max <= h3.constants.request_streams_max);
+    // A response's head, the longest field section h3 encodes behind a frame header, fits.
+    assert(quic_response_kept_len >= h3.constants.frame_header_len_max + h3.constants.section_prefix_len_max);
+    assert(quic_response_pieces_max > 2 and quic_read_len > 0 and quic_id_len >= 8);
+    // Each request owes one `done` at most, and the ring that holds them has room for all.
+    assert(done_owed_max >= quic_requests_max);
+}
 
 comptime {
     // A frame waiting for its last octets never stops the next record from opening.
