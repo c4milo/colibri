@@ -184,13 +184,19 @@ pub fn assign_waiting(origin: *Origin) void {
     }
 }
 
-/// A shut-down origin drains its open connection (the model's Drain). No exchange waits beside an
+/// A shut-down origin drains its open connection (the model's Drain), and ends a handshake once it
+/// holds no exchange, which could come back refused (its Abandon). No exchange waits beside an
 /// open connection, which takes each as it comes.
 fn drain_if_shut(origin: *Origin) void {
     if (!origin.shut) return;
-    const transport = open_transport(origin) orelse return;
-    assert(!any_waiting(origin));
-    shut_connection(origin, transport);
+    if (open_transport(origin)) |transport| {
+        assert(!any_waiting(origin));
+        shut_connection(origin, transport);
+    }
+    if (any_entry(origin)) return;
+    for (transports) |transport| {
+        if (origin.phase(transport) == .handshake) abandon(origin, transport);
+    }
 }
 
 fn shut_connection(origin: *Origin, transport: Transport) void {
@@ -200,7 +206,8 @@ fn shut_connection(origin: *Origin, transport: Transport) void {
     }
 }
 
-/// Ends the handshake of a connection another one beat (the model's Abandon).
+/// Ends the handshake of a connection another one beat, or one a shut-down origin has nothing
+/// for (the model's Abandon).
 fn abandon(origin: *Origin, transport: Transport) void {
     const link = origin.links.getPtr(transport);
     link.abandoned = true;

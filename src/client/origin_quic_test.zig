@@ -179,6 +179,9 @@ test "RFC 9114 §3.1: a QUIC handshake that selects no h3 fails, and TCP opens" 
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     try testing.expectEqual(origin_module.Phase.handshake, origin.phase(.tcp));
     try testing.expectEqual(.pending, exchange.outcome);
+    // The fallback delay counts only while QUIC's handshake runs, and QUIC's failed.
+    try pump(rounds_before_fallback);
+    try testing.expect(!origin.fallback);
 }
 
 test "RFC 9114 §3.1: TCP opens beside a QUIC handshake once the fallback delay passes, and not before" {
@@ -388,6 +391,49 @@ test "RFC 7838 §3: TCP goes to the origin's port though QUIC went to the altern
     try pump(quic_support.rounds_default);
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     try testing.expectEqual(https_port, opened(1).?.to.port);
+}
+
+test "a shut-down origin ends a handshake no exchange waits for, and closes" {
+    try start(&quic_support.alpn_h3, values_at(https_port), true);
+    blocked = true;
+    var exchange = get(&bodies[0]);
+    const id = try origin.request(&exchange);
+    try collect();
+    try testing.expectEqual(origin_module.Phase.handshake, origin.phase(.quic));
+    origin.cancel(id);
+    origin.shutdown();
+    try collect();
+    // RFC 9000 §10.2: the abandoned connection owes its CONNECTION_CLOSE, then runs its closing
+    // period, and the origin closes after it.
+    try testing.expectEqual(origin_module.Phase.failed, origin.phase(.quic));
+    try pump(rounds_past_probe * 4);
+    try testing.expectEqual(Transport.quic, nth(.close, 0).?.close);
+    try testing.expect(nth(.closed, 0) != null);
+}
+
+test "a shut-down origin keeps a handshake while it holds an exchange, which could come back refused" {
+    try start(&quic_support.alpn_h3, values_at(https_port), true);
+    quic_support.server_answers = false;
+    var first = get(&bodies[0]);
+    _ = try origin.request(&first);
+    try pump(quic_support.rounds_default);
+    // RFC 9114 §5.2: the GOAWAY names stream 4, so the first exchange stays, and the connection
+    // takes no second one, which waits for TCP.
+    try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
+    try pump(quic_support.rounds_default);
+    var second = get(&bodies[1]);
+    const second_id = try origin.request(&second);
+    try collect();
+    try testing.expectEqual(Transport.tcp, opened(1).?.transport);
+    origin.shutdown();
+    origin.cancel(second_id);
+    try collect();
+    try testing.expectEqual(origin_module.Phase.handshake, origin.phase(.tcp));
+    // Once the first exchange ends, the origin holds none, and the handshake ends.
+    quic_support.server_answers = true;
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.response, first.outcome);
+    try testing.expectEqual(Transport.tcp, nth(.close, 0).?.close);
 }
 
 test "a cancelled exchange leaves nothing to open" {

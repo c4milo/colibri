@@ -314,9 +314,11 @@ Handshake(t) ==
     /\ UNCHANGED <<opens, goaways, learned, shut>>
     /\ UNCHANGED exchangeVars
 
-(* The client abandons a handshake another connection won.                 *)
+(* The client abandons a handshake another connection won, or one a client *)
+(* the caller shut down has no exchange left for.                          *)
 Abandon(t) ==
-    /\ phase[t] = "handshake" /\ OpenOnes # {}
+    /\ phase[t] = "handshake"
+    /\ OpenOnes # {} \/ (shut /\ \A e \in Exchanges : stage[e] \in {"unmade", "reported", "cancelled"})
     /\ phase' = [phase EXCEPT ![t] = "failed"]
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
     /\ UNCHANGED exchangeVars
