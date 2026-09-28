@@ -4930,6 +4930,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     feed, both escapes, the comma, an event committed in part, the fraction's unit, and the
     epoch.
 
+  **18b, 2026-09-27.** `quic` imports `qlog`, and `Options.qlog`, null by default, is the log a
+  connection writes into. The caller writes the log's header with `Log.start`, because the event
+  schemas it names depend on whether h3 events go into the same log.
+  - `connection_qlog.zig` writes the events. `Connection.init` logs `version_information` and the
+    connection's own `parameters_set`. `seal_all` logs each packet it seals as `packet_sent`. The
+    receive walk logs each packet as `packet_received` or `packet_dropped`, with the octets the
+    walk stepped over as its length. A packet's frames are read a second time from its
+    plaintext, and an ACK Delay is scaled by the exponent of the endpoint that sent it (RFC 9000
+    §19.3).
+  - `send`, `receive` and `on_instant` end in `log_changes`, which logs what changed since the
+    last events: the peer's `parameters_set` and the `alpn_information` once the peer's
+    parameters arrive, the state of quic-events §4.6, `connection_closed` when the connection
+    stops being active, and each recovery metric whose value changed. A peer's close is logged
+    where its frame is read, which is where its code is known.
+  - `quic_event.zig` writes `version_information` and `alpn_information`, and `packet_lost`'s
+    trigger is optional, for a loss either threshold of RFC 9002 §6.1 could have declared.
+  - 10 tests in `connection_qlog_test.zig` and one in `quic_event.zig`. 20 mutations, each CAUGHT
+    by `zig build test-quic`, broke: the PADDING of a sent packet; the length of a coalesced
+    packet; one close per side; a close logged only once the connection stops being active; one
+    event per state; the three rules of a metric logged on change; the peer's parameters and the
+    protocol, once each and in that order; the two rules of the Handshake state; each side's ACK
+    Delay exponent; two drop triggers; the version's byte order; the initiator of a connection's
+    own parameters; a sent close's code; and a frame that does not parse, which was NOT CAUGHT
+    until its test was written.
+  - Not built yet: `packet_lost`, and the simulator check that a log changes no census.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

@@ -45,6 +45,7 @@ const key_update = @import("connection_key_update.zig");
 const retry_module = @import("connection_retry.zig");
 const handshake_module = @import("connection_handshake.zig");
 const migration_module = @import("connection_migration.zig");
+const connection_qlog = @import("connection_qlog.zig");
 const PeerAddress = @import("../peer_address.zig").PeerAddress;
 
 const Level = core.Level;
@@ -82,6 +83,9 @@ pub const Options = struct {
     /// the client whose first Initial a server accepted. A caller that names no addresses leaves
     /// it empty and passes none with its datagrams, and the path never moves.
     peer_address: PeerAddress = .{},
+    /// The log the connection writes qlog events into (decision 102), whose header the caller
+    /// wrote with `Log.start` at or before `now_ns`. Null, the default, logs nothing.
+    qlog: ?*connection_qlog.Log = null,
 };
 
 pub const Connection = struct {
@@ -175,6 +179,8 @@ pub const Connection = struct {
     /// The Retry token this endpoint repeats in every Initial it sends (RFC 9000 §8.1.2), empty
     /// until a Retry carried one.
     retry_token: retry_module.Token,
+    /// The caller's qlog log, and what the last events said (decision 102).
+    qlog: connection_qlog.State,
 
     /// A connection with nothing sent and nothing received.
     pub fn init(connection: *Connection, options: Options) void {
@@ -213,6 +219,7 @@ pub const Connection = struct {
         init_streams(connection, parameters);
         init_flow(connection, parameters);
         init_paths(connection, options);
+        connection_qlog.init(connection, options.qlog, options.now_ns);
         assert(connection.peer_parameters == null);
     }
 
@@ -376,4 +383,5 @@ test {
     _ = @import("connection_datagram.zig");
     _ = @import("connection_stream/connection_stream_read.zig");
     _ = @import("connection_stream/connection_stream_close.zig");
+    _ = @import("connection_qlog.zig");
 }

@@ -18,6 +18,7 @@ const key_update = @import("connection_key_update.zig");
 const connection_recovery = @import("connection_recovery.zig");
 const connection_flow = @import("connection_flow.zig");
 const migration = @import("connection_migration.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
 const Connection = connection_module.Connection;
 const Suite = crypto.Suite;
@@ -118,6 +119,8 @@ pub fn on_instant(
     scratch: *connection_recovery.Scratch,
     now_ns: u64,
 ) connection_recovery.Error!Fired {
+    // No handshake advances here, so there is no provider to ask for the protocol.
+    defer connection_qlog.log_changes(connection, null, now_ns);
     var fired: Fired = .{};
     // RFC 9000 §10.1 closes the connection silently, and §10.2's period belongs to a connection
     // that closed deliberately, so the two cannot both be running.

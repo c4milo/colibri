@@ -8,11 +8,14 @@ const assert = std.debug.assert;
 const json_module = @import("json.zig");
 const Json = json_module.Json;
 const quic_frame = @import("quic_frame.zig");
+const VantagePoint = @import("log.zig").VantagePoint;
 
 pub const Error = json_module.Error;
 
 /// The names of the events (quic-events §3).
 pub const name = struct {
+    pub const version_information = "quic:version_information";
+    pub const alpn_information = "quic:alpn_information";
     pub const parameters_set = "quic:parameters_set";
     pub const packet_sent = "quic:packet_sent";
     pub const packet_received = "quic:packet_received";
@@ -65,10 +68,13 @@ pub const PacketDropped = struct {
     }
 };
 
-/// Quic-events §7.4.
+/// Quic-events §7.4's causes of a loss.
+pub const LossTrigger = enum { reordering_threshold, time_threshold, pto_expired };
+
+/// Quic-events §7.4. The trigger is left out when the loss has more than one possible cause.
 pub const PacketLost = struct {
     header: PacketHeader,
-    trigger: enum { reordering_threshold, time_threshold, pto_expired },
+    trigger: ?LossTrigger = null,
 
     pub fn write(event: PacketLost, json: *Json) Error!void {
         try fields(json, event);
@@ -118,6 +124,36 @@ pub const ConnectionClosed = struct {
             .application => try quic_frame.application_error(json, "application_error", event.error_code),
         };
         try json.field_string("trigger", @tagName(event.trigger));
+    }
+};
+
+/// Quic-events §5.1 from an endpoint that supports one version and chose it: a client logs it
+/// when it starts, and a server once it took the client's first Initial.
+pub const VersionInformation = struct {
+    vantage_point: VantagePoint,
+    version: Hex,
+
+    pub fn write(event: VersionInformation, json: *Json) Error!void {
+        try json.key(switch (event.vantage_point) {
+            .client => "client_versions",
+            .server => "server_versions",
+        });
+        try json.begin_array();
+        try json.hexstring(event.version.octets);
+        try json.end_array();
+        try json.field_hexstring("chosen_version", event.version.octets);
+    }
+};
+
+/// Quic-events §5.2's ALPNIdentifier, as octets (decision 102).
+pub const AlpnIdentifier = struct { byte_value: Hex };
+
+/// Quic-events §5.2, once the handshake chose a protocol.
+pub const AlpnInformation = struct {
+    chosen_alpn: AlpnIdentifier,
+
+    pub fn write(event: AlpnInformation, json: *Json) Error!void {
+        try fields(json, event);
     }
 };
 
@@ -211,6 +247,9 @@ test "a lost packet's header and trigger, with the draft's packet type names" {
         .header = .{ .packet_type = .@"0RTT" },
         .trigger = .pto_expired,
     });
+    try expect_event("{\"header\":{\"packet_type\":\"handshake\",\"packet_number\":3}}", PacketLost{
+        .header = .{ .packet_type = .handshake, .packet_number = 3 },
+    });
 }
 
 test "recovery metrics write only what is present, and durations in milliseconds" {
@@ -253,6 +292,20 @@ test "a closed connection names a transport error, and an application's as unkno
     try expect_event("{\"initiator\":\"local\",\"trigger\":\"idle_timeout\"}", ConnectionClosed{
         .initiator = .local,
         .trigger = .idle_timeout,
+    });
+}
+
+test "a version and a protocol, each as a hexstring" {
+    try expect_event("{\"client_versions\":[\"00000001\"],\"chosen_version\":\"00000001\"}", VersionInformation{
+        .vantage_point = .client,
+        .version = .{ .octets = &.{ 0, 0, 0, 1 } },
+    });
+    try expect_event("{\"server_versions\":[\"00000001\"],\"chosen_version\":\"00000001\"}", VersionInformation{
+        .vantage_point = .server,
+        .version = .{ .octets = &.{ 0, 0, 0, 1 } },
+    });
+    try expect_event("{\"chosen_alpn\":{\"byte_value\":\"6833\"}}", AlpnInformation{
+        .chosen_alpn = .{ .byte_value = .{ .octets = "h3" } },
     });
 }
 

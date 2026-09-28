@@ -43,6 +43,7 @@ const connection_recovery = @import("connection_recovery.zig");
 const connection_retry = @import("connection_retry.zig");
 const connection_version = @import("connection_version.zig");
 const migration = @import("connection_migration.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
 const Connection = connection_module.Connection;
 const Datagram = receive_module.Datagram;
@@ -113,6 +114,8 @@ pub fn receive(
     datagram: Datagram,
     scratch: *Scratch,
 ) Error!Received {
+    // Ahead of the `errdefer`, so it runs after it and logs what a failure changed.
+    defer connection_qlog.log_changes(connection, provider, datagram.now_ns);
     // RFC 9000 §10.2: a connection error closes the connection at once, and the endpoint that
     // found it tells its peer why, in the CONNECTION_CLOSE `send` writes next.
     errdefer |failure| connection_close.owe(connection, connection_close.transport(connection_error_code(connection, failure), null));
@@ -192,8 +195,12 @@ fn walk_packets(
 ) Error!void {
     var walk: receive_module.Walk = undefined;
     walk.init(datagram);
+    var walked_len: usize = 0;
     // Bounded by the walk, which separates at most `constants.coalesced_packets_max` packets.
     while (try receive_module.next(&walk, connection, suite)) |outcome| {
+        // The octets `next` stepped over are the packet's.
+        connection_qlog.on_packet_read(connection, outcome, walk.consumed - walked_len, datagram.now_ns);
+        walked_len = walk.consumed;
         const opened = switch (outcome) {
             .opened => |held| held,
             .discarded => continue,
@@ -238,6 +245,7 @@ fn process_packet(
     assert(received.completed_streams == 0 or report.completed_streams == 0);
     received.completed_streams += report.completed_streams;
     if (report.close) |close| received.close = close;
+    connection_qlog.on_close_received(connection, report.close, datagram.now_ns);
     if (report.owed.new_token) |token| received.new_token = token;
     // RFC 9001 §4.9.2: a client confirms the handshake on HANDSHAKE_DONE (§4.1.2), and "An
     // endpoint MUST discard its Handshake keys when the TLS handshake is confirmed".

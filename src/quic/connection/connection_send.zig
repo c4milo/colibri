@@ -39,6 +39,7 @@ const connection_crypto = @import("connection_crypto.zig");
 const connection_handshake = @import("connection_handshake.zig");
 const space_module = @import("../space/space.zig");
 const connection_expand = @import("connection_expand.zig");
+const connection_qlog = @import("connection_qlog.zig");
 const migration = @import("connection_migration.zig");
 const path_module = @import("../path.zig");
 const PeerAddress = @import("../peer_address.zig").PeerAddress;
@@ -139,6 +140,8 @@ pub fn send(
     output: []u8,
     now_ns: u64,
 ) Error!?Sent {
+    // Ahead of the `errdefer`, so it runs after it and logs the close a failure caused.
+    defer connection_qlog.log_changes(connection, provider, now_ns);
     // RFC 9000 §10.2, §12.3: an error that ends the connection owes its close, or closes it.
     errdefer |ended| connection_close.on_send_failure(connection, connection_error_code(connection, ended), ended == error.PacketNumbersExhausted);
     // RFC 9000 §10.2.2: "an endpoint in the draining state MUST NOT send any packets", and the
@@ -178,7 +181,7 @@ pub fn send(
     }
     if (count == 0) return null;
     connection_expand.expand_last(connection, plans[0..count], planned_len, ceiling);
-    var sent = try seal_all(connection, suite, scratch, plans[0..count], output);
+    var sent = try seal_all(connection, suite, scratch, plans[0..count], output, now_ns);
     sent.ecn = codepoint_of(connection, now_ns);
     sent.to = connection.path.address;
     const recorded = record_all(connection, plans[0..count], &sent, now_ns);
@@ -219,7 +222,7 @@ fn send_previous_probe(
     const planned = try packet_build.plan(connection, provider, stream_provider, .application, payload, room, now_ns) orelse return null;
     var plans = [_]packet_build.Planned{planned};
     connection_expand.expand_last(connection, &plans, packet_len_of(connection, planned), ceiling);
-    var sent = try seal_all(connection, suite, scratch, &plans, output);
+    var sent = try seal_all(connection, suite, scratch, &plans, output, now_ns);
     sent.to = connection.path.address;
     note_challenge_sent(connection, &plans, sent.len, now_ns);
     return sent;
@@ -446,6 +449,7 @@ fn seal_all(
     scratch: anytype,
     plans: []const packet_build.Planned,
     output: []u8,
+    now_ns: u64,
 ) Error!Sent {
     var sent: Sent = .{ .len = 0, .packets = undefined, .count = 0 };
     for (plans) |planned| {
@@ -460,6 +464,7 @@ fn seal_all(
             payload,
             output[sent.len..],
         );
+        connection_qlog.on_packet_sent(connection, built.level, built.packet_number, built.len, payload[0 .. planned.payload_len + planned.padding_len], now_ns);
         sent.packets[sent.count] = .{
             .level = built.level,
             .packet_number = built.packet_number,
