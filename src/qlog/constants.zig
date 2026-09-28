@@ -36,6 +36,14 @@ pub const nanoseconds_per_microsecond: u64 = 1_000;
 /// Policy.
 pub const log_len_min: usize = 1024;
 
+/// The QUIC error codes RFC 9000 §20.1 reserves for TLS alerts, CRYPTO_ERROR: 0x100 plus the
+/// alert's description. Quic-events §8.13.26 names each one as its code in hex.
+pub const crypto_error_first: u64 = 0x100;
+pub const crypto_error_last: u64 = 0x1ff;
+
+/// Hex digits in the name of a CRYPTO_ERROR's code, `crypto_error_0x1XX` (quic-events §8.13.26).
+pub const crypto_error_digits: usize = 3;
+
 comptime {
     assert(record_separator != line_feed);
     assert(record_separator <= control_character_last and line_feed <= control_character_last);
@@ -43,4 +51,5 @@ comptime {
     assert(json_depth_max >= 4);
     assert(nanoseconds_per_millisecond % nanoseconds_per_microsecond == 0);
     assert(log_len_min > 0);
+    assert(crypto_error_last - crypto_error_first == 0xff);
 }

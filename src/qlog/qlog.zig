@@ -15,6 +15,12 @@ pub const Log = log.Log;
 pub const Trace = log.Trace;
 pub const VantagePoint = log.VantagePoint;
 
+/// The QUIC frames of quic-events §8.13, one writer per frame type.
+pub const quic_frame = @import("quic_frame.zig");
+
+/// The QUIC events of quic-events §3 that `quic` logs.
+pub const quic_event = @import("quic_event.zig");
+
 /// The event schema of the QUIC events. Quic-events §2.1 has an implementation of draft 13 name
 /// it with the draft number until the RFC publishes.
 pub const quic_event_schema = "urn:ietf:params:qlog:events:quic-13";
@@ -27,4 +33,6 @@ test {
     _ = constants;
     _ = json;
     _ = log;
+    _ = quic_frame;
+    _ = quic_event;
 }
