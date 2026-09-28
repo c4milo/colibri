@@ -1,6 +1,7 @@
 //! What `Connection.receive` reports, the same for h11 and h2 (decision 100): a request's head,
-//! its content, its trailer section, or its end by cancellation. Every slice points into storage
-//! the connection or the caller holds, and stays valid until the next call to `receive`.
+//! its content, its trailer section, its end by cancellation, or that its response is done. Every
+//! slice points into storage the connection or the caller holds, and stays valid until the next
+//! call to `receive`.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -101,11 +102,19 @@ pub const Cancelled = struct {
     id: Id,
 };
 
+/// The response to a request is whole, and the server reads none of the caller's octets for it
+/// again, so the caller may reuse the memory its body came from (decision 103). h11 and h2 report
+/// it after the call that wrote the response's last octet. A request cancelled first gets none.
+pub const Done = struct {
+    id: Id,
+};
+
 pub const Event = union(enum) {
     request: Request,
     body: Body,
     trailers: Trailers,
     cancelled: Cancelled,
+    done: Done,
 };
 
 /// What one `receive` call took and reported.

@@ -62,6 +62,14 @@ pub fn receive_copy(octets: []const u8) !Received {
     return connection.receive(input[0..octets.len], now_ns);
 }
 
+/// Reads the `done` event of request `id`, which comes before anything more is read (decision
+/// 103).
+pub fn expect_done(id: u64) !void {
+    const received = try connection.receive(&.{}, now_ns);
+    try std.testing.expectEqual(0, received.consumed);
+    try std.testing.expectEqual(id, received.event.?.done.id);
+}
+
 /// Everything the connection owes, sent in one call.
 pub fn drain() []const u8 {
     const written = connection.send(&output, now_ns);

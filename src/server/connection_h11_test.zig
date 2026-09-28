@@ -40,7 +40,8 @@ test "RFC 9112 §7.1: content of unknown length goes out chunked to an HTTP/1.1 
     try testing.expectEqual(5, try connection.write_body(1, "hello", true));
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n" ++
         "transfer-encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n", support.drain());
-    // The response is whole, so the next request is read.
+    // The response is whole, so its `done` event comes, and the next request is read.
+    try support.expect_done(1);
     _ = try expect_request(get_request, 2);
 }
 
@@ -66,14 +67,17 @@ test "RFC 9112 §6.3 rule 1: a 204, a 304 and a response to HEAD carry no framin
     _ = try expect_request(get_request, 1);
     try connection.respond(1, no_content, &.{}, true);
     try testing.expectEqualStrings("HTTP/1.1 204 No Content\r\n\r\n", support.drain());
+    try support.expect_done(1);
     _ = try expect_request(get_request, 2);
     try connection.respond(2, not_modified, &.{}, true);
     try testing.expectEqualStrings("HTTP/1.1 304 Not Modified\r\n\r\n", support.drain());
+    try support.expect_done(2);
     _ = try expect_request("HEAD / HTTP/1.1\r\nHost: a\r\n\r\n", 3);
     try connection.respond(3, ok, &content_type, false);
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\n", support.drain());
-    // RFC 9110 §9.3.2: a response to HEAD has no content.
+    // RFC 9110 §9.3.2: a response to HEAD has no content, so its head made it whole.
     try testing.expectError(error.SectionOutOfOrder, connection.write_body(3, "x", true));
+    try support.expect_done(3);
 }
 
 test "RFC 9112 §6.3 rule 8: an HTTP/1.0 request's response runs until the close" {
@@ -143,6 +147,7 @@ test "RFC 9112 §3.2.2: an absolute-form target's authority replaces Host's" {
 fn expect_after_response(request: []const u8, id: u64) !support.Request {
     try connection.respond(id - 1, ok, &.{}, true);
     _ = support.drain();
+    try support.expect_done(id - 1);
     return expect_request(request, id);
 }
 

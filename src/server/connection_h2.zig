@@ -80,6 +80,8 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
         return send_error(connection, failure);
     };
     connection.output_len += written;
+    // RFC 9113 §8.1: a final response's END_STREAM ends it.
+    if (end and !interim) connection.done_owed.push(id);
 }
 
 pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
@@ -90,6 +92,8 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
     connection.output_len += sent.written;
     // RFC 9113 §6.9: no window, or no room for a frame, and nothing moved.
     if (sent.written == 0) return error.Blocked;
+    // h2 sets END_STREAM on the frame that carries the last octet, and only then.
+    if (end and sent.consumed == octets.len) connection.done_owed.push(id);
     return sent.consumed;
 }
 
@@ -101,6 +105,8 @@ pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) Se
         return send_error(connection, failure);
     };
     connection.output_len += written;
+    // RFC 9113 §8.1: a trailer section ends the stream.
+    connection.done_owed.push(id);
 }
 
 pub fn cancel(connection: *Connection, id: Id) void {

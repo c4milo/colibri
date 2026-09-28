@@ -4,9 +4,10 @@
 //!
 //! A program makes one `Config`, then a `Connection` for each TCP connection it accepts, in
 //! storage it owns. It passes the octets it read to `receive`, which returns at most one event: a
-//! request's head, octets of its content, its trailer section, or its cancellation. It answers
-//! each request by its id with `respond`, `write_body` and `write_trailers`, and sends what `send`
-//! writes. colibri makes no system call and reads no clock: time is a value the caller passes.
+//! request's head, octets of its content, its trailer section, its cancellation, or that its
+//! response is done. It answers each request by its id with `respond`, `write_body` and
+//! `write_trailers`, and sends what `send` writes. colibri makes no system call and reads no
+//! clock: time is a value the caller passes.
 //!
 //! Over TLS, the connection runs the handshake through `tls.record.Server` itself, so a program
 //! that uses this module links chapulin. One that wants no TLS uses `h11` or `h2` directly.
@@ -31,12 +32,14 @@ pub const Request = event.Request;
 pub const Body = event.Body;
 pub const Trailers = event.Trailers;
 pub const Cancelled = event.Cancelled;
+pub const Done = event.Done;
 pub const Received = event.Received;
 
 test {
     std.testing.refAllDecls(@This());
     _ = @import("reason.zig");
     _ = @import("expect.zig");
+    _ = @import("done.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

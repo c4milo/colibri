@@ -135,6 +135,8 @@ pub const Session = struct {
             },
             .trailers => |trailers| session.finish_reading(trailers.id),
             .cancelled => |cancelled| session.forget(cancelled.id),
+            // Every response body is a constant or the echo's own copy, so nothing waits for it.
+            .done => {},
         }
     }
 

@@ -4,6 +4,7 @@
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("connection_test_support.zig");
+const h2_support = @import("connection_h2_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -12,62 +13,19 @@ const constants = h2.constants;
 const content_type = [_]support.Field{.{ .name = "content-type", .value = "text/plain" }};
 const ok: u16 = 200;
 const early_hints: u16 = 103;
-/// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4).
-const client_preface = constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 
-/// Where a test builds the frames the client sends, and decodes what the server sent. Test-only.
-var frames: [support.input_len]u8 = undefined;
+const start = h2_support.start;
+const request_frame = h2_support.request_frame;
+const frame_len = h2_support.frame_len;
+const frames = &h2_support.frames;
+const type_index = h2_support.type_index;
+const flags_index = h2_support.flags_index;
+
+/// Where a test decodes what the server sent. Test-only.
 var decoder: h2.hpack.Decoder align(@alignOf(h2.hpack.Decoder)) = undefined;
 
-/// A frame's header: a length of three octets, big-endian, then its type and its flags (RFC 9113
-/// §4.1).
-const length_len: usize = 3;
-const type_index: usize = length_len;
-const flags_index: usize = length_len + 1;
 /// Octets of the error code that ends an RST_STREAM frame (RFC 9113 §6.4).
 const error_code_len: usize = 4;
-
-/// A connection that has read the client's preface and sent its own. Test-only.
-fn start() !void {
-    try support.start_cleartext(.h2);
-    const received = try support.receive_copy(client_preface);
-    try testing.expectEqual(client_preface.len, received.consumed);
-    try testing.expectEqual(null, received.event);
-    const sent = support.drain();
-    // RFC 9113 §3.4: the server's connection preface is a SETTINGS frame, sent first.
-    try testing.expectEqual(constants.frame_type_settings, sent[type_index]);
-}
-
-/// A HEADERS frame carrying a GET for `path` on `stream_id`, ending the stream when `end`.
-/// Test-only.
-fn request_frame(stream_id: u32, path: []const u8, end: bool) ![]const u8 {
-    var block: [constants.frame_size_max]u8 = undefined;
-    var encoder: h2.hpack.Encoder = undefined;
-    encoder.init(constants.header_table_size_initial, .never);
-    var block_writer = h2.core.Writer.init(&block);
-    try encoder.begin_block(&block_writer);
-    try encoder.write_field(&block_writer, ":method", "GET", .without_indexing);
-    try encoder.write_field(&block_writer, ":scheme", "http", .without_indexing);
-    try encoder.write_field(&block_writer, ":path", path, .without_indexing);
-    try encoder.write_field(&block_writer, ":authority", "example.com", .without_indexing);
-    try encoder.write_field(&block_writer, "accept", "*/*", .without_indexing);
-    encoder.commit_block();
-    var writer = h2.core.Writer.init(&frames);
-    const end_flag: u8 = if (end) constants.flag_end_stream else 0;
-    try h2.frame.write_header(&writer, .{
-        .length = @intCast(block_writer.written().len),
-        .type = constants.frame_type_headers,
-        .flags = constants.flag_end_headers | end_flag,
-        .stream_id = stream_id,
-    });
-    try writer.write_bytes(block_writer.written());
-    return writer.written();
-}
-
-/// The length of the frame at the front of `octets`. Test-only.
-fn frame_len(octets: []const u8) usize {
-    return constants.frame_header_len + std.mem.readInt(u24, octets[0..length_len], .big);
-}
 
 test "RFC 9113 §8.3.1: a request's pseudo-header fields arrive as its parts, and its fields after" {
     try start();
@@ -126,7 +84,7 @@ test "RFC 9113 §8.1: an interim response ends no stream, whatever `end` asks, a
 test "RFC 9113 §8.1: a request's DATA arrives as body events, the last ending it" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", false));
-    var writer = h2.core.Writer.init(&frames);
+    var writer = h2.core.Writer.init(frames);
     try h2.frame.write_data(&writer, 1, "hello", true, 0);
     const received = try support.receive_copy(writer.written());
     const body = received.event.?.body;
@@ -150,7 +108,7 @@ test "RFC 9113 §6.4: cancel resets the stream with CANCEL" {
 test "RFC 9113 §6.4: a stream the peer resets arrives as its cancellation" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", false));
-    var writer = h2.core.Writer.init(&frames);
+    var writer = h2.core.Writer.init(frames);
     try h2.frame.write_rst_stream(&writer, 1, constants.error_cancel);
     const received = try support.receive_copy(writer.written());
     try testing.expectEqual(1, received.event.?.cancelled.id);
@@ -212,7 +170,7 @@ test "RFC 9113 §6.8: a shutdown sends GOAWAY, and the connection closes once it
 test "RFC 9113 §5.4.1: a connection error fails the connection, and its GOAWAY goes out" {
     try start();
     // RFC 9113 §5.1: a DATA frame on an idle stream is a connection error.
-    var writer = h2.core.Writer.init(&frames);
+    var writer = h2.core.Writer.init(frames);
     try h2.frame.write_data(&writer, 1, "x", false, 0);
     try testing.expectError(error.ConnectionFailed, support.receive_copy(writer.written()));
     try testing.expect(!connection.should_close());
@@ -232,7 +190,7 @@ test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and e
     try encoder.begin_block(&block_writer);
     try encoder.write_field(&block_writer, "grpc-status", "0", .without_indexing);
     encoder.commit_block();
-    var writer = h2.core.Writer.init(&frames);
+    var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
         .type = constants.frame_type_headers,
@@ -274,7 +232,7 @@ test "RFC 9113 §4.3: a section past what colibri sends in one field block is re
 
 test "RFC 9113 §6.7: the PING acknowledgments h2 owes go out, and the request after them is read" {
     try start();
-    var writer = h2.core.Writer.init(&frames);
+    var writer = h2.core.Writer.init(frames);
     // One more PING than h2 holds acknowledgments for, so it stops reading until they are written.
     for (0..h2.constants.ping_ack_pending_max + 1) |_| try h2.frame.write_ping(&writer, @splat(0), false);
     const pings_len = writer.written().len;
@@ -308,7 +266,7 @@ test "RFC 9110 §10.1.1: an h2 request expecting 100-continue gets a 100 HEADERS
     try encoder.write_field(&block_writer, ":authority", "example.com", .without_indexing);
     try encoder.write_field(&block_writer, "expect", "100-continue", .without_indexing);
     encoder.commit_block();
-    var writer = h2.core.Writer.init(&frames);
+    var writer = h2.core.Writer.init(frames);
     try h2.frame.write_header(&writer, .{
         .length = @intCast(block_writer.written().len),
         .type = constants.frame_type_headers,

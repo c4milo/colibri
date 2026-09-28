@@ -99,6 +99,7 @@ test "RFC 9846 §5.1: what the protocol has not read waits, and the next record 
     received = try connection.receive(&.{}, support.now_ns);
     try testing.expectEqual(null, received.event);
     try connection.respond(1, ok, &.{}, true);
+    try support.expect_done(1);
     received = try connection.receive(&.{}, support.now_ns);
     try testing.expectEqual(2, received.event.?.request.id);
     try testing.expectEqualStrings("/two", received.event.?.request.path.?);

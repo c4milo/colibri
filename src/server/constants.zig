@@ -42,6 +42,11 @@ pub const frames_per_receive_max: usize = plaintext_in_len / h2.constants.frame_
 /// provider that seals one record a call needs one pass per record the output holds.
 pub const seals_per_send_max: usize = output_len / tls_provider.constants.record_header_len + 1;
 
+/// The `done` events one connection owes at most (decision 103): one for each request it holds
+/// at once, which h2's limit on the peer's streams bounds (RFC 9113 §5.1.2), and h11 answers one
+/// request at a time. `receive` reports each before it reads another request.
+pub const done_owed_max: usize = h2.constants.concurrent_streams_max;
+
 /// Octets of the chunked coding around one chunk's data: a size line of at most one hex digit per
 /// four bits of a `usize`, and two CRLFs (RFC 9112 §7.1).
 pub const chunk_framing_len_max: usize = @sizeOf(usize) * 2 + 4;
@@ -58,4 +63,5 @@ comptime {
     assert(output_len >= h2.constants.send_block_len_max + frame_len_max);
     // Every chunk the output holds leaves room for the last one.
     assert(output_len > chunk_framing_len_max + last_chunk_len);
+    assert(done_owed_max > 0);
 }

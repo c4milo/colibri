@@ -31,6 +31,7 @@ const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 const connection_tls = @import("connection_tls.zig");
 const expect = @import("expect.zig");
+const done = @import("done.zig");
 
 pub const Id = event.Id;
 pub const Protocol = event.Protocol;
@@ -152,6 +153,10 @@ pub const Connection = struct {
     chunked_allowed: bool,
     /// h11: the request being answered is a HEAD (RFC 9110 §9.3.2).
     head_request: bool,
+    /// The responses made whole whose `done` event `receive` has not reported (decision 103).
+    done_owed: done.Owed,
+    /// h11: the last request whose `done` event is owed, so its response owes no second one.
+    done_id: Id,
 
     /// Prepares a connection the listener accepted, with nothing read or written. Over TLS, every
     /// draw the handshake makes comes from `random`, and `now_seconds` is the clock its tickets
@@ -172,6 +177,8 @@ pub const Connection = struct {
         connection.current_id = 0;
         connection.chunked_allowed = false;
         connection.head_request = false;
+        connection.done_owed = .{};
+        connection.done_id = 0;
         connection.session = .none;
         if (config.tls) |tls_config| {
             connection.phase = .handshake;
@@ -204,6 +211,9 @@ pub const Connection = struct {
     pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Error!Received {
         // RFC 9110 §10.1.1: the 100 goes out before the server waits for the content.
         if (!connection.write_continue()) return .{ .consumed = 0, .event = null };
+        // Decision 103: a response made whole since the last call is reported before anything
+        // more is read, so no request arrives while one is owed.
+        if (connection.done_owed.take()) |id| return .{ .consumed = 0, .event = .{ .done = .{ .id = id } } };
         const received = try switch (connection.phase) {
             .closed => Received{ .consumed = 0, .event = null },
             .handshake => connection_tls.handshake(connection, input, now_ns),
@@ -352,6 +362,7 @@ pub const Connection = struct {
         connection.stopped = true;
         connection.output_len = 0;
         connection.records_len = 0;
+        connection.done_owed.clear();
         // chapulin's close wipes every secret, and is safe on a session that closed or failed.
         if (connection.config.tls != null) connection.tls_server.close();
     }
@@ -465,4 +476,5 @@ test {
     _ = @import("connection_h2_test.zig");
     _ = @import("connection_tls_test.zig");
     _ = @import("connection_records_test.zig");
+    _ = @import("connection_done_test.zig");
 }

@@ -126,6 +126,7 @@ fn absolute_target(target: []const u8) Target {
 pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
     try check_current(connection, id);
     const session = &connection.session.h11;
+    defer note_done(connection, id);
     var lines: [core.constants.field_count_max]Field = undefined;
     const framed = try framing(connection, status, fields, end, &lines);
     const interim = status >= http.constants.status_code_min and status < @intFromEnum(Code.ok);
@@ -174,6 +175,7 @@ fn names_framing(fields: []const Field) bool {
 pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
     try check_current(connection, id);
     const session = &connection.session.h11;
+    defer note_done(connection, id);
     // RFC 9112 §6: content follows only a final response that declared some, and ends once. h11
     // refuses the rest with `NoBody`.
     const chunked = session.writer.kind == .chunked;
@@ -194,6 +196,7 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
 
 pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) SendError!void {
     try check_current(connection, id);
+    defer note_done(connection, id);
     // RFC 9110 §6.5: a trailer section follows the content, after a final response. h11 refuses
     // one anywhere else with `NoBody`.
     connection.output_len += connection.session.h11.write_end(connection.room(), fields) catch |failure| return send_error(connection, failure);
@@ -219,6 +222,15 @@ pub fn shutdown(connection: *Connection) void {
 pub fn idle(connection: *const Connection) bool {
     const session = &connection.session.h11;
     return session.phase == .head and session.scanner.scanned == 0;
+}
+
+/// Owes the `done` event of request `id` once its response is whole: h11 finished it, and no
+/// `done` is owed for it yet (decision 103). h11 finishes a response with its head when it has no
+/// content, such as a response to HEAD (RFC 9112 §6.3 rule 1).
+fn note_done(connection: *Connection, id: Id) void {
+    if (!connection.session.h11.responded or connection.done_id == id) return;
+    connection.done_id = id;
+    connection.done_owed.push(id);
 }
 
 fn check_current(connection: *const Connection, id: Id) SendError!void {
