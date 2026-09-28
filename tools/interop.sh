@@ -42,12 +42,12 @@ if [ ! -d "$runner" ]; then
   git -C "$runner" checkout -q "$runner_commit"
 fi
 # Decision 99: count the client's connection attempts as handshakes, until
-# https://github.com/quic-interop/quic-interop-runner/pull/509 is merged. A clone the patch no
-# longer applies to stops the run.
+# https://github.com/quic-interop/quic-interop-runner/pull/509 is merged. The patch goes on the
+# pinned testcase.py, so a clone that carries an earlier patch takes the current one, and a pinned
+# file the patch no longer applies to stops the run.
 readonly count_patch="$repository_root/tools/quic_interop/count_handshakes.patch"
-if ! git -C "$runner" apply --reverse --check "$count_patch" 2>/dev/null; then
-  git -C "$runner" apply "$count_patch"
-fi
+git -C "$runner" checkout -q "$runner_commit" -- testcase.py
+git -C "$runner" apply "$count_patch"
 if [ ! -x "$runner/venv/bin/python" ]; then
   python3 -m venv "$runner/venv"
   "$runner/venv/bin/pip" install -q -r "$runner/requirements.txt"

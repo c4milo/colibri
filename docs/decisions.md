@@ -2647,6 +2647,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     Cost: until the upstream change is merged, colibri's runs check a count the public runner does
     not.
 
+    Amended by the owner on 2026-09-27, the same day, after the runner job's first run against
+    ngtcp2, neqo and quinn (run 36359234791). The count above found no handshake with ngtcp2's or
+    neqo's client, so every case with either failed although each transfer completed. Their first
+    Initial packets carried packet numbers 671978432 and 31, which RFC 9000 §21.4 allows: an
+    endpoint may skip packet numbers. The patch now counts the Destination Connection IDs the
+    client chose for its Initial packets: every one it used, less the Source Connection IDs of the
+    server's Initial and Retry packets, which the client uses as its Destination Connection ID
+    from then on (RFC 9000 §7.2).
+    - On that run's captures, the new count gives the runner's expected number in all 36 pairings
+      of `handshake`, `retry`, `resumption` and `handshakeloss` with five clients and four servers.
+    - On the twelve `handshakeloss` captures of [#72](https://github.com/c4milo/colibri/issues/72),
+      it gives 50 in each. The runner's own count gives 51 in the two where quic-go's server
+      dropped a connection.
+    - Mutations, both CAUGHT: without the subtraction, `handshake` counts 2 and `retry` 3; without
+      the Retry packets, `retry` counts 2.
+    - `tools/interop.sh` resets the clone's `testcase.py` to the pinned commit before it applies
+      the patch, so a clone that carries the earlier patch takes this one.
+    - [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509)
+      carries the earlier count and needs the same change.
+
 100. **A version-choosing HTTP client and a server of the same shape, above h11, h2 and h3.**
      Ruled by the owner on 2026-09-27, for
      [#70](https://github.com/c4milo/colibri/issues/70), which cocuyo asked for.
