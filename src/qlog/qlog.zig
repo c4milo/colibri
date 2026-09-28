@@ -21,6 +21,9 @@ pub const quic_frame = @import("quic_frame.zig");
 /// The QUIC events of quic-events §3 that `quic` logs.
 pub const quic_event = @import("quic_event.zig");
 
+/// The HTTP/3 events of h3-events §3 that `h3` logs, and the frames they carry.
+pub const h3_event = @import("h3_event.zig");
+
 /// The event schema of the QUIC events. Quic-events §2.1 has an implementation of draft 13 name
 /// it with the draft number until the RFC publishes.
 pub const quic_event_schema = "urn:ietf:params:qlog:events:quic-13";
@@ -35,4 +38,5 @@ test {
     _ = log;
     _ = quic_frame;
     _ = quic_event;
+    _ = h3_event;
 }

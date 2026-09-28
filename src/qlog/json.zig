@@ -52,7 +52,8 @@ pub const Json = struct {
         json.after_key = true;
     }
 
-    /// A string of colibri's own ASCII. A peer's octets are a hexstring (decision 102).
+    /// A string of ASCII: colibri's own, or a peer's field line that is printable ASCII. Any other
+    /// octets of a peer's are a hexstring (decision 102 as amended).
     pub fn string(json: *Json, text: []const u8) Error!void {
         try json.begin_value();
         try json.write_string(text);

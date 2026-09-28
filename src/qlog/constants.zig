@@ -14,8 +14,13 @@ pub const line_feed: u8 = 0x0a;
 pub const control_character_last: u8 = 0x1f;
 
 /// The first octet that is not ASCII. colibri writes its own ASCII as text and a peer's octets as
-/// hexstrings, never as text (decision 102).
+/// hexstrings, but for a field line that is printable ASCII (decision 102 as amended).
 pub const ascii_end: u8 = 0x80;
+
+/// Printable ASCII, the space through the tilde: the octets h3-events §4.2.2 logs a field line's
+/// name and value as text in.
+pub const printable_first: u8 = 0x20;
+pub const printable_last: u8 = 0x7e;
 
 /// The digits of a hexstring, lowercase as main schema §1.2 defines the type.
 pub const hex_digits = "0123456789abcdef";
@@ -52,4 +57,5 @@ comptime {
     assert(nanoseconds_per_millisecond % nanoseconds_per_microsecond == 0);
     assert(log_len_min > 0);
     assert(crypto_error_last - crypto_error_first == 0xff);
+    assert(printable_first > control_character_last and printable_last < ascii_end);
 }

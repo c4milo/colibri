@@ -2842,6 +2842,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      until stdx has them and is deleted then. The simulator's check that each record parses waits
      for stdx's decoder, rather than a decoder written in colibri.
 
+     Amended by the owner on 2026-09-28, for design §8 step 18d:
+     - Each h3 call that writes or reads a frame takes the instant, `now_ns`, as `quic`'s calls do
+       (non-negotiable 3), and `write_data_header` becomes a method of the connection that names
+       its stream. Refused: logging each h3 event at the instant of `quic`'s last call, which
+       would give a frame the caller writes long after that call an earlier time than it had.
+     - A HEADERS frame's field name is logged as text when every octet of it is printable ASCII,
+       0x20 to 0x7e, and as `name_bytes` otherwise; its value likewise, as `value_bytes`. That is
+       h3-events §4.2.2's rule, and text of ASCII alone needs no UTF-8 check, the reason this entry
+       gave for hexstrings. Refused: hexstrings for every line, which a viewer shows as hex, and an
+       empty list of field lines.
+
      Amended by the owner on 2026-09-28: qvis, the qlog viewer most people open, reads qlog 0.3
      alone, which draft-ietf-quic-qlog-main-schema-02 and its two events drafts define, so
      `tools/qlog_to_qvis.py` rewrites a colibri log into that form. colibri itself still writes the
