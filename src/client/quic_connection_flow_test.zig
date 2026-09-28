@@ -98,6 +98,9 @@ test "RFC 9114 §5.2: a shut-down connection closes with H3_NO_ERROR after its l
     // RFC 9000 §10.2: the server read the client's CONNECTION_CLOSE.
     try testing.expect(support.server.termination.state != .active);
     try testing.expect(connection.should_close());
+    // It ended after its last exchange, not on a failure, and closing its transport keeps it so.
+    connection.transport_closed();
+    try testing.expect(!connection.failed);
 }
 
 test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket hands it over once" {
@@ -187,6 +190,7 @@ test "RFC 9000 §10.2: an active connection that fails owes its CONNECTION_CLOSE
     try testing.expect(!quic.connection_close.owes(&connection.transport));
     // A failure no h3 or QUIC rule closed, as the loss timer's refusals are.
     connection.fail();
+    try testing.expect(connection.failed);
     try testing.expect(quic.connection_close.owes(&connection.transport));
     try support.pump(support.rounds_default);
     try testing.expect(support.server.termination.state != .active);

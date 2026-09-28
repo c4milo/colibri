@@ -85,6 +85,20 @@ pub const quic_read_len: usize = 16_384;
 pub const h3_events_per_read_max: usize = quic.constants.receive_pool_len_default + exchanges_max * h3_events_per_exchange_max + 1;
 const h3_events_per_exchange_max: usize = 4;
 
+/// Times an exchange moves to another connection after one that takes no new exchange refused it
+/// unprocessed (RFC 9113 §8.7, RFC 9114 §4.1.1): once, so a second refusal is the caller's to
+/// judge.
+pub const moves_max: u8 = 1;
+
+/// Events the origin reads from its connections in one call at most: each connection's version,
+/// ticket, draining and close, and one `finished` event for each exchange it may hold.
+pub const origin_events_per_poll_max: usize = transports_count * (exchanges_max + connection_events_max);
+const transports_count: usize = 2;
+const connection_events_max: usize = 4;
+
+/// Nanoseconds in a second, which an Alt-Svc freshness lifetime counts (RFC 7838 §3.1).
+pub const nanoseconds_per_second: u64 = 1_000 * quic.constants.nanoseconds_per_millisecond;
+
 comptime {
     // A frame waiting for its last octets never stops the next record from opening.
     assert(plaintext_in_len >= frame_len_max + tls_provider.constants.record_ciphertext_len_max);

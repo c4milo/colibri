@@ -100,6 +100,9 @@ pub const QuicConnection = struct {
     stopped: bool,
     /// The caller's transport closed, so nothing more is read or written.
     closed: bool,
+    /// The connection ended on a failure, or its transport closed before it was over, rather
+    /// than after its last exchange.
+    failed: bool,
     /// The latest ticket the server issued, until `take_ticket` hands it over.
     ticket: ?tls.Ticket,
 
@@ -116,6 +119,7 @@ pub const QuicConnection = struct {
         connection.draining = false;
         connection.stopped = false;
         connection.closed = false;
+        connection.failed = false;
         connection.ticket = null;
         connection.transport.init(.{
             .role = .client,
@@ -251,6 +255,7 @@ pub const QuicConnection = struct {
     /// written, and the session's secrets are wiped. A second call changes nothing.
     pub fn transport_closed(connection: *QuicConnection) void {
         if (connection.closed) return;
+        if (!connection.owed.closed_reported) connection.failed = true;
         connection.closed = true;
         connection.stopped = true;
         for (&connection.slots.slots) |*slot| slot.holds_octets = false;
@@ -325,6 +330,7 @@ pub const QuicConnection = struct {
     /// its CONNECTION_CLOSE, still goes out.
     pub fn fail(connection: *QuicConnection) void {
         connection.stopped = true;
+        connection.failed = true;
         const transport = &connection.transport;
         // RFC 9000 §10.2: an active connection that ends owes its CONNECTION_CLOSE, unless h3 or
         // QUIC already owes one. The loss timer's refusals owe none, and RFC 9000 §20.1 closes

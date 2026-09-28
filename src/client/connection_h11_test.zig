@@ -38,6 +38,19 @@ fn sent(text: []const u8) bool {
     return std.mem.indexOf(u8, support.to_peer[0..support.to_peer_len], text) != null;
 }
 
+test "RFC 9114 §3.1.2: a cleartext response's Alt-Svc names nothing, since h3 serves no http origin" {
+    try start();
+    var exchange = get(&bodies[0]);
+    _ = try connection.request(&exchange);
+    support.client_send();
+    try support.peer_h11_read();
+    const fields = [_]Field{ .{ .name = "Content-Length", .value = "5" }, .{ .name = "Alt-Svc", .value = "h3=\":443\"" } };
+    try support.peer_h11_answer(ok, &fields, "hello");
+    try support.client_receive();
+    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(null, connection.take_alt_svc());
+}
+
 test "RFC 9112 §3.2: a GET goes out with Host first, and its response fills the exchange" {
     try start();
     var wanted = [_]event.Wanted{.{ .name = "content-length" }};

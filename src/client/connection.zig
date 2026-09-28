@@ -20,6 +20,7 @@ const assert = std.debug.assert;
 const h11 = @import("h11");
 const h2 = @import("h2");
 const tls = @import("tls");
+const http = @import("http");
 const constants = @import("constants.zig");
 const event = @import("event.zig");
 const slots_module = @import("slots.zig");
@@ -27,6 +28,7 @@ const owed_module = @import("owed.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 const connection_tls = @import("connection_tls.zig");
+const alt_svc = @import("alt_svc.zig");
 
 pub const Id = event.Id;
 pub const Protocol = event.Protocol;
@@ -126,6 +128,12 @@ pub const Connection = struct {
     stopped: bool,
     /// The connection takes no new request.
     draining: bool,
+    /// The connection ended on a failure, or its transport closed before it was over, rather
+    /// than after its last exchange.
+    failed: bool,
+    /// What the latest final response's Alt-Svc said of h3 on the origin's host (RFC 7838 §3),
+    /// until `take_alt_svc` hands it over.
+    alt_svc: ?alt_svc.Advert,
     /// The exchanges the connection holds.
     slots: slots_module.Slots,
     /// Events owed to the caller, reported before anything more is read.
@@ -149,6 +157,8 @@ pub const Connection = struct {
         connection.close_sent = false;
         connection.stopped = false;
         connection.draining = false;
+        connection.failed = false;
+        connection.alt_svc = null;
         connection.slots.init();
         connection.owed = .{};
         connection.ticket = null;
@@ -276,6 +286,7 @@ pub const Connection = struct {
     /// or it failed. Every exchange still held ends, nothing more is read or written, and over TLS
     /// the session's secrets are wiped. A second call changes nothing.
     pub fn transport_closed(connection: *Connection) void {
+        if (!connection.owed.closed_reported) connection.failed = true;
         if (connection.phase == .open and connection.session == .h11) connection_h11.transport_closed(connection);
         // RFC 9112 §9.3.1 and RFC 9113 §8.7: what was never written may go on another connection.
         connection.slots.end_all(.refused, .closed);
@@ -320,6 +331,21 @@ pub const Connection = struct {
         connection.owed.ticket = false;
     }
 
+    /// Keeps what the Alt-Svc lines of a final response's `section` say, from its regular line
+    /// `first` on.
+    pub fn note_alt_svc(connection: *Connection, section: *const http.FieldSection, first: u32) void {
+        // RFC 9114 §3.1.2: h3 cannot reach an "http" origin, which a cleartext connection serves.
+        if (connection.config.tls == null) return;
+        const host = alt_svc.host_of(connection.config.authority);
+        connection.alt_svc = alt_svc.from_section(section, first, host) orelse return;
+    }
+
+    /// What a response said of h3 in Alt-Svc since the last call, or null.
+    pub fn take_alt_svc(connection: *Connection) ?alt_svc.Advert {
+        defer connection.alt_svc = null;
+        return connection.alt_svc;
+    }
+
     /// Takes no new request from here on, and owes the caller the `draining` event.
     pub fn start_draining(connection: *Connection) void {
         if (connection.draining) return;
@@ -333,6 +359,7 @@ pub const Connection = struct {
         // RFC 9113 §5.4.1, RFC 9112 §9.6 and RFC 9846 §6: after a connection error nothing more is
         // read, and the connection closes once what it owes is out.
         connection.stopped = true;
+        connection.failed = true;
         connection.slots.end_all(.refused, .closed);
         assert(connection.slots.idle());
     }

@@ -113,6 +113,11 @@ fn server_seal(plaintext: []const u8) !void {
 
 /// The h2 peer reads what the server opened, and answers stream 1 with `content`.
 fn peer_h2_answer(content: []const u8) !?h2.connection.Request {
+    return peer_h2_answer_with(&.{}, content);
+}
+
+/// `peer_h2_answer`, with `fields` in the response's header section.
+fn peer_h2_answer_with(fields: []const h2.hpack.Field, content: []const u8) !?h2.connection.Request {
     var consumed: usize = 0;
     var request: ?h2.connection.Request = null;
     for (0..peer_plain_len + 1) |_| {
@@ -123,7 +128,7 @@ fn peer_h2_answer(content: []const u8) !?h2.connection.Request {
         if (peer_event == .request) request = peer_event.request;
     }
     var written = support.peer_h2.write_pending(&peer_out, support.now_ns);
-    written += try support.peer_h2.write_response(peer_out[written..], 1, ok, &.{}, false);
+    written += try support.peer_h2.write_response(peer_out[written..], 1, ok, fields, false);
     written += (try support.peer_h2.write_data(peer_out[written..], 1, content, true)).written;
     try server_seal(peer_out[0..written]);
     return request;
@@ -175,6 +180,43 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     try testing.expect(connection.should_close());
 }
 
+test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_alt_svc" {
+    try start_tls(&support.protocols_h11, &support.protocols_both, "localhost", false);
+    support.peer_h11.init(.server, .{});
+    try support.peer_h11.attach_tls(server.provider());
+    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    _ = try connection.request(&exchange);
+    support.client_send();
+    try server_open();
+    _ = try support.peer_h11.receive(peer_plain[0..peer_plain_len], &.{});
+    const fields = [_]support.Field{ .{ .name = "Content-Length", .value = "0" }, .{ .name = "Alt-Svc", .value = "h3=\":8443\"; ma=60" } };
+    // A Content-Length of 0 ends the response with its head (RFC 9112 §6.3).
+    const written = try support.peer_h11.write_response(&peer_out, ok, "", &fields);
+    try server_seal(peer_out[0..written]);
+    try support.client_receive();
+    try testing.expectEqual(.response, exchange.outcome);
+    const advert = connection.take_alt_svc() orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u16, 8443), advert.h3.port);
+    try testing.expectEqual(@as(u64, 60), advert.h3.max_age_s);
+    try testing.expectEqual(null, connection.take_alt_svc());
+}
+
+test "RFC 7838 §3: an h2 response's Alt-Svc over TLS names h3 for take_alt_svc" {
+    try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", false);
+    support.peer_h2.init(.server);
+    try support.peer_h2.attach_tls(server.provider());
+    var exchange: Exchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    _ = try connection.request(&exchange);
+    support.client_send();
+    try server_open();
+    const fields = [_]h2.hpack.Field{.{ .name = "alt-svc", .value = "h3=\":443\"" }};
+    _ = try peer_h2_answer_with(&fields, "hello");
+    try support.client_receive();
+    try testing.expectEqual(.response, exchange.outcome);
+    const advert = connection.take_alt_svc() orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(@as(u16, 443), advert.h3.port);
+}
+
 test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket hands it over once" {
     try start_tls(&support.protocols_h2, &support.protocols_both, "localhost", true);
     support.client_send();
@@ -194,6 +236,7 @@ test "RFC 9846 §6.2: a handshake the client refuses ends the connection, and it
     try run_handshake();
     try support.client_receive();
     try testing.expectEqual(null, support.find(.connected));
+    try testing.expect(connection.failed);
     // The server never saw the request, so it may go on another connection.
     try testing.expectEqual(.refused, exchange.outcome);
     try testing.expectError(error.ConnectionClosed, connection.request(&exchange));

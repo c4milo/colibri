@@ -68,6 +68,7 @@ fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
 }
 
 fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
+    connection.note_alt_svc(&connection.session.h11.section, 0);
     if (slot.stage == .sent) {
         const section = &connection.session.h11.section;
         response.record_head(slot.exchange, status, section, 0) catch start_dropping(slot);

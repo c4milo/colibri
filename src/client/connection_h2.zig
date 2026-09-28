@@ -73,6 +73,7 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
         return false;
     }
     const section = connection.session.h2.field_section();
+    connection.note_alt_svc(section, first_regular(section));
     response.record_head(exchange, head.response.status.code, section, first_regular(section)) catch {
         return too_large(connection, slot);
     };

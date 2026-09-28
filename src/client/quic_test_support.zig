@@ -118,6 +118,13 @@ var crossing: [quic.constants.datagram_len_max]u8 = undefined;
 /// A client offering `client_protocols` to a server selecting from `server_protocols`, which
 /// issues tickets when `tickets`. Nothing has been sent.
 pub fn start(client_protocols: []const []const u8, server_protocols: []const []const u8, tickets: bool) !void {
+    try prepare(client_protocols, server_protocols, tickets);
+    try connection.init(&config, client_start, support.stream.random(), support.now_seconds, now_ns, null);
+}
+
+/// The TLS configurations of `start`, the client's `config`, and a server that starts from the
+/// first datagram it takes, with time back at `start_ns`. No client connection is made.
+pub fn prepare(client_protocols: []const []const u8, server_protocols: []const []const u8, tickets: bool) !void {
     try client_tls.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = support.authority } },
         .alpn = client_protocols,
@@ -130,7 +137,6 @@ pub fn start(client_protocols: []const []const u8, server_protocols: []const []c
     });
     config = .{ .tls = &client_tls, .authority = support.authority };
     now_ns = start_ns;
-    try connection.init(&config, client_start, support.stream.random(), support.now_seconds, now_ns, null);
     server_started = false;
     server_h3_started = false;
     server_answers = true;
@@ -154,7 +160,7 @@ pub fn pump(rounds: usize) !void {
         try answer_due();
         try server_to_client();
         connection.on_instant(now_ns);
-        if (server_started) _ = quic.connection_timer.on_instant(&server, server_session.suite(), &server_scratch.recovery, now_ns) catch {};
+        server_on_instant();
         try collect();
     }
 }
@@ -192,23 +198,35 @@ fn client_to_server() !void {
 }
 
 fn server_to_client() !void {
-    if (!server_started) return;
     for (0..datagrams_per_round_max) |_| {
-        const sent = quic.connection_send.send(&server, server_session.suite(), server_session.provider(), server_provider(), &server_send_scratch, &datagram, now_ns) catch return error.TestUnexpectedResult;
-        const held = sent orelse return;
-        @memcpy(crossing[0..held.len], datagram[0..held.len]);
+        const len = (try server_send(&datagram)) orelse return;
+        @memcpy(crossing[0..len], datagram[0..len]);
         // Bounded: each pass consumes the datagram or reports one of the client's events.
         for (0..support.events_max) |_| {
-            const received = connection.receive(crossing[0..held.len], .not_ect, .{}, now_ns);
+            const received = connection.receive(crossing[0..len], .not_ect, .{}, now_ns);
             if (received.event) |reported| try keep(reported);
             if (received.consumed > 0) break;
         }
     }
 }
 
+/// Writes the next datagram the server owes into `output`, and returns its length, or null when
+/// it owes none.
+pub fn server_send(output: []u8) !?usize {
+    if (!server_started) return null;
+    const sent = quic.connection_send.send(&server, server_session.suite(), server_session.provider(), server_provider(), &server_send_scratch, output, now_ns) catch return error.TestUnexpectedResult;
+    const held = sent orelse return null;
+    return held.len;
+}
+
+/// Fires the server's deadlines at `now_ns`.
+pub fn server_on_instant() void {
+    if (server_started) _ = quic.connection_timer.on_instant(&server, server_session.suite(), &server_scratch.recovery, now_ns) catch {};
+}
+
 /// The server takes one datagram: the first starts its connection from the client's Initial (RFC
 /// 9000 §7.2), and each after it may carry h3.
-fn server_receive(octets: []u8) !void {
+pub fn server_receive(octets: []u8) !void {
     if (!server_started) try start_server(octets);
     _ = quic.connection_datagram.receive(&server, server_session.suite(), server_session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &server_scratch) catch return;
     if (!server_h3_started and server.handshake_complete) {
@@ -283,7 +301,7 @@ fn server_read() !void {
 }
 
 /// The server answers each request that is due, once a test lets it.
-fn answer_due() !void {
+pub fn answer_due() !void {
     if (!server_answers or !server_h3_started) return;
     for (answers[0..answers_len]) |*answer| {
         const due = answer.ended or answer_early;
@@ -314,7 +332,11 @@ pub fn server_answer(answer: *Answer, status: u16, content: []const u8) !void {
     try server_h3.write_response(&server, answer.id, &server_section, &.{}, &writer, now_ns);
     if (content.len > 0) try server_h3.write_data_header(answer.id, content.len, &writer, now_ns);
     answer.prefix_len = writer.written().len;
-    try quic.connection_stream_send.supply(&server, .{ .value = answer.id }, answer.prefix_len + content.len, !answer_open);
+    quic.connection_stream_send.supply(&server, .{ .value = answer.id }, answer.prefix_len + content.len, !answer_open) catch |failure| {
+        // RFC 9000 §3.5: a stream the client stopped was reset by the server, and takes no answer.
+        if (failure == error.NotWritable) return;
+        return failure;
+    };
 }
 
 /// Writes `answer_interims` 103 (Early Hints) responses (RFC 9110 §15.2.4).
