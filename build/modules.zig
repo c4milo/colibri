@@ -49,6 +49,9 @@ pub const Modules = struct {
     /// TLS 1.3 over chapulin (decisions 94 and 97, design §8 step 16b): colibri's values, converted
     /// once per object, and chapulin's sessions behind `tls_provider.Provider`.
     tls: *std.Build.Module,
+    /// HTTP responses behind one set of calls for h11 and h2, which runs the TLS handshake itself
+    /// (decision 100, design §8 step 17a).
+    server: *std.Build.Module,
     /// The TCP object `tls` links. `src/testing/`'s TCP endpoints link it too, because two objects
     /// of one transport define the same names.
     chapulin_tcp: *std.Build.Dependency,
@@ -160,6 +163,16 @@ pub fn add(
     tls_keylog.addImport("chapulin_tcp", chapulin_record_object(b, target, .on).module("chapulin"));
     tls_keylog.addImport("chapulin_quic", chapulin_quic_keylog.module("chapulin"));
 
+    // Decision 100: `server` answers requests over h11 and h2 behind one set of calls, and drives
+    // `tls` itself. With `client`, it is the one module above the protocol modules.
+    const server = library(b, "server", target, optimize);
+    server.addImport("core", core);
+    server.addImport("http", http);
+    server.addImport("h11", h11);
+    server.addImport("h2", h2);
+    server.addImport("tls", tls);
+    server.addImport("tls_provider", tls_provider);
+
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);
     sim.addImport("tls_provider", tls_provider);
@@ -208,6 +221,8 @@ pub fn add(
     // `tls_provider.Provider` to the connection, so it names both.
     testing.addImport("tls_provider", tls_provider);
     testing.addImport("tls", tls);
+    // Design §8 step 17a: the h11 and h2 server of §9 runs each connection on `server`.
+    testing.addImport("server", server);
     // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's.
     testing.link_libc = true;
 
@@ -217,6 +232,8 @@ pub fn add(
     testing_client.addImport("h11", h11);
     testing_client.addImport("tls_provider", tls_provider);
     testing_client.addImport("tls", tls);
+    // The client sessions' tests run the client against §9's server, which runs on `server`.
+    testing_client.addImport("server", server);
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;
 
@@ -276,6 +293,7 @@ pub fn add(
         .h3 = h3,
         .h11 = h11,
         .tls = tls,
+        .server = server,
         .chapulin_tcp = chapulin_tcp,
         .tls_keylog = tls_keylog,
         .chapulin_quic_keylog = chapulin_quic_keylog,

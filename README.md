@@ -54,8 +54,9 @@ Add colibri to your `build.zig.zon`:
 zig fetch --save git+https://github.com/c4milo/colibri#v0.3.0
 ```
 
-Then import the modules you use. Each of the twelve library modules is exported by name: `core`,
-`wire`, `http`, `tls_provider`, `tls`, `crypto`, `hpack`, `qpack`, `quic`, `h2`, `h3` and `h11`.
+Then import the modules you use. Each of the thirteen library modules is exported by name: `core`,
+`wire`, `http`, `tls_provider`, `tls`, `crypto`, `hpack`, `qpack`, `quic`, `h2`, `h3`, `h11` and
+`server`.
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });

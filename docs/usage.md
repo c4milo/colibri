@@ -22,7 +22,7 @@ exe.root_module.addImport("http", colibri.module("http"));
 exe.root_module.addImport("h2", colibri.module("h2"));
 ```
 
-The library is twelve modules, each exported by name:
+The library is thirteen modules, each exported by name:
 
 | Module | What it holds |
 | --- | --- |
@@ -38,6 +38,7 @@ The library is twelve modules, each exported by name:
 | `h11` | HTTP/1.1 (RFC 9112) |
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
+| `server` | Responses to h11 and h2 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC follows (design §8 step 17b). |
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
