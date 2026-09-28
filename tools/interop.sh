@@ -9,10 +9,11 @@
 # with docker compose, python3, and tshark from Wireshark 4.5.0 or newer, which the runner reads
 # packet captures with. The runner is cloned at a pinned commit into a cache directory, with its
 # requirements in a virtual environment there, and colibri is registered in that clone's
-# implementations_quic.json. The clone carries one patch, quic_interop/count_handshakes.patch
-# (decision 99). Test cases the endpoint does not build exit 127 and show as unsupported. Every
-# qlog file colibri's endpoint wrote must pass tools/qlog_check.py (design §8 step 18c). It is not
-# part of `zig build test`, and it takes minutes.
+# implementations_quic.json. The clone carries two patches, quic_interop/count_handshakes.patch
+# (decision 99) and quic_interop/rebind_challenges.patch (decision 106). Test cases the endpoint
+# does not build exit 127 and show as unsupported. Every qlog file colibri's endpoint wrote must
+# pass tools/qlog_check.py (design §8 step 18c). It is not part of `zig build test`, and it takes
+# minutes.
 set -euo pipefail
 
 readonly peers="${1:-quic-go}"
@@ -49,6 +50,12 @@ fi
 readonly count_patch="$repository_root/tools/quic_interop/count_handshakes.patch"
 git -C "$runner" checkout -q "$runner_commit" -- testcase.py
 git -C "$runner" apply "$count_patch"
+# Decision 106: a rebinding test's new path passes once the client answers any PATH_CHALLENGE sent
+# on it, until https://github.com/quic-interop/quic-interop-runner/pull/511 is merged. The patch
+# goes on the pinned testcases_quic.py, as the one above goes on testcase.py.
+readonly rebind_patch="$repository_root/tools/quic_interop/rebind_challenges.patch"
+git -C "$runner" checkout -q "$runner_commit" -- testcases_quic.py
+git -C "$runner" apply "$rebind_patch"
 if [ ! -x "$runner/venv/bin/python" ]; then
   python3 -m venv "$runner/venv"
   "$runner/venv/bin/pip" install -q -r "$runner/requirements.txt"

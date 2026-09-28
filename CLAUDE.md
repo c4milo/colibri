@@ -369,9 +369,11 @@ section when a step adds or renames a command.
   over the qifs inputs; it needs `python3`, and `tools/ci.sh` runs it.
 - QUIC Interop Runner: `tools/interop.sh [peers] [tests]`, whose tests include `http3`, builds the
   `colibri-qns` image from this working tree, its fetched packages included, and runs it in the
-  runner, pinned by commit, as a server and as a client against each peer. The clone carries one
-  patch, `tools/quic_interop/count_handshakes.patch`, which counts the client's connection
-  attempts as handshakes (decision 99). The image's endpoint is
+  runner, pinned by commit, as a server and as a client against each peer. The clone carries two
+  patches: `tools/quic_interop/count_handshakes.patch`, which counts the client's connection
+  attempts as handshakes (decision 99), and `tools/quic_interop/rebind_challenges.patch`, which
+  passes a rebinding test's new path once the client answers any PATH_CHALLENGE sent on it
+  (decision 106). The image's endpoint is
   `zig build interop-endpoint`'s `quic-udp-interop`: the UDP endpoint, whose client runs with
   `pin`, because the runner's certificates fail the Web PKI profile (the owner's ruling of
   2026-09-26). The image passes the runner's `QLOGDIR` to the endpoint, and every qlog file it

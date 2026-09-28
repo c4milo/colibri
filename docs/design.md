@@ -3282,6 +3282,34 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 1 mutation, **CAUGHT**: without the patch, the four captures with a dropped connection count
     51, and the case fails.
 
+  **`rebind-port` with colibri on both sides, 2026-09-28**
+  ([#78](https://github.com/c4milo/colibri/issues/78)). The weekly run at `a5a97d2` failed
+  `rebind-port` with colibri's client against colibri's server, with "PATH_CHALLENGE without a
+  PATH_RESPONSE: ['c2:0c:4d:ea:0d:78:8a:b2']", though every file arrived. From the run's captures
+  and both endpoints' qlogs:
+  - At the first rebinding, 1.001 s into the server's capture, the server sent two
+    PATH_CHALLENGEs 21 µs apart. Packet 175 went to the client's old port, a path RFC 9000 §9.3.3
+    has the server validate, and the NAT dropped it for its lost binding. Packet 176 went to the
+    new port. It is in neither the client's capture nor its qlog, and the simulator logs no drop
+    for it. The likely place is the scenario's 25-packet queue, which the transfer's data filled.
+  - 95 ms later the server sent a new PATH_CHALLENGE on the new path, with new data (RFC 9000
+    §13.3). The client answered it, and the PATH_RESPONSE reached the server 127 ms after packet
+    176 left it. The second rebinding lost nothing on its new path.
+  - The runner's check, `TestCasePortRebinding.check` in its `testcases_quic.py`, takes only the
+    PATH_CHALLENGE in the server's first packet on each new path.
+
+  [Decision 106](decisions.md), the same day: colibri's runs pass a new path once the client
+  answers any PATH_CHALLENGE sent on it. `tools/interop.sh` applies the change to the pinned
+  runner, and it went upstream as
+  [quic-interop-runner#511](https://github.com/quic-interop/quic-interop-runner/pull/511).
+  - Over the failed run's captures, the runner's check fails and the patched one passes.
+  - 1 mutation, **CAUGHT**: with the client's PATH_RESPONSE frames left out of its capture, the
+    patched check fails, and names both new paths.
+  - `tools/interop.sh quic-go rebind-port,rebind-addr` with the patch, on an Apple M1 Pro:
+    colibri's server passed both cases against colibri's client and quic-go's, and colibri's
+    client passed both against quic-go's server. The 8 qlog directories passed
+    `tools/qlog_check.py`.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so
