@@ -17,7 +17,9 @@
 # signing key, and has the client pin that one root.
 set -euo pipefail
 
-readonly port="${1:-44444}"
+# Below Linux's ephemeral range (32768-60999), from which earlier sections' connections draw
+# their source ports, so none of them holds it.
+readonly port="${1:-18492}"
 readonly hostname="localhost"
 
 scratch="$(mktemp -d)"

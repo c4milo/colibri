@@ -15,7 +15,9 @@
 # SubjectPublicKeyInfo, and serves the chain. colibri pins that one root.
 set -euo pipefail
 
-readonly port="${1:-44443}"
+# Below Linux's ephemeral range (32768-60999), from which earlier sections' connections draw
+# their source ports, so none of them holds it.
+readonly port="${1:-18491}"
 readonly hostname="localhost"
 
 scratch="$(mktemp -d)"
