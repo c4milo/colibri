@@ -144,3 +144,39 @@ test "RFC 9113 §8.1: content before the response's head is malformed, and colib
     try support.pump_h2();
     try testing.expectEqual(h2.constants.error_protocol_error, peer_reset().?.error_code);
 }
+
+/// The encoder a test writes the representations it looks for with, as h2's own encoder writes
+/// them, outside any stack frame. Test-only.
+var test_encoder: h2.hpack.Encoder align(@alignOf(h2.hpack.Encoder)) = undefined;
+var test_representation: [representation_len_max]u8 = undefined;
+const representation_len_max: usize = 256;
+
+/// How h2's encoder writes one field line `how`, with no size update before it. Test-only.
+fn representation(name: []const u8, value: []const u8, how: h2.hpack.encoder.Indexing) ![]const u8 {
+    test_encoder.init(h2.constants.header_table_size_initial, .when_shorter);
+    var writer = h2.core.Writer.init(&test_representation);
+    try test_encoder.write_field(&writer, name, value, how);
+    return writer.written();
+}
+
+fn sent_holds(octets: []const u8) bool {
+    return std.mem.indexOf(u8, support.to_peer[0..support.to_peer_len], octets) != null;
+}
+
+test "RFC 7541 §7.1.3: the path and a marked field line go out never-indexed, and the rest without indexing" {
+    try start();
+    const fields = [_]Field{ .{ .name = "authorization", .value = "secret" }, .{ .name = "accept", .value = "application/dns-message" } };
+    const marks = [_]bool{ true, false };
+    var exchange: Exchange = .{
+        .method = "GET",
+        .path = "/dns-query?dns=AAABAAABAAAAAAAAB2V4YW1wbGUDY29tAAABAAE",
+        .fields = &fields,
+        .never_indexed = .{ .path = true, .fields = &marks },
+        .body = &bodies[0],
+    };
+    _ = try connection.request(&exchange);
+    support.client_send();
+    try testing.expect(sent_holds(try representation(":path", exchange.path, .never_indexed)));
+    try testing.expect(sent_holds(try representation("authorization", "secret", .never_indexed)));
+    try testing.expect(sent_holds(try representation("accept", "application/dns-message", .without_indexing)));
+}

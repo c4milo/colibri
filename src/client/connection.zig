@@ -198,9 +198,11 @@ pub const Connection = struct {
         return id;
     }
 
-    /// Ends exchange `id` before its response is whole, and reports nothing for it. One not yet
-    /// written is dropped. A written one: h2 resets its stream with CANCEL (RFC 9113 §6.4), and h11
-    /// reads its response and drops it, or, while its content is going out, ends the connection.
+    /// Ends exchange `id` before its response is whole, and reports nothing for it. The client
+    /// reads and writes nothing of the exchange after the call, so its memory is the caller's
+    /// again. One not yet written is dropped. A written one: h2 resets its stream with CANCEL (RFC
+    /// 9113 §6.4), and h11 reads its response and drops it, or, while its content is going out,
+    /// ends the connection.
     pub fn cancel(connection: *Connection, id: Id) void {
         const slot = connection.slots.of_id(id) orelse return;
         switch (slot.stage) {
@@ -460,6 +462,8 @@ pub const Connection = struct {
 
 /// Refuses what no protocol could send as an exchange, before the exchange takes a slot.
 fn check_request(exchange: *const Exchange) RequestError!void {
+    // The caller marks each of its field lines, or none.
+    assert(exchange.never_indexed.fields.len == 0 or exchange.never_indexed.fields.len == exchange.fields.len);
     // RFC 9110 §9.1: a method is a token, which is never empty.
     if (exchange.method.len == 0) return error.RequestUnsupported;
     // RFC 9113 §8.3.1: `:path` "MUST NOT be empty" for an http or https URI, and RFC 9112 §3.2.1's

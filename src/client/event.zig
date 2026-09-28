@@ -3,8 +3,8 @@
 //! goes, and the events `Connection.receive` returns.
 //!
 //! The caller keeps an exchange in place, and every slice it names, from `request` until the
-//! exchange's `finished` event. The client reads the request's part and writes the response's
-//! part, and the caller reads that part once the event arrives.
+//! exchange's `finished` event, or until `cancel` returns. The client reads the request's part
+//! and writes the response's part, and the caller reads that part once the event arrives.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -61,6 +61,10 @@ pub const Exchange = struct {
     /// The request's own field lines. The client adds Host in h11 and Content-Length, so these
     /// name neither, nor anything that frames the message (RFC 9110 §6.1).
     fields: []const Field = &.{},
+    /// The path and the field lines no intermediary may add to a compression table, such as a
+    /// credential: never-indexed literals in h2 (RFC 7541 §6.2.3, §7.1.3). h11 compresses nothing,
+    /// and writes them as it writes any other.
+    never_indexed: NeverIndexed = .{},
     /// The request's content, sent whole. Empty for none.
     content: []const u8 = "",
     /// The response fields the caller reads, and the octets their values are copied into.
@@ -113,6 +117,14 @@ pub const Exchange = struct {
         assert(exchange.outcome == .response);
         return exchange.body[0..exchange.body_len];
     }
+};
+
+/// Which parts of a request go out as never-indexed literals.
+pub const NeverIndexed = struct {
+    /// The path, which carries the query, as a DoH GET's does (RFC 8484 §4.1).
+    path: bool = false,
+    /// One flag for each of the exchange's field lines, in order, or empty for none.
+    fields: []const bool = &.{},
 };
 
 /// An exchange that ended: its id, and the exchange, whose outcome says how.

@@ -186,8 +186,9 @@ pub fn write_requests(connection: *Connection) void {
 fn open(connection: *Connection, slot: *Slot) bool {
     const exchange = slot.exchange;
     var lines: [constants.request_fields_max]h2.hpack.Field = undefined;
+    var indexing: [constants.request_fields_max]h2.connection.RequestIndexing = undefined;
     var digits: [constants.content_length_digits_max]u8 = undefined;
-    const fields = request_fields(exchange, &lines, &digits) orelse {
+    const fields = request_fields(exchange, &lines, &indexing, &digits) orelse {
         slots_module.end(slot, .invalid);
         return true;
     };
@@ -198,8 +199,10 @@ fn open(connection: *Connection, slot: *Slot) bool {
         .scheme = scheme,
         .path = exchange.path,
         .authority = connection.config.authority,
+        // RFC 7541 §7.1.3: a value an intermediary must not index goes out never-indexed.
+        .indexing = .{ .path = if (exchange.never_indexed.path) .never_indexed else .without_indexing },
     };
-    const sent = connection.session.h2.write_request(connection.room(), head, fields, &.{}, exchange.content.len == 0) catch |failure| {
+    const sent = connection.session.h2.write_request(connection.room(), head, fields, indexing[0..fields.len], exchange.content.len == 0) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += sent.written;
@@ -236,13 +239,25 @@ fn refused(connection: *Connection, slot: *Slot, failure: h2.connection.RequestE
 }
 
 /// The field lines of `exchange`'s request as h2 writes them, with the content-length the client
-/// adds, or null when they pass `request_fields_max`.
-fn request_fields(exchange: *const Exchange, lines: *[constants.request_fields_max]h2.hpack.Field, digits: *[constants.content_length_digits_max]u8) ?[]const h2.hpack.Field {
+/// adds, and how each is written, or null when they pass `request_fields_max`.
+fn request_fields(
+    exchange: *const Exchange,
+    lines: *[constants.request_fields_max]h2.hpack.Field,
+    indexing: *[constants.request_fields_max]h2.connection.RequestIndexing,
+    digits: *[constants.content_length_digits_max]u8,
+) ?[]const h2.hpack.Field {
     if (exchange.fields.len + constants.added_fields_max > lines.len) return null;
-    for (exchange.fields, lines[0..exchange.fields.len]) |field, *line| line.* = .{ .name = field.name, .value = field.value };
+    const marked = exchange.never_indexed.fields;
+    for (exchange.fields, lines[0..exchange.fields.len], indexing[0..exchange.fields.len], 0..) |field, *line, *how, index| {
+        line.* = .{ .name = field.name, .value = field.value };
+        // RFC 7541 §7.1.3: a line the caller marked goes out never-indexed.
+        const never = marked.len > 0 and marked[index];
+        how.* = if (never) .never_indexed else .without_indexing;
+    }
     var count = exchange.fields.len;
     if (exchange.content_length(digits)) |length| {
         lines[count] = .{ .name = "content-length", .value = length };
+        indexing[count] = .without_indexing;
         count += 1;
     }
     return lines[0..count];
