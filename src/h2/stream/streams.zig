@@ -248,6 +248,12 @@ pub const Streams = struct {
         goaway.record_goaway_sent(streams, last_stream_id);
     }
 
+    /// Whether colibri sent a GOAWAY whose last stream identifier is below `id`, a stream the peer
+    /// initiated, which colibri then ignores (RFC 9113 §6.8). See `streams_goaway.zig`.
+    pub fn is_above_goaway_sent(streams: *const Streams, id: u32) bool {
+        return goaway.is_above_goaway_sent(streams, id);
+    }
+
     /// Records the last stream identifier of a GOAWAY the peer sent. See `streams_goaway.zig`.
     pub fn record_goaway_received(streams: *Streams, last_stream_id: u32) error{LastStreamIdIncreased}!void {
         return goaway.record_goaway_received(streams, last_stream_id);

@@ -89,6 +89,11 @@ pub fn find(target: *Connection, id: u32, kind: stream.Kind, end_stream: bool, n
             return verdict_of(target, id, record, verdict, now_ns);
         },
         .idle => |peer_initiated| {
+            // RFC 9113 §6.8: a GOAWAY's sender "will ignore frames sent on streams initiated by the
+            // receiver if the stream has an identifier higher than the included last stream
+            // identifier". A HEADERS frame still goes on to `connection_headers.zig`, which decodes
+            // its field block (§4.3) and drops the stream.
+            if (peer_initiated and kind != .headers and target.streams.is_above_goaway_sent(id)) return .discard;
             // An idle stream has no record, and §5.1 decides the frame from the state alone: a
             // HEADERS the peer sends opens it, PRIORITY is ignored, and the rest end the
             // connection. `connection_headers.zig` does the opening.
@@ -231,15 +236,44 @@ fn expect_rst_stream(written: []const u8, stream_id: u32, code: u32) !void {
     try testing.expectEqualSlices(u8, writer.written(), written);
 }
 
+/// A frame of each type §5.1 forbids on an idle stream, with a payload it may carry. Test-only.
+const idle_forbidden = [_]struct { frame_type: u8, payload: []const u8 }{
+    .{ .frame_type = constants.frame_type_data, .payload = "test" },
+    .{ .frame_type = constants.frame_type_rst_stream, .payload = "\x00\x00\x00\x08" },
+    .{ .frame_type = constants.frame_type_window_update, .payload = "\x00\x00\x00\x64" },
+};
+
 test "http2/5.1/1, /2 and /3: DATA, RST_STREAM and WINDOW_UPDATE on an idle stream end the connection" {
-    const cases = [_]struct { frame_type: u8, payload: []const u8 }{
-        .{ .frame_type = constants.frame_type_data, .payload = "test" },
-        .{ .frame_type = constants.frame_type_rst_stream, .payload = "\x00\x00\x00\x08" },
-        .{ .frame_type = constants.frame_type_window_update, .payload = "\x00\x00\x00\x64" },
-    };
-    for (cases) |case| {
+    for (idle_forbidden) |case| {
         try start_server();
         const bytes = try frame_bytes(test_input, case.frame_type, 0, 1, case.payload);
+        try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
+        try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
+    }
+}
+
+test "RFC 9113 §6.8: DATA, RST_STREAM and WINDOW_UPDATE above a GOAWAY colibri sent are ignored" {
+    for (idle_forbidden) |case| {
+        try start_server();
+        test_connection.shutdown(constants.error_no_error);
+        _ = write_queued();
+        // The peer opened stream 1 before it read the GOAWAY, which names no stream: the HEADERS
+        // is dropped, and what follows on the stream is ignored, not a connection error.
+        try testing.expectEqual(null, try feed_request(1, "/", false));
+        const bytes = try frame_bytes(test_input, case.frame_type, 0, 1, case.payload);
+        try testing.expectEqual(null, try feed(bytes));
+        try testing.expect(!test_connection.has_failed());
+    }
+}
+
+test "RFC 9113 §5.1: after a GOAWAY, a frame on an idle stream colibri would open ends the connection" {
+    for (idle_forbidden) |case| {
+        try start_server();
+        test_connection.shutdown(constants.error_no_error);
+        _ = write_queued();
+        // Stream 2 has the server's parity. §6.8 lets a GOAWAY's sender ignore only streams the
+        // peer initiated, so §5.1 still makes this frame on an idle stream a connection error.
+        const bytes = try frame_bytes(test_input, case.frame_type, 0, 2, case.payload);
         try testing.expectEqual(error.ConnectionFailed, test_connection.receive(bytes, 0));
         try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
     }
