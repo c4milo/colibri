@@ -55,7 +55,12 @@ readonly identity="${identity_directory}/colibri"
 # non-negotiable 3), so a TLS run passes the instant.
 mode_arguments=()
 stop_peer() {
-  [ -z "${background_pid}" ] || { kill "${background_pid}" 2>/dev/null || true; background_pid=""; }
+  # A killed server holds its port until it exits, and the next one binds the same port.
+  [ -z "${background_pid}" ] || {
+    kill "${background_pid}" 2>/dev/null || true
+    wait "${background_pid}" 2>/dev/null || true
+    background_pid=""
+  }
   [ -z "${container}" ] || { docker rm -f "${container}" >/dev/null 2>&1 || true; container=""; }
 }
 trap 'stop_peer; rm -rf "${scratch}"' EXIT
