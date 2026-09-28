@@ -4812,7 +4812,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
-  [#70](https://github.com/c4milo/colibri/issues/70). Six parts, in order:
+  [#70](https://github.com/c4milo/colibri/issues/70). Six parts. The owner ruled on 2026-09-27
+  that 17c and 17d go before 17b, because cocuyo waits for the client and 17c does not depend on
+  step 17b. The order is 17a, 17c, 17d, 17b, 17e, 17f:
   - **17a**, the server over TCP. It takes octets tagged by connection, runs the handshake
     through `tls.record.Server`, and serves h11 or h2 as ALPN chose. One set of calls covers
     both: a request is an event with an id, and a response is written by that id, its status,
@@ -4892,6 +4894,48 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     cleartext and over TLS, and curl also over TLS with no ALPN.
   - `zig build test` passed. The HTTP Garden, which feeds the `--echo` mode, needs Linux and is
     left to its CI job; the echo's own tests pass over `server`.
+
+  **17c, 2026-09-28.** `src/client/` is the `client` module, exported by name. It imports `core`,
+  `http`, `h11`, `h2`, `tls` and `tls_provider`, as `server` does.
+  - A `Connection` carries exchanges over one TCP connection to one origin, whose authority
+    `Config` names. For each request the caller places an `Exchange` in its own memory: the
+    method, the path, its field lines and its content, and where the response goes, a body buffer
+    and the names of the response fields it reads. `request(exchange)` returns an id, `send` writes
+    the request when the protocol, the room and the server allow, and `cancel(id)` ends one. The
+    plan named `request(authority, path, fields)`. The authority is the connection's instead,
+    because one TCP connection carries one origin.
+  - Each exchange ends in one outcome, which its `finished` event reports. `response` carries the
+    status, the count of interim responses, the content and each named field's value in the
+    caller's memory. The others are `refused`, `reset`, `closed`, `malformed`, `invalid` and
+    `too_large`. `refused` means the server processed none of the request, so it may go on another
+    connection (RFC 9113 §6.8, §8.7). The connection's own events report the version, a
+    resumption ticket, draining and the close.
+  - `receive` returns events and no error. A connection that fails ends each exchange it holds
+    and reports `closed`.
+  - h2 opens the streams in the order `request` took the exchanges and waits at the server's stream
+    limit. A stream whose response ended before its content went out is reset with CANCEL (RFC 9113
+    §8.1). h11 pipelines as decision 88 rules, and reads and drops a response that did not fit or
+    that the caller cancelled. A cancel while the content is going out ends the connection.
+  - The client adds Host in h11 and Content-Length, and refuses a request that names either, or a
+    connection-specific field (RFC 9113 §8.2.2), so a request means the same in every version.
+  - A connection is 285,768 octets, and an exchange 152.
+  - Building it found an h2 defect. `write_request` opened its stream, and each writer declared its
+    HPACK block, before the output was known to hold the frames (`3f6e609`).
+  - 47 tests and 47 mutations, each CAUGHT. A 48th named the handshake's room check, which no call
+    sequence can reach. It is now an assertion, with a comptime bound on the flights.
+  - §9's client runs each connection on `client` (`src/testing/client/client_session.zig`), in
+    place of its own h2 and h11 sessions and its record half. Its report names each exchange's
+    protocol and outcome.
+
+  **17c check,** run on macOS 26.6.2 arm64 on 2026-09-28, the peers in Docker where the scripts
+  put them:
+  - `tools/h2_interop.sh --tls`: against Go 1.27.1, nghttpd 1.52.0 and h2o 2.2.5, every exchange
+    ended as planned, in cleartext and over TLS, on one connection and on 64. The plan is a GET, a
+    GET of 1 MiB, a POST of 300,000 octets that Go echoes, an interim response, trailers and a 404.
+    The client that pins another root sent the alert Go read as `unknown certificate authority`.
+  - `tools/h11_interop.sh --tls`: against Go 1.27.1 and h2o 2.2.5, the same over h11, in
+    cleartext and over TLS: Go's ALPN chose h11, and the client offered only h11 to h2o.
+  - `zig build test` passed.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:

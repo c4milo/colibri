@@ -2,8 +2,9 @@
 //! `tools/h2_interop.sh` runs against other implementations' servers. `zig build http-client --
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
-//! It speaks cleartext h2 with prior knowledge (RFC 9113 §3.3), or with `--tls` h2 over TLS
-//! through colibri's `tls.record.Client` (RFC 9113 §3.2, decision 82, `client_tls.zig`).
+//! Each connection runs on the `client` module (design §8 step 17c). It speaks cleartext h2 with
+//! prior knowledge (RFC 9113 §3.3) or h11, or with `--tls` whichever ALPN selects over TLS, which
+//! the module runs through colibri's `tls.record.Client` (RFC 9113 §3.2, decision 82).
 //!
 //! No call here waits but the loop's `tick` (decisions 46 and 58,
 //! https://github.com/c4milo/colibri/issues/61). One thread holds every connection of a run on
@@ -20,18 +21,20 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
+const client = @import("client");
 const constants = @import("../constants.zig");
 const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
+const client_exchange = @import("client_exchange.zig");
 const client_tls = @import("../tls/client_tls.zig");
-const tls = @import("tls");
+const entropy = @import("../entropy.zig");
 const alpn = @import("../alpn.zig");
 
 const Run = client_options.Run;
 const Session = client_session.Session;
 
 /// Why a connection ended without its session finishing.
-const Failure = enum { none, connect_refused, peer_closed, socket_error, timed_out, tls_failed };
+const Failure = enum { none, connect_refused, peer_closed, socket_error, timed_out, refused_start };
 
 /// What an operation a connection has in flight does. It rides in the operation's user data,
 /// below the connection's index.
@@ -48,10 +51,9 @@ const Connection = struct {
     descriptor: rotor.Descriptor,
     /// The peer, which the connect in flight reads until its event (Rotor's rule 3).
     address: rotor.Address,
+    /// Over TLS its octets are records, and `input` and `output` hold them as they cross the
+    /// socket, so each holds a whole record.
     session: Session,
-    /// The TLS layer the connection runs over, or null in cleartext. Its octets are records, and
-    /// `input` and `output` hold them as they cross the socket, so each holds a whole record.
-    layer: ?*client_tls.Layer,
     received: [constants.wire_read_len]u8,
     input: [constants.wire_read_len]u8,
     input_len: usize,
@@ -64,9 +66,6 @@ const Connection = struct {
     receiving: bool,
     sending: bool,
     failure: Failure,
-    /// Whether the TLS handshake failed, so the octets left end with its alert and the
-    /// connection closes once they are sent.
-    refused: bool,
 };
 
 /// The loop and the connections, in static storage: each connection is large, and a run holds up
@@ -75,12 +74,14 @@ var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_al
 var loop: rotor.Loop align(@alignOf(rotor.Loop)) = undefined;
 var events: [loop_options.operations]rotor.Event align(@alignOf(rotor.Event)) = undefined;
 var connections: [constants.client_connections_max]Connection align(@alignOf(Connection)) = undefined;
+/// The response content of every exchange of every connection. Most of it is never touched, so
+/// the system gives it no memory.
+var bodies: [constants.client_connections_max]client_session.Bodies align(@alignOf(client_session.Bodies)) = undefined;
 
-/// The TLS mode's shared state, which `main` loads when `--tls` names a root, and one TLS layer per
-/// connection.
-var tls_shared: ?client_tls.Shared align(@alignOf(client_tls.Shared)) = null;
+/// What every connection of the run borrows, and the root the TLS mode trusts, which `main` loads
+/// when `--tls` names one.
+var client_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
 var tls_anchors: client_tls.Anchors align(@alignOf(client_tls.Anchors)) = undefined;
-var tls_layers: [constants.client_connections_max]client_tls.Layer align(@alignOf(client_tls.Layer)) = undefined;
 
 /// Opens every connection of `run`, serves them until each is closed, and returns how many
 /// finished with every exchange answered.
@@ -131,7 +132,8 @@ fn on_event(live: []Connection, event: rotor.Event) void {
         .send => on_sent(connection, index, event),
         .close => {
             connection.state = .closed;
-            if (connection.layer) |layer| finish_tls(layer);
+            // The module wipes the TLS session's secrets, whether the connection finished or not.
+            connection.session.connection.transport_closed();
         },
     }
     if (connection.state == .open) arm(connection, index);
@@ -139,32 +141,23 @@ fn on_event(live: []Connection, event: rotor.Event) void {
 
 /// Makes a socket and starts its connect, whose event the loop delivers.
 fn open_connection(connection: *Connection, index: usize, run: *const Run) void {
-    connection.session.init(run.protocol, request_scheme(), run.authority, run.plans[0..run.plans_count]);
-    connection.layer = null;
     connection.input_len = 0;
     connection.output_len = 0;
     connection.output_sent = 0;
     connection.connecting = false;
     connection.receiving = false;
     connection.sending = false;
-    connection.refused = false;
     connection.state = .closed;
+    connection.failure = .refused_start;
+    const plans = run.plans[0..run.plans_count];
+    connection.session.init(&client_config, entropy.random(), run.now_seconds, plans, &bodies[index]) catch return;
     connection.failure = .socket_error;
-    if (tls_shared) |*shared| connection.layer = start_tls(index, shared) catch {
-        connection.failure = .tls_failed;
-        return;
-    };
     connection.address = rotor.Address.ipv4(run.address, run.port);
     connection.descriptor = rotor.sync.open_socket(.ipv4) catch return;
     connection.state = .connecting;
     connection.failure = .none;
     connection.connecting = true;
     submit(rotor.Operation.connect(user_data(index, .connect), connection.descriptor, &connection.address));
-}
-
-/// RFC 9113 §8.3.1: `:scheme` names the URI scheme, which is "https" over TLS (RFC 9110 §4.2.2).
-fn request_scheme() []const u8 {
-    return if (tls_shared == null) "http" else "https";
 }
 
 /// The connect finished: the session writes its preface once it succeeded.
@@ -232,8 +225,6 @@ fn submit(operation: rotor.Operation) void {
 /// Steps the session until it stops moving, appending what it writes to the output buffer. A
 /// session that finished with every octet written closes its connection.
 fn step_session(connection: *Connection, index: usize) void {
-    if (connection.refused) return close_refused_when_sent(connection, index);
-    if (connection.layer) |layer| return step_tls(connection, index, layer);
     for (0..constants.steps_per_read_max) |_| {
         const room = connection.output[connection.output_len..];
         if (room.len == 0) return;
@@ -243,38 +234,6 @@ fn step_session(connection: *Connection, index: usize) void {
         if (step.done) return close_when_sent(connection, index);
         if (step.consumed == 0 and step.written == 0) return;
     }
-}
-
-/// Steps a TLS connection: records in from `input`, records out into `output`
-/// (`client_tls.zig`).
-fn step_tls(connection: *Connection, index: usize, layer: *client_tls.Layer) void {
-    const stepped = client_tls.step(
-        layer,
-        &connection.session,
-        connection.input[0..connection.input_len],
-        connection.output[connection.output_len..],
-    ) catch |failure| {
-        client_tls.print_failure(layer, index, failure);
-        return refuse(connection, index, layer);
-    };
-    connection.output_len += stepped.written;
-    consume(connection, stepped.consumed);
-    if (stepped.done) close_when_sent(connection, index);
-}
-
-/// Ends a connection whose TLS failed. What a refused handshake wrote, the alert that says why
-/// last, goes out before the close (RFC 9846 §6.2); any other failure ends the connection now.
-fn refuse(connection: *Connection, index: usize, layer: *const client_tls.Layer) void {
-    const written = client_tls.failure_written(layer);
-    if (written == 0) return close_connection(connection, index, .tls_failed);
-    connection.output_len += written;
-    assert(connection.output_len <= connection.output.len);
-    connection.refused = true;
-}
-
-/// Closes a refused connection once the socket has taken its alert.
-fn close_refused_when_sent(connection: *Connection, index: usize) void {
-    if (connection.output_sent == connection.output_len and !connection.sending) close_connection(connection, index, .tls_failed);
 }
 
 /// Closes a connection whose session is done, once the socket has taken every octet.
@@ -290,18 +249,6 @@ fn consume(connection: *Connection, consumed: usize) void {
     connection.input_len = rest;
 }
 
-/// Gives a connection the TLS layer of its index, with its ClientHello staged.
-fn start_tls(index: usize, shared: *const client_tls.Shared) !*client_tls.Layer {
-    const layer = &tls_layers[index];
-    try client_tls.start(layer, shared);
-    return layer;
-}
-
-/// Wipes what a TLS connection's session still holds, once its connection is closed.
-fn finish_tls(layer: *client_tls.Layer) void {
-    client_tls.finish(layer);
-}
-
 /// Closes a connection and records why: Rotor's close cancels its receive and send first. A
 /// connection already closing keeps its reason.
 fn close_connection(connection: *Connection, index: usize, failure: Failure) void {
@@ -315,18 +262,20 @@ fn close_connection(connection: *Connection, index: usize, failure: Failure) voi
 fn report(run: *const Run, succeeded: u32) void {
     for (connections[0..run.connections_count], 0..) |*connection, index| {
         const session = &connection.session;
-        for (session.exchanges()) |*exchange| {
+        for (session.exchanges_held()) |*exchange| {
+            const carried = &exchange.carried;
             std.debug.print(exchange_format, .{
-                index,                     exchange.stream_id,
-                exchange.plan.method,      exchange.plan.path,
-                exchange.status,           exchange.interim_count,
-                exchange.content_sent,     exchange.sent_crc32.final(),
-                exchange.content_received, exchange.received_crc32.final(),
-                exchange.outcome,          exchange.error_code,
+                index,                     protocol_name(session.protocol),
+                exchange.id,               exchange.plan.method,
+                exchange.plan.path,        carried.status,
+                carried.interims,          carried.content_sent,
+                exchange.sent_crc32(),     carried.body_len,
+                exchange.received_crc32(), carried.outcome,
+                carried.error_code,
             });
         }
-        if (connection.failure != .none or session.failed()) {
-            std.debug.print("connection={d} failure={t} protocol_failed={}\n", .{ index, connection.failure, session.failed() });
+        if (connection.failure != .none or !session.succeeded()) {
+            std.debug.print("connection={d} failure={t} succeeded={}\n", .{ index, connection.failure, session.succeeded() });
         }
     }
     std.debug.print("http-client: connections={d} succeeded={d} failed={d}\n", .{
@@ -334,7 +283,7 @@ fn report(run: *const Run, succeeded: u32) void {
     });
 }
 
-const exchange_format = "connection={d} stream={d} {s} {s} status={d} interim={d} sent={d} " ++
+const exchange_format = "connection={d} protocol={s} exchange={d} {s} {s} status={d} interim={d} sent={d} " ++
     "sent_crc32=0x{x:0>8} received={d} received_crc32=0x{x:0>8} outcome={t} error_code={d}\n";
 
 /// The exit status of a run in which a connection did not finish, and of a command line the
@@ -350,6 +299,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.debug.print(client_options.usage, .{});
         std.process.exit(exit_usage);
     };
+    client_exchange.fill_content();
+    client_config = .{ .authority = run.authority, .cleartext = protocol_of(run.protocol) };
     if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
     const succeeded = try run_connections(&run);
     report(&run, succeeded);
@@ -360,47 +311,26 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// is the authority the requests name, and `--h11` offers `http/1.1` alone.
 fn load_tls(prefix: []const u8, run: *const Run) !void {
     const protocols: []const []const u8 = if (run.protocol == .h11) &alpn.alpn_h11 else &alpn.alpn_both;
-    tls_shared = try client_tls.load(&tls_anchors, prefix, run.authority, run.now_seconds, protocols);
+    client_config.tls = try client_tls.load(&tls_anchors, prefix, run.authority, protocols);
+}
+
+/// The protocol a report names, or "none" for a connection that never connected.
+fn protocol_name(protocol: ?client.Protocol) []const u8 {
+    const spoken = protocol orelse return "none";
+    return @tagName(spoken);
+}
+
+/// The module's name for the protocol the command line chose.
+fn protocol_of(chosen: alpn.Protocol) client.Protocol {
+    return switch (chosen) {
+        .h2 => .h2,
+        .h11 => .h11,
+    };
 }
 
 const testing = std.testing;
 
-/// One anchor whose name and key are each an empty DER SEQUENCE: the test's handshake never runs.
-/// Test-only.
-const test_der = [_]u8{ der_sequence_tag, 0 };
-const der_sequence_tag: u8 = 0x30;
-const test_anchors = [_]tls.Anchor{.{ .subject = &test_der, .spki = &test_der }};
-var test_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
-/// An instant chapulin accepts. A constant because no file under `src/` may read a clock.
-/// Test-only.
-const test_now_seconds: u64 = 1_780_000_000;
-
-fn test_shared() !client_tls.Shared {
-    try test_config.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &test_anchors, .server_name = "localhost" } },
-        .alpn = &alpn.alpn_both,
-    });
-    return .{ .config = &test_config, .now_seconds = test_now_seconds };
-}
-
-test "a TLS connection's session is wiped when its connection closes" {
-    const shared = try test_shared();
-    const connection = &connections[0];
-    connection.* = undefined;
-    connection.state = .closing;
-    connection.layer = try start_tls(0, &shared);
-    try testing.expect(!client_tls.wiped(&tls_layers[0]));
-    // Rotor's close of the connection is its last operation.
-    on_event(connections[0..1], .{ .user_data = user_data(0, .close), .result = 0, .flags = .{} });
-    try testing.expectEqual(.closed, connection.state);
-    try testing.expect(client_tls.wiped(&tls_layers[0]));
-}
-
-test "RFC 9113 §8.3.1: a run's requests name https over TLS and http in cleartext" {
-    const saved = tls_shared;
-    defer tls_shared = saved;
-    tls_shared = null;
-    try testing.expectEqualStrings("http", request_scheme());
-    tls_shared = try test_shared();
-    try testing.expectEqualStrings("https", request_scheme());
+test "the command line's protocol is the module's" {
+    try testing.expectEqual(client.Protocol.h2, protocol_of(.h2));
+    try testing.expectEqual(client.Protocol.h11, protocol_of(.h11));
 }

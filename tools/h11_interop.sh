@@ -8,8 +8,7 @@
 # tools/h2_interop/Dockerfile builds, the same peers tools/h2_interop.sh runs. Over TLS, Go serves
 # HTTP/1.1 alone and offers ALPN "http/1.1" alone, so a client offering "h2" and then "http/1.1"
 # gets h11 by the server's selection (RFC 7301 §3.2). h2o offers both and prefers h2, so the
-# client offers "http/1.1" alone with --h11. Every exchange must report stream=0, which is how the
-# client reports an h11 exchange.
+# client offers "http/1.1" alone with --h11. Every exchange must report protocol=h11.
 #
 # Usage: tools/h11_interop.sh [--tls] [go] [h2o]
 #        (no peer runs both)
@@ -70,8 +69,8 @@ run_client() {
   report="$("${client}" --port "${port}" ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1)" ||
     { echo "${report}"; fail "the client exited non-zero"; }
   echo "${report}"
-  # Every exchange ran over h11, which has no streams.
-  ! grep -qE " stream=[1-9]" <<<"${report}" || fail "an exchange ran over h2, not h11"
+  # Every exchange ran over h11.
+  ! grep -qE " protocol=(h2|none) " <<<"${report}" || fail "an exchange ran over h2, or never connected"
   local many
   many="$("${client}" --port "${port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1 | tail -1)" ||
     fail "64 connections: ${many}"
@@ -115,9 +114,9 @@ plan_go() {
   run_client "${go_port}" --get / --get /large --post /echo "${content_len}" \
     --get /interim --get /trailers --get /missing
   expect / "status=200 interim=0"
-  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=ended"
+  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
   # The echo returns what was sent, octet for octet, while it is still being sent.
-  expect /echo "sent=${content_len} sent_crc32=${content_crc32} received=${content_len} received_crc32=${content_crc32} outcome=ended"
+  expect /echo "sent=${content_len} sent_crc32=${content_crc32} received=${content_len} received_crc32=${content_crc32} outcome=response"
   # RFC 9112 §9.2: an interim response, then the final one to the same request.
   expect /interim "status=200 interim=1"
   # RFC 9112 §7.1.2: the content, then a trailer section, in the chunked coding.
@@ -152,7 +151,7 @@ run_h2o() {
 plan_h2o() {
   run_client "${h2o_port}" --get / --get /large --post /index.html "${content_len}" --get /missing
   expect / "status=200 interim=0 sent=0"
-  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=ended"
+  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
   # h2o's file handler refuses the method, and still reads the content whole (RFC 9110 §15.5.6),
   # so the connection carries the next request.
   expect /index.html "status=405 interim=0 sent=${content_len} sent_crc32=${content_crc32}"

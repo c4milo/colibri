@@ -251,7 +251,9 @@ pub fn add(
     testing_client.addImport("h11", h11);
     testing_client.addImport("tls_provider", tls_provider);
     testing_client.addImport("tls", tls);
-    // The client sessions' tests run the client against §9's server, which runs on `server`.
+    // Design §8 step 17c: each connection of the client of §9 runs on `client`.
+    testing_client.addImport("client", client);
+    // The client session's tests run the client against §9's server, which runs on `server`.
     testing_client.addImport("server", server);
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;

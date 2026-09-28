@@ -73,6 +73,8 @@ run_client() {
   report="$("${client}" --port "${port}" ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1)" ||
     { echo "${report}"; fail "the client exited non-zero"; }
   echo "${report}"
+  # Every exchange ran over h2, whichever way the connection chose it.
+  ! grep -qE " protocol=(h11|none) " <<<"${report}" || fail "an exchange ran over h11, or never connected"
   local many
   many="$("${client}" --port "${port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1 | tail -1)" ||
     fail "64 connections: ${many}"
@@ -144,9 +146,9 @@ plan_go() {
   run_client "${go_port}" --get / --get /large --post /echo "${content_len}" \
     --get /interim --get /trailers --get /missing
   expect / "status=200 interim=0"
-  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=ended"
+  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
   # The echo returns what was sent, octet for octet, while it is still being sent.
-  expect /echo "sent=${content_len} sent_crc32=${content_crc32} received=${content_len} received_crc32=${content_crc32} outcome=ended"
+  expect /echo "sent=${content_len} sent_crc32=${content_crc32} received=${content_len} received_crc32=${content_crc32} outcome=response"
   # RFC 9113 §8.1: an interim response, then the final one.
   expect /interim "status=200 interim=1"
   expect /trailers "status=200 interim=0 sent=0 sent_crc32=0x00000000 received=8"
@@ -177,7 +179,7 @@ run_nghttpd() {
 plan_nghttpd() {
   run_client "${nghttpd_port}" --get / --get /large --post /index.html "${content_len}" --get /missing
   expect / "status=200 interim=0 sent=0"
-  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=ended"
+  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
   # nghttpd answers a POST with the file, after it has read the content whole.
   expect /index.html "status=200 interim=0 sent=${content_len} sent_crc32=${content_crc32} received=8"
   expect /missing "status=404"
@@ -197,7 +199,7 @@ run_h2o() {
 plan_h2o() {
   run_client "${h2o_port}" --get / --get /large --post /index.html "${content_len}" --get /missing
   expect / "status=200 interim=0 sent=0"
-  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=ended"
+  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
   # h2o's file handler refuses the method, and still reads the content whole (RFC 9110 §15.5.6).
   expect /index.html "status=405 interim=0 sent=${content_len} sent_crc32=${content_crc32}"
   expect /missing "status=404"

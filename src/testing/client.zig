@@ -7,6 +7,7 @@ pub const hooks = @import("tls/hooks.zig");
 pub const client_loop = @import("client/client_loop.zig");
 pub const client_options = @import("client/client_options.zig");
 pub const client_session = @import("client/client_session.zig");
+pub const client_exchange = @import("client/client_exchange.zig");
 pub const client_tls = @import("tls/client_tls.zig");
 
 comptime {
@@ -25,5 +26,6 @@ test {
     _ = client_loop;
     _ = client_options;
     _ = client_session;
+    _ = client_exchange;
     _ = client_tls;
 }

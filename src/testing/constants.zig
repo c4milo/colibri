@@ -121,13 +121,9 @@ pub const request_content_len_max: u32 = 1 << 24;
 /// repeats does not echo back as the same octets.
 pub const request_content_period: u32 = 251;
 
-/// Octets of the content pattern the session keeps, several periods of it. One `write_data` call
-/// reads a slice of it, so a call never hands over less than a frame's worth.
-pub const request_content_pattern_len: u32 = 128 * request_content_period;
-
-/// Branches the compiler may take while it fills the pattern: two per octet, the loop's and the
-/// remainder's.
-pub const request_content_pattern_branches: u32 = 2 * request_content_pattern_len;
+/// Octets of a response's content the client keeps for each exchange, which `client` copies into
+/// the exchange's memory: `tools/h2_interop.sh`'s `/large`, 1 MiB, whole.
+pub const response_content_len_max: u32 = 1 << 20;
 
 /// Decimal digits of the longest `content-length` a request carries (RFC 9110 §8.6), which is
 /// `request_content_len_max`'s.
@@ -158,8 +154,7 @@ pub const client_ticks_max: u32 = 1 << 20;
 
 comptime {
     assert(exchanges_max > 0 and client_connections_max > 0 and client_ticks_max > 0);
-    assert(request_content_pattern_len % request_content_period == 0);
-    assert(request_content_pattern_len >= h2.constants.frame_size_max);
+    assert(response_content_len_max > h2.constants.frame_size_max);
     // The digits hold the largest length a plan may name.
     assert(std.math.pow(u64, port_radix, content_length_digits_max) > request_content_len_max);
     assert(client_wait_ns > 0 and client_arguments_max > arguments_max);
