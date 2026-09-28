@@ -83,7 +83,7 @@ core, http, h11, h2, h3, quic, tls <- client, server
 | `crypto` | the packet-protection vtable, no production implementation | `core` | 9001 §5 |
 | `hpack` | HPACK | `core`, `wire`, `http` | 7541 |
 | `qpack` | QPACK | `core`, `wire`, `http` | 9204 |
-| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | stdx's `json` ([decision 102](decisions.md) as amended) | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
+| `qlog` | a log in the caller's buffer as JSON Text Sequences, and the QUIC and HTTP/3 event records `quic` and `h3` fill ([decision 102](decisions.md)) | stdx's `json` and `codec` ([decision 102](decisions.md) as amended) | 7464, 8259, and the qlog drafts of `docs/rfcs/qlog/` |
 | `quic` | the transport: packets, frames, streams, recovery | `core`, `wire`, `crypto`, `tls_provider`, `qlog` | 8999, 9000, 9001, 9002 |
 | `h2` | HTTP/2 | `core`, `wire`, `http`, `hpack`, `tls_provider` | 9113 |
 | `h3` | HTTP/3 | `core`, `wire`, `http`, `qpack`, `quic`, `qlog` | 9114 |
@@ -5265,6 +5265,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     16.7 and 18.8 s. The logged runs write 36.7 MB, so stdx's writer costs about 4 ns more per
     octet in ReleaseSafe. The check added 1.2 s to the 71.5 s of `zig build test-sim-run` in
     Debug.
+
+  **18b and 18d, stdx's features, 2026-09-28.** stdx is pinned at f647da1, whose JSON writer and
+  reader take the CPU features their vector paths may use (stdx's decision 30). As decision 102
+  as amended rules, `qlog.Log.init(buffer, features)` takes them from its caller, and `qlog`
+  imports stdx's `codec` for the type, which it exports as `qlog.Features`. The simulator and the
+  unit tests pass `Features.none()`, and the UDP endpoint passes `Features.detect()`.
+  - The records are the same octets for every value (stdx's invariant 5). Every byte-exact test
+    and the simulator's pinned logs and event counts hold, and `zig build test` passed 2,244 of
+    2,244. `tools/quic_udp.sh`: 4 files, 17,335 events, each record a JSON text.
+    `tools/consumer_check.sh` passed.
+  - `zig build test-sim-run-quic` in ReleaseSafe on an Apple M1 Pro, as user CPU time with both
+    pins run side by side: 2.88 s at eb0f0c7 and 2.77 s at f647da1. The machine's load average
+    was 77 during the run.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

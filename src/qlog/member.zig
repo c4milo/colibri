@@ -4,6 +4,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const json = @import("json");
+const Features = @import("codec").Features;
 const constants = @import("constants.zig");
 
 const TextWriter = json.TextWriter;
@@ -56,7 +57,7 @@ const test_buffer_len = 128;
 
 test "each member is its name and its value, with commas between members" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try unsigned(&text, "a", 1);
     try string(&text, "b", "x\"y");
@@ -68,7 +69,7 @@ test "each member is its name and its value, with commas between members" {
 
 test "milliseconds keep three digits of fraction" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try milliseconds(&text, "a", 0);
     try milliseconds(&text, "b", 1_234_567_890);

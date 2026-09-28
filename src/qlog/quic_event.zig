@@ -7,6 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const member = @import("member.zig");
 const TextWriter = @import("json").TextWriter;
+const Features = @import("codec").Features;
 const quic_frame = @import("quic_frame.zig");
 const VantagePoint = @import("log.zig").VantagePoint;
 
@@ -231,7 +232,7 @@ const test_buffer_len = 512;
 
 fn expect_event(expected: []const u8, event: anytype) !void {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try event.write(&text);
     try text.end_object();
@@ -262,7 +263,7 @@ test "recovery metrics write only what is present, and durations in milliseconds
 
 test "a long header carries its version and connection IDs as hexstrings" {
     var buffer: [256]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try field(&text, "header", PacketHeader{
         .packet_type = .initial,

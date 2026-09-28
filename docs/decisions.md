@@ -52,8 +52,8 @@ and is re-argued, not edited.
    change plus a vendoring step, because no edge points out of it. Reopen trigger: a second consumer
    wants QUIC without HTTP, or one person can no longer maintain QUIC and HTTP together.
 
-   Entry 102 amends this entry: `quic` also imports `qlog`, which imports stdx's `json` alone
-   (entry 102 as amended), so moving `src/quic/` out takes `src/qlog/` with it.
+   Entry 102 amends this entry: `quic` also imports `qlog`, which imports stdx's `json` and
+   `codec` alone (entry 102 as amended), so moving `src/quic/` out takes `src/qlog/` with it.
 
 4. **Client and server, both, from the first step.** Cost: roughly a third more state machine —
    stream-id parity in both directions (RFC 9113 §5.1.1), the two connection prefaces (§3.4),
@@ -2864,6 +2864,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      `tools/qlog_to_qvis.py` rewrites a colibri log into that form. colibri itself still writes the
      drafts this entry pins. Refused: writing qlog 0.3 from colibri, which would trade the pinned
      drafts for a viewer's, and leaving the logs unreadable in qvis until it catches up.
+
+     Amended by the owner on 2026-09-28: when stdx's JSON module takes the CPU features its vector
+     paths may use (stdx's decision 30), `qlog.Log.init` takes them from its caller, who passes
+     `Features.detect()` or `Features.target()`, as decision 98 has h11's decoder pool do, so
+     colibri never asks the CPU itself. `qlog` then imports stdx's `codec` too. The records are the
+     same octets for every value (stdx's invariant 5). Refused: `qlog` calling `Features.target()`
+     itself, which keeps `Log.init` as it is but leaves the caller no choice, and gives a build for
+     a baseline CPU the scalar paths.
 
 103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
      response body until the server reports it done.** Ruled by the owner on 2026-09-27, for

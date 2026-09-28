@@ -53,7 +53,9 @@ pub const Records = struct {
     /// Reads each record of `octets`, which a log held, writing each name, string and number into
     /// `storage`, which must hold the longest of them.
     pub fn check(records: *Records, octets: []const u8, storage: []u8) Error!void {
-        var reader = TextReader.init(octets, storage, .sequence);
+        // stdx's scalar paths, as the simulator's writer takes: the items are the same for every
+        // value (stdx's invariant 5).
+        var reader = TextReader.init(octets, storage, .sequence, qlog.Features.none());
         // Bounded by the octets: each record takes more than one.
         for (0..octets.len + 1) |_| {
             if (!reader.next_text()) return;
@@ -260,7 +262,7 @@ const test_schemas = [_][]const u8{ qlog.quic_event_schema, qlog.http3_event_sch
 
 /// A log started at instant 0, whose header the check reads first.
 fn test_log(buffer: []u8) !qlog.Log {
-    var log = qlog.Log.init(buffer);
+    var log = qlog.Log.init(buffer, qlog.Features.none());
     try log.start(.{ .vantage_point = .client, .group_id = "odcid", .event_schemas = &test_schemas }, 0);
     return log;
 }

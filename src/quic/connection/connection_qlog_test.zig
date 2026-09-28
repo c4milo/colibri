@@ -76,7 +76,7 @@ fn open_pair(levels: []const Level) !void {
 }
 
 fn open_one(connection: *Connection, log: *qlog.Log, buffer: []u8, role: connection_module.Role, levels: []const Level) !void {
-    log.* = qlog.Log.init(buffer);
+    log.* = qlog.Log.init(buffer, qlog.Features.none());
     try log.start(.{ .vantage_point = if (role == .client) .client else .server, .group_id = &peer_id, .event_schemas = &schemas }, test_now_ns);
     // The tests read the events the connection writes, so the header goes.
     log.clear();
@@ -117,7 +117,7 @@ fn count_of(log: *const qlog.Log, needle: []const u8) usize {
 
 test "a connection with a log starts it with its version and its own parameters" {
     try open_pair(&.{});
-    var log = qlog.Log.init(&client_log_buffer);
+    var log = qlog.Log.init(&client_log_buffer, qlog.Features.none());
     try log.start(.{ .vantage_point = .client, .group_id = &peer_id, .event_schemas = &schemas }, test_now_ns);
     const header_len = log.len;
     open_connection(&client, .client, &log, &.{});

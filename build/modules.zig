@@ -6,8 +6,8 @@
 //! transport that carries streams and never interprets their payloads; decision 5 keeps it that
 //! way: `quic` receives `core`, `wire`, `crypto`, `tls_provider` and `qlog`, and nothing else.
 //! `src/quic/` naming `http`, `h2`, `h3`, `h11`, `hpack` or `qpack` does not compile, which is
-//! invariant 26 and the check of design §8 step 0. `qlog` imports stdx's `json` alone (decision
-//! 102 as amended).
+//! invariant 26 and the check of design §8 step 0. `qlog` imports stdx's `json` and `codec` alone
+//! (decision 102 as amended).
 //!
 //! `sim` receives `core`, `tls_provider` and `crypto` because it implements the two caller-supplied
 //! vtables (decisions 8 and 9) and passes its own null providers to the protocol modules in place
@@ -40,7 +40,7 @@ pub const Modules = struct {
     /// The packet-protection vtable. No production implementation (decision 9).
     crypto: *std.Build.Module,
     /// A qlog log in the caller's buffer, and the event records `quic` and `h3` fill (decision
-    /// 102). Imports stdx's `json` alone.
+    /// 102). Imports stdx's `json` and `codec` alone.
     qlog: *std.Build.Module,
     hpack: *std.Build.Module,
     qpack: *std.Build.Module,
@@ -117,6 +117,8 @@ pub fn add(
 
     const qlog = library(b, "qlog", target, optimize);
     qlog.addImport("json", stdx.module("json"));
+    // Decision 102 as amended: the caller passes the CPU features stdx's JSON writer may use.
+    qlog.addImport("codec", stdx.module("codec"));
 
     const hpack = library(b, "hpack", target, optimize);
     hpack.addImport("core", core);

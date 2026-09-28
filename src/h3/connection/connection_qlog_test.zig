@@ -34,7 +34,7 @@ fn pair_logged() !void {
 }
 
 fn start_log(log: *qlog.Log, buffer: []u8, vantage_point: qlog.VantagePoint) !void {
-    log.* = qlog.Log.init(buffer);
+    log.* = qlog.Log.init(buffer, qlog.Features.none());
     try log.start(.{ .vantage_point = vantage_point, .group_id = &group_id, .event_schemas = &schemas }, harness.test_now_ns);
     // The tests read the events the connections write, so the header goes.
     log.clear();

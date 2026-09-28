@@ -42,7 +42,9 @@ pub const Qlog = struct {
             std.debug.print("quic-udp: no qlog file could be created in {s}\n", .{held});
             return null;
         };
-        qlog.log = Log.init(&qlog.buffer);
+        // The endpoint runs where it was started, so it asks the CPU, as `src/testing/server.zig`
+        // does for its decoders (decision 102 as amended).
+        qlog.log = Log.init(&qlog.buffer, quic.qlog.Features.detect());
         const trace: quic.qlog.Trace = .{
             .vantage_point = vantage_point_of(role),
             // Quic-events §1.1: the original destination connection ID groups a connection's

@@ -1,6 +1,6 @@
 //! qlog, the structured log of draft-ietf-quic-qlog-main-schema-14, in a buffer the caller owns
 //! (decision 102). `quic` and `h3` fill its event records when their caller gives them a log, and
-//! the caller writes the records where it wants. Imports `core` and stdx's `json` (docs/design.md
+//! the caller writes the records where it wants. Imports stdx's `json` and `codec` (docs/design.md
 //! §3).
 const std = @import("std");
 
@@ -10,6 +10,10 @@ pub const constants = @import("constants.zig");
 /// that its `TextWriter` writes, and its `TextReader` reads one back.
 pub const json = @import("json");
 pub const TextWriter = json.TextWriter;
+
+/// The CPU features stdx's JSON writer may use, which a log's caller passes to `Log.init`
+/// (decision 102 as amended), as it passes them to h11's decoder pool (decision 98).
+pub const Features = @import("codec").Features;
 
 /// One member of an object, its name and its value, which every record is made of.
 pub const member = @import("member.zig");

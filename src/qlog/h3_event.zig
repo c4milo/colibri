@@ -9,6 +9,7 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
 const TextWriter = @import("json").TextWriter;
+const Features = @import("codec").Features;
 const quic_event = @import("quic_event.zig");
 
 pub const Error = member.Error;
@@ -157,7 +158,7 @@ const test_buffer_len = 512;
 
 test "a HEADERS frame's lines are text when printable, and octets otherwise" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try begin_frame(&text, 0, "headers");
     try begin_headers(&text);
@@ -177,7 +178,7 @@ test "a HEADERS frame's lines are text when printable, and octets otherwise" {
 
 test "a SETTINGS frame names each setting, and an unknown one carries its identifier" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try begin_frame(&text, 3, "settings");
     try begin_settings(&text);
@@ -196,14 +197,14 @@ test "a SETTINGS frame names each setting, and an unknown one carries its identi
 
 test "a GOAWAY names its identifier, and an unknown frame its type" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try begin_frame(&text, 3, "goaway");
     try goaway_id(&text, 8);
     try end_frame(&text, 1);
     try text.end_object();
     try testing.expectEqualStrings("{\"stream_id\":3,\"frame\":{\"frame_type\":\"goaway\",\"id\":8,\"raw\":{\"payload_length\":1}}}", text.written());
-    text = TextWriter.init(&buffer, .text);
+    text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try begin_frame(&text, 4, "unknown");
     try frame_type_bytes(&text, 0x2f);
@@ -214,17 +215,17 @@ test "a GOAWAY names its identifier, and an unknown frame its type" {
 
 test "settings and stream types, under the draft's names" {
     var buffer: [test_buffer_len]u8 = undefined;
-    var text = TextWriter.init(&buffer, .text);
+    var text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try (ParametersSet{ .initiator = .remote, .max_field_section_size = 16_384, .blocked_streams_count = 0 }).write(&text);
     try text.end_object();
     try testing.expectEqualStrings("{\"initiator\":\"remote\",\"max_field_section_size\":16384,\"blocked_streams_count\":0}", text.written());
-    text = TextWriter.init(&buffer, .text);
+    text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try (StreamTypeSet{ .initiator = .local, .stream_id = 2, .stream_type = .qpack_encode }).write(&text);
     try text.end_object();
     try testing.expectEqualStrings("{\"initiator\":\"local\",\"stream_id\":2,\"stream_type\":\"qpack_encode\"}", text.written());
-    text = TextWriter.init(&buffer, .text);
+    text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try (StreamTypeSet{ .initiator = .remote, .stream_id = 7, .stream_type = .unknown, .stream_type_bytes = 0x54 }).write(&text);
     try text.end_object();

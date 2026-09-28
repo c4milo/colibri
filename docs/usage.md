@@ -290,9 +290,11 @@ provider so that h3 serves its control and QPACK streams itself. `write_request`
 send the content behind them on the request stream. Each h3 call that writes or reads a frame
 takes the instant, as QUIC's calls do.
 
-To log a connection as qlog ([decision 102](decisions.md)), place a `qlog.Log` over a buffer,
-write its header with `Log.start`, and pass it as the `qlog` option of both the QUIC connection
-and the h3 connection, so one trace holds both. colibri appends one record per event; your
+To log a connection as qlog ([decision 102](decisions.md)), place a `qlog.Log` over a buffer
+with `Log.init(buffer, features)`, write its header with `Log.start`, and pass it as the `qlog`
+option of both the QUIC connection and the h3 connection, so one trace holds both. `features` is
+`qlog.Features.detect()`, called once, or `qlog.Features.target()`: colibri never asks the CPU
+itself, and the records are the same octets either way. colibri appends one record per event; your
 program writes `log.bytes()` where it wants, a file under `QLOGDIR` for example, and calls
 `log.clear()`. `tools/qlog_to_qvis.py` converts such a file for qvis.
 

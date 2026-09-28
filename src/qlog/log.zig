@@ -8,6 +8,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const TextWriter = @import("json").TextWriter;
+const Features = @import("codec").Features;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
 
@@ -34,6 +35,9 @@ pub const Trace = struct {
 
 pub const Log = struct {
     buffer: []u8,
+    /// The CPU features stdx's JSON writer may use, which the caller chose (decision 102 as
+    /// amended). The records are the same octets for every value (stdx's invariant 5).
+    features: Features,
     /// Octets of whole records, from the start of `buffer`, that the caller has not taken.
     len: usize = 0,
     /// Events dropped because they did not fit.
@@ -42,9 +46,11 @@ pub const Log = struct {
     start_ns: u64 = 0,
     started: bool = false,
 
-    pub fn init(buffer: []u8) Log {
+    /// A log over `buffer`, written with `features`: `Features.detect()`, what the CPU has, or
+    /// `Features.target()`, what the build target guarantees. colibri never asks the CPU itself.
+    pub fn init(buffer: []u8, features: Features) Log {
         assert(buffer.len >= constants.log_len_min);
-        return .{ .buffer = buffer };
+        return .{ .buffer = buffer, .features = features };
     }
 
     /// Writes the header record, which main schema §5 puts first, and starts the clock of the
@@ -53,7 +59,7 @@ pub const Log = struct {
     pub fn start(log: *Log, trace: Trace, now_ns: u64) Error!void {
         assert(!log.started);
         assert(trace.event_schemas.len > 0);
-        var text = TextWriter.init(log.buffer[log.len..], .sequence);
+        var text = TextWriter.init(log.buffer[log.len..], .sequence, log.features);
         try text.begin_object();
         try member.string(&text, "file_schema", file_schema);
         try member.string(&text, "serialization_format", serialization_format);
@@ -70,7 +76,7 @@ pub const Log = struct {
     pub fn event(log: *Log, name: []const u8, now_ns: u64, data: anytype) void {
         assert(log.started);
         assert(now_ns >= log.start_ns);
-        const len = write_event(log.buffer[log.len..], name, now_ns - log.start_ns, data) catch {
+        const len = write_event(log.buffer[log.len..], log.features, name, now_ns - log.start_ns, data) catch {
             log.dropped += 1;
             return;
         };
@@ -119,8 +125,8 @@ fn write_trace(text: *TextWriter, trace: Trace) Error!void {
 
 /// One event record into `buffer`, and its length. Nothing is committed until it all fit, so a
 /// failed record leaves only scratch past the log's length.
-fn write_event(buffer: []u8, name: []const u8, time_ns: u64, data: anytype) Error!usize {
-    var text = TextWriter.init(buffer, .sequence);
+fn write_event(buffer: []u8, features: Features, name: []const u8, time_ns: u64, data: anytype) Error!usize {
+    var text = TextWriter.init(buffer, .sequence, features);
     try text.begin_object();
     try member.milliseconds(&text, "time", time_ns);
     try member.string(&text, "name", name);
@@ -150,7 +156,7 @@ fn test_trace(group_id: []const u8) Trace {
 
 test "the header record is a QlogFileSeq between RS and LF" {
     var buffer: [constants.log_len_min]u8 = undefined;
-    var log = Log.init(&buffer);
+    var log = Log.init(&buffer, Features.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 7);
     try testing.expectEqualStrings("\x1e{\"file_schema\":\"urn:ietf:params:qlog:file:sequential\"," ++
         "\"serialization_format\":\"application/qlog+json-seq\",\"trace\":{\"common_fields\":" ++
@@ -161,7 +167,7 @@ test "the header record is a QlogFileSeq between RS and LF" {
 
 test "an event record carries its time from the header's instant, its name and its data" {
     var buffer: [constants.log_len_min]u8 = undefined;
-    var log = Log.init(&buffer);
+    var log = Log.init(&buffer, Features.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 1_000_000);
     log.clear();
     log.event("loglevel:info", 3_500_000, Marker{ .message = "hello" });
@@ -171,7 +177,7 @@ test "an event record carries its time from the header's instant, its name and i
 
 test "an event that does not fit is dropped whole, and the next one that fits is written" {
     var buffer: [constants.log_len_min]u8 = undefined;
-    var log = Log.init(&buffer);
+    var log = Log.init(&buffer, Features.none());
     try log.start(test_trace(&.{ 0xab, 0x01 }), 0);
     const filler: [constants.log_len_min]u8 = @splat('x');
     const kept = log.len;
