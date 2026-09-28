@@ -9,6 +9,7 @@ const h3 = @import("h3");
 const tls = @import("tls");
 const support = @import("connection_test_support.zig");
 const quic_connection = @import("quic_connection.zig");
+const endpoint_module = @import("endpoint.zig");
 const event = @import("event.zig");
 
 pub const QuicConnection = quic_connection.QuicConnection;
@@ -27,7 +28,9 @@ const grease: u64 = 0x1f2e_3d4c;
 /// Where the client sends from, which the server reads off each datagram (decision 72).
 const client_octets = [_]u8{ loopback_first, 0, 0, 1 };
 const loopback_first: u8 = 127;
-const client_port: u16 = 50_000;
+pub const client_port: u16 = 50_000;
+/// The port the client sends from now, which a test moves as a NAT rebinding would (RFC 9000 §9).
+pub var client_port_now: u16 = client_port;
 
 /// The instant a test starts at, and how far each round of `pump` moves it: past each side's
 /// delayed acknowledgment (RFC 9000 §13.2.1), so every packet is acknowledged.
@@ -50,6 +53,16 @@ var server_receive: quic_connection.ReceiveStorage align(@alignOf(quic_connectio
 pub var server_started: bool = false;
 /// Whether a `receive` of the server's failed.
 pub var server_failed: bool = false;
+
+/// The endpoint a test may route through instead of starting `connection` itself, and the
+/// connection the server's events come from either way.
+const TestEndpoint = endpoint_module.EndpointOf(endpoint_connections, endpoint_receive_capacity);
+const endpoint_connections: usize = 2;
+const endpoint_receive_capacity: usize = 65_536;
+pub var endpoint: TestEndpoint align(@alignOf(TestEndpoint)) = undefined;
+pub var endpoint_config: endpoint_module.Config align(@alignOf(endpoint_module.Config)) = undefined;
+pub var through_endpoint: bool = false;
+pub var served: *QuicConnection = &connection;
 
 /// The client and what it runs on.
 pub var client: quic.Connection align(@alignOf(quic.Connection)) = undefined;
@@ -116,6 +129,9 @@ pub fn start() !void {
 /// As `start`, with the client's octets held in `receive_pool` at the server.
 pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     server_receive = receive_pool;
+    client_port_now = client_port;
+    through_endpoint = false;
+    served = &connection;
     try server_tls.init(.{
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
@@ -133,6 +149,15 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
 }
 
 const alpn_h3 = [_][]const u8{"h3"};
+
+/// As `start`, with every datagram passing through `endpoint`, which starts the server's
+/// connection itself, after a Retry when `retry` is set (RFC 9000 §8.1.2).
+pub fn start_endpoint(retry: ?*const tls.quic.Retry) !void {
+    try start();
+    through_endpoint = true;
+    endpoint_config = .{ .quic = &config, .retry = retry };
+    endpoint.init(&endpoint_config, support.stream.random(), 0, now_ns);
+}
 
 fn start_client() !void {
     client.init(.{
@@ -167,7 +192,7 @@ fn client_parameters() quic.transport_parameters.Parameters {
 /// Pumps until both handshakes complete and each side's h3 runs.
 pub fn connect() !void {
     try pump(rounds_default);
-    if (!client_h3_started or connection.protocol() == null) return error.TestUnexpectedResult;
+    if (!client_h3_started or served.protocol() == null) return error.TestUnexpectedResult;
 }
 
 /// The client sends a request for `path` with `content`, ending its stream.
@@ -235,7 +260,7 @@ pub fn pump(rounds: usize) !void {
         try client_to_server();
         collect();
         try server_to_client();
-        connection.on_instant(now_ns);
+        if (through_endpoint) endpoint.on_instant(now_ns) else connection.on_instant(now_ns);
         _ = quic.connection_timer.on_instant(&client, client_session.suite(), &client_scratch.recovery, now_ns) catch {};
         collect();
     }
@@ -245,7 +270,7 @@ pub fn pump(rounds: usize) !void {
 pub fn collect() void {
     if (!server_started) return;
     for (0..seen_max) |_| {
-        const received_event = connection.receive(now_ns) catch {
+        const received_event = served.receive(now_ns) catch {
             server_failed = true;
             continue;
         };
@@ -292,6 +317,12 @@ fn client_to_server() !void {
         const sent = quic.connection_send.send(&client, client_session.suite(), client_session.provider(), client_provider(), &client_send_scratch, &datagram, now_ns) catch return error.TestUnexpectedResult;
         const held = sent orelse return;
         @memcpy(crossing[0..held.len], datagram[0..held.len]);
+        if (through_endpoint) {
+            const taken = endpoint.receive(crossing[0..held.len], .not_ect, client_address(), now_ns) orelse continue;
+            served = taken;
+            server_started = true;
+            continue;
+        }
         if (!server_started) try start_server(crossing[0..held.len]);
         connection.take(crossing[0..held.len], .not_ect, client_address(), now_ns);
     }
@@ -312,13 +343,13 @@ fn start_server(first: []const u8) !void {
     server_started = true;
 }
 
-fn client_address() quic.peer_address.PeerAddress {
-    return quic.peer_address.PeerAddress.of(&client_octets, client_port);
+pub fn client_address() quic.peer_address.PeerAddress {
+    return quic.peer_address.PeerAddress.of(&client_octets, client_port_now);
 }
 
 fn server_to_client() !void {
     for (0..datagrams_per_round_max) |_| {
-        const sent = connection.send(&datagram, now_ns) orelse return;
+        const sent = (if (through_endpoint) endpoint.send(&datagram, now_ns) else connection.send(&datagram, now_ns)) orelse return;
         @memcpy(crossing[0..sent.octets.len], sent.octets);
         _ = quic.connection_datagram.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.octets.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
         try client_read();

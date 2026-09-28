@@ -89,6 +89,17 @@ pub const quic_transport_parameters_len_max: usize = 1024;
 /// in milliseconds.
 pub const quic_idle_timeout_ms_default: u64 = 30_000;
 
+/// Connections `Endpoint` holds at once, the default size (decision 103). `EndpointOf` takes
+/// another.
+pub const quic_connections_default: usize = 16;
+
+/// Version Negotiation and Retry packets an endpoint owes at once. One more is dropped, and its
+/// client sends again.
+pub const quic_replies_max: usize = 8;
+
+/// Nanoseconds in a second, which a connection's ticket instant is counted in.
+pub const nanoseconds_per_second: u64 = 1_000_000_000;
+
 /// Events one `receive` of a QUIC connection reads past at most: one for each octet the receive
 /// pool holds, and a few that consume none, such as a stream's end, for each request.
 pub const quic_events_per_read_max: usize = quic.constants.receive_pool_len_default + quic_requests_max * quic_events_per_request_max + 1;
@@ -100,6 +111,7 @@ comptime {
     // A response's head, the longest field section h3 encodes behind a frame header, fits.
     assert(quic_response_kept_len >= h3.constants.frame_header_len_max + h3.constants.section_prefix_len_max);
     assert(quic_response_pieces_max > 2 and quic_read_len > 0 and quic_id_len >= 8);
+    assert(quic_connections_default > 0 and quic_replies_max > 0);
     // Each request owes one `done` at most, and the ring that holds them has room for all.
     assert(done_owed_max >= quic_requests_max);
 }

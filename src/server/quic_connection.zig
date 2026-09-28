@@ -98,6 +98,11 @@ pub const QuicConnection = struct {
     /// The latest instant a call passed, which the qlog events of the writes that take none carry
     /// (decision 102).
     last_ns: u64,
+    /// The caller's source, which the connection IDs it issues, their reset tokens and each
+    /// PATH_CHALLENGE's data are drawn from (invariant 5).
+    random: tls.Random,
+    /// Whether the spare connection IDs went out (`issue_spare_ids`).
+    spare_ids_issued: bool,
 
     /// Starts the connection a client's first Initial asked for. `receive_pool` holds the client's
     /// octets until h3 reads them (decision 61), and no other connection uses it while this one
@@ -114,6 +119,8 @@ pub const QuicConnection = struct {
         connection.failure_owed = false;
         connection.closed = false;
         connection.last_ns = now_ns;
+        connection.random = random;
+        connection.spare_ids_issued = false;
         connection.transport.init(.{
             .role = .server,
             .local_parameters = parameters(config, receive_pool.capacity),
@@ -216,13 +223,16 @@ pub const QuicConnection = struct {
     pub fn take(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_receive.Datagram.Ecn, from: PeerAddress, now_ns: u64) void {
         if (connection.closed) return;
         connection.last_ns = now_ns;
-        _ = quic.connection_datagram.receive(
+        const received = quic.connection_datagram.receive(
             &connection.transport,
             connection.session.suite(),
             connection.session.provider(),
             .{ .octets = datagram, .now_ns = now_ns, .ecn = ecn, .from = from },
             &connection.scratch,
         ) catch return connection.fail();
+        // Decision 72: the client's address changed and colibri followed it, so it owes
+        // PATH_CHALLENGE frames, whose data RFC 9000 §8.2.1 wants unpredictable.
+        if (received.migrated) quic.connection_migration.challenge(&connection.transport, connection.challenge_data());
         connection.after_change(now_ns);
     }
 
@@ -290,11 +300,38 @@ pub const QuicConnection = struct {
     /// stopped being active.
     fn after_change(connection: *QuicConnection, now_ns: u64) void {
         if (!connection.started) connection.start_h3(now_ns);
+        connection.issue_spare_ids();
         // A stream that closed frees its record before anything is sent, so the credit for a new
         // stream QUIC grants for it finds a record free (RFC 9000 §4.6).
         quic_connection_h3.settle(connection);
         // RFC 9000 §10: once the connection stops being active, no request is read or answered.
         if (connection.transport.termination.state != .active and !connection.stopped) connection.fail();
+    }
+
+    /// Issues spare connection IDs once the handshake is confirmed, as many as the peer's
+    /// active_connection_id_limit allows beside the one in use. RFC 9000 §5.1.1: an endpoint
+    /// "SHOULD ensure that its peer has a sufficient number of available and unused connection
+    /// IDs", which a client that moves to a new path needs (§9.5).
+    fn issue_spare_ids(connection: *QuicConnection) void {
+        if (connection.spare_ids_issued or !connection.transport.handshake_confirmed) return;
+        const peer = connection.transport.peer_parameters orelse return;
+        connection.spare_ids_issued = true;
+        const limit = @min(peer.active_connection_id_limit, quic.constants.connection_ids_max);
+        // Bounded by `connection_ids_max`, a named limit.
+        for (1..limit) |_| {
+            var id: [constants.quic_id_len]u8 = undefined;
+            var token: [quic.constants.stateless_reset_token_len]u8 = undefined;
+            // RFC 9000 §5.1: an ID unlinkable to the others; §10.3: a token no one can guess.
+            connection.random.bytes(&id);
+            connection.random.bytes(&token);
+            _ = quic.connection_id_frames.issue(&connection.transport, &id, &token) catch return;
+        }
+    }
+
+    fn challenge_data(connection: *QuicConnection) quic.connection_migration.ChallengeData {
+        var data: quic.connection_migration.ChallengeData = undefined;
+        connection.random.bytes(std.mem.asBytes(&data));
+        return data;
     }
 
     /// Starts h3 once the handshake completed (RFC 9114 §6.2.1). The server's ALPN list names "h3"

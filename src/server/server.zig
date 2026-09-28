@@ -17,11 +17,15 @@ pub const constants = @import("constants.zig");
 pub const event = @import("event.zig");
 pub const connection = @import("connection.zig");
 pub const quic_connection = @import("quic_connection.zig");
+pub const endpoint = @import("endpoint.zig");
 
 pub const Config = connection.Config;
 pub const Connection = connection.Connection;
 pub const QuicConnection = quic_connection.QuicConnection;
 pub const QuicConfig = quic_connection.Config;
+pub const Endpoint = endpoint.Endpoint;
+pub const EndpointOf = endpoint.EndpointOf;
+pub const EndpointConfig = endpoint.Config;
 pub const Error = connection.Error;
 pub const StartError = connection.StartError;
 pub const SendError = connection.SendError;
@@ -47,6 +51,8 @@ test {
     _ = @import("quic_request.zig");
     _ = @import("quic_connection_test.zig");
     _ = @import("quic_connection_flow_test.zig");
+    _ = @import("endpoint_stateless.zig");
+    _ = @import("endpoint_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }
