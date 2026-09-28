@@ -2665,7 +2665,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - `tools/interop.sh` resets the clone's `testcase.py` to the pinned commit before it applies
       the patch, so a clone that carries the earlier patch takes this one.
     - [quic-interop-runner#509](https://github.com/quic-interop/quic-interop-runner/pull/509)
-      carries the earlier count and needs the same change.
+      carries the same count, and the patch is its commit.
 
 100. **A version-choosing HTTP client and a server of the same shape, above h11, h2 and h3.**
      Ruled by the owner on 2026-09-27, for

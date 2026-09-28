@@ -1,8 +1,8 @@
 diff --git a/testcase.py b/testcase.py
-index 91b5994..2c5a76c 100644
+index 91b5994..364a34a 100644
 --- a/testcase.py
 +++ b/testcase.py
-@@ -309,10 +309,22 @@ class TestCase(abc.ABC):
+@@ -309,10 +309,19 @@ class TestCase(abc.ABC):
  
      def _count_handshakes(self) -> int:
          """Count the number of QUIC handshakes"""
@@ -11,12 +11,9 @@ index 91b5994..2c5a76c 100644
 -        # This is easier, since the SCID of Initial packets doesn't changes.
 -        return len(set([p.scid for p in tr.get_initial(Direction.FROM_SERVER)]))
 +        tr = self._client_trace()
-+        # Count the client's connection attempts: the Destination Connection IDs it chose for
-+        # its Initial packets. After the server's Initial or Retry, the client sends to the
-+        # Source Connection ID the server chose (RFC 9000, Section 7.2), so those are left out.
-+        # Counting the server's Initial SCIDs would also count a connection the server dropped
-+        # before the client heard from it, and a client's first Initial need not be numbered 0,
-+        # because an endpoint may skip packet numbers (RFC 9000, Section 21.4).
++        # Count the connection IDs the client chose for its Initial packets. Leave out the
++        # IDs the server chose, which the client switches to after the server's Initial or
++        # Retry (RFC 9000, Section 7.2).
 +        server_chosen = set(
 +            getattr(p, "scid", "")
 +            for p in tr.get_initial(Direction.FROM_SERVER)
