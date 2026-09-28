@@ -4856,8 +4856,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `alpn` and `port` come in as values, and Alt-Svc is learned. Each transport has its own
     resumption ticket.
     **Check:** the simulator runs the choice over seeds that lose, delay and refuse QUIC, and
-    every seed ends with one completed request per request made. The client fetches over h3 from
-    quic-go and aioquic, and falls back to h2 against a server with no UDP.
+    every seed ends with one completed request per request made. TLC finds each seed's log a
+    behavior of `spec/tla/client_exchanges`, and each configuration that turns off one of the
+    model's rules finds a violation ([decision 105](decisions.md)). The client fetches over h3
+    from quic-go and aioquic, and falls back to h2 against a server with no UDP.
   - **17e**, content codings ([decision 101](decisions.md)). The server codes a response in
     `gzip` or `deflate` when the request accepts it and the caller marks the response, and the
     client offers both and decodes them. `zstd` decoding follows a stdx bump. colibri's package
