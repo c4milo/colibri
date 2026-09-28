@@ -2842,6 +2842,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      until stdx has them and is deleted then. The simulator's check that each record parses waits
      for stdx's decoder, rather than a decoder written in colibri.
 
+     Amended by the owner on 2026-09-28: qvis, the qlog viewer most people open, reads qlog 0.3
+     alone, which draft-ietf-quic-qlog-main-schema-02 and its two events drafts define, so
+     `tools/qlog_to_qvis.py` rewrites a colibri log into that form. colibri itself still writes the
+     drafts this entry pins. Refused: writing qlog 0.3 from colibri, which would trade the pinned
+     drafts for a viewer's, and leaving the logs unreadable in qvis until it catches up.
+
 103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
      response body until the server reports it done.** Ruled by the owner on 2026-09-27, for
      design §8 step 17b and [#70](https://github.com/c4milo/colibri/issues/70).

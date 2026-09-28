@@ -142,6 +142,10 @@ if grep -h "qlog dropped" "$scratch/client.log" "$scratch/server_hq.log" "$scrat
   echo "quic_udp: an endpoint's qlog dropped events" >&2
   exit 1
 fi
+# Each file converts into the qlog 0.3 form qvis reads (decision 102 as amended).
+for file in "$scratch"/qlog/*.sqlog; do
+  python3 tools/qlog_to_qvis.py "$file" "$scratch/qvis.sqlog" >/dev/null
+done
 [ "$(find "$scratch/qlog" -name '*.sqlog' | wc -l | tr -d ' ')" = 4 ] || {
   echo "quic_udp: two connections left no four qlog files:" >&2
   ls "$scratch/qlog" >&2

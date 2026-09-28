@@ -344,7 +344,8 @@ section when a step adds or renames a command.
   protocols, checks each file arrives octet for octet, that a missing one is refused, and that a
   second connection resumes the first one's session. It also checks each connection's qlog files
   with `tools/qlog_check.py`, which requires each record to be a JSON text with the members its
-  event requires. `tools/quic_aioquic.sh [port]` runs the same endpoint
+  event requires. `tools/qlog_to_qvis.py <file.sqlog> [output]` rewrites one into the qlog 0.3
+  form qvis reads (decision 102 as amended). `tools/quic_aioquic.sh [port]` runs the same endpoint
   against aioquic's, pinned and installed once into a cached virtual environment, over both
   protocols in both directions, and checks that a handshake colibri's server refuses ends with its
   CONNECTION_CLOSE; it also needs `python3`. `tools/ci.sh` runs both.

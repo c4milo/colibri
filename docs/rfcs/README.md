@@ -76,6 +76,16 @@ implementation of a draft name its event schema with the draft number, so colibr
 | [quic-events-13](qlog/draft-ietf-quic-qlog-quic-events-13.txt) | QUIC event definitions for qlog | The events `quic` logs |
 | [h3-events-13](qlog/draft-ietf-quic-qlog-h3-events-13.txt) | HTTP/3 qlog event definitions | The events `h3` logs |
 
+qvis, the viewer most qlog users open, reads the older qlog 0.3 alone. `tools/qlog_to_qvis.py`
+rewrites a colibri log into that form (decision 102 as amended), from the three drafts that define
+it, copied the same way on 2026-09-28. colibri itself follows none of them.
+
+| Draft | Title | What colibri uses it for |
+|---|---|---|
+| [main-schema-02](qlog/draft-ietf-quic-qlog-main-schema-02.txt) | Main logging schema for qlog | The qlog 0.3 header `tools/qlog_to_qvis.py` writes |
+| [quic-events-02](qlog/draft-ietf-quic-qlog-quic-events-02.txt) | QUIC event definitions for qlog | The QUIC event names and members it writes |
+| [h3-events-02](qlog/draft-ietf-quic-qlog-h3-events-02.txt) | HTTP/3 and QPACK qlog event definitions | The HTTP/3 event names and members it writes |
+
 The main schema's §11.2 writes a log as JSON Text Sequences, so the two RFCs that define them are
 here too, copied from rfc-editor.org on the same day.
 

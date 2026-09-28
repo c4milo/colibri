@@ -23,5 +23,8 @@ f6d55d1b491cd515c35827cf9181753b23b2a68c4df14e56d83dc445b3876e58  rfc6585.txt
 e1f1ed92bdcc62ed3ea25118bdc863c38bbff70974d8d714b2fa11c24f1a211b  qlog/draft-ietf-quic-qlog-main-schema-14.txt
 9a5014a22223943cc435c6ff67eaf959538fd6697c3ef988477b1eebea64ac55  qlog/draft-ietf-quic-qlog-quic-events-13.txt
 52778c7e8f271fab5de85f19fc06d9e585967fd442994f19193fea327f9ede6c  qlog/draft-ietf-quic-qlog-h3-events-13.txt
+855d2a44523cd6be26a98eae4f859e0b97b7ad26026ca35cadcb9e9d906049b6  qlog/draft-ietf-quic-qlog-main-schema-02.txt
+4113d280adfc590c2c7bda75077f341dc06cea938f594d93fe09beb649b5e908  qlog/draft-ietf-quic-qlog-quic-events-02.txt
+855039a106e477b8a0e6fece3b6e0437d981ed95c3a4ec236860f96a831fc2bb  qlog/draft-ietf-quic-qlog-h3-events-02.txt
 a8eadbcdce5fc508b9e014299621562da041232af13848632092164d50b3f482  qlog/rfc7464.txt
 61a5378f4255c720beb2a4b4a63b29540147c140f36988bf086291989b4cd2d7  qlog/rfc8259.txt
