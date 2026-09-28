@@ -3443,6 +3443,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `server_discard_on_send`, a server that drops its Initial keys on its first Handshake packet
       and cannot send its ServerHello again.
 
+  **The runner in CI, 2026-09-28.** The workflow's `quic-interop-runner` job runs
+  `tools/interop.sh` against quic-go, ngtcp2, neqo and quinn on Ubuntu 26.04, by hand and every
+  Monday (decision 47 as amended). Its first runs found three faults, each fixed:
+  - `b3088c5`: Zig 0.16.0 writes a zip package to `tmp/` in its global cache without creating
+    that directory, so `zig build --fetch=all` failed on a fresh machine. The job creates it.
+  - `653cbde`: the client wrote each download with mode 0o600. On Linux the file belongs to the
+    container's root, and the runner, comparing it as its own user, got Permission denied, so
+    every case with colibri as the client failed. Docker Desktop maps ownership, so runs on macOS
+    passed.
+  - `a1f557c`: decision 99's count took a client's first Initial to be numbered 0. ngtcp2's and
+    neqo's clients began at 671978432 and 31, so every case with them failed although each
+    transfer completed. Decision 99 as amended counts the connection IDs the client chose.
+
+  Run 36367616620, at `a1f557c` on Ubuntu 26.04, passed every case in both roles against quic-go,
+  ngtcp2, neqo and quinn, with `ecn` unsupported against quic-go alone. It took 72 minutes of the
+  job's 150. In the push job, h3spec 0.1.13 printed "49 examples, 0 failures" (run 36357580797,
+  at `54335d0`).
+
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine
