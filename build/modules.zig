@@ -191,6 +191,9 @@ pub fn add(
     client.addImport("h2", h2);
     client.addImport("tls", tls);
     client.addImport("tls_provider", tls_provider);
+    // Design §8 step 17d: h3 over QUIC, behind the same calls.
+    client.addImport("quic", quic);
+    client.addImport("h3", h3);
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);

@@ -8,6 +8,8 @@ const h2 = @import("h2");
 const h11 = @import("h11");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
+const quic = @import("quic");
+const h3 = @import("h3");
 
 /// Exchanges one connection holds at once: waiting to be written, in flight, or finished and not
 /// yet reported. A request past them is refused until one is reported.
@@ -52,6 +54,36 @@ pub const request_fields_max: usize = core.constants.field_count_max;
 
 /// Octets of the decimal Content-Length the client writes: enough for any `usize`.
 pub const content_length_digits_max: usize = 20;
+
+/// Octets of each connection ID the QUIC client chooses: its own Source Connection ID and the
+/// Destination Connection ID of its first Initial (RFC 9000 §7.2), which RFC 9000 §7.2 asks to be
+/// at least 8 octets of unpredictable value.
+pub const quic_id_len: usize = 8;
+
+/// Octets of a request stream's frames the QUIC client keeps until the stream closes (decision
+/// 79): the HEADERS frame, the longest field section h3 encodes behind a frame header, then the
+/// DATA frame's header. The exchange's content follows them from the caller's memory.
+pub const request_prefix_len_max: usize = h3.constants.scratch_len + h3.constants.frame_header_len_max;
+
+/// The idle timeout the QUIC client advertises unless the caller names another (RFC 9000 §10.1),
+/// in milliseconds.
+pub const quic_idle_timeout_ms_default: u64 = 30_000;
+
+/// The window the QUIC client grants each unidirectional stream the server opens: h3's control
+/// stream and QPACK's two (RFC 9114 §6.2), whose frames are small.
+pub const quic_stream_window: u64 = 65_536;
+
+/// Octets of the transport parameters the QUIC client sends, encoded (RFC 9000 §18): every
+/// parameter RFC 9000 §18.2 defines fits.
+pub const transport_parameters_len_max: usize = 1024;
+
+/// Octets of content h3 copies out of the receive pool in one event (decision 80).
+pub const quic_read_len: usize = 16_384;
+
+/// Events one read of h3 reports at most: one for each octet the receive pool holds, and a few
+/// that consume none, such as a stream's end, for each exchange and for the connection.
+pub const h3_events_per_read_max: usize = quic.constants.receive_pool_len_default + exchanges_max * h3_events_per_exchange_max + 1;
+const h3_events_per_exchange_max: usize = 4;
 
 comptime {
     // A frame waiting for its last octets never stops the next record from opening.

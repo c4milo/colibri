@@ -29,8 +29,13 @@ pub const Slot = struct {
     stage: Stage = .free,
     id: Id = 0,
     exchange: *Exchange = undefined,
-    /// h2: the stream the request opened (RFC 9113 §5.1.1), 0 before it opened one.
-    stream_id: u32 = 0,
+    /// The stream the request opened, 0 before it opened one: h2's (RFC 9113 §5.1.1), or QUIC's
+    /// (RFC 9000 §2.1), whose client-initiated bidirectional streams start at 0 too, so a QUIC
+    /// slot says whether it opened one with `stage`.
+    stream_id: u64 = 0,
+    /// QUIC: the stream may still send the request's octets again, which it reads from the
+    /// exchange (RFC 9000 §3.1), so an ended exchange is not reported until it is closed.
+    holds_octets: bool = false,
     /// The protocol refused the rest of the content, so no more of it is written.
     content_stopped: bool = false,
     /// A dropping slot whose exchange ended before its response did, and whose `finished` event
@@ -74,8 +79,7 @@ pub const Slots = struct {
     }
 
     /// The slot whose request opened `stream_id`, sent or dropping, or null.
-    pub fn of_stream(slots: *Slots, stream_id: u32) ?*Slot {
-        assert(stream_id != 0);
+    pub fn of_stream(slots: *Slots, stream_id: u64) ?*Slot {
         for (&slots.slots) |*slot| {
             const live = slot.stage == .sent or slot.stage == .dropping;
             if (live and slot.stream_id == stream_id) return slot;
@@ -91,6 +95,24 @@ pub const Slots = struct {
             if (found == null or slot.id < found.?.id) found = slot;
         }
         return found;
+    }
+
+    /// The oldest ended slot whose octets no stream reads any more, whose `finished` event is owed
+    /// first, or null.
+    pub fn oldest_reportable(slots: *Slots) ?*Slot {
+        var found: ?*Slot = null;
+        for (&slots.slots) |*slot| {
+            if (slot.stage != .ended or slot.holds_octets) continue;
+            if (found == null or slot.id < found.?.id) found = slot;
+        }
+        return found;
+    }
+
+    /// Where `slot` sits in the table, which keys a transport's storage for it.
+    pub fn index_of(slots: *const Slots, slot: *const Slot) usize {
+        const index = (@intFromPtr(slot) - @intFromPtr(&slots.slots[0])) / @sizeOf(Slot);
+        assert(index < slots.slots.len and &slots.slots[index] == slot);
+        return index;
     }
 
     /// The oldest slot whose response is awaited, sent or dropping: the one h11's next response

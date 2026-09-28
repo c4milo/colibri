@@ -14,8 +14,8 @@ pub const Field = http.field.Field;
 /// An exchange's id on its connection, counting from 1 in the order `request` took them.
 pub const Id = u64;
 
-/// The protocol serving a connection.
-pub const Protocol = enum { h11, h2 };
+/// The protocol serving a connection: h11 or h2 over TCP, or h3 over QUIC.
+pub const Protocol = enum { h11, h2, h3 };
 
 /// A response field the caller reads: it names the field, and the client sets the value.
 pub const Wanted = struct {

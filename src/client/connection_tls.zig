@@ -61,7 +61,7 @@ fn attach(connection: *Connection) bool {
         .none => unreachable,
     };
     attached catch {
-        connection.connected_owed = false;
+        connection.owed.connected = false;
         connection.phase = .closed;
         connection.fail();
         return false;

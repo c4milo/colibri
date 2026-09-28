@@ -75,6 +75,7 @@ pub fn start_cleartext(protocol: connection_module.Protocol) !void {
     switch (protocol) {
         .h2 => peer_h2.init(.server),
         .h11 => peer_h11.init(.server, .{}),
+        .h3 => unreachable,
     }
 }
 

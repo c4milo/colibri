@@ -145,10 +145,10 @@ pub fn cancel(connection: *Connection, slot: *Slot) void {
     slots_module.release(slot);
 }
 
-fn cancel_stream(connection: *Connection, stream_id: u32) void {
+fn cancel_stream(connection: *Connection, stream_id: u64) void {
     // RFC 9113 §6.4: CANCEL says the stream is no longer needed. A stream h2 already closed needs
     // no reset.
-    connection.session.h2.reset_stream(stream_id, h2.constants.error_cancel) catch |failure| {
+    connection.session.h2.reset_stream(@intCast(stream_id), h2.constants.error_cancel) catch |failure| {
         assert(failure == error.StreamNotSendable);
     };
 }
@@ -270,7 +270,7 @@ fn write_content(connection: *Connection, slot: *Slot) void {
     for (0..content.len + 1) |_| {
         if (slot.content_done()) return;
         const exchange = slot.exchange;
-        const sent = connection.session.h2.write_data(connection.room(), slot.stream_id, content[exchange.content_sent..], true) catch {
+        const sent = connection.session.h2.write_data(connection.room(), @intCast(slot.stream_id), content[exchange.content_sent..], true) catch {
             // RFC 9113 §5.1: the stream is no longer one the client may send on.
             slot.content_stopped = true;
             return;
