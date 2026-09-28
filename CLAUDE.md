@@ -288,15 +288,15 @@ section when a step adds or renames a command.
   QUIC Interop Runner have jobs the workflow starts by hand and every Monday. The `arm64` job runs
   `zig build test` on each push on Linux and macOS arm64, where a person on either machine runs
   the same command.
-- HTTP Garden: `tools/http_garden.sh [origin...]` builds the Garden, pinned by commit and cached,
-  with colibri's server added as an origin in its `--echo` mode (`tools/http_garden/`), and feeds
-  every stream of `tools/http_garden/driver.py` to colibri and each origin, all of them by
-  default. It reports each stream colibri parses differently from another origin, which is then
-  judged against RFC 9112, and fails only when a stream went uncompared. It needs Linux, Docker
-  with compose, `python3`, `uv` and tens of GB of disk. With `GARDEN_REGISTRY` set it pulls the
-  origins' images from that repository and builds only the missing ones, and with `GARDEN_PUSH=1`
-  it pushes what it built; the CI job uses `ghcr.io/c4milo/colibri-http-garden` (decision 88 as
-  amended).
+- HTTP Garden: `tools/http_garden.sh [origin...]` builds the Garden, pinned by commit, patched
+  once (decision 88 as amended) and cached, with colibri's server added as an origin in its
+  `--echo` mode (`tools/http_garden/`), and feeds every stream of `tools/http_garden/driver.py` to
+  colibri and each origin, all of them by default. It reports each stream colibri parses
+  differently from another origin, which is then judged against RFC 9112, and fails only when a
+  stream went uncompared. It needs Linux, Docker with compose, `python3`, `uv` and tens of GB of
+  disk. With `GARDEN_REGISTRY` set it pulls the origins' images from that repository and builds
+  only the missing ones, and with `GARDEN_PUSH=1` it pushes what it built; the CI job uses
+  `ghcr.io/c4milo/colibri-http-garden` (decision 88 as amended).
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
   produces no published number (decision 32).
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from

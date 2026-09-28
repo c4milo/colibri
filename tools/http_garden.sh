@@ -6,8 +6,9 @@
 # so the run fails only when a stream went uncompared, never on a difference.
 #
 # The Garden (https://github.com/narfindustries/http-garden, GPL-3.0) is cloned at a pinned commit
-# into a cache and run as it is, with colibri's image and service added to the clone. Nothing of
-# it is linked into colibri, and colibri's files here import none of its code. It needs Linux: its
+# into a cache and run with one patch, tools/http_garden/jetty_maven.patch, and with colibri's image
+# and service added to the clone. Nothing of it is linked into colibri, and colibri's files here
+# import none of its code. It needs Linux: its
 # tools reach each container by its address on the Docker network, which Docker Desktop does not
 # route to a macOS host. It also needs Docker with compose, python3 and uv, and tens of GB of disk
 # for the origins' images, which it builds from source.
@@ -55,6 +56,10 @@ fi
 git -C "${garden}" fetch -q origin "${garden_commit}" 2>/dev/null || true
 git -C "${garden}" checkout -q --force "${garden_commit}"
 git -C "${garden}" clean -q -fdx
+# The pinned eclipse_jetty image fetches Maven 4.0.0-rc-5 from dlcdn.apache.org, which serves only
+# current releases and no longer has it. The patch fetches it from archive.apache.org, which keeps
+# every release. A pinned file the patch no longer applies to stops the run.
+git -C "${garden}" apply "${repository_root}/tools/http_garden/jetty_maven.patch"
 
 # colibri's image, built from its committed tree, and its service and quirks. colibri matches every
 # default quirk: it requires Host, keeps connections alive and changes no field, so its entry is
@@ -197,6 +202,13 @@ among() {
   return 1
 }
 
+# The named services the REPL refused by name in the case it just ran, one a line. The REPL knows
+# only the servers whose containers were on the Docker network when it started, and a server that
+# crashes on a stream can be off it then and back by the time `stopped` asks.
+refused() {
+  grep -ahoE "Invalid server name: [A-Za-z0-9_.-]+" "${scratch}/last" "${scratch}/error" | sed 's/.*: //' || true
+}
+
 # The named services whose containers are not running, one a line.
 stopped() {
   local running
@@ -238,12 +250,12 @@ run_case() {
   [ "${failed}" -eq 0 ] && grep -aq '^colibri *|' "${scratch}/last"
 }
 
-# Each case runs in its own REPL. A case that brings a server down is reported with that server's
-# last lines, the server is restarted, and the case runs once more without it. colibri's own
-# server is never left out.
+# Each case runs in its own REPL. A case that brings a server down, or whose REPL refused a
+# server's name, is reported with that server's last lines, the server is restarted, and the case
+# runs once more without it. colibri's own server is never left out.
 while IFS= read -r name <&3; do
   run_case "${name}" "${compared[@]}" && continue
-  mapfile -t down < <(stopped colibri "${compared[@]}")
+  mapfile -t down < <({ stopped colibri "${compared[@]}"; refused; } | sort -u)
   why="$(cat "${scratch}/error" "${scratch}/last" | grep -aiE "invalid server|error" | tail -1)"
   echo "http_garden.sh: ${name}: no grid (${why:-nothing printed}); down: ${down[*]:-none}"
   if [ "${#down[@]}" -gt 0 ]; then

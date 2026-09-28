@@ -2293,6 +2293,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       The alternatives offered: the Actions cache, whose 10 GB the push job's Zig caches already
       fill; private images, whose free storage is far smaller than the images; and rebuilding on
       every run.
+    - Amended by the owner on 2026-09-28: the clone carries one patch,
+      `tools/http_garden/jetty_maven.patch`. The pinned eclipse_jetty image fetches Maven
+      4.0.0-rc-5 from dlcdn.apache.org, which no longer serves it, and the patch fetches it from
+      archive.apache.org. The alternative offered: leaving jetty out, as the script does with any
+      origin whose image no longer builds.
 
     The alternatives refused for transfer codings, both offered on 2026-09-25:
     - `chunked` alone, refusing the rest. It is the smallest surface, and needs no decoder.

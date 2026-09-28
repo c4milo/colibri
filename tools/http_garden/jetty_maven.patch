@@ -1,0 +1,13 @@
+diff --git a/images/eclipse_jetty/Dockerfile b/images/eclipse_jetty/Dockerfile
+index d232f5d..4df29ae 100644
+--- a/images/eclipse_jetty/Dockerfile
++++ b/images/eclipse_jetty/Dockerfile
+@@ -9,7 +9,7 @@ ARG APP_BRANCH
+ RUN git clone -b "$APP_BRANCH" --recurse-submodules "$APP_REPO"
+ 
+ # Get Maven 4 (undocumented requirement)
+-RUN wget https://dlcdn.apache.org/maven/maven-4/4.0.0-rc-5/binaries/apache-maven-4.0.0-rc-5-bin.tar.gz \
++RUN wget https://archive.apache.org/dist/maven/maven-4/4.0.0-rc-5/binaries/apache-maven-4.0.0-rc-5-bin.tar.gz \
+  && tar xf apache-maven-*-bin.tar.gz \
+  && rm apache-maven-*-bin.tar.gz
+ 
