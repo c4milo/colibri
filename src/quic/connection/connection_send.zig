@@ -263,14 +263,6 @@ fn window_of(connection: *Connection, ceiling: usize, now_ns: u64) Window {
     return .{ .len = if (past_window) datagram_len else available_len, .past_window = past_window };
 }
 
-/// The instant the pacer will let the next datagram out (RFC 9002 §7.7), or null when the last
-/// `send` was not held back by it. The caller calls `send` again then.
-pub fn pacing_deadline_ns(connection: *const Connection) ?u64 {
-    if (!connection.pacing_limited) return null;
-    const recovery = &connection.recovery;
-    return recovery.pacer.next_send_at_ns(recovery.congestion.max_datagram_len, recovery.rate());
-}
-
 /// `room_at`, on a path that may be waiting for validation. Decision 72: until a path the peer
 /// moved to is validated, §8 limits what may go there to three times what arrived, and the
 /// PATH_CHALLENGE frames §13.3 sends until one is answered need those octets more than data.

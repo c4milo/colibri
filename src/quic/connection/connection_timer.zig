@@ -17,7 +17,6 @@ const connection_module = @import("connection.zig");
 const key_update = @import("connection_key_update.zig");
 const connection_recovery = @import("connection_recovery.zig");
 const connection_flow = @import("connection_flow.zig");
-const connection_send = @import("connection_send.zig");
 const migration = @import("connection_migration.zig");
 
 const Connection = connection_module.Connection;
@@ -67,11 +66,14 @@ pub fn next(connection: *Connection) ?Deadline {
     return earliest;
 }
 
-/// The pacer's instant (RFC 9002 §7.7), for a connection that is still sending: a closing or
-/// draining one sends at most CONNECTION_CLOSE, which the pacer never holds.
+/// The instant the pacer will let the next datagram out (RFC 9002 §7.7), or null when the last
+/// `send` was not held back by it. A closing or draining connection sends at most
+/// CONNECTION_CLOSE, which the pacer never holds.
 fn pacing_deadline_ns(connection: *const Connection) ?u64 {
     if (connection.termination.state != .active) return null;
-    return connection_send.pacing_deadline_ns(connection);
+    if (!connection.pacing_limited) return null;
+    const recovery = &connection.recovery;
+    return recovery.pacer.next_send_at_ns(recovery.congestion.max_datagram_len, recovery.rate());
 }
 
 /// The instant an ACK is owed by (RFC 9000 §13.2.1). The application space alone: §13.2.1 has
