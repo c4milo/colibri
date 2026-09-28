@@ -407,8 +407,9 @@ pub const h3_trace_control_frames_per_unit_max: u32 = 2;
 
 /// The h11 coding check's limits (design §8 step 15c), in their own file for length.
 pub const h11_coding = @import("constants_h11.zig");
-/// The h2 trace run's limits (https://github.com/c4milo/colibri/issues/75), in their own file too.
+/// The h2 and client trace runs' limits (decisions 104 and 105), in their own files too.
 pub const h2_trace = @import("constants_h2_trace.zig");
+pub const client_trace = @import("constants_client_trace.zig");
 
 /// The h11 split check (design §8 step 15a): the messages one seed pipelines, the field lines a
 /// message carries besides Host and its framing, the longest fixed body, the chunks of a chunked

@@ -30,6 +30,10 @@ pub const h3_trace_tla = @import("h3_trace_tla.zig");
 pub const h2_trace_plan = @import("h2_trace_plan.zig");
 pub const h2_trace_check = @import("h2_trace_check.zig");
 pub const h2_trace_tla = @import("h2_trace_tla.zig");
+pub const client_trace_plan = @import("client_trace_plan.zig");
+pub const client_trace_ledger = @import("client_trace_ledger.zig");
+pub const client_trace_link = @import("client_trace_link.zig");
+pub const client_trace_check = @import("client_trace_check.zig");
 pub const h11_plan = @import("h11_plan.zig");
 pub const h11_split_check = @import("h11_split_check.zig");
 pub const h11_exchange_plan = @import("h11_exchange_plan.zig");
@@ -38,6 +42,11 @@ pub const h11_exchange_check = @import("h11_exchange_check.zig");
 pub const h11_coding_plan = @import("h11_coding_plan.zig");
 pub const h11_coding_check = @import("h11_coding_check.zig");
 const run_main = @import("run_main.zig");
+
+comptime {
+    // chapulin's hook, which every program that links `tls` defines (decision 94).
+    _ = @import("tls_hooks.zig");
+}
 
 pub const main = run_main.main;
 
@@ -69,5 +78,9 @@ test {
     _ = h11_coding_plan;
     _ = h11_coding_check;
     _ = h3_trace_tla;
+    _ = client_trace_plan;
+    _ = client_trace_ledger;
+    _ = client_trace_link;
+    _ = client_trace_check;
     _ = run_main;
 }

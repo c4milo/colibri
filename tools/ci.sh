@@ -174,6 +174,9 @@ if command -v java >/dev/null 2>&1; then
   # https://github.com/c4milo/colibri/issues/75: the h2 trace run's logs against the h2 model.
   section "h2 traces against the TLA+ model" tools/h2_trace.sh
   tla_lines="${tla_lines}"$'\n'"$(grep -E "^h2_trace.sh: " "${scratch}/last.log")"
+  # Decision 105: the client trace run's logs against the model of the client's exchanges.
+  section "client traces against the TLA+ model" tools/client_trace.sh
+  tla_lines="${tla_lines}"$'\n'"$(grep -E "^client_trace.sh: " "${scratch}/last.log")"
 else
   tla_lines="No Java runtime on PATH, so this run checked no TLA+ model."
 fi

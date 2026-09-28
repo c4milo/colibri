@@ -375,8 +375,9 @@ section when a step adds or renames a command.
 - Traces: `tools/h3_trace.sh` writes 64 seeds of the simulator's h3 trace run as TLA+ with `zig
   build sim -- --h3-trace-write <directory>`, and TLC checks that each is a behavior of
   `spec/tla/h3_connection` (decision 87). `tools/h2_trace.sh` does the same for the h2 trace run,
-  with `--h2-trace-write` and `spec/tla/h2_connection` (decision 104). Each needs Java, and
-  `tools/ci.sh` runs both beside `zig build tla`.
+  with `--h2-trace-write` and `spec/tla/h2_connection` (decision 104), and `tools/client_trace.sh`
+  for the client trace run, with `--client-trace-write` and `spec/tla/client_exchanges` (decision
+  105). Each needs Java, and `tools/ci.sh` runs all three beside `zig build tla`.
 - Proofs: `zig build lean` builds the Lean proofs in `spec/lean/` with lake, through pepegrillo's
   `lean` tool, and checks that the vector files the Zig tests read (such as
   `src/qpack/insert_count_vectors.txt` and the files beside `src/wire/varint.zig`) are what the

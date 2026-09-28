@@ -15,6 +15,9 @@
 //!     sim --h3-trace-write <directory> each seed's trace as TLA+, for tools/h3_trace.sh
 //!     sim --h2-trace-check [seeds]     the h2 model's actions acted out (#75)
 //!     sim --h2-trace-write <directory> each seed's trace as TLA+, for tools/h2_trace.sh
+//!     sim --client-trace-seed <hex>    one seed of the client model's exchanges, as TLA+ (17d)
+//!     sim --client-trace-check [seeds]
+//!     sim --client-trace-write <directory> each seed's trace as TLA+, for tools/client_trace.sh
 //!     sim --h11-split-seed <hex>       one seed's h11 messages read after a split (step 15a)
 //!     sim --h11-split-check [seeds]
 //!     sim --h11-connection-seed <hex>  one seed's h11 exchanges between a client and a server
@@ -31,6 +34,7 @@ const sim = @import("sim");
 const chunk_check = @import("chunk_check.zig");
 const run_main_h11 = @import("run_main_h11.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
+const run_main_client_trace = @import("run_main_client_trace.zig");
 const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
 const qpack_check = @import("qpack_check.zig");
@@ -60,6 +64,7 @@ const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --qpack-seed <hex> | --qpack-check [seeds] | --qpack-input-check [seeds] | --h2-input-check [seeds] | --h3-check [seeds] | --h3-long-check [seeds]" ++
     " | --h3-trace-check [seeds] | --h3-trace-write <directory>" ++
     " | --h2-trace-check [seeds] | --h2-trace-write <directory>" ++
+    " | --client-trace-seed <hex> | --client-trace-check [seeds] | --client-trace-write <directory>" ++
     " | --h11-split-seed <hex> | --h11-split-check [seeds]" ++
     " | --h11-connection-seed <hex> | --h11-connection-check [seeds]" ++
     " | --h11-coding-seed <hex> | --h11-coding-check [seeds]\n";
@@ -80,6 +85,9 @@ pub const Command = union(enum) {
     h3_trace_write: []const u8,
     h2_trace_check: u64,
     h2_trace_write: []const u8,
+    client_trace_seed: u64,
+    client_trace_check: u64,
+    client_trace_write: []const u8,
     h11_split_seed: u64,
     h11_split_check: u64,
     h11_connection_seed: u64,
@@ -129,6 +137,9 @@ pub fn main(init: std.process.Init) !void {
         .h3_trace_write => |directory| try h3_trace_write(init.io, directory),
         .h2_trace_check => |seeds| try run_main_h2_trace.check(seeds),
         .h2_trace_write => |directory| try h2_trace_write(init.io, directory),
+        .client_trace_seed => |seed| try run_main_client_trace.seed_trace(seed),
+        .client_trace_check => |seeds| try run_main_client_trace.check(seeds),
+        .client_trace_write => |directory| try client_trace_write(init.io, directory),
         .h11_split_seed => |seed| try run_main_h11.split_seed(seed),
         .h11_split_check => |seeds| try run_main_h11.split_check(seeds),
         .h11_connection_seed => |seed| try run_main_h11.connection_seed(seed),
@@ -187,6 +198,9 @@ fn parse_h11(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
 fn parse_h2_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--h2-trace-check")) return .{ .h2_trace_check = try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--h2-trace-write")) return .{ .h2_trace_write = value orelse return error.Usage };
+    if (std.mem.eql(u8, flag, "--client-trace-seed")) return .{ .client_trace_seed = try parse_seed(value) };
+    if (std.mem.eql(u8, flag, "--client-trace-check")) return .{ .client_trace_check = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--client-trace-write")) return .{ .client_trace_write = value orelse return error.Usage };
     return error.Usage;
 }
 
@@ -444,6 +458,17 @@ fn h2_trace_write(io: std.Io, directory: []const u8) !void {
         try write_file(io, directory, files.name, ".cfg", files.config);
     }
     std.debug.print("h2-trace: wrote {d} seeds to {s}\n", .{ constants.h2_trace.written_seeds, directory });
+}
+
+/// Writes seeds `[0, written_seeds)` of the client trace run into `directory`, as
+/// `h2_trace_write` does for the h2 run (decision 105).
+fn client_trace_write(io: std.Io, directory: []const u8) !void {
+    for (0..constants.client_trace.written_seeds) |seed| {
+        const files = try run_main_client_trace.files_of(seed);
+        try write_file(io, directory, files.name, ".tla", files.module);
+        try write_file(io, directory, files.name, ".cfg", files.config);
+    }
+    std.debug.print("client-trace: wrote {d} seeds to {s}\n", .{ constants.client_trace.written_seeds, directory });
 }
 
 fn write_file(io: std.Io, directory: []const u8, name: []const u8, extension: []const u8, data: []const u8) !void {

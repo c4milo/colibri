@@ -228,9 +228,12 @@ Cancel(e) ==
 (* The servers.                                                            *)
 
 (* The server passes the request to its application: it processed it       *)
-(* (RFC 9114 §4.1.1).                                                      *)
+(* (RFC 9114 §4.1.1). A request the caller cancelled may still reach the   *)
+(* server before the cancel does, while its connection lives.              *)
 Process(e) ==
-    /\ stage[e] = "sent" /\ ~seen[e] /\ Live(carrier[e])
+    /\ \/ stage[e] = "sent"
+       \/ stage[e] = "cancelled" /\ outcome[e] = "pending" /\ carrier[e] # "none"
+    /\ ~seen[e] /\ Live(carrier[e])
     /\ seen' = [seen EXCEPT ![e] = TRUE]
     /\ processed' = [processed EXCEPT ![e] = @ + 1]
     /\ UNCHANGED <<stage, carrier, holds, outcome, moved>>

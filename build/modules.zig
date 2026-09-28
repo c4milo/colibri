@@ -217,6 +217,11 @@ pub fn add(
     // it sends with stdx's encoders, because no colibri writer codes one (decision 91).
     sim_run.addImport("gzip", stdx.module("gzip"));
     sim_run.addImport("zlib", stdx.module("zlib"));
+    // Decision 105, ruled by the owner on 2026-09-28: the client trace run drives the `client`
+    // module's QUIC and TCP connections against servers over `tls`, so the simulator links chapulin
+    // and seeds every handshake from the seed.
+    sim_run.addImport("client", client);
+    sim_run.addImport("tls", tls);
 
     // Decision 5: the QUIC checks are driven with no HTTP module in the graph, so they are not
     // in `sim_run`, which imports `h2`.

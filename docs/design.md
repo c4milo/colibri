@@ -63,7 +63,7 @@ core   <- crypto <- quic, tls
 core   <- qlog   <- quic, h3
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
-core, wire, sim, h2, qpack, h3, quic <- sim_run
+core, wire, sim, h2, qpack, h3, quic, client, tls <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2, tls, server, rotor <- testing, testing_client
@@ -93,7 +93,7 @@ core, http, h11, h2, h3, quic, tls <- client, server
 | `server` | HTTP responses behind the same calls for h11, h2 and h3, the version chosen by transport and ALPN ([decision 100](decisions.md)) | `core`, `http`, `h11`, `h2`, `h3`, `quic`, `tls`, and stdx's encoders of the content codings ([decision 101](decisions.md)) | 9110, 9112, 9113, 9114, 7838 |
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, and chapulin's TCP and QUIC objects built `KEYLOG=on` | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
-| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, and stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26) | — |
+| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26), and `client` and `tls` at step 17d, whose client trace run drives the client's connections over chapulin (decision 105, the owner's ruling of 2026-09-28) | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, `tls` for its TLS mode, `server`, which its h11 and h2 server runs on from step 17a, and `rotor` ([decision 83](decisions.md)) | — |
@@ -4958,6 +4958,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/h11_interop.sh --tls`: against Go 1.27.1 and h2o 2.2.5, the same over h11, in
     cleartext and over TLS: Go's ALPN chose h11, and the client offered only h11 to h2o.
   - `zig build test` passed.
+
+  **17d, the client over QUIC and the choice, 2026-09-28.** Its first two parts; the third, the
+  fetches from other servers, follows.
+  - `QuicConnection` (`35dfbde`) carries exchanges over h3 on QUIC with the TCP connection's calls
+    and events. An exchange's `finished` event waits until its stream reads nothing more of the
+    exchange (RFC 9000 §3.1), so the caller may reuse its memory once the event arrives.
+  - `Origin` (`289bd69`) carries a caller's exchanges to one origin over a QUIC and a TCP
+    connection it chooses between. It opens QUIC first when a fresh Alt-Svc alternative names h3,
+    when an HTTPS record does, or, with no record, when `Config.quic_first` says to try it (RFC 9114
+    §3.1, RFC 9460 §7.1.2). It opens TCP when QUIC is not allowed, when QUIC's attempt failed, or
+    when the fallback delay passes during QUIC's handshake. The first handshake to complete takes
+    the exchanges, and the other is abandoned. The caller passes the addresses, the port and an
+    HTTPS record's `alpn` and `port`, and the origin names the transport, address and port to open
+    in an `open` event. It never resolves a name.
+  - An exchange that a connection taking no new exchange refused unprocessed moves once to another
+    connection, as though never sent (RFC 9114 §4.1.1). One that an open connection refuses reaches
+    the caller as `refused`.
+  - A TCP response's Alt-Svc over TLS teaches the origin h3 on its host (RFC 7838 §3) for its next
+    connection, and `alternative()` hands it to the caller to keep. RFC 7838 and RFC 9460 joined
+    `docs/rfcs/` (`31091af`).
+  - An `Origin` is 2,492,448 octets: a QUIC connection of 2,205,760 and a TCP one of 285,928.
+  - Decision 105's model, `spec/tla/client_exchanges` (`10352d2`), holds in 4 scopes, 3.2 million
+    states in all, and each of its 6 rules turned off finds a violation.
+  - The client trace run, `src/sim/client_trace_*.zig`, has an `Origin` carry each seed's exchanges
+    to a QUIC server over the simulator's network and to an h2 server over TLS on an ordered link,
+    both built from colibri's modules over chapulin. Its plans block, refuse, slow and lose QUIC,
+    and its rough seeds reject and reset requests and break connections. Each seed must end with
+    the origin closed within 10 s of its last exchange, each exchange reported once or cancelled,
+    and, in a clean seed, each one ended in a response. `zig build test` runs 256 seeds and pins
+    their census, and `tools/client_trace.sh` has TLC check that 64 seeds' logs are behaviors of
+    the model.
+  - Building the run found three defects. A cancel of an exchange whose response had ended left
+    its stream sending (`89c930d`). A closing QUIC connection kept its acknowledgment deadline,
+    which came due at every instant (`b459adf`). A shut-down origin let a handshake it had nothing
+    for run to its idle timeout (`a3af76f`). Working out why a mutant went uncaught found a fourth:
+    a QUIC handshake the origin abandoned could still complete from datagrams in flight, and was
+    reported `connected` (`215782c`).
+  - Mutations, each CAUGHT by a unit test: 110 in the client (`289bd69`), 3 in its shut-down
+    (`a3af76f`), 2 in its abandoned handshake (`215782c`), and 2 in QUIC's timer (`b459adf`).
+  - The run itself, measured by breaking the client in 14 places: 12 CAUGHT by the run or by TLC,
+    and TLC alone caught a fallback flag kept after its attempt ended. The run reaches neither of
+    the other two, an abandoned handshake reported as connected and a move past `moves_max`, and
+    unit tests catch both (`215782c`).
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
