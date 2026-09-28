@@ -1,6 +1,6 @@
-//! The record half of HTTP over TLS, which design §9's server (`server_tls.zig`) and client
-//! (`client_tls.zig`) share once their handshakes complete, in h2 (design §8 step 5) or in h11
-//! (step 15d).
+//! The record half of HTTP over TLS for design §9's client (`client_tls.zig`) once its handshake
+//! completes, in h2 (design §8 step 5) or in h11 (step 15d). The server's connections run their
+//! records inside colibri's `server` module (design §8 step 17a).
 //!
 //! `step` does three things in order, each bounded by the buffers:
 //!   1. opens whole records into the protocol's byte stream while there is room for one;
@@ -10,8 +10,8 @@
 //!
 //! Every octet crosses the protocol's `connection_tls`, h2's or h11's, so what the provider does
 //! with a record is the provider's, and the endpoint around this file never sees plaintext. The
-//! session is either endpoint's union of the two protocols (`session.zig`,
-//! `client/client_session.zig`), and the calls below pick the protocol's rules by its tag.
+//! session is the client's union of the two protocols (`client/client_session.zig`), and the calls
+//! below pick the protocol's rules by its tag.
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
@@ -222,7 +222,8 @@ const close_notify_len_max: usize = tls_provider.constants.record_header_len + a
 const alert_len: usize = 2;
 
 const testing = std.testing;
-const session_module = @import("../session.zig");
+const client_session = @import("../client/client_session.zig");
+const client_exchange = @import("../client/client_exchange.zig");
 
 /// A provider for this file's tests that seals at most `record_plaintext_len` octets a call, which
 /// the vtable permits (`tls_provider.provider`), and copies rather than protects. chapulin's adapter fills
@@ -301,18 +302,20 @@ const OneRecordProvider = struct {
 /// The records half, the session and the output the test drives, outside any stack frame.
 /// Test-only.
 var test_records: Records align(@alignOf(Records)) = undefined;
-var test_session: session_module.Session align(@alignOf(session_module.Session)) = undefined;
+var test_session: client_session.Session align(@alignOf(client_session.Session)) = undefined;
 var test_output: [constants.write_buffer_len]u8 = undefined;
 var test_context: u8 = 0;
 /// More steps than the session's frames take records. Test-only.
 const test_steps_max: usize = 64;
+/// The one exchange the client plans, a GET of "/". Test-only.
+const test_plans = [_]client_exchange.Plan{.{ .method = "GET", .path = "/", .content_len = 0 }};
 
 test "RFC 9846 §6.1: the close_notify follows every record of what the session wrote" {
-    test_session.init(.h2);
+    test_session.init(.h2, "https", "a", &test_plans);
     try attach(&test_session, .{ .context = &test_context, .vtable = &OneRecordProvider.vtable });
     test_records.reset();
-    // Octets that are not the client preface fail the connection (RFC 9113 §3.4), so the session
-    // writes its SETTINGS and a GOAWAY and is done in its first step: more than one record holds.
+    // Octets that are not the server's SETTINGS fail the connection (RFC 9113 §3.4), so the session
+    // writes its preface and a GOAWAY and is done in its first step: more than one record holds.
     const not_preface = "X" ** h2.constants.client_preface.len;
     @memcpy(test_records.plain_in[0..not_preface.len], not_preface);
     test_records.plain_in_len = not_preface.len;

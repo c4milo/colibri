@@ -1,9 +1,11 @@
-//! The socket around `session.zig`: the server of design §9, which `tools/h2spec.sh` runs the
-//! pinned h2spec against and h2load measures. `zig build http-server -- --port <port>` runs it in
+//! The socket around `server_session.zig`: the server of design §9, which `tools/h2spec.sh` runs
+//! the pinned h2spec against and h2load measures. Each connection is a connection of colibri's
+//! `server` module (design §8 step 17a). `zig build http-server -- --port <port>` runs it in
 //! cleartext, speaking h2 with prior knowledge (RFC 9113 §3.3), or h11 with `--h11` (design §8
-//! step 15d). With `--tls <identity-prefix>` it serves TLS instead, through colibri's
-//! `tls.record.Server` and `tls/server_tls.zig` (design §8 steps 5 and 16b). Over TLS it offers `h2` and `http/1.1` through ALPN, or `http/1.1` alone
-//! with `--h11`, and each connection speaks what its handshake selected (decision 88).
+//! step 15d). With `--tls <identity-prefix>` it serves TLS instead, and `server` runs each
+//! handshake through `tls.record.Server`. Over TLS it offers `h2` and `http/1.1` through ALPN, or
+//! `http/1.1` alone with `--h11`, and each connection speaks what its handshake selected (decision
+//! 88).
 //!
 //! One worker per core, sharing nothing. Each worker has its own Rotor loop and its own listening
 //! socket on the same port, bound with SO_REUSEPORT, so the kernel hands each new connection to
@@ -32,16 +34,17 @@ const entropy = @import("entropy.zig");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
-const session_module = @import("session.zig");
-const server_tls = @import("tls/server_tls.zig");
+const alpn = @import("alpn.zig");
+const server_session = @import("server_session.zig");
 const server_options = @import("server_options.zig");
 const h11 = @import("h11");
 const h11_echo = @import("h11/h11_echo.zig");
 const server_identity = @import("tls/server_identity.zig");
+const server = @import("server");
 const tls = @import("tls");
 
-const Session = session_module.Session;
-const Protocol = session_module.Protocol;
+const Session = server_session.Session;
+const Protocol = alpn.Protocol;
 
 /// What an operation a connection has in flight does. It rides in the operation's user data,
 /// below the connection's slot.
@@ -59,13 +62,10 @@ const loop_options: rotor.Loop.Options = .{
 };
 
 /// One connection a worker serves: the session, the octets read but not consumed, and the octets
-/// the session produced that the socket has not taken yet.
+/// the session produced that the socket has not taken yet. Over TLS, both hold records.
 const Connection = struct {
     descriptor: rotor.Descriptor,
     session: Session,
-    /// The TLS layer the connection runs over, or null in cleartext. Its octets are records, and
-    /// `input` and `output` hold them as they cross the socket.
-    layer: ?*server_tls.Layer,
     /// Where the receive in flight writes (see the header).
     received: [constants.wire_read_len]u8,
     input: [constants.wire_read_len]u8,
@@ -99,10 +99,13 @@ const Worker = struct {
     accepting: bool,
     connections: [constants.connections_per_worker_max]Connection,
     events: [loop_options.operations]rotor.Event,
-    /// The decoders the worker's cleartext h11 connections share, and the buffer they decode into
+    /// The decoders the worker's h11 connections share, and the buffer they decode into
     /// (decisions 91 and 98).
     decoders: h11.coding.Pool(constants.h11_decoders_per_worker),
     decoded: [constants.h11_decoded_len]u8,
+    /// What every connection of the worker borrows: the TLS configuration or none, the protocol a
+    /// cleartext connection speaks, and the decoders.
+    config: server.Config,
 };
 
 /// The workers, in static storage: each is large, and there is one per core at most.
@@ -118,12 +121,10 @@ comptime {
 }
 
 /// The TLS mode's configuration, which `main` converts once when `--tls` names an identity and
-/// every connection borrows, the storage it points into, and one TLS layer per connection slot of
-/// the one worker the mode runs.
+/// every connection borrows, and the storage it points into.
 var tls_shared: ?*const tls.record.ServerConfig = null;
 var tls_config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
 var tls_identity: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
-var tls_layers: [constants.connections_per_worker_max]server_tls.Layer align(@alignOf(server_tls.Layer)) = undefined;
 
 /// Runs one worker per core until the process is stopped, every one listening on `port`.
 pub fn listen_and_serve(port: u16) !void {
@@ -156,6 +157,15 @@ fn run_worker(index: usize, port: u16) !void {
     worker.accepting = false;
     // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
     worker.decoders.storage().reset(h11.coding.Features.detect());
+    worker.config = .{
+        .tls = tls_shared,
+        .cleartext = switch (cleartext_protocol) {
+            .h2 => .h2,
+            .h11 => .h11,
+        },
+        .decoders = worker.decoders.storage(),
+        .decoded = &worker.decoded,
+    };
     while (true) try turn(worker);
 }
 
@@ -178,7 +188,8 @@ fn on_event(worker: *Worker, event: rotor.Event) void {
         .close => connection.closed = true,
     }
     if (connection.closed and !connection.receiving and !connection.sending) {
-        if (connection.layer) |layer| finish_tls(layer);
+        // Over TLS this wipes the session's secrets.
+        connection.session.connection.transport_closed();
         connection.live = false;
         return;
     }
@@ -201,13 +212,6 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     const slot = free_slot(worker) orelse unreachable; // `arm_accept` waits for one.
     const connection = &worker.connections[slot];
     connection.descriptor = descriptor;
-    // Over TLS, `server_tls.step` sets the protocol again once ALPN has selected one.
-    connection.session.init(cleartext_protocol);
-    // `server_options.read` refuses `--echo` but for h11 in cleartext.
-    if (echo_mode) connection.session.h11.echo = &echoes[worker.index][slot];
-    // Decision 91: a cleartext h11 connection decodes gzip and deflate request bodies. Over TLS,
-    // `server_tls.step` makes the session again, with no decoders, so a coded request gets 501.
-    if (connection.session == .h11) connection.session.h11.decode_with(worker.decoders.storage(), &worker.decoded);
     connection.input_len = 0;
     connection.output_len = 0;
     connection.output_sent = 0;
@@ -217,27 +221,13 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     connection.closed = false;
     connection.closing = false;
     connection.failed = false;
-    connection.layer = null;
     connection.live = true;
-    if (tls_shared) |config| {
-        connection.layer = start_tls(slot, config) catch blk: {
-            connection.failed = true;
-            break :blk null;
-        };
-    }
+    // `server_options.read` refuses `--echo` but for h11 in cleartext.
+    const echo: ?*h11_echo.Echo = if (echo_mode) &echoes[worker.index][slot] else null;
+    connection.session.init(&worker.config, entropy.random(), echo) catch {
+        connection.failed = true;
+    };
     arm(worker, slot);
-}
-
-/// Gives a new connection the TLS layer of its slot, ready to read a ClientHello.
-fn start_tls(index: usize, config: *const tls.record.ServerConfig) !*server_tls.Layer {
-    const layer = &tls_layers[index];
-    try server_tls.start(layer, config);
-    return layer;
-}
-
-/// Wipes what a TLS connection's session still holds, once its slot is free again.
-fn finish_tls(layer: *server_tls.Layer) void {
-    server_tls.finish(layer);
 }
 
 /// The index of a slot this worker can put a connection in.
@@ -318,18 +308,9 @@ fn submit(worker: *Worker, slot: usize, kind: Kind) void {
     assert(taken == 1);
 }
 
-/// Steps the connection's session over its input, cleartext or through its TLS layer.
+/// Steps the session until it stops moving, appending what it writes to the output buffer.
 fn step(connection: *Connection) void {
     if (connection.failed or connection.close_submitted) return;
-    if (connection.layer) |layer| {
-        step_tls(connection, layer) catch {
-            connection.failed = true;
-        };
-    } else step_session(connection);
-}
-
-/// Steps the session until it stops moving, appending what it writes to the output buffer.
-fn step_session(connection: *Connection) void {
     for (0..constants.steps_per_read_max) |_| {
         const room = connection.output[connection.output_len..];
         if (room.len == 0) return;
@@ -342,19 +323,6 @@ fn step_session(connection: *Connection) void {
         }
         if (stepped.consumed == 0 and stepped.written == 0) return;
     }
-}
-
-/// Steps a TLS connection: records in from `input`, records out into `output` (`server_tls.zig`).
-fn step_tls(connection: *Connection, layer: *server_tls.Layer) !void {
-    const stepped = try server_tls.step(
-        layer,
-        &connection.session,
-        connection.input[0..connection.input_len],
-        connection.output[connection.output_len..],
-    );
-    connection.output_len += stepped.written;
-    consume(connection, stepped.consumed);
-    if (stepped.done) connection.closing = true;
 }
 
 /// Drops the `consumed` octets the session took, moving what is left to the front.
@@ -394,7 +362,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// the identity once. With `--h11` the server offers `http/1.1` alone.
 fn load_tls(prefix: []const u8, protocol: Protocol) !void {
     server_identity.seed(&tls_identity);
-    const protocols: []const []const u8 = if (protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both;
+    const protocols: []const []const u8 = if (protocol == .h11) &alpn.alpn_h11 else &alpn.alpn_both;
     try tls_config.init(try server_identity.load(prefix, &tls_identity, protocols));
     try tls_config.check(entropy.random());
     tls_shared = &tls_config;
@@ -418,21 +386,22 @@ test "a TLS connection's session is wiped when its slot is freed" {
     try tls_config.init(.{
         .ecdsa_p256 = .{ .chain = &test_chain, .public_key = &test_public_key, .private_key = &test_private_key },
         .cookie_key = &test_cookie,
-        .alpn = &session_module.alpn_both,
+        .alpn = &alpn.alpn_both,
     });
     const worker = &workers[0];
     const slot: usize = 0;
+    worker.config = .{ .tls = &tls_config };
     const connection = &worker.connections[slot];
     connection.* = undefined;
     connection.live = true;
     connection.receiving = false;
     connection.sending = false;
     connection.closed = false;
-    connection.layer = try start_tls(slot, &tls_config);
-    try testing.expect(!server_tls.wiped(&tls_layers[slot]));
+    try connection.session.init(&worker.config, entropy.random(), null);
+    try testing.expect(connection.session.connection.tls_server.session.recordState() != .closed);
     // Rotor's close of the connection is its last operation: the slot is freed on it.
     const user_data = (@as(u64, slot) << kind_bits) | @intFromEnum(Kind.close);
     on_event(worker, .{ .user_data = user_data, .result = 0, .flags = .{} });
     try testing.expect(!connection.live);
-    try testing.expect(server_tls.wiped(&tls_layers[slot]));
+    try testing.expectEqual(.closed, connection.session.connection.tls_server.session.recordState());
 }

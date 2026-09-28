@@ -251,12 +251,13 @@ pub const Session = struct {
 };
 
 const testing = std.testing;
-const h2_session = @import("h2_session.zig");
+const server_session = @import("../server_session.zig");
+const entropy = @import("../entropy.zig");
 
 /// The two sessions the tests run, and the octets each has written that the other has not read.
 /// Placed outside any stack frame. Test-only.
 var test_client: Session align(@alignOf(Session)) = undefined;
-var test_server: h2_session.Session align(@alignOf(h2_session.Session)) = undefined;
+var test_server: server_session.Session align(@alignOf(server_session.Session)) = undefined;
 var test_to_server: [constants.write_buffer_len]u8 = @splat(0);
 var test_to_client: [constants.write_buffer_len]u8 = @splat(0);
 
@@ -269,8 +270,7 @@ fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
     return len - consumed;
 }
 
-/// Runs `test_client` against `test_server` until the client is done or neither side moves, and
-/// returns the rounds it took. Test-only.
+/// Runs the client against the server until it is done or neither moves; returns the rounds. Test-only.
 fn test_run() u32 {
     var to_server_len: usize = 0;
     var to_client_len: usize = 0;
@@ -296,7 +296,7 @@ fn test_feed(input: []const u8) Step {
 const test_server_preface = "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 
 test "a GET is answered, the content is read whole, and the client says GOAWAY" {
-    test_server.init();
+    try test_server.init(&.{ .cleartext = .h2 }, entropy.random(), null);
     test_client.init("http", "localhost", &.{.{ .method = "GET", .path = "/", .content_len = 0 }});
     const rounds = test_run();
     try testing.expect(rounds < test_rounds_max);
@@ -309,11 +309,11 @@ test "a GET is answered, the content is read whole, and the client says GOAWAY" 
     // RFC 9113 §6.8: the shutdown was said, and nothing is left to write.
     try testing.expect(test_client.shutdown_queued);
     try testing.expect(!test_client.connection.has_pending());
-    try testing.expect(!test_server.finished);
+    try testing.expect(!test_server.connection.should_close());
 }
 
 test "three exchanges share the connection, and content past the window waits for the peer" {
-    test_server.init();
+    try test_server.init(&.{ .cleartext = .h2 }, entropy.random(), null);
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window, so this content finishes
     // only if the client reads the WINDOW_UPDATE frames the server sends.
     const content_len = 3 * h2.constants.initial_window_size_initial;

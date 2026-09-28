@@ -65,7 +65,7 @@ core, tls_provider, crypto <- sim
 core, wire, sim, h2, qpack, h3, quic <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
-core, h2, tls, rotor <- testing, testing_client
+core, h2, tls, server, rotor <- testing, testing_client
 core, h2, tls    <- testing_tls, testing_tls_server
 h2, h3, tls, rotor <- testing_udp
 h2, quic, tls    <- testing_quic
@@ -94,7 +94,7 @@ core, http, h11, h2, h3, quic, tls <- client, server
 | `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, and stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26) | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
-| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, `tls` for its TLS mode, and `rotor` ([decision 83](decisions.md)) | — |
+| `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, `tls` for its TLS mode, `server`, which its h11 and h2 server runs on from step 17a, and `rotor` ([decision 83](decisions.md)) | — |
 | `testing_client` | the same directory under a second root, because an executable has one `main`: the h2 client of §9 | what `testing` imports | — |
 | `testing_tls`, `testing_tls_server` | the two one-connection TLS checks of §8 step 5, a root each for its `main` | `core`, `h2` for the shared constants, `tls_provider` and `tls` | — |
 | `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
@@ -124,8 +124,8 @@ The architecture depends on four of these edges and forbids one.
   ([decision 97](decisions.md)).
 - **Nothing imports `h2`, `h3` or `h11` but `client` and `server`.** The protocol modules are the
   roots a consumer picks from, and `client` and `server` are consumers above all three, which
-  choose the version for their caller ([decision 100](decisions.md)). Nothing imports `client` or
-  `server` in turn. `testing` is a consumer like any other: the library it drives cannot use the
+  choose the version for their caller ([decision 100](decisions.md)). No library module imports
+  `client` or `server` in turn. `testing` is a consumer like any other: the library it drives cannot use the
   socket it opens, because the edge runs one way and nothing imports `testing` back.
 
 ## 4. What the caller supplies
@@ -4777,6 +4777,52 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Each rule of decision 101 has a mutation that a test catches.
   - **17f**, what a dependent reads: an example of each module, docs/usage.md, and a release.
     **Check:** `zig build examples` and `tools/doc_snippets.sh` pass.
+
+  **17a, 2026-09-28.** `src/server/` is the `server` module, exported by name. It imports `core`,
+  `http`, `h11`, `h2`, `tls` and `tls_provider`.
+  - A `Connection` serves one TCP connection. `receive(input, now_ns)` takes the octets the
+    transport read and returns at most one event: a request's head, octets of its content, its
+    trailer section, or its cancellation. `send(output, now_ns)` writes what the connection owes,
+    sealed over TLS. The caller answers a request by its id with `respond`, `write_body` and
+    `write_trailers`, ends one with `cancel`, and asks the connection to end with `shutdown`.
+    `should_close` says when to close the transport, and `transport_closed`, which is idempotent,
+    ends the connection and wipes the TLS session.
+  - Over TLS the connection runs the handshake through `tls.record.Server`, and ALPN chooses h2 or
+    h11 (decision 88). In cleartext, `Config.cleartext` names the protocol.
+  - The server frames h11 content itself. A response that ends with its head carries
+    `Content-Length: 0`, and one whose content follows is chunked for an HTTP/1.1 request and runs
+    until the close for an HTTP/1.0 one (RFC 9112 §6.3, §7.1). Field names are lowercase, as h2
+    sends them (RFC 9113 §8.2).
+  - It owes a 100 (Continue) to an HTTP/1.1 or later request that expects one and has content,
+    and writes it at the next `receive` or `send` unless the caller answered first (RFC 9110
+    §10.1.1).
+  - A connection is 284,360 octets: h2's connection, the TLS session, 33,033 octets of opened
+    plaintext and 49,161 of output.
+  - The first interop run over TLS stalled nghttp's upload of 300,000 octets. The opened plaintext
+    held a frame and one record's plaintext, but a provider opens a record only into room for all
+    that follows its header, which RFC 9846 §5.2 bounds by `record_ciphertext_len_max`. When a DATA
+    frame began a record, the record held all of the frame but its last 9 octets, and the next
+    record did not fit. The buffer now holds a frame and `record_ciphertext_len_max`, and a test
+    that starts DATA frames on a record catches the old size.
+  - 70 tests, handshakes against colibri's own client among them, and 83 mutations, each CAUGHT.
+    The tests found that h2's `write_data` sent a server's DATA before any response head, which
+    RFC 9113 §8.1 forbids; `write_data` now refuses it.
+  - §9's h11 and h2 server runs each connection on `server` (`src/testing/server_session.zig`),
+    in place of its own record half and protocol sessions.
+
+  **17a check,** run on macOS 26.6.2 arm64 on 2026-09-28, the peers in Docker where the scripts
+  put them:
+  - `tools/h2spec.sh 18443 --tls`: h2spec 2.6.0 passed 144 of 146 cases in cleartext and 144 of
+    146 over TLS. The two it fails are the cases the script names as skipped: RFC 7540 §5.3.1's
+    self-dependency, which RFC 9113 §5.3.2 dropped.
+  - `tools/h2_server_interop.sh --tls`: curl 7.88.1, nghttp2 1.52.0 and Go 1.27.1 each sent 64
+    GETs on one connection and a POST of 300,000 octets, and each request ended with 200, in
+    cleartext and over TLS. A Go client offering TLS 1.2 alone read the server's
+    protocol_version alert.
+  - `tools/h11_server_interop.sh --tls`: curl 7.88.1 and Go 1.27.1 did the same over h11, in
+    cleartext and over TLS, and curl also over TLS with no ALPN.
+  - `zig build test` passed. The HTTP Garden, which feeds the `--echo` mode, needs Linux and is
+    left to its CI job; the echo's own tests pass over `server`.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

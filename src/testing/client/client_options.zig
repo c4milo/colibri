@@ -4,10 +4,10 @@
 const std = @import("std");
 const constants = @import("../constants.zig");
 const client_exchange = @import("client_exchange.zig");
-const session = @import("../session.zig");
+const alpn = @import("../alpn.zig");
 
 const Plan = client_exchange.Plan;
-const Protocol = session.Protocol;
+const Protocol = alpn.Protocol;
 
 /// What the command line asked for.
 pub const Run = struct {

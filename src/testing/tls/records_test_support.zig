@@ -1,4 +1,4 @@
-//! A provider the endpoint tests share (`server_tls.zig`, `client_tls.zig`) that protects nothing:
+//! A provider the client's endpoint tests use (`client_tls.zig`) that protects nothing:
 //! a record is RFC 9846 §5.1's header and its content in the clear, under the content's own type.
 //! The record half (`records.zig`) and the protocols' `connection_tls` drive it as they drive a
 //! session of colibri's `tls`, whose records `src/tls/` tests against chapulin. Test-only.

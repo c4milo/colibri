@@ -8,9 +8,9 @@
 //! (`h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext.
 const std = @import("std");
 const constants = @import("constants.zig");
-const session = @import("session.zig");
+const alpn = @import("alpn.zig");
 
-const Protocol = session.Protocol;
+const Protocol = alpn.Protocol;
 
 /// How many octets an IPv4 address has (RFC 791 §3.1).
 pub const ipv4_octets: usize = 4;

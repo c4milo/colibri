@@ -18,7 +18,7 @@ const entropy = @import("../entropy.zig");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const check_file = @import("check_file.zig");
-const session_module = @import("../session.zig");
+const alpn = @import("../alpn.zig");
 const client_session = @import("../client/client_session.zig");
 const tls_records = @import("records.zig");
 
@@ -111,7 +111,7 @@ pub fn step(layer: *Layer, session: *Session, input: []u8, output: []u8) Error!S
         // RFC 7301 §3.2: the protocol the server selected is definitive for the connection, and a
         // selection of none is h11 (decision 88). Over TLS the scheme is "https" (RFC 9110
         // §4.2.2).
-        session.choose(session_module.protocol_of(provider.vtable.negotiated_alpn(provider.context)), "https");
+        session.choose(alpn.protocol_of(provider.vtable.negotiated_alpn(provider.context)), "https");
         // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet
         // moves.
         try tls_records.attach(session, provider);
@@ -150,7 +150,7 @@ const test_now_seconds: u64 = 1_780_000_000;
 fn test_shared() !Shared {
     try test_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &test_anchors, .server_name = "localhost" } },
-        .alpn = &session_module.alpn_both,
+        .alpn = &alpn.alpn_both,
     });
     return .{ .config = &test_config, .now_seconds = test_now_seconds };
 }

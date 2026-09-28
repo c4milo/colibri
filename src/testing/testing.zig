@@ -2,9 +2,9 @@
 //! imports this module, and it is the only place in the tree permitted to touch a socket
 //! (invariant 2 is scoped to `src/` outside it).
 //!
-//! `session` is one connection of the server, with no socket in it, speaking h2 (`h2_session`) or
-//! h11 (`h11_session`), and `server` is the socket around it: `zig build http-server` runs the
-//! pair for h2spec and h2load (design §8 steps 4 and 15d).
+//! `server_session` is one connection of the server, with no socket in it, over colibri's `server`
+//! module, which speaks h2 or h11 (design §8 step 17a), and `server` is the socket around it: `zig
+//! build http-server` runs the pair for h2spec and h2load (design §8 steps 4 and 15d).
 const std = @import("std");
 
 pub const hooks = @import("tls/hooks.zig");
@@ -19,15 +19,13 @@ comptime {
     _ = hooks;
 }
 
-pub const h2_session = @import("h2/h2_session.zig");
-pub const h11_session = @import("h11/h11_session.zig");
+pub const alpn = @import("alpn.zig");
 pub const h11_client_session = @import("h11/h11_client_session.zig");
 pub const h11_echo = @import("h11/h11_echo.zig");
-pub const session = @import("session.zig");
-pub const Session = session.Session;
+pub const server_session = @import("server_session.zig");
+pub const Session = server_session.Session;
 pub const server = @import("server.zig");
 pub const server_options = @import("server_options.zig");
-pub const server_tls = @import("tls/server_tls.zig");
 pub const tls_records = @import("tls/records.zig");
 pub const client_exchange = @import("client/client_exchange.zig");
 pub const h2_client_session = @import("h2/h2_client_session.zig");
@@ -40,14 +38,12 @@ test {
     _ = hooks;
     _ = server_identity;
     _ = constants;
-    _ = h2_session;
-    _ = h11_session;
+    _ = alpn;
     _ = h11_client_session;
     _ = h11_echo;
-    _ = session;
+    _ = server_session;
     _ = server;
     _ = server_options;
-    _ = server_tls;
     _ = tls_records;
     _ = client_exchange;
     _ = h2_client_session;

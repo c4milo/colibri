@@ -271,13 +271,15 @@ pub const Session = struct {
 };
 
 const testing = std.testing;
-const h11_session = @import("h11_session.zig");
+const server_session = @import("../server_session.zig");
+const entropy = @import("../entropy.zig");
 const Crc32 = std.hash.Crc32;
 
 /// The two sessions the tests run, and the octets each has written that the other has not read.
 /// Placed outside any stack frame. Test-only.
 var test_client: Session align(@alignOf(Session)) = undefined;
-var test_server: h11_session.Session align(@alignOf(h11_session.Session)) = undefined;
+var test_server: server_session.Session align(@alignOf(server_session.Session)) = undefined;
+const test_server_config: server_session.server.Config = .{ .cleartext = .h11 };
 var test_to_server: [constants.write_buffer_len]u8 = @splat(0);
 var test_to_client: [constants.write_buffer_len]u8 = @splat(0);
 
@@ -318,7 +320,7 @@ fn test_feed(input: []const u8) Step {
 const test_get: Plan = .{ .method = "GET", .path = "/", .content_len = 0 };
 
 test "pipelined exchanges are answered in order, and the last one closes the connection" {
-    test_server.init();
+    try test_server.init(&test_server_config, entropy.random(), null);
     // Past the buffers several times over, so the content goes out over many steps.
     const content_len = 3 * constants.write_buffer_len;
     test_client.init("localhost", &.{ test_get, .{ .method = "POST", .path = "/upload", .content_len = content_len }, test_get });

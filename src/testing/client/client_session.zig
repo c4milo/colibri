@@ -4,12 +4,12 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
-const session = @import("../session.zig");
+const alpn = @import("../alpn.zig");
 const client_exchange = @import("client_exchange.zig");
 const h2_client_session = @import("../h2/h2_client_session.zig");
 const h11_client_session = @import("../h11/h11_client_session.zig");
 
-pub const Protocol = session.Protocol;
+pub const Protocol = alpn.Protocol;
 const Exchange = client_exchange.Exchange;
 const Plan = client_exchange.Plan;
 

@@ -25,7 +25,7 @@ const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
 const client_tls = @import("../tls/client_tls.zig");
 const tls = @import("tls");
-const session_module = @import("../session.zig");
+const alpn = @import("../alpn.zig");
 
 const Run = client_options.Run;
 const Session = client_session.Session;
@@ -359,7 +359,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 /// Loads what every TLS connection of the run shares. The name the server's certificate must carry
 /// is the authority the requests name, and `--h11` offers `http/1.1` alone.
 fn load_tls(prefix: []const u8, run: *const Run) !void {
-    const protocols: []const []const u8 = if (run.protocol == .h11) &session_module.alpn_h11 else &session_module.alpn_both;
+    const protocols: []const []const u8 = if (run.protocol == .h11) &alpn.alpn_h11 else &alpn.alpn_both;
     tls_shared = try client_tls.load(&tls_anchors, prefix, run.authority, run.now_seconds, protocols);
 }
 
@@ -378,7 +378,7 @@ const test_now_seconds: u64 = 1_780_000_000;
 fn test_shared() !client_tls.Shared {
     try test_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &test_anchors, .server_name = "localhost" } },
-        .alpn = &session_module.alpn_both,
+        .alpn = &alpn.alpn_both,
     });
     return .{ .config = &test_config, .now_seconds = test_now_seconds };
 }
