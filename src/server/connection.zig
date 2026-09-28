@@ -252,7 +252,8 @@ pub const Connection = struct {
     }
 
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
-    /// With `end`, the response carries no content.
+    /// With `end`, the final response carries no content. An interim response ignores `end`,
+    /// because the final response still follows it (RFC 9110 §15.2).
     pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
         try connection.check_writable();
         // RFC 9110 §10.1.1: the caller's own 100 replaces the one owed. A final response replaces

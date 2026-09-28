@@ -49,6 +49,9 @@ pub const Error = error{
     FieldLineInvalid,
     /// RFC 9113 §8.1: a response after the final one, or a trailer section before it.
     SectionOutOfOrder,
+    /// RFC 9113 §8.1: an interim response that carries END_STREAM, which only the final response
+    /// or the trailers after it may.
+    InterimEndsStream,
 };
 
 /// What `write_data` did: the octets of the payload it sent, and the octets it wrote.
@@ -72,6 +75,9 @@ pub fn write_response(
     assert(target.role == .server);
     // RFC 9110 §15: a status code is a three-digit integer between 100 and 599.
     const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
+    // RFC 9113 §8.1: "A HEADERS frame with the END_STREAM flag set that carries an informational
+    // status code is malformed".
+    if (code.is_interim() and end_stream) return error.InterimEndsStream;
     try validate_fields(fields);
     const record = try sendable(target, stream_id, .headers, end_stream);
     // RFC 9113 §8.1: one final response per request, and the peer reads a section after it as the

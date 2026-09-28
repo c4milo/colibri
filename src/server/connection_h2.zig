@@ -73,7 +73,10 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
     const stream_id = try stream_of(id);
     var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
     const converted = try convert(fields, &lines);
-    const written = connection.session.h2.write_response(connection.room(), stream_id, status, converted, end) catch |failure| {
+    // RFC 9113 §8.1: only the final response ends the stream, so an interim one carries no
+    // END_STREAM whatever the caller asked.
+    const interim = status >= http.constants.status_code_min and status < @intFromEnum(http.status.Code.ok);
+    const written = connection.session.h2.write_response(connection.room(), stream_id, status, converted, end and !interim) catch |failure| {
         return send_error(connection, failure);
     };
     connection.output_len += written;
@@ -138,6 +141,8 @@ fn send_error(connection: *const Connection, failure: h2.connection.SendError) S
         error.StatusInvalid => error.StatusInvalid,
         error.FieldLineInvalid => error.FieldLineInvalid,
         error.SectionOutOfOrder => error.SectionOutOfOrder,
+        // `respond` asks for END_STREAM on a final response alone.
+        error.InterimEndsStream => unreachable,
     };
 }
 

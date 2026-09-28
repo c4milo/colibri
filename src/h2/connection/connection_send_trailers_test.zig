@@ -62,6 +62,15 @@ test "RFC 9113 §8.1: a trailer section before the final response, or a response
     try testing.expectEqual(stream.State.closed, test_connection.streams.lookup(1).live.state);
 }
 
+test "RFC 9113 §8.1: an interim response never ends the stream, and the final one still may" {
+    try server_with_request();
+    try testing.expectError(error.InterimEndsStream, test_connection.write_response(test_output, 1, early_hints, &.{}, true));
+    try testing.expectEqual(stream.State.half_closed_remote, test_connection.streams.lookup(1).live.state);
+    _ = try test_connection.write_response(test_output, 1, early_hints, &.{}, false);
+    _ = try test_connection.write_response(test_output, 1, ok, &.{}, true);
+    try testing.expectEqual(stream.State.closed, test_connection.streams.lookup(1).live.state);
+}
+
 test "RFC 9113 §8.1: DATA before the final response, or after an interim one alone, is refused" {
     try server_with_request();
     try testing.expectError(error.SectionOutOfOrder, test_connection.write_data(test_output, 1, body, false));

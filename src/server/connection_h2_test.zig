@@ -11,6 +11,7 @@ const constants = h2.constants;
 
 const content_type = [_]support.Field{.{ .name = "content-type", .value = "text/plain" }};
 const ok: u16 = 200;
+const early_hints: u16 = 103;
 /// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4).
 const client_preface = constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 
@@ -107,6 +108,19 @@ test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame 
     try testing.expectEqual(constants.flag_end_stream, data[flags_index]);
     try testing.expectEqualStrings("hello", data[constants.frame_header_len..]);
     try testing.expect(!connection.should_close());
+}
+
+test "RFC 9113 §8.1: an interim response ends no stream, whatever `end` asks, and the final one does" {
+    try start();
+    _ = try support.receive_copy(try request_frame(1, "/", true));
+    try connection.respond(1, early_hints, &.{}, true);
+    try connection.respond(1, ok, &.{}, true);
+    const sent = support.drain();
+    try testing.expectEqual(constants.frame_type_headers, sent[type_index]);
+    try testing.expectEqual(constants.flag_end_headers, sent[flags_index]);
+    const final = sent[frame_len(sent)..];
+    try testing.expectEqual(constants.frame_type_headers, final[type_index]);
+    try testing.expectEqual(constants.flag_end_headers | constants.flag_end_stream, final[flags_index]);
 }
 
 test "RFC 9113 §8.1: a request's DATA arrives as body events, the last ending it" {
