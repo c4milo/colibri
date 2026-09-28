@@ -976,6 +976,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   inputs, ran in ReleaseSafe with no input halted. 20 mutations of the reader, its writers and
   `verdict`, all **CAUGHT** by the check alone.
 
+  **The connection model and its trace check, 2026-09-27**
+  ([#75](https://github.com/c4milo/colibri/issues/75), [decision 104](decisions.md)).
+  - `spec/tla/h2_connection` models a colibri client and server over one connection. It holds each
+    stream's state at both endpoints (RFC 9113 §5.1), each message's order in each direction
+    (§8.1), RST_STREAM crossing frames in flight (§6.4) and GOAWAY (§6.8). Each rule colibri keeps
+    is a constant: `SendInState`, `DataAfterHead`, `OneFinalHead`, `DiscardAfterReset`,
+    `IgnoreAboveGoaway` and `NoStreamAfterGoaway`. A configuration that turns one off must find a
+    violation.
+  - `src/sim/h2_trace_check.zig`: a colibri client and server act out a seed's plan over one queue
+    of octets in each direction. The plan draws write calls colibri must refuse as well as ones it
+    takes: DATA before a response's head, a head after the final one, a frame after END_STREAM or a
+    reset, and a stream after a GOAWAY. After each action, `h2_trace_state.zig` computes the
+    model's variables from both endpoints, and the run keeps each state that differs from the one
+    before. The run fails a seed on a connection error, a stream error or a stream opened after a
+    GOAWAY, so it finds those without TLC.
+  - `zig build sim -- --h2-trace-write <directory>` writes 64 seeds' states as TLA+ modules and
+    TLC configurations. `tools/h2_trace.sh` runs TLC over them with `H2ConnectionTrace.tla`.
+    Between two logged states the model takes up to 40 steps, `steps_between_max`. A seed passes
+    when TLC reaches its last logged state.
+  - `c32cabe` fixed the defect that led to the model: `write_data` sent DATA before the response's
+    head. The run then found two more:
+    - `3fa6e78`: `write_response` set END_STREAM on an interim response. The note "Still not
+      built" above names this, and it no longer holds.
+    - `9acb1dc`: after a GOAWAY colibri sent, DATA, RST_STREAM or WINDOW_UPDATE on a stream the
+      peer initiated above its last stream identifier failed the connection. §6.8 lets the
+      GOAWAY's sender ignore those frames, and colibri now does.
+
+  What each check printed on macOS arm64:
+  - `zig build sim -- --h2-trace-check`, in Debug and in ReleaseSafe: `h2-trace: seeds=256
+    opened=405 responses=123 resets=169 goaways=196 refused=5422`.
+  - `tools/h2_trace.sh`: `64 of 64 traces are behaviors of the model`, in 59 seconds. The 64 logs
+    hold 570 states. Of the logs, 22 hold an answered request, 4 an interim response, 24 a reset
+    and 38 a GOAWAY, 8 of them two. 26 seeds open three streams.
+  - `zig build tla -- spec/tla/h2_connection/*.cfg`: the three scopes hold, `messages` in 626993
+    distinct states, `resets` in 3264 and `goaway` in 1633432. The six configurations that turn a
+    rule off are violated.
+  - 4 mutations of colibri, 4 **CAUGHT**. For each, the run's own checks fail a seed. With those
+    checks removed, TLC finds traces that are not behaviors of the model:
+    - DATA before the final head: 47 of 64 traces pass;
+    - an interim response that ends the stream: 61 of 64 pass;
+    - frames above a GOAWAY colibri sent not ignored: 60 of 64 pass;
+    - the client opens a stream after a GOAWAY it read: 52 of 64 pass.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
