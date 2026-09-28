@@ -60,6 +60,8 @@ pub const World = struct {
     now_ns: u64,
     channel: Channel,
     channel_config: client.ChannelConfig,
+    /// The receive pool of the channel's QUIC connections (decision 61).
+    receive_pool: client.DefaultReceivePool,
     tcp_tls: tls.record.ClientConfig,
     tcp_config: client.Config,
     quic_tls: tls.quic.ClientConfig,
@@ -107,7 +109,8 @@ pub const World = struct {
         world.to_client.clear();
         world.network.init(seed, world.schedule());
         try world.configure();
-        world.channel.init(&world.channel_config, world.values());
+        const receive = if (world.channel_config.quic == null) null else world.receive_pool.storage();
+        world.channel.init(&world.channel_config, world.values(), receive);
         world.quic_server.started = false;
         world.tcp_server.running = false;
     }

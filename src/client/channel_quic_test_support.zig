@@ -51,6 +51,9 @@ const host_octet: u8 = 0x7f;
 const loopback: [ipv4_len]u8 = @splat(host_octet);
 pub const addresses = [_]channel_module.Address{channel_module.Address.of(&loopback, 0)};
 
+/// The receive pool of the channel's QUIC connections (decision 61). Test-only.
+var receive_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
+
 /// A channel offering h3 and h2 over TLS, whose QUIC server selects from `server_protocols`.
 pub fn start(server_protocols: []const []const u8, values: channel_module.Values, quic_first: bool) !void {
     try quic_support.prepare(&quic_support.alpn_h3, server_protocols, false);
@@ -63,7 +66,7 @@ pub fn start(server_protocols: []const []const u8, values: channel_module.Values
     // Every octet 1, so each flag of a connection the channel never started reads as set, and a
     // read of one shows.
     @memset(std.mem.asBytes(&channel), unstarted_octet);
-    channel.init(&config, values);
+    channel.init(&config, values, receive_pool.storage());
     events_len = 0;
     blocked = false;
 }

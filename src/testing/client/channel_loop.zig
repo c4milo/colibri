@@ -45,6 +45,8 @@ var channel: client.Channel align(@alignOf(client.Channel)) = undefined;
 var channel_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = undefined;
 var quic_config: client.QuicConfig align(@alignOf(client.QuicConfig)) = undefined;
 var quic_tls: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
+/// The receive pool of the channel's QUIC connections (decision 61).
+var receive_pool: client.DefaultReceivePool align(@alignOf(client.DefaultReceivePool)) = undefined;
 var addresses: [1]Address align(@alignOf(Address)) = undefined;
 var exchanges: [constants.exchanges_max]client_exchange.Exchange align(@alignOf(client_exchange.Exchange)) = undefined;
 var exchanges_count: usize = 0;
@@ -68,7 +70,7 @@ pub fn run_channel(run: *const Run, tcp_config: *const client.Config, anchors: *
     channel_config = .{ .tcp = tcp_config, .quic = &quic_config, .fallback_delay_ns = run.fallback_delay_ns };
     addresses[0] = Address.of(&run.address, 0);
     now_seconds = run.now_seconds;
-    channel.init(&channel_config, .{ .addresses = &addresses, .port = run.port });
+    channel.init(&channel_config, .{ .addresses = &addresses, .port = run.port }, receive_pool.storage());
     try request_plan(run.plans[0..run.plans_count]);
     channel.shutdown();
     tcp.init();

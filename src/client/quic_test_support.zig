@@ -111,6 +111,9 @@ pub var answer_status: u16 = ok_status;
 const ok_status: u16 = 200;
 pub var answer_content: []const u8 = "hello";
 
+/// The client's receive pool (decision 61), placed outside any stack frame. Test-only.
+pub var client_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
+
 /// Where a datagram crosses from one side to the other.
 var datagram: [quic.constants.datagram_len_max]u8 = undefined;
 var crossing: [quic.constants.datagram_len_max]u8 = undefined;
@@ -118,8 +121,13 @@ var crossing: [quic.constants.datagram_len_max]u8 = undefined;
 /// A client offering `client_protocols` to a server selecting from `server_protocols`, which
 /// issues tickets when `tickets`. Nothing has been sent.
 pub fn start(client_protocols: []const []const u8, server_protocols: []const []const u8, tickets: bool) !void {
+    try start_with_pool(client_pool.storage(), client_protocols, server_protocols, tickets);
+}
+
+/// As `start`, with the server's octets held in `receive_pool` until h3 reads them.
+pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage, client_protocols: []const []const u8, server_protocols: []const []const u8, tickets: bool) !void {
     try prepare(client_protocols, server_protocols, tickets);
-    try connection.init(&config, client_start, support.stream.random(), support.now_seconds, now_ns, null);
+    try connection.init(&config, receive_pool, client_start, support.stream.random(), support.now_seconds, now_ns, null);
 }
 
 /// The TLS configurations of `start`, the client's `config`, and a server that starts from the

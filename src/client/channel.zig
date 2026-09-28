@@ -16,7 +16,9 @@
 //! transport reads to `receive`, and writes what `send_datagram` and `send_stream` return. It loops
 //! over `receive` as it does for one connection: until nothing is consumed and no event comes, and
 //! again with `.none` after each send and `on_instant`. colibri makes no system call and reads no
-//! clock: time is a value the caller passes (non-negotiable 3).
+//! clock: time is a value the caller passes (non-negotiable 3). A caller that offers h3 also places
+//! the receive pool each QUIC connection holds the server's octets in, one at a time (decision 61),
+//! and sizes it to the longest response it expects: `ReceivePool(capacity)`.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -197,15 +199,22 @@ pub const Channel = struct {
     /// The caller shut the channel down, and the `closed` event went out.
     shut: bool,
     closed_reported: bool,
+    /// The receive pool of each QUIC connection, which the caller placed, or null when it offers
+    /// no h3.
+    receive_pool: ?quic_connection.ReceiveStorage,
 
-    /// Prepares a channel with nothing opened.
-    pub fn init(channel: *Channel, config: *const Config, values: Values) void {
+    /// Prepares a channel with nothing opened. `receive_pool` is the pool its QUIC connections use
+    /// in turn when `config.quic` offers h3, and null when it does not.
+    pub fn init(channel: *Channel, config: *const Config, values: Values, receive_pool: ?quic_connection.ReceiveStorage) void {
         assert(values.addresses.len > 0);
+        // The pool is for QUIC's connections alone, and they need one.
+        assert((config.quic == null) == (receive_pool == null));
         if (config.quic) |quic_config| {
             // RFC 9114 §3.1.2: h3 cannot reach an "http" origin, so TCP runs over TLS here.
             assert(config.tcp.tls != null);
             assert(std.mem.eql(u8, quic_config.authority, config.tcp.authority));
         }
+        channel.receive_pool = receive_pool;
         channel.config = config;
         channel.values = values;
         channel.links = .initFill(.{});
@@ -292,7 +301,7 @@ pub const Channel = struct {
         assert(!link.open_owed);
         channel.quic_config = channel.config.quic.?.*;
         channel.quic_config.server_address = link.to;
-        channel.quic.init(&channel.quic_config, start, random, now_seconds, now_ns, resumption) catch |failure| {
+        channel.quic.init(&channel.quic_config, channel.receive_pool.?, start, random, now_seconds, now_ns, resumption) catch |failure| {
             // The attempt ended before it began: the model's FailHandshake, then Close.
             channel_events.close_unstarted(channel, .quic);
             return failure;

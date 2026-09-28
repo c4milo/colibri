@@ -4977,7 +4977,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A TCP response's Alt-Svc over TLS teaches the origin h3 on its host (RFC 7838 §3) for its next
     connection, and `alternative()` hands it to the caller to keep. RFC 7838 and RFC 9460 joined
     `docs/rfcs/` (`31091af`).
-  - A `Channel` is 2,492,448 octets: a QUIC connection of 2,205,760 and a TCP one of 285,928.
+  - A `Channel` is 987,216 octets: a QUIC connection of 700,472 and a TCP one of 285,928. The
+    caller places the QUIC connections' receive pool beside it (decision 61), sized with
+    `ReceivePool`: 1,505,288 octets for the default 1 MiB of capacity, and 377,504 for 66,560.
+    Every window the client advertises follows the pool's capacity (RFC 9000 §4.1).
   - Decision 105's model, `spec/tla/client_exchanges` (`10352d2`), holds in 4 scopes, 3.2 million
     states in all, and each of its 6 rules turned off finds a violation.
   - The client trace run, `src/sim/client_trace_*.zig`, has a `Channel` carry each seed's exchanges

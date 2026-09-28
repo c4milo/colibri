@@ -5,10 +5,11 @@
 //! The caller opens a UDP flow to the server, passes each datagram it reads to `receive`, sends
 //! each datagram `send` writes, and calls `on_instant` once the instant `deadline_ns` names has
 //! come. colibri makes no system call and reads no clock (non-negotiable 3). It does the duties of
-//! a QUIC caller itself (decisions 57, 61 and 62): it hands the provider the transport parameters,
-//! derives the Initial keys, places the receive pool, and supplies each request stream's octets,
-//! the HEADERS frame and DATA frame header it keeps (decision 79), then the exchange's content.
-//! The connection IDs and h3's grease value are the caller's (invariant 5).
+//! a QUIC caller itself (decisions 57 and 62): it hands the provider the transport parameters,
+//! derives the Initial keys, and supplies each request stream's octets, the HEADERS frame and DATA
+//! frame header it keeps (decision 79), then the exchange's content. The connection IDs, h3's
+//! grease value and the receive pool are the caller's (invariant 5, decision 61), and the pool's
+//! capacity sets every window the client advertises.
 //!
 //! The caller loops over `receive` as it does for the TCP connection, until it returns nothing
 //! consumed and no event; a datagram is consumed whole. After each `send` and `on_instant` it loops
@@ -33,6 +34,9 @@ pub const Received = event.Received;
 pub const HttpExchange = event.HttpExchange;
 pub const RequestError = connection_module.RequestError;
 pub const PeerAddress = quic.peer_address.PeerAddress;
+/// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
+/// of a `quic.stream.stream_incoming.Pool` the caller places.
+pub const ReceiveStorage = quic.stream.stream_incoming.Storage;
 const Parameters = quic.transport_parameters.Parameters;
 
 /// What every QUIC connection to one origin borrows. The caller keeps it alive while any
@@ -82,7 +86,6 @@ pub const QuicConnection = struct {
     session: tls.quic.Client,
     send_scratch: quic.connection_send.DefaultScratch,
     scratch: quic.connection_datagram.Scratch,
-    pool: quic.stream.stream_incoming.DefaultPool,
     h3: h3.Connection,
     /// Where a request's field section is built, and where h3 copies a response's content.
     section: h3.http.FieldSection,
@@ -106,11 +109,14 @@ pub const QuicConnection = struct {
     /// The latest ticket the server issued, until `take_ticket` hands it over.
     ticket: ?tls.Ticket,
 
-    /// Prepares a connection whose first datagram `send` writes. Every draw the handshake makes
-    /// comes from `random`, `now_seconds` is the instant a Web PKI chain is judged at, `now_ns` the
-    /// instant the connection begins, and `resumption` offers a ticket an earlier one took.
-    pub fn init(connection: *QuicConnection, config: *const Config, start: Start, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
+    /// Prepares a connection whose first datagram `send` writes. `receive_pool` holds the server's
+    /// octets until h3 reads them (decision 61), and no other connection uses it while this one
+    /// runs. Every draw the handshake makes comes from `random`, `now_seconds` is the instant a
+    /// Web PKI chain is judged at, `now_ns` the instant the connection begins, and `resumption`
+    /// offers a ticket an earlier one took.
+    pub fn init(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, start: Start, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
         assert(config.authority.len > 0);
+        assert(receive_pool.capacity > 0 and receive_pool.blocks.len > 0);
         connection.config = config;
         connection.start_values = start;
         connection.slots.init();
@@ -123,10 +129,10 @@ pub const QuicConnection = struct {
         connection.ticket = null;
         connection.transport.init(.{
             .role = .client,
-            .local_parameters = parameters(config),
+            .local_parameters = parameters(config, receive_pool.capacity),
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = &connection.start_values.source_id, .original_destination = &connection.start_values.original_destination_id },
-            .receive = connection.pool.storage(),
+            .receive = receive_pool,
             .ecn_reads = config.ecn,
             .ecn_marks = config.ecn,
             .peer_address = config.server_address,
@@ -383,13 +389,15 @@ pub const QuicConnection = struct {
 /// RFC 9114 §3.1: the ALPN token of h3.
 const h3_alpn = "h3";
 
-/// What the client grants the server (RFC 9000 §18.2): its receive pool for the responses on the
-/// streams it opens, and h3's unidirectional streams (RFC 9114 §6.2).
-fn parameters(config: *const Config) Parameters {
+/// What the client grants the server (RFC 9000 §18.2): its receive pool of `capacity` octets for
+/// the responses on the streams it opens, and h3's unidirectional streams (RFC 9114 §6.2).
+fn parameters(config: *const Config, capacity: u64) Parameters {
     var held = Parameters.initial();
-    held.initial_max_data = quic.constants.receive_pool_len_default;
-    held.initial_max_stream_data_bidi_local = quic.constants.receive_pool_len_default;
-    held.initial_max_stream_data_uni = constants.quic_stream_window;
+    // RFC 9000 §4.1: flow control keeps a sender within "a receiver's buffer capacity", and the
+    // pool is all the client holds (decision 61), so no window grants more than it.
+    held.initial_max_data = capacity;
+    held.initial_max_stream_data_bidi_local = capacity;
+    held.initial_max_stream_data_uni = @min(constants.quic_stream_window, capacity);
     held.initial_max_streams_uni = h3.constants.uni_streams_max;
     held.max_idle_timeout_ms = config.idle_timeout_ms;
     return held;

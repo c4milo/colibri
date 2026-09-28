@@ -12,6 +12,7 @@
 //! Over TLS, the connection runs the handshake through `tls.record.Client` itself, so a program
 //! that uses this module links chapulin. One that wants no TLS uses `h11` or `h2` directly.
 const std = @import("std");
+const quic = @import("quic");
 
 pub const constants = @import("constants.zig");
 pub const event = @import("event.zig");
@@ -38,6 +39,13 @@ pub const QuicConfig = quic_connection.Config;
 pub const QuicStart = quic_connection.Start;
 pub const Channel = channel.Channel;
 pub const ChannelConfig = channel.Config;
+/// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
+/// places: `ReceivePool(capacity)` for `capacity` octets, a whole number of
+/// `quic.constants.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
+/// capacity bounds every window the client advertises, and so how fast one connection receives.
+pub const ReceivePool = quic.stream.stream_incoming.Pool;
+pub const DefaultReceivePool = quic.stream.stream_incoming.DefaultPool;
+pub const ReceiveStorage = quic_connection.ReceiveStorage;
 
 test {
     std.testing.refAllDecls(@This());

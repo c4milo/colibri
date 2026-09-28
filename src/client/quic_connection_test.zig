@@ -3,6 +3,8 @@
 //! comes back as each exchange's outcome.
 const std = @import("std");
 const h3 = @import("h3");
+const quic = @import("quic");
+const constants = @import("constants.zig");
 const support = @import("quic_test_support.zig");
 const event = @import("event.zig");
 
@@ -145,4 +147,44 @@ test "RFC 9000 §4.6: an exchange past the server's stream limit waits for its M
     try testing.expectEqual(.response, second.outcome);
     // RFC 9000 §2.1: the second opened stream 4 once the server allowed a second stream.
     try testing.expectEqual(4, support.answers[1].id);
+}
+
+/// Receive pools smaller than the default: one that holds the longest DNS answer over DoQ, and one
+/// smaller than the window of an h3 unidirectional stream. Test-only.
+const answer_pool_len: usize = 66_560;
+const small_pool_len: usize = 32_768;
+const AnswerPool = quic.stream.stream_incoming.Pool(answer_pool_len);
+const SmallPool = quic.stream.stream_incoming.Pool(small_pool_len);
+var answer_pool: AnswerPool align(@alignOf(AnswerPool)) = undefined;
+var small_pool: SmallPool align(@alignOf(SmallPool)) = undefined;
+
+test "RFC 9000 §4.1: every window the client advertises fits the receive pool its caller placed" {
+    try support.start_with_pool(answer_pool.storage(), &support.alpn_h3, &support.alpn_h3, false);
+    var granted = connection.transport.local_parameters;
+    try testing.expectEqual(answer_pool_len, granted.initial_max_data);
+    try testing.expectEqual(answer_pool_len, granted.initial_max_stream_data_bidi_local);
+    try testing.expectEqual(constants.quic_stream_window, granted.initial_max_stream_data_uni);
+    connection.transport_closed();
+    try support.start_with_pool(small_pool.storage(), &support.alpn_h3, &support.alpn_h3, false);
+    granted = connection.transport.local_parameters;
+    try testing.expectEqual(small_pool_len, granted.initial_max_data);
+    try testing.expectEqual(small_pool_len, granted.initial_max_stream_data_bidi_local);
+    try testing.expectEqual(small_pool_len, granted.initial_max_stream_data_uni);
+}
+
+/// A response three times the small pool, which arrives only as the client reads the pool and
+/// grants the server more (RFC 9000 §4.1). Test-only.
+const long_answer_len: usize = 100_000;
+var long_answer: [long_answer_len]u8 = undefined;
+var long_body: [long_answer_len]u8 = undefined;
+
+test "RFC 9000 §4.1: a response longer than the receive pool arrives whole as the client grants more" {
+    try support.start_with_pool(small_pool.storage(), &support.alpn_h3, &support.alpn_h3, false);
+    for (&long_answer, 0..) |*octet, index| octet.* = @truncate(index);
+    support.answer_content = &long_answer;
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/long", .body = &long_body };
+    _ = try connection.request(&exchange);
+    try support.pump(support.rounds_default * 8);
+    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqualSlices(u8, &long_answer, exchange.content_received());
 }
