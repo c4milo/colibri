@@ -27,6 +27,7 @@ const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
 const client_exchange = @import("client_exchange.zig");
 const client_tls = @import("../tls/client_tls.zig");
+const origin_loop = @import("origin_loop.zig");
 const entropy = @import("../entropy.zig");
 const alpn = @import("../alpn.zig");
 
@@ -263,16 +264,8 @@ fn report(run: *const Run, succeeded: u32) void {
     for (connections[0..run.connections_count], 0..) |*connection, index| {
         const session = &connection.session;
         for (session.exchanges_held()) |*exchange| {
-            const carried = &exchange.carried;
-            std.debug.print(exchange_format, .{
-                index,                     protocol_name(session.protocol),
-                exchange.id,               exchange.plan.method,
-                exchange.plan.path,        carried.status,
-                carried.interims,          carried.content_sent,
-                exchange.sent_crc32(),     carried.body_len,
-                exchange.received_crc32(), carried.outcome,
-                carried.error_code,
-            });
+            std.debug.print("connection={d} ", .{index});
+            exchange.print(protocol_name(session.protocol));
         }
         if (connection.failure != .none or !session.succeeded()) {
             std.debug.print("connection={d} failure={t} succeeded={}\n", .{ index, connection.failure, session.succeeded() });
@@ -282,9 +275,6 @@ fn report(run: *const Run, succeeded: u32) void {
         run.connections_count, succeeded, run.connections_count - succeeded,
     });
 }
-
-const exchange_format = "connection={d} protocol={s} exchange={d} {s} {s} status={d} interim={d} sent={d} " ++
-    "sent_crc32=0x{x:0>8} received={d} received_crc32=0x{x:0>8} outcome={t} error_code={d}\n";
 
 /// The exit status of a run in which a connection did not finish, and of a command line the
 /// client could not read.
@@ -302,6 +292,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
     client_exchange.fill_content();
     client_config = .{ .authority = run.authority, .cleartext = protocol_of(run.protocol) };
     if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
+    if (run.origin) {
+        if (!try origin_loop.run_origin(&run, &client_config, &tls_anchors)) std.process.exit(exit_failed);
+        return;
+    }
     const succeeded = try run_connections(&run);
     report(&run, succeeded);
     if (succeeded != run.connections_count) std.process.exit(exit_failed);

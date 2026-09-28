@@ -4959,8 +4959,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     cleartext and over TLS: Go's ALPN chose h11, and the client offered only h11 to h2o.
   - `zig build test` passed.
 
-  **17d, the client over QUIC and the choice, 2026-09-28.** Its first two parts; the third, the
-  fetches from other servers, follows.
+  **17d, the client over QUIC and the choice, 2026-09-28.**
   - `QuicConnection` (`35dfbde`) carries exchanges over h3 on QUIC with the TCP connection's calls
     and events. An exchange's `finished` event waits until its stream reads nothing more of the
     exchange (RFC 9000 §3.1), so the caller may reuse its memory once the event arrives.
@@ -5001,6 +5000,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and TLC alone caught a fallback flag kept after its attempt ended. The run reaches neither of
     the other two, an abandoned handshake reported as connected and a move past `moves_max`, and
     unit tests catch both (`215782c`).
+  - `http-client --origin` (§9) hands its plan to one `Origin` on one Rotor loop, which holds the
+    UDP socket every QUIC connection shares and one TCP socket at a time.
+    `tools/origin_interop.sh` runs it three times on an Apple M1 Pro, macOS 26.6.2:
+    - Against aioquic 1.3.0 and quic-go `9d085cc`, the QUIC Interop Runner's image pinned by
+      digest: each fetched 1,000, 100,000 and 1,000,000 octets with matching CRC-32s, sent a POST
+      of 300,000 octets whole, and read a 404. Every exchange ran over h3, and TCP never opened.
+    - Against Go 1.27.1's server over TLS, which listens on TCP alone: QUIC opened, TCP opened once
+      the 250 ms fallback delay passed, and h2 carried a GET, a GET of 1 MiB and a POST of 300,000
+      octets that Go echoed.
+    - The whole script took 7.7 s. The fallback run waits about 3 s for the abandoned QUIC
+      connection's closing state, which lasts three PTOs (RFC 9000 §10.2).
+  - Mutations of the origin mode, each CAUGHT: the script catches offering no h3, reporting every
+    exchange as h2, a fallback delay of 0 and TCP input that never advances; unit tests catch
+    `--origin` without `--tls`, `--fallback-ms` ignored, and the TCP socket's first operation read
+    as a UDP send's.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
@@ -5151,7 +5165,9 @@ only place in the tree permitted to touch a socket
    them h11 as well. In cleartext, `--h11` makes either speak h11 instead of h2 with prior
    knowledge. Over TLS, both offer `h2` and then `http/1.1` through ALPN, or `http/1.1` alone
    with `--h11`, and each connection speaks what the handshake selected: h2 for `h2`, and h11
-   for `http/1.1` or for no selection (decision 88).
+   for `http/1.1` or for no selection (decision 88). With `--origin` and `--tls` the client hands
+   its plan to one `client.Origin` instead, which tries h3 over QUIC first and falls back to TCP
+   (step 17d), and `tools/origin_interop.sh` runs it.
 2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
    `h2load --h3`. Lands with step 12.
 3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a

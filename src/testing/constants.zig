@@ -289,6 +289,24 @@ pub const hq_refused_error_code: u64 = 0;
 /// its receive.
 pub const udp_send_slots: usize = udp_operations_max - 1;
 
+/// Operations the client's origin mode holds for its TCP connection at once: a receive, a send, and
+/// the close that ends them (`client/origin_tcp.zig`). A connect is alone in flight.
+pub const origin_tcp_operations_max: u32 = 3;
+
+/// Datagrams the client's origin mode may have in flight to the kernel: every operation of the
+/// loop but its receive and its TCP connection's.
+pub const origin_udp_send_slots: usize = udp_operations_max - 1 - origin_tcp_operations_max;
+
+/// How long the origin mode's QUIC handshake runs before TCP opens beside it, unless
+/// `--fallback-ms` names another. A handshake on loopback completes in a few milliseconds, and a
+/// run against a server with no UDP waits no longer than this for TCP.
+pub const origin_fallback_delay_ns: u64 = 250 * nanoseconds_per_millisecond;
+
+/// How long one origin mode run lasts before the client gives it up: past the idle timeout the QUIC
+/// connection advertises (`client.constants.quic_idle_timeout_ms_default`), so a QUIC handshake
+/// that never completes ends first.
+pub const origin_run_ns_max: u64 = 60 * nanoseconds_per_second;
+
 /// Connections one UDP QUIC server can hold at once, which sizes its static table. The server's
 /// `connections=<n>` option holds fewer. The QUIC Interop Runner's handshake loss case opens 50
 /// connections, and quinn's client opens all 50 at once. A connection whose close was lost also
@@ -323,7 +341,8 @@ pub const quic_idle_timeout_ms: u64 = 30_000;
 
 comptime {
     assert(hq_paths_max >= hq_requests_max);
-    assert(udp_send_slots > 0);
+    assert(udp_send_slots > 0 and origin_udp_send_slots > 0);
+    assert(origin_fallback_delay_ns > 0 and origin_run_ns_max > origin_fallback_delay_ns);
     assert(hq_request_len_max > "GET /\r\n".len);
     assert(quic_datagram_len_max <= udp_buffer_bytes);
     assert(quic_rounds_max > 0 and quic_round_ns > 0);

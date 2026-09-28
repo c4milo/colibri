@@ -25,6 +25,12 @@ pub const Run = struct {
     /// The protocol every connection speaks in cleartext: h2 with prior knowledge unless `--h11`
     /// says h11. Over TLS, `--h11` offers `http/1.1` alone, and ALPN picks the protocol.
     protocol: Protocol,
+    /// Whether `--origin` hands the plan to one `client.Origin` (`origin_loop.zig`), which tries
+    /// h3 over QUIC first and falls back to TCP. It needs `--tls`, since h3 serves only "https"
+    /// origins (RFC 9114 §3.1.2), and runs one origin, so no `--connections`.
+    origin: bool,
+    /// How long the origin's QUIC handshake runs before TCP opens beside it: `--fallback-ms`.
+    fallback_delay_ns: u64,
 };
 
 /// How many octets an IPv4 address has (RFC 791 §3.1).
@@ -38,12 +44,14 @@ const loopback_first: u8 = 127;
 pub const usage =
     \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
     \\                 [--h11] [--tls <anchor-prefix> --seconds <unix-seconds>]
+    \\                 [--origin [--fallback-ms <milliseconds>]]
     \\                 [--connections <count>] (--get <path> | --post <path> <octets>)...
     \\
 ;
 
 /// Reads the command line, or returns null when it names nothing to do or something unreadable.
-pub fn read_run(arguments: *std.process.Args.Iterator) ?Run {
+/// `arguments` gives each word through `next`, as `std.process.Args.Iterator` does.
+pub fn read_run(arguments: anytype) ?Run {
     var run: Run = .{
         .address = loopback_octets,
         .port = constants.default_port,
@@ -54,25 +62,42 @@ pub fn read_run(arguments: *std.process.Args.Iterator) ?Run {
         .anchor_prefix = null,
         .now_seconds = 0,
         .protocol = .h2,
+        .origin = false,
+        .fallback_delay_ns = constants.origin_fallback_delay_ns,
     };
     for (0..constants.client_arguments_max) |_| {
         const option = arguments.next() orelse break;
-        // `--h11` alone takes no value.
-        if (std.mem.eql(u8, option, "--h11")) {
-            run.protocol = .h11;
-            continue;
-        }
+        if (read_flag(&run, option)) continue;
         const value = arguments.next() orelse return null;
         read_option(&run, option, value, arguments) orelse return null;
     }
+    return if (run_ok(&run)) run else null;
+}
+
+/// Whether the command line names something to do, and says all it needs.
+fn run_ok(run: *const Run) bool {
     const connections_ok = run.connections_count > 0 and run.connections_count <= constants.client_connections_max;
     // A webpki chain is valid only at an instant, so the TLS mode needs one.
     const tls_ok = run.anchor_prefix == null or run.now_seconds > 0;
-    return if (run.plans_count > 0 and connections_ok and tls_ok) run else null;
+    const origin_ok = !run.origin or (run.anchor_prefix != null and run.connections_count == 1);
+    return run.plans_count > 0 and connections_ok and tls_ok and origin_ok;
+}
+
+/// Applies an option that takes no value, or returns false when `option` is not one.
+fn read_flag(run: *Run, option: []const u8) bool {
+    if (std.mem.eql(u8, option, "--h11")) {
+        run.protocol = .h11;
+        return true;
+    }
+    if (std.mem.eql(u8, option, "--origin")) {
+        run.origin = true;
+        return true;
+    }
+    return false;
 }
 
 /// Applies one option and its value, or returns null when the client does not know the option.
-fn read_option(run: *Run, option: []const u8, value: []const u8, arguments: *std.process.Args.Iterator) ?void {
+fn read_option(run: *Run, option: []const u8, value: []const u8, arguments: anytype) ?void {
     const eql = std.mem.eql;
     if (eql(u8, option, "--get")) return add_plan(run, .{ .method = "GET", .path = value, .content_len = 0 });
     if (eql(u8, option, "--post")) {
@@ -99,6 +124,8 @@ fn read_setting(run: *Run, option: []const u8, value: []const u8) ?void {
         run.anchor_prefix = value;
     } else if (eql(u8, option, "--seconds")) {
         run.now_seconds = read_number(value) orelse return null;
+    } else if (eql(u8, option, "--fallback-ms")) {
+        run.fallback_delay_ns = @as(u64, read_number(value) orelse return null) * constants.nanoseconds_per_millisecond;
     } else return null;
 }
 
@@ -118,4 +145,40 @@ fn add_plan(run: *Run, plan: Plan) ?void {
     if (run.plans_count == constants.exchanges_max or plan.path.len == 0) return null;
     run.plans[run.plans_count] = plan;
     run.plans_count += 1;
+}
+
+const testing = std.testing;
+
+/// A command line as a list of words, which `read_run` reads as it reads the process's. Test-only.
+const TestArguments = struct {
+    words: []const []const u8,
+    index: usize = 0,
+
+    fn next(arguments: *TestArguments) ?[]const u8 {
+        if (arguments.index == arguments.words.len) return null;
+        defer arguments.index += 1;
+        return arguments.words[arguments.index];
+    }
+};
+
+fn test_read(words: []const []const u8) ?Run {
+    var arguments: TestArguments = .{ .words = words };
+    return read_run(&arguments);
+}
+
+/// The options every origin run of the tests names. Test-only.
+const test_tls = [_][]const u8{ "--tls", "prefix", "--seconds", "1", "--get", "/" };
+
+test "--origin needs --tls and runs one origin" {
+    try testing.expect(test_read(&[_][]const u8{ "--origin", "--get", "/" }) == null);
+    try testing.expect(test_read(&([_][]const u8{ "--origin", "--connections", "2" } ++ test_tls)) == null);
+    const run = test_read(&([_][]const u8{"--origin"} ++ test_tls)).?;
+    try testing.expect(run.origin and run.connections_count == 1);
+    try testing.expectEqual(constants.origin_fallback_delay_ns, run.fallback_delay_ns);
+}
+
+test "--fallback-ms sets how long QUIC's handshake runs before TCP opens" {
+    const run = test_read(&([_][]const u8{ "--origin", "--fallback-ms", "40" } ++ test_tls)).?;
+    try testing.expectEqual(40 * constants.nanoseconds_per_millisecond, run.fallback_delay_ns);
+    try testing.expect(test_read(&([_][]const u8{ "--origin", "--fallback-ms", "soon" } ++ test_tls)) == null);
 }

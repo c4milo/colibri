@@ -9,3 +9,6 @@ pub const Protocol = enum { h2, h11 };
 /// order, or h11 alone when the command line asks for it (RFC 7301 §3.1).
 pub const alpn_both = [_][]const u8{ &tls_provider.constants.alpn_h2, tls_provider.constants.alpn_http_1_1 };
 pub const alpn_h11 = [_][]const u8{tls_provider.constants.alpn_http_1_1};
+
+/// What the client's origin mode offers over QUIC: "h3" alone (RFC 9114 §3.1).
+pub const alpn_h3 = [_][]const u8{&tls_provider.constants.alpn_h3};
