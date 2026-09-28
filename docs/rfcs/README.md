@@ -32,6 +32,8 @@ rule or none at all.
 | [7541](rfc7541.txt) | HPACK: Header Compression for HTTP/2 | `hpack`, and the Huffman code and prefixed integer in `wire` (decision 11) |
 | [9114](rfc9114.txt) | HTTP/3 | `h3` |
 | [9204](rfc9204.txt) | QPACK: Field Compression for HTTP/3 | `qpack` |
+| [7838](rfc7838.txt) | HTTP Alternative Services | The client learns h3 from a TCP response's Alt-Svc (decision 100), copied on 2026-09-28 |
+| [9460](rfc9460.txt) | Service Binding and Parameter Specification via the DNS (SVCB and HTTPS Resource Records) | The HTTPS record's `alpn` and `port`, which the client takes as values (decision 100), copied on 2026-09-28 |
 
 ## QUIC
 
