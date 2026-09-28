@@ -3486,7 +3486,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `server_discard_on_send`, a server that drops its Initial keys on its first Handshake packet
       and cannot send its ServerHello again.
 
-  **The runner in CI, 2026-09-28.** The workflow's `quic-interop-runner` job runs
+  **The runner in CI, 2026-09-27.** The workflow's `quic-interop-runner` job runs
   `tools/interop.sh` against quic-go, ngtcp2, neqo and quinn on Ubuntu 26.04, by hand and every
   Monday (decision 47 as amended). Its first runs found three faults, each fixed:
   - `b3088c5`: Zig 0.16.0 writes a zip package to `tmp/` in its global cache without creating
@@ -4910,7 +4910,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     **Check:** the simulator's h3 checks give the same census with a log as without one, and each
     record parses.
 
-  **18a, 2026-09-28.** `src/qlog/` is the `qlog` module, exported by name, which imports `core`.
+  **18a, 2026-09-27.** `src/qlog/` is the `qlog` module, exported by name, which imports `core`.
   - `Json` writes a JSON text through `core.Writer`: objects and arrays with a comma between
     members, strings of colibri's ASCII with RFC 8259 §7's escapes, hexstrings, unsigned integers,
     booleans, and milliseconds with a three-digit fraction from nanoseconds.
