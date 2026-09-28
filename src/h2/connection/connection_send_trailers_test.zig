@@ -1,7 +1,7 @@
 //! The tests of the field sections the send path orders (`connection_send.zig`): the trailer
-//! section that ends colibri's side of a stream, a response after the final one, the field lines
-//! every section is held to (RFC 9113 §8.1, §8.2), and `Event.ended_stream`. Split out of
-//! `connection_send.zig` for length.
+//! section that ends colibri's side of a stream, a response after the final one, DATA before it,
+//! the field lines every section is held to (RFC 9113 §8.1, §8.2), and `Event.ended_stream`. Split
+//! out of `connection_send.zig` for length.
 const std = @import("std");
 const hpack = @import("hpack");
 const constants = @import("../constants.zig");
@@ -59,6 +59,17 @@ test "RFC 9113 §8.1: a trailer section before the final response, or a response
     _ = try test_connection.write_response(test_output, 1, ok, &.{}, false);
     try testing.expectError(error.SectionOutOfOrder, test_connection.write_response(test_output, 1, no_content, &.{}, false));
     _ = try test_connection.write_trailers(test_output, 1, &trailers);
+    try testing.expectEqual(stream.State.closed, test_connection.streams.lookup(1).live.state);
+}
+
+test "RFC 9113 §8.1: DATA before the final response, or after an interim one alone, is refused" {
+    try server_with_request();
+    try testing.expectError(error.SectionOutOfOrder, test_connection.write_data(test_output, 1, body, false));
+    _ = try test_connection.write_response(test_output, 1, early_hints, &.{}, false);
+    try testing.expectError(error.SectionOutOfOrder, test_connection.write_data(test_output, 1, body, true));
+    _ = try test_connection.write_response(test_output, 1, ok, &.{}, false);
+    const sent = try test_connection.write_data(test_output, 1, body, true);
+    try testing.expectEqual(body.len, sent.consumed);
     try testing.expectEqual(stream.State.closed, test_connection.streams.lookup(1).live.state);
 }
 

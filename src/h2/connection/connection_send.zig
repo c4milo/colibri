@@ -121,6 +121,9 @@ pub fn write_data(
     end_stream: bool,
 ) Error!DataWritten {
     const record = try sendable(target, stream_id, .data, end_stream);
+    // RFC 9113 §8.1: a message's DATA frames follow its final header section, so a server sends
+    // none before its final response.
+    if (!record.final_sent) return error.SectionOutOfOrder;
     const room = sendable_len(target, record, output, payload.len);
     // A frame that carries nothing and ends nothing is one RFC 9113 §6.1 has no use for.
     if (room == 0 and !(payload.len == 0 and end_stream)) return .{ .consumed = 0, .written = 0 };
