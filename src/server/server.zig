@@ -15,9 +15,9 @@ const std = @import("std");
 
 pub const constants = @import("constants.zig");
 pub const event = @import("event.zig");
-pub const connection = @import("connection.zig");
-pub const quic_connection = @import("quic_connection.zig");
-pub const endpoint = @import("endpoint.zig");
+pub const connection = @import("connection/connection.zig");
+pub const quic_connection = @import("quic/quic_connection.zig");
+pub const endpoint = @import("endpoint/endpoint.zig");
 
 pub const Config = connection.Config;
 pub const Connection = connection.Connection;
@@ -47,12 +47,12 @@ test {
     _ = @import("reason.zig");
     _ = @import("expect.zig");
     _ = @import("done.zig");
-    _ = @import("quic_response.zig");
-    _ = @import("quic_request.zig");
-    _ = @import("quic_connection_test.zig");
-    _ = @import("quic_connection_flow_test.zig");
-    _ = @import("endpoint_stateless.zig");
-    _ = @import("endpoint_test.zig");
+    _ = @import("quic/quic_response.zig");
+    _ = @import("quic/quic_request.zig");
+    _ = @import("quic/quic_connection_test.zig");
+    _ = @import("quic/quic_connection_flow_test.zig");
+    _ = @import("endpoint/endpoint_stateless.zig");
+    _ = @import("endpoint/endpoint_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

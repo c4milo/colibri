@@ -16,9 +16,9 @@ const quic = @import("quic");
 
 pub const constants = @import("constants.zig");
 pub const event = @import("event.zig");
-pub const connection = @import("connection.zig");
-pub const quic_connection = @import("quic_connection.zig");
-pub const channel = @import("channel.zig");
+pub const connection = @import("connection/connection.zig");
+pub const quic_connection = @import("quic/quic_connection.zig");
+pub const channel = @import("channel/channel.zig");
 pub const alt_svc = @import("alt_svc.zig");
 
 pub const Config = connection.Config;
@@ -52,12 +52,12 @@ test {
     _ = @import("slots.zig");
     _ = @import("response.zig");
     _ = @import("owed.zig");
-    _ = @import("channel_choice.zig");
-    _ = @import("channel_test.zig");
-    _ = @import("channel_quic_test.zig");
-    _ = @import("channel_quic_flow_test.zig");
-    _ = @import("quic_connection_test.zig");
-    _ = @import("quic_connection_flow_test.zig");
+    _ = @import("channel/channel_choice.zig");
+    _ = @import("channel/channel_test.zig");
+    _ = @import("channel/channel_quic_test.zig");
+    _ = @import("channel/channel_quic_flow_test.zig");
+    _ = @import("quic/quic_connection_test.zig");
+    _ = @import("quic/quic_connection_flow_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }
