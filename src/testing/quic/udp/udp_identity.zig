@@ -129,6 +129,17 @@ pub fn server_ids(destination: []const u8, source: []const u8) udp_peer.Identity
     return .{ .local_source = &local_id, .original_destination = destination, .peer_source = source };
 }
 
+/// The configuration every server session borrows, which the `h3` mode hands `server` (design §8
+/// step 17b).
+pub fn server_tls() *const tls.quic.ServerConfig {
+    return &server_config;
+}
+
+/// The Retry token key and lifetime, which the `h3` mode's endpoint answers Retry with.
+pub fn retry_config() *const tls.quic.Retry {
+    return &retry;
+}
+
 /// A client session's start: the run's configuration, the clock the command line gave, and the
 /// ticket to present, if any.
 pub fn client_start(asked: udp_arguments.Client, resumption: ?tls.Resumption) quic_session.Start {
@@ -166,7 +177,8 @@ fn configure_server(asked: udp_arguments.Server) !void {
         .ecdsa_p256 = .{ .chain = try read_chain(prefix), .public_key = &public_storage, .private_key = &private_storage },
         .cookie_key = &cookie_storage,
         .ticket_key = &ticket_key_storage,
-        .alpn = &server_alpn,
+        // The `h3` mode serves h3 alone, which is all `server` speaks over QUIC.
+        .alpn = if (asked.h3) &client_alpn_h3 else &server_alpn,
     });
     try server_config.check(entropy.random());
 }

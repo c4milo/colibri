@@ -77,6 +77,8 @@ qlog_directories=0
 qlog_failures=0
 for directory in "$scratch"/logs-*/colibri_*/*/server/qlog "$scratch"/logs-*/*_colibri/*/client/qlog; do
   [ -d "$directory" ] || continue
+  # The server's `h3` mode, which serves `http3`, writes no qlog (design §8 step 17b).
+  case "$directory" in */http3/server/qlog) continue ;; esac
   qlog_directories=$((qlog_directories + 1))
   python3 "$repository_root/tools/qlog_check.py" "$directory" >/dev/null || {
     echo "interop: $directory failed tools/qlog_check.py" >&2

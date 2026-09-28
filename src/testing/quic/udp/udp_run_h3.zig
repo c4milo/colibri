@@ -1,0 +1,141 @@
+//! The UDP server's `h3` mode (design §8 step 17b): every connection runs on colibri's `server`
+//! module, which a `server.Endpoint` holds, and `udp_h3_files.zig` answers each request.
+//!
+//! Each turn waits in Rotor's `tick` until a datagram arrives or a connection's next deadline
+//! passes, then reads the instant that tick read (decision 63). It hands each datagram to the
+//! endpoint, which routes it (RFC 9000 §5.2) or starts a connection from it, fires every deadline,
+//! answers what each connection reports, and sends what the endpoint owes. A sent datagram's
+//! octets belong to Rotor until its send's event (Rotor's rule 3), so each is built in a slot of
+//! its own, and a datagram Rotor has no room for is one lost on the way, which RFC 9002 recovers.
+//!
+//! It writes no qlog: `server` takes no log yet.
+const std = @import("std");
+const quic = @import("quic");
+const server = @import("server");
+const constants = @import("../../constants.zig");
+const udp = @import("../../udp.zig");
+const entropy = @import("../../entropy.zig");
+const check_file = @import("../../tls/check_file.zig");
+const udp_peer = @import("udp_peer.zig");
+const udp_arguments = @import("udp_arguments.zig");
+const udp_identity = @import("udp_identity.zig");
+const udp_h3_files = @import("udp_h3_files.zig");
+
+const Endpoint = server.EndpointOf(constants.quic_connections_max, constants.h3_receive_pool_len);
+
+var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
+var quic_config: server.QuicConfig align(@alignOf(server.QuicConfig)) = undefined;
+var endpoint_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;
+/// The files each connection serves, at the connection's index in the endpoint.
+var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;
+var events: [constants.udp_operations_max]udp.Event align(@alignOf(udp.Event)) = undefined;
+var slots: [constants.udp_send_slots][constants.quic_datagram_len_max]u8 = undefined;
+var slot_busy: [constants.udp_send_slots]bool = @splat(false);
+/// Where each slot's datagram goes, which its send reads until its event (Rotor's rule 3).
+var slot_outbound: [constants.udp_send_slots]udp.Outbound align(@alignOf(udp.Outbound)) = undefined;
+/// Connections that failed, which fail the run unless the server was asked to expect them
+/// (`errors`), and files the ended connections served.
+var connection_errors: u64 = 0;
+var served: u64 = 0;
+
+/// Serves until the run is over: with `once`, the first connection's end; without it, the ticks
+/// running out.
+pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64) void {
+    quic_config = .{ .tls = udp_identity.server_tls(), .ecn = asked.ecn, .idle_timeout_ms = constants.quic_idle_timeout_ms };
+    endpoint_config = .{ .quic = &quic_config, .retry = if (asked.retry) udp_identity.retry_config() else null };
+    endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns);
+    for (&files) |*held| held.init(asked.www);
+    for (0..constants.quic_run_ticks_max) |_| {
+        const ready = socket.tick(&events, wait_ns(socket)) catch |failure| fail("the tick failed: {t}", .{failure});
+        const now_ns = socket.now_ns();
+        for (ready) |event| on_event(socket, event, now_ns);
+        endpoint.on_instant(now_ns);
+        answer_all(asked, now_ns);
+        flush(socket, now_ns);
+        if (reap() and asked.once) break;
+    }
+    socket.close() catch |failure| fail("the socket did not close: {t}", .{failure});
+    std.debug.print("quic-udp: served {d} files, {d} connection errors\n", .{ served, connection_errors });
+}
+
+/// How long the next tick may wait: until the endpoint's next deadline, and never longer than
+/// `quic_tick_wait_ns_max`.
+fn wait_ns(socket: *const udp.Endpoint) u64 {
+    const deadline_ns = endpoint.deadline_ns() orelse return constants.quic_tick_wait_ns_max;
+    return @min(constants.quic_tick_wait_ns_max, deadline_ns -| socket.now_ns());
+}
+
+fn on_event(socket: *udp.Endpoint, event: udp.Event, now_ns: u64) void {
+    if (event.user_data != udp.receive_user_data) {
+        // A send's event gives its slot back.
+        slot_busy[@intCast(event.user_data)] = false;
+        return;
+    }
+    if (event.flags.buffer) {
+        const delivery = socket.delivery(event);
+        const ecn = udp_peer.received_ecn(&delivery.from);
+        _ = endpoint.receive(delivery.bytes, ecn, udp_peer.peer_address(delivery.from.peer), now_ns);
+    }
+    socket.finish_receive(event);
+}
+
+/// Answers what every live connection reports. A connection that failed ends the run unless the
+/// server was asked to expect it: a suite such as h3spec breaks a rule on purpose on every
+/// connection it opens.
+fn answer_all(asked: udp_arguments.Server, now_ns: u64) void {
+    for (&endpoint.connections, endpoint.live, 0..) |*connection, live, index| {
+        if (!live) continue;
+        if (files[index].serve(connection, now_ns)) continue;
+        connection_errors += 1;
+        if (!asked.errors) fail("a connection ended on a connection error", .{});
+    }
+}
+
+/// Sends every datagram the endpoint owes now, each from a free slot.
+fn flush(socket: *udp.Endpoint, now_ns: u64) void {
+    for (&slots, 0..) |*slot, index| {
+        if (slot_busy[index]) continue;
+        const sent = endpoint.send(slot, now_ns) orelse return;
+        slot_outbound[index] = outbound(sent);
+        if (socket.send(index, sent.octets, &slot_outbound[index])) slot_busy[index] = true;
+    }
+}
+
+/// Where a datagram goes, asking Rotor to set the codepoint colibri named (decision 68).
+fn outbound(sent: server.quic_connection.Sent) udp.Outbound {
+    const ecn = udp_peer.sent_ecn(sent.ecn);
+    return .{
+        .peer = udp_peer.udp_address(sent.to),
+        .local = undefined,
+        .segment_bytes = 0,
+        .ecn = ecn,
+        .flags = .{ .peer = true, .ecn = ecn != .not_ect },
+    };
+}
+
+/// Frees each connection that is over and the files it mapped. Returns whether one ended.
+fn reap() bool {
+    var any = false;
+    // Bounded: each pass frees a connection, and there are `quic_connections_max`.
+    for (0..constants.quic_connections_max) |_| {
+        const index = slot_of(endpoint.ended() orelse return any);
+        served += files[index].served;
+        files[index].release_all();
+        files[index].init(files[index].www);
+        any = true;
+    }
+    return any;
+}
+
+/// The slot `connection` holds in the endpoint, which indexes its files too.
+fn slot_of(connection: *const server.QuicConnection) usize {
+    for (&endpoint.connections, 0..) |*held, index| {
+        if (held == connection) return index;
+    }
+    unreachable;
+}
+
+fn fail(comptime format: []const u8, values: anytype) noreturn {
+    std.debug.print("quic-udp: " ++ format ++ "\n", values);
+    std.process.exit(check_file.exit_failed);
+}

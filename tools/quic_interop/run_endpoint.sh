@@ -14,8 +14,8 @@ set -euo pipefail
 # and IPv6 cases. Both roles mark ECT(0) and report ECN counts in every case (decision 68), so
 # `ecn` is a transfer. A server issues a session ticket on every connection, and a client asked
 # for `resumption` presents the first connection's ticket on a second. `http3` fetches over h3,
-# which the server serves to any client that asks for it by ALPN (design §8 step 12). The rest are
-# not built.
+# which the server serves in its `h3` mode, through the `server` module (design §8 step 17b). The
+# rest are not built.
 case "$TESTCASE" in
   handshake | transfer | chacha20 | multiconnect | retry | ecn | resumption | http3) ;;
   keyupdate) [ "$ROLE" = client ] || exit 127 ;;
@@ -32,7 +32,12 @@ if [ "$ROLE" = server ]; then
   # The Unix time the server starts at, which its session tickets carry (RFC 9846 §4.7.1).
   server_options=("seconds=$(date +%s)")
   [ "$TESTCASE" = retry ] && server_options+=(retry)
-  [ -n "${QLOGDIR:-}" ] && server_options+=("qlogdir=$QLOGDIR")
+  # The `h3` mode writes no qlog, so it takes no directory, and tools/interop.sh checks none.
+  if [ "$TESTCASE" = http3 ]; then
+    server_options+=(h3)
+  elif [ -n "${QLOGDIR:-}" ]; then
+    server_options+=("qlogdir=$QLOGDIR")
+  fi
   # Bound to the IPv6 wildcard, the one socket takes IPv4 clients too (as IPv4-mapped addresses),
   # because the runner gives the server no hint of which family its IPv6 case uses.
   exec quic-udp server :: 443 /tmp/identity /www "${server_options[@]}"

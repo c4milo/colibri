@@ -339,6 +339,13 @@ pub const quic_run_ticks_max: u64 = 1 << 32;
 /// The idle timeout each UDP QUIC endpoint advertises (RFC 9000 §10.1), in milliseconds.
 pub const quic_idle_timeout_ms: u64 = 30_000;
 
+/// Octets each connection of the UDP server's `h3` mode holds of a request's content before h3
+/// reads them (decision 61). h3spec, aioquic and the QUIC Interop Runner send small requests.
+pub const h3_receive_pool_len: usize = 65_536;
+
+/// Events the `h3` mode reads from one connection in one turn at most, which bounds its loop.
+pub const h3_serve_events_max: usize = 4096;
+
 comptime {
     assert(hq_paths_max >= hq_requests_max);
     assert(udp_send_slots > 0 and channel_udp_send_slots > 0);
@@ -346,6 +353,7 @@ comptime {
     assert(hq_request_len_max > "GET /\r\n".len);
     assert(quic_datagram_len_max <= udp_buffer_bytes);
     assert(quic_rounds_max > 0 and quic_round_ns > 0);
+    assert(h3_receive_pool_len > 0 and h3_serve_events_max > 0);
 }
 
 comptime {

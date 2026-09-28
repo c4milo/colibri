@@ -1,7 +1,7 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
+//!         [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [qlogdir=<directory>] <path>...
 //!
@@ -14,6 +14,9 @@
 //!   fails: a suite such as h3spec breaks a rule on purpose on every connection it opens.
 //! - `no-ecn` turns decision 68's two flags off: the server reads no ECN codepoint, so its ACK
 //!   frames carry no counts (RFC 9000 §13.4.1), and marks none.
+//! - `h3` serves h3 alone, through colibri's `server` module and its `Endpoint` (design §8 step
+//!   17b), where without it the server serves h3 or hq-interop by ALPN on its own connections. It
+//!   holds `quic_connections_max` connections, and writes no qlog.
 //! - `connections=<n>` holds at most n connections at once, from 1 to `quic_connections_max`,
 //!   which is also the count without it.
 //! - `seconds=<unix-seconds>` gives the server the Unix time it started at, which its session
@@ -54,6 +57,8 @@ pub const Server = struct {
     errors: bool = false,
     /// Whether the server reads and marks ECN codepoints (decision 68).
     ecn: bool = true,
+    /// Whether the server serves h3 alone, through `server` (design §8 step 17b).
+    h3: bool = false,
     /// The connections the server holds at once.
     connections: usize = constants.quic_connections_max,
     /// The Unix seconds the server started at, or 0 for none.
@@ -131,6 +136,8 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
             server.errors = true;
         } else if (std.mem.eql(u8, word, "no-ecn")) {
             server.ecn = false;
+        } else if (std.mem.eql(u8, word, h3_word)) {
+            server.h3 = true;
         } else if (parse_seconds(word)) |seconds| {
             server.now_seconds = seconds;
         } else if (parse_qlogdir(word)) |directory| {
@@ -154,9 +161,9 @@ const client_options_count: usize = 5;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `connections=<n>`, `seconds=<unix-seconds>` and
+/// `once`, `retry`, `errors`, `no-ecn`, `h3`, `connections=<n>`, `seconds=<unix-seconds>` and
 /// `qlogdir=<directory>`.
-const server_options_count: usize = 7;
+const server_options_count: usize = 8;
 
 const connections_prefix = "connections=";
 const seconds_prefix = "seconds=";

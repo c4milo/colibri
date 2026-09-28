@@ -101,7 +101,7 @@ core, http, h11, h2, h3, quic, tls <- client, server
 | `testing_tls`, `testing_tls_server` | the two one-connection TLS checks of §8 step 5, a root each for its `main` | `core`, `h2` for the shared constants, `tls_provider` and `tls` | — |
 | `testing_qif` | the two QPACK command-line tools of §9, `.qif` to encoded and back | `core`, `qpack` | — |
 | `testing_quic` | the QUIC loopback check of §8 step 9e: a colibri client and server over `tls.quic` in one process | `h2` for the shared constants, `quic`, `tls_keylog` as `tls`, and its QUIC object's module for `ch_keylog` | — |
-| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)) | `h2` for the shared constants, `h3` from step 12, `quic`, `rotor`, and `tls_keylog` as `tls` with its QUIC object's module | — |
+| `testing_udp` | §9's UDP QUIC endpoint, the hq-interop and h3 servers and clients, on Rotor's loop ([decision 58](decisions.md#the-h2-connection)) | `h2` for the shared constants, `h3` from step 12, `quic`, `rotor`, `tls_keylog` as `tls` with its QUIC object's module, and from step 17b `server`, an instance over `tls_keylog` that nothing packaged sees, which its h3 server runs on (the owner's ruling of 2026-09-28) | — |
 
 The architecture depends on four of these edges and forbids one.
 
@@ -5026,6 +5026,50 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `HttpExchange` names the struct's two halves, the request and where its response goes: RFC
       9113 §8.1 calls the pair an "HTTP request/response exchange".
 
+  **17b, the server over QUIC, 2026-09-28.**
+  - The server reports a request `done` once its response's memory is the caller's again
+    (decision 103, `0fb5878`). h11 and h2 copy the octets, so a request is done after the call
+    that writes its last one, and `receive` reports it before it reads more.
+  - `QuicConnection` (`c533709`) serves h3 over one QUIC connection with the TCP connection's calls
+    and events, in the shape the owner chose on 2026-09-28. `write_body` sends the caller's octets
+    from where they are and keeps only each DATA frame's header. A request is `done` once the peer
+    acknowledged every octet of its response (RFC 9000 §3.1), and `cancelled` once either side
+    reset its stream. A request no record can hold is refused with H3_REQUEST_REJECTED.
+  - `Endpoint` (`ba34897`) holds up to a build-time number of connections behind the caller's UDP
+    socket. It routes each datagram by its first packet's Destination Connection ID (RFC 9000
+    §5.2), starts a connection from a client's first Initial of at least 1,200 octets, and answers
+    Version Negotiation and Retry itself. `send` writes what the endpoint owes, and `ended` hands
+    back each connection that is over. A connection issues spare connection IDs once its handshake
+    is confirmed, and validates a client's new path.
+  - A `QuicConnection` is 716,128 octets. An `Endpoint` of the default 16 connections, each with a
+    receive pool of 1 MiB, is 35,553,376.
+  - §9's UDP endpoint takes `h3`, which serves h3 alone through `server.Endpoint`, over an instance
+    of `server` built on `tls_keylog` (§3). It answers a GET of a file in its directory with the
+    file mapped in place until the request is done, `/` with a short body, and any other path with
+    404. It writes no qlog, because `server` takes no log yet.
+  - Its first run found a defect: the server reported a client's close as a failure (`87fff2f`).
+  - Mutations, each CAUGHT by a unit test: 12 in `done`, 24 in the QUIC connection, 13 in the
+    endpoint and 2 in the close.
+
+  **17b check,** run on macOS 26.6.2 arm64 on 2026-09-28, the peers in Docker where the scripts
+  put them:
+  - `tools/h3spec.sh`: h3spec 0.1.13 passed 49 of 49 against the `h3` mode.
+  - `tools/interop.sh quic-go,ngtcp2,neqo,quinn http3`: the `h3` mode passed `http3` against the
+    clients of colibri, quic-go, ngtcp2, neqo and quinn, and colibri's client passed it against
+    the four servers.
+  - `tools/quic_aioquic.sh`: aioquic 1.3.0's h3 client fetched files of 1,000, 100,000 and
+    3,000,000 octets from the `h3` mode, each octet for octet. Two handshakes that offered another
+    ALPN each ended with the server's CONNECTION_CLOSE carrying 0x178.
+  - `tools/quic_udp.sh`: colibri's h3 client fetched the same three files from the `h3` mode, and
+    a missing one was answered 404. The mode refused a client that offered hq-interop alone, and
+    the refused connection ended its run with a failure.
+  - `tools/h3load.sh`: h2load from nghttp2 1.70.0 sent 1,000 GETs over 10 connections to the `h3`
+    mode, and each ended with a 2xx.
+  - Mutations of the `h3` mode, each CAUGHT by `tools/quic_udp.sh`: a missing path answered 200, a
+    file left uncounted, a run with `once` that never ends, content one octet short, and a failed
+    connection that does not end the run.
+  - `zig build test` passed: 2226 of 2226 tests.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
@@ -5206,7 +5250,9 @@ only place in the tree permitted to touch a socket
    its plan to one `client.Channel` instead, which tries h3 over QUIC first and falls back to TCP
    (step 17d), and `tools/channel_interop.sh` runs it.
 2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
-   `h2load --h3`. Lands with step 12.
+   `h2load --h3`. Lands with step 12. From step 17b it runs on `server`: the UDP endpoint's `h3`
+   mode serves h3 alone through `server.Endpoint`, and h3spec, `h2load --h3` and the interop
+   endpoint's `http3` server run it. It writes no qlog, because `server` takes no log yet.
 3. **An interop endpoint**, both roles: a server on port 443 serving `/www` with `/certs`, and a
    client that parses `REQUESTS` and writes to `/downloads`, reading `ROLE` and `TESTCASE`,
    emitting a keylog and qlog, and **exiting 127 for any case it does not support**. It must speak

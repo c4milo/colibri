@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# The h3spec check of docs/design.md §8 step 12: the pinned suite against design §9's h3 server,
-# every case accounted for. h3spec is fetched once, checked against the SHA-256 pinned below, and
-# cached; the release publishes no checksums, so the pins were taken from the files themselves.
+# The h3spec check of docs/design.md §8 steps 12 and 17b: the pinned suite against design §9's UDP
+# server in its `h3` mode, which serves h3 through colibri's `server` module, every case accounted
+# for. h3spec is fetched once, checked against the SHA-256 pinned below, and cached; the release
+# publishes no checksums, so the pins were taken from the files themselves.
 #
 # It needs a Go toolchain for the identity. chapulin comes from the package build.zig.zon pins
 # (design §8 step 16a). The server runs with `errors`, because h3spec breaks a rule on purpose
@@ -65,7 +66,7 @@ echo "h3spec.sh: building the endpoint"
 zig build
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 mkdir -p "$scratch/www"
-./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" errors no-ecn \
+./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 errors no-ecn \
   >"$scratch/server.log" 2>&1 &
 server_pid=$!
 for _ in $(seq 1 100); do

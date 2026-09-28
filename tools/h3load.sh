@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# h2load --h3 against design §9's h3 server (design §8 step 12): every request must succeed with a
-# 2xx over ALPN h3. It checks, and measures nothing: decision 32 publishes numbers from Linux
-# alone, through bench/.
+# h2load --h3 against design §9's UDP server in its `h3` mode, which serves h3 through the `server`
+# module (design §8 steps 12 and 17b): every request must succeed with a 2xx over ALPN h3. It
+# checks, and measures nothing: decision 32 publishes numbers from Linux alone, through bench/.
 #
 # h2load comes from tools/h3load/Dockerfile, which builds it with HTTP/3 from pinned release tags,
 # because Debian's h2load has none. It needs Docker and a Go toolchain for the identity. chapulin
@@ -51,7 +51,7 @@ else
   docker_network=(--network host)
 fi
 
-./zig-out/bin/quic-udp server "$bind" "$port" "$scratch/identity" "$scratch/www" >"$scratch/server.log" 2>&1 &
+./zig-out/bin/quic-udp server "$bind" "$port" "$scratch/identity" "$scratch/www" h3 >"$scratch/server.log" 2>&1 &
 server_pid=$!
 for _ in $(seq 1 100); do
   grep -q listening "$scratch/server.log" 2>/dev/null && break

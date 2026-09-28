@@ -27,6 +27,7 @@ const h3_server = @import("../h3/h3_server.zig");
 const h2 = @import("h2");
 const h3 = @import("h3");
 const udp_run_client = @import("udp_run_client.zig");
+const udp_run_h3 = @import("udp_run_h3.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
 const StreamProvider = quic.stream.stream_provider.StreamProvider;
@@ -97,6 +98,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         .server => std.debug.print("quic-udp: listening on port {d}\n", .{(try socket.local_address()).port}),
         .client => |asked| udp_run_client.connect(&connections[0], asked, started_ns),
     }
+    // Design §8 step 17b: the `h3` mode serves every connection through `server`.
+    if (arguments == .server and arguments.server.h3) return udp_run_h3.serve(arguments.server, &socket, started_ns);
     run();
     close_logs();
     if (connection_failed) fail("a connection ended on a connection error", .{});

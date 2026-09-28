@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
 # colibri's UDP QUIC endpoint against aioquic's, in both directions, over UDP on 127.0.0.1: over
-# hq-interop, design §8 step 9e, and over h3, step 12. It is the first check in which colibri's
-# QUIC connection, and chapulin's QUIC mode beneath it, meet another implementation: a shared
-# misreading of an RFC passes the loopback and tools/quic_udp.sh, and fails here. Over h3 both
-# ends advertise a QPACK dynamic table, so colibri's QPACK meets ls-qpack's too.
+# hq-interop, design §8 step 9e, and over h3, step 12. Over h3 colibri's server runs in its `h3`
+# mode, which serves h3 through the `server` module (step 17b). It is the first check in which
+# colibri's QUIC connection, and chapulin's QUIC mode beneath it, meet another implementation: a
+# shared misreading of an RFC passes the loopback and tools/quic_udp.sh, and fails here. Over h3
+# both ends advertise a QPACK dynamic table, so colibri's QPACK meets ls-qpack's too.
 #
 # It needs python3 and a Go toolchain for the identity. chapulin comes from the package
 # build.zig.zon pins (design §8 step 16a). aioquic is pinned and installed once into a cached
@@ -87,10 +88,12 @@ against_aioquic_server() {
   compare "$into" "$direction"
 }
 
-# aioquic's `client` program against colibri's server, which exits once its connection ends.
+# aioquic's `client` program against colibri's server, which exits once its connection ends. The
+# arguments after the first two are the server's options.
 against_colibri_server() {
   local into="$1" direction="$2"
-  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" once \
+  shift 2
+  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" once "$@" \
     >"$scratch/colibri.log" 2>&1 &
   server_pid=$!
   await_listening "$scratch/colibri.log"
@@ -119,9 +122,10 @@ against_colibri_server() {
 }
 
 # RFC 9001 §4.8: a handshake colibri's server refuses still ends with its CONNECTION_CLOSE, and the
-# server serves the next connection (https://github.com/c4milo/colibri/issues/59).
+# server serves the next connection (https://github.com/c4milo/colibri/issues/59). The arguments
+# are the server's options.
 refused_handshake() {
-  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" connections=2 \
+  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" "$@" \
     >"$scratch/refused.log" 2>&1 &
   server_pid=$!
   await_listening "$scratch/refused.log"
@@ -138,11 +142,13 @@ refused_handshake() {
   server_pid=""
 }
 
-refused_handshake
+refused_handshake connections=2
+# The `h3` mode counts each refused handshake as a connection error, which `errors` expects.
+refused_handshake h3 errors
 active_peer=("${peer[@]}")
 against_aioquic_server "$scratch/from_aioquic" "colibri client, aioquic server"
 against_colibri_server "$scratch/from_colibri" "aioquic client, colibri server"
 active_peer=("${h3_peer[@]}")
 against_aioquic_server "$scratch/h3_from_aioquic" "h3, colibri client, aioquic server" h3
-against_colibri_server "$scratch/h3_from_colibri" "h3, aioquic client, colibri server"
+against_colibri_server "$scratch/h3_from_colibri" "h3, aioquic client, colibri server" h3
 echo "quic_aioquic: ok, aioquic ${aioquic_version}"

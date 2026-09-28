@@ -1,7 +1,8 @@
 //! The files hq-interop moves (design §8 step 9e, piece 11): a server reads them from the
 //! directory it serves and a client writes them into its downloads directory. It is all the file
 //! I/O of the UDP endpoints, through libc, and it allocates nothing: `udp_qlog.zig` writes each
-//! connection's qlog through it too.
+//! connection's qlog through it too, and the server's `h3` mode maps each file it answers with
+//! (design §8 step 17b).
 //!
 //! A path arrives already checked by `hq.read_request` or `hq.write_request`, so joining it to a
 //! directory names a file inside it.
@@ -87,4 +88,23 @@ pub fn write_all(descriptor: Descriptor, octets: []const u8) bool {
 pub fn close(descriptor: Descriptor) void {
     assert(descriptor != none);
     _ = std.c.close(descriptor);
+}
+
+/// Maps the `len` octets of the file `descriptor` names, read-only, or answers null when the
+/// system refuses. The mapping outlives the descriptor, until `unmap`, and the kernel reads each
+/// page in when it is first touched.
+pub fn map_read(descriptor: Descriptor, len: u64) ?[]const u8 {
+    assert(descriptor != none);
+    // An empty file maps nothing.
+    if (len == 0) return &.{};
+    const mapped = std.c.mmap(null, @intCast(len), .{ .READ = true }, .{ .TYPE = .PRIVATE }, descriptor, 0);
+    if (mapped == std.c.MAP_FAILED) return null;
+    const octets: [*]const u8 = @ptrCast(mapped);
+    return octets[0..@intCast(len)];
+}
+
+/// Unmaps what `map_read` mapped.
+pub fn unmap(mapping: []const u8) void {
+    if (mapping.len == 0) return;
+    _ = std.c.munmap(@ptrCast(@alignCast(mapping.ptr)), mapping.len);
 }

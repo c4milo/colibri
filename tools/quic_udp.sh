@@ -4,7 +4,9 @@
 # hq-interop and over h3, both over chapulin's QUIC mode and Rotor's loop. Part of design §8 steps
 # 9e and 12. Each file must arrive octet for octet, and a client with `resumption` must resume its
 # first connection's session on its second (RFC 9846 §2.2). The hq-interop and h3 runs write each
-# connection's qlog, and every file must pass tools/qlog_check.py (design §8 step 18c).
+# connection's qlog, and every file must pass tools/qlog_check.py (design §8 step 18c). The files
+# come over h3 from the server's `h3` mode too, which serves them through the `server` module
+# (design §8 step 17b).
 #
 # It needs a Go toolchain, for the identity, and python3. chapulin comes from the package build.zig.zon pins
 # (design §8 step 16a). It is not part of `zig build test`.
@@ -59,6 +61,26 @@ client() {
     "$scratch/downloads" "$@"
 }
 
+# Waits for a server started with `once` to exit, which the client's CONNECTION_CLOSE brings about
+# at once (RFC 9000 §10.2.2). A server still running after a few seconds never received it, and
+# would sit out its idle timeout. The argument names the server in what the check prints.
+await_close() {
+  for _ in $(seq 1 50); do
+    kill -0 "$server_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$server_pid" 2>/dev/null; then
+    echo "quic_udp: $1 never saw the client's close" >&2
+    exit 1
+  fi
+  wait "$server_pid" || {
+    echo "quic_udp: $1 failed:" >&2
+    cat "$scratch/server.log" >&2
+    exit 1
+  }
+  server_pid=""
+}
+
 start_server once "$qlogdir"
 if ! client "$qlogdir" /small /medium /large >"$scratch/client.log" 2>&1; then
   echo "quic_udp: the client failed; it and the server said:" >&2
@@ -66,22 +88,7 @@ if ! client "$qlogdir" /small /medium /large >"$scratch/client.log" 2>&1; then
   exit 1
 fi
 cat "$scratch/client.log"
-# The client's CONNECTION_CLOSE ends the server's connection at once (RFC 9000 §10.2.2). A server
-# still running after a few seconds never received it, and would sit out its idle timeout.
-for _ in $(seq 1 50); do
-  kill -0 "$server_pid" 2>/dev/null || break
-  sleep 0.1
-done
-if kill -0 "$server_pid" 2>/dev/null; then
-  echo "quic_udp: the server never saw the client's close" >&2
-  exit 1
-fi
-wait "$server_pid" || {
-  echo "quic_udp: the server failed:" >&2
-  cat "$scratch/server.log" >&2
-  exit 1
-}
-server_pid=""
+await_close "the server"
 cat "$scratch/server.log"
 # The next server writes its own log, and this one's is read with the qlog files below.
 cp "$scratch/server.log" "$scratch/server_hq.log"
@@ -126,15 +133,7 @@ for file in small medium large; do
   fi
 done
 # The client's close, with H3_NO_ERROR (RFC 9114 §5.2), ends the server's connection too.
-for _ in $(seq 1 50); do
-  kill -0 "$server_pid" 2>/dev/null || break
-  sleep 0.1
-done
-if kill -0 "$server_pid" 2>/dev/null; then
-  echo "quic_udp: the server never saw the h3 client's close" >&2
-  exit 1
-fi
-server_pid=""
+await_close "the h3 server"
 # Two connections, each logged by its client and its server (main schema §12.1), with no event
 # dropped for want of room.
 python3 tools/qlog_check.py "$scratch/qlog" complete
@@ -162,6 +161,58 @@ if ! grep -q ResponseRefused "$scratch/h3_missing.log"; then
   exit 1
 fi
 kill "$server_pid" 2>/dev/null || true
+server_pid=""
+# The same three files from the server's `h3` mode, which serves h3 through the `server` module
+# (design §8 step 17b). It writes no qlog. The client's close ends its connection, which is no
+# connection error, and a path it does not hold is answered 404.
+rm -f "$scratch/downloads/small" "$scratch/downloads/medium" "$scratch/downloads/large"
+start_server once h3
+if ! client h3 /small /medium /large >"$scratch/h3_mode.log" 2>&1; then
+  echo "quic_udp: the h3 client failed against the h3 mode:" >&2
+  cat "$scratch/h3_mode.log" "$scratch/server.log" >&2
+  exit 1
+fi
+cat "$scratch/h3_mode.log"
+for file in small medium large; do
+  if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
+    echo "quic_udp: $file arrived from the h3 mode different from what the server holds" >&2
+    exit 1
+  fi
+done
+await_close "the h3 mode"
+cat "$scratch/server.log"
+grep -q "served 3 files, 0 connection errors" "$scratch/server.log" || {
+  echo "quic_udp: the h3 mode did not report the three files it served" >&2
+  exit 1
+}
+start_server once h3
+if client h3 /small /missing >"$scratch/h3_mode_missing.log" 2>&1; then
+  echo "quic_udp: the h3 client fetched a file the h3 mode does not hold" >&2
+  exit 1
+fi
+if ! grep -q ResponseRefused "$scratch/h3_mode_missing.log"; then
+  echo "quic_udp: a missing file was not refused by the h3 mode:" >&2
+  cat "$scratch/h3_mode_missing.log" >&2
+  exit 1
+fi
+kill "$server_pid" 2>/dev/null || true
+server_pid=""
+# The `h3` mode offers h3 alone, so it refuses a client that offers hq-interop (RFC 9001 §8.1),
+# and without `errors` the refused connection ends its run with a failure.
+start_server h3
+if client /small >"$scratch/h3_mode_hq.log" 2>&1; then
+  echo "quic_udp: the h3 mode served an hq-interop client" >&2
+  exit 1
+fi
+for _ in $(seq 1 50); do
+  kill -0 "$server_pid" 2>/dev/null || break
+  sleep 0.1
+done
+if kill -0 "$server_pid" 2>/dev/null || wait "$server_pid"; then
+  echo "quic_udp: the h3 mode did not fail on the connection it refused:" >&2
+  cat "$scratch/server.log" >&2
+  exit 1
+fi
 server_pid=""
 # A server given the time issues a ticket, and the client's second connection presents it.
 # chapulin fails a handshake whose ticket the server declines, so a second connection that

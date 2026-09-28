@@ -64,7 +64,7 @@ pub fn received_ecn(from: *const udp.Received) ReceivedEcn {
 }
 
 /// The codepoint colibri named for a datagram, as rotor sets it (RFC 9000 §13.4).
-fn sent_ecn(ecn: quic.connection_send.Ecn) udp.Ecn {
+pub fn sent_ecn(ecn: quic.connection_send.Ecn) udp.Ecn {
     return switch (ecn) {
         .not_ect => .not_ect,
         .ect_0 => .ect0,

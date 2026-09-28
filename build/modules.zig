@@ -369,6 +369,19 @@ pub fn add_testing_udp(
     module.addImport("rotor", rotor);
     module.addImport("tls", graph.tls_keylog);
     module.addImport("chapulin", graph.chapulin_quic_keylog.module("chapulin"));
+    // Design §8 step 17b: the h3 server runs on `server`, ruled by the owner on 2026-09-28. The
+    // endpoint links `tls_keylog`'s objects, and a second chapulin object fails the link, so it
+    // takes an instance of `server` over `tls_keylog`, which nothing packaged sees.
+    const server_keylog = create(b, "src/server/server.zig", target, optimize);
+    server_keylog.addImport("core", graph.core);
+    server_keylog.addImport("http", graph.http);
+    server_keylog.addImport("h11", graph.h11);
+    server_keylog.addImport("h2", graph.h2);
+    server_keylog.addImport("h3", graph.h3);
+    server_keylog.addImport("quic", graph.quic);
+    server_keylog.addImport("tls", graph.tls_keylog);
+    server_keylog.addImport("tls_provider", graph.tls_provider);
+    module.addImport("server", server_keylog);
     module.link_libc = true;
     return module;
 }
