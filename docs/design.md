@@ -3510,6 +3510,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   the start of the ClientHello. It gives each test's expected number on all 151 captures of run
   36359234791 and on 16 from macOS arm64.
 
+  **Decision 64 amended, 2026-09-28.** With the count fixed, `handshakeloss` against quic-go's
+  server still failed 2 of 8 runs at `c881163`. The client's Finished went in one probe datagram
+  and a PING in the other, the network dropped the Finished's copy each time, and quic-go dropped
+  the connection 5 seconds after the client's last packet, although it had announced a 30-second
+  `max_idle_timeout` ([quic-go#4215](https://github.com/quic-go/quic-go/issues/4215)). The second
+  probe at the Initial and Handshake levels now repeats the first one's CRYPTO octets.
+  - Over 2,000 seeds of the simulator's runner network, colibri against itself, the mean
+    handshake fell from 1.36 to 1.26 seconds, those over 8 seconds from 17 to 10, and the slowest
+    from 34.2 to 32.2 seconds.
+  - The QUIC check's census is now 13,719 datagrams, 13,790 packets, 684 dropped and 541 marked,
+    crc32 `0xedec6668`, in Debug and in ReleaseSafe on macOS arm64. The other four QUIC censuses
+    and both h3 digests moved with it.
+  - 4 mutations, 4 CAUGHT: no repeat, a repeat with no probe owed, a repeat from offset 0, and a
+    PTO that notes no offset.
+  - The runner at `740c05a` against quic-go on macOS arm64, with the change at `c881163`: every
+    case of `handshake`, `transfer`, `retry`, `resumption` and `handshakeloss` passed in both
+    roles, and then `handshakeloss` passed 9 of 10 more runs as the client and 4 of 4 as the
+    server. No run failed as the 2 of 8 had. The one that failed lost quic-go's ServerHello six
+    times running, and quic-go ended the handshake at its 10-second limit, silently again.
+
 
 - **Step 10 — loss recovery and congestion control.** RFC 9002: RTT estimation, packet and time
   threshold loss detection, PTO with backoff, NewReno, persistent congestion, pacing. All nine

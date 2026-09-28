@@ -14,11 +14,27 @@ const connection_module = @import("../connection.zig");
 const fixture = @import("packet_build_test.zig");
 
 const connection_recovery = @import("../connection_recovery.zig");
+const packet_build = @import("packet_build.zig");
+const space_module = @import("../../space/space.zig");
+const Carries = @import("../../recovery/recovery_sent.zig").Carries;
 const testing = std.testing;
 const Connection = connection_module.Connection;
 const test_now_ns: u64 = 1_000_000;
 const challenge_octet: u8 = 0x3d;
 const challenge_data: [constants.path_challenge_len]u8 = @splat(challenge_octet);
+/// A handshake message that fits one packet, such as a client's Finished. Test-only.
+const message_octet: u8 = 0x14;
+const message_len: u16 = 36;
+const message: [message_len]u8 = @splat(message_octet);
+/// A flight longer than one packet, so one probe cannot carry all of it: two datagrams' worth.
+/// Test-only.
+const flight_len: usize = 2_400;
+const flight: [flight_len]u8 = @splat(message_octet);
+
+comptime {
+    std.debug.assert(flight_len > constants.datagram_len_min);
+}
+const handshake_at = @intFromEnum(core.Level.handshake);
 
 /// The fixture's pair with 1-RTT keys, the handshake complete and nothing owed.
 fn open_application() void {
@@ -87,4 +103,76 @@ test "RFC 9002 §6.2.4: a probe owed at one level is sent at that level alone" {
     send.owe_probes(&fixture.test_connection, .application, constants.probe_packets);
     send.owe_probes(&fixture.test_connection, .application, 1);
     try testing.expectEqual(constants.probe_packets, fixture.test_connection.probes_owed[@intFromEnum(core.Level.application)]);
+}
+
+/// Records `built` in flight at `sent_at_ns`, as `connection_send` does once it is sealed.
+fn record(built: packet_build.Built, sent_at_ns: u64) !void {
+    const kind: space_module.Kind = @enumFromInt(@intFromEnum(built.level));
+    try fixture.test_connection.recovery.on_packet_sent(kind, .{
+        .number = built.packet_number,
+        .sent_at_ns = sent_at_ns,
+        .sent_len = @intCast(built.len),
+        .ack_eliciting = built.ack_eliciting,
+        .in_flight = built.in_flight,
+        .carries = built.carries,
+        .data_offset = built.data_offset,
+        .data_len = built.data_len,
+    }, sent_at_ns);
+}
+
+/// Fires the connection's Probe Timeout, which decision 64 answers by declaring the level's
+/// packets in flight lost, so the probes carry their CRYPTO octets.
+fn fire_probe_timeout() !void {
+    const at_ns = connection_recovery.loss_deadline_ns(&fixture.test_connection).?;
+    try testing.expect(try connection_recovery.on_loss_timer(&fixture.test_connection, at_ns, &recovery_scratch));
+}
+
+test "decision 64 as amended: the second probe repeats the first one's CRYPTO octets" {
+    fixture.open_connection();
+    // The first message was acknowledged and left the table, so the second is all in flight.
+    fixture.fake = .{ .owed = &message, .owed_level = .handshake };
+    _ = (try fixture.build_at(.handshake)).?;
+    fixture.fake = .{ .owed = &message, .owed_level = .handshake };
+    try record((try fixture.build_at(.handshake)).?, test_now_ns);
+    try fire_probe_timeout();
+    try testing.expectEqual(constants.probe_packets, fixture.test_connection.probes_owed[handshake_at]);
+    // RFC 9002 §6.2.4: "Previously sent data MAY be sent", so both probes carry the message the
+    // PTO declared lost, and either one arriving delivers it.
+    for (0..constants.probe_packets) |_| {
+        const probe = (try fixture.build_at(.handshake)).?;
+        try testing.expectEqual(Carries.crypto, probe.carries);
+        try testing.expectEqual(message_len, probe.data_offset);
+        try testing.expectEqual(message_len, probe.data_len);
+    }
+    // No probe is owed after the second, so nothing more is sent.
+    try testing.expectEqual(null, try fixture.build_at(.handshake));
+}
+
+test "decision 64 as amended: a flight longer than one probe sends its next octets, not a repeat" {
+    fixture.open_connection();
+    fixture.fake = .{ .owed = &flight, .owed_level = .handshake };
+    // Bounded by the flight, which a few packets carry.
+    while (try fixture.build_at(.handshake)) |built| try record(built, test_now_ns);
+    try fire_probe_timeout();
+    const first = (try fixture.build_at(.handshake)).?;
+    try testing.expectEqual(0, first.data_offset);
+    // RFC 9002 §6.2.4: "An endpoint SHOULD include new data in packets that are sent on PTO
+    // expiration", and octets still waiting come before a repeat.
+    const second = (try fixture.build_at(.handshake)).?;
+    try testing.expectEqual(first.data_len, second.data_offset);
+}
+
+test "decision 64 as amended: a lone probe carries its level's octets once" {
+    fixture.open_connection();
+    fixture.fake = .{ .owed = &message, .owed_level = .initial };
+    try record((try fixture.build_at(.initial)).?, test_now_ns);
+    fixture.fake = .{ .owed = &message, .owed_level = .handshake };
+    try record((try fixture.build_at(.handshake)).?, test_now_ns + 1);
+    // The Initial PTO fires first, and decision 70 owes one probe at the Handshake level too.
+    try fire_probe_timeout();
+    try testing.expectEqual(1, fixture.test_connection.probes_owed[handshake_at]);
+    const probe = (try fixture.build_at(.handshake)).?;
+    try testing.expectEqual(Carries.crypto, probe.carries);
+    // With no probe owed at that level, its octets are not sent a second time.
+    try testing.expectEqual(null, try fixture.build_at(.handshake));
 }

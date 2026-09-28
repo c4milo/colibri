@@ -401,7 +401,9 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   range enters the lost table. Framing a lost range again puts it in one new packet and takes it
   out of the table. An acknowledgment takes the record out of the sent table, so a late
   acknowledgment of a packet already declared lost finds nothing to count. A probe carries new
-  octets or a PING and never a range already in flight (RFC 9002 §6.2.4 permits either).
+  octets or a PING and never a stream range already in flight (RFC 9002 §6.2.4 permits either).
+  CRYPTO octets are not stream octets and keep no acknowledged count: at the Initial and
+  Handshake levels the second probe repeats the first one's (decision 64 as amended).
   [Decision 57](decisions.md#the-h2-connection) is why colibri resends exact ranges rather than
   rewinding a stream, which would put an octet in two packets at once.
 - **Check.** Runtime assertion: `Outgoing.on_acknowledged` asserts that the acknowledged count

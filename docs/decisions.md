@@ -1565,6 +1565,28 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     rule, and the CRYPTO stream's accounting would have to take one octet in two packets. Leaving
     PING-only probes keeps every lossy handshake waiting on a round trip it need not.
 
+    Amended by the owner on 2026-09-28: when a PTO at the Initial or Handshake level owes two
+    probes and the first carries all of the level's CRYPTO octets, the second carries them again
+    in place of a PING. This reverses the first alternative refused above, for CRYPTO octets
+    alone.
+    - In the QUIC Interop Runner's `handshakeloss` case against quic-go, colibri's client lost 2
+      of 8 runs to one pattern. Its Finished went in one probe datagram and a PING in the other,
+      the network dropped the Finished's copy each time, and quic-go's server dropped the
+      connection after 5 seconds without a packet from the client
+      ([#72](https://github.com/c4milo/colibri/issues/72)). In both runs a PING arrived where a
+      second copy of the Finished would have ended the handshake.
+    - RFC 9002 §6.2.4 permits it: "Previously sent data MAY be sent if no new data can be sent",
+      and a second datagram is there "to avoid an expensive consecutive PTO expiration due to a
+      single lost datagram". RFC 9000 §2.2 has the receiver discard octets it already holds.
+    - The CRYPTO accounting already takes it. A CRYPTO stream keeps no record of which octets
+      were acknowledged: a lost packet rewinds the level's send offset, "the lowest rewind wins",
+      and nothing is tracked per packet. So a copy in flight changes no count. Stream octets keep
+      entry 57's rule and INV-29 unchanged.
+    - `Connection.crypto_probe_from` notes where the PTO's rewind left each level. A packet
+      built while a probe is owed, with nothing left unsent at its level, rewinds there and
+      frames the octets again. A single probe, such as decision 70's in another space, and a
+      flight longer than one packet, whose second probe carries the next octets, are as before.
+
 65. **A server whose client shows it lacks the server's Initial CRYPTO octets sends them again at
     once, at most twice per connection.** Ruled by the owner on 2026-09-23. It takes RFC 9002
     §6.2.3's option to speed up handshake completion, and moves the octets as entry 64 does.

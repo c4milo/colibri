@@ -143,8 +143,8 @@ fn on_probe_timeout(connection: *Connection, kind: space_module.Kind, count: u8,
 
 /// Probes that carry what packets declared lost here held rather than a PING. At the Initial and
 /// Handshake levels decision 64 declares every packet in flight lost, so the probes carry their
-/// CRYPTO octets. At the application level decision 66 declares the oldest ack-eliciting ones
-/// lost, one for each probe owed.
+/// CRYPTO octets, and as amended the second probe carries them again. At the application level
+/// decision 66 declares the oldest ack-eliciting ones lost, one for each probe owed.
 fn owe_probes(connection: *Connection, kind: space_module.Kind, count: u8, scratch: *Scratch, now_ns: u64) Error!void {
     const level = level_of(kind);
     const lost_count = if (level == .application)
@@ -155,6 +155,7 @@ fn owe_probes(connection: *Connection, kind: space_module.Kind, count: u8, scrat
     // RFC 9002 §6.2.4 lets a sender whose PTO expired "mark any packets still in flight as lost".
     connection_qlog.on_packets_lost(connection, level, lost, .pto_expired, now_ns);
     try on_packets_lost(connection, level, lost);
+    if (level != .application) connection_crypto.on_probes_owed(connection, level);
     connection_send.owe_probes(connection, level, count);
 }
 

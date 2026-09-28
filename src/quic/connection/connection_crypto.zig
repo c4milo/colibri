@@ -144,6 +144,7 @@ pub fn write_crypto(
             return provider_failure(connection, provider, failure);
         stream.produced(produced);
     }
+    if (stream.unsent().len == 0) repeat_for_probe(connection, level);
     const waiting = stream.unsent();
     if (waiting.len == 0) return .{};
     // The frame's own header costs octets, so the payload cannot have all of `output`. The
@@ -187,6 +188,27 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
         if (!connection.crypto_at(level).on_lost(record.data_offset)) held.forgotten = true;
     }
     return held;
+}
+
+/// Decision 64 as amended: a PTO at a handshake level notes where its rewind left the level's
+/// CRYPTO octets, so a second probe with nothing else to carry carries them again. RFC 9002
+/// §6.2.4 sends two datagrams "to avoid an expensive consecutive PTO expiration due to a single
+/// lost datagram", and lets a probe carry "previously sent data". Called after the rewind.
+pub fn on_probes_owed(connection: *Connection, level: Level) void {
+    assert(level != .application);
+    connection.crypto_probe_from[@intFromEnum(level)] = connection.crypto_at(level).sent_len;
+}
+
+/// Frames the probe's CRYPTO octets again while a probe is owed at `level` and nothing else is
+/// waiting there, which is the second of two probes the first one's octets filled. RFC 9000
+/// §2.2 has the peer discard octets it already holds, and they do not change.
+fn repeat_for_probe(connection: *Connection, level: Level) void {
+    const at = @intFromEnum(level);
+    if (connection.probes_owed[at] == 0) return;
+    const from = connection.crypto_probe_from[at] orelse return;
+    // A window that has already forgotten those octets, which only a flight longer than the
+    // window leads to, leaves the second probe a PING, as it was before.
+    _ = connection.crypto_at(level).on_lost(from);
 }
 
 /// Puts the octets in a CRYPTO frame at the level's current offset, and advances it.

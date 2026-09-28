@@ -15,7 +15,8 @@
 //!    STOP_SENDING, then NEW_CONNECTION_ID and RETIRE_CONNECTION_ID: small frames a peer may be
 //!    waiting on, ahead of any octets.
 //! 6. One frame of octets: the handshake's CRYPTO octets, or a stream's. Lost stream octets go
-//!    before new ones (§13.3), and new ones go in the order RFC 9000 §2.3 sets.
+//!    before new ones (§13.3), and new ones go in the order RFC 9000 §2.3 sets. A second probe at
+//!    a handshake level repeats the first one's CRYPTO octets (decision 64 as amended).
 //! 7. A PING, when a probe is owed and nothing above elicits an acknowledgment (RFC 9002 §6.2.4).
 //!
 //! A packet the congestion window holds back carries the first two alone (`Room.in_flight_allowed`).

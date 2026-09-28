@@ -142,6 +142,9 @@ pub const Connection = struct {
     /// The probe packets RFC 9002 §6.2.4 owes at each level, which a PTO sets
     /// (`connection_send.owe_probes`) and each ack-eliciting packet at that level counts off.
     probes_owed: [core.levels_count]u8,
+    /// Where the CRYPTO octets the last PTO's probes carry begin, at each handshake level, which a
+    /// second probe with nothing else to carry repeats (decision 64 as amended). Null until a PTO.
+    crypto_probe_from: [core.levels_count]?u64,
     /// How many times this server has sent its Initial CRYPTO octets again before the PTO, which
     /// decision 65 limits to `early_crypto_resends_max` (RFC 9002 §6.2.3).
     early_crypto_resends: u8,
@@ -198,6 +201,7 @@ pub const Connection = struct {
         connection.handshake_confirmed = false;
         connection.handshake_done = .{};
         connection.probes_owed = @splat(0);
+        connection.crypto_probe_from = @splat(null);
         connection.early_crypto_resends = 0;
         connection.early_crypto_resent_at_ns = 0;
         connection.ack_only_since_eliciting = 0;

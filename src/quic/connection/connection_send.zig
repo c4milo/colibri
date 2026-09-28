@@ -122,7 +122,8 @@ pub const Sent = struct {
 /// ack-eliciting packet in the packet number space as a probe", and "All probe packets sent on a
 /// PTO MUST be ack-eliciting". Each ack-eliciting packet `send` builds at `level` counts off one;
 /// one that would elicit nothing carries a PING, which §6.2.4 asks for "When there is no data to
-/// send". A probe never repeats a range still in flight (invariant 29).
+/// send". A probe never repeats a stream range still in flight (invariant 29); at a handshake
+/// level the second probe repeats the first one's CRYPTO octets (decision 64 as amended).
 pub fn owe_probes(connection: *Connection, level: Level, count: u8) void {
     assert(count > 0 and count <= constants.probe_packets);
     const owed = &connection.probes_owed[@intFromEnum(level)];
