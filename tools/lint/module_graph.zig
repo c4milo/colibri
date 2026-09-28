@@ -1,5 +1,5 @@
-//! module-graph: `quic` receives `core`, `wire`, `crypto` and `tls`, and nothing else
-//! (docs/design.md §3, decision 5, invariant 26). QUIC is a transport with streams and no opinion
+//! module-graph: `quic` receives `core`, `wire`, `crypto`, `tls_provider` and `qlog`, and nothing
+//! else (docs/design.md §3, decision 5, invariant 26). QUIC is a transport with streams and no opinion
 //! about payloads, and the way that is held is the build: `src/quic/` naming `http`, `h2`, `h3`,
 //! `h11`, `hpack` or `qpack` does not compile, because build/modules.zig never gave `quic` those
 //! modules.
@@ -54,7 +54,7 @@ const check_name_field = "name";
 /// The import set docs/design.md §3 gives `quic`. Every other module in the graph is checked by
 /// the compiler the moment a file names it; this one is checked here because its whole point is
 /// what is *absent*, and absence compiles.
-const expected_quic_imports = [_][]const u8{ "core", "wire", "crypto", "tls_provider" };
+const expected_quic_imports = [_][]const u8{ "core", "wire", "crypto", "tls_provider", "qlog" };
 
 /// Longest path the rule builds for the file it reads beside build/modules.zig.
 const max_path_bytes: usize = 4096;
@@ -312,6 +312,7 @@ const passing_build: [:0]const u8 =
     \\    quic.addImport("wire", wire);
     \\    quic.addImport("crypto", crypto);
     \\    quic.addImport("tls_provider", tls_provider);
+    \\    quic.addImport("qlog", qlog);
     \\    const h3 = create(b, "src/h3/h3.zig");
     \\    h3.addImport("quic", quic);
     \\    h3.addImport("qpack", qpack);
@@ -324,6 +325,7 @@ const passing_check: [:0]const u8 =
     \\    .{ .name = "wire", .root = "wire/wire.zig", .deps = &.{"core"} },
     \\    .{ .name = "crypto", .root = "crypto/crypto.zig", .deps = &.{"core"} },
     \\    .{ .name = "tls_provider", .root = "tls_provider/tls_provider.zig", .deps = &.{"core"} },
+    \\    .{ .name = "qlog", .root = "qlog/qlog.zig", .deps = &.{"core"} },
     \\};
     \\const forbidden = [_][]const u8{ "http", "h2", "h3", "hpack", "qpack" };
 ;
@@ -349,7 +351,7 @@ fn compare_sources(
     return findings.items.items;
 }
 
-test "module-graph passes when the build and the check both name the four modules" {
+test "module-graph passes when the build and the check both name the five modules" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const findings = try compare_sources(arena_state.allocator(), passing_build, passing_check);
@@ -365,6 +367,7 @@ test "module-graph flags an HTTP module the build gives quic" {
         \\    quic.addImport("wire", wire);
         \\    quic.addImport("crypto", crypto);
         \\    quic.addImport("tls_provider", tls_provider);
+        \\    quic.addImport("qlog", qlog);
         \\    quic.addImport("http", http);
         \\}
     , passing_check);
@@ -375,7 +378,7 @@ test "module-graph flags an HTTP module the build gives quic" {
         "quic does not receive \"http\", which the graph gives it (design §3)",
     });
     try testing.expectEqualStrings(build_modules_path, findings[0].path);
-    try testing.expectEqual(6, findings[0].line);
+    try testing.expectEqual(7, findings[0].line);
     try testing.expectEqualStrings(graph_check_path, findings[1].path);
 }
 
@@ -387,6 +390,7 @@ test "module-graph flags a module the build no longer gives quic" {
         \\    quic.addImport("core", core);
         \\    quic.addImport("wire", wire);
         \\    quic.addImport("crypto", crypto);
+        \\    quic.addImport("qlog", qlog);
         \\}
     , passing_check);
     try harness.expect_messages(findings, &.{
@@ -405,6 +409,7 @@ test "module-graph flags a check list that drifts from the build" {
         \\    .{ .name = "core", .root = "core/core.zig", .deps = &.{} },
         \\    .{ .name = "wire", .root = "wire/wire.zig", .deps = &.{"core"} },
         \\    .{ .name = "crypto", .root = "crypto/crypto.zig", .deps = &.{"core"} },
+        \\    .{ .name = "qlog", .root = "qlog/qlog.zig", .deps = &.{"core"} },
         \\};
     );
     try harness.expect_messages(findings, &.{
@@ -431,10 +436,11 @@ test "module-graph reads the addImport calls of quic and of no other module" {
     const arena = arena_state.allocator();
     var tree = try Ast.parse(arena, passing_build, .zig);
     const entries = try collect_add_imports(arena, &tree);
-    try testing.expectEqual(4, entries.len);
+    try testing.expectEqual(5, entries.len);
     try testing.expectEqualStrings("core", entries[0].name);
     try testing.expectEqualStrings("tls_provider", entries[3].name);
     try testing.expectEqual(9, entries[3].line);
+    try testing.expectEqualStrings("qlog", entries[4].name);
 }
 
 test "module-graph finds the check beside build/modules.zig, whatever the walk's prefix was" {

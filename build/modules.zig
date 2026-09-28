@@ -4,9 +4,9 @@
 //!
 //! The one edge that must never exist is `quic` importing anything of HTTP. RFC 9000 defines a
 //! transport that carries streams and never interprets their payloads; decision 5 keeps it that
-//! way: `quic` receives `core`, `wire`, `crypto` and `tls_provider`, and nothing else. `src/quic/` naming
-//! `http`, `h2`, `h3`, `h11`, `hpack` or `qpack` does not compile, which is invariant 26 and the
-//! check of design §8 step 0.
+//! way: `quic` receives `core`, `wire`, `crypto`, `tls_provider` and `qlog`, and nothing else.
+//! `src/quic/` naming `http`, `h2`, `h3`, `h11`, `hpack` or `qpack` does not compile, which is
+//! invariant 26 and the check of design §8 step 0. `qlog` imports `core` alone (decision 102).
 //!
 //! `sim` receives `core`, `tls_provider` and `crypto` because it implements the two caller-supplied
 //! vtables (decisions 8 and 9) and passes its own null providers to the protocol modules in place
@@ -127,6 +127,7 @@ pub fn add(
     quic.addImport("wire", wire);
     quic.addImport("crypto", crypto);
     quic.addImport("tls_provider", tls_provider);
+    quic.addImport("qlog", qlog);
 
     const h2 = library(b, "h2", target, optimize);
     h2.addImport("core", core);

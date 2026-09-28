@@ -52,6 +52,9 @@ and is re-argued, not edited.
    change plus a vendoring step, because no edge points out of it. Reopen trigger: a second consumer
    wants QUIC without HTTP, or one person can no longer maintain QUIC and HTTP together.
 
+   Entry 102 amends this entry: `quic` also imports `qlog`, which imports `core` alone, so moving
+   `src/quic/` out takes `src/qlog/` with it.
+
 4. **Client and server, both, from the first step.** Cost: roughly a third more state machine —
    stream-id parity in both directions (RFC 9113 §5.1.1), the two connection prefaces (§3.4),
    and both halves of every settings exchange. Gain: the conformance suites are server-side

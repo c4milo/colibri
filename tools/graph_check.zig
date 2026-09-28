@@ -24,6 +24,7 @@ const quic_imports = [_]Import{
     .{ .name = "wire", .root = "wire/wire.zig", .deps = &.{"core"} },
     .{ .name = "crypto", .root = "crypto/crypto.zig", .deps = &.{"core"} },
     .{ .name = "tls_provider", .root = "tls_provider/tls_provider.zig", .deps = &.{"core"} },
+    .{ .name = "qlog", .root = "qlog/qlog.zig", .deps = &.{"core"} },
 };
 
 /// Every module name `quic` must not be able to import. Each gets a fixture and each must fail.
