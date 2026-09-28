@@ -46,18 +46,20 @@ const client_id: [id_len]u8 = @splat(client_octet);
 const server_id: [id_len]u8 = @splat(server_octet);
 const original_id: [id_len]u8 = @splat(original_octet);
 
-/// The event schema of the logs `start_log` starts (quic-events §2.1).
-const event_schemas = [_][]const u8{quic.qlog.quic_event_schema};
+/// The event schemas a log names (quic-events §2.1, h3-events §2.1): QUIC's alone, or QUIC's and
+/// HTTP/3's for an endpoint whose h3 connection writes into its QUIC connection's log.
+pub const quic_schemas = [_][]const u8{quic.qlog.quic_event_schema};
+pub const h3_schemas = [_][]const u8{ quic.qlog.quic_event_schema, quic.qlog.http3_event_schema };
 
-/// Starts `log` over `buffer` for the endpoint of `role`, as a caller that logs does before it
-/// opens the connection. The trace is grouped by the original destination connection ID, which
-/// quic-events §1.1 recommends.
-pub fn start_log(log: *quic.qlog.Log, buffer: []u8, role: Role, now_ns: u64) void {
+/// Starts `log` over `buffer` for the endpoint of `role`, naming `event_schemas`, as a caller that
+/// logs does before it opens the connection. The trace is grouped by the original destination
+/// connection ID, which quic-events §1.1 recommends.
+pub fn start_log(log: *quic.qlog.Log, buffer: []u8, role: Role, event_schemas: []const []const u8, now_ns: u64) void {
     log.* = quic.qlog.Log.init(buffer);
     const trace: quic.qlog.Trace = .{
         .vantage_point = if (role == .client) .client else .server,
         .group_id = &original_id,
-        .event_schemas = &event_schemas,
+        .event_schemas = event_schemas,
     };
     // `Log.init` asserts `log_len_min` octets, which the header of an 8-octet group ID fits.
     log.start(trace, now_ns) catch unreachable;

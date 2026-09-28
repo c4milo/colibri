@@ -120,7 +120,7 @@ pub fn frames_below(client: *const Endpoint, r: usize, offset: u64) u64 {
 pub fn data_frame_len() u64 {
     var octets: [h3.constants.frame_header_len_max]u8 = undefined;
     var writer = Writer.init(&octets);
-    h3.connection.write_data_header(constants.h3_trace_data_len, &writer) catch unreachable;
+    h3.frame_write.write_header(&writer, h3.constants.frame_data, constants.h3_trace_data_len) catch unreachable;
     return writer.written().len + constants.h3_trace_data_len;
 }
 

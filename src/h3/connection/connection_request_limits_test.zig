@@ -81,7 +81,7 @@ test "§4.1.2: a response stream that ends after an interim response is malforme
     const id = try harness.request(&harness.get_lines, "");
     try exchange();
     var writer = server.writer_for(id);
-    try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &.{.{ ":status", "103" }}), &.{}, &writer);
+    try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &.{.{ ":status", "103" }}), &.{}, &writer, harness.test_now_ns);
     try server.commit(id, writer.written(), true);
     try exchange();
     try testing.expectEqual(103, (try next(client)).?.response.response.status.code);
@@ -92,7 +92,7 @@ test "§7.1: a DATA frame cut short after the server's side of the stream has fi
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), false);
     try exchange();
     _ = (try next(server)).?.request;
@@ -119,7 +119,7 @@ test "RFC 9000 §4.6: colibri opens no request stream past the peer's limit" {
     var octets: [harness.kept_len]u8 = undefined;
     var writer = Writer.init(&octets);
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
-    try testing.expectError(error.StreamsExhausted, client.h3.write_request(&client.transport, section, &.{}, &writer));
+    try testing.expectError(error.StreamsExhausted, client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns));
     try testing.expectEqual(0, writer.written().len);
 }
 
@@ -128,19 +128,19 @@ test "a HEADERS frame that may not fit the caller's buffer is not written, nor i
     var small: [8]u8 = undefined;
     var writer = Writer.init(&small);
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
-    try testing.expectError(error.NoSpaceLeft, client.h3.write_request(&client.transport, section, &.{}, &writer));
+    try testing.expectError(error.NoSpaceLeft, client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns));
     try testing.expectEqual(0, writer.written().len);
     try testing.expectEqual(0, client.transport.streams.next_index[0]);
 }
 
 test "§5.2: a second GOAWAY names no higher stream than the first" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
-    try server.h3.shutdown(&server.transport);
+    try server.h3.shutdown(&server.transport, harness.test_now_ns);
     // A request that crosses the GOAWAY is rejected, and moves the server past its stream.
     const late = try harness.request(&harness.get_lines, "");
     try exchange();
     try testing.expectEqual(null, try next(server));
-    try server.h3.shutdown(&server.transport);
+    try server.h3.shutdown(&server.transport, harness.test_now_ns);
     try exchange();
     try testing.expectEqual(Event{ .goaway = 0 }, (try next(client)).?);
     try testing.expectEqual(Event{ .goaway = 0 }, (try next(client)).?);

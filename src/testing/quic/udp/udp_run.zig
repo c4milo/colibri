@@ -124,7 +124,7 @@ fn run() void {
 fn turn(connection: *Connection, now_ns: u64) void {
     connection.peer.on_instant(now_ns) catch |failure| fail("a deadline failed: {t}", .{failure});
     if (arguments == .client and arguments.client.key_update) udp_run_client.update_keys_once(connection, now_ns);
-    step_application(connection);
+    step_application(connection, now_ns);
     flush(connection, now_ns);
     connection.peer.qlog.write();
     // A client's stack derives its last secrets while it writes its Finished, inside `send`.
@@ -294,7 +294,7 @@ fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Con
     connection.outbound = outbound_to(delivery.from.peer);
     connection.spare_ids_issued = false;
     connection.server.init(asked.www);
-    connection.h3_server.init(asked.www, udp_identity.grease());
+    connection.h3_server.init(asked.www, udp_identity.grease(), connection.peer.connection.qlog.log);
     connection.application = .undecided;
     connection.live = true;
     return connection;
@@ -331,14 +331,14 @@ fn close_logs() void {
     }
 }
 
-fn step_application(connection: *Connection) void {
+fn step_application(connection: *Connection, now_ns: u64) void {
     const held = &connection.peer.connection;
-    if (arguments == .client) return udp_run_client.step(connection);
+    if (arguments == .client) return udp_run_client.step(connection, now_ns);
     if (connection.application == .undecided) connection.application = application_of(connection);
     switch (connection.application) {
         .undecided => {},
         .hq => connection.server.step(held) catch |failure| fail("the server's streams failed: {t}", .{failure}),
-        .h3 => connection.h3_server.step(held) catch |failure| fail("the h3 server failed: {t}", .{failure}),
+        .h3 => connection.h3_server.step(held, now_ns) catch |failure| fail("the h3 server failed: {t}", .{failure}),
     }
 }
 

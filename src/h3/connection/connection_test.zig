@@ -31,7 +31,7 @@ pub const kept_len: usize = 16384;
 /// the pool (decision 61).
 const window: u64 = pool_capacity;
 const bidirectional_max: u64 = 16;
-const test_now_ns: u64 = 1_000_000;
+pub const test_now_ns: u64 = 1_000_000;
 const id_len: usize = 4;
 const id_octet: u8 = 0xc1;
 const id_octets: [id_len]u8 = @splat(id_octet);
@@ -143,8 +143,8 @@ pub fn pair_unstarted(client_options: connection_module.Options, server_options:
 /// Two endpoints with h3 started on each, and the SETTINGS frames exchanged and read.
 pub fn pair(client_options: connection_module.Options, server_options: connection_module.Options) !void {
     pair_unstarted(client_options, server_options);
-    try client.h3.start(&client.transport);
-    try server.h3.start(&server.transport);
+    try client.h3.start(&client.transport, test_now_ns);
+    try server.h3.start(&server.transport, test_now_ns);
     try exchange();
     try testing.expectEqual(Event.settings, (try next(&client)).?);
     try testing.expectEqual(Event.settings, (try next(&server)).?);
@@ -212,7 +212,7 @@ pub fn exchange() !void {
 
 /// The next event `endpoint` reads, or null.
 pub fn next(endpoint: *Endpoint) !?Event {
-    return endpoint.h3.receive(&endpoint.transport, &endpoint.body);
+    return endpoint.h3.receive(&endpoint.transport, &endpoint.body, test_now_ns);
 }
 
 /// A section of `lines`, each a name and a value, in `section`.
@@ -229,10 +229,10 @@ pub fn request(lines: []const Line, content: []const u8) !u64 {
     const section = try section_of(&test_section, lines);
     const next_id = StreamId.of(.client, .bidirectional, client.transport.streams.next_index[0]).value;
     var writer = client.writer_for(next_id);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, test_now_ns);
     try testing.expectEqual(next_id, id);
     if (content.len > 0) {
-        try connection_module.write_data_header(content.len, &writer);
+        try client.h3.write_data_header(id, content.len, &writer, test_now_ns);
         try writer.write_bytes(content);
     }
     try client.commit(id, writer.written(), true);
@@ -243,9 +243,9 @@ pub fn request(lines: []const Line, content: []const u8) !u64 {
 pub fn respond(id: u64, lines: []const Line, content: []const u8) !void {
     const section = try section_of(&test_section, lines);
     var writer = server.writer_for(id);
-    try server.h3.write_response(&server.transport, id, section, &.{}, &writer);
+    try server.h3.write_response(&server.transport, id, section, &.{}, &writer, test_now_ns);
     if (content.len > 0) {
-        try connection_module.write_data_header(content.len, &writer);
+        try server.h3.write_data_header(id, content.len, &writer, test_now_ns);
         try writer.write_bytes(content);
     }
     try server.commit(id, writer.written(), true);
@@ -302,13 +302,13 @@ test "§4.1: a request's content and trailers arrive in order, and content-lengt
     const post = [_]Line{ .{ ":method", "POST" }, .{ ":scheme", "https" }, .{ ":path", "/upload" }, .{ ":authority", "a" }, .{ "content-length", "7" } };
     const section = try section_of(&test_section, &post);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, test_now_ns);
     // The content in two DATA frames, then a trailer section.
-    try connection_module.write_data_header(3, &writer);
+    try client.h3.write_data_header(id, 3, &writer, test_now_ns);
     try writer.write_bytes("abc");
-    try connection_module.write_data_header(4, &writer);
+    try client.h3.write_data_header(id, 4, &writer, test_now_ns);
     try writer.write_bytes("defg");
-    try client.h3.write_trailers(&client.transport, id, try section_of(&test_section, &.{.{ "x-checksum", "1" }}), &writer);
+    try client.h3.write_trailers(&client.transport, id, try section_of(&test_section, &.{.{ "x-checksum", "1" }}), &writer, test_now_ns);
     try client.commit(id, writer.written(), true);
     try exchange();
     try testing.expectEqual(7, (try next(&server)).?.request.request.content_length.?);

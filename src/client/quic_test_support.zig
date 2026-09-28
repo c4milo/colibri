@@ -213,7 +213,7 @@ fn server_receive(octets: []u8) !void {
     _ = quic.connection_datagram.receive(&server, server_session.suite(), server_session.provider(), .{ .octets = octets, .now_ns = now_ns, .ecn = .not_ect }, &server_scratch) catch return;
     if (!server_h3_started and server.handshake_complete) {
         server_h3.init(.{ .role = .server });
-        try server_h3.start(&server);
+        try server_h3.start(&server, now_ns);
         server_h3_started = true;
     }
     if (server_h3_started) try server_read();
@@ -257,7 +257,7 @@ fn server_parameters() quic.transport_parameters.Parameters {
 /// The server reads every h3 event, and answers each request that has ended.
 fn server_read() !void {
     for (0..support.buffer_len) |_| {
-        const read = server_h3.receive(&server, &server_body) catch return;
+        const read = server_h3.receive(&server, &server_body, now_ns) catch return;
         const got = read orelse break;
         switch (got) {
             .request => |held| {
@@ -311,8 +311,8 @@ pub fn server_answer(answer: *Answer, status: u16, content: []const u8) !void {
     try server_section.append("content-length", std.fmt.bufPrint(&digits, "{d}", .{named}) catch unreachable);
     var writer = quic.core.Writer.init(&answer.prefix);
     try write_interims(answer.id, &writer);
-    try server_h3.write_response(&server, answer.id, &server_section, &.{}, &writer);
-    if (content.len > 0) try h3.connection.write_data_header(content.len, &writer);
+    try server_h3.write_response(&server, answer.id, &server_section, &.{}, &writer, now_ns);
+    if (content.len > 0) try server_h3.write_data_header(answer.id, content.len, &writer, now_ns);
     answer.prefix_len = writer.written().len;
     try quic.connection_stream_send.supply(&server, .{ .value = answer.id }, answer.prefix_len + content.len, !answer_open);
 }
@@ -323,7 +323,7 @@ fn write_interims(id: u64, writer: *quic.core.Writer) !void {
     for (0..answer_interims) |_| {
         interim.init();
         try interim.append(":status", "103");
-        try server_h3.write_response(&server, id, &interim, &.{}, writer);
+        try server_h3.write_response(&server, id, &interim, &.{}, writer, now_ns);
     }
 }
 

@@ -79,7 +79,7 @@ test "RFC 9204 §2.2.2.2: a stream reset while its section waits is cancelled on
     _ = (try next(server)).?.request;
     // The response's header section goes out on a stream the server has not ended.
     var writer = server.writer_for(id);
-    try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &custom_lines), &.{}, &writer);
+    try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &custom_lines), &.{}, &writer, harness.test_now_ns);
     try server.commit(id, writer.written(), false);
     try harness.transfer_frames(server, client, 1);
     try testing.expectEqual(null, try next(client));
@@ -145,10 +145,10 @@ test "a trailer section inserts nothing into the dynamic table" {
     try harness.pair(.{ .role = .client }, .{ .role = .server, .qpack = table_client.qpack });
     const section = try harness.section_of(&harness.test_section, &harness.get_lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns);
     const inserted = client.h3.encoder.table.insert_count();
     try testing.expect(inserted > 0);
-    try client.h3.write_trailers(&client.transport, id, try harness.section_of(&harness.test_section, &custom_lines[1..].*), &writer);
+    try client.h3.write_trailers(&client.transport, id, try harness.section_of(&harness.test_section, &custom_lines[1..].*), &writer, harness.test_now_ns);
     try testing.expectEqual(inserted, client.h3.encoder.table.insert_count());
 }
 

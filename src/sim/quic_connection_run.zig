@@ -127,7 +127,7 @@ fn log_of(storage: *Storage, side: Side) ?*quic.qlog.Log {
         storage.log_buffers[at][0..quic.qlog.constants.log_len_min]
     else
         &storage.log_buffers[at];
-    quic_endpoint.start_log(&storage.logs[at], buffer, role_of(side), check.start_ns);
+    quic_endpoint.start_log(&storage.logs[at], buffer, role_of(side), &quic_endpoint.quic_schemas, check.start_ns);
     return &storage.logs[at];
 }
 

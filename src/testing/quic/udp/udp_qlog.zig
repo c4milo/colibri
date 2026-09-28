@@ -14,8 +14,9 @@ const hq_file = @import("../hq/hq_file.zig");
 const Log = quic.qlog.Log;
 const Role = quic.connection.Role;
 
-/// The one event schema the endpoints' logs name (quic-events §2.1).
-const event_schemas = [_][]const u8{quic.qlog.quic_event_schema};
+/// The event schemas the endpoints' logs name (quic-events §2.1, h3-events §2.1): an h3
+/// connection writes its HTTP/3 events into its QUIC connection's log.
+const event_schemas = [_][]const u8{ quic.qlog.quic_event_schema, quic.qlog.http3_event_schema };
 
 /// Hex digits one octet takes.
 const hex_digits_per_octet: usize = 2;

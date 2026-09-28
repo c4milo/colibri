@@ -22,6 +22,7 @@ const frame_write = @import("../frame_write.zig");
 const message = @import("../message/message.zig");
 const connection_module = @import("connection.zig");
 const connection_local = @import("connection_local.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
@@ -70,10 +71,12 @@ pub fn write_request(
     // The encoder records the section against its stream, so the ID comes before the stream
     // opens, and the stream opens only once its frame is written.
     const id = StreamId.of(.client, .bidirectional, streams.next_index[which]);
-    try write_headers(connection, transport, id.value, section, indexing, output);
+    const payload_len = try write_headers(connection, transport, id.value, section, indexing, output);
     // RFC 9000 §4.6: the limit was checked above, so only colibri's table can refuse the stream.
     const opened = quic.connection_stream_send.open(transport, .bidirectional) catch return error.StreamsExhausted;
     assert(opened.value == id.value);
+    connection_qlog.request_stream_set(connection, .local, id.value);
+    connection_qlog.frame_event(connection, .created, id.value, .{ .headers = .{ .section = section, .payload_len = payload_len } });
     // RFC 9110 §9.3.2: a response to HEAD carries no content, whatever its content-length.
     slot.* = .{ .id = id.value, .head_request = std.mem.eql(u8, found.method, "HEAD") };
     return id.value;
@@ -91,7 +94,8 @@ pub fn write_response(
     assert(connection.options.role == .server);
     // RFC 9114 §4.1.2: colibri sends no malformed response.
     _ = message.validate_response(section) catch return error.MessageInvalid;
-    return write_headers(connection, transport, stream_id, section, indexing, output);
+    const payload_len = try write_headers(connection, transport, stream_id, section, indexing, output);
+    connection_qlog.frame_event(connection, .created, stream_id, .{ .headers = .{ .section = section, .payload_len = payload_len } });
 }
 
 /// Writes a HEADERS frame carrying a trailer section on `stream_id` (RFC 9114 §4.1). A trailer
@@ -106,15 +110,18 @@ pub fn write_trailers(
     // RFC 9114 §4.1.2: colibri sends no malformed trailer section.
     message.validate_trailers(section) catch return error.MessageInvalid;
     var no_insert: [core.constants.field_count_max]Indexing = @splat(.no_insert);
-    return write_headers(connection, transport, stream_id, section, no_insert[0..section.len()], output);
+    const payload_len = try write_headers(connection, transport, stream_id, section, no_insert[0..section.len()], output);
+    connection_qlog.frame_event(connection, .created, stream_id, .{ .headers = .{ .section = section, .payload_len = payload_len } });
 }
 
-/// Writes a DATA frame's header (RFC 9114 §7.2.1). The caller writes `len` octets of content
-/// after it.
-pub fn write_data_header(len: u64, output: *Writer) Error!void {
+/// Writes a DATA frame's header on `stream_id` (RFC 9114 §7.2.1). The caller writes `len` octets
+/// of content after it.
+pub fn write_data_header(connection: *Connection, stream_id: u64, len: u64, output: *Writer) Error!void {
     try frame_write.write_header(output, constants.frame_data, len);
+    connection_qlog.frame_event(connection, .created, stream_id, .{ .data = len });
 }
 
+/// Writes a HEADERS frame carrying `section` on `stream_id`, and returns its payload's length.
 fn write_headers(
     connection: *Connection,
     transport: *QuicConnection,
@@ -122,7 +129,7 @@ fn write_headers(
     section: *const FieldSection,
     indexing: []const Indexing,
     output: *Writer,
-) Error!void {
+) Error!usize {
     // RFC 9114 §4.2.2: "An implementation that has received this parameter SHOULD NOT send an
     // HTTP message header that exceeds the indicated size", the size counted as §4.2.2 counts it.
     if (connection.peer_settings) |settings| {
@@ -143,6 +150,7 @@ fn write_headers(
     frame_write.write_header(&cursor, constants.frame_headers, encoded.written().len) catch unreachable;
     cursor.write_bytes(encoded.written()) catch unreachable;
     output.* = cursor;
+    return encoded.written().len;
 }
 
 /// The longest HEADERS frame `section` can make. §4.2.2's size counts 32 octets for each line

@@ -15,6 +15,7 @@ const constants = @import("../constants.zig");
 const frame = @import("../frame.zig");
 const stream = @import("../stream.zig");
 const connection_module = @import("connection.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
 const Reader = core.Reader;
 const Connection = connection_module.Connection;
@@ -126,6 +127,7 @@ fn discard(transport: *QuicConnection, slot: *?Slot, peeked: stream_read.Read) v
 }
 
 fn take(connection: *Connection, transport: *QuicConnection, id: StreamId, kind: stream.Kind) Error!void {
+    connection_qlog.stream_type_set(connection, .remote, id.value, kind);
     const peer = &connection.peer;
     const role: stream.Role = if (connection.options.role == .client) .server else .client;
     switch (kind) {
@@ -230,6 +232,7 @@ fn control_step(connection: *Connection, transport: *QuicConnection, id: u64) Er
     try check_control_frame(connection, transport, header);
     if (!is_known_control(header.frame_type)) {
         _ = stream_read.consume(transport, .{ .value = id }, header_len) catch unreachable;
+        connection_qlog.frame_event(connection, .parsed, id, .{ .other = .{ .frame_type = header.frame_type, .payload_len = header.length } });
         // §9: "Implementations MUST ignore unknown or unsupported values in all extensible
         // protocol elements", so the payload is skipped unread.
         peer.control_skip = header.length;
@@ -241,6 +244,7 @@ fn control_step(connection: *Connection, transport: *QuicConnection, id: u64) Er
     _ = stream_read.consume(transport, .{ .value = id }, header_len + payload.len) catch unreachable;
     const found = frame.read_payload(header.frame_type, payload) catch |failure|
         return connection.fail(transport, frame.error_code(failure));
+    connection_qlog.control_frame_parsed(connection, id, found, payload);
     const event = try on_control_frame(connection, transport, found) orelse return .again;
     return .{ .event = event };
 }
@@ -311,6 +315,7 @@ fn on_settings(connection: *Connection, transport: *QuicConnection, settings: fr
     _ = transport;
     connection.peer.settings_received = true;
     connection.peer_settings = settings;
+    connection_qlog.parameters_set(connection, .remote, settings);
     // RFC 9204 §5: the peer's decoder settings are what colibri's encoder may use.
     connection.encoder.on_settings(.{
         .max_table_capacity = settings.qpack_max_table_capacity orelse 0,

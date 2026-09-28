@@ -286,8 +286,15 @@ each stream as the flow-control windows allow.
 An `h3.connection.Connection` runs HTTP/3 over one QUIC connection. After each datagram, call its
 `receive` until it returns null; each call returns at most one event. `provider` wraps your stream
 provider so that h3 serves its control and QPACK streams itself. `write_request`,
-`write_response` and `write_trailers` write frames into your buffer, and you send the content
-behind them on the request stream.
+`write_response`, `write_trailers` and `write_data_header` write frames into your buffer, and you
+send the content behind them on the request stream. Each h3 call that writes or reads a frame
+takes the instant, as QUIC's calls do.
+
+To log a connection as qlog ([decision 102](decisions.md)), place a `qlog.Log` over a buffer,
+write its header with `Log.start`, and pass it as the `qlog` option of both the QUIC connection
+and the h3 connection, so one trace holds both. colibri appends one record per event; your
+program writes `log.bytes()` where it wants, a file under `QLOGDIR` for example, and calls
+`log.clear()`. `tools/qlog_to_qvis.py` converts such a file for qvis.
 
 [`src/testing/quic/udp/udp_peer.zig`](../src/testing/quic/udp/udp_peer.zig) is a whole QUIC
 endpoint over UDP, and [`src/testing/quic/h3/`](../src/testing/quic/h3/) holds the h3 server and

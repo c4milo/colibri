@@ -97,7 +97,7 @@ test "RFC 9114 §5.2: a GOAWAY refuses the exchanges at or past its stream, and 
     try support.pump(support.rounds_default);
     // The server took stream 0 alone, so its GOAWAY names stream 4, which the second exchange
     // then opens or would open: the server processes none of it.
-    try support.server_h3.shutdown(&support.server);
+    try support.server_h3.shutdown(&support.server, support.now_ns);
     var second: Exchange = .{ .method = "GET", .path = "/b", .body = &bodies[1] };
     _ = try connection.request(&second);
     try support.pump(support.rounds_default);

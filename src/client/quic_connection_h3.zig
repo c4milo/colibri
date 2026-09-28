@@ -29,20 +29,20 @@ pub const RequestStream = struct {
     prefix_len: usize,
 };
 
-/// Writes the heads of the exchanges waiting, oldest first, so the streams open in the order
-/// `request` took them (RFC 9000 §2.1).
-pub fn write_requests(connection: *QuicConnection) void {
+/// Writes the heads of the exchanges waiting at `now_ns`, oldest first, so the streams open in the
+/// order `request` took them (RFC 9000 §2.1).
+pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: each pass writes or ends an exchange, or stops.
     for (0..constants.exchanges_max) |_| {
         const slot = connection.slots.oldest(.queued) orelse return;
-        if (!open(connection, slot)) return;
+        if (!open(connection, slot, now_ns)) return;
     }
 }
 
 /// Opens the stream of `slot`'s request, writes its frames and supplies them with the content to
 /// QUIC. Returns whether the next exchange may be written: false when this one waits for the
 /// server's stream limit (RFC 9000 §4.6).
-fn open(connection: *QuicConnection, slot: *Slot) bool {
+fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     const exchange = slot.exchange;
     var indexing: [constants.request_fields_max + pseudo_fields]Indexing = undefined;
     const lines = build_section(connection, exchange, &indexing) orelse {
@@ -51,11 +51,11 @@ fn open(connection: *QuicConnection, slot: *Slot) bool {
     };
     const stream = &connection.streams[connection.slots.index_of(slot)];
     var writer = quic.core.Writer.init(&stream.prefix);
-    const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], &writer) catch |failure| {
+    const id = connection.h3.write_request(&connection.transport, &connection.section, indexing[0..lines], &writer, now_ns) catch |failure| {
         return refused(connection, slot, failure);
     };
     // RFC 9114 §4.1: the content goes in DATA frames after the header section, here one.
-    if (exchange.content.len > 0) h3.connection.write_data_header(exchange.content.len, &writer) catch unreachable;
+    if (exchange.content.len > 0) connection.h3.write_data_header(id, exchange.content.len, &writer, now_ns) catch unreachable;
     stream.prefix_len = writer.written().len;
     slot.stream_id = id;
     slot.stage = .sent;
@@ -187,11 +187,11 @@ pub fn release_closed(connection: *QuicConnection) void {
     }
 }
 
-/// Reads every event h3 has, and records what each means for the exchange it names.
-pub fn read_events(connection: *QuicConnection) void {
+/// Reads every event h3 has at `now_ns`, and records what each means for the exchange it names.
+pub fn read_events(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: every event reads at least one octet the pool holds, or ends a stream.
     for (0..constants.h3_events_per_read_max) |_| {
-        const read = connection.h3.receive(&connection.transport, &connection.body) catch {
+        const read = connection.h3.receive(&connection.transport, &connection.body, now_ns) catch {
             // RFC 9114 §8: h3 failed the connection, and QUIC owes the CONNECTION_CLOSE.
             connection.fail();
             return;

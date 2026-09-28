@@ -35,6 +35,7 @@ const connection_local = @import("connection_local.zig");
 const connection_peer = @import("connection_peer.zig");
 const connection_request = @import("connection_request.zig");
 const connection_send = @import("connection_send.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
 const Writer = core.Writer;
 const FieldSection = http.FieldSection;
@@ -42,12 +43,6 @@ const StreamProvider = quic.stream.StreamProvider;
 const QuicConnection = quic.Connection;
 
 pub const Role = stream.Role;
-
-/// Writes the header of a DATA frame of `len` octets into `output` (RFC 9114 §7.2.1). The caller
-/// writes the content after it.
-pub fn write_data_header(len: u64, output: *Writer) SendError!void {
-    return connection_send.write_data_header(len, output);
-}
 
 /// What a connection is built from. Every value is the caller's.
 pub const Options = struct {
@@ -61,6 +56,10 @@ pub const Options = struct {
     /// from. colibri reads no randomness (invariant 5), so the caller supplies it, and a seed
     /// replays (design §6.5).
     grease: u64 = 0,
+    /// The log the connection writes its HTTP/3 events into (decision 102), whose header names
+    /// the HTTP/3 event schema. Passing the log the QUIC connection writes keeps both in one trace
+    /// (h3-events §1.1). Null, the default, logs nothing.
+    qlog: ?*connection_qlog.Log = null,
 };
 
 /// Why `receive` stopped: the peer broke a rule of the whole connection, `failure` names the
@@ -145,6 +144,9 @@ pub const Connection = struct {
     strings: [core.constants.field_section_size_max]u8,
     /// The last field section `receive` decoded.
     section: FieldSection,
+    /// The instant of the call in progress, which each call that writes or reads a frame takes
+    /// (decision 102 as amended). Only the qlog events it writes read it.
+    now_ns: u64,
 
     pub fn init(connection: *Connection, options: Options) void {
         connection.options = options;
@@ -161,12 +163,14 @@ pub const Connection = struct {
         connection.no_error_count = 0;
         connection.caller_provider = StreamProvider.none();
         connection.section.init();
+        connection.now_ns = 0;
     }
 
     /// Opens colibri's control stream and QPACK streams and writes the SETTINGS frame (RFC 9114
     /// §6.2.1, §7.2.4.2, RFC 9204 §4.2). The caller calls it once, as soon as `quic` may open
     /// streams: §7.2.4.2 says settings "MUST be sent as soon as the transport is ready".
-    pub fn start(connection: *Connection, transport: *QuicConnection) Error!void {
+    pub fn start(connection: *Connection, transport: *QuicConnection, now_ns: u64) Error!void {
+        connection.now_ns = now_ns;
         return connection_local.start(connection, transport);
     }
 
@@ -180,10 +184,11 @@ pub const Connection = struct {
     /// Reads what the peer sent and returns at most one event, or null when nothing more can be
     /// read now. Content goes into the front of `body`. Before it returns null it writes the
     /// QPACK decoder instructions it owes.
-    pub fn receive(connection: *Connection, transport: *QuicConnection, body: []u8) Error!?Event {
+    pub fn receive(connection: *Connection, transport: *QuicConnection, body: []u8, now_ns: u64) Error!?Event {
         // RFC 9000 §10.2: a connection that is closing reads nothing more from its peer.
         if (connection.failure != null) return error.ConnectionFailed;
         assert(body.len > 0);
+        connection.now_ns = now_ns;
         try connection_peer.accept(connection, transport);
         if (try connection_peer.step(connection, transport)) |event| return event;
         try connection_request.accept(connection, transport);
@@ -206,7 +211,9 @@ pub const Connection = struct {
         section: *const FieldSection,
         indexing: []const qpack.encoder.Indexing,
         output: *Writer,
+        now_ns: u64,
     ) SendError!u64 {
+        connection.now_ns = now_ns;
         return connection_send.write_request(connection, transport, section, indexing, output);
     }
 
@@ -219,7 +226,9 @@ pub const Connection = struct {
         section: *const FieldSection,
         indexing: []const qpack.encoder.Indexing,
         output: *Writer,
+        now_ns: u64,
     ) SendError!void {
+        connection.now_ns = now_ns;
         return connection_send.write_response(connection, transport, stream_id, section, indexing, output);
     }
 
@@ -230,8 +239,17 @@ pub const Connection = struct {
         stream_id: u64,
         section: *const FieldSection,
         output: *Writer,
+        now_ns: u64,
     ) SendError!void {
+        connection.now_ns = now_ns;
         return connection_send.write_trailers(connection, transport, stream_id, section, output);
+    }
+
+    /// Writes the header of a DATA frame of `len` octets on `stream_id` into `output` (RFC 9114
+    /// §7.2.1). The caller writes the content after it.
+    pub fn write_data_header(connection: *Connection, stream_id: u64, len: u64, output: *Writer, now_ns: u64) SendError!void {
+        connection.now_ns = now_ns;
+        return connection_send.write_data_header(connection, stream_id, len, output);
     }
 
     /// Cancels the message on `stream_id` (§4.1.1): resets colibri's side and asks the peer to
@@ -243,7 +261,8 @@ pub const Connection = struct {
     /// Starts a graceful shutdown with a GOAWAY frame (§5.2). A server names the first request
     /// stream it has not taken, and refuses every later one; a client names push ID 0, having
     /// allowed none.
-    pub fn shutdown(connection: *Connection, transport: *QuicConnection) SendError!void {
+    pub fn shutdown(connection: *Connection, transport: *QuicConnection, now_ns: u64) SendError!void {
+        connection.now_ns = now_ns;
         return connection_local.write_goaway(connection, transport);
     }
 
@@ -281,5 +300,6 @@ test {
     _ = connection_peer;
     _ = connection_request;
     _ = connection_send;
+    _ = connection_qlog;
     _ = @import("connection_test.zig");
 }

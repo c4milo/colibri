@@ -145,6 +145,7 @@ pub fn add(
     h3.addImport("http", http);
     h3.addImport("qpack", qpack);
     h3.addImport("quic", quic);
+    h3.addImport("qlog", qlog);
 
     const h11 = library(b, "h11", target, optimize);
     h11.addImport("core", core);

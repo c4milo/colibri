@@ -139,7 +139,7 @@ const Run = struct {
         for (std.enums.values(Side)) |side| try run.deliver(side);
         run.storage.tracker.observe_arrivals(run.endpoint(.server));
         for (std.enums.values(Side)) |side| try run.endpoint(side).transport.on_instant(run.now_ns);
-        for (std.enums.values(Side)) |side| try run.endpoint(side).step(run.steps);
+        for (std.enums.values(Side)) |side| try run.endpoint(side).step(run.steps, run.now_ns);
         for (std.enums.values(Side)) |side| try run.send_owed(side);
         run.now_ns = run.next_instant();
         run.steps += 1;

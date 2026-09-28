@@ -57,12 +57,14 @@ pub const Client = struct {
     body: [constants.hq_read_len]u8,
     section: FieldSection,
 
-    pub fn init(client: *Client, downloads: []const u8, paths: []const []const u8, authority: []const u8, grease: u64) void {
+    /// A client that fetches `paths` into `downloads`, and whose h3 events go to `log`: the QUIC
+    /// connection's, so one file holds both (decision 102).
+    pub fn init(client: *Client, downloads: []const u8, paths: []const []const u8, authority: []const u8, grease: u64, log: ?*quic.qlog.Log) void {
         assert(paths.len > 0 and paths.len <= constants.hq_paths_max);
         client.downloads = downloads;
         client.paths = paths;
         client.authority = authority;
-        client.connection.init(.{ .role = .client, .grease = grease, .qpack = qpack_settings });
+        client.connection.init(.{ .role = .client, .grease = grease, .qpack = qpack_settings, .qlog = log });
         client.started = false;
         client.opened = 0;
         client.finished_count = 0;
@@ -80,21 +82,21 @@ pub const Client = struct {
 
     /// What a datagram may have changed: start h3 once the handshake completes, send the requests
     /// the server's limit allows, and read every event.
-    pub fn step(client: *Client, transport: *quic.Connection) Error!void {
+    pub fn step(client: *Client, transport: *quic.Connection, now_ns: u64) Error!void {
         if (!client.started) {
             if (!transport.handshake_complete) return;
-            try client.connection.start(transport);
+            try client.connection.start(transport, now_ns);
             client.started = true;
         }
-        try client.send_requests(transport);
+        try client.send_requests(transport, now_ns);
         // Bounded: every event reads at least one frame or content octet the server sent.
         for (0..constants.hq_read_len) |_| {
-            const event = try client.connection.receive(transport, &client.body) orelse return;
+            const event = try client.connection.receive(transport, &client.body, now_ns) orelse return;
             try client.on_event(event);
         }
     }
 
-    fn send_requests(client: *Client, transport: *quic.Connection) Error!void {
+    fn send_requests(client: *Client, transport: *quic.Connection, now_ns: u64) Error!void {
         // Bounded by the paths.
         while (client.opened < client.paths.len) {
             const index = client.opened;
@@ -106,7 +108,7 @@ pub const Client = struct {
             try client.section.append(":authority", client.authority);
             try client.section.append(":path", path);
             var writer = Writer.init(&request.prefix);
-            const id = client.connection.write_request(transport, &client.section, &.{}, &writer) catch |failure| switch (failure) {
+            const id = client.connection.write_request(transport, &client.section, &.{}, &writer, now_ns) catch |failure| switch (failure) {
                 // RFC 9000 §4.6: past the server's limit the rest wait for its MAX_STREAMS.
                 error.StreamsExhausted => return,
                 else => return failure,

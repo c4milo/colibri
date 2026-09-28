@@ -187,7 +187,7 @@ pub const QuicConnection = struct {
             return .{ .consumed = datagram.len, .event = connection.owed_event() };
         };
         _ = received;
-        connection.after_change();
+        connection.after_change(now_ns);
         return .{ .consumed = datagram.len, .event = connection.owed_event() };
     }
 
@@ -195,7 +195,7 @@ pub const QuicConnection = struct {
     /// null when it owes none.
     pub fn send(connection: *QuicConnection, output: []u8, now_ns: u64) ?Sent {
         if (connection.closed) return null;
-        if (connection.started and !connection.stopped) quic_h3.write_requests(connection);
+        if (connection.started and !connection.stopped) quic_h3.write_requests(connection, now_ns);
         const sent = quic.connection_send.send(
             &connection.transport,
             connection.session.suite(),
@@ -228,7 +228,7 @@ pub const QuicConnection = struct {
             connection.fail();
             return;
         };
-        connection.after_change();
+        connection.after_change(now_ns);
     }
 
     /// Ends the connection once the exchanges it holds have finished: no new request is taken, and
@@ -274,12 +274,12 @@ pub const QuicConnection = struct {
         connection.owed.ticket = false;
     }
 
-    /// What a datagram or a deadline may have changed: the handshake completed, a ticket arrived,
-    /// h3 has events, a stream closed, or the connection ended.
-    fn after_change(connection: *QuicConnection) void {
+    /// What a datagram or a deadline at `now_ns` may have changed: the handshake completed, a
+    /// ticket arrived, h3 has events, a stream closed, or the connection ended.
+    fn after_change(connection: *QuicConnection, now_ns: u64) void {
         connection.collect_ticket();
-        if (!connection.started) connection.start_h3();
-        if (connection.started and !connection.stopped) quic_h3.read_events(connection);
+        if (!connection.started) connection.start_h3(now_ns);
+        if (connection.started and !connection.stopped) quic_h3.read_events(connection, now_ns);
         quic_h3.release_closed(connection);
         // RFC 9000 §10: once the connection stops being active, nothing more comes on its streams.
         if (connection.transport.termination.state != .active and !connection.stopped) connection.fail();
@@ -287,7 +287,7 @@ pub const QuicConnection = struct {
 
     /// Starts h3 once the handshake completed with ALPN's "h3" (RFC 9114 §3.1), and says which
     /// version the connection speaks. A handshake that chose another protocol ends the connection.
-    fn start_h3(connection: *QuicConnection) void {
+    fn start_h3(connection: *QuicConnection, now_ns: u64) void {
         if (!connection.transport.handshake_complete) return;
         const selected = connection.session.provider().negotiated_alpn() orelse "";
         // RFC 9114 §3.1: an h3 connection is one whose handshake selected the "h3" token.
@@ -296,7 +296,7 @@ pub const QuicConnection = struct {
             connection.fail();
             return;
         }
-        connection.h3.start(&connection.transport) catch {
+        connection.h3.start(&connection.transport, now_ns) catch {
             connection.fail();
             return;
         };

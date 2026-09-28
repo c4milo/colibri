@@ -12,13 +12,16 @@ const assert = std.debug.assert;
 const core = @import("core");
 const qpack = @import("qpack");
 const quic = @import("quic");
+const wire = @import("wire");
 const constants = @import("../constants.zig");
 const frame = @import("../frame.zig");
 const frame_write = @import("../frame_write.zig");
 const stream = @import("../stream.zig");
 const send_buffer = @import("../send_buffer.zig");
 const connection_module = @import("connection.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
+const Reader = core.Reader;
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
@@ -71,9 +74,27 @@ pub fn start(connection: *Connection, transport: *QuicConnection) Error!void {
     var writer = local.control.free();
     frame_write.write_settings(&writer, settings_of(connection)) catch unreachable;
     local.control.commit(writer.written());
+    log_start(connection, writer.written());
     try supply(connection, transport, local.control_id.?, local.control.end_offset());
     try supply(connection, transport, local.encoder_id.?, local.encoder.end_offset());
     try supply(connection, transport, local.decoder_id.?, local.decoder.end_offset());
+}
+
+/// Decision 102: the three streams' types, the SETTINGS frame `settings_frame` holds, and the
+/// settings in it (h3-events §3.3, §3.5, §3.1).
+fn log_start(connection: *Connection, settings_frame: []const u8) void {
+    if (connection.options.qlog == null) return;
+    const local = &connection.local;
+    connection_qlog.stream_type_set(connection, .local, local.control_id.?, .control);
+    connection_qlog.stream_type_set(connection, .local, local.encoder_id.?, .qpack_encoder);
+    connection_qlog.stream_type_set(connection, .local, local.decoder_id.?, .qpack_decoder);
+    // The frame's header comes first, and the settings are read again from the payload after it.
+    var reader = Reader.init(settings_frame);
+    const header = frame.read_header(&reader) catch unreachable;
+    // The frame was written whole a moment ago, so its payload is there.
+    const payload = reader.take(@intCast(header.length)) catch unreachable;
+    connection_qlog.frame_event(connection, .created, local.control_id.?, .{ .settings = payload });
+    connection_qlog.parameters_set(connection, .local, settings_of(connection));
 }
 
 fn open(connection: *Connection, transport: *QuicConnection) Error!u64 {
@@ -194,6 +215,7 @@ pub fn write_goaway(connection: *Connection, transport: *QuicConnection) connect
     try frame_write.write_single(&writer, constants.frame_goaway, value);
     local.control.commit(writer.written());
     connection.goaway_sent = value;
+    connection_qlog.frame_event(connection, .created, id, .{ .goaway = .{ .id = value, .payload_len = wire.varint.encoded_len_minimal(value) } });
     try supply(connection, transport, id, local.control.end_offset());
 }
 

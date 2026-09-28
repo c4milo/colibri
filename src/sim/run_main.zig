@@ -387,6 +387,7 @@ fn h2_input_check_seeds(seeds: u64) !void {
 /// The h3 check of design §8 step 12, over `[0, seeds)`, in the normal or the long shape.
 fn h3_check_seeds(seeds: u64, shape: h3_check.Shape) !void {
     h3_storage.shape = shape;
+    h3_storage.logged = false;
     var census: h3_check.Census = .{};
     var failed_seed: ?u64 = null;
     h3_check.run_check(&h3_storage, seeds, &census, &failed_seed) catch |failure| {

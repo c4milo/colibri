@@ -21,7 +21,7 @@ const next = harness.next;
 /// that is.
 fn pair_raw_client() !void {
     harness.pair_unstarted(.{ .role = .client }, .{ .role = .server });
-    try server.h3.start(&server.transport);
+    try server.h3.start(&server.transport, harness.test_now_ns);
 }
 
 /// Opens a unidirectional stream at the client and writes `octets` on it.
@@ -130,7 +130,7 @@ test "§6.2.1: a peer that stops colibri's control stream has closed it" {
         // §6.2.1: "the receiver MUST NOT request that the sender close the control stream".
         try quic.connection_stream_send.stop_sending(&client.transport, .{ .value = server.h3.local.control_id.? }, 0);
         try exchange();
-        try testing.expectError(error.ConnectionFailed, server.h3.shutdown(&server.transport));
+        try testing.expectError(error.ConnectionFailed, server.h3.shutdown(&server.transport, harness.test_now_ns));
         try testing.expectEqual(constants.error_closed_critical_stream, server.h3.failure.?);
     }
 }
@@ -148,7 +148,7 @@ test "§6.2: a unidirectional stream that ends before its type is tolerated, and
 
 test "§7.2.4.1: colibri's SETTINGS carry a reserved setting drawn from the grease value" {
     harness.pair_unstarted(.{ .role = .client, .grease = 5 }, .{ .role = .server });
-    try client.h3.start(&client.transport);
+    try client.h3.start(&client.transport, harness.test_now_ns);
     // Identifier 0x1f * 5 + 0x21 = 0xbc, a two-octet varint, and the value 5.
     const control = &client.h3.local.control;
     try testing.expect(std.mem.indexOf(u8, control.octets[0..control.len], &.{ 0x40, 0xbc, 0x05 }) != null);
@@ -261,7 +261,7 @@ test "RFC 9204 §4.4, §6: a decoder instruction the encoder refuses is QPACK_DE
 test "§6.2: a peer that allows fewer than three unidirectional streams fails h3's start" {
     harness.pair_unstarted(.{ .role = .client }, .{ .role = .server });
     client.transport.streams.local_limit[@intFromEnum(quic.stream.Directionality.unidirectional)] = .init(2);
-    try testing.expectError(error.ConnectionFailed, client.h3.start(&client.transport));
+    try testing.expectError(error.ConnectionFailed, client.h3.start(&client.transport, harness.test_now_ns));
     try testing.expectEqual(constants.error_general_protocol, client.h3.failure.?);
 }
 

@@ -87,12 +87,19 @@ pub const Endpoint = struct {
     body: [constants.h3_check_content_len_max]u8,
     section: FieldSection,
     expected: FieldSection,
+    /// The instant of the step in progress, which each h3 call takes (decision 102 as amended).
+    now_ns: u64,
 
-    pub fn init(endpoint: *Endpoint, role: quic.connection.Role, plan: *const Plan, now_ns: u64) void {
-        endpoint.transport.init_with(role, now_ns, parameters(), null);
-        endpoint.h3.init(if (role == .client) plan.client else plan.server);
+    /// An endpoint of `role` that runs `plan`, whose QUIC and h3 connections both write into
+    /// `log`, or neither when it is null (decision 102).
+    pub fn init(endpoint: *Endpoint, role: quic.connection.Role, plan: *const Plan, now_ns: u64, log: ?*quic.qlog.Log) void {
+        endpoint.transport.init_with(role, now_ns, parameters(), log);
+        var options = if (role == .client) plan.client else plan.server;
+        options.qlog = log;
+        endpoint.h3.init(options);
         endpoint.transport.application = endpoint.h3.provider(.{ .context = endpoint, .vtable = &kept_vtable });
         endpoint.plan = plan;
+        endpoint.now_ns = now_ns;
         endpoint.started = false;
         endpoint.requests_sent = 0;
         endpoint.responses_ended = 0;
@@ -106,17 +113,18 @@ pub const Endpoint = struct {
 
     /// What a caller does after `quic` took the step's datagrams: start h3, send what the plan
     /// sends now, and read every event.
-    pub fn step(endpoint: *Endpoint) Error!void {
+    pub fn step(endpoint: *Endpoint, now_ns: u64) Error!void {
+        endpoint.now_ns = now_ns;
         if (!endpoint.started) {
             if (!endpoint.transport.connection.handshake_complete) return;
-            try endpoint.h3.start(&endpoint.transport.connection);
+            try endpoint.h3.start(&endpoint.transport.connection, now_ns);
             endpoint.started = true;
         }
         if (endpoint.is_client()) try endpoint.send_requests();
         // Bounded: every event reads at least one frame or content octet the peer sent, and a
         // step's datagrams carry at most this many of either.
         for (0..constants.h3_check_steps_max) |_| {
-            const event = try endpoint.h3.receive(&endpoint.transport.connection, &endpoint.body) orelse return;
+            const event = try endpoint.h3.receive(&endpoint.transport.connection, &endpoint.body, now_ns) orelse return;
             try endpoint.on_event(event);
         }
     }
@@ -147,7 +155,7 @@ pub const Endpoint = struct {
             const kept = &endpoint.kept[index];
             var writer = Writer.init(&kept.prefix);
             const section = try endpoint.request_section(&endpoint.section, index);
-            const id = endpoint.h3.write_request(&endpoint.transport.connection, section, &.{}, &writer) catch |failure| switch (failure) {
+            const id = endpoint.h3.write_request(&endpoint.transport.connection, section, &.{}, &writer, endpoint.now_ns) catch |failure| switch (failure) {
                 // RFC 9000 §4.6: the server has not raised its stream limit yet, so the client
                 // waits for its MAX_STREAMS frame. Nothing was written.
                 error.StreamsExhausted => return,
@@ -166,16 +174,16 @@ pub const Endpoint = struct {
         var writer = Writer.init(&kept.prefix);
         const connection = &endpoint.transport.connection;
         if (exchange.interim) {
-            try endpoint.h3.write_response(connection, id, try status_section(&endpoint.section, h3_plan.interim_status), &.{}, &writer);
+            try endpoint.h3.write_response(connection, id, try status_section(&endpoint.section, h3_plan.interim_status), &.{}, &writer, endpoint.now_ns);
         }
-        try endpoint.h3.write_response(connection, id, try endpoint.response_section(&endpoint.section, index), &.{}, &writer);
+        try endpoint.h3.write_response(connection, id, try endpoint.response_section(&endpoint.section, index), &.{}, &writer, endpoint.now_ns);
         try endpoint.write_message(id, &exchange.response, kept, &writer);
     }
 
     /// Writes a message's DATA frame header after its header section, keeps its trailer section
     /// apart, and ends the stream after both (RFC 9114 §4.1). `prefix` wrote the header section.
     fn write_message(endpoint: *Endpoint, id: u64, message: *const h3_plan.Message, kept: *Kept, prefix: *Writer) Error!void {
-        if (message.content_len > 0) try h3.connection.write_data_header(message.content_len, prefix);
+        if (message.content_len > 0) try endpoint.h3.write_data_header(id, message.content_len, prefix, endpoint.now_ns);
         kept.prefix_len = prefix.written().len;
         kept.content_len = message.content_len;
         kept.suffix_len = 0;
@@ -183,7 +191,7 @@ pub const Endpoint = struct {
             var suffix = Writer.init(&kept.suffix);
             endpoint.section.init();
             try endpoint.section.append(h3_plan.trailer_line.name, h3_plan.trailer_line.value);
-            try endpoint.h3.write_trailers(&endpoint.transport.connection, id, &endpoint.section, &suffix);
+            try endpoint.h3.write_trailers(&endpoint.transport.connection, id, &endpoint.section, &suffix, endpoint.now_ns);
             kept.suffix_len = suffix.written().len;
         }
         try quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len(), true);

@@ -35,6 +35,9 @@ REQUIRED_DATA = {
     "quic:packet_sent": ("header",),
     "quic:packet_received": ("header",),
     "quic:connection_state_updated": ("new",),
+    "http3:stream_type_set": ("stream_id", "stream_type"),
+    "http3:frame_created": ("stream_id", "frame"),
+    "http3:frame_parsed": ("stream_id", "frame"),
 }
 
 
@@ -83,6 +86,9 @@ def check_event(path, index, event, previous_time):
     header = event["data"].get("header")
     if header is not None and "packet_type" not in header:
         fail(path, f"event {index}, {event['name']}, has a header with no packet_type")
+    frame = event["data"].get("frame")
+    if frame is not None and "frame_type" not in frame:
+        fail(path, f"event {index}, {event['name']}, has a frame with no frame_type")
     return event["time"]
 
 

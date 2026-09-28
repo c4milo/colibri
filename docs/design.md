@@ -5060,6 +5060,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     server and by the client, and a connection given no log. The first and last of those four were
     NOT CAUGHT until `complete` required each file to log its connection's close.
 
+  **18d, 2026-09-28.** `h3` imports `qlog`, and `Options.qlog`, null by default, is the log an h3
+  connection writes its HTTP/3 events into. A caller that passes its QUIC connection's log keeps
+  both in one trace (h3-events §1.1). Each call that writes or reads a frame takes the instant,
+  `now_ns`, and `write_data_header` is a method that names its stream (decision 102 as amended).
+  - `connection_qlog.zig` logs `stream_type_set` for each stream colibri or the peer opens, the
+    SETTINGS frame each side sends with `parameters_set` for each, and `frame_created` and
+    `frame_parsed` for HEADERS with their field lines, DATA, GOAWAY, MAX_PUSH_ID, CANCEL_PUSH and
+    reserved or unknown frames. A field line is text when printable ASCII and octets otherwise
+    (h3-events §4.2.2). The UDP endpoint's h3 connections write into their QUIC connection's
+    file, which names both event schemas.
+  - 7 tests in `connection_qlog_test.zig` and 4 in `qlog/h3_event.zig`. 21 mutations, each CAUGHT
+    by `zig build test-h3`, removed each hook, kept a stale instant on two calls, and swapped the
+    reserved and unknown names and the field section size setting's. The stale instant on a DATA
+    frame was NOT CAUGHT until its test gave the frame an instant of its own.
+  - The simulator runs the h3 check's first 32 seeds twice, without logs and with one on each
+    endpoint, and both give the same datagram digest. The logs' length and digest are pinned, and
+    Debug and ReleaseSafe agree. A log too small for a step's events is reported. With logs, the
+    whole h3 check wrote 91 MB and the long check 354 MB, and they made `zig build test-sim-run`
+    43 and 122 seconds longer on an Apple M1 Pro, so the test runs 32 seeds, which cost 5.
+  - 5 mutations, each CAUGHT by `zig build test-sim-run`: the endpoints given no log, the h3
+    connection given none, a dropped event unreported, the records not taken after a step, and a
+    logger that changes how field sections are encoded. A logger that changed the grease value
+    after SETTINGS had gone out changed nothing sent, and was rightly NOT CAUGHT.
+  - Not built yet: parsing each record as JSON in the simulator, which waits for stdx's decoder.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

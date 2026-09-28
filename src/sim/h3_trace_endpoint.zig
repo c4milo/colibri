@@ -81,12 +81,15 @@ pub const Endpoint = struct {
     kept: [constants.h3_trace_requests_max]Kept,
     section: FieldSection,
     body: [constants.h3_trace_prefix_len_max]u8,
+    /// The instant of the step in progress, which each h3 call takes (decision 102 as amended).
+    now_ns: u64,
 
     pub fn init(endpoint: *Endpoint, role: quic.connection.Role, plan: *const Plan, now_ns: u64) void {
         endpoint.transport.init_with(role, now_ns, parameters(), null);
         endpoint.h3.init(if (role == .client) client_options(plan) else server_options(plan));
         endpoint.transport.application = endpoint.h3.provider(.{ .context = endpoint, .vtable = &kept_vtable });
         endpoint.plan = plan;
+        endpoint.now_ns = now_ns;
         endpoint.started = false;
         endpoint.opened = 0;
         endpoint.outcome = @splat(.none);
@@ -104,10 +107,11 @@ pub const Endpoint = struct {
 
     /// What a caller does after `quic` took the step's datagrams: start h3, act on the plan at
     /// step `at`, and read every event.
-    pub fn step(endpoint: *Endpoint, at: u64) Error!void {
+    pub fn step(endpoint: *Endpoint, at: u64, now_ns: u64) Error!void {
+        endpoint.now_ns = now_ns;
         if (!endpoint.started) {
             if (!endpoint.transport.connection.handshake_complete) return;
-            try endpoint.h3.start(&endpoint.transport.connection);
+            try endpoint.h3.start(&endpoint.transport.connection, now_ns);
             endpoint.started = true;
         }
         if (endpoint.is_client()) {
@@ -117,7 +121,7 @@ pub const Endpoint = struct {
         // Bounded: every event reads at least one frame the peer sent, and a step's datagrams
         // carry at most this many.
         for (0..constants.h3_trace_steps_max) |_| {
-            const event = try endpoint.h3.receive(&endpoint.transport.connection, &endpoint.body) orelse return;
+            const event = try endpoint.h3.receive(&endpoint.transport.connection, &endpoint.body, now_ns) orelse return;
             if (endpoint.is_client()) try endpoint.on_client_event(event) else try endpoint.on_server_event(event);
         }
     }
@@ -154,7 +158,7 @@ pub const Endpoint = struct {
                 indexing[pseudo_lines] = .may_insert;
             }
             const lines = endpoint.section.len();
-            const id = endpoint.h3.write_request(&endpoint.transport.connection, &endpoint.section, indexing[0..lines], &writer) catch |failure| switch (failure) {
+            const id = endpoint.h3.write_request(&endpoint.transport.connection, &endpoint.section, indexing[0..lines], &writer, endpoint.now_ns) catch |failure| switch (failure) {
                 // RFC 9114 §5.2: no request opens after the server's GOAWAY.
                 error.GoawayReceived => return,
                 else => return failure,
@@ -162,7 +166,7 @@ pub const Endpoint = struct {
             assert(id == r * request_stream_step);
             endpoint.headers_end[r] = writer.written().len;
             endpoint.required[r] = endpoint.outstanding_required(id);
-            try write_content(endpoint.plan.content, &writer);
+            try endpoint.write_content(id, endpoint.plan.content, &writer);
             kept.len = writer.written().len;
             try quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len, true);
             endpoint.opened += 1;
@@ -192,7 +196,7 @@ pub const Endpoint = struct {
     fn send_goaways(endpoint: *Endpoint, at: u64) Error!void {
         // Bounded by the plan's GOAWAY frames.
         while (endpoint.goaways_sent < endpoint.plan.goaways and endpoint.plan.goaway_at[endpoint.goaways_sent] <= at) {
-            try endpoint.h3.shutdown(&endpoint.transport.connection);
+            try endpoint.h3.shutdown(&endpoint.transport.connection, endpoint.now_ns);
             endpoint.goaways_sent += 1;
         }
     }
@@ -233,6 +237,15 @@ pub const Endpoint = struct {
         }
     }
 
+    /// Writes `count` DATA frames on `id`, each carrying `h3_trace_data_len` octets.
+    fn write_content(endpoint: *Endpoint, id: u64, count: u32, writer: *Writer) Error!void {
+        const payload: [constants.h3_trace_data_len]u8 = @splat(content_octet);
+        for (0..count) |_| {
+            try endpoint.h3.write_data_header(id, payload.len, writer, endpoint.now_ns);
+            try writer.write_bytes(&payload);
+        }
+    }
+
     /// Answers a request the server has read to its end with a final response and no content.
     fn respond(endpoint: *Endpoint, id: u64) Error!void {
         const r = index_of(id);
@@ -241,7 +254,7 @@ pub const Endpoint = struct {
         var writer = Writer.init(&kept.octets);
         endpoint.section.init();
         try endpoint.section.append(":status", "200");
-        try endpoint.h3.write_response(&endpoint.transport.connection, id, &endpoint.section, &.{.no_insert}, &writer);
+        try endpoint.h3.write_response(&endpoint.transport.connection, id, &endpoint.section, &.{.no_insert}, &writer, endpoint.now_ns);
         kept.len = writer.written().len;
         quic.connection_stream_send.supply(&endpoint.transport.connection, .{ .value = id }, kept.len, true) catch |failure| switch (failure) {
             // RFC 9000 §3.5: the client cancelled a request it had sent whole, and its
@@ -262,15 +275,6 @@ fn line_value(plan: *const Plan, r: usize, value: *[value_len_max]u8) ?[]const u
         .repeat => plan.last_new(r).?,
     };
     return std.fmt.bufPrint(value, "v{d}", .{source}) catch unreachable;
-}
-
-/// Writes `count` DATA frames, each carrying `h3_trace_data_len` octets.
-fn write_content(count: u32, writer: *Writer) Error!void {
-    const payload: [constants.h3_trace_data_len]u8 = @splat(content_octet);
-    for (0..count) |_| {
-        try h3.connection.write_data_header(payload.len, writer);
-        try writer.write_bytes(&payload);
-    }
 }
 
 /// The octet every DATA frame's payload is made of.

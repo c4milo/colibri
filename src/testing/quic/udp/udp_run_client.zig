@@ -56,7 +56,7 @@ fn start(
     connection.spare_ids_issued = false;
     over_h3 = asked.h3;
     if (over_h3) {
-        h3_side.init(asked.downloads, paths, asked.hostname, udp_identity.grease());
+        h3_side.init(asked.downloads, paths, asked.hostname, udp_identity.grease(), connection.peer.connection.qlog.log);
     } else {
         client.init(asked.downloads, paths);
     }
@@ -86,10 +86,10 @@ pub fn update_keys_once(connection: *Connection, now_ns: u64) void {
 
 /// Reads and requests on the connection's streams, and ends the connection once every file has
 /// arrived: hq-interop with NO_ERROR, and h3 with H3_NO_ERROR (RFC 9114 §5.2).
-pub fn step(connection: *Connection) void {
+pub fn step(connection: *Connection, now_ns: u64) void {
     const held = &connection.peer.connection;
     if (over_h3) {
-        h3_side.step(held) catch |failure| udp_run.fail("the h3 client failed: {t}", .{failure});
+        h3_side.step(held, now_ns) catch |failure| udp_run.fail("the h3 client failed: {t}", .{failure});
         if (h3_side.is_done()) connection.peer.close(h3.constants.error_no_error);
         return;
     }

@@ -75,9 +75,11 @@ pub const Server = struct {
     /// Responses answered with a file or the root body, which the endpoint reports.
     served: u64,
 
-    pub fn init(server: *Server, www: []const u8, grease: u64) void {
+    /// A server of `www`, whose h3 events go to `log`: the QUIC connection's, so one file holds
+    /// both (decision 102).
+    pub fn init(server: *Server, www: []const u8, grease: u64, log: ?*quic.qlog.Log) void {
         server.www = www;
-        server.connection.init(.{ .role = .server, .grease = grease, .qpack = qpack_settings });
+        server.connection.init(.{ .role = .server, .grease = grease, .qpack = qpack_settings, .qlog = log });
         server.started = false;
         server.failure = null;
         server.responses = @splat(null);
@@ -92,18 +94,18 @@ pub const Server = struct {
 
     /// What a datagram may have changed: start h3 once the handshake completes, read every event,
     /// and free the streams that closed.
-    pub fn step(server: *Server, transport: *quic.Connection) Error!void {
+    pub fn step(server: *Server, transport: *quic.Connection, now_ns: u64) Error!void {
         if (server.failure != null) return;
         if (!server.started) {
             if (!transport.handshake_complete) return;
-            server.connection.start(transport) catch return server.note_failure();
+            server.connection.start(transport, now_ns) catch return server.note_failure();
             server.started = true;
         }
         // Bounded: every event reads at least one frame or content octet the client sent, and
         // one datagram carries a bounded number of them.
         for (0..constants.hq_read_len) |_| {
-            const event = server.connection.receive(transport, &server.body) catch return server.note_failure();
-            try server.on_event(transport, event orelse break);
+            const event = server.connection.receive(transport, &server.body, now_ns) catch return server.note_failure();
+            try server.on_event(transport, event orelse break, now_ns);
         }
         server.release_closed(transport);
     }
@@ -113,10 +115,10 @@ pub const Server = struct {
         std.debug.print("quic-udp: h3 closed the connection with 0x{x}\n", .{server.failure.?});
     }
 
-    fn on_event(server: *Server, transport: *quic.Connection, event: h3.connection.Event) Error!void {
+    fn on_event(server: *Server, transport: *quic.Connection, event: h3.connection.Event, now_ns: u64) Error!void {
         switch (event) {
             .request => |held| server.take(held.stream_id, held.request),
-            .end => |id| if (server.find(id)) |response| try server.answer(transport, response),
+            .end => |id| if (server.find(id)) |response| try server.answer(transport, response, now_ns),
             .reset, .refused => |held| server.release(held.stream_id),
             // Content and trailers the client sends are read and dropped; the rest asks nothing.
             .data, .trailers, .settings, .goaway => {},
@@ -139,7 +141,7 @@ pub const Server = struct {
     }
 
     /// Writes the response to a request that has ended, and tells `quic` how far it reaches.
-    fn answer(server: *Server, transport: *quic.Connection, response: *Response) Error!void {
+    fn answer(server: *Server, transport: *quic.Connection, response: *Response, now_ns: u64) Error!void {
         if (response.answered) return;
         response.answered = true;
         server.open_content(response);
@@ -149,10 +151,10 @@ pub const Server = struct {
         try server.section.append(":status", if (found) "200" else "404");
         try server.section.append("content-length", std.fmt.bufPrint(&length_digits, "{d}", .{response.content_len}) catch unreachable);
         var writer = Writer.init(&response.prefix);
-        try server.connection.write_response(transport, response.id, &server.section, &.{}, &writer);
+        try server.connection.write_response(transport, response.id, &server.section, &.{}, &writer, now_ns);
         // RFC 9110 §9.3.2: a response to HEAD carries no content.
         if (response.head) response.content_len = 0;
-        if (response.content_len > 0) try h3.connection.write_data_header(response.content_len, &writer);
+        if (response.content_len > 0) try server.connection.write_data_header(response.id, response.content_len, &writer, now_ns);
         response.prefix_len = writer.written().len;
         if (found) server.served += 1;
         try quic.connection_stream_send.supply(transport, .{ .value = response.id }, response.prefix_len + response.content_len, true);

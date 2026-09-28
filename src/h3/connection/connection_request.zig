@@ -22,6 +22,7 @@ const frame = @import("../frame.zig");
 const message = @import("../message/message.zig");
 const connection_module = @import("connection.zig");
 const connection_local = @import("connection_local.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
 const Reader = core.Reader;
 const Writer = core.Writer;
@@ -131,6 +132,7 @@ pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
             .live => {
                 const slot = requests.free_slot() orelse return;
                 slot.* = .{ .id = id.value };
+                connection_qlog.request_stream_set(connection, .remote, id.value);
                 // §5.2: "Requests or pushes with the indicated identifier or greater are
                 // rejected", which §4.1.1 does with H3_REQUEST_REJECTED.
                 const limit = connection.goaway_sent orelse std.math.maxInt(u64);
@@ -215,7 +217,7 @@ fn read_frame(connection: *Connection, transport: *QuicConnection, request: *Req
     return switch (header.frame_type) {
         constants.frame_headers => read_headers(connection, transport, request, header, header_len),
         constants.frame_data => start_data(connection, request, transport, header, header_len),
-        else => start_skip(transport, request, header, header_len),
+        else => start_skip(connection, transport, request, header, header_len),
     };
 }
 
@@ -279,6 +281,7 @@ fn read_headers(connection: *Connection, transport: *QuicConnection, request: *R
         // Decision 74: `step` reads the streams that are ready first.
         .read_ready_first => return .wait,
     }
+    connection_qlog.frame_event(connection, .parsed, request.id, .{ .headers = .{ .section = &connection.section, .payload_len = header.length } });
     request.fin_read = (stream_read.consume(transport, id, total) catch unreachable).fin;
     return on_section(connection, transport, request);
 }
@@ -340,6 +343,7 @@ fn on_response(connection: *Connection, transport: *QuicConnection, request: *Re
 }
 
 fn start_data(connection: *Connection, request: *RequestStream, transport: *QuicConnection, header: frame.Header, header_len: usize) Error!Step {
+    connection_qlog.frame_event(connection, .parsed, request.id, .{ .data = header.length });
     request.fin_read = (stream_read.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
     request.data_left = header.length;
     request.content_received +|= header.length;
@@ -366,7 +370,8 @@ fn read_data(connection: *Connection, transport: *QuicConnection, request: *Requ
     return .{ .event = .{ .data = .{ .stream_id = request.id, .octets = window[0..read.len] } } };
 }
 
-fn start_skip(transport: *QuicConnection, request: *RequestStream, header: frame.Header, header_len: usize) Step {
+fn start_skip(connection: *Connection, transport: *QuicConnection, request: *RequestStream, header: frame.Header, header_len: usize) Step {
+    connection_qlog.frame_event(connection, .parsed, request.id, .{ .other = .{ .frame_type = header.frame_type, .payload_len = header.length } });
     request.fin_read = (stream_read.consume(transport, .{ .value = request.id }, header_len) catch unreachable).fin;
     // §9: "Implementations MUST ignore unknown or unsupported values in all extensible protocol
     // elements", so an unknown frame's payload is skipped unread.

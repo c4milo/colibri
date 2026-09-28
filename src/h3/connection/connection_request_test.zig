@@ -216,7 +216,7 @@ test "§4.1: interim responses come before the final one, and carry no content" 
     const id = try harness.request(&harness.get_lines, "");
     try exchange();
     var writer = server.writer_for(id);
-    try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &.{.{ ":status", "103" }}), &.{}, &writer);
+    try server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &.{.{ ":status", "103" }}), &.{}, &writer, harness.test_now_ns);
     try server.commit(id, writer.written(), false);
     try harness.respond(id, &harness.ok_lines, "ok");
     try exchange();
@@ -246,7 +246,7 @@ test "§4.1.1: a request the client cancels reaches the server as a reset with i
     const lines = harness.get_lines;
     const section = try harness.section_of(&harness.test_section, &lines);
     var writer = client.writer_for(0);
-    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer);
+    const id = try client.h3.write_request(&client.transport, section, &.{}, &writer, harness.test_now_ns);
     try client.commit(id, writer.written(), false);
     try exchange();
     _ = (try next(server)).?.request;
@@ -261,7 +261,7 @@ test "§5.2: after colibri's GOAWAY a server rejects later requests, and the cli
     const first = try harness.request(&harness.get_lines, "");
     try exchange();
     _ = (try next(server)).?.request;
-    try server.h3.shutdown(&server.transport);
+    try server.h3.shutdown(&server.transport, harness.test_now_ns);
     // A request already on its way names a stream the GOAWAY did not take.
     const late = try harness.request(&harness.get_lines, "");
     try exchange();
@@ -280,6 +280,6 @@ test "§4.2.2: a section past the peer's SETTINGS_MAX_FIELD_SECTION_SIZE is not 
     try exchange();
     var writer = server.writer_for(id);
     const long = [_]Line{ .{ ":status", "200" }, .{ "x-long", "a" ** 64 } };
-    try testing.expectError(error.FieldSectionTooLarge, server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &long), &.{}, &writer));
+    try testing.expectError(error.FieldSectionTooLarge, server.h3.write_response(&server.transport, id, try harness.section_of(&harness.test_section, &long), &.{}, &writer, harness.test_now_ns));
     try testing.expectEqual(0, writer.written().len);
 }
