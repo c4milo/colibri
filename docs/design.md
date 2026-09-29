@@ -4253,6 +4253,50 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   ([decision 95](decisions.md)). A chunked body refuses it. 6 mutations, 6 **CAUGHT** by the
   connection's unit tests.
 
+  **RFC 9931, 2026-09-29.** RFC 9931 updates RFC 9112 with rules for the octets a client sends
+  before a CONNECT or an Upgrade is answered, and `docs/rfcs/` now holds it. The owner ruled on
+  what h11 does with those octets ([decision 109](decisions.md)). What was checked, and what
+  changed:
+  - §8, the server: a proxy server MUST close the connection when it refuses a CONNECT. h11 read the
+    next request after any final response to CONNECT other than 2xx, so it served the POST of
+    RFC 9931 Figure 1. `f109a15` closes the connection after every such response, at every h11
+    server.
+  - §8, the client: a proxy client MUST wait for the 2xx before it forwards the tunnel's octets,
+    or send `close`. h11's client pipelines nothing after a CONNECT, which is not idempotent, and
+    opens the tunnel's writer only on the 2xx. Content declared on the CONNECT was the one way to
+    write octets before the answer, and `de5b5f4` refuses it at both ends (RFC 9110 §9.3.6).
+  - The tunnel: RFC 9110 §6.4.1 makes every 2xx to CONNECT a tunnel, a 204 too, and h11 read a
+    204 as an ordinary response at both ends. `75d7320` opens the tunnel on it. A server now also
+    refuses to write Content-Length or Transfer-Encoding on a 2xx to CONNECT, which RFC 9110 §8.6
+    and RFC 9112 §6.1 forbid.
+  - Upgrade: h11 implements none. Its server writes no 101 and reads the next request as HTTP/1.1,
+    which RFC 9110 §7.8 and RFC 9931 §5 allow. Its client failed on a 101 but still sent the
+    Upgrade a caller named, and `209d2a3` refuses that request, as the `client` module does.
+  - §6.1: a TLS record sent after an ignored `Upgrade: TLS/1.2` is never read as a request. The
+    head scanner refuses it once it meets a bare CR, a lone LF or a start line longer than
+    `start_line_len_max`. It does not refuse the record's first octet, 22, on its own, so the
+    server may wait for more octets before it answers.
+  - §6.3 updates RFC 9298's `connect-udp`, which colibri does not implement (decisions 19 and 22).
+    h2 and h3 are outside §8, which binds HTTP/1.1 alone.
+  - The test-only server answered CONNECT with 200 and a Content-Length, and opens no tunnel.
+    `8f842b9` answers 501 over h11 and h2, and h11 closes after it. The HTTP Garden sends it the
+    golden corpus's CONNECT case, which now gets that 501.
+
+  What each check printed, on macOS arm64 with Zig 0.16.0:
+  - `zig build test`: 128 of 128 steps and 2361 of 2361 tests passed. `golden-check` read the new
+    server case `h11_server_connect_content`, a CONNECT with content, which owes a 400.
+  - `tools/h11_server_interop.sh --tls curl go` printed "every request ended with 200 over h11,
+    in cleartext and TLS, from: curl go", and `tools/h11_interop.sh --tls go h2o` printed "every
+    exchange ended as planned over h11, in cleartext and TLS, against: go h2o". `tools/h2spec.sh
+    18443 --tls` passed 144 of 146 cases in cleartext and over TLS, skipping decision 41's two.
+    The HTTP Garden needs Linux, and did not run.
+  - Mutations: 24 **CAUGHT** and 1 equivalent. By commit: 4 in the close after a refused
+    CONNECT, 6 in the 2xx rules, 8 in the content rules, 4 in the client, and 2 in the test
+    server. The golden case alone catches the read side's content check dropped. Two of the
+    client's were **NOT CAUGHT** until `209d2a3` added its test: CONNECT counted as idempotent,
+    and the tunnel's writer opened with the CONNECT head. The equivalent mutant writes the test
+    server's content after its 501, which the `server` module refuses.
+
 - **Step 15c — the `gzip` and `deflate` codings.** stdx's decoders from a pool the caller owns,
   under decision 91. It follows https://github.com/c4milo/stdx/issues/1. **Check:** step 15b's
   simulator check with coded bodies, the corrupt and refused verdicts each with a case, and
@@ -5658,7 +5702,8 @@ only place in the tree permitted to touch a socket
 ([invariant 2](invariants.md#inv-2--colibri-performs-no-io) is scoped to `src/` outside it).
 
 1. **A server**, `http-server`, answering `GET /` and `POST /` with 200 and a non-empty body,
-   in both cleartext and TLS modes, and **a client**, `http-client`, that runs a plan of
+   and CONNECT with 501, since it opens no tunnel (decision 109), in both cleartext and TLS
+   modes, and **a client**, `http-client`, that runs a plan of
    exchanges against another implementation's server and reports how each ended. For h2spec,
    h2load and `tools/h2_interop.sh`. They landed as `h2-server` and `h2-client` with step 4
    (cleartext) and step 5 (TLS), and the owner renamed them on 2026-09-25, when step 15d gave

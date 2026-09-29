@@ -27,7 +27,7 @@ rule or none at all.
 | [7405](rfc7405.txt) | Case-Sensitive String Support in ABNF | The `%s` prefix RFC 9110 §2.1 and RFC 9112 §1.2 add to RFC 5234: `%s"HTTP"` matches only as written, and a quoted string with no prefix matches in any case (decision 15), copied on 2026-09-29 |
 | [9111](rfc9111.txt) | HTTP Caching | Not implemented; its conformance bar is zero (decision 16) |
 | [9112](rfc9112.txt) | HTTP/1.1 | `h11` (decisions 88 and 91) |
-| [9931](rfc9931.txt) | Security Considerations for Optimistic Protocol Transitions in HTTP/1.1 | What h11 does with the octets that follow a CONNECT or an Upgrade request before its answer, copied on 2026-09-29 |
+| [9931](rfc9931.txt) | Security Considerations for Optimistic Protocol Transitions in HTTP/1.1 | What h11 does with the octets that follow a CONNECT or an Upgrade request before its answer (decision 109), copied on 2026-09-29 |
 | [6585](rfc6585.txt) | Additional HTTP Status Codes | The 431 an h11 server answers a field section too large with (decision 92), copied on 2026-09-25 |
 | [3986](rfc3986.txt) | Uniform Resource Identifier (URI): Generic Syntax | The grammar of Host and of the request-target that RFC 9110 §4 and RFC 9112 §3.2 cite, copied on 2026-09-25 |
 | [9113](rfc9113.txt) | HTTP/2 | `h2` |
