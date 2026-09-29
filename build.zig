@@ -24,6 +24,7 @@ const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const modules_test_roots = @import("build/modules_test_roots.zig");
 const modules_exports = @import("build/modules_exports.zig");
+const modules_testing_udp = @import("build/modules_testing_udp.zig");
 const generated = @import("build/generated.zig");
 const lint = @import("build/lint.zig");
 const vectors = @import("build/vectors.zig");
@@ -75,7 +76,7 @@ pub fn build(b: *std.Build) void {
     const rotor_options = .{ .target = target, .release = optimize == .ReleaseSafe };
     const rotor_dependency = b.lazyDependency("rotor", rotor_options) orelse return;
     // Design §8 step 16b: the UDP endpoint's sessions are `tls`'s, over the `KEYLOG=on` objects.
-    const testing_udp = modules.add_testing_udp(b, graph, rotor_dependency.module("rotor"), target, optimize);
+    const testing_udp = modules_testing_udp.add(b, graph, rotor_dependency.module("rotor"), target, optimize);
     // The QUIC Interop Runner's endpoint is the same program, under the name its image copies. It
     // pins the server's key, because the runner's certificates fail the Web PKI profile (the
     // owner's ruling of 2026-09-26, design §8 step 16b).

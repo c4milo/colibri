@@ -24,6 +24,7 @@
 //!     sim --h11-connection-check [seeds] (step 15b)
 //!     sim --h11-coding-seed <hex>      one seed's gzip and deflate bodies an h11 connection decodes
 //!     sim --h11-coding-check [seeds]   (step 15c)
+//!     sim --coding-seed <hex> | --coding-check [seeds]   content codings, client to server (17e)
 //!
 //! The h11 commands are in `run_main_h11.zig`, split off for length.
 //!
@@ -33,6 +34,7 @@ const std = @import("std");
 const sim = @import("sim");
 const chunk_check = @import("chunk_check.zig");
 const run_main_h11 = @import("run_main_h11.zig");
+const run_main_content_coding = @import("run_main_content_coding.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
 const connection_check = @import("connection_check.zig");
@@ -67,7 +69,7 @@ const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --client-trace-seed <hex> | --client-trace-check [seeds] | --client-trace-write <directory>" ++
     " | --h11-split-seed <hex> | --h11-split-check [seeds]" ++
     " | --h11-connection-seed <hex> | --h11-connection-check [seeds]" ++
-    " | --h11-coding-seed <hex> | --h11-coding-check [seeds]\n";
+    " | --h11-coding-seed <hex> | --h11-coding-check [seeds] | --coding-seed <hex> | --coding-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -94,6 +96,8 @@ pub const Command = union(enum) {
     h11_connection_check: u64,
     h11_coding_seed: u64,
     h11_coding_check: u64,
+    coding_seed: u64,
+    coding_check: u64,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -146,6 +150,8 @@ pub fn main(init: std.process.Init) !void {
         .h11_connection_check => |seeds| try run_main_h11.connection_check(seeds),
         .h11_coding_seed => |seed| try run_main_h11.coding_seed(seed),
         .h11_coding_check => |seeds| try run_main_h11.coding_check(seeds),
+        .coding_seed => |seed| try run_main_content_coding.seed(seed),
+        .coding_check => |seeds| try run_main_content_coding.check(seeds),
     }
 }
 
@@ -191,6 +197,8 @@ fn parse_h11(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--h11-connection-check")) return .{ .h11_connection_check = try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--h11-coding-seed")) return .{ .h11_coding_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--h11-coding-check")) return .{ .h11_coding_check = try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--coding-seed")) return .{ .coding_seed = try parse_seed(value) };
+    if (std.mem.eql(u8, flag, "--coding-check")) return .{ .coding_check = try parse_seeds(value) };
     return parse_h2_trace(flag, value);
 }
 

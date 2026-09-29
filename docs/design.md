@@ -63,7 +63,7 @@ core   <- crypto <- quic, tls
 stdx   <- qlog   <- quic, h3
 core   <- wire   <- quic  <- h3
 core, tls_provider, crypto <- sim
-core, wire, sim, h2, qpack, h3, quic, client, tls <- sim_run
+core, wire, sim, h2, qpack, h3, quic, client, server, tls <- sim_run
 core, sim, quic  <- sim_run_quic
 core, wire, hpack, quic <- golden
 core, h2, tls, server, rotor <- testing, testing_client
@@ -95,7 +95,7 @@ testdata <- tls_keylog, sim_run, and the roots the tests of tls, server and clie
 | `tls_keylog` | `tls` again over objects built `KEYLOG=on`: for the tests that seal a peer's records under the secrets chapulin logs, and for the QUIC endpoints of §9, which write them to SSLKEYLOGFILE; test-only | `tls_provider`, `crypto`, chapulin's TCP and QUIC objects built `KEYLOG=on`, and `testdata` for its tests | — |
 | `testdata` | the test identity the handshake tests of `tls`, `tls_keylog`, `server` and `client` and the client trace run read: a CA, a leaf for `localhost` and the leaf's key pair, valid from 2026-01-01 to 2126-01-01 and made once with openssl (`src/testing/testdata/README.md`). One copy serves them all, because `@embedFile` reads only inside the directory of the module that calls it. Test-only: the tests of `tls`, `server` and `client` compile from roots of their own that import it (`build/modules_test_roots.zig`). No packaged module imports it, and only colibri's own build makes it, so a project that depends on colibri never reaches its private key (the owner's ruling of 2026-09-28) | nothing | — |
 | `sim` | deterministic clock, byte pipe, datagram network, null providers | `core`, `tls_provider`, `crypto` | — |
-| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26), and `client` and `tls` at step 17d, whose client trace run drives the client's connections over chapulin (decision 105, the owner's ruling of 2026-09-28), with `testdata` for the identity its servers present | — |
+| `sim_run` | the checks of §8 run over `sim`, and the `zig build sim` command line | `core`, `wire`, `sim`, then each module a check drives: `h2` at step 4, `qpack` at step 11, `h3` and `quic` at step 12, `h11` at step 15a, stdx's `gzip` and `zlib` encoders at step 15c, which code the bodies the h11 coding check sends (the owner's ruling of 2026-09-26), and `client` and `tls` at step 17d, whose client trace run drives the client's connections over chapulin (decision 105, the owner's ruling of 2026-09-28), with `testdata` for the identity its servers present, and `server` at step 17e, whose content-coding check runs the client against it (the owner's ruling of 2026-09-29) | — |
 | `sim_run_quic` | the QUIC checks of §8 run over `sim`, from step 7 on | `core`, `sim`, `quic`, and no HTTP module | — |
 | `golden` | the byte-exact corpus and its manifest | what it checks | — |
 | `testing` | the test-only endpoints of §9, and the only socket in the tree | `core`, then each module an endpoint serves, `tls` for its TLS mode, `server`, which its h11 and h2 server runs on from step 17a, and `rotor` ([decision 83](decisions.md)) | — |
@@ -5231,6 +5231,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     trailer that arrives once the body is full, and the decoder given back at an exchange's end,
     at a drop and at a release, each of which the others had masked.
   - `zig build test` passed: 2321 of 2321 tests.
+
+  **17e part 3, the package and the simulator, 2026-09-29.**
+  - colibri's package exports stdx's `codec`, `gzip`, `zlib`, `zstd` and `brotli`
+    (`build/modules_exports.zig`), and `tools/consumer/` codes and decodes through the exported
+    `gzip`.
+  - `zig build sim -- --coding-check [seeds]` runs each seed's plan between colibri's client and
+    server over h11 or h2. `sim_run` imports `server` for it, as the owner ruled on 2026-09-29.
+    The plan draws each side's codings, and for each exchange its method, its caller's own
+    Accept-Encoding, the server's mark, the status, the content and the body memory. Each seed
+    runs twice in the same pieces and once whole, and each exchange must end as decision 101 says,
+    with its body octet for octet.
+  - Over its 32 seeds: 82 exchanges, 19 decoded, 4 passed on coded, and 8 too large. The census
+    CRC-32, 0x69460a6e, is the same in Debug and ReleaseSafe.
+  - `zig build test` passed: 2323 of 2323 tests.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:

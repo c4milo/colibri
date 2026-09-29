@@ -240,6 +240,8 @@ pub fn add(
     // and seeds every handshake from the seed.
     sim_run.addImport("client", client);
     sim_run.addImport("tls", tls);
+    // Decision 101: the content-coding check runs colibri's client against its server.
+    sim_run.addImport("server", server);
 
     // Decision 5: the QUIC checks are driven with no HTTP module in the graph, so they are not
     // in `sim_run`, which imports `h2`.
@@ -361,47 +363,6 @@ pub fn add(
     };
 }
 
-/// The UDP QUIC endpoint of design §9, rooted at `src/testing/quic_udp.zig`: the one module that
-/// imports rotor (decision 58). It is made apart from `add` because rotor is a lazy package that
-/// only colibri's own build requests, after a dependent project's build has stopped. `h2` is
-/// there for `src/testing/constants.zig`, which every module of `src/testing/` shares; `quic` is
-/// the module the endpoint serves, and `tls` over the `KEYLOG=on` objects fills its two vtables
-/// (design §8 step 16b).
-pub fn add_testing_udp(
-    b: *std.Build,
-    graph: Modules,
-    rotor: *std.Build.Module,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Module {
-    const module = create(b, "src/testing/quic_udp.zig", target, optimize);
-    module.addImport("h2", graph.h2);
-    module.addImport("quic", graph.quic);
-    // The h3 server and client of design §9, ruled by the owner on 2026-09-24.
-    module.addImport("h3", graph.h3);
-    module.addImport("rotor", rotor);
-    module.addImport("tls", graph.tls_keylog);
-    module.addImport("chapulin", graph.chapulin_quic_keylog.module("chapulin"));
-    // Design §8 step 17b: the h3 server runs on `server`, ruled by the owner on 2026-09-28. The
-    // endpoint links `tls_keylog`'s objects, and a second chapulin object fails the link, so it
-    // takes an instance of `server` over `tls_keylog`, which nothing packaged sees.
-    const server_keylog = create(b, "src/server/server.zig", target, optimize);
-    server_keylog.addImport("core", graph.core);
-    server_keylog.addImport("http", graph.http);
-    server_keylog.addImport("h11", graph.h11);
-    server_keylog.addImport("h2", graph.h2);
-    server_keylog.addImport("h3", graph.h3);
-    server_keylog.addImport("quic", graph.quic);
-    server_keylog.addImport("tls", graph.tls_keylog);
-    server_keylog.addImport("tls_provider", graph.tls_provider);
-    server_keylog.addImport("codec", graph.stdx.module("codec"));
-    server_keylog.addImport("gzip", graph.stdx.module("gzip"));
-    server_keylog.addImport("zlib", graph.stdx.module("zlib"));
-    module.addImport("server", server_keylog);
-    module.link_libc = true;
-    return module;
-}
-
 /// One module of the packaged library, exported by name so a project that depends on colibri
 /// reaches it with `dependency.module("<name>")`, carrying the imports given here. Its root is
 /// `src/<name>/<name>.zig`. The simulator, the corpus and the test-only endpoints stay
@@ -419,7 +380,7 @@ fn library(
     });
 }
 
-fn create(
+pub fn create(
     b: *std.Build,
     root_source_file: []const u8,
     target: std.Build.ResolvedTarget,

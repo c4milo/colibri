@@ -405,11 +405,11 @@ pub const h3_trace_units_max: u32 = h3_trace_units_per_request_max * h3_trace_re
 /// before it (RFC 9114 §7.2.8).
 pub const h3_trace_control_frames_per_unit_max: u32 = 2;
 
-/// The h11 coding check's limits (design §8 step 15c), in their own file for length.
+/// Four checks' limits in their own files: design §8 step 15c's, and decisions 104, 105 and 101's.
 pub const h11_coding = @import("constants_h11.zig");
-/// The h2 and client trace runs' limits (decisions 104 and 105), in their own files too.
 pub const h2_trace = @import("constants_h2_trace.zig");
 pub const client_trace = @import("constants_client_trace.zig");
+pub const content_coding = @import("constants_content_coding.zig");
 
 /// The h11 split check (design §8 step 15a): the messages one seed pipelines, the field lines a
 /// message carries besides Host and its framing, the longest fixed body, the chunks of a chunked
