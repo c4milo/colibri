@@ -30,14 +30,16 @@ The name is Spanish for hummingbird.
 
 ## Status
 
-colibri 0.4.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
+colibri 0.5.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
 16 put in the library. 0.2.0 has each TLS session draw from a source its caller passes. 0.3.0 ends
 a connection inside colibri on a TLS or QUIC error, and adds h2's trailers. 0.4.0 adds the `server`
-and `client` modules, whose `Channel` chooses h3 over QUIC or TCP for each server, and qlog.
+and `client` modules, whose `Channel` chooses h3 over QUIC or TCP for each server, and qlog. 0.5.0
+adds the server over QUIC and Alt-Svc advertising, and the client retires a QUIC connection near
+its idle timeout.
 
 | Protocol | Built | Checked against |
 | --- | --- | --- |
-| h11 | Client and server, pipelining, `chunked`, and `gzip` and `deflate` bodies decoded | Go's `net/http`, h2o and curl, in cleartext and over TLS; the [HTTP Garden](https://github.com/narfindustries/http-garden) against 34 other servers |
+| h11 | Client and server, pipelining, `chunked`, and `gzip` and `deflate` bodies decoded | Go's `net/http`, h2o and curl, in cleartext and over TLS; the [HTTP Garden](https://github.com/narfindustries/http-garden) against 35 other servers |
 | h2 | Client and server, HPACK with the dynamic table | [h2spec](https://github.com/summerwind/h2spec) 2.6.0: 144 of 146 in cleartext and over TLS, the other 2 test an RFC 7540 rule RFC 9113 dropped; curl, nghttp, Go, nghttpd and h2o |
 | h3 and QUIC | Client and server, QPACK with the dynamic table, Retry, resumption, key update, loss recovery and congestion control | The [QUIC Interop Runner](https://github.com/quic-interop/quic-interop-runner) against quic-go, ngtcp2, neqo and quinn; [h3spec](https://github.com/kazu-yamamoto/h3spec) 0.1.13: 49 examples, 0 failures; `h2load --h3`: 1,000 of 1,000 requests; aioquic in both directions; QPACK against ls-qpack |
 
@@ -52,7 +54,7 @@ printed.
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.4.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.5.0
 ```
 
 Then import the modules you use. Each of the fifteen library modules is exported by name: `core`,
