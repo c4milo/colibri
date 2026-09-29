@@ -201,6 +201,19 @@ test "RFC 9110 §9.3.6: a CONNECT request that declares content is a 400, and no
     try testing.expectEqual(400, target.reply_status.?);
 }
 
+test "RFC 9931 §5 and §6.1: an ignored Upgrade keeps HTTP/1.1, and a TLS record after it is a 400 at once" {
+    const target = server();
+    const input = "GET / HTTP/1.1\r\nHost: h\r\nUpgrade: TLS/1.2\r\nConnection: Upgrade\r\n\r\n\x16\x03\x01\x02\x00\x01";
+    const first = try expect_request(target, input, "GET");
+    _ = try target.write_response(&test_output, 200, "", &.{.{ .name = "Content-Length", .value = "0" }});
+    // RFC 9931 §5: the server refused the switch by ignoring it, and keeps the connection.
+    try testing.expect(!target.should_close());
+    // RFC 9931 §6.1: no method holds the record's first octet, 22, so no line end is awaited.
+    try testing.expectError(error.ConnectionFailed, target.receive(input[first..], &.{}));
+    try testing.expectEqual(error.MethodInvalid, target.failure.?);
+    try testing.expectEqual(400, target.reply_status.?);
+}
+
 test "RFC 9931 §8: a refused CONNECT ends the connection, and what follows it is never read" {
     var target = server();
     // RFC 9931 Figure 1: a POST the client sent before the CONNECT's answer.

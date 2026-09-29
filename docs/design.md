@@ -4275,7 +4275,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - §6.1: a TLS record sent after an ignored `Upgrade: TLS/1.2` is never read as a request. The
     head scanner refuses it once it meets a bare CR, a lone LF or a start line longer than
     `start_line_len_max`. It does not refuse the record's first octet, 22, on its own, so the
-    server may wait for more octets before it answers.
+    server may wait for more octets before it answers. The paragraph below changes that.
   - §6.3 updates RFC 9298's `connect-udp`, which colibri does not implement (decisions 19 and 22).
     h2 and h3 are outside §8, which binds HTTP/1.1 alone.
   - The test-only server answered CONNECT with 200 and a Content-Length, and opens no tunnel.
@@ -4296,6 +4296,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     client's were **NOT CAUGHT** until `209d2a3` added its test: CONNECT counted as idempotent,
     and the tunnel's writer opened with the CONNECT head. The equivalent mutant writes the test
     server's content after its 501, which the `server` module refuses.
+
+  **The first octet of a request line, 2026-09-29.** The owner ruled that the head scanner refuse
+  a request line at the first octet of its method that no token holds, and at an SP where the
+  method would start (RFC 9110 §9.1, decision 109 as amended). A TLS record sent after an ignored
+  Upgrade now gets its 400 at its first octet. `zig build test` passed 128 of 128 steps and 2370
+  of 2370 tests, and the golden corpus's verdicts did not change. Mutations, each **CAUGHT**: the
+  check dropped, only DEL refused, an empty method let through, the method never ending at its
+  SP, status lines checked too, and the check running past the start line.
 
 - **Step 15c — the `gzip` and `deflate` codings.** stdx's decoders from a pool the caller owns,
   under decision 91. It follows https://github.com/c4milo/stdx/issues/1. **Check:** step 15b's

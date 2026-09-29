@@ -10,11 +10,17 @@
 //!     and refuses it, because §11.2 traces request smuggling to parsers that differ in what they
 //!     forgive, and a lone LF is one such difference.
 //!
+//! It refuses, the same way, an octet of a request line's method that no token holds (RFC 9110
+//! §9.1), and an SP where the method would start. A peer that speaks another protocol, such as a
+//! TLS record sent after an ignored Upgrade (RFC 9931 §6.1), is refused at its first octet, not
+//! when a line would end (decision 109).
+//!
 //! A request may carry one empty line before its request line, which §2.2 says a server SHOULD
 //! ignore. The scanner skips one and refuses a second. A response has no such allowance.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
+const http = @import("http");
 const constants = @import("../constants.zig");
 
 const Reader = core.reader.Reader;
@@ -31,6 +37,9 @@ pub const Error = error{
     StartLineEmpty,
     /// No end within `head_len_max` octets (RFC 9110 §5.4).
     HeadTooLarge,
+    /// A request line whose method holds an octet no token holds, or starts with an SP (RFC 9110
+    /// §9.1).
+    MethodInvalid,
 };
 
 /// Which kind of head is read: a request, which a server reads, or a response, which a client
@@ -60,6 +69,9 @@ pub const Scanner = struct {
     skipped_len: u32 = 0,
     /// The last octet scanned was a CR, so the next must be LF.
     after_carriage_return: bool = false,
+    /// A request line's method has ended at its first SP, so the octets after it are not checked
+    /// as a token's (RFC 9112 §3).
+    method_ended: bool = false,
 
     pub fn reset(scanner: *Scanner) void {
         scanner.* = .{};
@@ -106,7 +118,20 @@ pub const Scanner = struct {
         // RFC 9112 §3: no predefined limit on a request line, so colibri's applies. The limit
         // holds for a status line too, which has none either (RFC 9112 §4).
         if (in_start_line and scanner.line_len > constants.start_line_len_max) return error.StartLineTooLong;
+        if (role == .request and in_start_line and !scanner.method_ended) try scanner.check_method(octet);
         return false;
+    }
+
+    /// One octet of a request line's method, which ends at the first SP (RFC 9112 §3).
+    fn check_method(scanner: *Scanner, octet: u8) Error!void {
+        if (octet == ' ') {
+            // RFC 9110 §5.6.2: a token is one or more tchar, so a method is never empty.
+            if (scanner.line_len == 1) return error.MethodInvalid;
+            scanner.method_ended = true;
+            return;
+        }
+        // RFC 9110 §9.1: method = token, so a method holds tchar alone.
+        if (!http.field.is_tchar(octet)) return error.MethodInvalid;
     }
 
     /// The CRLF of a line has been scanned. Returns true when the line was the empty line that
@@ -168,6 +193,26 @@ test "RFC 9112 §2.2: a bare CR and a lone LF are refused where they stand" {
     try expect_error(.request, "GET / HTTP/1.1\nHost: a\n\n", error.BareLineFeed);
     try expect_error(.request, "GET / HTTP/1.1\r\nHost: a\r\n\n", error.BareLineFeed);
     try expect_error(.response, "HTTP/1.1 200 \r\n\n", error.BareLineFeed);
+}
+
+test "RFC 9110 §9.1: a request line's method is refused at its first octet no token holds" {
+    // RFC 9931 §6.1: a TLS record starts with 22, which no method holds.
+    try expect_error(.request, "\x16\x03\x01\x02\x00", error.MethodInvalid);
+    try expect_error(.request, "\r\n\x16", error.MethodInvalid);
+    try expect_error(.request, "GE\x00T", error.MethodInvalid);
+    try expect_error(.request, "GET/ ", error.MethodInvalid);
+    try expect_error(.request, " GET", error.MethodInvalid);
+    // The target, the version and the field lines hold octets no token does.
+    const request = "M-SEARCH /a?b=c HTTP/1.1\r\nHost: a:1\r\n\r\n";
+    try expect_span(.request, request, 0, request.len);
+    // A response's status line starts with HTTP/, and nothing here checks it.
+    const response = "HTTP/1.1 200 OK\r\n\r\n";
+    try expect_span(.response, response, 0, response.len);
+    // A start line with no SP is the parser's to refuse, and the check ends with the line.
+    const no_space = "GET\r\nHost: a\r\n\r\n";
+    try expect_span(.request, no_space, 0, no_space.len);
+    var scanner: Scanner = .{};
+    try testing.expectEqual(null, try scanner.scan(.request, "PATCH"));
 }
 
 test "a head that is not whole yet needs more octets, a CR at the end included" {

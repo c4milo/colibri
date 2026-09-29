@@ -2409,7 +2409,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       closes after it. The statuses:
       - 400 for a malformed request (RFC 9112 §2.2, §3.2, §5.1, §6.3; RFC 9110 §15.5.1), and for
         a CONNECT request that declares content (RFC 9110 §9.3.6, decision 109);
-      - 414 for a request line longer than `start_line_len_max` (RFC 9112 §3, RFC 9110 §15.5.15);
+      - 414 for a request line longer than `start_line_len_max` (RFC 9112 §3, RFC 9110 §15.5.15),
+        unless its method holds an octet no token holds, which is a 400 at once (decision 109);
       - 431 for a head, field section or trailer section past colibri's limits (RFC 6585 §5, now in
         `docs/rfcs/`);
       - 501 for a transfer coding h11 does not decode, when chunked is the final coding (RFC 9112
@@ -3128,3 +3129,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - For Upgrade: sending it but pipelining nothing after it until its final response, which
        would amend decision 88; and leaving it, so a 101 fails the connection and the requests
        pipelined after it go unanswered.
+
+     Amended by the owner on 2026-09-29: the head scanner refuses a request line at the first
+     octet of its method that no token holds, and at an SP where the method would start (RFC 9110
+     §9.1), with 400. A TLS record sent after an ignored `Upgrade: TLS/1.2` starts with 22, so the
+     server now answers it at once (RFC 9931 §6.1). The scanner judged a line only when it ended,
+     so such a record got 400 when it held a stray CR or LF, 414 after `start_line_len_max` octets
+     without one, and otherwise nothing while the server waited for more. The alternatives
+     refused: checking the request line's first octet alone, and leaving the scanner as it was.
