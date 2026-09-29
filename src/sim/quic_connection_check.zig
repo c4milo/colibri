@@ -15,9 +15,11 @@
 //! The module this file belongs to imports `sim` and `quic` and no HTTP module, which is the check
 //! of [decision 5](../../docs/decisions.md).
 const std = @import("std");
+const assert = std.debug.assert;
 const sim = @import("sim");
 const quic = @import("quic");
 const constants = sim.constants;
+const Side = sim.network.Endpoint;
 const quic_endpoint = @import("quic_endpoint.zig");
 const quic_invariants = @import("quic_invariants.zig");
 const qlog_records = @import("qlog_records.zig");
@@ -28,7 +30,7 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0xc5daafa0;
+pub const census_crc32_expected: u32 = 0x0aa640a8;
 pub const census_datagrams_expected: u64 = 13_777;
 pub const census_packets_expected: u64 = 13_845;
 pub const census_dropped_expected: u64 = 692;
@@ -98,6 +100,8 @@ pub const Census = struct {
     rebinds: u64 = 0,
     misrouted: u64 = 0,
     migrations: u64 = 0,
+    /// Seeds whose connection ran version 2 at both endpoints (decision 108).
+    version_2_seeds: u64 = 0,
     /// Octets of qlog the endpoints wrote, the digest of every record, and the events read back,
     /// which are zero unless the run logs. They stay out of `crc32`, so a run with logs and one
     /// without must agree on it.
@@ -187,6 +191,8 @@ pub const steps_max: usize = 20_000;
 /// How many datagrams one endpoint may send in one step. The congestion window stops it first.
 pub const sends_per_step_max: usize = 64;
 /// The highest rates a seed draws, out of `schedule_denominator`.
+/// The check runs one seed in this many in version 2 (decision 108), and the rest in version 1.
+pub const version_2_every: u64 = 2;
 pub const drop_max: u64 = 100;
 pub const duplicate_max: u64 = 100;
 pub const mark_max: u64 = 100;
@@ -208,6 +214,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.rebinds += storage.network.census.rebinds;
         census.misrouted += storage.network.census.misrouted;
         census.migrations += result.migrations;
+        census.version_2_seeds += version_2_ran(storage);
         census.qlog_len += result.qlog_len;
         census.qlog_events += result.qlog_events;
         census.qlog_crc32 = combine_qlog(census.qlog_crc32, result);
@@ -254,6 +261,14 @@ fn combine_qlog(held: u32, result: Result) u32 {
     return digest.final();
 }
 
+/// 1 when the seed's connection ran version 2, which both endpoints must agree on (RFC 9368 §2).
+fn version_2_ran(storage: *const Storage) u64 {
+    const client = storage.endpoints[@intFromEnum(Side.client)].connection.versions;
+    const server = storage.endpoints[@intFromEnum(Side.server)].connection.versions;
+    assert(client.negotiated == server.negotiated);
+    return @intFromBool(client.negotiated == .v2);
+}
+
 /// Feeds one value in network byte order, so the digest does not follow the host's (CLAUDE.md).
 fn fold(digest: *std.hash.Crc32, value: u64) void {
     var octets: [@sizeOf(u64)]u8 = undefined;
@@ -278,6 +293,8 @@ test "two endpoints finish a handshake and a stream over a lossy network, invari
     try std.testing.expectEqual(census_dropped_expected, census.dropped);
     try std.testing.expectEqual(census_marked_expected, census.marked);
     try std.testing.expectEqual(census_crc32_expected, census.crc32);
+    // Decision 108: half the seeds ran version 2, so the check covered both versions.
+    try std.testing.expectEqual(constants.check_seeds_default / version_2_every, census.version_2_seeds);
 }
 
 /// The storage a fault test runs in, apart from the check's own. Test-only.
@@ -315,7 +332,7 @@ test "each way the driver fails is reported, so no report of it is unproved" {
 }
 
 /// The adversary check's census, pinned as the lossy check's is.
-pub const adversary_census_crc32_expected: u32 = 0xa7b1cbc6;
+pub const adversary_census_crc32_expected: u32 = 0x17b7c82d;
 pub const adversary_census_datagrams_expected: u64 = 4_598;
 pub const adversary_census_dropped_expected: u64 = 1_406;
 
@@ -339,7 +356,7 @@ test "decisions 64 and 66: a network that drops every datagram of ACK frames alo
 /// Decision 70 brought it from 10.4 to 8.4 seconds. Decision 64 as amended moved it to 10.3 on
 /// these 256 seeds, which is which seeds lose what: over 2,000 seeds it took the slowest from
 /// 34.2 to 32.2 seconds and the mean from 1.36 to 1.26.
-pub const runner_census_crc32_expected: u32 = 0xef7c947e;
+pub const runner_census_crc32_expected: u32 = 0x750a1423;
 pub const runner_census_datagrams_expected: u64 = 3_905;
 pub const runner_census_dropped_expected: u64 = 1_136;
 pub const runner_census_handshake_max_ns_expected: u64 = 8_242_000_000;
@@ -362,10 +379,10 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
 
 /// The rebinding checks' censuses, pinned as the lossy check's is. The server moved once for each
 /// rebind: 276 of each in the port check and 275 in the address check.
-pub const rebind_port_census_crc32_expected: u32 = 0x14ad4170;
+pub const rebind_port_census_crc32_expected: u32 = 0xbf065e88;
 pub const rebind_port_census_datagrams_expected: u64 = 14_534;
 pub const rebind_port_census_migrations_expected: u64 = 273;
-pub const rebind_address_census_crc32_expected: u32 = 0x44f1fbf0;
+pub const rebind_address_census_crc32_expected: u32 = 0xd84604a2;
 pub const rebind_address_census_datagrams_expected: u64 = 14_349;
 pub const rebind_address_census_migrations_expected: u64 = 279;
 
@@ -402,11 +419,11 @@ test "decision 102: every check gives the same census when both endpoints write 
     // digest of every record and the events read back. The logs change when an event or its
     // fields change, and are committed with the new values after both build modes agree.
     const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32, qlog_events: u64 }{
-        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_776_600, .qlog_crc32 = 0x8769aafc, .qlog_events = 50_563 },
-        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_681_565, .qlog_crc32 = 0xb36c9593, .qlog_events = 18_885 },
-        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_802_132, .qlog_crc32 = 0x069044aa, .qlog_events = 19_072 },
-        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_260_798, .qlog_crc32 = 0xb81794d1, .qlog_events = 52_327 },
-        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 10_049_645, .qlog_crc32 = 0xf64787e6, .qlog_events = 51_244 },
+        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_779_411, .qlog_crc32 = 0x8ce788c4, .qlog_events = 50_563 },
+        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_684_376, .qlog_crc32 = 0xdb2f27ac, .qlog_events = 18_885 },
+        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_804_934, .qlog_crc32 = 0x1611979e, .qlog_events = 19_072 },
+        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_263_609, .qlog_crc32 = 0x80961766, .qlog_events = 52_327 },
+        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 10_052_456, .qlog_crc32 = 0x2f16a870, .qlog_events = 51_244 },
     };
     // Bounded by the checks above.
     for (checks) |logged| {

@@ -246,18 +246,18 @@ fn expects_errors() bool {
 fn accept(delivery: udp.Delivery, now_ns: u64) ?*Connection {
     if (arguments != .server) return null;
     const long = udp_peer.first_initial(delivery.bytes, udp_identity.id_len) orelse return null;
-    if (!arguments.server.retry) return start(delivery, now_ns, udp_identity.server_ids(long.dcid, long.scid));
+    if (!arguments.server.retry) return start(delivery, now_ns, udp_identity.server_ids(long.dcid, long.scid), long.version);
     // RFC 9000 §14.1: "A server MUST discard an Initial packet that is carried in a UDP datagram
     // with a payload that is smaller than the smallest allowed maximum datagram size".
     if (delivery.bytes.len < quic.constants.datagram_len_min) return null;
     var address_storage: [udp_peer.token_address_len_max]u8 = undefined;
     const address = udp_peer.token_address(delivery.from.peer, &address_storage);
-    switch (quic.connection_retry.verify_token(udp_identity.retry_suite(), address, long.token, long.dcid, now_ns)) {
+    switch (quic.connection_retry.verify_token(udp_identity.retry_suite(), long.version, address, long.token, long.dcid, now_ns)) {
         .absent => send_retry(delivery, long, address, now_ns),
         // RFC 9000 §8.1.2: the server "can discard such a packet and allow the client to time
         // out". Closing with INVALID_TOKEN would need Initial keys for a connection it refused.
         .invalid => std.debug.print("quic-udp: an Initial returned an invalid Retry token\n", .{}),
-        .validated => |ids| return start(delivery, now_ns, udp_identity.server_ids_after_retry(&ids, long.scid)),
+        .validated => |ids| return start(delivery, now_ns, udp_identity.server_ids_after_retry(&ids, long.scid), long.version),
     }
     return null;
 }
@@ -268,6 +268,7 @@ fn send_retry(delivery: udp.Delivery, long: quic.packet.header.Long, address: []
     const index = free_slot() orelse return;
     var pseudo: [quic.constants.retry_pseudo_packet_len_max]u8 = undefined;
     const answered = quic.connection_retry.answer(udp_identity.retry_suite(), .{
+        .version = long.version,
         .client_source = long.scid,
         .original_destination = long.dcid,
         .server_source = udp_identity.retry_id(),
@@ -288,10 +289,10 @@ fn free_slot() ?usize {
 }
 
 /// A connection in a free entry, for a client whose first Initial the server accepted.
-fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity) ?*Connection {
+fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity, version: quic.crypto.suite.Version) ?*Connection {
     const connection = free_connection() orelse return null;
     const asked = arguments.server;
-    const how = udp_identity.server_start(asked.seconds_at(started_ns, now_ns));
+    const how = udp_identity.server_start(asked.seconds_at(started_ns, now_ns), version);
     connection.peer.init(how, udp_identity.keylog(), identity, server_parameters(), now_ns, delivery.from.peer, asked.ecn, asked.qlogdir) catch |failure|
         fail("the server did not start: {t}", .{failure});
     connection.outbound = outbound_to(delivery.from.peer);

@@ -22,10 +22,21 @@ pub const Start = union(enum) {
         config: *const tls.quic.ServerConfig,
         /// Unix seconds its tickets are issued and judged at, or 0 to issue none.
         now_seconds: u64,
+        /// The version of the client's first Initial, which the connection runs (RFC 9368 §2).
+        version: quic.crypto.suite.Version = .v1,
     },
 
     pub fn role(start: Start) quic.crypto.Role {
         return if (start == .client) .client else .server;
+    }
+
+    /// The version the connection starts in (RFC 9368 §2): the one a client's configuration names,
+    /// version 1 unless it names another, or the version of the client's first Initial.
+    pub fn version(start: Start) quic.crypto.suite.Version {
+        return switch (start) {
+            .client => |client| if (client.config.values.quic_version) |named| @enumFromInt(@intFromEnum(named)) else .v1,
+            .server => |server| server.version,
+        };
     }
 };
 
@@ -43,7 +54,7 @@ pub const Session = union(enum) {
             },
             .server => |server| {
                 session.* = .{ .server = undefined };
-                session.server.start(server.config, entropy.random(), server.now_seconds);
+                session.server.start(server.config, entropy.random(), server.now_seconds, server.version);
                 session.server.set_keylog_context(keylog);
             },
         }

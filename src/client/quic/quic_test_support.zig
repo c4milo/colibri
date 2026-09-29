@@ -271,7 +271,7 @@ fn start_server(first: []const u8) !void {
         .identity = .{ .local_initial_source = &server_id, .original_destination = &server_original_id, .peer_initial_source = &server_peer_id },
         .receive = server_pool.storage(),
     });
-    server_session.start(&server_tls, support.stream.random(), support.now_seconds);
+    server_session.start(&server_tls, support.stream.random(), support.now_seconds, .v1);
     server_send_scratch = .{};
     var body: [parameters_len_max]u8 = undefined;
     var writer = quic.core.Writer.init(&body);

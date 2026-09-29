@@ -138,13 +138,14 @@ pub fn token_address(address: udp.Address, into: *[token_address_len_max]u8) []c
 pub fn version_negotiation(datagram: []const u8, output: []u8) ?[]const u8 {
     const invariant = quic.packet.invariant;
     const long = invariant.read_long(datagram) catch return null;
-    // RFC 8999 §6: a Version Negotiation packet is never answered with one.
-    if (long.is_version_negotiation() or long.version == quic.constants.version_1) return null;
+    // RFC 8999 §6: a Version Negotiation packet is never answered with one, and RFC 9000 §6.1: a
+    // version the server accepts starts a connection instead.
+    if (long.is_version_negotiation() or quic.connection_version.speaks(long.version)) return null;
     if (datagram.len < quic.constants.datagram_len_min) return null;
     var writer = quic.core.Writer.init(output);
     // RFC 9000 §17.2.1: the server "SHOULD set the most significant bit of this field (0x40) to
     // 1", so the packet reads as QUIC to a version that uses the Fixed Bit.
-    invariant.write_version_negotiation(&writer, version_negotiation_unused_bits, long, &.{quic.constants.version_1}) catch return null;
+    invariant.write_version_negotiation(&writer, version_negotiation_unused_bits, long, &quic.connection_version.supported_versions) catch return null;
     return writer.written();
 }
 
@@ -177,6 +178,7 @@ pub const Peer = struct {
         const role = start.role();
         peer.connection.init(.{
             .role = role,
+            .version = start.version(),
             .local_parameters = parameters,
             .now_ns = now_ns,
             .identity = .{
@@ -312,8 +314,14 @@ test "RFC 9000 §6.1: a server answers an unknown version with Version Negotiati
     try testing.expect(parsed.is_version_negotiation());
     // RFC 8999 §6: the connection IDs come back swapped, and here they are the same octets.
     try testing.expectEqualSlices(u8, &test_id, parsed.dcid);
+    // RFC 9000 §6.1: it lists the versions the server accepts, both of them (decision 108).
+    const listed = (try quic.packet.header.read(written, 0)).version_negotiation.supported;
+    try testing.expect(listed.count() == 2 and listed.at(0) == quic.constants.version_1 and listed.at(1) == quic.constants.version_2);
     // RFC 9000 §5.2.2: a datagram too small to start a connection gets nothing.
     try testing.expectEqual(null, version_negotiation(probe[0 .. probe.len - 1], &answer));
+    // Version 2 is one the server speaks, so a datagram in it starts a connection instead.
+    std.mem.writeInt(u32, test_packet[1..][0..@sizeOf(u32)], quic.constants.version_2, .big);
+    try testing.expectEqual(null, version_negotiation(expanded, &answer));
 }
 
 test "RFC 9000 §7.2: a server starts a connection from a client's Initial and nothing else" {

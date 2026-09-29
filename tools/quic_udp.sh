@@ -132,6 +132,12 @@ grep -q "suite=0x1303" "$scratch/h3.log" || {
   echo "quic_udp: the client offering ChaCha20 alone ran another suite" >&2
   exit 1
 }
+# RFC 9368 §2.5: a client starts in version 1, and colibri's server keeps a client in the version
+# its first flight carried.
+grep -q "version=0x00000001" "$scratch/h3.log" || {
+  echo "quic_udp: the client did not run version 1" >&2
+  exit 1
+}
 for file in small medium large; do
   if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
     echo "quic_udp: $file arrived over h3 different from what the server holds" >&2
@@ -208,6 +214,28 @@ done
   ls "$scratch/qlog_h3" >&2
   exit 1
 }
+# A client that starts in version 2 (RFC 9369) is served in it by both servers, each of which runs
+# the version of the client's first flight (RFC 9368 §2).
+for mode in hq h3; do
+  rm -f "$scratch/downloads/small"
+  if [ "$mode" = h3 ]; then start_server once h3; else start_server once; fi
+  options=(v2)
+  [ "$mode" = h3 ] && options+=(h3)
+  if ! client "${options[@]}" /small >"$scratch/v2_$mode.log" 2>&1; then
+    echo "quic_udp: the $mode server did not serve a client in version 2:" >&2
+    cat "$scratch/v2_$mode.log" "$scratch/server.log" >&2
+    exit 1
+  fi
+  grep -q "version=0x6b3343cf" "$scratch/v2_$mode.log" || {
+    echo "quic_udp: the client that started in version 2 ran another version against $mode" >&2
+    exit 1
+  }
+  cmp -s "$scratch/www/small" "$scratch/downloads/small" || {
+    echo "quic_udp: small arrived in version 2 different from what the $mode server holds" >&2
+    exit 1
+  }
+  await_close "the $mode server in version 2"
+done
 start_server once h3
 if client h3 /small /missing >"$scratch/h3_mode_missing.log" 2>&1; then
   echo "quic_udp: the h3 client fetched a file the h3 mode does not hold" >&2

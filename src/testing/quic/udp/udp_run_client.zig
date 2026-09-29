@@ -145,12 +145,14 @@ fn age_ms(received_ns: u64, now_ns: u64) u64 {
 }
 
 pub fn report(connection: *Connection, asked: udp_arguments.Client) void {
-    std.debug.print("quic-udp: fetched {d} of {d} files, {d} octets, alpn={s} suite=0x{x:0>4}\n", .{
+    std.debug.print("quic-udp: fetched {d} of {d} files, {d} octets, alpn={s} suite=0x{x:0>4} version=0x{x:0>8}\n", .{
         fetched_before + finished_count(),
         asked.paths.len,
         received_before + received_len(),
         connection.peer.session.provider().negotiated_alpn() orelse "none",
         suite_ran(connection),
+        // RFC 9369 §4.1: the negotiated version, which the connection's packets carried.
+        @intFromEnum(connection.peer.connection.versions.negotiated),
     });
     // A connection that ended before every file arrived, by a timeout or the server's close, is a
     // failed run.

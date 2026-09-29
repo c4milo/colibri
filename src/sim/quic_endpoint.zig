@@ -23,6 +23,7 @@ const quic = @import("quic");
 
 const Connection = quic.Connection;
 const Role = quic.connection.Role;
+const Version = quic.packet.header.Version;
 const Parameters = quic.transport_parameters.Parameters;
 const StreamProvider = quic.stream.stream_provider.StreamProvider;
 
@@ -116,16 +117,19 @@ pub const Endpoint = struct {
     /// With one, the endpoint sends and reads no stream of its own: the application does.
     application: ?StreamProvider,
 
-    /// An endpoint of `role` whose connection writes its qlog events into `log`, or none.
-    pub fn init(endpoint: *Endpoint, role: Role, now_ns: u64, log: ?*quic.qlog.Log) void {
-        endpoint.init_with(role, now_ns, parameters(), log);
+    /// An endpoint of `role` that starts in `version`, whose connection writes its qlog events
+    /// into `log`, or none. A server starts in the version of the client's first flight (RFC 9368
+    /// §2), so both endpoints of a run are given the same one.
+    pub fn init(endpoint: *Endpoint, role: Role, version: Version, now_ns: u64, log: ?*quic.qlog.Log) void {
+        endpoint.init_with(role, version, now_ns, parameters(), log);
     }
 
     /// `init` with the transport parameters an application protocol needs (RFC 9000 §18.2).
-    pub fn init_with(endpoint: *Endpoint, role: Role, now_ns: u64, local_parameters: Parameters, log: ?*quic.qlog.Log) void {
+    pub fn init_with(endpoint: *Endpoint, role: Role, version: Version, now_ns: u64, local_parameters: Parameters, log: ?*quic.qlog.Log) void {
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
         endpoint.connection.init(.{
             .role = role,
+            .version = version,
             .local_parameters = local_parameters,
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = local_source, .original_destination = &original_id },
@@ -138,7 +142,7 @@ pub const Endpoint = struct {
             .qlog = log,
         });
         endpoint.provider = .{ .role = role, .suite = &endpoint.suite };
-        endpoint.suite = .{};
+        endpoint.suite = .{ .versions = .of(version) };
         endpoint.send_scratch = .{};
         endpoint.transfer_started = false;
         endpoint.transfer_done = false;

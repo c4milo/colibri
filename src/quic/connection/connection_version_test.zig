@@ -103,8 +103,10 @@ test "RFC 9000 §5.2.2, §17.2.1: a server answers an unsupported version with t
     const written = answer.written;
     // §17.2.1: the packet is a whole datagram, and reads back as a Version Negotiation packet.
     const read_back = (try header.read(output[0..written], 0)).version_negotiation;
-    try testing.expectEqual(1, read_back.supported.count());
+    // RFC 9000 §6.1: the versions the server accepts, which are both (decision 108).
+    try testing.expectEqual(2, read_back.supported.count());
     try testing.expectEqual(constants.version_1, read_back.supported.at(0));
+    try testing.expectEqual(version_2, read_back.supported.at(1));
     // RFC 8999 §6: the connection IDs are the received packet's, swapped.
     try testing.expectEqualSlices(u8, &client_source, read_back.dcid);
     try testing.expectEqualSlices(u8, &client_destination, read_back.scid);
@@ -115,7 +117,7 @@ test "RFC 9000 §5.2.2, §17.2.1: a server answers an unsupported version with t
     // Every octet the packet occupies was written and no more, which `version_negotiation_len`
     // said before the first one went down.
     const received = try invariant.read_long(&datagram);
-    try testing.expectEqual(invariant.version_negotiation_len(received, 1), written);
+    try testing.expectEqual(invariant.version_negotiation_len(received, 2), written);
 }
 
 test "RFC 9000 §5.2.2: a datagram below the minimum size is dropped rather than answered" {
@@ -285,10 +287,9 @@ test "RFC 9000 §17.2.1: a server receiving a Version Negotiation packet discard
     try testing.expectEqual(.active, test_connection.termination.state);
 }
 
-test "RFC 9000 §6.1: colibri lists the one version it speaks" {
-    try testing.expectEqual(1, version.supported_versions.len);
-    try testing.expectEqual(constants.version_1, version.supported_versions[0]);
-    try testing.expect(version.speaks(constants.version_1));
+test "RFC 9000 §6.1: colibri lists the two versions it speaks" {
+    try testing.expectEqualSlices(u32, &.{ 0x0000_0001, 0x6b33_43cf }, &version.supported_versions);
+    try testing.expect(version.speaks(constants.version_1) and version.speaks(version_2));
     try testing.expect(!version.speaks(other_version));
     // RFC 8999 §5.4 reserves 0 for version negotiation, so it is no version to speak.
     try testing.expect(!version.speaks(invariant.version_negotiation));

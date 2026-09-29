@@ -38,16 +38,22 @@ const retry_lifetime_seconds: u64 = 10;
 threadlocal var retry: tls.quic.Retry align(@alignOf(tls.quic.Retry)) = undefined;
 
 test "RFC 9000 §8.1.2: with Retry set, the Initial that returns the Retry's token starts the connection" {
-    retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
-    try support.start_endpoint(&retry);
-    try support.connect();
-    // RFC 9000 §7.3: the server sends back the Retry's Source Connection ID.
-    try testing.expect(support.served.transport.identity.retry_source != null);
-    const fetch = try support.request("GET", "/", "");
-    try support.pump(support.rounds_default);
-    try support.served.respond(fetch.id, .{ .status = ok, .end = true });
-    try support.pump(support.rounds_default);
-    try testing.expectEqual(ok, fetch.status);
+    // RFC 9369 §4.1: a Retry and its token are in the client's original version, whichever it is.
+    defer support.client_version = .v1;
+    for ([_]quic.packet.header.Version{ .v1, .v2 }) |version| {
+        support.client_version = version;
+        retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
+        try support.start_endpoint(&retry);
+        try support.connect();
+        // RFC 9000 §7.3: the server sends back the Retry's Source Connection ID.
+        try testing.expect(support.served.transport.identity.retry_source != null);
+        try testing.expectEqual(version, support.served.transport.versions.original);
+        const fetch = try support.request("GET", "/", "");
+        try support.pump(support.rounds_default);
+        try support.served.respond(fetch.id, .{ .status = ok, .end = true });
+        try support.pump(support.rounds_default);
+        try testing.expectEqual(ok, fetch.status);
+    }
 }
 
 /// A long header under a reserved version, padded to the smallest datagram that may start a
@@ -78,24 +84,28 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     try testing.expectEqual(null, endpoint.send(&output, support.now_ns));
 }
 
-test "RFC 9000 §5.2.2: a version 2 datagram to a live connection gets Version Negotiation instead" {
+test "RFC 9368 §2: a client's first Initial in version 2 starts a connection that runs version 2" {
+    support.client_version = .v2;
+    defer support.client_version = .v1;
     try support.start_endpoint(null);
     try support.connect();
+    try testing.expectEqual(.v2, support.served.transport.versions.original);
+    try testing.expectEqual(.v2, support.client.versions.negotiated);
+    // RFC 9369 §4.1: a packet of version 1 reaches the connection, which drops it, and the server
+    // owes no Version Negotiation packet for a version it speaks (RFC 9000 §6.1).
     @memset(&probe, 0);
     var writer = quic.core.Writer.init(&probe);
     try quic.packet.header_write.write_long(&writer, .{
-        .version = .v2,
+        .version = .v1,
         .type = .handshake,
         .dcid = support.client.identity.destination().slice(),
         .scid = support.client.identity.source().slice(),
         .packet_number = try quic.packet.packet_number.encode(0, null),
         .protected_payload_len = short_payload_len,
     });
-    const from = support.client_address();
-    try testing.expectEqual(null, endpoint.receive(&probe, .not_ect, from, support.now_ns));
+    try testing.expect(endpoint.receive(&probe, .not_ect, support.client_address(), support.now_ns) != null);
     var output: [quic.constants.datagram_len_max]u8 = undefined;
-    const reply = endpoint.send(&output, support.now_ns).?;
-    try testing.expect((try quic.packet.invariant.read_long(reply.octets)).is_version_negotiation());
+    try testing.expectEqual(null, endpoint.held.replies.take(&output));
 }
 
 test "RFC 9000 §5.2.2: with every slot in use, a client's Initial starts no connection" {

@@ -311,7 +311,7 @@ test "RFC 9368 §3: a connection states version 1 as its Chosen Version, and lis
     fresh(.server);
     const deployed = test_connection.local_parameters.version_information.?;
     try testing.expectEqual(0x0000_0001, deployed.chosen_version);
-    try testing.expectEqualSlices(u32, &.{0x0000_0001}, deployed.available_slice());
+    try testing.expectEqualSlices(u32, &.{ 0x0000_0001, version_2 }, deployed.available_slice());
 }
 
 test "RFC 9001 §8.2: a handshake that carried no parameters is a connection error" {

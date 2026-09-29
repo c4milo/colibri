@@ -5625,11 +5625,13 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     versions a Version Negotiation packet lists. Tickets and tokens belong to the version that
     issued them (RFC 9369 §5). qlog's `version_information` event names both versions, which the
     lists first carry here.
-    **Check:** a simulator check over both versions and the switch, and the QUIC Interop Runner's
-    `v2` case with colibri as the client.
+    **Check:** a simulator check over both versions, and the QUIC Interop Runner's `v2` case with
+    colibri as the client.
   - **19e**, the server's switch. A server answers a version 1 first flight in version 2 through
-    the callback chapulin's decision 79 names.
-    **Check:** the QUIC Interop Runner's `v2` case in both roles, beside the version 1 matrix.
+    the callback chapulin's decision 79 names, which chapulin `3f775fa`, the pinned commit,
+    carries.
+    **Check:** a simulator check of the client's switch against that server, and the QUIC Interop
+    Runner's `v2` case in both roles, beside the version 1 matrix.
 
   **19a, 2026-09-29.** Each packet call names its version, and every connection still runs
   version 1 (decision 108).
@@ -5787,6 +5789,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     original version, or a server the negotiated one; a Retry taken, or its tag checked, in
     version 1 alone; Version Negotiation looking for version 1; and qlog listing one version, or
     naming another trigger for a version dropped.
+
+  **19d, a server in version 2, 2026-09-29.** A server accepts a first flight in either version and
+  runs the version it carried (RFC 9368 §2).
+  - Version 2 joins `supported_versions`, so a Version Negotiation packet lists both, a datagram in
+    version 2 starts a connection rather than drawing one, and a server's version_information
+    lists both.
+  - The `server` module's endpoint and the UDP endpoint hand the first flight's version to the
+    connection and to its TLS session: `tls.quic.Server.start` takes it. A Retry, its tag and its
+    token are in that version, and the token is checked in the version of the Initial that
+    returns it (RFC 9369 §4.1).
+  - The QUIC connection check runs every other seed in version 2 at both endpoints, and counts
+    the seeds that did: 128 of 256 in each of its five runs. The client's switch comes to the
+    simulator with 19e, whose server switches.
+  - The UDP client's `v2` starts in version 2, and its report names the version it ran.
+    `tools/quic_udp.sh` runs it against both servers, which serve it in version 2, and checks that
+    the other clients ran version 1.
+  - The census digests moved with the server's longer version_information and the version 2
+    seeds; the counts did not, and both build modes gave the new values.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2383 of 2383 tests. `tools/quic_udp.sh`, `tools/quic_loopback.sh`,
+    `tools/quic_aioquic.sh`, `tools/h3spec.sh` and `tools/channel_interop.sh`: ok.
+  - `tools/interop.sh ngtcp2,neqo handshake,transfer,retry,resumption,http3`, run on the client's
+    switch: every case passed both ways, so a client listing version 2 is not switched where the
+    case does not ask for it.
+  - 18 mutations, each **CAUGHT**: the server speaking version 1 alone; a Retry's token, header or
+    tag, or a token's check, in version 1; both servers answering version 2 with Version
+    Negotiation, or listing version 1 alone in it; the endpoint starting its connections, checking
+    tokens or writing Retry packets in version 1; the connection, its session or chapulin's server
+    session starting in version 1 whatever the first flight carried; and the simulator running
+    version 1 alone, in its connections or in its suites.
+  - 3 mutations of the UDP endpoint, each **CAUGHT** by `tools/quic_udp.sh`: its server's
+    connection or session starting in version 1, and the client ignoring `v2`.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

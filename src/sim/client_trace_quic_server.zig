@@ -169,7 +169,7 @@ pub const QuicServer = struct {
             .identity = .{ .local_initial_source = &server_id, .original_destination = &server.original_id, .peer_initial_source = &server.peer_id },
             .receive = server.pool.storage(),
         });
-        server.session.start(&server.config, random, identity.now_seconds);
+        server.session.start(&server.config, random, identity.now_seconds, .v1);
         server.send_scratch = .{};
         var encoded: [parameters_len_max]u8 = undefined;
         var writer = quic.core.Writer.init(&encoded);

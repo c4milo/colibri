@@ -148,9 +148,9 @@ pub fn client_start(asked: udp_arguments.Client, resumption: ?tls.Resumption) qu
 }
 
 /// A server session's start: `now_seconds` is the Unix seconds its ticket carries, or 0 to issue
-/// none.
-pub fn server_start(now_seconds: u64) quic_session.Start {
-    return .{ .server = .{ .config = &server_config, .now_seconds = now_seconds } };
+/// none, and `version` the version of the client's first Initial.
+pub fn server_start(now_seconds: u64, version: quic.crypto.suite.Version) quic_session.Start {
+    return .{ .server = .{ .config = &server_config, .now_seconds = now_seconds, .version = version } };
 }
 
 /// TLS_CHACHA20_POLY1305_SHA256's codepoint (RFC 9846 Appendix B.4), the one suite a client with
@@ -177,13 +177,16 @@ fn configure_client(asked: udp_arguments.Client) !void {
     const suites = client_suites(asked);
     if (asked.pin) {
         try read_key(prefix, ".pin", &pin_storage[0]);
-        return client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn, .cipher_suites = suites });
+        try client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn, .cipher_suites = suites });
+    } else {
+        const anchors = [_]tls.Anchor{.{
+            .subject = try check_file.read_part(prefix, ".name", &name_storage),
+            .spki = try check_file.read_part(prefix, ".spki", &spki_storage),
+        }};
+        try client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn, .cipher_suites = suites });
     }
-    const anchors = [_]tls.Anchor{.{
-        .subject = try check_file.read_part(prefix, ".name", &name_storage),
-        .spki = try check_file.read_part(prefix, ".spki", &spki_storage),
-    }};
-    return client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn, .cipher_suites = suites });
+    // RFC 9368 §2.5: the client starts in version 1 and lists version 2, unless asked to start in 2.
+    if (asked.v2) client_config.values.quic_version = .v2;
 }
 
 fn configure_server(asked: udp_arguments.Server) !void {

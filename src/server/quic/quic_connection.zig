@@ -55,6 +55,8 @@ pub const Config = struct {
 /// What a connection starts from, which the endpoint read off the client's first Initial or drew
 /// from its caller's source (invariant 5).
 pub const Start = struct {
+    /// The version of the client's first Initial, which the connection runs (RFC 9368 §2).
+    version: quic.packet.header.Version = .v1,
     /// The connection ID the server chose (RFC 9000 §7.2).
     local_id: [constants.quic_id_len]u8,
     /// The client's first Destination and Source Connection IDs (RFC 9000 §7.3), and a Retry's
@@ -142,6 +144,7 @@ pub const QuicConnection = struct {
         connection.spare_ids_issued = false;
         connection.transport.init(.{
             .role = .server,
+            .version = how.version,
             .local_parameters = parameters(config, receive_pool.capacity),
             .now_ns = now_ns,
             .identity = .{
@@ -157,7 +160,7 @@ pub const QuicConnection = struct {
         });
         connection.send_scratch = .{};
         connection.h3.init(.{ .role = .server, .grease = how.grease });
-        connection.session.start(config.tls, random, now_seconds);
+        connection.session.start(config.tls, random, now_seconds, how.version);
         try connection.hand_over_parameters();
         const suite = connection.session.suite();
         const keys_destination = how.retry_source orelse how.original_destination;

@@ -26,10 +26,13 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     var random = Random.init(seed);
     storage.network.init(seed, schedule_of(storage.adversary, &random));
     storage.failure = null;
+    // Decision 108: every other seed runs version 2, and the server the version of the client's
+    // first flight (RFC 9368 §2).
+    const version: quic.packet.header.Version = if (seed % check.version_2_every == 1) .v2 else .v1;
     // Bounded by the two sides of the network.
     for (std.enums.values(Side)) |side| {
         const at = @intFromEnum(side);
-        storage.endpoints[at].init(role_of(side), check.start_ns, log_of(storage, side));
+        storage.endpoints[at].init(role_of(side), version, check.start_ns, log_of(storage, side));
         storage.histories[at].init(&storage.endpoints[at]);
     }
     apply_fault(storage);

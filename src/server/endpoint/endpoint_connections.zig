@@ -170,10 +170,10 @@ pub const Connections = struct {
     /// Starts a connection for a client's first Initial, or with Retry configured first
     /// checks the Initial's token (RFC 9000 §8.1.2).
     fn accept(held: *Connections, long: quic.packet.header.Long, from: PeerAddress, now_ns: u64) ?*QuicConnection {
-        const retry = held.config.retry orelse return held.start(long.dcid, long.scid, null, from, now_ns);
+        const retry = held.config.retry orelse return held.start(long.version, long.dcid, long.scid, null, from, now_ns);
         var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
         const address = endpoint_stateless.token_address(from, &address_storage);
-        return switch (quic.connection_retry.verify_token(retry.suite(), address, long.token, long.dcid, now_ns)) {
+        return switch (quic.connection_retry.verify_token(retry.suite(), long.version, address, long.token, long.dcid, now_ns)) {
             .absent => blk: {
                 held.owe_retry(retry, long, address, from, now_ns);
                 break :blk null;
@@ -181,7 +181,7 @@ pub const Connections = struct {
             // RFC 9000 §8.1.2: a server "can discard such a packet and allow the client to
             // time out", which needs no connection it would refuse.
             .invalid => null,
-            .validated => |ids| held.start(ids.original_destination_slice(), long.scid, ids.retry_source_slice(), from, now_ns),
+            .validated => |ids| held.start(long.version, ids.original_destination_slice(), long.scid, ids.retry_source_slice(), from, now_ns),
         };
     }
 
@@ -193,6 +193,7 @@ pub const Connections = struct {
         var pseudo: [quic.constants.retry_pseudo_packet_len_max]u8 = undefined;
         var packet: [quic.constants.datagram_len_min]u8 = undefined;
         const answered = quic.connection_retry.answer(retry.suite(), .{
+            .version = long.version,
             .client_source = long.scid,
             .original_destination = long.dcid,
             .server_source = &source,
@@ -210,9 +211,10 @@ pub const Connections = struct {
     /// A connection in a free slot, from values the caller's source draws. With every slot
     /// in use the Initial goes unanswered: RFC 9000 §5.2.2 lets a server drop what it will
     /// not serve, and the client sends it again.
-    fn start(held: *Connections, original_destination: []const u8, peer_source: []const u8, retry_source: ?[]const u8, from: PeerAddress, now_ns: u64) ?*QuicConnection {
+    fn start(held: *Connections, version: quic.packet.header.Version, original_destination: []const u8, peer_source: []const u8, retry_source: ?[]const u8, from: PeerAddress, now_ns: u64) ?*QuicConnection {
         const index = held.free_slot() orelse return null;
         var how: quic_connection.Start = .{
+            .version = version,
             .local_id = undefined,
             .original_destination = original_destination,
             .peer_source = peer_source,

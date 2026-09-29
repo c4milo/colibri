@@ -67,7 +67,7 @@ test "RFC 9369 §4.1: a client switches once, before the server's first CRYPTO o
 test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no start installs nothing" {
     try support.configure(support.web_pki, .{});
     try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
-    server.start(&support.server_config, identity.random(), identity.now_seconds);
+    server.start(&support.server_config, identity.random(), identity.now_seconds, .v1);
     const client_suite = client.suite();
     const server_suite = server.suite();
     // Nothing is installed before chapulin's session starts.
@@ -286,7 +286,7 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     const header = try support.short_header(0, false, &header_storage);
     try testing.expectError(error.KeysUnavailable, suite.vtable.seal(suite.context, .{ .level = .application, .version = .v1, .packet_number = 0, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet));
     try testing.expectError(error.KeysUnavailable, suite.vtable.open(suite.context, .{ .level = .application, .version = .v1, .packet = support.packet[0..header.len], .packet_number_offset = header.len - support.packet_number_len, .largest_packet_number = null }));
-    server.start(&support.server_config, identity.random(), identity.now_seconds);
+    server.start(&support.server_config, identity.random(), identity.now_seconds, .v1);
     try testing.expectEqual(null, server.sni());
     try testing.expect(!server.resumed());
     const server_suite = server.suite();
@@ -430,7 +430,7 @@ fn initial_flights(client_seed: u64, server_seed: u64, flights: *InitialFlights)
     var server_stream: random_support.Stream = .{ .state = server_seed };
     try client.start(&support.client_config, client_stream.random(), identity.now_seconds, null);
     defer client.close();
-    server.start(&support.server_config, server_stream.random(), identity.now_seconds);
+    server.start(&support.server_config, server_stream.random(), identity.now_seconds, .v1);
     defer server.close();
     try client.provider().set_transport_params(support.client_parameters);
     try server.provider().set_transport_params(support.server_parameters);

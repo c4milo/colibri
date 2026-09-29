@@ -118,14 +118,14 @@ pub const Server = struct {
 
     /// Prepares the connection's values. Every draw the session makes comes from `random`
     /// (decision 94 as amended). `now_seconds` is the clock its tickets are issued and judged at,
-    /// or 0 for none.
-    pub fn start(server: *Server, config: *const ServerConfig, random: values.Random, now_seconds: u64) void {
+    /// or 0 for none. `original` is the version of the client's first Initial packet.
+    pub fn start(server: *Server, config: *const ServerConfig, random: values.Random, now_seconds: u64, original: crypto.suite.Version) void {
         server.state = .{};
         server.chosen = config.values;
         server.chosen.random = random;
         server.chosen.now_seconds = now_seconds;
-        // RFC 9000 §15: the version of the client's first Initial packet, which is colibri's own.
-        server.chosen.quic_version = version;
+        // RFC 9368 §2: the session starts in the version of the client's first Initial packet.
+        server.chosen.quic_version = @enumFromInt(@intFromEnum(original));
     }
 
     pub fn provider(server: *Server) tls_provider.QuicProvider {

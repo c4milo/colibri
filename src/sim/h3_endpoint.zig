@@ -93,7 +93,7 @@ pub const Endpoint = struct {
     /// An endpoint of `role` that runs `plan`, whose QUIC and h3 connections both write into
     /// `log`, or neither when it is null (decision 102).
     pub fn init(endpoint: *Endpoint, role: quic.connection.Role, plan: *const Plan, now_ns: u64, log: ?*quic.qlog.Log) void {
-        endpoint.transport.init_with(role, now_ns, parameters(), log);
+        endpoint.transport.init_with(role, .v1, now_ns, parameters(), log);
         var options = if (role == .client) plan.client else plan.server;
         options.qlog = log;
         endpoint.h3.init(options);

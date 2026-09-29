@@ -172,6 +172,9 @@ fn tag_valid(
 /// wants a connection ID unpredictable and invariant 5 forbids colibri a random number, and it
 /// owns no socket, so the address is the caller's opaque octets.
 pub const Request = struct {
+    /// The version of the client's Initial, its original version, which RFC 9369 §4.1 has the
+    /// Retry use.
+    version: crypto.suite.Version,
     /// §17.2.5.1: "The server populates the Destination Connection ID with the connection ID that
     /// the client included in the Source Connection ID of the Initial packet."
     client_source: []const u8,
@@ -233,8 +236,8 @@ pub fn answer(
     const ids = crypto.suite.RetryConnectionIds.of(request.original_destination, request.server_source);
     const token_len = suite.vtable.retry_token_write(
         suite.context,
-        // RFC 9369 §4.1: the token binds the client's original version, version 1.
-        .v1,
+        // RFC 9369 §4.1: the token binds the client's original version.
+        request.version,
         request.address,
         &ids,
         request.now_ns,
@@ -255,8 +258,8 @@ fn write_packet(
 ) Answer {
     var writer = Writer.init(output);
     header_write.write_retry(&writer, .{
-        // RFC 9369 §4.1: a Retry uses the client's original version, version 1.
-        .version = .v1,
+        // RFC 9369 §4.1: "If the server sends a Retry packet, it MUST use the original version."
+        .version = request.version,
         // §17.2.5: "The value in the Unused field is set to an arbitrary value by the server; a
         // client MUST ignore these bits." Zero is arbitrary, and invariant 5 forbids colibri the
         // random number a greased value would need.
@@ -274,8 +277,8 @@ fn write_packet(
         writer.written(),
     ) catch unreachable;
     var tag: [constants.retry_integrity_tag_len]u8 = undefined;
-    // RFC 9369 §4.1: a Retry uses the client's original version, version 1.
-    suite.vtable.retry_tag_write(suite.context, .v1, pseudo_writer.written(), &tag) catch
+    // RFC 9369 §3.3.3: the tag is under the Retry key and nonce of the Retry's version.
+    suite.vtable.retry_tag_write(suite.context, request.version, pseudo_writer.written(), &tag) catch
         return .{ .refused = .no_tag };
     writer.write_bytes(&tag) catch return .{ .refused = .no_space };
     return .{ .written = writer.written().len };
@@ -296,12 +299,13 @@ pub const TokenVerdict = union(enum) {
     invalid,
 };
 
-/// Asks the suite what the Initial's token is (RFC 9000 §8.1.4). `destination` is the Initial's
-/// Destination Connection ID.
-pub fn verify_token(suite: Suite, address: []const u8, token: []const u8, destination: []const u8, now_ns: u64) TokenVerdict {
+/// Asks the suite what the Initial's token is (RFC 9000 §8.1.4). `version` and `destination` are
+/// the Initial's Version and Destination Connection ID.
+pub fn verify_token(suite: Suite, version: crypto.suite.Version, address: []const u8, token: []const u8, destination: []const u8, now_ns: u64) TokenVerdict {
     if (token.len == 0) return .absent;
-    // RFC 9369 §4.1: the token was bound to the client's original version, version 1.
-    return switch (suite.vtable.retry_token_check(suite.context, .v1, address, token, now_ns)) {
+    // RFC 9369 §4.1: the token binds the original version, so an Initial in any other version,
+    // which "MUST NOT use a different version" after a Retry, fails it.
+    return switch (suite.vtable.retry_token_check(suite.context, version, address, token, now_ns)) {
         // §8.1.3: the server "SHOULD proceed as if the client did not have a validated address,
         // including potentially sending a Retry packet", which is what an absent token means.
         .not_retry => .absent,

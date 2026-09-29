@@ -21,9 +21,11 @@
 //! Negotiation packet." So `answer` reads the datagram through `invariant.read_long`, which
 //! cannot apply one, and a connection ID of 255 octets is echoed although version 1 stops at 20.
 //!
-//! **colibri speaks version 1 and no other**, which is what makes both halves short: the list a
-//! server sends has one entry, and §6.2's client rule is the one for a client that supports only
-//! this version.
+//! **colibri speaks versions 1 and 2** (decision 108), which are compatible with each other (RFC
+//! 9369 §4), so a server lists both and a client moves between them without a Version Negotiation
+//! packet. A client that receives one abandons the attempt, as §6.2 has a client that supports
+//! only this version do: starting another attempt in a version the packet lists is left to the
+//! caller.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -159,7 +161,7 @@ pub fn check_information(
 /// RFC 9000 §6.3 lets an endpoint add a reserved version here to test that a peer ignores what it
 /// does not know. colibri adds none: the value would have to be chosen, and a fixed choice tests
 /// a peer against one number rather than against the rule.
-pub const supported_versions = [_]u32{constants.version_1};
+pub const supported_versions = [_]u32{ constants.version_1, constants.version_2 };
 
 /// Why no Version Negotiation packet was written.
 pub const Silence = enum {

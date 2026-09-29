@@ -64,8 +64,10 @@ pub var endpoint_config: endpoint_module.Config align(@alignOf(endpoint_module.C
 pub var through_endpoint: bool = false;
 pub var served: *QuicConnection = &connection;
 
-/// The client and what it runs on.
+/// The client and what it runs on. It starts in `client_version`, which a test that sets another
+/// restores after it.
 pub var client: quic.Connection align(@alignOf(quic.Connection)) = undefined;
+pub var client_version: quic.packet.header.Version align(@alignOf(quic.packet.header.Version)) = .v1;
 var client_tls: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
 var client_session: tls.quic.Client align(@alignOf(tls.quic.Client)) = undefined;
 var client_send_scratch: quic.connection_send.DefaultScratch align(@alignOf(quic.connection_send.DefaultScratch)) = undefined;
@@ -166,6 +168,7 @@ pub fn start_endpoint(retry: ?*const tls.quic.Retry) !void {
 fn start_client() !void {
     client.init(.{
         .role = .client,
+        .version = client_version,
         .local_parameters = client_parameters(),
         .now_ns = now_ns,
         .identity = .{ .local_initial_source = &client_id, .original_destination = &original_id },
@@ -173,6 +176,7 @@ fn start_client() !void {
     });
     client_send_scratch = .{};
     client_h3.init(.{ .role = .client, .grease = grease });
+    client_tls.values.quic_version = @enumFromInt(@intFromEnum(client_version));
     try client_session.start(&client_tls, support.stream.random(), support.now_seconds, null);
     var encoded: [parameters_len_max]u8 = undefined;
     var writer = quic.core.Writer.init(&encoded);

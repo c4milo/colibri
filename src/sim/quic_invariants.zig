@@ -113,7 +113,7 @@ const test_now_ns: u64 = 1_000_000;
 
 /// The client's first datagram, which is a real one: its ClientHello in a padded Initial.
 fn first_datagram() !Sent {
-    test_client.init(.client, test_now_ns, null);
+    test_client.init(.client, .v1, test_now_ns, null);
     test_history.init(&test_client);
     return try test_client.send(test_now_ns) orelse error.NothingSent;
 }
@@ -133,7 +133,7 @@ test "each invariant this file reads is reported when it breaks" {
     try testing.expectError(Violation.OtherPath, test_history.on_sent(&test_client, sent, octets));
     octets[dcid_offset] ^= 1;
     // Invariant 18: a server that has received nothing sends nothing (RFC 9000 §8.1).
-    test_server.init(.server, test_now_ns, null);
+    test_server.init(.server, .v1, test_now_ns, null);
     test_history.init(&test_server);
     try testing.expectError(Violation.AmplificationExceeded, test_history.on_sent(&test_server, sent, octets));
     // Invariant 19: a limit below the one seen before.

@@ -129,7 +129,7 @@ test "a connection with a log starts it with its versions and its own parameters
     try expect_record(&log, "\"name\":\"quic:parameters_set\",\"data\":{\"initiator\":\"local\"," ++
         "\"initial_source_connection_id\":\"c1c1c1c1\",\"disable_active_migration\":false,");
     try testing.expectEqual(2, std.mem.count(u8, events, "\x1e"));
-    try expect_record(&server_log, "\"server_versions\":[\"00000001\"],\"chosen_version\":\"00000001\"");
+    try expect_record(&server_log, "\"server_versions\":[\"00000001\",\"6b3343cf\"],\"chosen_version\":\"00000001\"");
     try expect_record(&server_log, "\"original_destination_connection_id\":\"51515151\"");
 }
 

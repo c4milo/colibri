@@ -3,7 +3,7 @@
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
 //!         [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
-//!         [keyupdate] [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...
+//!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
 //!
 //! An address is IPv4 in dotted decimal or IPv6 in RFC 4291 §2.2's text form. The server binds
 //! `<address>:<port>` and serves `<www>`, over h3 or hq-interop, whichever its client asks for:
@@ -34,6 +34,8 @@
 //!   chain, date or name: the QUIC Interop Runner's certificates fail the Web PKI profile.
 //! - `chacha20` offers TLS_CHACHA20_POLY1305_SHA256 alone, which the runner's chacha20 case
 //!   requires, where without it the client offers its object's order (RFC 9846 §4.2.2).
+//! - `v2` starts in QUIC version 2 (RFC 9369), where without it the client starts in version 1
+//!   and lists version 2 (RFC 9368 §2.5).
 //!
 //! The instant is a clock the command line cannot give, so it comes from Rotor (decision 63); the
 //! Unix seconds are the certificate check's and the tickets', which the caller reads
@@ -96,6 +98,8 @@ pub const Client = struct {
     pin: bool = false,
     /// Whether the client offers TLS_CHACHA20_POLY1305_SHA256 alone, rather than its object's order.
     chacha20: bool = false,
+    /// Whether the client starts in QUIC version 2 rather than version 1 (RFC 9368 §2).
+    v2: bool = false,
     /// The directory each connection's qlog goes in, or null for no qlog.
     qlogdir: ?[]const u8 = null,
 };
@@ -155,13 +159,14 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
 }
 
 /// The client's words for one key update, a second, resumed connection, h3, a pinned key,
-/// ChaCha20 alone and a qlog directory. Every path starts with `/`, so none is a path.
+/// ChaCha20 alone, version 2 and a qlog directory. Every path starts with `/`, so none is a path.
 const key_update_word = "keyupdate";
 const resumption_word = "resumption";
 const h3_word = "h3";
 const pin_word = "pin";
 const chacha20_word = "chacha20";
-const client_options_count: usize = 6;
+const v2_word = "v2";
+const client_options_count: usize = 7;
 
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
@@ -233,6 +238,8 @@ fn parse_client_options(arguments: *std.process.Args.Iterator, client: *Client) 
             client.pin = true;
         } else if (std.mem.eql(u8, next, chacha20_word)) {
             client.chacha20 = true;
+        } else if (std.mem.eql(u8, next, v2_word)) {
+            client.v2 = true;
         } else if (parse_qlogdir(next)) |directory| {
             client.qlogdir = directory;
         } else break;
@@ -271,7 +278,7 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 pub fn usage() noreturn {
     std.debug.print(
         "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
-            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...\n",
+            "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...\n",
         .{},
     );
     std.process.exit(check_file.exit_usage);
