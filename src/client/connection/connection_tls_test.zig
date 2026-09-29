@@ -33,6 +33,12 @@ const body_len: usize = 1024;
 const handshake_rounds_max: usize = 8;
 /// RFC 9846 §5.1: the content type of a plaintext handshake record. Test-only.
 const content_handshake: u8 = 22;
+/// The octets a forged record carries after its header: room for a content type and a 16-octet
+/// tag. Test-only.
+const forged_octets_len: usize = 32;
+/// Octets that are no record chapulin will open: an application_data header over octets no key
+/// sealed (RFC 9846 §5.2). Test-only.
+const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x00" ** forged_octets_len;
 
 /// A TLS connection whose client offers `client_protocols` to a server selecting from
 /// `server_protocols`, trusting the root for `server_name`, with the handshake run until both
@@ -286,6 +292,37 @@ test "RFC 9846 §6.2: a handshake the client refuses ends the connection, and it
     try testing.expect(!connection.should_close());
     support.client_send();
     try testing.expect(connection.should_close());
+}
+
+test "RFC 9846 §5.2: a record that does not authenticate ends the connection with bad_record_mac" {
+    try expect_forged_record_refused(&support.protocols_h2);
+    try expect_forged_record_refused(&support.protocols_h11);
+}
+
+/// A record the server never sealed arrives once `server_protocols` chose h2 or h11, and the
+/// client answers it with one bad_record_mac alert before the caller closes.
+fn expect_forged_record_refused(server_protocols: []const []const u8) !void {
+    try start_tls(server_protocols, &support.protocols_both, "localhost", false);
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    _ = try connection.request(&exchange);
+    support.client_send();
+    // The server opens the request, so the next record it opens is the client's next one.
+    try server_open();
+    @memcpy(support.to_client[support.to_client_len..][0..forged_record.len], forged_record);
+    support.to_client_len += forged_record.len;
+    try support.client_receive();
+    try testing.expect(connection.failed);
+    // The alert chapulin owes goes out before the caller closes, one record and nothing after it.
+    try testing.expect(!connection.should_close());
+    support.client_send();
+    try testing.expectEqual(tls.record.alert_record_len, support.to_peer_len);
+    try testing.expect(connection.should_close());
+    // RFC 9846 §6.2: the server reads the error alert as the end of the connection, and names it.
+    const provider = server.provider();
+    try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], &peer_plain));
+    const report = provider.vtable.take_alert(provider.context).?;
+    try testing.expectEqual(.bad_record_mac, report.description);
+    try testing.expectEqual(.peer, report.origin);
 }
 
 test "RFC 9846 §6.1: the server's close_notify ends the exchange awaiting its response" {

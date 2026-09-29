@@ -14,6 +14,12 @@ const client_preface = h2.constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\
 /// A HEADERS frame on stream 1 ending it, whose block is the static table's `:method: GET` (2),
 /// `:scheme: https` (7) and `:path: /` (4), each an indexed field line (RFC 7541 §6.1, Appendix A).
 const get_frame = "\x00\x00\x03\x01\x05\x00\x00\x00\x01\x82\x87\x84";
+/// The octets a forged record carries after its header: room for a content type and a 16-octet
+/// tag. Test-only.
+const forged_octets_len: usize = 32;
+/// Octets that are no record chapulin will open: an application_data header over octets no key
+/// sealed (RFC 9846 §5.2). Test-only.
+const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x00" ** forged_octets_len;
 
 /// A frame's header: a length of three octets, big-endian, then its type and its flags (RFC 9113
 /// §4.1).
@@ -133,18 +139,32 @@ test "RFC 7301 §3.2: a handshake with no protocol in common ends with the serve
     try testing.expect(connection.should_close());
 }
 
-test "RFC 9846 §6: a record the provider refuses ends the connection with no data after it" {
-    try support.start_tls(&support.protocols_both, &support.protocols_h2);
-    // Octets that are no record chapulin will open: an application_data header over garbage.
-    const forged = "\x17\x03\x03\x00\x20" ++ "\x00" ** 32;
-    @memcpy(support.input[0..forged.len], forged);
-    try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..forged.len], support.now_ns));
-    // What goes out is the alert chapulin owes, and the connection closes after it.
-    _ = connection.send(&support.output, support.now_ns);
+test "RFC 9846 §5.2: a record that does not authenticate ends the connection with bad_record_mac" {
+    try expect_forged_record_refused(&support.protocols_h2);
+    try expect_forged_record_refused(&support.protocols_h11);
+}
+
+/// A record the client never sealed arrives once `client_protocols` chose h2 or h11, and the
+/// server answers it with one bad_record_mac alert before the caller closes.
+fn expect_forged_record_refused(client_protocols: []const []const u8) !void {
+    try support.start_tls(&support.protocols_both, client_protocols);
+    @memcpy(support.input[0..forged_record.len], forged_record);
+    try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..forged_record.len], support.now_ns));
+    // The alert chapulin owes goes out before the caller closes, one record and nothing after it.
+    try testing.expect(!connection.should_close());
+    const sent = connection.send(support.to_client[support.to_client_len..], support.now_ns);
+    try testing.expectEqual(tls.record.alert_record_len, sent);
+    support.to_client_len += sent;
     try testing.expect(connection.should_close());
+    // RFC 9846 §6.2: the client reads the error alert as the end of the connection, and names it.
+    _ = try support.open_sent();
+    const provider = support.client.provider();
+    const report = provider.vtable.take_alert(provider.context).?;
+    try testing.expectEqual(.bad_record_mac, report.description);
+    try testing.expectEqual(.peer, report.origin);
     try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
     // RFC 9846 §6: nothing more is read after the failure.
-    const after = try connection.receive(support.input[0..forged.len], support.now_ns);
+    const after = try connection.receive(support.input[0..forged_record.len], support.now_ns);
     try testing.expectEqual(0, after.consumed);
 }
 

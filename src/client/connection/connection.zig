@@ -253,13 +253,13 @@ pub const Connection = struct {
     }
 
     /// Whether the caller closes the transport now: the connection is over and `send` has written
-    /// everything, over TLS the `close_notify` too (RFC 9846 §6.1).
+    /// everything, over TLS the `close_notify` too (RFC 9846 §6.1), or the alert of a failure.
     pub fn should_close(connection: *const Connection) bool {
         if (connection.output_len > 0 or !connection.owed.closed_reported) return false;
         return switch (connection.phase) {
             .handshake => false,
             .closed => true,
-            .open => connection.config.tls == null or connection.close_sent or connection.tls_failed(),
+            .open => connection.config.tls == null or connection.close_sent or connection.failure_sent(),
         };
     }
 
@@ -436,10 +436,13 @@ pub const Connection = struct {
         return connection.owed.closed_reported and !connection.protocol_pending();
     }
 
-    fn tls_failed(connection: *const Connection) bool {
+    /// Whether the record layer failed and `send` has written the alert the provider owed.
+    fn failure_sent(connection: *const Connection) bool {
         return switch (connection.session) {
-            .h2 => connection.session.h2.tls_failed,
-            .h11 => connection.session.h11.tls_failed,
+            // RFC 9846 §5.2 and §6.2: the connection ends with the alert, so it closes once the
+            // alert is out.
+            .h2 => connection.session.h2.tls_failed and !connection.session.h2.handshake_owed,
+            .h11 => connection.session.h11.tls_failed and !connection.session.h11.handshake_owed,
             .none => false,
         };
     }
