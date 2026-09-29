@@ -111,6 +111,11 @@ pub const ack_only_packets_before_ping: u8 = 2;
 /// makes 128 bits. colibri compares these octets and never reads them otherwise.
 pub const peer_address_len_max: usize = 16;
 
+/// The peer addresses a connection's qlog holds a tuple number for at once (quic-events §4.7).
+/// Policy: the active path, the previous one, and new arrivals RFC 9000 §9.3 may move to. An
+/// address that comes back after four others takes a new number.
+pub const qlog_tuples_max: usize = 4;
+
 /// Octets of the Stateless Reset Token a NEW_CONNECTION_ID carries (RFC 9000 §19.15).
 pub const stateless_reset_token_len: usize = 16;
 

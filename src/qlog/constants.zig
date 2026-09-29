@@ -16,6 +16,10 @@ pub const nanoseconds_per_microsecond: u64 = 1_000;
 /// The digits of that fraction: microseconds of a millisecond.
 pub const millisecond_fraction_digits: u5 = 3;
 
+/// Decimal digits of the largest tuple number, a `u32`, which a TupleID holds as text (main
+/// schema §7.2, quic-events §4.7).
+pub const tuple_id_len_max: usize = 10;
+
 /// Smallest buffer a log may be given, in octets: the header record fits with room for events.
 /// Policy.
 pub const log_len_min: usize = 1024;
@@ -32,6 +36,7 @@ comptime {
     assert(nanoseconds_per_millisecond % nanoseconds_per_microsecond == 0);
     assert(std.math.pow(u64, 10, millisecond_fraction_digits) == nanoseconds_per_millisecond / nanoseconds_per_microsecond);
     assert(log_len_min > 0);
+    assert(std.fmt.count("{d}", .{std.math.maxInt(u32)}) == tuple_id_len_max);
     assert(crypto_error_last - crypto_error_first == 0xff);
     // RFC 8259 §7: a string escapes U+0000 through U+001F, and ASCII ends before 0x80.
     assert(printable_first > 0x1f and printable_last < 0x80);

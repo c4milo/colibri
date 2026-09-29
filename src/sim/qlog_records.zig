@@ -4,8 +4,8 @@
 //! `Records.check` the records a log holds after each step, before they clear it.
 //!
 //! The members required are the ones the drafts' CDDL writes without a `?`: main schema §3 and §5
-//! of the header, §7 of every event, and of the events colibri logs, quic-events §4.6, §5.5, §5.6,
-//! §8.8 and §8.13, and h3-events §3.3, §3.5, §3.6 and §4.2.
+//! of the header, §7 of every event, and of the events colibri logs, quic-events §4.6, §4.7, §5.5,
+//! §5.6, §8.8 and §8.13, and h3-events §3.3, §3.5, §3.6 and §4.2.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -36,6 +36,7 @@ const Member = enum {
     new,
     stream_id,
     stream_type,
+    tuple_id,
     other,
 };
 
@@ -116,8 +117,9 @@ fn required_of(event_name: []const u8) Members {
         // Quic-events §5.5 and §5.6.
         .{ .event_name = quic_event.name.packet_sent, .members = &.{.header} },
         .{ .event_name = quic_event.name.packet_received, .members = &.{.header} },
-        // Quic-events §4.6.
+        // Quic-events §4.6 and §4.7.
         .{ .event_name = quic_event.name.connection_state_updated, .members = &.{.new} },
+        .{ .event_name = quic_event.name.tuple_assigned, .members = &.{.tuple_id} },
         // H3-events §3.3, §3.5 and §3.6.
         .{ .event_name = h3_event.name.stream_type_set, .members = &.{ .stream_id, .stream_type } },
         .{ .event_name = h3_event.name.frame_created, .members = &.{ .stream_id, .frame } },
@@ -313,6 +315,7 @@ test "an event without a member its name requires is refused" {
     try testing.expectError(error.QlogRecordMalformed, check_after_header("\x1e{\"time\":0.001,\"name\":\"quic:packet_sent\",\"data\":{}}\n"));
     try testing.expectError(error.QlogRecordMalformed, check_after_header("\x1e{\"time\":0.001,\"name\":\"quic:connection_state_updated\",\"data\":{\"old\":\"attempted\"}}\n"));
     try testing.expectError(error.QlogRecordMalformed, check_after_header("\x1e{\"time\":0.001,\"name\":\"http3:stream_type_set\",\"data\":{\"stream_id\":2}}\n"));
+    try testing.expectError(error.QlogRecordMalformed, check_after_header("\x1e{\"time\":0.001,\"name\":\"quic:tuple_assigned\",\"data\":{}}\n"));
     try testing.expectError(error.QlogRecordMalformed, check_after_header("\x1e{\"time\":0.001,\"name\":\"quic:packet_lost\"}\n"));
     try testing.expectError(error.QlogRecordMalformed, check_after_header("\x1e{\"name\":\"quic:packet_lost\",\"data\":{}}\n"));
 }

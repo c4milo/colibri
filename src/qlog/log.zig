@@ -74,9 +74,17 @@ pub const Log = struct {
     /// Writes one event named `name` at `now_ns`, whose data `data.write(text)` writes as the
     /// members of the `data` object (main schema §7), or drops it whole when it does not fit.
     pub fn event(log: *Log, name: []const u8, now_ns: u64, data: anytype) void {
+        log.event_on_tuple(0, name, now_ns, data);
+    }
+
+    /// Writes one event as `event` does, on tuple number `tuple`, which the event's `tuple` names
+    /// (main schema §7.2). Tuple 0 is a connection's first, the default quic-events §4.7 gives an
+    /// event that names none, so it is left out.
+    pub fn event_on_tuple(log: *Log, tuple: u32, name: []const u8, now_ns: u64, data: anytype) void {
         assert(log.started);
         assert(now_ns >= log.start_ns);
-        const len = write_event(log.buffer[log.len..], log.features, name, now_ns - log.start_ns, data) catch {
+        const time_ns = now_ns - log.start_ns;
+        const len = write_event(log.buffer[log.len..], log.features, tuple, name, time_ns, data) catch {
             log.dropped += 1;
             return;
         };
@@ -125,11 +133,15 @@ fn write_trace(text: *TextWriter, trace: Trace) Error!void {
 
 /// One event record into `buffer`, and its length. Nothing is committed until it all fit, so a
 /// failed record leaves only scratch past the log's length.
-fn write_event(buffer: []u8, features: Features, name: []const u8, time_ns: u64, data: anytype) Error!usize {
+fn write_event(buffer: []u8, features: Features, tuple: u32, name: []const u8, time_ns: u64, data: anytype) Error!usize {
     var text = TextWriter.init(buffer, .sequence, features);
     try text.begin_object();
     try member.milliseconds(&text, "time", time_ns);
     try member.string(&text, "name", name);
+    if (tuple != 0) {
+        var digits: [constants.tuple_id_len_max]u8 = undefined;
+        try member.string(&text, "tuple", member.tuple_id(&digits, tuple));
+    }
     try text.name("data");
     try text.begin_object();
     try data.write(&text);
@@ -187,4 +199,16 @@ test "an event that does not fit is dropped whole, and the next one that fits is
     log.event("loglevel:info", 0, Marker{ .message = "fits" });
     try testing.expectEqual(1, log.dropped);
     try testing.expect(std.mem.endsWith(u8, log.bytes(), "{\"message\":\"fits\"}}\n"));
+}
+
+test "an event on a later tuple names it, and one on the first names none" {
+    var buffer: [constants.log_len_min]u8 = undefined;
+    var log = Log.init(&buffer, Features.none());
+    try log.start(test_trace(&.{ 0xab, 0x01 }), 0);
+    log.clear();
+    log.event_on_tuple(2, "loglevel:info", 0, Marker{ .message = "moved" });
+    try testing.expectEqualStrings("\x1e{\"time\":0.000,\"name\":\"loglevel:info\",\"tuple\":\"2\",\"data\":{\"message\":\"moved\"}}\n", log.bytes());
+    log.clear();
+    log.event_on_tuple(0, "loglevel:info", 0, Marker{ .message = "first" });
+    try testing.expectEqualStrings("\x1e{\"time\":0.000,\"name\":\"loglevel:info\",\"data\":{\"message\":\"first\"}}\n", log.bytes());
 }

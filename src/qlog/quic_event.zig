@@ -5,6 +5,7 @@
 //! `quic_frame` between `begin_frames` and `end_frames`.
 const std = @import("std");
 const assert = std.debug.assert;
+const constants = @import("constants.zig");
 const member = @import("member.zig");
 const TextWriter = @import("json").TextWriter;
 const Features = @import("codec").Features;
@@ -16,6 +17,7 @@ pub const Error = member.Error;
 /// The names of the events (quic-events §3).
 pub const name = struct {
     pub const version_information = "quic:version_information";
+    pub const tuple_assigned = "quic:tuple_assigned";
     pub const alpn_information = "quic:alpn_information";
     pub const parameters_set = "quic:parameters_set";
     pub const packet_sent = "quic:packet_sent";
@@ -183,6 +185,28 @@ pub const ParametersSet = struct {
     }
 };
 
+/// Quic-events §8.5: one half of a four-tuple. colibri knows the peer's half alone, as the caller
+/// names it, and writes the address's octets as a hexstring, which §8.4 allows.
+pub const TupleEndpointInfo = struct {
+    ip_v4: ?Hex = null,
+    port_v4: ?u16 = null,
+    ip_v6: ?Hex = null,
+    port_v6: ?u16 = null,
+};
+
+/// Quic-events §4.7: the tuple a number names, and the peer's half of it when the caller named an
+/// IPv4 or IPv6 address.
+pub const TupleAssigned = struct {
+    tuple: u32,
+    tuple_remote: ?TupleEndpointInfo = null,
+
+    pub fn write(event: TupleAssigned, text: *TextWriter) Error!void {
+        var digits: [constants.tuple_id_len_max]u8 = undefined;
+        try member.string(text, "tuple_id", member.tuple_id(&digits, event.tuple));
+        try field(text, "tuple_remote", event.tuple_remote);
+    }
+};
+
 /// Opens the `frames` array of a `packet_sent` or `packet_received` event (quic-events §5.5).
 pub fn begin_frames(text: *TextWriter) Error!void {
     try text.name("frames");
@@ -325,4 +349,16 @@ test "state updates, dropped packets and parameters" {
         .max_idle_timeout = 30_000,
         .initial_max_data = 65_536,
     });
+}
+
+test "a tuple is named by its number, the first by the empty string, with the peer's half" {
+    try expect_event("{\"tuple_id\":\"\",\"tuple_remote\":{\"ip_v4\":\"7f000001\",\"port_v4\":443}}", TupleAssigned{
+        .tuple = 0,
+        .tuple_remote = .{ .ip_v4 = .{ .octets = &.{ 0x7f, 0, 0, 1 } }, .port_v4 = 443 },
+    });
+    try expect_event("{\"tuple_id\":\"12\",\"tuple_remote\":{\"ip_v6\":\"00000000000000000000000000000001\",\"port_v6\":50001}}", TupleAssigned{
+        .tuple = 12,
+        .tuple_remote = .{ .ip_v6 = .{ .octets = &(.{0} ** 15 ++ .{1}) }, .port_v6 = 50_001 },
+    });
+    try expect_event("{\"tuple_id\":\"3\"}", TupleAssigned{ .tuple = 3 });
 }

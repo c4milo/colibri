@@ -5344,6 +5344,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     pins run side by side: 2.88 s at eb0f0c7 and 2.77 s at f647da1. The machine's load average
     was 77 during the run.
 
+  **18b, tuples, 2026-09-28.** Each packet event names the tuple its datagram went to or came
+  from (main schema §7.2), so a log shows which of the peer's addresses each packet used, which
+  diagnosing [#78](https://github.com/c4milo/colibri/issues/78) took captures for. The first
+  address a connection's log meets is tuple 0, which quic-events §4.7 makes the default, and its
+  events name none. Each new address takes the next number, and `quic:tuple_assigned` names it,
+  with the address's octets and port when it is IPv4 or IPv6 (§4.7, §8.4, §8.5). colibri knows
+  the peer's half of a tuple alone (`connection_qlog_tuple.zig`).
+  - 7 tests: 4 in `connection_qlog_tuple.zig`, one in `connection_migration_test.zig`, where a
+    server follows its client to a new port and its challenge to the previous path names tuple 0,
+    and one each in `qlog/log.zig` and `qlog/quic_event.zig`.
+  - 7 mutations, each CAUGHT: sent packets and received packets naming no tuple, tuple 0 named,
+    a known address numbered again, the newest address let go, IPv4 and IPv6 swapped, and tuple 0
+    written as "0".
+  - The simulator's logs gained one `tuple_assigned` for each endpoint of each seed, and one for
+    each move on the rebinding networks. Their datagrams are the same, and Debug and ReleaseSafe
+    agree. `tools/qlog_check.py` and the simulator's record check require `tuple_id`, and
+    `tools/qlog_to_qvis.py` leaves the event out, since qlog 0.3 has none.
+  - `tools/quic_udp.sh`: 4 files, 17,346 events, each record a JSON text.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

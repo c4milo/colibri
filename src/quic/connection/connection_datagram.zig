@@ -199,7 +199,7 @@ fn walk_packets(
     // Bounded by the walk, which separates at most `constants.coalesced_packets_max` packets.
     while (try receive_module.next(&walk, connection, suite)) |outcome| {
         // The octets `next` stepped over are the packet's.
-        connection_qlog.on_packet_read(connection, outcome, walk.consumed - walked_len, datagram.now_ns);
+        connection_qlog.on_packet_read(connection, outcome, walk.consumed - walked_len, &datagram.from, datagram.now_ns);
         walked_len = walk.consumed;
         const opened = switch (outcome) {
             .opened => |held| held,

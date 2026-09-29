@@ -2,6 +2,7 @@
 //! changed (decision 72). A client and a server each hold 1-RTT keys, and every datagram between
 //! them names the address it came from, so a test moves the client by naming another.
 const std = @import("std");
+const qlog = @import("qlog");
 const constants = @import("../constants.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const stream_module = @import("../stream/stream.zig");
@@ -15,6 +16,7 @@ const migration = @import("connection_migration.zig");
 const timer = @import("connection_timer.zig");
 const connection_recovery = @import("connection_recovery.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
+const connection_qlog = @import("connection_qlog.zig");
 
 const Connection = connection_module.Connection;
 const Parameters = transport_parameters.Parameters;
@@ -385,4 +387,41 @@ test "RFC 9000 §9.4: what is in flight to the old address holds back no challen
     try testing.expect(first.to.eql(&moved_address));
     try testing.expect(first.packets[0].ack_eliciting);
     try testing.expect(server.path.challenge != null);
+}
+
+/// The server's log for the test below. Test-only.
+const test_log_len: usize = 16_384;
+var server_log: qlog.Log align(@alignOf(qlog.Log)) = undefined;
+var server_log_buffer: [test_log_len]u8 = undefined;
+const test_schemas = [_][]const u8{qlog.quic_event_schema};
+
+fn expect_record(expected: []const u8) !void {
+    if (std.mem.indexOf(u8, server_log.bytes(), expected) != null) return;
+    std.debug.print("record not in the log: {s}\nlog: {s}\n", .{ expected, server_log.bytes() });
+    return error.TestExpectedRecord;
+}
+
+test "quic-events §4.7: the server's log numbers the client's new address, and each packet names its tuple" {
+    open_pair(true);
+    server_log = qlog.Log.init(&server_log_buffer, qlog.Features.none());
+    try server_log.start(.{ .vantage_point = .server, .group_id = &peer_id, .event_schemas = &test_schemas }, test_now_ns);
+    connection_qlog.init(&server, &server_log, test_now_ns);
+    // The first address the log meets is tuple 0, the default, which the log names with "".
+    _ = try deliver(&server, try client_ping(0), 0, client_address, test_now_ns);
+    try expect_record("{\"tuple_id\":\"\",\"tuple_remote\":{\"ip_v4\":\"0a0a0a0a\",\"port_v4\":50000}}");
+    server_log.clear();
+    // RFC 9000 §9.3's NAT rebinding: the client's next PING comes from a new port, tuple 1.
+    try move_server(rebound_address);
+    try expect_record("{\"tuple_id\":\"1\",\"tuple_remote\":{\"ip_v4\":\"0a0a0a0a\",\"port_v4\":50001}}");
+    try expect_record("\"name\":\"quic:packet_received\",\"tuple\":\"1\",");
+    server_log.clear();
+    // RFC 9000 §9.3.3's challenge to the previous path goes on tuple 0, so its event names none.
+    const probe = try send_into(&server, 0, test_now_ns);
+    try testing.expect(probe.to.eql(&client_address));
+    try expect_record("\"name\":\"quic:packet_sent\",\"data\":");
+    try testing.expectEqual(null, std.mem.indexOf(u8, server_log.bytes(), "\"tuple\""));
+    server_log.clear();
+    // The next datagram goes to the new port, and its packet names tuple 1.
+    _ = try send_into(&server, 1, test_now_ns);
+    try expect_record("\"name\":\"quic:packet_sent\",\"tuple\":\"1\",");
 }

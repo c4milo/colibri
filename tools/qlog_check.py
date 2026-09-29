@@ -35,6 +35,7 @@ REQUIRED_DATA = {
     "quic:packet_sent": ("header",),
     "quic:packet_received": ("header",),
     "quic:connection_state_updated": ("new",),
+    "quic:tuple_assigned": ("tuple_id",),
     "http3:stream_type_set": ("stream_id", "stream_type"),
     "http3:frame_created": ("stream_id", "frame"),
     "http3:frame_parsed": ("stream_id", "frame"),

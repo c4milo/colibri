@@ -23,6 +23,8 @@ const connection_module = @import("connection.zig");
 const receive_module = @import("connection_receive.zig");
 const frames = @import("connection_frames.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
+const PeerAddress = @import("../peer_address.zig").PeerAddress;
+const connection_qlog_tuple = @import("connection_qlog_tuple.zig");
 
 const Level = core.Level;
 const Reader = core.Reader;
@@ -54,6 +56,8 @@ pub const State = struct {
     closed_logged: bool,
     /// The values the last `recovery_metrics_updated` carried, or their starting values.
     metrics: Metrics,
+    /// The tuple number of each peer address the log met (quic-events §4.7).
+    tuples: connection_qlog_tuple.Tuples,
 };
 
 /// The recovery metrics of quic-events §7.2 that colibri keeps.
@@ -80,6 +84,7 @@ pub fn init(connection: *Connection, log: ?*Log, now_ns: u64) void {
         .alpn_logged = false,
         .closed_logged = false,
         .metrics = .{},
+        .tuples = .{},
     };
     const held = log orelse return;
     // Main schema §5: the header comes first, and each event's time counts from its instant.
@@ -95,10 +100,13 @@ pub fn init(connection: *Connection, log: ?*Log, now_ns: u64) void {
 }
 
 /// Quic-events §5.5 for one packet `send` sealed. `payload` is the plaintext it was sealed from,
-/// PADDING included, and `packet_len` the octets it occupies in the datagram.
-pub fn on_packet_sent(connection: *const Connection, level: Level, packet_number: u64, packet_len: usize, payload: []const u8, now_ns: u64) void {
+/// PADDING included, and `packet_len` the octets it occupies in the datagram. The event names the
+/// tuple of the path it goes on (main schema §7.2), which is `connection.path`: `send` swaps the
+/// previous path in while it builds the PATH_CHALLENGE RFC 9000 §9.3.3 sends there.
+pub fn on_packet_sent(connection: *Connection, level: Level, packet_number: u64, packet_len: usize, payload: []const u8, now_ns: u64) void {
     const log = connection.qlog.log orelse return;
-    log.event(quic_event.name.packet_sent, now_ns, Packet{
+    const tuple = connection.qlog.tuples.of(log, &connection.path.address, now_ns);
+    log.event_on_tuple(tuple, quic_event.name.packet_sent, now_ns, Packet{
         .header = .{ .packet_type = packet_type_of(level), .packet_number = packet_number },
         .raw = .{ .length = packet_len, .payload_length = payload.len },
         .payload = payload,
@@ -108,17 +116,19 @@ pub fn on_packet_sent(connection: *const Connection, level: Level, packet_number
 }
 
 /// Quic-events §5.6 for a packet of a datagram that opened, or §5.7 for one that was dropped.
-/// `packet_len` is the octets the walk stepped over for it.
-pub fn on_packet_read(connection: *const Connection, outcome: receive_module.Outcome, packet_len: usize, now_ns: u64) void {
+/// `packet_len` is the octets the walk stepped over for it, and `from` the address the datagram
+/// came from, whose tuple the event names (main schema §7.2).
+pub fn on_packet_read(connection: *Connection, outcome: receive_module.Outcome, packet_len: usize, from: *const PeerAddress, now_ns: u64) void {
     const log = connection.qlog.log orelse return;
+    const tuple = connection.qlog.tuples.of(log, from, now_ns);
     switch (outcome) {
-        .opened => |opened| log.event(quic_event.name.packet_received, now_ns, Packet{
+        .opened => |opened| log.event_on_tuple(tuple, quic_event.name.packet_received, now_ns, Packet{
             .header = .{ .packet_type = packet_type_of(opened.level), .packet_number = opened.packet_number },
             .raw = .{ .length = packet_len, .payload_length = opened.payload.len },
             .payload = opened.payload,
             .ack_delay_exponent = peer_ack_delay_exponent(connection),
         }),
-        .discarded => |why| log.event(quic_event.name.packet_dropped, now_ns, quic_event.PacketDropped{
+        .discarded => |why| log.event_on_tuple(tuple, quic_event.name.packet_dropped, now_ns, quic_event.PacketDropped{
             .raw = .{ .length = packet_len },
             .trigger = dropped_trigger(why),
         }),
@@ -428,4 +438,5 @@ fn dropped_trigger(why: receive_module.Discarded) @FieldType(quic_event.PacketDr
 
 test {
     _ = @import("connection_qlog_test.zig");
+    _ = connection_qlog_tuple;
 }

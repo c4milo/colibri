@@ -36,6 +36,10 @@ EVENT_NAMES = {
     "http3:frame_parsed": "http:frame_parsed",
 }
 
+# Quic-events -13 §4.7's tuple_assigned, which -02 has no event for, so the rewrite leaves it out,
+# as it leaves out each event's tuple (main schema -14 §7.2).
+LEFT_OUT = {"quic:tuple_assigned"}
+
 # Quic-events -13 §5.7's reasons a packet was dropped, to the nearest of -02 §3.3.7. The others
 # have none.
 DROP_TRIGGERS = {
@@ -207,6 +211,8 @@ def convert(text, title):
     converted = [header(records[0], title)]
     for event in records[1:]:
         name = event["name"]
+        if name in LEFT_OUT:
+            continue
         converted.append({"time": event["time"], "name": EVENT_NAMES.get(name, name), "data": convert_data(name, event["data"])})
     return "".join(RECORD_SEPARATOR + json.dumps(record, separators=(",", ":")) + "\n" for record in converted)
 

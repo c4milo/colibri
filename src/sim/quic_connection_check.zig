@@ -402,11 +402,11 @@ test "decision 102: every check gives the same census when both endpoints write 
     // digest of every record and the events read back. The logs change when an event or its
     // fields change, and are committed with the new values after both build modes agree.
     const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32, qlog_events: u64 }{
-        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_738_157, .qlog_crc32 = 0x9aa24919, .qlog_events = 50_051 },
-        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_643_148, .qlog_crc32 = 0xee3175c2, .qlog_events = 18_373 },
-        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_763_642, .qlog_crc32 = 0xe97a243c, .qlog_events = 18_560 },
-        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_136_130, .qlog_crc32 = 0x0c2b7761, .qlog_events = 51_542 },
-        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 9_926_711, .qlog_crc32 = 0x38d540f2, .qlog_events = 50_453 },
+        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_773_200, .qlog_crc32 = 0xfac293ad, .qlog_events = 50_563 },
+        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_678_191, .qlog_crc32 = 0xcae3e2ad, .qlog_events = 18_885 },
+        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_798_850, .qlog_crc32 = 0xcacab72b, .qlog_events = 19_072 },
+        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_257_398, .qlog_crc32 = 0x1368a0a6, .qlog_events = 52_327 },
+        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 10_046_245, .qlog_crc32 = 0x1c19d8ee, .qlog_events = 51_244 },
     };
     // Bounded by the checks above.
     for (checks) |logged| {
