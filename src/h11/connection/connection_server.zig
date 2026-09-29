@@ -8,6 +8,10 @@
 //!
 //! A malformed request fails the connection, and the error response colibri owes is written by
 //! `write_pending` with `Connection: close` (decision 92).
+//!
+//! A final response to CONNECT other than 2xx ends the connection too (RFC 9931 §8, decision 109).
+//! A client may have sent the tunnel's first octets before the answer, so nothing after a refused
+//! CONNECT is read as a request.
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -85,6 +89,9 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     // RFC 9110 §15: a status code is three digits from 100 to 599.
     const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
     if (code.is_interim()) return message.write_response_head(output, status, reason, fields);
+    // RFC 9931 §8: a server that refuses a CONNECT closes the connection and processes no further
+    // request on it, whether or not the request carried the close option.
+    if (target.asked == .connect and code.class() != .successful) target.close_after = true;
     const writer = response_body(target, code, fields);
     // RFC 9112 §6.3 rule 8: a response with no declared length ends with the connection.
     if (writer.kind == .close_delimited) target.close_after = true;

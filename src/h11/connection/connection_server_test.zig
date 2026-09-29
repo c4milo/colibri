@@ -173,10 +173,32 @@ test "interim responses precede the final one, 101 is refused, and one final res
 test "RFC 9112 §6.3 rule 2: a 2xx to CONNECT turns the connection into a tunnel" {
     const target = server();
     _ = try expect_request(target, "CONNECT a:443 HTTP/1.1\r\nHost: a:443\r\n\r\n", "CONNECT");
-    _ = try target.write_response(&test_output, 200, "", &.{});
+    // An interim response refuses nothing, so it closes nothing (RFC 9931 §8).
+    _ = try target.write_response(&test_output, 100, "", &.{});
+    const written = try target.write_response(&test_output, 200, "", &.{});
+    try testing.expectEqualStrings("HTTP/1.1 200 \r\n\r\n", test_output[0..written]);
     try testing.expectEqual(connection.Phase.tunnel, target.phase);
     try testing.expectEqualStrings("raw", (try target.receive("raw", &.{})).event.?.tunnel);
     try testing.expectEqual(3, try target.write_body(&test_output, "raw"));
+}
+
+test "RFC 9931 §8: a refused CONNECT ends the connection, and what follows it is never read" {
+    var target = server();
+    // RFC 9931 Figure 1: a POST the client sent before the CONNECT's answer.
+    const smuggled = "CONNECT no-such-destination.example:443 HTTP/1.1\r\nHost: no-such-destination.example:443\r\n\r\n" ++
+        "POST /upload HTTP/1.1\r\nHost: proxy.example\r\nContent-Length: 5\r\n\r\nhello";
+    const first = try expect_request(target, smuggled, "CONNECT");
+    const written = try target.write_response(&test_output, 504, "", &.{.{ .name = "Content-Length", .value = "0" }});
+    try testing.expect(std.mem.indexOf(u8, test_output[0..written], "Connection: close\r\n") != null);
+    try testing.expect(target.should_close());
+    try testing.expectEqual(connection.Received{ .consumed = 0, .event = null }, try target.receive(smuggled[first..], &.{}));
+    // Any other request refused keeps the connection.
+    target = server();
+    const refused = "GET /a HTTP/1.1\r\nHost: h\r\n\r\nGET /b HTTP/1.1\r\nHost: h\r\n\r\n";
+    const get = try expect_request(target, refused, "GET");
+    _ = try target.write_response(&test_output, 404, "", &.{.{ .name = "Content-Length", .value = "0" }});
+    try testing.expect(!target.should_close());
+    _ = try expect_request(target, refused[get..], "GET");
 }
 
 test "a body is written as the head declared it: no more and no fewer octets, chunks and trailers" {
