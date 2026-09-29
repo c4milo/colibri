@@ -92,6 +92,15 @@ test "decision 92: a refused h11 request gets its error response, and then the s
     try testing.expect(stepped.done);
 }
 
+test "RFC 9110 §9.3.6: the server opens no tunnel, so a CONNECT gets 501, and h11 closes after it" {
+    _ = try fresh_session(.h11, null);
+    const input = "CONNECT a:443 HTTP/1.1\r\nHost: a:443\r\n\r\nGET / HTTP/1.1\r\nHost: a\r\n\r\n";
+    const stepped = step(input, &test_output);
+    // RFC 9931 §8: nothing after a refused CONNECT is read.
+    try testing.expectEqualStrings("HTTP/1.1 501 Not Implemented\r\ncontent-length: 0\r\nConnection: close\r\n\r\n", test_output[0..stepped.written]);
+    try testing.expect(stepped.done);
+}
+
 test "RFC 9110 §10.1.1: an HTTP/1.1 request expecting 100-continue gets it before its content" {
     _ = try fresh_session(.h11, null);
     const head = "POST / HTTP/1.1\r\nHost: a\r\nExpect: token, 100-Continue\r\nContent-Length: 3\r\n\r\n";
@@ -167,6 +176,34 @@ test "an h2 GET is answered with 200, its body, and END_STREAM on the DATA frame
     _ = step(get_frame(3), &test_output);
     try testing.expectEqual(0, test_session.connection.session.h2.streams.peer_active);
     try testing.expectEqual(0, test_session.owed_count);
+}
+
+/// A HEADERS frame on stream 1 ending it, whose block is `:method: CONNECT` and
+/// `:authority: a:443`, each a literal field line naming the static table's entry (RFC 7541
+/// §6.2.2, Appendix A), as RFC 9113 §8.5 has a CONNECT carry them. Test-only.
+const connect_frame = "\x00\x00\x10\x01\x05\x00\x00\x00\x01" ++ "\x02\x07CONNECT\x01\x05a:443";
+
+/// The status the server answers CONNECT with (RFC 9110 §15.6.2). Test-only.
+const not_implemented = "501";
+
+test "RFC 9110 §9.3.6: an h2 CONNECT gets 501 on a HEADERS frame that ends the stream, and no DATA" {
+    _ = try fresh_session(.h2, null);
+    _ = step(client_preface, &test_output);
+    const answer = step(connect_frame, &test_output);
+    try testing.expectEqual(connect_frame.len, answer.consumed);
+    const written = test_output[0..answer.written];
+    try testing.expectEqual(h2.constants.frame_type_headers, written[type_index]);
+    try testing.expect(written[flags_index] & h2.constants.flag_end_stream != 0);
+    const head_len = h2.constants.frame_header_len + std.mem.readInt(u24, written[0..length_len], .big);
+    try testing.expectEqual(head_len, written.len);
+    // RFC 7541 Appendix A: the static table holds no :status of 501, so its digits are a string
+    // literal, which the encoder writes in the Huffman code because that is shorter (§5.2).
+    var digits: [h2.wire.huffman.encoded_len_max(not_implemented.len)]u8 = undefined;
+    var writer = h2.core.writer.Writer.init(&digits);
+    try h2.wire.huffman.encode(not_implemented, &writer);
+    try testing.expect(std.mem.indexOf(u8, written, writer.written()) != null);
+    try testing.expectEqual(0, test_session.owed_count);
+    try testing.expect(!answer.done);
 }
 
 test "an h2 peer that breaks the protocol gets a GOAWAY, and the session is done" {

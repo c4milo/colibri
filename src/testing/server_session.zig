@@ -1,7 +1,8 @@
 //! One connection of design §9's server, over colibri's `server` module (design §8 step 17a): the
 //! octets the socket read go in, the octets it sends come out, and every request is answered with
 //! 200 and `response_body` once it is read whole. `server.zig` is the socket around it. In the
-//! `--echo` mode, an h11 request is answered with its echo (`h11/h11_echo.zig`) instead.
+//! `--echo` mode, an h11 request is answered with its echo (`h11/h11_echo.zig`) instead. The
+//! server opens no tunnel, so a CONNECT is answered 501 in every mode.
 //!
 //! `step` repeats three things until none moves, each bounded by the caller's buffers:
 //!   1. reads events until the input runs out, the connection waits, or `responses_owed_max`
@@ -33,10 +34,11 @@ pub const Step = struct {
 };
 
 /// A request read or being read, and whether its response carries content: a response to HEAD
-/// has the same fields and none (RFC 9110 §9.3.2).
+/// has the same fields and none (RFC 9110 §9.3.2), and a CONNECT gets a refusal with none.
 const Request = struct {
     id: server.Id,
     head: bool,
+    connect: bool,
 };
 
 /// The fields every response carries (RFC 9110 §8.3, §8.6).
@@ -49,6 +51,9 @@ const response_fields = [_]server.Field{
 /// §15.5.14).
 const echo_content_type = "application/json";
 const too_large_status: u16 = 413;
+
+/// The answer to CONNECT, a tunnel the server does not implement (RFC 9110 §9.3.6, §15.6.2).
+const not_implemented_status: u16 = 501;
 
 /// Events one step reads at most. Each takes an octet of input, or reports what the connection
 /// already holds, so a step that reaches the bound leaves the rest to the next.
@@ -126,7 +131,8 @@ pub const Session = struct {
                     .target = request.target,
                     .version = .{ .major = request.version.major, .minor = request.version.minor },
                 }, request.fields.section);
-                const read_request: Request = .{ .id = request.id, .head = http.method.standard(request.method) == .head };
+                const method = http.method.standard(request.method);
+                const read_request: Request = .{ .id = request.id, .head = method == .head, .connect = method == .connect };
                 if (request.end) session.owe(read_request) else session.start_reading(read_request);
             },
             .body => |body| {
@@ -190,7 +196,7 @@ pub const Session = struct {
         if (!session.head_written) {
             session.write_head(oldest) catch |failure| return session.write_failed(failure);
             session.head_written = true;
-            if (oldest.head or session.echo_refused()) {
+            if (oldest.head or oldest.connect or session.echo_refused()) {
                 session.finish_oldest();
                 return true;
             }
@@ -206,9 +212,11 @@ pub const Session = struct {
     }
 
     /// Writes the head of the response owed: 200 with its content's fields, or, when the echo could
-    /// not keep the request's content, 413 with none (RFC 9110 §15.5.14).
+    /// not keep the request's content, 413 with none (RFC 9110 §15.5.14), or 501 with none to a
+    /// CONNECT.
     fn write_head(session: *Session, request: Request) server.SendError!void {
         const connection = &session.connection;
+        if (request.connect) return connection.respond(request.id, .{ .status = not_implemented_status, .end = true });
         // Decision 101: the fixed answer may be coded, and an echo goes out as it arrived.
         const echo = session.echo orelse return connection.respond(request.id, .{ .status = constants.response_status, .fields = &response_fields, .end = request.head, .codable = true });
         if (echo.body_too_long) return connection.respond(request.id, .{ .status = too_large_status, .end = true });
