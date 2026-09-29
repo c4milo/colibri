@@ -26,7 +26,7 @@ cp -R "${repository_root}/tools/consumer" "${scratch}/consumer"
 cd "${scratch}/consumer"
 zig fetch --save=colibri "${scratch}/colibri.tar.gz" >/dev/null
 zig build run 2>&1 | tee "${scratch}/run.log"
-grep -q "^consumer: h11, h2 and tls link and run as a dependency$" "${scratch}/run.log"
+grep -q "^consumer: h11, h2, tls and gzip link and run as a dependency$" "${scratch}/run.log"
 if zig build without-assert >"${scratch}/without-assert.log" 2>&1; then
   echo "consumer_check.sh: a program with no ch_assert_fail linked" >&2
   exit 1
