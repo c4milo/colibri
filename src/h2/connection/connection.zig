@@ -214,6 +214,11 @@ pub const Connection = struct {
     rst_stream_sent: u32,
     /// The instant the current RST_STREAM rate period began.
     rst_stream_period_start_ns: u64,
+    /// Streams the peer opened and then reset since `peer_reset_period_start_ns` (§10.5,
+    /// decision 110).
+    peer_resets: u32,
+    /// The instant the current period of the peer's resets began.
+    peer_reset_period_start_ns: u64,
 
     /// Makes a connection for an endpoint in `role`, with nothing read and nothing written. The
     /// caller writes the preface with `write_pending` before it reads the peer's.
@@ -244,6 +249,8 @@ pub const Connection = struct {
         connection.tls_failed = false;
         connection.rst_stream_sent = 0;
         connection.rst_stream_period_start_ns = 0;
+        connection.peer_resets = 0;
+        connection.peer_reset_period_start_ns = 0;
         assert(!connection.has_failed());
         assert(connection.streams.len() == 0);
     }

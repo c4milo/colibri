@@ -169,6 +169,22 @@ fn count_reset(target: *Connection, now_ns: u64) Error!void {
     target.rst_stream_sent += 1;
 }
 
+/// Counts one stream the peer opened and then reset, in the period `now_ns` falls in, and ends the
+/// connection past the limit (decision 110). Each such stream cost the application a request's
+/// work, which CVE-2023-44487 made the peer's to spend at line rate.
+fn count_peer_reset(target: *Connection, now_ns: u64) Error!void {
+    if (now_ns - target.peer_reset_period_start_ns >= constants.peer_reset_rate_period_ns) {
+        target.peer_reset_period_start_ns = now_ns;
+        target.peer_resets = 0;
+    }
+    // RFC 9113 §10.5: an endpoint tracks the use of the features that cost it work, sets limits on
+    // them, and treats excess as ENHANCE_YOUR_CALM.
+    if (target.peer_resets == constants.peer_reset_rate_max) {
+        return target.fail(constants.error_enhance_your_calm);
+    }
+    target.peer_resets += 1;
+}
+
 /// Reads a PRIORITY frame, which colibri parses and never acts on (decision 18). RFC 9113 §5.1
 /// lets PRIORITY arrive in any stream state, so it ends neither the stream nor the connection.
 fn on_priority(target: *Connection, header: frame.Header) Error!?Event {
@@ -189,6 +205,9 @@ fn on_rst_stream(target: *Connection, header: frame.Header, payload: frame.RstSt
         // one: the state machine ends the connection on both before the table is asked to open.
         .open => unreachable,
         .act => |acting| {
+            // RFC 9113 §10.5 and decision 110: a stream the peer opened and resets cost a request's
+            // work, so those resets are counted. A stream colibri opened is the peer's to refuse.
+            if (acting.record.peer_initiated) try count_peer_reset(target, now_ns);
             target.streams.transition(acting.record, acting.verdict, .receive, .rst_stream, false);
             // RFC 9113 §5.1: the stream is closed, and no WINDOW_UPDATE may go out on it.
             target.replies.drop_window_updates(header.stream_id);
@@ -370,6 +389,52 @@ test "§10.5: more than rst_stream_rate_max resets in one period ends the connec
     const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(zero, 0));
     try testing.expectEqual(constants.error_enhance_your_calm, test_connection.failure.?);
+}
+
+test "§10.5: a peer that resets more than peer_reset_rate_max of its streams in one period ends the connection" {
+    try start_server();
+    var id: u32 = 1;
+    for (0..constants.peer_reset_rate_max) |index| {
+        // CVE-2023-44487 ends each request with END_STREAM before it resets the stream.
+        _ = try feed_request(id, "/", index % 2 == 0);
+        const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+        try testing.expectEqual(id, (try feed(reset)).?.stream_reset.stream_id);
+        id += constants.stream_id_step;
+    }
+    try testing.expectEqual(constants.peer_reset_rate_max, test_connection.peer_resets);
+    _ = try feed_request(id, "/", false);
+    const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
+    try testing.expectError(error.ConnectionFailed, test_connection.receive(reset, 0));
+    try testing.expectEqual(constants.error_enhance_your_calm, test_connection.failure.?);
+}
+
+test "the peer's reset count starts again in the next period, and a reset of a closed stream is not counted" {
+    try start_server();
+    _ = try feed_request(1, "/", false);
+    const first = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 1, "\x00\x00\x00\x08");
+    _ = try test_connection.receive(first, 0);
+    try testing.expectEqual(1, test_connection.peer_resets);
+    // RFC 9113 §5.1: a RST_STREAM on a stream already closed changes nothing.
+    try testing.expectEqual(null, try feed(first));
+    try testing.expectEqual(1, test_connection.peer_resets);
+    _ = try feed_request(3, "/", false);
+    const second = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, 3, "\x00\x00\x00\x08");
+    _ = try test_connection.receive(second, constants.peer_reset_rate_period_ns);
+    try testing.expectEqual(1, test_connection.peer_resets);
+    try testing.expectEqual(constants.peer_reset_rate_period_ns, test_connection.peer_reset_period_start_ns);
+}
+
+test "a server's resets of the streams a client opened are not counted" {
+    try support.start_client();
+    const request: connection.Request_ = .{ .method = "GET", .scheme = "https", .path = "/", .authority = "example.com" };
+    for (0..constants.peer_reset_rate_max + 1) |_| {
+        const sent = try test_connection.write_request(&support.test_output, request, &.{}, &.{}, true);
+        // RFC 9113 §8.7: REFUSED_STREAM tells the client it may send the request again.
+        const refused = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, sent.stream_id, "\x00\x00\x00\x07");
+        _ = try feed(refused);
+    }
+    try testing.expectEqual(0, test_connection.peer_resets);
+    try testing.expect(!test_connection.has_failed());
 }
 
 test "the reset count starts again in the next period" {

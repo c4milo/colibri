@@ -445,7 +445,8 @@ leaves the caller to place the struct.
 
 **h2** (`h2`): `frame_size_max` (16,384, the RFC 9113 §4.2 floor, and colibri does not raise it) ·
 `continuation_count_max` · `concurrent_streams_max` · `window_initial` · `window_max` (2^31 − 1) ·
-`settings_pending_max` · `ping_pending_max` · `rst_stream_rate_max` · `settings_timeout_ns` ·
+`settings_pending_max` · `ping_pending_max` · `rst_stream_rate_max` · `peer_reset_rate_max` ·
+`settings_timeout_ns` ·
 `representation_len_max` (31,721 encoded octets: the longest field line within
 `field_name_len_max`, `field_value_len_max` and `integer_len_max`, Huffman-coded at 30 bits an
 octet, so it refuses no line those limits admit) · `field_block_buffer_len` (one cut representation
@@ -5822,6 +5823,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     version 1 alone, in its connections or in its suites.
   - 3 mutations of the UDP endpoint, each **CAUGHT** by `tools/quic_udp.sh`: its server's
     connection or session starting in version 1, and the client ignoring `v2`.
+
+- **Step 20 — denial of service at the server.** [Decision 110](decisions.md) rules the defences
+  that [#82](https://github.com/c4milo/colibri/issues/82) planned, in two parts.
+  - **20a**, Rapid Reset (CVE-2023-44487). h2 counts the streams the peer opens and then resets,
+    and ends the connection past `peer_reset_rate_max` in one `peer_reset_rate_period_ns`.
+    **Check:** unit tests at the limit and across a period, a client whose streams its server
+    refuses never ending the connection, and mutations.
+  - **20b**, the deadlines of decision 110 in `server.Connection`, with the test-only server taking
+    its instants from Rotor's loop. **Check:** unit tests at each deadline's instant, a simulator
+    check with seeded slow and flooding peers and an honest slow peer that is never cut, and
+    mutations.
+
+  **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
+  period its instant falls in, beside the count of the resets colibri sends. What was checked, on
+  macOS arm64 with Zig 0.16.0:
+  - `zig build test`: 128 of 128 steps and 2388 of 2388 tests passed, the simulator's h2 censuses
+    unchanged.
+  - `tools/h2spec.sh 18443 --tls` passed 144 of 146 cases in cleartext and over TLS, skipping
+    decision 41's two.
+  - Mutations, each **CAUGHT**: the peer's resets not counted, every reset counted, the reset at
+    the limit refused, one past the limit allowed, the period never starting again, a period
+    starting one nanosecond late, and the wrong error code.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

@@ -271,6 +271,12 @@ pub const stream_replies_max: u32 = 32;
 pub const rst_stream_rate_max: u32 = 100;
 pub const rst_stream_rate_period_ns: u64 = 1_000_000_000;
 
+/// Most streams the peer opens and then resets in one `peer_reset_rate_period_ns`, after which the
+/// connection ends with ENHANCE_YOUR_CALM (§10.5). Each such stream costs the application a
+/// request's work for nothing, which CVE-2023-44487 did at line rate (decision 110).
+pub const peer_reset_rate_max: u32 = 100;
+pub const peer_reset_rate_period_ns: u64 = 1_000_000_000;
+
 /// How long colibri waits for a SETTINGS acknowledgment before a connection error of
 /// SETTINGS_TIMEOUT (§6.5.3 leaves "a reasonable amount of time" to the implementation).
 pub const settings_timeout_ns: u64 = 10_000_000_000;
@@ -300,6 +306,7 @@ comptime {
     // refuses no line the field-length limits admit (§6.10).
     assert(representation_len_max <= (continuation_count_max + 1) * frame_size_max);
     assert(rst_stream_rate_max > 0 and rst_stream_rate_period_ns > 0 and settings_timeout_ns > 0);
+    assert(peer_reset_rate_max > 0 and peer_reset_rate_period_ns > 0);
     // The flag bits each frame defines are distinct where two share a frame (§6.2).
     assert(flag_end_stream & flag_end_headers == 0 and flag_padded & flag_priority == 0);
     assert(flag_end_headers & flag_padded == 0 and flag_end_stream & flag_padded == 0);
