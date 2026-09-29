@@ -10,9 +10,10 @@ colibri measures (docs/design.md §11); it does not inform what colibri's API lo
 
 ## Read before changing behaviour
 
-- pepegrillo's `docs/performance.md`, at the commit `build.zig.zon` pins, before any performance
-  change: the method every one follows; then `docs/performance.md`, colibri's appendix to it: its
-  instruments, its admission rule, its baselines and the pitfalls it has paid for.
+- pepegrillo's `docs/performance.md`, the method every performance change follows: `zig build
+  guide` installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md`;
+  then `docs/performance.md`, colibri's appendix to it: its instruments, its admission rule, its
+  baselines and the pitfalls it has paid for.
 - `docs/design.md` — the module graph, the wire formats, and the numbered build plan. Each step
   names the check that proves it. Cite sections by number in commits and comments ("§8 step 4").
 - `docs/decisions.md` — numbered decisions, each with the alternatives it beat.
@@ -237,6 +238,8 @@ section when a step adds or renames a command.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
+- Guide: `zig build guide` installs pepegrillo's `docs/performance.md`, the performance method,
+  from the commit `build.zig.zon` pins to `zig-out/docs/performance-method.md` (`build/guide.zig`).
 - Lint: `zig build lint` — cognitive complexity over `src`, `tools`, `build/` and `build.zig`,
   then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG, outside `src/testing`),
   testing-clock (no clock in `src/testing`, decision 63), unbounded-loop,

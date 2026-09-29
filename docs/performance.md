@@ -1,8 +1,8 @@
 # Performance work in colibri
 
-The method every performance change follows is pepegrillo's
-[docs/performance.md](https://github.com/c4milo/pepegrillo/blob/main/docs/performance.md), at the
-commit `build.zig.zon` pins; read it first. This appendix is what that method leaves to the project:
+The method every performance change follows is pepegrillo's `docs/performance.md`. `zig build
+guide` installs it, at the commit `build.zig.zon` pins, to `zig-out/docs/performance-method.md`;
+read it first. This appendix is what that method leaves to the project:
 colibri's instruments, its admission rule, its baselines and the pitfalls it has paid for. CLAUDE.md's
 Performance section states the rules, and design §11 holds the method's numbers for this tree.
 

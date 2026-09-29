@@ -15,6 +15,8 @@
 //! points this clone's core.hooksPath at .githooks; neither is part of `zig build test`, because
 //! commit shape is a property of the history, not of the code.
 //!
+//! `zig build guide` installs pepegrillo's performance method; build/guide.zig adds the step.
+//!
 //! The library has two dependencies: chapulin, its TLS stack (decision 94), and stdx, its gzip and
 //! deflate decoders (decision 90). Adding another needs the owner (CLAUDE.md, Ask before). The
 //! tools take lazy packages, pepegrillo first, which only the root build requests, so a project
@@ -29,6 +31,7 @@ const generated = @import("build/generated.zig");
 const lint = @import("build/lint.zig");
 const vectors = @import("build/vectors.zig");
 const examples = @import("build/examples.zig");
+const guide = @import("build/guide.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "build", "examples", "src", "tools" };
@@ -70,6 +73,7 @@ pub fn build(b: *std.Build) void {
     if (b.pkg_hash.len != 0) return;
     const pepegrillo_dependency = b.lazyDependency("pepegrillo", .{}) orelse return;
     const pepegrillo = pepegrillo_dependency.module("pepegrillo");
+    guide.add(b, pepegrillo_dependency);
     // Decision 58: rotor is the loop of `src/testing/`'s UDP endpoints. Lazy like pepegrillo, and
     // requested here for the same reason, with the target and mode this build resolved. rotor's
     // build, like this one, offers ReleaseSafe as `-Drelease` and no `-Doptimize`.
