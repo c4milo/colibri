@@ -2803,6 +2803,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      on it becomes weak. The server's encoder pool is memory the caller places. Design §3 gains
      edges from `client` and `server` into stdx, and design §8 step 17 gains a part.
 
+     Amended by the owner on 2026-09-28, while building step 17e: every marked final response that
+     Accept-Encoding could choose carries `Vary: accept-encoding`, coded or not. RFC 9110 §8.8.3.3's
+     example sends it on the uncoded response too, and §12.5.5 has Vary tell a recipient that the
+     response was subject to content negotiation. A 206, a 204 and a 2xx to CONNECT still carry
+     none, because no coding could apply to them. The client decodes `gzip` and `deflate` in step
+     17e, and `zstd` and `br` in the part after it
+     ([#80](https://github.com/c4milo/colibri/issues/80)), whose decoders the pinned stdx already
+     has.
+
 102. **colibri writes qlog when its caller asks, from the pinned drafts.** Ruled by the owner on
      2026-09-27. The QUIC Interop Runner asks each endpoint for a qlog (entry 28), and colibri's
      had none (design §8 step 9e).
