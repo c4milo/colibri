@@ -50,6 +50,9 @@ pub const Client = struct {
     alpn: []const []const u8,
     /// Refuse a handshake whose key exchange is not X25519MLKEM768.
     require_pq: bool = false,
+    /// Suites to offer, most preferred first, as RFC 9846 Appendix B.4 codepoints; empty for
+    /// chapulin's. A list may leave suites out, and the ClientHello offers exactly this list.
+    cipher_suites: []const u16 = &.{},
 };
 
 /// A NewSessionTicket a client kept (RFC 9846 §4.7.1), in fixed-size fields, so a program keeps it

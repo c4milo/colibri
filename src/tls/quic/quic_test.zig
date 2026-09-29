@@ -112,6 +112,36 @@ test "RFC 9001 §6: 1-RTT packets carry each admitted suite, and a key update is
     }
 }
 
+test "RFC 9846 §4.2.2: a client's order naming one suite runs it, and chapulin's own runs its first" {
+    for (identity.suites_held) |suite| {
+        const order = [_]u16{suite};
+        var offered = support.web_pki;
+        offered.cipher_suites = identity.order_of(&order);
+        try support.configure(offered, .{});
+        try support.handshake_both(null);
+        try testing.expectEqual(suite, try suite_ran(&client.session));
+        try testing.expectEqual(suite, try suite_ran(&server.session));
+        client.close();
+        server.close();
+    }
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    try testing.expectEqual(identity.default_suite, try suite_ran(&client.session));
+    try testing.expectEqual(identity.default_suite, try suite_ran(&server.session));
+    client.close();
+    server.close();
+}
+
+/// The suite a session ran. A client of an object without AES-GCM offers ChaCha20 alone and
+/// records no suite (chapulin's `suite`), so null means ChaCha20 there and nowhere else.
+fn suite_ran(session: anytype) !u16 {
+    if (session.suite()) |recorded| return @intFromEnum(recorded);
+    // RFC 9846 §4.2.3: a client that offered more than one suite takes the one the ServerHello
+    // names, so only an object that holds ChaCha20 alone records none.
+    try testing.expect(!identity.aes_gcm);
+    return identity.chacha;
+}
+
 test "RFC 9001 §4.8: a flight chapulin refuses fails the handshake, and the alert is reported once" {
     try support.configure(support.web_pki, .{});
     try support.start_both(null);
@@ -134,7 +164,19 @@ test "RFC 9001 §4.8: a flight chapulin refuses fails the handshake, and the ale
     try testing.expectError(error.HandshakeStarted, provider.vtable.set_transport_params(provider.context, support.client_parameters));
     // RFC 9001 §4.8: the failed session still seals one CONNECTION_CLOSE at the level, and then
     // holds no key there.
-    try testing.expect(try suite.vtable.seal(suite.context, sealing, &support.packet) > header.len);
+    const written = try suite.vtable.seal(suite.context, sealing, &support.packet);
+    // RFC 9001 §5.2: the close opens at the server's Initial keys, which derive from the same
+    // Destination Connection ID in the same version.
+    const server_suite = server.suite();
+    try server_suite.vtable.install_initial_keys(server_suite.context, .server, &support.destination_id);
+    const opened = try server_suite.vtable.open(server_suite.context, .{
+        .level = .initial,
+        .packet = support.packet[0..written],
+        .packet_number_offset = header.len - support.packet_number_len,
+        .largest_packet_number = null,
+        .current_phase_lowest = null,
+    });
+    try testing.expectEqualStrings(payload, support.opened_payload(header.len, opened));
     try testing.expectError(error.KeysUnavailable, suite.vtable.seal(suite.context, sealing, &support.packet));
     client.close();
     server.close();

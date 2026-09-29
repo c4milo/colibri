@@ -45,6 +45,25 @@ test "RFC 9846 §9.1: each suite the object holds, named alone in a server's ord
     }
 }
 
+test "RFC 9846 §4.2.2: each suite the object holds, offered alone in a client's order, runs" {
+    for (support.suites_held) |suite| {
+        const order = [_]u16{suite};
+        try support.configure(support.offering(&order), .{});
+        try support.handshake_both(null);
+        for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
+            try testing.expectEqual(suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
+        }
+    }
+}
+
+test "chapulin's own order runs AES-256-GCM in an object with AES-GCM, and ChaCha20 in one without" {
+    try support.configure(support.web_pki, .{});
+    try support.handshake_both(null);
+    for ([_]tls_provider.Provider{ client.provider(), server.provider() }) |provider| {
+        try testing.expectEqual(support.default_suite, provider.vtable.negotiated_parameters(provider.context).?.cipher_suite);
+    }
+}
+
 test "RFC 9846 §5.2: records carry data each way, and a seal takes only what fits" {
     try support.configure(support.web_pki, .{});
     try support.handshake_both(null);
@@ -359,6 +378,9 @@ test "a list longer than the one it is copied into is refused when it is convert
         .alpn = &support.protocols,
         .cipher_suites = &many_suites,
     }));
+    var many_offered = support.web_pki;
+    many_offered.cipher_suites = &many_suites;
+    try testing.expectError(refused, support.client_config.init(many_offered));
 }
 
 test "a rule of chapulin's is chapulin's to report, when a session starts or a server is checked" {
@@ -366,6 +388,14 @@ test "a rule of chapulin's is chapulin's to report, when a session starts or a s
     const many_pins = [_]values.Pin{@splat(1)} ** 5;
     try support.client_config.init(.{ .trust = .{ .pins = .{ .pins = &many_pins } }, .alpn = &support.protocols });
     try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, null));
+    // chapulin's `webpki_cfg.h` refuses a client order that names a suite twice.
+    if (support.aes_gcm) {
+        const repeated = [_]u16{ support.chacha, support.chacha };
+        var twice = support.web_pki;
+        twice.cipher_suites = &repeated;
+        try support.client_config.init(twice);
+        try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, null));
+    }
     // A server with no identity has no key to check, and none to serve from.
     try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols });
     try testing.expectError(error.IdentityRefused, support.server_config.check(support.random()));

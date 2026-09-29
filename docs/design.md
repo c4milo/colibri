@@ -4904,6 +4904,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     scripts. Each loop closing before its output drained, by the h11 scripts' forged record; in the
     h2 scripts the refused handshake fails first.
 
+  **chapulin `10a5bc8`, 2026-09-29.** The pin moved to chapulin `10a5bc8`, which closes
+  https://github.com/c4milo/chapulin/issues/180 for https://github.com/c4milo/colibri/issues/81.
+  - An object with AES-GCM now prefers TLS_AES_256_GCM_SHA384, then TLS_AES_128_GCM_SHA256, then
+    TLS_CHACHA20_POLY1305_SHA256, as a client and as a server (chapulin's decision 80). The owner
+    put AES-256-GCM first for CNSA 2.0. An object without AES-GCM holds ChaCha20 alone, as before.
+  - `tls.values.Client.cipher_suites` sets a client's order, as `tls.values.Server.cipher_suites`
+    sets a server's, and the ClientHello offers exactly that list. An object without AES-GCM
+    refuses any list with `SuitesUnavailable`, and chapulin refuses a suite named twice when the
+    session starts.
+  - chapulin's QUIC calls now take a version (its `9680043`). colibri's `quic` speaks version 1
+    alone (RFC 9000 §15), so `tls.quic.version` names it once: each session starts in it, and every
+    seal, open and Retry call passes it.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2337 of 2337 tests. `zig build test-tls test-tls-keylog -Dcpu=generic`: 96
+    of 96.
+  - `tools/tls_accept.sh`: `suite=0x1302` against Go's client. `tools/tls_handshake.sh`:
+    `suite=0x1301` against Go's server, which takes its own order among the AES suites once the
+    client lists one first. Before the pin, CI printed `suite=0x1303` for both.
+  - `tools/quic_loopback.sh`, `tools/quic_udp.sh`, `tools/quic_aioquic.sh` against aioquic 1.3.0,
+    h3spec's 49 examples, h2spec's 144 in cleartext and over TLS, and `tools/consumer_check.sh`:
+    ok.
+  - 11 mutations, each **CAUGHT**: the client's order not passed on, and its refusal in an object
+    without AES-GCM; either role's version left unset; the version changed in the constant and in
+    each of the five calls; and the shared length check. The close a failed session seals was
+    caught only once a test opened it at the peer, which this change adds.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Seven parts. The owner ruled on 2026-09-27

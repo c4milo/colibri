@@ -40,6 +40,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
 
         anchors: [anchors_max]c.ch_trust_anchor,
         alpn: [protocols_max]c.ch_alpn_protocol,
+        suites: [constants.cipher_suites_max]chapulin.Suite,
         /// What each session starts from; `start` sets the clock and the ticket.
         values: chapulin.Client,
 
@@ -50,7 +51,16 @@ pub fn ClientConfig(comptime chapulin: type) type {
             const alpn = try protocols(chapulin, &config.alpn, client.alpn);
             const trust = try config.trust_of(client.trust);
             config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq };
+            if (has_suite_order) {
+                config.values.cipher_suites = try suite_order(chapulin, &config.suites, client.cipher_suites);
+            } else if (client.cipher_suites.len > 0) {
+                // RFC 9846 §9.1: an object without AES-GCM has one suite, and no order to set.
+                return error.SuitesUnavailable;
+            }
         }
+
+        /// Whether the object offers more than one suite, and so takes a client's order.
+        const has_suite_order = @TypeOf(@as(chapulin.Client, undefined).cipher_suites) != void;
 
         fn trust_of(config: *Config, trust: values.Trust) Error!chapulin.Trust {
             switch (trust) {
@@ -101,7 +111,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
                 .require_server_name = server.require_server_name,
             };
             if (has_suite_order) {
-                config.values.cipher_suites = try config.order(server.cipher_suites);
+                config.values.cipher_suites = try suite_order(chapulin, &config.suites, server.cipher_suites);
             } else if (server.cipher_suites.len > 0) {
                 // RFC 9846 §9.1: an object without AES-GCM has one suite, and no order to set.
                 return error.SuitesUnavailable;
@@ -121,14 +131,6 @@ pub fn ServerConfig(comptime chapulin: type) type {
         /// Whether the object holds the AES-GCM suites beside ChaCha20, and so an order among them.
         const has_suite_order = @TypeOf(@as(chapulin.Server, undefined).cipher_suites) != void;
 
-        fn order(config: *Config, codes: []const u16) Error![]const chapulin.Suite {
-            // RFC 9846 §9.1: the suites in the server's order, copied into a list as long as the
-            // three colibri admits (decision 45).
-            if (codes.len > config.suites.len) return error.TooManySuites;
-            for (codes, config.suites[0..codes.len]) |code, *suite| suite.* = @enumFromInt(code);
-            return config.suites[0..codes.len];
-        }
-
         /// chapulin's `ch_srv_check`: each provisioned key signs, and the signature verifies. It
         /// draws from `random`, for an RSA-PSS salt, and runs no I/O, so a program runs it once,
         /// before it serves.
@@ -140,6 +142,16 @@ pub fn ServerConfig(comptime chapulin: type) type {
             checked.check() catch return error.IdentityRefused;
         }
     };
+}
+
+/// Copies a role's suite order into chapulin's list; an empty order keeps chapulin's own.
+/// chapulin's `init` refuses a suite the object does not hold and a suite named twice.
+fn suite_order(comptime chapulin: type, storage: *[constants.cipher_suites_max]chapulin.Suite, codes: []const u16) Error![]const chapulin.Suite {
+    // RFC 9846 §9.1: the suites in the role's order, copied into a list as long as the three
+    // colibri admits (decision 45).
+    if (codes.len > storage.len) return error.TooManySuites;
+    for (codes, storage[0..codes.len]) |code, *suite| suite.* = @enumFromInt(code);
+    return storage[0..codes.len];
 }
 
 /// Copies the protocol names into chapulin's list, which an empty list leaves empty: a program

@@ -79,6 +79,17 @@ pub fn order_of(suite: *const [1]u16) []const u16 {
     return if (aes_gcm) suite else &.{};
 }
 
+/// The suite chapulin's own order runs when neither side names one: AES-256-GCM first in an object
+/// with AES-GCM (chapulin's decision 80), and ChaCha20, the one suite, in an object without it.
+pub const default_suite: u16 = if (aes_gcm) tls_provider.constants.cipher_suite_aes_256_gcm_sha384 else chacha;
+
+/// `web_pki` with a client order naming `suite` alone, or none in an object with no order.
+pub fn offering(suite: *const [1]u16) values.Client {
+    var offered = web_pki;
+    offered.cipher_suites = order_of(suite);
+    return offered;
+}
+
 /// What the tests vary on the server.
 pub const ServerChoice = struct {
     tickets: bool = false,

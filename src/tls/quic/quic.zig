@@ -25,6 +25,7 @@ pub const ConfigError = config_module.Error;
 pub const State = quic_provider.State;
 pub const Retry = quic_suite.Retry;
 pub const token_key_len = quic_suite.token_key_len;
+pub const version = quic_suite.version;
 
 pub const Error = error{
     /// The ticket's fields are not ones chapulin can offer (RFC 9846 §4.7.1).
@@ -51,6 +52,8 @@ pub const Client = struct {
         client.state = .{};
         client.chosen = config.values;
         client.chosen.random = random;
+        // RFC 9000 §15: the version of the client's first Initial packet.
+        client.chosen.quic_version = version;
         switch (client.chosen.trust) {
             .web_pki => |*judged| judged.now_seconds = now_seconds,
             .pins => {},
@@ -116,6 +119,8 @@ pub const Server = struct {
         server.chosen = config.values;
         server.chosen.random = random;
         server.chosen.now_seconds = now_seconds;
+        // RFC 9000 §15: the version of the client's first Initial packet, which is colibri's own.
+        server.chosen.quic_version = version;
     }
 
     pub fn provider(server: *Server) tls_provider.QuicProvider {
