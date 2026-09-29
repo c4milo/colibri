@@ -1,18 +1,18 @@
 //! The identity the client trace run's servers present and the anchor its client trusts
-//! (decision 105): `testdata/`, a copy of `src/client/testdata/`, which
-//! `tools/h2_interop/tls_identity.go` minted at `now_seconds`. Every handshake of the run judges
-//! the chain at that instant, so no run reads a clock (non-negotiable 3).
+//! (decision 105): the test identity of `src/testing/testdata/`. Every handshake of the run judges
+//! the chain at `now_seconds`, so no run reads a clock (non-negotiable 3).
 const tls = @import("tls");
+const testdata = @import("testdata");
 
-pub const leaf = @embedFile("testdata/identity.leaf.der");
-pub const root = @embedFile("testdata/identity.ca.der");
-pub const root_name = @embedFile("testdata/identity.name");
-pub const root_spki = @embedFile("testdata/identity.spki");
-pub const private_key: *const [tls.constants.p256_private_key_len]u8 = @embedFile("testdata/identity.priv");
-pub const public_key: *const [tls.constants.p256_public_key_len]u8 = @embedFile("testdata/identity.pub");
+pub const leaf = testdata.leaf;
+pub const root = testdata.root;
+pub const root_name = testdata.root_name;
+pub const root_spki = testdata.root_spki;
+pub const private_key: *const [tls.constants.p256_private_key_len]u8 = testdata.private_key;
+pub const public_key: *const [tls.constants.p256_public_key_len]u8 = testdata.public_key;
 
 /// The instant the identity was minted, inside the 48 hours its certificates are valid for.
-pub const now_seconds: u64 = 1_790_477_172;
+pub const now_seconds: u64 = testdata.now_seconds;
 /// The authority the certificate names, which every request of the run carries.
 pub const authority = "localhost";
 

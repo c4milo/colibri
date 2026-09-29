@@ -22,6 +22,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
+const modules_test_roots = @import("build/modules_test_roots.zig");
 const generated = @import("build/generated.zig");
 const lint = @import("build/lint.zig");
 const vectors = @import("build/vectors.zig");
@@ -83,6 +84,10 @@ pub fn build(b: *std.Build) void {
     graph.testing_client.addImport("rotor", rotor_dependency.module("rotor"));
     // Decision 96: the programs of examples/ run over an in-memory link on rotor's loop.
     examples.add(b, graph, rotor_dependency.module("rotor"), target, optimize);
+    // The owner's ruling of 2026-09-28: the test identity, which `tls_keylog`, `sim_run` and the
+    // roots the tests of `tls`, `server` and `client` compile from import, and no packaged
+    // module does. It is made here, in colibri's own build alone.
+    const testdata = modules_test_roots.add_testdata(b, graph, target, optimize);
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");
@@ -99,6 +104,8 @@ pub fn build(b: *std.Build) void {
         }),
     }));
 
+    // The tests of `tls`, `server` and `client` compile from roots that add the test identity,
+    // which no packaged module imports (build/modules_test_roots.zig).
     const unit_test_modules = [_]struct { name: []const u8, module: *std.Build.Module }{
         .{ .name = "core", .module = graph.core },
         .{ .name = "wire", .module = graph.wire },
@@ -112,10 +119,10 @@ pub fn build(b: *std.Build) void {
         .{ .name = "h2", .module = graph.h2 },
         .{ .name = "h3", .module = graph.h3 },
         .{ .name = "h11", .module = graph.h11 },
-        .{ .name = "tls", .module = graph.tls },
+        .{ .name = "tls", .module = modules_test_roots.test_root(b, graph.tls, testdata) },
         .{ .name = "tls-keylog", .module = graph.tls_keylog },
-        .{ .name = "server", .module = graph.server },
-        .{ .name = "client", .module = graph.client },
+        .{ .name = "server", .module = modules_test_roots.test_root(b, graph.server, testdata) },
+        .{ .name = "client", .module = modules_test_roots.test_root(b, graph.client, testdata) },
         .{ .name = "sim", .module = graph.sim },
         .{ .name = "sim-run", .module = graph.sim_run },
         .{ .name = "sim-run-quic", .module = graph.sim_run_quic },

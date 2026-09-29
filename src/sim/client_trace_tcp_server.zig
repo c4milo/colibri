@@ -1,8 +1,8 @@
 //! The TCP server of the client trace run (decision 105): h2 over TLS, with its handshake run
-//! through `tls.record.Server` over the identity in `testdata/`. It answers each request as the
-//! seed's plan says, may send the seed's GOAWAY (RFC 9113 §6.8), and under a learning plan names
-//! h3 in each response's Alt-Svc (RFC 7838 §3). Each TCP connection the channel opens meets a fresh
-//! server.
+//! through `tls.record.Server` over the test identity of `src/testing/testdata/`. It answers each
+//! request as the seed's plan says, may send the seed's GOAWAY (RFC 9113 §6.8), and under a
+//! learning plan names h3 in each response's Alt-Svc (RFC 7838 §3). Each TCP connection the channel
+//! opens meets a fresh server.
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");

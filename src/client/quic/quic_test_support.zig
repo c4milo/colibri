@@ -1,6 +1,7 @@
-//! What the QUIC client's tests share: the connection they drive, and an h3 server over QUIC in
-//! the same process, a `tls.quic.Server` over the identity in `testdata/`, which answers each
-//! request once the request has ended. Time moves only when `pump` moves it. Test-only.
+//! What the QUIC client's tests share: the connection they drive, and an h3 server over QUIC in the
+//! same process, a `tls.quic.Server` over the test identity of `src/testing/testdata/`, which
+//! answers each request once the request has ended. Time moves only when `pump` moves it.
+//! Test-only.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");

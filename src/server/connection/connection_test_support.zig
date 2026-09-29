@@ -1,10 +1,10 @@
 //! What the server's tests share: the connection they drive, the buffers it reads and writes, and
-//! for the TLS tests a colibri client over the identity in `testdata/`, which
-//! `tools/h2_interop/tls_identity.go` minted at `now_seconds`. The session sources are SplitMix64
-//! from a seed, so every run draws the same octets. Test-only.
+//! for the TLS tests a colibri client over the test identity of `src/testing/testdata/`. The
+//! session sources are SplitMix64 from a seed, so every run draws the same octets. Test-only.
 const std = @import("std");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
+const testdata = @import("testdata");
 const connection_module = @import("connection.zig");
 
 const http = @import("http");
@@ -23,15 +23,15 @@ pub const Request = event.Request;
 pub const Trailers = event.Trailers;
 pub const Content = event.Content;
 
-pub const leaf = @embedFile("../testdata/identity.leaf.der");
-pub const root = @embedFile("../testdata/identity.ca.der");
-pub const root_name = @embedFile("../testdata/identity.name");
-pub const root_spki = @embedFile("../testdata/identity.spki");
-pub const private_key: *const [tls.constants.p256_private_key_len]u8 = @embedFile("../testdata/identity.priv");
-pub const public_key: *const [tls.constants.p256_public_key_len]u8 = @embedFile("../testdata/identity.pub");
+pub const leaf = testdata.leaf;
+pub const root = testdata.root;
+pub const root_name = testdata.root_name;
+pub const root_spki = testdata.root_spki;
+pub const private_key: *const [tls.constants.p256_private_key_len]u8 = testdata.private_key;
+pub const public_key: *const [tls.constants.p256_public_key_len]u8 = testdata.public_key;
 
 /// The instant the identity was minted, inside the 48 hours its certificates are valid for.
-pub const now_seconds: u64 = 1_790_477_172;
+pub const now_seconds: u64 = testdata.now_seconds;
 
 /// The instant each call passes, in nanoseconds. The tests hold it still.
 pub const now_ns: u64 = 1_000_000;
