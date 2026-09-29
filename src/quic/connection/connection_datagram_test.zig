@@ -390,6 +390,9 @@ const RetrySuite = struct {
     fn none_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
         return false;
     }
+    fn unreached_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {
+        unreachable;
+    }
     fn unreached_seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {
         unreachable;
     }
@@ -419,6 +422,7 @@ const RetrySuite = struct {
     }
     const table: crypto.suite.VTable = .{
         .install_initial_keys = install,
+        .switch_version = unreached_switch,
         .keys_available = none_available,
         .seal = unreached_seal,
         .open = unreached_open,

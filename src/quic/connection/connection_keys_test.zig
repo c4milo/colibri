@@ -65,6 +65,7 @@ const Recorder = struct {
 
     const vtable: crypto.suite.VTable = .{
         .install_initial_keys = unreachable_install,
+        .switch_version = unreachable_switch,
         .keys_available = keys_available,
         .seal = unreachable_seal,
         .open = unreachable_open,
@@ -83,6 +84,9 @@ const Recorder = struct {
 /// discards or loses a level, and a call to any other member would mean the test drove something
 /// it does not cover.
 fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
+    unreachable;
+}
+fn unreachable_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {
     unreachable;
 }
 fn unreachable_seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {

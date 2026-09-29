@@ -52,6 +52,7 @@ pub fn Suite(comptime Held: type) type {
     return struct {
         pub const vtable: suite_module.VTable = .{
             .install_initial_keys = install_initial_keys,
+            .switch_version = switch_version,
             .keys_available = keys_available,
             .seal = seal,
             .open = open,
@@ -75,6 +76,10 @@ pub fn Suite(comptime Held: type) type {
 
         fn install_initial_keys(context: *anyopaque, role: suite_module.Role, dcid: []const u8) suite_module.InstallError!void {
             return install(held(context), role, dcid);
+        }
+
+        fn switch_version(context: *anyopaque, named: suite_module.Version) suite_module.SwitchError!void {
+            return switch_role(held(context), named);
         }
 
         fn keys_available(context: *const anyopaque, level: Level, direction: suite_module.Direction) bool {
@@ -134,6 +139,22 @@ fn install(role: anytype, asked: suite_module.Role, dcid: []const u8) suite_modu
     if (asked != own or !role.state.started) return error.Unsupported;
     // RFC 9001 §5.2: chapulin refuses a connection ID it cannot derive from.
     role.session.initialKeys(dcid) catch return error.Unsupported;
+}
+
+/// RFC 9369 §4.1, which chapulin refuses twice, after the server's first CRYPTO octet, or to the
+/// version it already negotiated.
+fn switch_role(role: anytype, named: suite_module.Version) suite_module.SwitchError!void {
+    if (comptime !@TypeOf(role.*).is_client) {
+        // RFC 9369 §4.1 gives the switch to a client, and chapulin has no server call for it.
+        return error.Refused;
+    } else {
+        // RFC 9369 §4.1: a session chapulin has not started has no original version to leave.
+        if (!role.state.started) return error.Refused;
+        // RFC 9369 §4.1: chapulin refuses a second switch, one after the server's first CRYPTO
+        // octet, and one to the version already negotiated.
+        role.session.switchVersion(chapulin_version(named)) catch return error.Refused;
+        assert(role.session.negotiatedVersion() == chapulin_version(named));
+    }
 }
 
 fn protect(role: anytype, sealing: suite_module.Sealing, output: []u8) suite_module.SealError!usize {
@@ -234,6 +255,7 @@ pub const token_key_len = c.CH_QUIC_TOKEN_KEY_LEN;
 
 const retry_vtable: suite_module.VTable = .{
     .install_initial_keys = no_session_install,
+    .switch_version = no_session_switch,
     .keys_available = no_session_available,
     .seal = no_session_seal,
     .open = no_session_open,
@@ -285,6 +307,9 @@ fn retry_token_check(context: *const anyopaque, named: suite_module.Version, add
 
 /// The members a session holds and a Retry never reaches: a Retry is written before any key exists.
 fn no_session_install(_: *anyopaque, _: suite_module.Role, _: []const u8) suite_module.InstallError!void {
+    unreachable;
+}
+fn no_session_switch(_: *anyopaque, _: suite_module.Version) suite_module.SwitchError!void {
     unreachable;
 }
 fn no_session_available(_: *const anyopaque, _: Level, _: suite_module.Direction) bool {

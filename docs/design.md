@@ -5728,6 +5728,28 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     VERSION_NEGOTIATION_ERROR numbered 0x10; a connection sending no parameter, or listing
     version 2; and every list naming every version.
 
+  **19d, the switch member, 2026-09-29.** `crypto.Suite` gains `switch_version`, decision 108's
+  thirteenth member, and invariant 23's list moves with it. No connection calls it yet.
+  - `tls.quic`'s client suite calls chapulin's `switchVersion`. It refuses a session chapulin has
+    not started, and a server's suite refuses every call (RFC 9369 §4.1).
+  - The null suite keeps the original and the negotiated version (`null_suite_version.zig`). A
+    client switches once, before it holds the Handshake keys. From then on the Initial level
+    admits both versions, and the Handshake and application levels the negotiated one alone,
+    which is what chapulin's packet calls admit. A call in any other version counts as a call
+    without keys, which the QUIC simulator treats as a violation (invariant 21). A version has no
+    zero value, so the two checks whose storage starts zeroed zero it around their suites.
+  - chapulin `3f775fa`, which colibri pins, also carries the server's `choose_version` callback
+    that 19e needs.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2376 of 2376 tests.
+  - 14 mutations, each **CAUGHT**: a server's switch succeeding; a session not started
+    switching; the suite switching nothing, or swallowing chapulin's refusal; the null suite
+    letting a server switch, a client switch twice, after the server's CRYPTO octets, or to the
+    negotiated version; its switch not remembered or blind to the Handshake keys; the Initial
+    level forgetting the original version, or every level admitting it; and seal or open ignoring
+    the version.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

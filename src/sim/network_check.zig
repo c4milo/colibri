@@ -102,7 +102,7 @@ pub const Storage = struct {
     header: [constants.network_datagram_len_max]u8,
     datagram: [constants.network_datagram_len_max]u8,
 
-    pub const zeroed: Storage = std.mem.zeroes(Storage);
+    pub const zeroed: Storage = sim.null_suite.zeroes_around_suites(Storage);
 
     fn peer_of(storage: *Storage, endpoint: Endpoint) *Peer {
         return &storage.peers[@intFromEnum(endpoint)];

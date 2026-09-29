@@ -303,3 +303,22 @@ test "RFC 9369 Appendix A.4: version 2's Retry Integrity Tag, and version 1's ke
     // RFC 9369 §3.3.3: version 1's Retry key and nonce give another tag.
     try testing.expect(!suite.vtable.retry_tag_valid(suite.context, .v1, pseudo, tag));
 }
+
+test "RFC 9369 §4.1: a client that started in version 1 switches, then opens version 2's server Initial" {
+    const suite = try start_client(.v1);
+    var packet = server_protected_v2;
+    const opening: crypto.suite.Opening = .{
+        .level = .initial,
+        .version = .v2,
+        .packet = &packet,
+        .packet_number_offset = server_header_v2.len - server_packet_number_len,
+        .largest_packet_number = null,
+    };
+    // Before the switch the session admits its original version alone (decision 108).
+    try testing.expectError(error.KeysUnavailable, suite.open(opening));
+    try suite.vtable.switch_version(suite.context, .v2);
+    packet = server_protected_v2;
+    const opened = try suite.open(opening);
+    try testing.expectEqualSlices(u8, &server_payload, packet[server_header_v2.len..][0..opened.payload_len]);
+    test_session.close();
+}

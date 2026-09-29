@@ -174,6 +174,9 @@ const GoldenSuite = struct {
         return true;
     }
     fn install_initial_keys(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {}
+    fn unreachable_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {
+        unreachable;
+    }
     fn seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {
         unreachable;
     }
@@ -192,6 +195,7 @@ const GoldenSuite = struct {
 
     const table: crypto.suite.VTable = .{
         .install_initial_keys = install_initial_keys,
+        .switch_version = unreachable_switch,
         .keys_available = keys_available,
         .seal = seal,
         .open = open,

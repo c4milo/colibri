@@ -168,6 +168,14 @@ pub const UpdateError = error{
     Unsupported,
 };
 
+/// Why a suite did not switch the negotiated version (RFC 9369 §4.1). colibri drops the packet
+/// whose version asked for the switch, and the connection goes on in the version it had.
+pub const SwitchError = error{
+    /// A server asked, the switch already happened, the server's first CRYPTO octet was already
+    /// delivered, the version is the negotiated one already, or the suite derives no keys for it.
+    Refused,
+};
+
 /// One packet to protect. Every slice is colibri's, and none overlaps the output.
 pub const Sealing = struct {
     level: Level,
@@ -217,13 +225,21 @@ pub const Opened = struct {
     key_set: KeySet,
 };
 
-/// The calls colibri makes on packet protection it does not own. Decision 48 fixes this list, and
-/// a test below holds the names to it (invariant 23).
+/// The calls colibri makes on packet protection it does not own. Decisions 48, 55 and 108 fix
+/// this list, and a test below holds the names to it (invariant 23).
 pub const VTable = struct {
     /// Derives the Initial keys of both directions from the Destination Connection ID of the
     /// client's first Initial packet (RFC 9001 §5.2). colibri calls it again after a Retry, which
     /// changes that connection ID and so the keys.
     install_initial_keys: *const fn (context: *anyopaque, role: Role, dcid: []const u8) InstallError!void,
+
+    /// Makes `version` the negotiated version, the one switch RFC 9369 §4.1 gives a client: it
+    /// learns the negotiated version from the first long header whose Version field differs from
+    /// the original version, and colibri calls this before it opens that packet. No key moves:
+    /// the suite derives `version`'s Initial keys from the same Destination Connection ID, and no
+    /// Handshake key exists yet. From then on the Initial level admits both versions, and the
+    /// other two the negotiated one alone (decision 108).
+    switch_version: *const fn (context: *anyopaque, version: Version) SwitchError!void,
 
     /// Whether the keys of `level` are installed in `direction` and not discarded.
     keys_available: *const fn (context: *const anyopaque, level: Level, direction: Direction) bool,
@@ -342,12 +358,13 @@ pub const Suite = struct {
 
 const testing = std.testing;
 
-test "invariant 23: the vtable's members are the twelve decisions 48 and 55 list, and none returns a key" {
+test "invariant 23: the vtable's members are the thirteen decisions 48, 55 and 108 list, and none returns a key" {
     const expected = [_][]const u8{
-        "install_initial_keys", "keys_available",        "seal",
-        "open",                 "retry_tag_valid",       "retry_tag_write",
-        "retry_token_write",    "retry_token_check",     "update_keys",
-        "key_phase",            "discard_previous_keys", "discard_keys",
+        "install_initial_keys", "switch_version",    "keys_available",
+        "seal",                 "open",              "retry_tag_valid",
+        "retry_tag_write",      "retry_token_write", "retry_token_check",
+        "update_keys",          "key_phase",         "discard_previous_keys",
+        "discard_keys",
     };
     const fields = @typeInfo(VTable).@"struct".fields;
     try testing.expectEqual(expected.len, fields.len);

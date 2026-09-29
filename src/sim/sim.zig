@@ -39,5 +39,6 @@ test {
     _ = network;
     _ = null_suite;
     _ = @import("null_suite_keys.zig");
+    _ = @import("null_suite_version.zig");
     _ = null_quic_provider;
 }

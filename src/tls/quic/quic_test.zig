@@ -37,6 +37,33 @@ test "RFC 9001 §4.1: a client and a server complete the handshake and read each
     server.close();
 }
 
+test "RFC 9369 §4.1: a client switches once, before the server's first CRYPTO octet, and a server never" {
+    try support.configure(support.web_pki, .{});
+    try support.start_both(null);
+    const client_suite = client.suite();
+    const server_suite = server.suite();
+    try testing.expectError(error.Refused, server_suite.vtable.switch_version(server_suite.context, .v2));
+    // A client started again has no session until its parameters start chapulin's, so it refuses
+    // though the last session's memory would take the switch.
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
+    try testing.expectError(error.Refused, client_suite.vtable.switch_version(client_suite.context, .v2));
+    try client.provider().set_transport_params(support.client_parameters);
+    // The version already negotiated is no switch, and after one there is no other.
+    try testing.expectError(error.Refused, client_suite.vtable.switch_version(client_suite.context, .v1));
+    try client_suite.vtable.switch_version(client_suite.context, .v2);
+    try testing.expectError(error.Refused, client_suite.vtable.switch_version(client_suite.context, .v1));
+    client.close();
+    server.close();
+    // "If the client receives a CRYPTO frame from the server in the original version, it
+    // indicates that the negotiated version is equal to the original version."
+    try support.start_both(null);
+    try support.move(client.provider(), server.provider());
+    try support.move(server.provider(), client.provider());
+    try testing.expectError(error.Refused, client_suite.vtable.switch_version(client_suite.context, .v2));
+    client.close();
+    server.close();
+}
+
 test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no start installs nothing" {
     try support.configure(support.web_pki, .{});
     try client.start(&support.client_config, identity.random(), identity.now_seconds, null);

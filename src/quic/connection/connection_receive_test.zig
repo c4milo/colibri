@@ -110,6 +110,7 @@ const Opener = struct {
 
     const vtable: crypto.suite.VTable = .{
         .install_initial_keys = unreachable_install,
+        .switch_version = unreachable_switch,
         .keys_available = unreachable_available,
         .seal = unreachable_seal,
         .open = open,
@@ -127,6 +128,9 @@ const Opener = struct {
 /// The walk calls `open` alone, so every other member is unreached: a call to one would mean a
 /// test drove something these cases do not cover.
 fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
+    unreachable;
+}
+fn unreachable_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {
     unreachable;
 }
 fn unreachable_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {

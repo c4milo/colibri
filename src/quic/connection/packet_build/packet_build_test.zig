@@ -170,6 +170,7 @@ pub const RoundTrip = struct {
 
     const vtable: crypto.suite.VTable = .{
         .install_initial_keys = unreachable_install,
+        .switch_version = unreachable_switch,
         .keys_available = keys_available,
         .seal = seal,
         .open = open,
@@ -185,6 +186,9 @@ pub const RoundTrip = struct {
 };
 
 fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
+    unreachable;
+}
+fn unreachable_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {
     unreachable;
 }
 fn unreachable_tag_valid(

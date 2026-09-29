@@ -88,7 +88,7 @@ pub const Storage = struct {
     datagram_len: usize,
     received: [constants.packet_check_datagram_len_max]u8,
 
-    pub const zeroed: Storage = std.mem.zeroes(Storage);
+    pub const zeroed: Storage = sim.null_suite.zeroes_around_suites(Storage);
 
     fn suite_of(storage: *Storage, role: Role) *sim.NullSuite {
         return if (role == .client) &storage.client else &storage.server;
