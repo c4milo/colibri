@@ -7,8 +7,10 @@
 //! goes out before the next head. A request carrying `Connection: close` is the last (§9.6).
 //!
 //! A response that arrives with no request outstanding is refused, unless it is only CRLF, which
-//! §2.2 lets the client discard (§9.2). 101 Switching Protocols is refused: h11 implements no
-//! upgrade.
+//! §2.2 lets the client discard (§9.2). h11 implements no upgrade: a request carrying Upgrade is
+//! refused before it is written, and 101 Switching Protocols fails the connection (decision 109).
+//! After a CONNECT, the client writes nothing until the answer: CONNECT is not idempotent, so
+//! nothing is pipelined after it, and the tunnel opens only on a 2xx (RFC 9931 §8).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
@@ -33,6 +35,9 @@ pub const Error = error{
 /// The line end a client may discard before a response it has no request for (RFC 9112 §2.2).
 const line_end = "\r\n";
 
+/// The field that invites a switch of protocol (RFC 9110 §7.8). Names compare case-insensitively.
+const upgrade_name = "Upgrade";
+
 /// RFC 9112 §7.4: a client that decodes gzip and deflate names them in TE, and names TE in
 /// Connection, so no intermediary forwards it.
 const te_fields = [_]Field{
@@ -49,11 +54,22 @@ pub fn write_request(target: *Connection, output: []u8, method: []const u8, targ
     // RFC 9112 §9.2: a client keeps its outstanding requests in order, in a queue colibri bounds.
     if (target.outstanding_len == constants.pipeline_depth_max) return error.PipelineFull;
     if (target.outstanding_len > 0) try check_pipelining(target);
+    // RFC 9110 §7.8: Upgrade invites the server to switch protocols, which h11 cannot follow, and
+    // RFC 9931 §4.1: the server would read what the client sends next in the protocol it chose.
+    if (names_upgrade(fields)) return error.UpgradeUnsupported;
     const written = try write_head(target, output, method, target_uri, fields);
     push(target, .{ .asked = connection.asked_of(method), .idempotent = connection.is_idempotent(method) });
     target.writer = connection_body.declared(fields, .none);
     target.close_sent = connection.fields_ask_close(fields);
     return written;
+}
+
+/// Whether `fields` carry an Upgrade field line.
+fn names_upgrade(fields: []const Field) bool {
+    for (fields) |line| {
+        if (http.field.names_equal(line.name, upgrade_name)) return true;
+    }
+    return false;
 }
 
 /// The request head, with TE when the connection has decoders to offer (decision 91).

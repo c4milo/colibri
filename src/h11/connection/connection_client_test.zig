@@ -156,6 +156,27 @@ test "101 and malformed responses fail the connection, and a 2xx to CONNECT tunn
     try testing.expectEqual(3, try target.write_body(&test_output, "raw"));
 }
 
+test "RFC 9931 §8: a client writes nothing after a CONNECT until its 2xx" {
+    const target = client(.{});
+    _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});
+    // Neither a tunnel octet nor a pipelined request goes out before the answer.
+    try testing.expectError(error.NoBody, target.write_body(&test_output, "raw"));
+    try testing.expectError(error.PipelineBlocked, target.write_request(&test_output, "GET", "/", host));
+    // A refusal opens no tunnel, and the connection takes the next request.
+    _ = try expect_status(target, "HTTP/1.1 407 \r\nContent-Length: 0\r\n\r\n", 407);
+    try testing.expectError(error.NoBody, target.write_body(&test_output, "raw"));
+    try testing.expectEqual(connection.Phase.head, target.phase);
+    try get(target, "GET");
+}
+
+test "decision 109: h11 implements no upgrade, so a request carrying Upgrade is not written" {
+    const target = client(.{});
+    const upgrade = [_]Field{ host[0], .{ .name = "upgrade", .value = "websocket" }, .{ .name = "Connection", .value = "upgrade" } };
+    try testing.expectError(error.UpgradeUnsupported, target.write_request(&test_output, "GET", "/", &upgrade));
+    try testing.expectEqual(0, target.outstanding_len);
+    try get(target, "GET");
+}
+
 test "RFC 9110 §6.4.1: a 204 to CONNECT opens the tunnel as a 200 does" {
     const target = client(.{});
     _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});

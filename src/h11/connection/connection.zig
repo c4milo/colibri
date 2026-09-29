@@ -87,7 +87,8 @@ pub const SendError = message.WriteError || connection_body.WriteError || error{
     PipelineFull,
     /// Decision 88 forbids pipelining this request now.
     PipelineBlocked,
-    /// 101 Switching Protocols, which h11 does not implement.
+    /// An upgrade, which h11 does not implement: a server's 101 Switching Protocols, or a client's
+    /// request carrying Upgrade (decision 109).
     UpgradeUnsupported,
     /// More field lines than `field_count_max`, with the one colibri adds.
     TooManyFields,
