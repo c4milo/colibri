@@ -3310,6 +3310,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     client passed both against quic-go's server. The 8 qlog directories passed
     `tools/qlog_check.py`.
 
+  **Probes that repeat the latest ACK, 2026-09-28**
+  ([#76](https://github.com/c4milo/colibri/issues/76)). [Decision 107](decisions.md): a PTO probe
+  at the Handshake or application level carries its space's latest ACK frame, though nothing new
+  asks for one (RFC 9000 §13.2). An Initial probe does not.
+  - `repeats_ack` in `packet_build_frames.zig` decides it, beside decision 72's packets to a path
+    awaiting validation. 3 tests in `packet_build_probe_test.zig`: an application probe and a
+    Handshake probe each carry an ACK whose own packet the path lost, and an Initial probe
+    carries none.
+  - 3 mutations, each CAUGHT by `zig build test-quic`: no probe repeating an ACK, the application
+    level's alone, and the Initial level's too.
+  - The simulator's pinned censuses and logs changed, and Debug and ReleaseSafe agree on the new
+    ones. Decision 107 gives the times, and `tools/quic_udp.sh` and `tools/quic_aioquic.sh`
+    passed.
+  - `tools/interop.sh quinn handshakeloss`, five times on an Apple M1 Pro: colibri's client passed
+    all 10 of its runs, against colibri's server and against quinn's. quinn's client against
+    colibri's server passed 4 of 5, where #76 counted 3 of 5 against the same quinn image before
+    the change. The runs kept no logs, because `INTEROP_LOGS` was not set, so the failed case's
+    cause is not known yet.
+
   **Three more pieces, 2026-09-23.**
   - `3d0b2d7`: `send` asks the provider whether the handshake completed, as `receive` does. A
     client's stack finishes once its own Finished is written, which happens inside `send`, so

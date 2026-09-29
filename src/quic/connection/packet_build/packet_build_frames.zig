@@ -7,7 +7,8 @@
 //!
 //! 1. A CONNECTION_CLOSE, alone, when one is owed (§10.2.1).
 //! 2. An ACK, when owed, and when the space has new ack-eliciting packets and anything else goes
-//!    out with it (§13.2.1). It goes first because a space owes it soonest.
+//!    out with it (§13.2.1). A probe above the Initial level repeats the latest one (§13.2,
+//!    decision 107). It goes first because a space owes it soonest.
 //! 3. PATH_RESPONSE and PATH_CHALLENGE, which §8.2.2 says an endpoint "MUST NOT delay".
 //! 4. HANDSHAKE_DONE, which a server sends "as soon as the handshake is complete" (RFC 9001
 //!    §4.1.2).
@@ -101,7 +102,7 @@ pub fn write(
     }
     if (room.probing_only) return probing_packet(connection, level, payload[0..budget]);
     var writer = Writer.init(payload[0..budget]);
-    const ack = write_ack(connection, space, &writer, now_ns, room.withholding_data);
+    const ack = write_ack(connection, space, &writer, now_ns, repeats_ack(connection, level, room));
     const written_ack = writer.written().len;
     // RFC 9002 §7: "An endpoint MUST NOT send a packet if it would cause bytes_in_flight ... to
     // be larger than the congestion window", and a packet of ACK frames alone adds nothing (§2).
@@ -274,6 +275,19 @@ fn write_data(
     };
 }
 
+/// Whether this packet repeats the latest ACK although nothing new asks for one: a packet to a
+/// path awaiting validation does (decision 72), and so does a probe above the Initial level.
+/// RFC 9000 §13.2: "When sending a packet for any reason, an endpoint SHOULD attempt to include an
+/// ACK frame if one has not been sent recently." A PTO fires when none of this endpoint's recent
+/// packets was acknowledged, and the ACK frames it sent in them may be what the path lost, so a
+/// probe repeats the latest one (decision 107). Not at the Initial level: RFC 9002 §5.3 lets the
+/// peer ignore the ACK Delay of an Initial ACK, so an old one repeated gives it a round trip that
+/// includes the whole wait, and a probe timeout that long.
+fn repeats_ack(connection: *const Connection, level: Level, room: Room) bool {
+    if (room.withholding_data) return true;
+    return level != .initial and connection.probes_owed[@intFromEnum(level)] > 0;
+}
+
 /// What `write_ack` did, so `write` can take back an ACK nothing else went out with.
 const AckWritten = struct {
     owed: bool,
@@ -284,7 +298,8 @@ const AckWritten = struct {
 /// ack-eliciting packets to acknowledge, which §13.2.1 asks for "with other frames": whether any
 /// follow is known only once they are written, so `write` takes back one that stood alone. It
 /// goes first because it is the frame a space owes soonest.
-/// `repeat` writes one although nothing new asks for it, which a path awaiting validation does.
+/// `repeat` writes one although nothing new asks for it, which `repeats_ack` decides. A space that
+/// has received nothing writes none.
 fn write_ack(connection: *const Connection, space: anytype, writer: *Writer, now_ns: u64, repeat: bool) AckWritten {
     const held: AckWritten = .{ .owed = space.owes_ack(now_ns, connection.max_ack_delay_ns()), .pending = space.ack_pending() };
     if (!held.owed and !space.has_new_ack_eliciting() and !repeat) return held;
