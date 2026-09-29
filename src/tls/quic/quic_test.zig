@@ -303,6 +303,14 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a ma
     // Closing wipes the copy of the ticket the connection offered.
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&client.offered), 0));
     server.close();
+    // RFC 9369 §5: the ticket names version 1, and no connection offers one another version or a
+    // TCP connection issued.
+    try testing.expectEqual(@intFromEnum(crypto.suite.Version.v1), ticket.quic_version);
+    var elsewhere = ticket;
+    for ([_]u32{ @intFromEnum(crypto.suite.Version.v2), 0 }) |other| {
+        elsewhere.quic_version = other;
+        try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 }));
+    }
     var malformed = ticket;
     malformed.psk_len = 5;
     try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &malformed, .age_ms = 0 }));
@@ -335,25 +343,32 @@ test "decision 55: a Retry token gives both connection IDs back, and the Retry t
     const ids = crypto.suite.RetryConnectionIds.of(&support.destination_id, "retry-id");
     var token: [256]u8 = undefined;
     const now_ns = now_seconds * constants.nanoseconds_per_second;
-    const len = try suite.vtable.retry_token_write(suite.context, "address", &ids, now_ns, &token);
+    const len = try suite.vtable.retry_token_write(suite.context, .v1, "address", &ids, now_ns, &token);
     const minted = token[0..len];
-    const checked = suite.vtable.retry_token_check(suite.context, "address", minted, now_ns).retry;
+    const checked = suite.vtable.retry_token_check(suite.context, .v1, "address", minted, now_ns).retry;
     try testing.expectEqualSlices(u8, &support.destination_id, checked.original_destination_slice());
     try testing.expectEqualStrings("retry-id", checked.retry_source_slice());
     // RFC 9000 §8.1.4: bound to the address, and accepted for a short time only, which is seconds.
     const soon_ns = now_ns + constants.nanoseconds_per_second;
-    try testing.expectEqualStrings("retry-id", suite.vtable.retry_token_check(suite.context, "address", minted, soon_ns).retry.retry_source_slice());
-    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, "elsewhere", minted, now_ns));
+    try testing.expectEqualStrings("retry-id", suite.vtable.retry_token_check(suite.context, .v1, "address", minted, soon_ns).retry.retry_source_slice());
+    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, .v1, "elsewhere", minted, now_ns));
+    // RFC 9369 §4.1: chapulin binds the original version, so version 2 refuses a version 1 token,
+    // and a token minted in version 2 checks in version 2 alone.
+    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, .v2, "address", minted, now_ns));
+    var token_v2: [256]u8 = undefined;
+    const minted_v2 = token_v2[0..try suite.vtable.retry_token_write(suite.context, .v2, "address", &ids, now_ns, &token_v2)];
+    try testing.expect(suite.vtable.retry_token_check(suite.context, .v2, "address", minted_v2, now_ns) == .retry);
+    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, .v1, "address", minted_v2, now_ns));
     const late_ns = (now_seconds + token_lifetime_seconds + 1) * constants.nanoseconds_per_second;
-    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, "address", minted, late_ns));
+    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, .v1, "address", minted, late_ns));
     // RFC 9000 §8.1.3: a token of another type is no Retry token.
     minted[0] +%= 1;
-    try testing.expectEqual(.not_retry, suite.vtable.retry_token_check(suite.context, "address", minted, now_ns));
-    try testing.expectError(error.NoSpaceLeft, suite.vtable.retry_token_write(suite.context, "address", &ids, now_ns, token[0..1]));
+    try testing.expectEqual(.not_retry, suite.vtable.retry_token_check(suite.context, .v1, "address", minted, now_ns));
+    try testing.expectError(error.NoSpaceLeft, suite.vtable.retry_token_write(suite.context, .v1, "address", &ids, now_ns, token[0..1]));
     // An address longer than chapulin binds has no token.
     const long_address: [256]u8 = @splat('a');
-    try testing.expectError(error.Unsupported, suite.vtable.retry_token_write(suite.context, &long_address, &ids, now_ns, &token));
-    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, &long_address, token[0..len], now_ns));
+    try testing.expectError(error.Unsupported, suite.vtable.retry_token_write(suite.context, .v1, &long_address, &ids, now_ns, &token));
+    try testing.expectEqual(.invalid, suite.vtable.retry_token_check(suite.context, .v1, &long_address, token[0..len], now_ns));
     // RFC 9001 §5.8: a client's session verifies the tag any suite writes, and no other.
     try support.configure(support.web_pki, .{});
     try support.start_both(null);
@@ -364,8 +379,8 @@ test "decision 55: a Retry token gives both connection IDs back, and the Retry t
     tag[0] ^= 1;
     try testing.expect(!client_suite.vtable.retry_tag_valid(client_suite.context, .v1, "a pseudo-packet", &tag));
     // A session mints no token of its own.
-    try testing.expectError(error.Unsupported, client_suite.vtable.retry_token_write(client_suite.context, "address", &ids, now_ns, &token));
-    try testing.expectEqual(.not_retry, client_suite.vtable.retry_token_check(client_suite.context, "address", minted, now_ns));
+    try testing.expectError(error.Unsupported, client_suite.vtable.retry_token_write(client_suite.context, .v1, "address", &ids, now_ns, &token));
+    try testing.expectEqual(.not_retry, client_suite.vtable.retry_token_check(client_suite.context, .v1, "address", minted, now_ns));
     client.close();
     server.close();
 }

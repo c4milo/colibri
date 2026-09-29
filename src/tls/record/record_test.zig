@@ -192,6 +192,12 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a st
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&client.offered), 0));
     const stale_ms = (@as(u64, ticket.lifetime_s) + 1) * support.ms_per_second;
     try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, .{ .ticket = &ticket, .age_ms = stale_ms }));
+    // A TCP connection's ticket names no QUIC version, and chapulin's decision 79 keeps a QUIC
+    // connection's ticket off TCP.
+    try testing.expectEqual(0, ticket.quic_version);
+    var from_quic = ticket;
+    from_quic.quic_version = 1;
+    try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, .{ .ticket = &from_quic, .age_ms = 0 }));
 }
 
 test "RFC 9846 §7.5: both sides export the same keying material" {

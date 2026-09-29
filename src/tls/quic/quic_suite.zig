@@ -206,14 +206,14 @@ fn retry_tag_write(context: *const anyopaque, named: suite_module.Version, pseud
 }
 
 /// A session mints no token: a server writes its Retry with `Retry`, before the session exists.
-fn session_token_write(context: *anyopaque, address: []const u8, ids: *const suite_module.RetryConnectionIds, now_ns: u64, output: []u8) suite_module.TokenError!usize {
-    _ = .{ context, address, ids, now_ns, output };
+fn session_token_write(context: *anyopaque, named: suite_module.Version, address: []const u8, ids: *const suite_module.RetryConnectionIds, now_ns: u64, output: []u8) suite_module.TokenError!usize {
+    _ = .{ context, named, address, ids, now_ns, output };
     // RFC 9000 §8.1.2: a Retry comes before the session, whose suite has no token key.
     return error.Unsupported;
 }
 
-fn session_token_check(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
-    _ = .{ context, address, token, now_ns };
+fn session_token_check(context: *const anyopaque, named: suite_module.Version, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
+    _ = .{ context, named, address, token, now_ns };
     return .not_retry;
 }
 
@@ -254,24 +254,25 @@ fn seconds_of(now_ns: u64) u64 {
 }
 
 /// RFC 9000 §8.1.4: the token binds the address and the instant, and decision 55 has it carry the
-/// two connection IDs the server needs again.
-fn retry_token_write(context: *anyopaque, address: []const u8, ids: *const suite_module.RetryConnectionIds, now_ns: u64, output: []u8) suite_module.TokenError!usize {
+/// two connection IDs the server needs again. RFC 9369 §4.1: chapulin binds the original version
+/// too.
+fn retry_token_write(context: *anyopaque, named: suite_module.Version, address: []const u8, ids: *const suite_module.RetryConnectionIds, now_ns: u64, output: []u8) suite_module.TokenError!usize {
     const retry: *const Retry = @ptrCast(@alignCast(context));
     var cids = std.mem.zeroes(c.ch_quic_retry_cids);
     @memcpy(cids.original_dcid[0..ids.original_destination_len], ids.original_destination_slice());
     cids.original_dcid_len = ids.original_destination_len;
     @memcpy(cids.retry_scid[0..ids.retry_source_len], ids.retry_source_slice());
     cids.retry_scid_len = ids.retry_source_len;
-    return chapulin.quic.tokenMint(retry.key, address, &cids, seconds_of(now_ns), output) catch |failure| switch (failure) {
+    return chapulin.quic.tokenMint(retry.key, chapulin_version(named), address, &cids, seconds_of(now_ns), output) catch |failure| switch (failure) {
         error.Cap => error.NoSpaceLeft,
         // RFC 9000 §8.1.4: an address longer than chapulin binds.
         error.Invalid => error.Unsupported,
     };
 }
 
-fn retry_token_check(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
+fn retry_token_check(context: *const anyopaque, named: suite_module.Version, address: []const u8, token: []const u8, now_ns: u64) suite_module.TokenCheck {
     const retry: *const Retry = @ptrCast(@alignCast(context));
-    const found = chapulin.quic.tokenCheck(retry.key, token, address, seconds_of(now_ns), retry.lifetime_seconds) catch return .invalid;
+    const found = chapulin.quic.tokenCheck(retry.key, chapulin_version(named), token, address, seconds_of(now_ns), retry.lifetime_seconds) catch return .invalid;
     return switch (found) {
         .retry => |cids| .{ .retry = .of(cids.original_dcid[0..cids.original_dcid_len], cids.retry_scid[0..cids.retry_scid_len]) },
         // RFC 9000 §8.1.3: not a Retry token, which leaves the client's address unvalidated.

@@ -28,7 +28,9 @@ pub const token_key_len = quic_suite.token_key_len;
 pub const version = quic_suite.version;
 
 pub const Error = error{
-    /// The ticket's fields are not ones chapulin can offer (RFC 9846 §4.7.1).
+    /// The ticket's fields are not ones chapulin can offer (RFC 9846 §4.7.1), or it was issued by
+    /// a TCP connection or in another QUIC version (RFC 9369 §5). Nothing was sent, and a caller
+    /// may start again without it.
     Refused,
 };
 
@@ -52,13 +54,16 @@ pub const Client = struct {
         client.state = .{};
         client.chosen = config.values;
         client.chosen.random = random;
-        // RFC 9000 §15: the version of the client's first Initial packet.
-        client.chosen.quic_version = version;
+        // RFC 9368 §2.5: the version of the client's first Initial packet, its original one, which
+        // is version 1 unless its configuration names another.
+        client.chosen.quic_version = config.values.quic_version orelse version;
         switch (client.chosen.trust) {
             .web_pki => |*judged| judged.now_seconds = now_seconds,
             .pins => {},
         }
         const offer = resumption orelse return;
+        // RFC 9369 §5: a client MUST NOT start a connection with a ticket another version issued.
+        if (!ticket.fits(offer.ticket, @intFromEnum(client.chosen.quic_version.?))) return error.Refused;
         // RFC 9846 §4.7.1: a ticket's PSK is a hash length, which chapulin checks here.
         client.offered = ticket.offered(chapulin, offer) catch return error.Refused;
         client.chosen.ticket = &client.offered;

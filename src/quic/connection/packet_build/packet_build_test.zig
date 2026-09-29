@@ -195,10 +195,10 @@ fn unreachable_tag_valid(
 ) bool {
     unreachable;
 }
-fn unreachable_token_write(_: *anyopaque, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {
+fn unreachable_token_write(_: *anyopaque, _: crypto.suite.Version, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {
     unreachable;
 }
-fn unreachable_token_check(_: *const anyopaque, _: []const u8, _: []const u8, _: u64) crypto.suite.TokenCheck {
+fn unreachable_token_check(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: []const u8, _: u64) crypto.suite.TokenCheck {
     unreachable;
 }
 fn unreachable_tag_write(

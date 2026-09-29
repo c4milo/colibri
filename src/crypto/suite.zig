@@ -264,9 +264,12 @@ pub const VTable = struct {
     /// wants it authenticated, which needs a key colibri may not hold, and "only accepted for a
     /// short time", which needs an instant colibri may not read — so `now_ns` is passed in.
     /// `address` is the client's, as opaque octets: colibri owns no socket and never reads them.
-    /// The token carries `ids`, which the server needs again and keeps nowhere else.
+    /// The token carries `ids`, which the server needs again and keeps nowhere else, and is
+    /// bound to `version`, the original version, as RFC 9369 §4.1 permits, so a client that
+    /// switched versions after the Retry is refused.
     retry_token_write: *const fn (
         context: *anyopaque,
+        version: Version,
         address: []const u8,
         ids: *const RetryConnectionIds,
         now_ns: u64,
@@ -279,6 +282,7 @@ pub const VTable = struct {
     /// tell a Retry's token from a NEW_TOKEN frame's, because the suite is what constructed both.
     retry_token_check: *const fn (
         context: *const anyopaque,
+        version: Version,
         address: []const u8,
         token: []const u8,
         now_ns: u64,

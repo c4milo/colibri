@@ -399,10 +399,10 @@ const RetrySuite = struct {
     fn unreached_tag_write(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *[crypto.constants.aead_tag_len]u8) crypto.suite.RetryTagError!void {
         unreachable;
     }
-    fn unreached_token_write(_: *anyopaque, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {
+    fn unreached_token_write(_: *anyopaque, _: crypto.suite.Version, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {
         unreachable;
     }
-    fn unreached_token_check(_: *const anyopaque, _: []const u8, _: []const u8, _: u64) crypto.suite.TokenCheck {
+    fn unreached_token_check(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: []const u8, _: u64) crypto.suite.TokenCheck {
         unreachable;
     }
     fn unreached_update(_: *anyopaque) crypto.suite.UpdateError!void {

@@ -67,6 +67,10 @@ pub const Ticket = struct {
     lifetime_s: u32,
     /// The hash of the trust the ticket was issued under (chapulin's `webpki_ticket.h`).
     binding: [constants.sha256_len]u8,
+    /// The QUIC version of the connection that issued it, or 0 for one a TCP connection issued.
+    /// RFC 9369 §5 makes a ticket specific to that version, and chapulin's decision 79 keeps a
+    /// ticket to its transport, so a client offers it to a connection of that version alone.
+    quic_version: u32,
 
     /// Zeroes the ticket, its PSK included. A program calls it when it drops a ticket.
     pub fn wipe(ticket: *Ticket) void {

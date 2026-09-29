@@ -233,6 +233,8 @@ pub fn answer(
     const ids = crypto.suite.RetryConnectionIds.of(request.original_destination, request.server_source);
     const token_len = suite.vtable.retry_token_write(
         suite.context,
+        // RFC 9369 §4.1: the token binds the client's original version, version 1.
+        .v1,
         request.address,
         &ids,
         request.now_ns,
@@ -298,7 +300,8 @@ pub const TokenVerdict = union(enum) {
 /// Destination Connection ID.
 pub fn verify_token(suite: Suite, address: []const u8, token: []const u8, destination: []const u8, now_ns: u64) TokenVerdict {
     if (token.len == 0) return .absent;
-    return switch (suite.vtable.retry_token_check(suite.context, address, token, now_ns)) {
+    // RFC 9369 §4.1: the token was bound to the client's original version, version 1.
+    return switch (suite.vtable.retry_token_check(suite.context, .v1, address, token, now_ns)) {
         // §8.1.3: the server "SHOULD proceed as if the client did not have a validated address,
         // including potentially sending a Retry packet", which is what an absent token means.
         .not_retry => .absent,

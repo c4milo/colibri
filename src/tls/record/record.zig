@@ -28,8 +28,9 @@ pub const State = record_provider.State;
 pub const alert_record_len: usize = chapulin.record.alert_record_len;
 
 pub const Error = error{
-    /// chapulin refused the values: a configuration it does not accept, or a ticket past its
-    /// lifetime or seven days old (RFC 9846 §4.7.1). Nothing was sent.
+    /// chapulin refused the values: a configuration it does not accept, a ticket past its
+    /// lifetime or seven days old (RFC 9846 §4.7.1), or a ticket a QUIC connection issued, which
+    /// chapulin's decision 79 keeps to QUIC. Nothing was sent.
     Refused,
     /// The handshake did not complete (RFC 9846 §6). `alert` names what chapulin chose, and
     /// `failure_written` counts the octets of the output to send before closing.
@@ -79,6 +80,9 @@ pub const Client = struct {
             .pins => {},
         }
         if (resumption) |offer| {
+            // chapulin's decision 79: a ticket a QUIC connection issued resumes no TCP one, whose
+            // version is 0 (RFC 9369 §5).
+            if (!ticket.fits(offer.ticket, 0)) return error.Refused;
             // RFC 9846 §4.7.1: a ticket's PSK is a hash length, which chapulin checks here.
             client.offered = ticket.offered(chapulin, offer) catch return error.Refused;
             chosen.ticket = &client.offered;

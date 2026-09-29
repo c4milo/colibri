@@ -129,6 +129,7 @@ pub const TagChecker = struct {
 
     fn token_write(
         context: *anyopaque,
+        version: crypto.suite.Version,
         address: []const u8,
         ids: *const crypto.suite.RetryConnectionIds,
         now_ns: u64,
@@ -138,14 +139,18 @@ pub const TagChecker = struct {
         // RFC 9000 §8.1.2: a server "can request address validation by sending a Retry packet",
         // so a suite that mints no token is one whose server sends none.
         if (!held.mints_token) return error.Unsupported;
+        // RFC 9369 §4.1: the token binds the original version, version 1 here.
+        if (version != .v1) return error.Unsupported;
         if (held.writes_empty_token) return 0;
         var writer = Writer.init(out);
         write_token(&writer, address, ids, now_ns) catch return error.NoSpaceLeft;
         return writer.written().len;
     }
 
-    fn token_check(context: *const anyopaque, address: []const u8, token: []const u8, now_ns: u64) crypto.suite.TokenCheck {
+    fn token_check(context: *const anyopaque, version: crypto.suite.Version, address: []const u8, token: []const u8, now_ns: u64) crypto.suite.TokenCheck {
         _ = context;
+        // RFC 9369 §4.1: the token was bound to the original version, version 1 here.
+        if (version != .v1) return .invalid;
         var reader = core.Reader.init(token);
         const kind = reader.read_byte() catch return .not_retry;
         if (kind != retry_token_type) return .not_retry;

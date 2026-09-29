@@ -5606,6 +5606,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     header writing version 1's Version field, and each of the three places a version 2 packet is
     refused letting it through.
 
+  **19b, the keys, 2026-09-29.** chapulin `3f775fa` derives version 2's keys, lets a client
+  switch once and a server choose the negotiated version, and binds tickets and Retry tokens to
+  their version (its decision 79). colibri pins it.
+  - RFC 9369 Appendix A's client Initial, server Initial and Retry seal, open and check octet for
+    octet through `tls.quic`'s suite, from a session that starts in version 2. A client starts in
+    the version its configuration names, version 1 unless it names another (RFC 9368 §2.5).
+  - The Retry token members take the original version, as the tag members do (RFC 9369 §4.1),
+    and the null suite folds a version other than 1 into its token.
+  - `values.Ticket` records the QUIC version that issued it, 0 for TCP. RFC 9369 §5 and chapulin's
+    decision 79 keep a ticket to its transport and version, so a client refuses to start with
+    any other (`error.Refused`), and nothing is sent. Step 16c's ticket that resumed a connection
+    of either object resumes only one of its own transport now.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2348 of 2348 tests. `tools/quic_udp.sh`, whose second connection resumed the
+    first one's session over a ticket that names version 1, `tools/quic_loopback.sh`,
+    `tools/quic_aioquic.sh`, `tools/tls_accept.sh`, `tools/tls_handshake.sh`, and the h2 interop
+    scripts with `--tls go`: ok.
+  - 11 mutations, each **CAUGHT**: a client starting in version 1 whatever its configuration
+    names; a ticket that records no version, or is offered without one; every ticket fitting
+    every connection; a TCP client offering a QUIC ticket, and a QUIC client one of another
+    version; chapulin's token minted or checked in version 1 always; the null suite's token
+    ignoring the version; and `quic` writing or checking a token in version 2.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
