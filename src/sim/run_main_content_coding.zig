@@ -20,7 +20,7 @@ pub fn check(seeds: u64) !void {
     var census: content_coding_check.Census = .{};
     var failed_seed: ?u64 = null;
     content_coding_check.run_check(&storage, seeds, &census, &failed_seed) catch |failure| {
-        std.debug.print("content-coding: seed 0x{x} failed: {t}; rerun it with --coding-seed\n", .{ failed_seed.?, failure });
+        std.debug.print("content-coding: seed 0x{x} failed: {t}; rerun it with --content-coding-seed\n", .{ failed_seed.?, failure });
         return failure;
     };
     const census_format = "content-coding: seeds={d} exchanges={d} decoded={d} passed_on={d} too_large={d}" ++

@@ -5236,10 +5236,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - colibri's package exports stdx's `codec`, `gzip`, `zlib`, `zstd` and `brotli`
     (`build/modules_exports.zig`), and `tools/consumer/` codes and decodes through the exported
     `gzip`.
-  - `zig build sim -- --coding-check [seeds]` runs each seed's plan between colibri's client and
-    server over h11 or h2. `sim_run` imports `server` for it, as the owner ruled on 2026-09-29.
-    The plan draws each side's codings, and for each exchange its method, its caller's own
-    Accept-Encoding, the server's mark, the status, the content and the body memory. Each seed
+  - `zig build sim -- --content-coding-check [seeds]` runs each seed's plan between colibri's
+    client and server over h11 or h2. `sim_run` imports `server` for it, as the owner ruled on
+    2026-09-29. The plan draws each side's codings, and for each exchange its method, its caller's
+    own Accept-Encoding, the server's mark, the status, the content and the body memory. Each seed
     runs twice in the same pieces and once whole, and each exchange must end as decision 101 says,
     with its body octet for octet.
   - Over its 32 seeds: 82 exchanges, 19 decoded, 4 passed on coded, and 8 too large. The census
@@ -5254,8 +5254,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   **17e check,** run on macOS 26.6.2 arm64 on 2026-09-29, the peers in Docker where the scripts
   run them:
-  - `zig build sim -- --coding-check`: seeds=32 exchanges=82 decoded=19 passed_on=4 too_large=8
-    crc32=0x69460a6e.
+  - `zig build sim -- --content-coding-check`: seeds=32 exchanges=82 decoded=19 passed_on=4
+    too_large=8 crc32=0x69460a6e.
   - `tools/h2_server_interop.sh --tls` and `tools/h11_server_interop.sh --tls`: curl 7.88.1 with
     `--compressed` got gzip and decoded it to the body, and every one of Go 1.27.1's 65 requests
     came back coded in gzip, in cleartext and over TLS.
