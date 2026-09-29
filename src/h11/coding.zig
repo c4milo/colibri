@@ -86,6 +86,20 @@ pub const Storage = struct {
         storage.header.features = features;
     }
 
+    /// The decoders no message holds.
+    pub fn free_count(storage: Storage) usize {
+        var free: usize = 0;
+        var index = storage.header.free_head;
+        // Bounded by the pool's slots, each on the free list once.
+        for (0..storage.slots.len) |_| {
+            if (index == no_slot) break;
+            free += 1;
+            index = storage.slots[index].next;
+        }
+        assert(index == no_slot);
+        return free;
+    }
+
     fn take(storage: Storage) ?Index {
         const index = storage.header.free_head;
         if (index == no_slot) return null;
@@ -111,6 +125,11 @@ pub const Decoding = struct {
     pub fn active(decoding: *const Decoding) bool {
         return decoding.coding != .none;
     }
+
+    /// Whether a decoder is taken, decoding or reserved.
+    pub fn holds(decoding: *const Decoding) bool {
+        return decoding.slot != no_slot;
+    }
 };
 
 /// Octets of one call: coded ones taken, and decoded ones written.
@@ -122,11 +141,26 @@ pub const Progress = struct {
 /// Takes a decoder for a message whose body carries `coding`.
 pub fn start(decoding: *Decoding, storage: Storage, coding: message.Coding) Error!void {
     assert(coding != .none);
-    assert(!decoding.active() and decoding.slot == no_slot);
     // RFC 9110 §15.6.4 and decision 91: every decoder taken is a temporary overload, which a server
     // answers 503 and a client fails on.
-    const index = storage.take() orelse return error.DecodersExhausted;
-    decoding.* = .{ .coding = coding, .slot = index };
+    if (!reserve(decoding, storage)) return error.DecodersExhausted;
+    begin(decoding, storage, coding);
+}
+
+/// Takes a decoder before the message's coding is known, and returns false when every decoder is
+/// taken. A client that offers codings in a request takes one as it sends the request, so the
+/// response it offered them for always finds one (decision 101).
+pub fn reserve(decoding: *Decoding, storage: Storage) bool {
+    assert(!decoding.active() and decoding.slot == no_slot);
+    decoding.slot = storage.take() orelse return false;
+    return true;
+}
+
+/// Starts the decoder `reserve` took on a message whose body carries `coding`.
+pub fn begin(decoding: *Decoding, storage: Storage, coding: message.Coding) void {
+    assert(coding != .none);
+    assert(!decoding.active() and decoding.slot != no_slot);
+    decoding.coding = coding;
     begin_stream(decoding, storage);
 }
 
@@ -322,4 +356,30 @@ test "decision 91: a corrupt body, a refused feature and a stream cut short each
     _ = try decode(&decoding, storage, coded[0 .. coded.len - 1], &decoded);
     try testing.expectError(error.CodingCorrupt, finish(&decoding, storage));
     try testing.expect(!decoding.active());
+}
+
+test "decision 101: a decoder reserved before the coding is known starts on it, or goes back unused" {
+    const storage = test_pool.storage();
+    storage.reset(Features.none());
+    var coded_room: [test_room]u8 = undefined;
+    const coded = try zlib_of(test_text, &coded_room);
+    var reserved: Decoding = .{};
+    var unused: Decoding = .{};
+    var third: Decoding = .{};
+    try testing.expect(reserve(&reserved, storage));
+    try testing.expect(reserve(&unused, storage));
+    try testing.expect(reserved.holds() and !reserved.active());
+    // Every decoder is reserved, so no third one is taken.
+    try testing.expectEqual(0, storage.free_count());
+    try testing.expect(!reserve(&third, storage));
+    begin(&reserved, storage, .deflate);
+    var decoded: [test_room]u8 = undefined;
+    const written = try decode_in_pieces(&reserved, storage, coded, coded.len, &decoded);
+    try testing.expectEqualStrings(test_text, decoded[0..written]);
+    try finish(&reserved, storage);
+    release(&unused, storage);
+    try testing.expect(!unused.holds());
+    try testing.expectEqual(test_pool_count, storage.free_count());
+    try testing.expect(reserve(&third, storage));
+    try testing.expect(reserve(&unused, storage));
 }
