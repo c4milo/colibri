@@ -10,6 +10,9 @@ colibri measures (docs/design.md §11); it does not inform what colibri's API lo
 
 ## Read before changing behaviour
 
+- pepegrillo's `docs/performance.md`, at the commit `build.zig.zon` pins, before any performance
+  change: the method every one follows; then `docs/performance.md`, colibri's appendix to it: its
+  instruments, its admission rule, its baselines and the pitfalls it has paid for.
 - `docs/design.md` — the module graph, the wire formats, and the numbered build plan. Each step
   names the check that proves it. Cite sections by number in commits and comments ("§8 step 4").
 - `docs/decisions.md` — numbered decisions, each with the alternatives it beat.
