@@ -28,6 +28,7 @@ const owed_module = @import("../owed.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 const connection_tls = @import("connection_tls.zig");
+const connection_request = @import("connection_request.zig");
 const alt_svc = @import("../alt_svc.zig");
 
 pub const Id = event.Id;
@@ -50,6 +51,11 @@ pub const Config = struct {
     /// The authority every request names: `:authority` in h2 (RFC 9113 §8.3.1) and Host in h11
     /// (RFC 9112 §3.2).
     authority: []const u8,
+    /// The content codings the client offers in each request's Accept-Encoding, in its order of
+    /// preference, and the pool of decoders it removes them with, which connections may share
+    /// (decision 101). Both or neither.
+    codings: []const http.content_coding.Coding = &.{},
+    decoders: ?h11.coding.Storage = null,
 };
 
 pub const StartError = error{
@@ -57,34 +63,8 @@ pub const StartError = error{
     TlsRefused,
 };
 
-pub const RequestError = error{
-    /// Every slot holds an exchange, until one's `finished` event is reported.
-    Full,
-    /// The connection takes no new request, as its `draining` event said.
-    Draining,
-    /// The connection is over.
-    ConnectionClosed,
-    /// The method or the path is empty, or the method is CONNECT, whose tunnel is no exchange of
-    /// a request and a response (RFC 9110 §9.3.6).
-    RequestUnsupported,
-    /// A field line the client writes itself, Host or Content-Length, or a connection-specific
-    /// one, which h2 forbids (RFC 9113 §8.2.2), so a request means the same in every version.
-    FieldReserved,
-};
-
-/// The names of the field lines `request` refuses, lowercase.
-const reserved_names = [_][]const u8{
-    // RFC 9112 §3.2 and RFC 9113 §8.3.1: the client names the authority itself.
-    "host",
-    // RFC 9110 §8.6: the client frames the content it sends.
-    "content-length",
-    // RFC 9113 §8.2.2: connection-specific fields.
-    "connection",
-    "proxy-connection",
-    "keep-alive",
-    "transfer-encoding",
-    "upgrade",
-};
+pub const RequestError = connection_request.RequestError;
+pub const check_request = connection_request.check_request;
 
 const Phase = enum {
     /// The TLS handshake has not completed.
@@ -145,6 +125,7 @@ pub const Connection = struct {
     /// draw the handshake makes comes from `random`, `now_seconds` is the instant a Web PKI chain
     /// is judged at, and `resumption` offers a ticket an earlier connection took.
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
+        assert((config.codings.len == 0) == (config.decoders == null));
         assert(config.authority.len > 0);
         assert(config.cleartext != .h3);
         connection.config = config;
@@ -464,28 +445,9 @@ pub const Connection = struct {
     }
 };
 
-/// Refuses what no protocol could send as an exchange, before the exchange takes a slot.
-pub fn check_request(exchange: *const HttpExchange) RequestError!void {
-    // The caller marks each of its field lines, or none.
-    assert(exchange.never_indexed.fields.len == 0 or exchange.never_indexed.fields.len == exchange.fields.len);
-    // RFC 9110 §9.1: a method is a token, which is never empty.
-    if (exchange.method.len == 0) return error.RequestUnsupported;
-    // RFC 9113 §8.3.1: `:path` "MUST NOT be empty" for an http or https URI, and RFC 9112 §3.2.1's
-    // origin form starts with its absolute path.
-    if (exchange.path.len == 0) return error.RequestUnsupported;
-    // RFC 9110 §9.3.6: CONNECT asks for a tunnel, which is no exchange of a request and a response.
-    if (std.mem.eql(u8, exchange.method, "CONNECT")) return error.RequestUnsupported;
-    for (exchange.fields) |field| {
-        for (reserved_names) |reserved| {
-            // RFC 9113 §8.2.2, RFC 9112 §3.2 and RFC 9110 §8.6: see `reserved_names`. Field names
-            // are case-insensitive (RFC 9110 §5.1).
-            if (std.ascii.eqlIgnoreCase(field.name, reserved)) return error.FieldReserved;
-        }
-    }
-}
-
 test {
     _ = @import("connection_request_test.zig");
+    _ = @import("connection_coding_test.zig");
     _ = @import("connection_h2_test.zig");
     _ = @import("connection_h2_flow_test.zig");
     _ = @import("connection_h11_test.zig");

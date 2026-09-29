@@ -5213,6 +5213,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     comptime proof over the limits that it holds.
   - `zig build test` passed: 2293 of 2293 tests.
 
+  **17e part 2, the client's content codings, 2026-09-29.**
+  - `client.Config` and `client.QuicConfig` gain `codings` and `decoders`. The client's
+    `DecoderPool` is h11's pool of stdx's decoders (decision 91), and `h11.coding.reserve` now
+    takes a decoder before a message's coding is known.
+  - The client offers its codings in each request's Accept-Encoding, each after the first a tenth
+    lighter (`gzip, deflate;q=0.9`), and takes a decoder as it writes the request. It offers
+    nothing when the caller's request names the field, or when every decoder is taken.
+  - It decodes a final response whose Content-Encoding names one coding it offered, `x-gzip`
+    included, into the exchange's body, and reports the coding in `HttpExchange.coding`. Content
+    coded twice, in a coding it did not offer, or in a 206 (RFC 9110 §14.1.2) goes on as it
+    arrived. A response with no content, such as one to HEAD, decodes nothing.
+  - Decoded content past `body` ends the exchange `too_large`. Content that breaks its format, or
+    ends before its checksum, ends it `malformed`. The decoder goes back when the head names no
+    coding the client decodes, when the exchange ends, or when it is cancelled.
+  - Mutations: 31, each CAUGHT. On the first run 4 were NOT CAUGHT, and each got a test: a gzip
+    trailer that arrives once the body is full, and the decoder given back at an exchange's end,
+    at a drop and at a release, each of which the others had masked.
+  - `zig build test` passed: 2321 of 2321 tests.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

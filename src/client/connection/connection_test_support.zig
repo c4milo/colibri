@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
+const http = @import("http");
 const h2 = @import("h2");
 const tls = @import("tls");
 const testdata = @import("testdata");
@@ -68,7 +69,32 @@ pub var peer_h11: h11.connection.Connection align(@alignOf(h11.connection.Connec
 /// A cleartext connection speaking `protocol`, and a peer of the same protocol, with nothing read
 /// or written.
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
-    config = .{ .authority = authority, .cleartext = protocol };
+    try start_configured(.{ .authority = authority, .cleartext = protocol });
+}
+
+/// The decoder pool the coding tests give a connection, and the codings it offers, gzip first
+/// (decision 101).
+pub const Pool = h11.coding.Pool(pool_decoders);
+pub var pool: Pool align(@alignOf(Pool)) = .{};
+pub const codings = [_]http.content_coding.Coding{ .gzip, .deflate };
+const pool_decoders: usize = 2;
+
+/// As `start_cleartext`, with the client offering `codings` and decoding with `pool`, every
+/// decoder free.
+pub fn start_coding(protocol: connection_module.Protocol) !void {
+    try start_offering(protocol, &codings);
+}
+
+/// As `start_coding`, with the client offering `offered`.
+pub fn start_offering(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
+    const storage = pool.storage();
+    storage.reset(.none());
+    try start_configured(.{ .authority = authority, .cleartext = protocol, .codings = offered, .decoders = storage });
+}
+
+fn start_configured(value: Config) !void {
+    config = value;
+    const protocol = value.cleartext;
     try connection.init(&config, stream.random(), 0, null);
     to_peer_len = 0;
     to_client_len = 0;

@@ -14,6 +14,7 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const slots_module = @import("../slots.zig");
 const response = @import("../response.zig");
+const coding = @import("../coding.zig");
 const event = @import("../event.zig");
 
 const Connection = connection_module.Connection;
@@ -58,7 +59,7 @@ fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
         .response => |head| return on_response(connection, slot, head.line.status.code),
         .data => |octets| {
             if (slot.stage == .dropping) return false;
-            response.append_body(slot.exchange, octets) catch start_dropping(slot);
+            response.append_body(slot, octets) catch |failure| start_dropping(slot, response.outcome_of(failure));
             return false;
         },
         .end => return finish(connection, slot),
@@ -71,17 +72,19 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
     connection.note_alt_svc(&connection.session.h11.section, 0);
     if (slot.stage == .sent) {
         const section = &connection.session.h11.section;
-        response.record_head(slot.exchange, status, section, 0) catch start_dropping(slot);
+        response.record_head(slot, connection.config.codings, status, section, 0) catch |failure| {
+            start_dropping(slot, response.outcome_of(failure));
+        };
     }
     // A response without a body is read whole with its head (RFC 9112 §6.3).
     if (connection.session.h11.phase == .body) return false;
     return finish(connection, slot);
 }
 
-/// The content did not fit the caller's memory: the exchange ends `too_large`, and the rest of
-/// the response is read and dropped.
-fn start_dropping(slot: *Slot) void {
-    slot.exchange.outcome = .too_large;
+/// The content did not fit the caller's memory, or its coding is corrupt: the exchange ends with
+/// `outcome`, and the rest of the response is read and dropped.
+fn start_dropping(slot: *Slot, outcome: event.Outcome) void {
+    slot.exchange.outcome = outcome;
     slots_module.drop(slot, true);
 }
 
@@ -90,7 +93,9 @@ fn finish(connection: *Connection, slot: *Slot) bool {
     if (slot.stage == .dropping) {
         slots_module.settle_drop(slot);
     } else {
-        slots_module.end(slot, .response);
+        // Decision 101: coded content ends with its stream, or the exchange ends malformed.
+        const outcome: event.Outcome = if (response.end_body(slot)) .response else |failure| response.outcome_of(failure);
+        slots_module.end(slot, outcome);
     }
     // RFC 9112 §9.6: after a response that closes the connection, h11 reads and writes nothing
     // more, so no exchange left awaits a response and none waiting is written.
@@ -175,7 +180,8 @@ fn write_request(connection: *Connection, slot: *Slot) bool {
 fn write_head(connection: *Connection, slot: *Slot) bool {
     var lines: [constants.request_fields_max]Field = undefined;
     var digits: [constants.content_length_digits_max]u8 = undefined;
-    const fields = request_fields(connection, slot.exchange, &lines, &digits) orelse {
+    var offer: [coding.offer_len_max]u8 = undefined;
+    const fields = request_fields(connection, slot, &lines, &digits, &offer) orelse {
         slots_module.end(slot, .invalid);
         return true;
     };
@@ -203,10 +209,17 @@ fn refused(connection: *Connection, slot: *Slot, failure: h11.connection.SendErr
     return true;
 }
 
-/// The field lines of `exchange`'s request as h11 writes them: Host first, which RFC 9110 §7.2
-/// asks of a user agent, the caller's, then the Content-Length the client adds (RFC 9110 §8.6).
-/// Null when they pass `request_fields_max`.
-fn request_fields(connection: *const Connection, exchange: *const HttpExchange, lines: *[constants.request_fields_max]Field, digits: *[constants.content_length_digits_max]u8) ?[]const Field {
+/// The field lines of `slot`'s request as h11 writes them: Host first, which RFC 9110 §7.2 asks
+/// of a user agent, the caller's, then the Content-Length and the Accept-Encoding the client adds
+/// (RFC 9110 §8.6, decision 101). Null when they pass `request_fields_max`.
+fn request_fields(
+    connection: *const Connection,
+    slot: *Slot,
+    lines: *[constants.request_fields_max]Field,
+    digits: *[constants.content_length_digits_max]u8,
+    offer: *[coding.offer_len_max]u8,
+) ?[]const Field {
+    const exchange = slot.exchange;
     if (exchange.fields.len + constants.added_fields_max > lines.len) return null;
     // RFC 9112 §3.2: "A client MUST send a Host header field in all HTTP/1.1 request messages."
     lines[0] = .{ .name = "Host", .value = connection.config.authority };
@@ -214,6 +227,10 @@ fn request_fields(connection: *const Connection, exchange: *const HttpExchange, 
     var count = 1 + exchange.fields.len;
     if (exchange.content_length(digits)) |length| {
         lines[count] = .{ .name = "Content-Length", .value = length };
+        count += 1;
+    }
+    if (coding.offer(connection.config.codings, connection.config.decoders, slot, offer)) |value| {
+        lines[count] = .{ .name = "Accept-Encoding", .value = value };
         count += 1;
     }
     return lines[0..count];

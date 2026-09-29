@@ -14,6 +14,7 @@ const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const slots_module = @import("../slots.zig");
 const response = @import("../response.zig");
+const coding = @import("../coding.zig");
 const quic_connection = @import("quic_connection.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
@@ -45,7 +46,7 @@ pub fn write_requests(connection: *QuicConnection, now_ns: u64) void {
 fn open(connection: *QuicConnection, slot: *Slot, now_ns: u64) bool {
     const exchange = slot.exchange;
     var indexing: [constants.request_fields_max + pseudo_fields]Indexing = undefined;
-    const lines = build_section(connection, exchange, &indexing) orelse {
+    const lines = build_section(connection, slot, &indexing) orelse {
         slots_module.end(slot, .invalid);
         return true;
     };
@@ -89,10 +90,12 @@ fn refused(connection: *QuicConnection, slot: *Slot, failure: h3.connection.Send
 /// and `:path`.
 const pseudo_fields: usize = 4;
 
-/// Builds `exchange`'s field section in the connection's section, and how each line is written:
-/// the pseudo-header fields first (RFC 9114 §4.3), then the caller's lines and the content-length
-/// the client adds. Returns the line count, or null when the section does not fit.
-fn build_section(connection: *QuicConnection, exchange: *const HttpExchange, indexing: *[constants.request_fields_max + pseudo_fields]Indexing) ?usize {
+/// Builds `slot`'s field section in the connection's section, and how each line is written: the
+/// pseudo-header fields first (RFC 9114 §4.3), then the caller's lines and the content-length and
+/// accept-encoding the client adds (decision 101). Returns the line count, or null when the
+/// section does not fit.
+fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants.request_fields_max + pseudo_fields]Indexing) ?usize {
+    const exchange = slot.exchange;
     const section = &connection.section;
     section.init();
     append_pseudo(connection, exchange, indexing) orelse return null;
@@ -101,6 +104,12 @@ fn build_section(connection: *QuicConnection, exchange: *const HttpExchange, ind
     var digits: [constants.content_length_digits_max]u8 = undefined;
     if (exchange.content_length(&digits)) |value| {
         section.append("content-length", value) catch return null;
+        indexing[count] = .no_insert;
+        count += 1;
+    }
+    var offer: [coding.offer_len_max]u8 = undefined;
+    if (coding.offer(connection.config.codings, connection.config.decoders, slot, &offer)) |value| {
+        section.append("accept-encoding", value) catch return null;
         indexing[count] = .no_insert;
         count += 1;
     }
@@ -207,7 +216,7 @@ fn record(connection: *QuicConnection, h3_event: h3.connection.Event) void {
         // RFC 9110 §6.5.1: a trailer section's fields are kept apart from the header section, and
         // the client reads none. The stream's end follows.
         .trailers, .settings => {},
-        .end => |stream_id| end_stream(connection, stream_id, .response),
+        .end => |stream_id| end_response(connection, stream_id),
         .reset => |ended| on_reset(connection, ended),
         // RFC 9114 §4.1.2: colibri refused a response that broke the rules.
         .refused => |ended| end_stream(connection, ended.stream_id, .malformed),
@@ -225,12 +234,22 @@ fn on_response(connection: *QuicConnection, head: h3.connection.Response) void {
         return;
     }
     const section = connection.h3.field_section();
-    response.record_head(slot.exchange, head.response.status.code, section, first_regular(section)) catch too_large(connection, slot);
+    response.record_head(slot, connection.config.codings, head.response.status.code, section, first_regular(section)) catch |failure| {
+        refuse(connection, slot, response.outcome_of(failure));
+    };
 }
 
 fn on_data(connection: *QuicConnection, data: h3.connection.Data) void {
     const slot = connection.slots.of_stream(data.stream_id) orelse return;
-    response.append_body(slot.exchange, data.octets) catch too_large(connection, slot);
+    response.append_body(slot, data.octets) catch |failure| refuse(connection, slot, response.outcome_of(failure));
+}
+
+/// The response ended whole. Decision 101: coded content ends with its stream, or the exchange
+/// ends malformed.
+fn end_response(connection: *QuicConnection, stream_id: u64) void {
+    const slot = connection.slots.of_stream(stream_id) orelse return;
+    const outcome: event.Outcome = if (response.end_body(slot)) .response else |failure| response.outcome_of(failure);
+    slots_module.end(slot, outcome);
 }
 
 fn on_reset(connection: *QuicConnection, ended: h3.connection.Ended) void {
@@ -257,11 +276,11 @@ fn end_stream(connection: *QuicConnection, stream_id: u64, outcome: event.Outcom
     slots_module.end(slot, outcome);
 }
 
-/// The response did not fit the caller's memory: the exchange ends, and H3_REQUEST_CANCELLED
-/// tells the server to send no more of it (RFC 9114 §4.1.1).
-fn too_large(connection: *QuicConnection, slot: *Slot) void {
+/// The response did not fit the caller's memory, or its coding is corrupt: the exchange ends with
+/// `outcome`, and H3_REQUEST_CANCELLED tells the server to send no more of it (RFC 9114 §4.1.1).
+fn refuse(connection: *QuicConnection, slot: *Slot, outcome: event.Outcome) void {
     cancel_stream(connection, slot.stream_id);
-    slots_module.end(slot, .too_large);
+    slots_module.end(slot, outcome);
 }
 
 /// Resets the stream of a request the client no longer needs (RFC 9114 §4.1.1).

@@ -45,9 +45,9 @@ pub const frames_per_receive_max: usize = plaintext_in_len / h2.constants.frame_
 /// provider that seals one record a call needs one pass per record the output holds.
 pub const seals_per_send_max: usize = output_len / tls_provider.constants.record_header_len + 1;
 
-/// Field lines the client adds to a request's own: Host in h11 (RFC 9112 §3.2) and
-/// Content-Length (RFC 9110 §8.6).
-pub const added_fields_max: usize = 2;
+/// Field lines the client adds to a request's own: Host in h11 (RFC 9112 §3.2), Content-Length
+/// (RFC 9110 §8.6) and Accept-Encoding (decision 101).
+pub const added_fields_max: usize = 3;
 
 /// Field lines a request may carry, the ones the client adds included.
 pub const request_fields_max: usize = core.constants.field_count_max;

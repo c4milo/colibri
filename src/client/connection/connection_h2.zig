@@ -14,6 +14,7 @@ const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
 const slots_module = @import("../slots.zig");
 const response = @import("../response.zig");
+const coding = @import("../coding.zig");
 const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
 
@@ -91,8 +92,8 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     }
     const section = connection.session.h2.field_section();
     connection.note_alt_svc(section, first_regular(section));
-    response.record_head(exchange, head.response.status.code, section, first_regular(section)) catch {
-        return too_large(connection, slot);
+    response.record_head(slot, connection.config.codings, head.response.status.code, section, first_regular(section)) catch |failure| {
+        return refuse(connection, slot, response.outcome_of(failure));
     };
     if (!head.end_stream) return false;
     return finish(connection, slot);
@@ -100,7 +101,7 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
 
 fn on_data(connection: *Connection, data: h2.connection.Data) bool {
     const slot = connection.slots.of_stream(data.stream_id) orelse return false;
-    response.append_body(slot.exchange, data.payload) catch return too_large(connection, slot);
+    response.append_body(slot, data.payload) catch |failure| return refuse(connection, slot, response.outcome_of(failure));
     if (!data.end_stream) return false;
     return finish(connection, slot);
 }
@@ -138,7 +139,9 @@ fn end_response(connection: *Connection, stream_id: u32) bool {
 /// so CANCEL closes its stream (RFC 9113 §8.1, §6.4), which would otherwise stay open.
 fn finish(connection: *Connection, slot: *Slot) bool {
     if (!slot.content_done()) cancel_stream(connection, slot.stream_id);
-    slots_module.end(slot, .response);
+    // Decision 101: coded content ends with its stream, or the exchange ends malformed.
+    const outcome: event.Outcome = if (response.end_body(slot)) .response else |failure| response.outcome_of(failure);
+    slots_module.end(slot, outcome);
     return true;
 }
 
@@ -148,11 +151,11 @@ fn end_stream(connection: *Connection, stream_id: u32, outcome: event.Outcome) b
     return true;
 }
 
-/// The response did not fit the caller's memory: the exchange ends, and CANCEL tells the server to
-/// send no more of it (RFC 9113 §6.4).
-fn too_large(connection: *Connection, slot: *Slot) bool {
+/// The response did not fit the caller's memory, or its coding is corrupt: the exchange ends with
+/// `outcome`, and CANCEL tells the server to send no more of it (RFC 9113 §6.4).
+fn refuse(connection: *Connection, slot: *Slot, outcome: event.Outcome) bool {
     cancel_stream(connection, slot.stream_id);
-    slots_module.end(slot, .too_large);
+    slots_module.end(slot, outcome);
     return true;
 }
 
@@ -206,7 +209,8 @@ fn open(connection: *Connection, slot: *Slot) bool {
     var lines: [constants.request_fields_max]h2.hpack.Field = undefined;
     var indexing: [constants.request_fields_max]h2.connection.RequestIndexing = undefined;
     var digits: [constants.content_length_digits_max]u8 = undefined;
-    const fields = request_fields(exchange, &lines, &indexing, &digits) orelse {
+    var offer: [coding.offer_len_max]u8 = undefined;
+    const fields = request_fields(connection, slot, &lines, &indexing, &digits, &offer) orelse {
         slots_module.end(slot, .invalid);
         return true;
     };
@@ -256,14 +260,18 @@ fn refused(connection: *Connection, slot: *Slot, failure: h2.connection.RequestE
     return true;
 }
 
-/// The field lines of `exchange`'s request as h2 writes them, with the content-length the client
-/// adds, and how each is written, or null when they pass `request_fields_max`.
+/// The field lines of `slot`'s request as h2 writes them, with the content-length and the
+/// accept-encoding the client adds (decision 101), and how each is written, or null when they
+/// pass `request_fields_max`.
 fn request_fields(
-    exchange: *const HttpExchange,
+    connection: *const Connection,
+    slot: *Slot,
     lines: *[constants.request_fields_max]h2.hpack.Field,
     indexing: *[constants.request_fields_max]h2.connection.RequestIndexing,
     digits: *[constants.content_length_digits_max]u8,
+    offer: *[coding.offer_len_max]u8,
 ) ?[]const h2.hpack.Field {
+    const exchange = slot.exchange;
     if (exchange.fields.len + constants.added_fields_max > lines.len) return null;
     const marked = exchange.never_indexed.fields;
     for (exchange.fields, lines[0..exchange.fields.len], indexing[0..exchange.fields.len], 0..) |field, *line, *how, index| {
@@ -275,6 +283,11 @@ fn request_fields(
     var count = exchange.fields.len;
     if (exchange.content_length(digits)) |length| {
         lines[count] = .{ .name = "content-length", .value = length };
+        indexing[count] = .without_indexing;
+        count += 1;
+    }
+    if (coding.offer(connection.config.codings, connection.config.decoders, slot, offer)) |value| {
+        lines[count] = .{ .name = "accept-encoding", .value = value };
         indexing[count] = .without_indexing;
         count += 1;
     }

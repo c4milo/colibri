@@ -13,6 +13,8 @@
 //! that uses this module links chapulin. One that wants no TLS uses `h11` or `h2` directly.
 const std = @import("std");
 const quic = @import("quic");
+const h11 = @import("h11");
+const http = @import("http");
 
 pub const constants = @import("constants.zig");
 pub const event = @import("event.zig");
@@ -46,11 +48,20 @@ pub const ChannelConfig = channel.Config;
 pub const ReceivePool = quic.stream.stream_incoming.Pool;
 pub const DefaultReceivePool = quic.stream.stream_incoming.DefaultPool;
 pub const ReceiveStorage = quic_connection.ReceiveStorage;
+/// The content codings a client decodes (decision 101).
+pub const Coding = http.content_coding.Coding;
+/// The pool of decoders a client removes content codings with (decision 101), which the caller
+/// places: `DecoderPool(count)` for `count` decoders, or `DefaultDecoderPool`. A configuration
+/// holds it as `Decoders`, from `storage()` after `reset`, and connections may share one.
+pub const DecoderPool = h11.coding.Pool;
+pub const DefaultDecoderPool = h11.coding.DefaultPool;
+pub const Decoders = h11.coding.Storage;
 
 test {
     std.testing.refAllDecls(@This());
     _ = @import("slots.zig");
     _ = @import("response.zig");
+    _ = @import("coding.zig");
     _ = @import("owed.zig");
     _ = @import("channel/channel_choice.zig");
     _ = @import("channel/channel_test.zig");
@@ -59,6 +70,7 @@ test {
     _ = @import("quic/quic_connection_test.zig");
     _ = @import("quic/quic_connection_flow_test.zig");
     _ = @import("quic/quic_connection_idle_test.zig");
+    _ = @import("quic/quic_coding_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

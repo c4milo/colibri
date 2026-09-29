@@ -20,6 +20,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const h3 = @import("h3");
+const h11 = @import("h11");
+const http = @import("http");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
@@ -54,6 +56,11 @@ pub const Config = struct {
     ecn: bool = false,
     /// The idle timeout the client advertises (RFC 9000 §10.1), in milliseconds.
     idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
+    /// The content codings the client offers in each request's Accept-Encoding, in its order of
+    /// preference, and the pool of decoders it removes them with, which connections may share
+    /// (decision 101). Both or neither.
+    codings: []const http.content_coding.Coding = &.{},
+    decoders: ?h11.coding.Storage = null,
 };
 
 /// The unpredictable values one connection starts from, which the caller draws (invariant 5).
@@ -123,6 +130,7 @@ pub const QuicConnection = struct {
     pub fn init(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, start: Start, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
         assert(config.authority.len > 0);
         assert(receive_pool.capacity > 0 and receive_pool.blocks.len > 0);
+        assert((config.codings.len == 0) == (config.decoders == null));
         connection.config = config;
         connection.start_values = start;
         connection.slots.init();

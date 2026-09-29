@@ -92,6 +92,8 @@ pub const Answer = struct {
     received: usize = 0,
     content_length: ?u64 = null,
     https: bool = false,
+    /// Whether the request offered gzip first in Accept-Encoding (decision 101).
+    offers_gzip: bool = false,
     ended: bool = false,
     answered: bool = false,
     prefix: [prefix_len_max]u8 = undefined,
@@ -111,6 +113,8 @@ pub var answers_len: usize = 0;
 pub var answer_status: u16 = ok_status;
 const ok_status: u16 = 200;
 pub var answer_content: []const u8 = "hello";
+/// The Content-Encoding the server names in each answer, or null for none (decision 101).
+pub var answer_coding: ?[]const u8 = null;
 
 /// The client's receive pool (decision 61), placed outside any stack frame. Test-only.
 pub var client_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
@@ -158,6 +162,7 @@ pub fn prepare(client_protocols: []const []const u8, server_protocols: []const [
     events_len = 0;
     answer_status = ok_status;
     answer_content = "hello";
+    answer_coding = null;
 }
 
 /// A server with no connection, which starts from the next Initial it takes, as a second
@@ -303,6 +308,8 @@ fn server_read() !void {
                 answer.path_len = path.len;
                 answer.content_length = held.request.content_length;
                 answer.https = std.mem.eql(u8, held.request.scheme orelse "", "https");
+                const offer = server_h3.field_section().find("accept-encoding");
+                answer.offers_gzip = offer != null and std.mem.startsWith(u8, offer.?.value, "gzip");
                 answers_len += 1;
             },
             .data => |held| if (answer_of(held.stream_id)) |answer| {
@@ -344,6 +351,7 @@ pub fn server_answer(answer: *Answer, status: u16, content: []const u8) !void {
     try server_section.append("content-type", "application/dns-message");
     const named = if (answer_malformed) content.len + 1 else content.len;
     try server_section.append("content-length", std.fmt.bufPrint(&digits, "{d}", .{named}) catch unreachable);
+    if (answer_coding) |coding| try server_section.append("content-encoding", coding);
     var writer = quic.core.Writer.init(&answer.prefix);
     try write_interims(answer.id, &writer);
     try server_h3.write_response(&server, answer.id, &server_section, &.{}, &writer, now_ns);

@@ -4,6 +4,7 @@
 //! with the lowest id.
 const std = @import("std");
 const assert = std.debug.assert;
+const h11 = @import("h11");
 const constants = @import("constants.zig");
 const event = @import("event.zig");
 
@@ -41,6 +42,11 @@ pub const Slot = struct {
     /// A dropping slot whose exchange ended before its response did, and whose `finished` event
     /// is owed once the response is read.
     report_after_drop: bool = false,
+    /// The decoder the exchange holds from its request's Accept-Encoding until its response ends,
+    /// the pool it came from, and the coded octets it was given (decision 101).
+    decoding: h11.coding.Decoding = .{},
+    decoders: ?h11.coding.Storage = null,
+    coded_len: usize = 0,
 
     /// Whether no more of the exchange's content is to be written: all of it went out, or the
     /// protocol refused the rest.
@@ -163,6 +169,7 @@ pub const Slots = struct {
 pub fn end(slot: *Slot, outcome: Outcome) void {
     assert(slot.stage == .queued or slot.stage == .sent);
     assert(outcome != .pending);
+    give_back(slot);
     slot.exchange.outcome = outcome;
     slot.stage = .ended;
 }
@@ -172,6 +179,7 @@ pub fn end(slot: *Slot, outcome: Outcome) void {
 pub fn drop(slot: *Slot, report: bool) void {
     assert(slot.stage == .sent);
     assert(!report or slot.exchange.outcome != .pending);
+    give_back(slot);
     slot.stage = .dropping;
     slot.report_after_drop = report;
 }
@@ -185,7 +193,17 @@ pub fn settle_drop(slot: *Slot) void {
 /// Frees a slot whose `finished` event was reported, or which its caller cancelled.
 pub fn release(slot: *Slot) void {
     assert(slot.stage != .free);
+    give_back(slot);
     slot.* = .{};
+}
+
+/// Gives back the decoder the slot holds, reserved or decoding: its response ended, or nothing
+/// more of it is read.
+pub fn give_back(slot: *Slot) void {
+    const storage = slot.decoders orelse return;
+    h11.coding.release(&slot.decoding, storage);
+    slot.decoders = null;
+    assert(!slot.decoding.holds());
 }
 
 const testing = std.testing;

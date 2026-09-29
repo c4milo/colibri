@@ -42,7 +42,8 @@ pub const Outcome = enum {
     /// request written and unanswered, which the server may have processed (RFC 9112 §9.3.1).
     closed,
     /// colibri refused the response: the protocol's rules make it malformed (RFC 9113 §8.1.1,
-    /// RFC 9112 §8).
+    /// RFC 9112 §8), or the content coding the client removes is corrupt or ends early (decision
+    /// 101).
     malformed,
     /// The request is one the protocol refuses to send, such as a method that is not a token or
     /// a field line RFC 9110 §5.5 forbids.
@@ -88,6 +89,9 @@ pub const HttpExchange = struct {
     content_sent: usize = 0,
     /// The code of the RST_STREAM that reset the stream (RFC 9113 §7), for `reset`.
     error_code: u32 = 0,
+    /// The content coding the client removed from the response's content (decision 101), or null
+    /// when the content arrived uncoded or in a coding the client passes on as it came.
+    coding: ?http.content_coding.Coding = null,
 
     /// Clears what the client writes, so the exchange can be made again.
     pub fn clear(exchange: *HttpExchange) void {
@@ -98,6 +102,7 @@ pub const HttpExchange = struct {
         exchange.values_len = 0;
         exchange.content_sent = 0;
         exchange.error_code = 0;
+        exchange.coding = null;
         for (exchange.wanted) |*wanted| wanted.value = null;
         assert(exchange.outcome == .pending and exchange.body_len == 0);
     }
@@ -163,9 +168,11 @@ test "clearing an exchange makes it pending again, and leaves its request alone"
     exchange.outcome = .response;
     exchange.status = 200;
     exchange.body_len = 3;
+    exchange.coding = .gzip;
     exchange.clear();
     try std.testing.expectEqual(.pending, exchange.outcome);
     try std.testing.expectEqual(0, exchange.body_len);
+    try std.testing.expectEqual(null, exchange.coding);
     try std.testing.expectEqual(null, exchange.wanted[0].value);
     try std.testing.expectEqualStrings("GET", exchange.method);
 }
