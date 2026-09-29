@@ -2407,7 +2407,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - colibri writes a server's error responses itself, as h2 writes its own GOAWAY and
       RST_STREAM. The response carries `Connection: close` and no content, and the connection
       closes after it. The statuses:
-      - 400 for a malformed request (RFC 9112 §2.2, §3.2, §5.1, §6.3; RFC 9110 §15.5.1);
+      - 400 for a malformed request (RFC 9112 §2.2, §3.2, §5.1, §6.3; RFC 9110 §15.5.1), and for
+        a CONNECT request that declares content (RFC 9110 §9.3.6, decision 109);
       - 414 for a request line longer than `start_line_len_max` (RFC 9112 §3, RFC 9110 §15.5.15);
       - 431 for a head, field section or trailer section past colibri's limits (RFC 6585 §5, now in
         `docs/rfcs/`);
@@ -2419,7 +2420,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       - 505 for a major version other than 1 (RFC 9110 §15.6.6).
     - HTTP/1.0 keep-alive is not honoured. An HTTP/1.0 exchange closes after its response, which
       RFC 9112 §9.3 allows. HTTP/1.1 connections persist unless either side sends
-      `Connection: close`.
+      `Connection: close`, or a server refuses a CONNECT (RFC 9931 §8, decision 109).
     - A server reads one request at a time. It reads the next request only after it has written
       the final response to the current one, so later pipelined requests stay unread in the
       caller's buffer. Responses go out in order with no queue (RFC 9112 §9.3.2).
@@ -3093,3 +3094,37 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        CRYPTO byte has arrived.
      - Wait for chapulin's callback and build version 2 whole. The client, and a server that
        accepts version 2 from the start, need nothing more from chapulin.
+
+109. **What h11 does with the octets after a CONNECT or an Upgrade request.** Ruled by the owner on
+     2026-09-29, after RFC 9931 joined `docs/rfcs/`. It amends decision 92. RFC 9931 §4.1 names
+     the hazard: until the answer arrives, the client cannot know whether the server reads what
+     follows as HTTP/1.1 or in the new protocol, and a server that reads it as HTTP/1.1 can take a
+     smuggled request from it.
+     - A final response to CONNECT other than 2xx ends the connection: h11 adds
+       `Connection: close` to it and reads nothing after it (RFC 9931 §8). h11 cannot tell a proxy
+       from an origin, so the rule holds at every h11 server. RFC 9931 §8 lets a proxy skip it for
+       a client known to wait for the 2xx, and h11 does not.
+     - Every 2xx to CONNECT opens the tunnel, 204 included (RFC 9110 §6.4.1, §9.3.6). h11 applied
+       RFC 9112 §6.3 rule 1 to a 204 before rule 2, so it read the octets after one as HTTP where
+       the peer had started the tunnel. A server refuses Content-Length and Transfer-Encoding on a
+       2xx to CONNECT (RFC 9110 §8.6, RFC 9112 §6.1).
+     - A CONNECT request declares no content (RFC 9110 §9.3.6). A client's `write_request` refuses
+       one that does, with `FramingInvalid`, and a server answers one with 400 and closes, as it
+       answers any malformed request. `Content-Length: 0` declares none. So every octet after a
+       CONNECT head belongs to the tunnel a 2xx opens, and is never read otherwise.
+     - A client refuses a request carrying Upgrade, with `UpgradeUnsupported`, as the `client`
+       module does. h11 implements no upgrade: its server writes no 101 and its client fails on
+       one, so the invitation could only make a server read what follows in a protocol the client
+       does not speak.
+
+     The alternatives refused:
+     - For a refused CONNECT: the close with an opt-out for a client the caller knows waits for
+       the 2xx, which is RFC 9931 §8's MAY and more API; and leaving the close to the application,
+       which every proxy would have to remember.
+     - For a 2xx to CONNECT: the tunnel fixed and the framing fields left for later; and both left
+       as they were.
+     - For content on CONNECT: a refusal at the client alone, so a server still reads a body that
+       RFC 9110 §9.3.6 says the request does not have; and both ends left as they were.
+     - For Upgrade: sending it but pipelining nothing after it until its final response, which
+       would amend decision 88; and leaving it, so a 101 fails the connection and the requests
+       pipelined after it go unanswered.
