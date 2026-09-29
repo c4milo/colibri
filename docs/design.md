@@ -5534,6 +5534,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     2.612 s with `write_items`. c134f2c's own speed work was for text outside ASCII, which qlog
     does not write.
 
+- **Step 19 — QUIC version 2.** [Decision 108](decisions.md) adds RFC 9369's version 2 beside
+  version 1, with RFC 9368's compatible version negotiation, for
+  [#54](https://github.com/c4milo/colibri/issues/54). chapulin derives both versions' keys (its
+  decision 79), and colibri reads and writes the wire. Five parts, in order:
+  - **19a**, the suite learns the version. A chapulin pin with version 2; `Sealing` and `Opening`
+    naming each packet's version; the Retry tag members taking the original version; and the
+    null suite of §10 keeping keys per version. Every connection still runs version 1.
+    **Check:** `zig build test`, the simulator's pinned censuses and `tools/quic_udp.sh`, all
+    unchanged.
+  - **19b**, version 2's packets. The Version field `0x6b3343cf` and version 2's long header type
+    codes (RFC 9369 §3.1 and §3.2) in the packet reader and writer, with invariant 22's
+    version-independent parse unchanged, and version 2 among the versions a Version Negotiation
+    packet lists.
+    **Check:** RFC 9369 Appendix A's sample packets, read and written byte for byte through the
+    suite.
+  - **19c**, version_information. The transport parameter of RFC 9368 §3, sent by both endpoints
+    and parsed and validated as §4 requires, with VERSION_NEGOTIATION_ERROR (§10.2) for a Chosen
+    Version the connection does not use, and qlog's `version_information` event naming both
+    versions.
+    **Check:** a test for each rule of RFC 9368 §4, each proved by a mutation.
+  - **19d**, the client's switch, and a server that starts in version 2. The client starts in
+    version 1 with version 2 available (RFC 9368 §2.5), switches once at the first long header in
+    another version, and drops Handshake and 1-RTT packets in any version but the negotiated one
+    (RFC 9369 §4.1). A server accepts a first flight in either version. Tickets and tokens belong
+    to the version that issued them (RFC 9369 §5).
+    **Check:** a simulator check over both versions and the switch, and the QUIC Interop Runner's
+    `v2` case with colibri as the client.
+  - **19e**, the server's switch. A server answers a version 1 first flight in version 2 through
+    the callback chapulin's decision 79 names.
+    **Check:** the QUIC Interop Runner's `v2` case in both roles, beside the version 1 matrix.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
