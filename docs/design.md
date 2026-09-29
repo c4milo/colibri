@@ -5176,6 +5176,41 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/client_trace.sh`: 67 of 67 traces are behaviors of the model.
   - `zig build test` passed: 2253 of 2253 tests.
 
+  **17e part 1, the server's content codings, 2026-09-28.**
+  - `http.content_coding` reads Accept-Encoding (RFC 9110 §12.5.3): each coding's weight in
+    thousandths (§12.4.2), `*` for a coding the field does not list, and the first weight each
+    gets. `x-gzip` is `gzip` (§8.4.1.3). `choose` takes the highest nonzero weight, and the
+    server's order breaks a tie. A value the grammar refuses leaves the response uncoded.
+  - `server.Config` and `server.QuicConfig` gain `codings` and `encoders`, and `Response` gains
+    `codable`, false unless the caller sets it. `EncoderPool(count, level)` holds the encoders,
+    each with a ring of `encoder_ring_len` coded octets, 64 KiB (the owner's ruling of
+    2026-09-28). `DefaultEncoderPool` has 4 at level 6. A response takes a slot when its head goes
+    out coded, and gives it back when its end is written (h11, h2) or acknowledged (h3), when it
+    is cancelled, or when its connection ends.
+  - Decision 101's rules, with one reading of RFC 9110 §8.8.3.3: its example sends
+    `Vary: accept-encoding` on the uncoded response too, so each marked final response that
+    Accept-Encoding could choose carries it, coded or not. A response that ends with its head has
+    no content to code, and an interim one goes out as it is.
+  - h11 and h2 copy the ring into the output as they frame content. `send` moves what the ring
+    holds after the caller's last call, and ends the content once the encoder has finished. h3
+    frames each run the encoder writes as DATA, which QUIC reads in place, and `receive` frees
+    what the peer acknowledged and lets the encoder finish. A full ring makes `write_body` return
+    `Blocked`, and a trailer section waits, with `Blocked`, until the coded octets before it are
+    out.
+  - Mutations: 62, each CAUGHT. On the first run 8 were NOT CAUGHT:
+    - Three got a test each: an element with no coding, a second `*`, and a parameter other than
+      `q`.
+    - h3's limit on a response's runs got a test whose interim heads fill them.
+    - A fourth decimal's check went, because the comma rule already refuses one.
+    - The end written with no octets was dead code, since gzip and zlib end with a trailer. It
+      became an assertion, which uncovered the release it had masked.
+    - A second give-back at a stream's close masked the one at `done`. It went, and a test keeps
+      a request open past its response.
+
+    Before the run, h3's check for room to keep a DATA frame's header became an assertion, with a
+    comptime proof over the limits that it holds.
+  - `zig build test` passed: 2293 of 2293 tests.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

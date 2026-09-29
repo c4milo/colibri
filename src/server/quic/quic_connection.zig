@@ -20,6 +20,9 @@ const event = @import("../event.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_request = @import("quic_request.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
+const quic_coding = @import("quic_coding.zig");
+const coding_pool = @import("../coding/coding_pool.zig");
+const http = @import("http");
 
 pub const Id = event.Id;
 pub const Received = event.Received;
@@ -42,6 +45,11 @@ pub const Config = struct {
     ecn: bool = false,
     /// The idle timeout the server advertises (RFC 9000 §10.1), in milliseconds.
     idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
+    /// The content codings the server applies to a response the caller marks `codable`, in its
+    /// order of preference, and the pool their encoders come from, which connections may share
+    /// (decision 101). Both or neither.
+    codings: []const http.content_coding.Coding = &.{},
+    encoders: ?coding_pool.Encoders = null,
 };
 
 /// What a connection starts from, which the endpoint read off the client's first Initial or drew
@@ -110,6 +118,7 @@ pub const QuicConnection = struct {
     /// the server's tickets are issued at, or 0 for none.
     pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, how: Start, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
         assert(receive_pool.capacity > 0 and how.original_destination.len > 0);
+        assert((config.codings.len == 0) == (config.encoders == null));
         connection.config = config;
         connection.requests.init();
         connection.owed = .{};
@@ -177,15 +186,17 @@ pub const QuicConnection = struct {
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content.
     pub fn respond(connection: *QuicConnection, id: Id, response: event.Response) SendError!void {
-        return quic_connection_h3.respond(connection, id, response.status, response.fields, response.end);
+        return quic_connection_h3.respond(connection, id, response);
     }
 
     /// Takes `content.octets` whole as the next content of the response to request `id`, and ends
     /// the content with `end`. Nothing is copied: the octets stay the caller's until the request
-    /// is `done` or `cancelled`. `error.Blocked` says the response holds as many runs as it can
+    /// is `done` or `cancelled`. A coded response instead takes as many octets as its encoder's
+    /// ring has room for, and returns them, coded, to the caller at once (decision 101).
+    /// `error.Blocked` says the response holds as many runs, or its ring as many octets, as it can
     /// until the peer acknowledges some: `receive`, then call again.
     pub fn write_body(connection: *QuicConnection, id: Id, content: event.Content) SendError!usize {
-        return quic_connection_h3.write_body(connection, id, content.octets, content.end);
+        return quic_connection_h3.write_body(connection, id, content);
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
@@ -293,6 +304,7 @@ pub const QuicConnection = struct {
         connection.closed = true;
         connection.stopped = true;
         connection.owed.clear();
+        quic_coding.give_back_all(connection);
         connection.session.close();
     }
 
@@ -350,6 +362,7 @@ pub const QuicConnection = struct {
     fn stop(connection: *QuicConnection) void {
         connection.stopped = true;
         connection.owed.clear();
+        quic_coding.give_back_all(connection);
         for (&connection.requests.records) |*record| record.in_use = false;
     }
 

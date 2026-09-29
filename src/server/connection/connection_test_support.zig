@@ -7,8 +7,12 @@ const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const connection_module = @import("connection.zig");
 
+const http = @import("http");
 const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
+const coding_pool = @import("../coding/coding_pool.zig");
+const gzip = @import("gzip");
+const zlib = @import("zlib");
 
 const Connection = connection_module.Connection;
 const Config = connection_module.Config;
@@ -17,6 +21,7 @@ pub const Field = connection_module.Field;
 pub const server_constants = @import("../constants.zig");
 pub const Request = event.Request;
 pub const Trailers = event.Trailers;
+pub const Content = event.Content;
 
 pub const leaf = @embedFile("../testdata/identity.leaf.der");
 pub const root = @embedFile("../testdata/identity.ca.der");
@@ -60,6 +65,54 @@ pub const input_len: usize = 65_536;
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
     config = .{ .cleartext = protocol, .h3_alternative = alternative };
     try connection.init(&config, stream.random(), 0);
+}
+
+/// The encoder pool the coding tests give a connection, and the codings it applies, gzip first
+/// (decision 101).
+pub const Pool = coding_pool.EncoderPool(pool_encoders, pool_level);
+pub var pool: Pool align(@alignOf(Pool)) = undefined;
+pub const codings = [_]http.content_coding.Coding{ .gzip, .deflate };
+const pool_encoders: usize = 2;
+const pool_level: u4 = 1;
+
+/// A cleartext connection speaking `protocol` that codes content with `pool`, every encoder free.
+pub fn start_coding(protocol: connection_module.Protocol) !void {
+    pool.reset(.none());
+    config = .{ .cleartext = protocol, .codings = &codings, .encoders = pool.encoders() };
+    try connection.init(&config, stream.random(), 0);
+}
+
+/// The decoders the coding tests read coded content back with, and where they decode it.
+pub var gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
+pub var zlib_decoder: zlib.Decoder align(@alignOf(zlib.Decoder)) = undefined;
+pub var decoded: [coded_len_max]u8 = undefined;
+
+/// Content deflate cannot shrink, several rings long, so its coded octets pass the ring's end.
+pub var incompressible: [incompressible_len]u8 = undefined;
+pub const incompressible_len: usize = incompressible_rings * server_constants.encoder_ring_len;
+/// The most octets a coding test sends or decodes: the content and a ring more.
+pub const coded_len_max: usize = (incompressible_rings + 1) * server_constants.encoder_ring_len;
+const incompressible_rings: usize = 3;
+
+/// `coded` decoded as `coding`, whole.
+pub fn decode(coding: http.content_coding.Coding, coded: []const u8) ![]const u8 {
+    const whole = switch (coding) {
+        .gzip => blk: {
+            gzip.init(&gzip_decoder, .none());
+            break :blk try gzip.decode_all(&gzip_decoder, coded, &decoded);
+        },
+        .deflate => blk: {
+            zlib.init(&zlib_decoder, .none());
+            break :blk try zlib.decode_all(&zlib_decoder, coded, &decoded);
+        },
+    };
+    return decoded[0..whole.written];
+}
+
+/// Fills `incompressible` from the tests' source.
+pub fn fill_incompressible() void {
+    var source: Stream = .{ .state = seed };
+    source.random().bytes(&incompressible);
 }
 
 /// Copies `octets` into the test input and reads one event from it.

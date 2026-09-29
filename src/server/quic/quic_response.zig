@@ -69,17 +69,19 @@ pub const Pieces = struct {
     }
 
     /// Drops every run below `acknowledged`, the offset under which the peer has acknowledged
-    /// every octet, and moves the kept frames after them down to the front of `kept`.
-    pub fn release_below(pieces: *Pieces, acknowledged: u64) void {
+    /// every octet, and moves the kept frames after them down to the front of `kept`. Returns the
+    /// octets of the caller's runs dropped, which a coded response frees from its ring.
+    pub fn release_below(pieces: *Pieces, acknowledged: u64) usize {
         assert(acknowledged <= pieces.end);
         var dropped: usize = 0;
         var kept_dropped: usize = 0;
+        var caller_dropped: usize = 0;
         for (pieces.runs[0..pieces.runs_len]) |run| {
             if (run.end() > acknowledged) break;
-            if (run.caller == null) kept_dropped += run.len;
+            if (run.caller == null) kept_dropped += run.len else caller_dropped += run.len;
             dropped += 1;
         }
-        if (dropped == 0) return;
+        if (dropped == 0) return 0;
         const rest = pieces.runs_len - dropped;
         std.mem.copyForwards(Piece, pieces.runs[0..rest], pieces.runs[dropped..pieces.runs_len]);
         pieces.runs_len = rest;
@@ -88,6 +90,7 @@ pub const Pieces = struct {
         for (pieces.runs[0..rest]) |*run| {
             if (run.caller == null) run.kept_start -= kept_dropped;
         }
+        return caller_dropped;
     }
 
     /// The stream's octets from `offset`, as many as fit `output`. Every call at one offset answers
@@ -148,7 +151,7 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     test_keep(pieces, "DH");
     pieces.add_caller("world");
     // A run partly acknowledged stays whole.
-    pieces.release_below(6);
+    try testing.expectEqual(0, pieces.release_below(6));
     try testing.expectEqual(3, pieces.runs_len);
     try testing.expectEqual(2, pieces.kept_len);
     // A frame kept next lands where the dropped ones were, so a run read from its old place shows.
@@ -157,7 +160,8 @@ test "decision 103: acknowledged runs leave, and the kept frames after them move
     try testing.expectEqualStrings("helloDHworldTRAILERS", output[0..pieces.read(4, &output)]);
     // The octets below the first run held are acknowledged, and read as none.
     try testing.expectEqual(0, pieces.read(0, &output));
-    pieces.release_below(pieces.end);
+    // The caller's octets dropped are "hello" and "world"; the kept frames are not the caller's.
+    try testing.expectEqual(10, pieces.release_below(pieces.end));
     try testing.expectEqual(0, pieces.runs_len);
     try testing.expectEqual(0, pieces.kept_len);
     test_keep(pieces, "END");

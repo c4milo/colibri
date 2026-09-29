@@ -27,6 +27,12 @@ pub const Response = struct {
     status: u16,
     fields: []const http.field.Field = &.{},
     end: bool,
+    /// Whether the server may code the content in a coding the request accepts (decision 101),
+    /// when its configuration names codings. Only the caller knows whether the content mixes a
+    /// secret with octets a peer chose, which compression must not do (RFC 9113 §10.6), or
+    /// carries a field computed over the uncoded octets, such as a digest of them. A coded
+    /// response gains Content-Encoding and loses Content-Length, and a strong ETag becomes weak.
+    codable: bool = false,
 };
 
 /// Octets of a response's content, which `write_body` writes, and whether the content ends with

@@ -69,6 +69,9 @@ pub const Modules = struct {
     tls_keylog: *std.Build.Module,
     /// The QUIC object `tls_keylog` links, which the QUIC endpoints' `ch_keylog` reads the hook of.
     chapulin_quic_keylog: *std.Build.Dependency,
+    /// The codecs of decision 90, which the test-only instance of `server` imports as `server`
+    /// does.
+    stdx: *std.Build.Dependency,
     /// The deterministic harness: clock, byte pipe, datagram network, and null providers for both
     /// vtables. Design §10.
     sim: *std.Build.Module,
@@ -191,6 +194,10 @@ pub fn add(
     // Design §8 step 17b: h3 over QUIC, behind the same calls (design §3).
     server.addImport("h3", h3);
     server.addImport("quic", quic);
+    // Decision 101: the server codes response content with stdx's encoders.
+    server.addImport("codec", stdx.module("codec"));
+    server.addImport("gzip", stdx.module("gzip"));
+    server.addImport("zlib", stdx.module("zlib"));
     // Decision 100: `client` sends requests over h11 and h2 behind one set of calls, and drives
     // `tls` itself, as `server` does.
     const client = library(b, "client", target, optimize);
@@ -337,6 +344,7 @@ pub fn add(
         .chapulin_tcp = chapulin_tcp,
         .tls_keylog = tls_keylog,
         .chapulin_quic_keylog = chapulin_quic_keylog,
+        .stdx = stdx,
         .sim = sim,
         .sim_run = sim_run,
         .sim_run_quic = sim_run_quic,
@@ -383,6 +391,9 @@ pub fn add_testing_udp(
     server_keylog.addImport("quic", graph.quic);
     server_keylog.addImport("tls", graph.tls_keylog);
     server_keylog.addImport("tls_provider", graph.tls_provider);
+    server_keylog.addImport("codec", graph.stdx.module("codec"));
+    server_keylog.addImport("gzip", graph.stdx.module("gzip"));
+    server_keylog.addImport("zlib", graph.stdx.module("zlib"));
     module.addImport("server", server_keylog);
     module.link_libc = true;
     return module;

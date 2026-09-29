@@ -11,6 +11,10 @@
 //!
 //! Over TLS, the connection runs the handshake through `tls.record.Server` itself, so a program
 //! that uses this module links chapulin. One that wants no TLS uses `h11` or `h2` directly.
+//!
+//! When `Config` names content codings and an `EncoderPool`, a final response the caller marks
+//! `codable` goes out coded in the coding its request's Accept-Encoding accepts (decision 101).
+//! The pool is storage the caller places, and connections share it.
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
@@ -19,6 +23,7 @@ pub const connection = @import("connection/connection.zig");
 pub const quic_connection = @import("quic/quic_connection.zig");
 pub const endpoint = @import("endpoint/endpoint.zig");
 pub const alt_svc = @import("alt_svc.zig");
+pub const coding_pool = @import("coding/coding_pool.zig");
 
 pub const Config = connection.Config;
 pub const Connection = connection.Connection;
@@ -45,6 +50,9 @@ pub const Response = event.Response;
 pub const Content = event.Content;
 pub const Received = event.Received;
 pub const Alternative = alt_svc.Alternative;
+pub const EncoderPool = coding_pool.EncoderPool;
+pub const DefaultEncoderPool = coding_pool.DefaultEncoderPool;
+pub const Encoders = coding_pool.Encoders;
 
 test {
     std.testing.refAllDecls(@This());
@@ -55,8 +63,13 @@ test {
     _ = @import("quic/quic_request.zig");
     _ = @import("quic/quic_connection_test.zig");
     _ = @import("quic/quic_connection_flow_test.zig");
+    _ = @import("quic/quic_coding_test.zig");
     _ = @import("endpoint/endpoint_stateless.zig");
     _ = @import("endpoint/endpoint_test.zig");
+    _ = @import("coding/coding_ring.zig");
+    _ = @import("coding/coding_rules.zig");
+    _ = @import("coding/coding_fields.zig");
+    _ = @import("coding/coding_response.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

@@ -108,6 +108,10 @@ pub const Fetch = struct {
     ended: bool = false,
     /// The code of the server's RESET_STREAM, once one arrived (RFC 9000 §19.4).
     reset: ?u64 = null,
+    /// Whether the final response's head named gzip in Content-Encoding and Accept-Encoding in
+    /// Vary (decision 101).
+    gzip: bool = false,
+    varies: bool = false,
 };
 const prefix_len_max: usize = 1024;
 const fetches_max: usize = 4;
@@ -197,20 +201,39 @@ pub fn connect() !void {
 
 /// The client sends a request for `path` with `content`, ending its stream.
 pub fn request(method: []const u8, path: []const u8, content: []const u8) !*Fetch {
-    return write_request(method, path, content, &.{}, true);
+    return write_request(method, path, &.{}, content, &.{}, true);
+}
+
+/// As `request`, with no content and the field lines `fields` after the pseudo-header fields.
+pub fn request_with_fields(method: []const u8, path: []const u8, fields: []const Field) !*Fetch {
+    return write_request(method, path, fields, "", &.{}, true);
+}
+
+/// A client and a server as `start` makes them, the server coding content with the encoders of
+/// the TCP tests' pool, every one free (decision 101).
+pub fn start_coding() !void {
+    try start();
+    support.pool.reset(.none());
+    config.codings = &support.codings;
+    config.encoders = support.pool.encoders();
 }
 
 /// As `request`, leaving the stream open, so its receiving part at the server never finishes.
 pub fn request_open(method: []const u8, path: []const u8, content: []const u8) !*Fetch {
-    return write_request(method, path, content, &.{}, false);
+    return write_request(method, path, &.{}, content, &.{}, false);
+}
+
+/// As `request_with_fields`, leaving the stream open.
+pub fn request_open_with_fields(method: []const u8, path: []const u8, fields: []const Field) !*Fetch {
+    return write_request(method, path, fields, "", &.{}, false);
 }
 
 /// A request for `path` with no content, whose trailer section `trailers` ends it (RFC 9114 §4.1).
 pub fn request_with_trailers(path: []const u8, trailers: []const Field) !*Fetch {
-    return write_request("POST", path, "", trailers, true);
+    return write_request("POST", path, &.{}, "", trailers, true);
 }
 
-fn write_request(method: []const u8, path: []const u8, content: []const u8, trailers: []const Field, fin: bool) !*Fetch {
+fn write_request(method: []const u8, path: []const u8, fields: []const Field, content: []const u8, trailers: []const Field, fin: bool) !*Fetch {
     assert(client_h3_started and fetches_len < fetches.len);
     assert(trailers.len == 0 or content.len == 0);
     const fetch = &fetches[fetches_len];
@@ -220,9 +243,10 @@ fn write_request(method: []const u8, path: []const u8, content: []const u8, trai
     try client_section.append(":scheme", "https");
     try client_section.append(":authority", "localhost");
     try client_section.append(":path", path);
-    const indexing: [request_lines]h3.qpack.encoder.Indexing = @splat(.no_insert);
+    for (fields) |line| try client_section.append(line.name, line.value);
+    const indexing: [request_lines + request_fields_max]h3.qpack.encoder.Indexing = @splat(.no_insert);
     var writer = quic.core.Writer.init(&fetch.prefix);
-    fetch.id = try client_h3.write_request(&client, &client_section, &indexing, &writer, now_ns);
+    fetch.id = try client_h3.write_request(&client, &client_section, indexing[0..client_section.len()], &writer, now_ns);
     if (content.len > 0) try client_h3.write_data_header(fetch.id, content.len, &writer, now_ns);
     if (trailers.len > 0) {
         client_section.init();
@@ -246,6 +270,8 @@ pub fn reset_fetch(fetch: *const Fetch) !void {
     try quic.connection_stream_send.reset(&client, .{ .value = fetch.id }, h3.constants.error_request_cancelled);
 }
 const request_lines: usize = 4;
+/// The most field lines a test's request carries after its pseudo-header fields.
+const request_fields_max: usize = 4;
 
 /// The client cancels `fetch` (RFC 9114 §4.1.1).
 pub fn cancel_fetch(fetch: *const Fetch) void {
@@ -372,7 +398,7 @@ fn client_read() !void {
 fn client_record(read: h3.connection.Event) void {
     switch (read) {
         .response => |head| if (fetch_of(head.stream_id)) |fetch| {
-            if (head.response.status.is_interim()) fetch.interims += 1 else fetch.status = head.response.status.code;
+            if (head.response.status.is_interim()) fetch.interims += 1 else note_final(fetch, head.response.status.code);
         },
         .data => |data| if (fetch_of(data.stream_id)) |fetch| {
             const index = fetch_index(fetch);
@@ -387,6 +413,14 @@ fn client_record(read: h3.connection.Event) void {
         },
         else => {},
     }
+}
+
+/// Keeps a final response's status and what its head says of its coding.
+fn note_final(fetch: *Fetch, status: u16) void {
+    fetch.status = status;
+    const section = client_h3.field_section();
+    if (section.find("content-encoding")) |line| fetch.gzip = std.mem.eql(u8, line.value, "gzip");
+    if (section.find("vary")) |line| fetch.varies = std.mem.eql(u8, line.value, "accept-encoding");
 }
 
 pub fn fetch_of(stream_id: u64) ?*Fetch {

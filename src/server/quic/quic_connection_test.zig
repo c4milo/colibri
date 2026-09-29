@@ -159,7 +159,17 @@ test "RFC 9114 §4.1.1: a request no record can hold is rejected, which the clie
     // Every other record holds the first request's open stream, so none is free.
     for (&connection.requests.records) |*record| {
         if (record.in_use) continue;
-        record.* = .{ .in_use = true, .stream_id = first.id, .ended = true, .answered = false, .finished = false, .over = true, .response = undefined };
+        record.* = .{
+            .in_use = true,
+            .stream_id = first.id,
+            .ended = true,
+            .answered = false,
+            .finished = false,
+            .over = true,
+            .response = undefined,
+            .asked = .{},
+            .coded = null,
+        };
         record.response.init();
     }
     const second = try support.request("GET", "/second", "");

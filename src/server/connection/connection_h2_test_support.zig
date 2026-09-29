@@ -22,6 +22,11 @@ pub const flags_index: usize = length_len + 1;
 /// A connection that has read the client's preface and sent its own. Test-only.
 pub fn start() !void {
     try support.start_cleartext(.h2);
+    try start_preface();
+}
+
+/// The connection `support` started reads the client's preface and sends its own. Test-only.
+pub fn start_preface() !void {
     const received = try support.receive_copy(client_preface);
     try testing.expectEqual(client_preface.len, received.consumed);
     try testing.expectEqual(null, received.event);
@@ -33,16 +38,23 @@ pub fn start() !void {
 /// A HEADERS frame carrying a GET for `path` on `stream_id`, ending the stream when `end`.
 /// Test-only.
 pub fn request_frame(stream_id: u32, path: []const u8, end: bool) ![]const u8 {
+    const accept = [_]support.Field{.{ .name = "accept", .value = "*/*" }};
+    return request_frame_with(stream_id, "GET", path, &accept, end);
+}
+
+/// A HEADERS frame carrying a `method` request for `path` with `fields` on `stream_id`, ending the
+/// stream when `end`. Test-only.
+pub fn request_frame_with(stream_id: u32, method: []const u8, path: []const u8, fields: []const support.Field, end: bool) ![]const u8 {
     var block: [constants.frame_size_max]u8 = undefined;
     var encoder: h2.hpack.Encoder = undefined;
     encoder.init(constants.header_table_size_initial, .never);
     var block_writer = h2.core.Writer.init(&block);
     try encoder.begin_block(&block_writer);
-    try encoder.write_field(&block_writer, ":method", "GET", .without_indexing);
+    try encoder.write_field(&block_writer, ":method", method, .without_indexing);
     try encoder.write_field(&block_writer, ":scheme", "http", .without_indexing);
     try encoder.write_field(&block_writer, ":path", path, .without_indexing);
     try encoder.write_field(&block_writer, ":authority", "example.com", .without_indexing);
-    try encoder.write_field(&block_writer, "accept", "*/*", .without_indexing);
+    for (fields) |field| try encoder.write_field(&block_writer, field.name, field.value, .without_indexing);
     encoder.commit_block();
     var writer = h2.core.Writer.init(&frames);
     const end_flag: u8 = if (end) constants.flag_end_stream else 0;

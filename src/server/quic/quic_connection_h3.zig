@@ -11,6 +11,9 @@ const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const quic_request = @import("quic_request.zig");
 const quic_connection = @import("quic_connection.zig");
+const quic_coding = @import("quic_coding.zig");
+const coding_rules = @import("../coding/coding_rules.zig");
+const coding_fields = @import("../coding/coding_fields.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
@@ -54,6 +57,8 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
                 assert(record.finished);
                 end(connection, record, .done);
             }
+            // Each way a request ends gave its encoder back.
+            assert(record.coded == null);
             record.in_use = false;
             return;
         },
@@ -65,13 +70,18 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
         .reset_sent, .reset_recvd => if (!record.over) end(connection, record, .cancelled),
         .ready, .send, .data_sent => {},
     }
-    const acknowledged = quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, id) orelse return;
-    record.response.release_below(@min(acknowledged, record.response.end));
+    if (quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, id)) |acknowledged| {
+        const freed = record.response.release_below(@min(acknowledged, record.response.end));
+        // A coded response's runs are its ring's, which frees what the peer acknowledged.
+        if (record.coded) |*coded| coded.ring.free(freed);
+    }
+    quic_coding.go_on(connection, record);
 }
 
 fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_request.Ending, "kind")) void {
     assert(!record.over);
     record.over = true;
+    quic_coding.give_back(connection, record);
     connection.owed.push(.{ .kind = kind, .id = record.stream_id });
 }
 
@@ -112,14 +122,14 @@ fn report(connection: *QuicConnection, h3_event: h3.connection.Event) ?event.Eve
 }
 
 fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?event.Event {
-    _ = connection.requests.take(arrived.stream_id) orelse {
+    const record = connection.requests.take(arrived.stream_id) orelse {
         // RFC 9114 §4.1.1: a request cancelled "without performing any application processing"
         // is rejected, which the client may send again.
         connection.h3.cancel(&connection.transport, arrived.stream_id, h3.constants.error_request_rejected);
         return null;
     };
     const request = arrived.request;
-    return .{
+    const reported: event.Event = .{
         .request = .{
             .id = arrived.stream_id,
             .method = request.method,
@@ -134,6 +144,8 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
             .end = false,
         },
     };
+    if (connection.config.encoders != null) record.asked = coding_rules.asked(connection.config.codings, reported.request);
+    return reported;
 }
 
 fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.Event {
@@ -155,6 +167,7 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
     const record = live(connection, stream_id) orelse return null;
     connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
     record.over = true;
+    quic_coding.give_back(connection, record);
     return .{ .cancelled = .{ .id = stream_id } };
 }
 
@@ -162,6 +175,7 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
 fn on_refused(connection: *QuicConnection, stream_id: u64) ?event.Event {
     const record = live(connection, stream_id) orelse return null;
     record.over = true;
+    quic_coding.give_back(connection, record);
     return .{ .cancelled = .{ .id = stream_id } };
 }
 
@@ -177,18 +191,23 @@ fn reading(connection: *QuicConnection, stream_id: u64) ?*Request {
     return if (record.ended) null else record;
 }
 
-pub fn respond(connection: *QuicConnection, id: Id, status: u16, fields: []const Field, end_stream: bool) SendError!void {
+pub fn respond(connection: *QuicConnection, id: Id, response: event.Response) SendError!void {
     const record = try writable(connection, id);
+    const status = response.status;
     // RFC 9110 §15: a status code is three digits from 100 to 599; RFC 9114 §4.5: h3 has no 101.
     if (status < status_min or status > status_max or status == switching_protocols) return error.StatusInvalid;
     // RFC 9110 §15: one final response answers a request, after any interim ones.
     if (record.answered) return error.SectionOutOfOrder;
-    try build_section(connection, status, fields);
+    var rewritten: coding_fields.Rewritten = undefined;
+    const head = try quic_coding.plan_head(connection, record, response, &rewritten);
+    errdefer if (head.slot) |slot| connection.config.encoders.?.give_back(slot);
+    try build_section(connection, status, head.fields);
     try keep_head(connection, record, .response);
     const interim = status < final_min;
     if (!interim) record.answered = true;
     // RFC 9114 §4.1: only the final response ends the stream.
-    try supply(connection, record, end_stream and !interim);
+    try supply(connection, record, response.end and !interim);
+    if (head.slot) |slot| record.coded = .{ .slot = slot };
 }
 
 const status_min: u16 = 100;
@@ -196,11 +215,14 @@ const status_max: u16 = 599;
 const final_min: u16 = 200;
 const switching_protocols: u16 = 101;
 
-pub fn write_body(connection: *QuicConnection, id: Id, octets: []const u8, end_stream: bool) SendError!usize {
+pub fn write_body(connection: *QuicConnection, id: Id, content: event.Content) SendError!usize {
     const record = try writable(connection, id);
     // RFC 9114 §4.1: DATA frames follow the final response's HEADERS frame.
     if (!record.answered) return error.SectionOutOfOrder;
+    const octets = content.octets;
+    const end_stream = content.end;
     if (octets.len == 0 and !end_stream) return 0;
+    if (record.coded != null) return quic_coding.write_body(connection, record, content);
     if (octets.len > 0) {
         const pieces = &record.response;
         // RFC 9000 §3.1: a run leaves only once the peer acknowledges it, and a DATA frame takes two:
@@ -223,6 +245,7 @@ pub fn write_trailers(connection: *QuicConnection, id: Id, fields: []const Field
     const record = try writable(connection, id);
     // RFC 9114 §4.1: a trailer section follows the final response.
     if (!record.answered) return error.SectionOutOfOrder;
+    if (record.coded != null) try quic_coding.end_before_trailers(connection, record);
     const section = &connection.section;
     section.init();
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
@@ -238,6 +261,7 @@ pub fn cancel(connection: *QuicConnection, id: Id) void {
     // response stream with the error code H3_REQUEST_CANCELLED".
     connection.h3.cancel(&connection.transport, id, h3.constants.error_request_cancelled);
     record.over = true;
+    quic_coding.give_back(connection, record);
 }
 
 /// Sends a GOAWAY naming the first request stream not taken, after which h3 refuses every later
@@ -321,7 +345,7 @@ fn head_error(connection: *QuicConnection, failure: h3.connection.SendError, emp
 
 /// Tells QUIC how far the stream's octets reach, and that it ends there with `fin` (RFC 9000
 /// §2.2).
-fn supply(connection: *QuicConnection, record: *Request, fin: bool) SendError!void {
+pub fn supply(connection: *QuicConnection, record: *Request, fin: bool) SendError!void {
     const id: StreamId = .{ .value = record.stream_id };
     quic.connection_stream_send.supply(&connection.transport, id, record.response.end, fin) catch |failure| return switch (failure) {
         // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, which takes no more octets.

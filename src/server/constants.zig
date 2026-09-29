@@ -106,7 +106,24 @@ pub const quic_events_per_read_max: usize = quic.constants.receive_pool_len_defa
 /// The events of one request stream that consume nothing: its head, its end and its reset.
 const quic_events_per_request_max: usize = 3;
 
+/// The requests one TCP connection keeps coding state for (decision 101): one for each request it
+/// holds at once, as `done_owed_max` counts them.
+pub const coding_requests_max: usize = h2.constants.concurrent_streams_max;
+
+/// Octets of coded content an encoder holds before its response sends them: the ring each slot of
+/// the encoder pool carries (decision 101, the owner's ruling of 2026-09-28). h3 sends from it in
+/// place until the peer acknowledges the octets, so it bounds a coded h3 response's octets in
+/// flight.
+pub const encoder_ring_len: usize = 65_536;
+
+/// The encoders a pool holds unless its caller names another count, the most coded responses the
+/// connections given it send at once, and the deflate level they code at: 6, the middle of the
+/// three levels stdx's encoder offers (1, 6 and 9).
+pub const encoders_default: usize = 4;
+pub const encoder_level_default: u4 = 6;
+
 comptime {
+    assert(encoder_ring_len > 0 and encoders_default > 0);
     assert(quic_requests_max > 0 and quic_requests_max <= h3.constants.request_streams_max);
     // A response's head, the longest field section h3 encodes behind a frame header, fits.
     assert(quic_response_kept_len >= h3.constants.frame_header_len_max + h3.constants.section_prefix_len_max);

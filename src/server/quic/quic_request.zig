@@ -7,6 +7,8 @@ const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const quic_response = @import("quic_response.zig");
+const coding_rules = @import("../coding/coding_rules.zig");
+const coding_response = @import("../coding/coding_response.zig");
 
 const Id = event.Id;
 
@@ -25,6 +27,10 @@ pub const Request = struct {
     /// The response's frames and the runs of the caller's octets, until the peer acknowledges
     /// them.
     response: quic_response.Pieces,
+    /// What the request asked of the codings the server applies, and the coded response, whose
+    /// runs are its encoder's ring (decision 101).
+    asked: coding_rules.Asked,
+    coded: ?coding_response.Coded,
 };
 
 pub const Requests = struct {
@@ -47,6 +53,8 @@ pub const Requests = struct {
                 .finished = false,
                 .over = false,
                 .response = undefined,
+                .asked = .{},
+                .coded = null,
             };
             record.response.init();
             return record;

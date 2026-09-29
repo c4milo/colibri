@@ -30,6 +30,9 @@ const event = @import("../event.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 const connection_tls = @import("connection_tls.zig");
+const connection_errors = @import("connection_errors.zig");
+const connection_coding = @import("connection_coding.zig");
+const coding_pool = @import("../coding/coding_pool.zig");
 const expect = @import("../expect.zig");
 const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
@@ -58,45 +61,16 @@ pub const Config = struct {
     /// The h3 endpoint each connection over TLS advertises (decision 100): an Alt-Svc line on each
     /// final h11 response, and one ALTSVC frame per h2 connection (`alt_svc.zig`). Null for none.
     h3_alternative: ?alt_svc.Alternative = null,
+    /// The content codings the server applies to a response the caller marks `codable`, in its
+    /// order of preference, and the pool their encoders come from, which connections may share
+    /// (decision 101). Both or neither.
+    codings: []const http.content_coding.Coding = &.{},
+    encoders: ?coding_pool.Encoders = null,
 };
 
-/// Why `receive` stopped reading for good: the peer broke the protocol, or TLS failed (RFC 9846
-/// §6). What the connection owes the peer, such as a GOAWAY, an error response or an alert, waits
-/// for `send`, and the caller closes once `should_close` says so.
-pub const Error = error{ConnectionFailed};
-
-pub const StartError = error{
-    /// chapulin refused the TLS configuration (`tls.record.Error.Refused`).
-    TlsRefused,
-};
-
-pub const SendError = error{
-    /// `output` has no room for what the call writes: `send`, then call again.
-    NoSpaceLeft,
-    /// `write_body` wrote nothing: no room, or h2's flow-control window is closed (RFC 9113 §6.9).
-    /// `send`, `receive`, then call again.
-    Blocked,
-    /// No request with this id waits for this call: it never arrived, is answered, or is cancelled.
-    RequestUnknown,
-    /// The connection is closing and writes no more responses.
-    ConnectionClosed,
-    /// The status is not a code from 100 to 599 (RFC 9110 §15), or is 101, which colibri does not
-    /// implement (RFC 9110 §15.2.2).
-    StatusInvalid,
-    /// A field line h11 or h2 refuses to send (RFC 9110 §5.1, §5.5, RFC 9113 §8.2).
-    FieldLineInvalid,
-    /// A response after the final one, content before it, or trailers before it (RFC 9110 §6.4.1,
-    /// RFC 9113 §8.1).
-    SectionOutOfOrder,
-    /// More field lines than `field_count_max`, or a field section larger than the output holds
-    /// when empty.
-    SectionTooLarge,
-    /// Trailers h11 cannot carry: on a response that is not chunked (RFC 9112 §7.1.2), or a field
-    /// that frames or routes the message (RFC 9110 §6.5.1).
-    TrailersRefused,
-    /// Content that does not match the response's Content-Length (RFC 9110 §8.6).
-    ContentLengthMismatch,
-};
+pub const Error = connection_errors.Error;
+pub const StartError = connection_errors.StartError;
+pub const SendError = connection_errors.SendError;
 
 /// RFC 9110 §15.2.1: 100 (Continue).
 const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");
@@ -163,6 +137,8 @@ pub const Connection = struct {
     done_id: Id,
     /// The Alt-Svc value the connection advertises h3 with, if any.
     advert: alt_svc.Advert,
+    /// The requests whose responses may be coded, and the coded responses (decision 101).
+    coding: connection_coding.Table,
 
     /// Prepares a connection the listener accepted, with nothing read or written. Over TLS, every
     /// draw the handshake makes comes from `random`, and `now_seconds` is the clock its tickets
@@ -170,6 +146,7 @@ pub const Connection = struct {
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64) StartError!void {
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3.
         assert(config.cleartext != .h3);
+        assert((config.codings.len == 0) == (config.encoders == null));
         connection.config = config;
         connection.plain_in_len = 0;
         connection.plain_in_read = 0;
@@ -188,6 +165,7 @@ pub const Connection = struct {
         connection.done_owed = .{};
         connection.done_id = 0;
         connection.advert.init(config.tls != null, config.h3_alternative);
+        connection.coding.init();
         connection.session = .none;
         if (config.tls) |tls_config| {
             connection.phase = .handshake;
@@ -235,6 +213,11 @@ pub const Connection = struct {
         };
         const reported = received.event orelse return received;
         if (reported == .request and expect.expects_continue(reported.request)) connection.continue_owed = reported.request.id;
+        switch (reported) {
+            .request => |request| connection_coding.on_request(connection, request),
+            .cancelled => |cancelled| connection_coding.forget(connection, cancelled.id),
+            .body, .trailers, .done => {},
+        }
         return received;
     }
 
@@ -275,51 +258,39 @@ pub const Connection = struct {
     }
 
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
-    /// With `end`, the final response carries no content.
+    /// With `end`, the final response carries no content. A final response marked `codable` goes
+    /// out as decision 101 has it (`connection_coding.zig`).
     pub fn respond(connection: *Connection, id: Id, response: event.Response) SendError!void {
         try connection.check_writable();
         // RFC 9110 §10.1.1: the caller's own 100 replaces the one owed. A final response replaces
         // it too: the protocol refuses a 100 after it, and `write_continue` drops the one owed.
         if (connection.continue_owed == id and response.status == continue_status) connection.continue_owed = null;
-        switch (connection.session) {
-            .h2 => try connection_h2.respond(connection, id, response.status, response.fields, response.end),
-            .h11 => try connection_h11.respond(connection, id, response.status, response.fields, response.end),
-            // RFC 9110 §3.4: a response answers a request, and none arrives before the handshake
-            // completes.
-            .none => return error.RequestUnknown,
-        }
+        return connection_coding.respond(connection, id, response);
     }
 
     /// Writes content of the response to request `id`, as much of `content.octets` as the room
-    /// and h2's windows allow, and returns the octets taken. With `end`, the content ends once
-    /// every octet is taken; a call that takes fewer leaves the rest, and the end, to the next
-    /// call.
+    /// and h2's windows allow, or for a coded response as much as its encoder's ring takes, and
+    /// returns the octets taken. With `end`, the content ends once every octet is taken; a call
+    /// that takes fewer leaves the rest, and the end, to the next call. A coded response's last
+    /// octets go out in `send`.
     pub fn write_body(connection: *Connection, id: Id, content: event.Content) SendError!usize {
         try connection.check_writable();
         if (content.octets.len == 0 and !content.end) return 0;
-        return switch (connection.session) {
-            .h2 => connection_h2.write_body(connection, id, content.octets, content.end),
-            .h11 => connection_h11.write_body(connection, id, content.octets, content.end),
-            // RFC 9110 §3.4: no request arrives before the handshake completes.
-            .none => error.RequestUnknown,
-        };
+        return connection_coding.write_body(connection, id, content);
     }
 
-    /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
+    /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5). A coded
+    /// response's trailer section waits, with `error.Blocked`, until its coded octets are written.
     pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) SendError!void {
         try connection.check_writable();
-        switch (connection.session) {
-            .h2 => try connection_h2.write_trailers(connection, id, fields),
-            .h11 => try connection_h11.write_trailers(connection, id, fields),
-            // RFC 9110 §3.4: no request arrives before the handshake completes.
-            .none => return error.RequestUnknown,
-        }
+        return connection_coding.write_trailers(connection, id, fields);
     }
 
     /// Ends request `id` before its response is whole: h2 resets its stream with CANCEL (RFC
     /// 9113 §6.4), and h11, which cannot end one request alone, ends the connection.
     pub fn cancel(connection: *Connection, id: Id) void {
         if (connection.phase != .open) return;
+        connection_coding.forget(connection, id);
         switch (connection.session) {
             .h2 => connection_h2.cancel(connection, id),
             .h11 => connection_h11.cancel(connection, id),
@@ -342,9 +313,11 @@ pub const Connection = struct {
     /// Writes what the connection owes the peer into `output`, sealed over TLS, and returns the
     /// octets written. What does not fit waits for the next call.
     pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
-        // What the protocol owes goes out whether or not this call finds any, the 100 first.
+        // What the protocol owes goes out whether or not this call finds any, the 100 first, and
+        // then what the coded responses' rings hold.
         _ = connection.write_continue();
         _ = connection.write_owed(now_ns);
+        connection_coding.drain(connection);
         if (connection.config.tls != null) return connection_tls.send(connection, output, now_ns);
         const written = @min(output.len, connection.output_len);
         @memcpy(output[0..written], connection.output[0..written]);
@@ -374,6 +347,7 @@ pub const Connection = struct {
         connection.output_len = 0;
         connection.records_len = 0;
         connection.done_owed.clear();
+        connection_coding.forget_all(connection);
         // chapulin's close wipes every secret, and is safe on a session that closed or failed.
         if (connection.config.tls != null) connection.tls_server.close();
     }
@@ -489,4 +463,6 @@ test {
     _ = @import("connection_records_test.zig");
     _ = @import("connection_done_test.zig");
     _ = @import("connection_altsvc_test.zig");
+    _ = @import("connection_coding_h11_test.zig");
+    _ = @import("connection_coding_h2_test.zig");
 }
