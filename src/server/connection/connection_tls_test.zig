@@ -42,8 +42,8 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and a response comes back
     const head = received.event.?.request;
     try testing.expectEqual(1, head.id);
     try testing.expectEqualStrings("https", head.scheme.?);
-    try connection.respond(1, ok, &.{}, false);
-    try testing.expectEqual(5, try connection.write_body(1, "hello", true));
+    try connection.respond(1, .{ .status = ok, .end = false });
+    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
     const data = data_frame(try support.open_sent()).?;
     // The connection goes on, so no close_notify follows the response.
     try testing.expect(!support.client_saw_alert);
@@ -58,7 +58,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the close_notify follows the 
     const head = received.event.?.request;
     // RFC 9112 §3.3: a secured connection's target URI has the https scheme.
     try testing.expectEqualStrings("https", head.scheme.?);
-    try connection.respond(head.id, ok, &.{}, true);
+    try connection.respond(head.id, .{ .status = ok, .end = true });
     const opened = try support.open_sent();
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-length: 0\r\nConnection: close\r\n\r\n", opened);
     // RFC 9112 §9.8, RFC 9846 §6.1: the server closes after the exchange of closure alerts starts.
@@ -112,7 +112,7 @@ test "RFC 9846 §6: a record the provider refuses ends the connection with no da
     // What goes out is the alert chapulin owes, and the connection closes after it.
     _ = connection.send(&support.output, support.now_ns);
     try testing.expect(connection.should_close());
-    try testing.expectError(error.ConnectionClosed, connection.respond(1, ok, &.{}, true));
+    try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
     // RFC 9846 §6: nothing more is read after the failure.
     const after = try connection.receive(support.input[0..forged.len], support.now_ns);
     try testing.expectEqual(0, after.consumed);
@@ -137,8 +137,8 @@ test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answe
     support.config = .{ .tls = &support.server_config };
     try connection.init(&support.config, support.stream.random(), support.now_seconds);
     // RFC 9110 §3.4: no request has arrived, so there is none to answer.
-    try testing.expectError(error.RequestUnknown, connection.respond(1, ok, &.{}, true));
-    try testing.expectError(error.RequestUnknown, connection.write_body(1, "x", true));
+    try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = ok, .end = true }));
+    try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .octets = "x", .end = true }));
     try testing.expectError(error.RequestUnknown, connection.write_trailers(1, &.{}));
     try support.client.start(&support.client_config, support.stream.random(), support.now_seconds, null);
     const hello = try support.client.handshake(&.{}, &support.input);
@@ -162,7 +162,7 @@ test "RFC 9846 §6.1: a transport that closed ends the connection, and its secre
         try testing.expectEqual(null, (try connection.receive(&.{}, support.now_ns)).event);
         try testing.expectEqual(0, connection.send(&support.output, support.now_ns));
         try testing.expectEqual(.closed, connection.tls_server.session.recordState());
-        try testing.expectError(error.ConnectionClosed, connection.respond(1, ok, &.{}, true));
+        try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
     }
 }
 

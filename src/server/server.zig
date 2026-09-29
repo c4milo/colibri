@@ -41,6 +41,8 @@ pub const Body = event.Body;
 pub const Trailers = event.Trailers;
 pub const Cancelled = event.Cancelled;
 pub const Done = event.Done;
+pub const Response = event.Response;
+pub const Content = event.Content;
 pub const Received = event.Received;
 pub const Alternative = alt_svc.Alternative;
 

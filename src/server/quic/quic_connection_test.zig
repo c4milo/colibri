@@ -40,8 +40,8 @@ test "RFC 9114 §4.1: a GET's head arrives as a request event, and its end as a 
 test "decision 103: a response goes out from the caller's memory, and is done once acknowledged" {
     const fetch = try get("/");
     const content = "hello over h3";
-    try connection.respond(fetch.id, ok, &content_type, false);
-    try testing.expectEqual(content.len, try connection.write_body(fetch.id, content, true));
+    try connection.respond(fetch.id, .{ .status = ok, .fields = &content_type, .end = false });
+    try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .octets = content, .end = true }));
     try testing.expectEqual(null, support.nth(.done, 0));
     try support.pump(support.rounds_default);
     try testing.expectEqual(ok, fetch.status);
@@ -61,14 +61,14 @@ const write_rounds_max: usize = 1024;
 test "decision 103: content in more runs than a response holds arrives whole as runs are acknowledged" {
     const fetch = try get("/long");
     for (&long, 0..) |*octet, index| octet.* = @truncate(index);
-    try connection.respond(fetch.id, ok, &.{}, false);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
     var taken: usize = 0;
     var blocked: usize = 0;
     // Bounded: each pass takes a piece, or pumps so the peer acknowledges some.
     for (0..write_rounds_max) |_| {
         if (taken == long.len) break;
         const next = long[taken..@min(taken + piece_len, long.len)];
-        const written = connection.write_body(fetch.id, next, taken + next.len == long.len) catch |failure| {
+        const written = connection.write_body(fetch.id, .{ .octets = next, .end = taken + next.len == long.len }) catch |failure| {
             try testing.expectEqual(error.Blocked, failure);
             blocked += 1;
             try support.pump(1);
@@ -85,15 +85,15 @@ test "decision 103: content in more runs than a response holds arrives whole as 
 test "RFC 9114 §4.1: an interim head ends nothing, and nothing goes out of order around the final one" {
     const fetch = try get("/");
     // RFC 9114 §4.1: DATA and a trailer section follow the final response.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, "x", true));
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, .{ .octets = "x", .end = true }));
     try testing.expectError(error.SectionOutOfOrder, connection.write_trailers(fetch.id, &trailer_fields));
-    try connection.respond(fetch.id, early_hints, &.{}, true);
-    try connection.respond(fetch.id, ok, &.{}, false);
+    try connection.respond(fetch.id, .{ .status = early_hints, .end = true });
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
     // RFC 9110 §15: one final response answers a request, even one with no end yet.
-    try testing.expectError(error.SectionOutOfOrder, connection.respond(fetch.id, ok, &.{}, false));
-    try testing.expectEqual(0, try connection.write_body(fetch.id, "", true));
-    try testing.expectError(error.SectionOutOfOrder, connection.respond(fetch.id, ok, &.{}, true));
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, "x", false));
+    try testing.expectError(error.SectionOutOfOrder, connection.respond(fetch.id, .{ .status = ok, .end = false }));
+    try testing.expectEqual(0, try connection.write_body(fetch.id, .{ .octets = "", .end = true }));
+    try testing.expectError(error.SectionOutOfOrder, connection.respond(fetch.id, .{ .status = ok, .end = true }));
+    try testing.expectError(error.SectionOutOfOrder, connection.write_body(fetch.id, .{ .octets = "x", .end = false }));
     try support.pump(support.rounds_default);
     try testing.expectEqual(1, fetch.interims);
     try testing.expectEqual(ok, fetch.status);
@@ -103,18 +103,18 @@ test "RFC 9114 §4.1: an interim head ends nothing, and nothing goes out of orde
 test "RFC 9110 §15: a status is 100 to 599, and RFC 9114 §4.5: h3 has no 101" {
     const fetch = try get("/");
     for ([_]u16{ 99, 101, 600 }) |status| {
-        try testing.expectError(error.StatusInvalid, connection.respond(fetch.id, status, &.{}, true));
+        try testing.expectError(error.StatusInvalid, connection.respond(fetch.id, .{ .status = status, .end = true }));
     }
-    try testing.expectError(error.RequestUnknown, connection.respond(fetch.id + 4, ok, &.{}, true));
+    try testing.expectError(error.RequestUnknown, connection.respond(fetch.id + 4, .{ .status = ok, .end = true }));
     // RFC 9114 §4.2: a field name is lowercase.
     const upper = [_]support.Field{.{ .name = "Content-Type", .value = "text/plain" }};
-    try testing.expectError(error.FieldLineInvalid, connection.respond(fetch.id, ok, &upper, true));
+    try testing.expectError(error.FieldLineInvalid, connection.respond(fetch.id, .{ .status = ok, .fields = &upper, .end = true }));
 }
 
 test "RFC 9114 §4.1: a trailer section ends the response, and the request is done" {
     const fetch = try get("/");
-    try connection.respond(fetch.id, ok, &.{}, false);
-    try testing.expectEqual(1, try connection.write_body(fetch.id, "x", false));
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
+    try testing.expectEqual(1, try connection.write_body(fetch.id, .{ .octets = "x", .end = false }));
     try connection.write_trailers(fetch.id, &trailer_fields);
     try support.pump(support.rounds_default);
     try testing.expectEqualStrings("x", support.content_of(fetch));
@@ -124,9 +124,9 @@ test "RFC 9114 §4.1: a trailer section ends the response, and the request is do
 
 test "RFC 9114 §4.1.1: cancel resets the response with H3_REQUEST_CANCELLED, and reports nothing" {
     const fetch = try get("/");
-    try connection.respond(fetch.id, ok, &.{}, false);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
     connection.cancel(fetch.id);
-    try testing.expectError(error.RequestUnknown, connection.write_body(fetch.id, "x", true));
+    try testing.expectError(error.RequestUnknown, connection.write_body(fetch.id, .{ .octets = "x", .end = true }));
     try support.pump(support.rounds_default);
     try testing.expectEqual(h3.constants.error_request_cancelled, fetch.reset.?);
     try testing.expectEqual(null, support.nth(.done, 0));
@@ -135,13 +135,13 @@ test "RFC 9114 §4.1.1: cancel resets the response with H3_REQUEST_CANCELLED, an
 
 test "RFC 9114 §4.1.1: a request the client cancels arrives cancelled, and its response is reset" {
     const fetch = try get("/");
-    try connection.respond(fetch.id, ok, &.{}, false);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
     support.cancel_fetch(fetch);
     try support.pump(support.rounds_default);
     try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
     // RFC 9114 §4.1.1: the server resets its response too, so nothing reads the caller's octets.
     try testing.expect(response_reset(fetch.id));
-    try testing.expectError(error.RequestUnknown, connection.write_body(fetch.id, "x", true));
+    try testing.expectError(error.RequestUnknown, connection.write_body(fetch.id, .{ .octets = "x", .end = true }));
     try testing.expectEqual(null, support.nth(.done, 0));
 }
 
@@ -183,7 +183,7 @@ test "RFC 9114 §5.2: a shutdown sends GOAWAY, and QUIC closes once the last req
     connection.shutdown(support.now_ns);
     try support.pump(support.rounds_default);
     try testing.expect(support.client.termination.state == .active);
-    try connection.respond(fetch.id, ok, &.{}, true);
+    try connection.respond(fetch.id, .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
     try testing.expect(fetch.ended);
     // RFC 9000 §10.2: the client read the CONNECTION_CLOSE, and drains.
@@ -202,7 +202,7 @@ test "RFC 9000 §10.2.2: a client's close stops the connection, which is no fail
     });
     try support.pump(support.rounds_default);
     try testing.expect(connection.transport.termination.state == .draining);
-    try testing.expectError(error.ConnectionClosed, connection.respond(fetch.id, ok, &.{}, true));
+    try testing.expectError(error.ConnectionClosed, connection.respond(fetch.id, .{ .status = ok, .end = true }));
     // RFC 9000 §10.2: the draining state lasts three PTOs, which these rounds pass.
     try support.pump(support.rounds_default * 8);
     try testing.expect(connection.ended());

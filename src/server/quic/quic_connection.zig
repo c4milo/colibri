@@ -176,16 +176,16 @@ pub const QuicConnection = struct {
 
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content.
-    pub fn respond(connection: *QuicConnection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
-        return quic_connection_h3.respond(connection, id, status, fields, end);
+    pub fn respond(connection: *QuicConnection, id: Id, response: event.Response) SendError!void {
+        return quic_connection_h3.respond(connection, id, response.status, response.fields, response.end);
     }
 
-    /// Takes `octets` whole as the next content of the response to request `id`, and ends the
-    /// content with `end`. Nothing is copied: the octets stay the caller's until the request is
-    /// `done` or `cancelled`. `error.Blocked` says the response holds as many runs as it can
+    /// Takes `content.octets` whole as the next content of the response to request `id`, and ends
+    /// the content with `end`. Nothing is copied: the octets stay the caller's until the request
+    /// is `done` or `cancelled`. `error.Blocked` says the response holds as many runs as it can
     /// until the peer acknowledges some: `receive`, then call again.
-    pub fn write_body(connection: *QuicConnection, id: Id, octets: []const u8, end: bool) SendError!usize {
-        return quic_connection_h3.write_body(connection, id, octets, end);
+    pub fn write_body(connection: *QuicConnection, id: Id, content: event.Content) SendError!usize {
+        return quic_connection_h3.write_body(connection, id, content.octets, content.end);
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).

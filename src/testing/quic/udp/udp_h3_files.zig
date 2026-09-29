@@ -104,8 +104,8 @@ pub const Files = struct {
         const fields = [_]server.Field{.{ .name = "content-length", .value = length }};
         // RFC 9110 §9.3.2: a response to HEAD carries no content.
         const carries = !entry.head and content.len > 0;
-        connection.respond(entry.id, ok, &fields, !carries) catch return files.abandon(connection, entry);
-        if (carries) _ = connection.write_body(entry.id, content, true) catch return files.abandon(connection, entry);
+        connection.respond(entry.id, .{ .status = ok, .fields = &fields, .end = !carries }) catch return files.abandon(connection, entry);
+        if (carries) _ = connection.write_body(entry.id, .{ .octets = content, .end = true }) catch return files.abandon(connection, entry);
         files.served += 1;
     }
 
@@ -113,7 +113,7 @@ pub const Files = struct {
     fn respond_missing(files: *Files, connection: *server.QuicConnection, entry: *Answer) void {
         assert(entry.in_use and entry.answered);
         const fields = [_]server.Field{.{ .name = "content-length", .value = "0" }};
-        connection.respond(entry.id, not_found, &fields, true) catch files.abandon(connection, entry);
+        connection.respond(entry.id, .{ .status = not_found, .fields = &fields, .end = true }) catch files.abandon(connection, entry);
     }
 
     /// Cancels a request whose response the server would not take. The server reports nothing

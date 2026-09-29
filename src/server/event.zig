@@ -20,6 +20,22 @@ pub const Version = struct {
     minor: u8,
 };
 
+/// The head of a response, which `respond` writes: its status, its field lines, and whether the
+/// response ends with it. An interim response (1xx) ignores `end`, because the final response
+/// still follows it (RFC 9110 §15.2).
+pub const Response = struct {
+    status: u16,
+    fields: []const http.field.Field = &.{},
+    end: bool,
+};
+
+/// Octets of a response's content, which `write_body` writes, and whether the content ends with
+/// them.
+pub const Content = struct {
+    octets: []const u8,
+    end: bool,
+};
+
 /// A field section, less the pseudo-header fields h2 places first (RFC 9113 §8.3).
 pub const Fields = struct {
     section: *const http.FieldSection,

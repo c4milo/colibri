@@ -196,7 +196,7 @@ pub const Session = struct {
             }
         }
         const octets = session.content();
-        const taken = session.connection.write_body(oldest.id, octets[session.content_sent..], true) catch |failure| {
+        const taken = session.connection.write_body(oldest.id, .{ .octets = octets[session.content_sent..], .end = true }) catch |failure| {
             return session.write_failed(failure);
         };
         session.content_sent += taken;
@@ -209,15 +209,15 @@ pub const Session = struct {
     /// not keep the request's content, 413 with none (RFC 9110 §15.5.14).
     fn write_head(session: *Session, request: Request) server.SendError!void {
         const connection = &session.connection;
-        const echo = session.echo orelse return connection.respond(request.id, constants.response_status, &response_fields, request.head);
-        if (echo.body_too_long) return connection.respond(request.id, too_large_status, &.{}, true);
+        const echo = session.echo orelse return connection.respond(request.id, .{ .status = constants.response_status, .fields = &response_fields, .end = request.head });
+        if (echo.body_too_long) return connection.respond(request.id, .{ .status = too_large_status, .end = true });
         var digits: [constants.content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{echo.written().len}) catch unreachable;
         const fields = [_]server.Field{
             .{ .name = "content-type", .value = echo_content_type },
             .{ .name = "content-length", .value = length },
         };
-        return connection.respond(request.id, constants.response_status, &fields, request.head);
+        return connection.respond(request.id, .{ .status = constants.response_status, .fields = &fields, .end = request.head });
     }
 
     fn echo_refused(session: *const Session) bool {

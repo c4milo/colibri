@@ -275,31 +275,31 @@ pub const Connection = struct {
     }
 
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
-    /// With `end`, the final response carries no content. An interim response ignores `end`,
-    /// because the final response still follows it (RFC 9110 §15.2).
-    pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
+    /// With `end`, the final response carries no content.
+    pub fn respond(connection: *Connection, id: Id, response: event.Response) SendError!void {
         try connection.check_writable();
         // RFC 9110 §10.1.1: the caller's own 100 replaces the one owed. A final response replaces
         // it too: the protocol refuses a 100 after it, and `write_continue` drops the one owed.
-        if (connection.continue_owed == id and status == continue_status) connection.continue_owed = null;
+        if (connection.continue_owed == id and response.status == continue_status) connection.continue_owed = null;
         switch (connection.session) {
-            .h2 => try connection_h2.respond(connection, id, status, fields, end),
-            .h11 => try connection_h11.respond(connection, id, status, fields, end),
+            .h2 => try connection_h2.respond(connection, id, response.status, response.fields, response.end),
+            .h11 => try connection_h11.respond(connection, id, response.status, response.fields, response.end),
             // RFC 9110 §3.4: a response answers a request, and none arrives before the handshake
             // completes.
             .none => return error.RequestUnknown,
         }
     }
 
-    /// Writes content of the response to request `id`, as much of `octets` as the room and h2's
-    /// windows allow, and returns the octets taken. With `end`, the content ends once every octet
-    /// is taken; a call that takes fewer leaves the rest, and the end, to the next call.
-    pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
+    /// Writes content of the response to request `id`, as much of `content.octets` as the room
+    /// and h2's windows allow, and returns the octets taken. With `end`, the content ends once
+    /// every octet is taken; a call that takes fewer leaves the rest, and the end, to the next
+    /// call.
+    pub fn write_body(connection: *Connection, id: Id, content: event.Content) SendError!usize {
         try connection.check_writable();
-        if (octets.len == 0 and !end) return 0;
+        if (content.octets.len == 0 and !content.end) return 0;
         return switch (connection.session) {
-            .h2 => connection_h2.write_body(connection, id, octets, end),
-            .h11 => connection_h11.write_body(connection, id, octets, end),
+            .h2 => connection_h2.write_body(connection, id, content.octets, content.end),
+            .h11 => connection_h11.write_body(connection, id, content.octets, content.end),
             // RFC 9110 §3.4: no request arrives before the handshake completes.
             .none => error.RequestUnknown,
         };

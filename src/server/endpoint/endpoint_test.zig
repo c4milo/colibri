@@ -20,8 +20,8 @@ test "RFC 9000 §7.2, §5.2: a client's first Initial starts a connection, which
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
     const served = support.served;
-    try served.respond(fetch.id, ok, &.{}, false);
-    _ = try served.write_body(fetch.id, "through the endpoint", true);
+    try served.respond(fetch.id, .{ .status = ok, .end = false });
+    _ = try served.write_body(fetch.id, .{ .octets = "through the endpoint", .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqualStrings("through the endpoint", support.content_of(fetch));
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
@@ -44,7 +44,7 @@ test "RFC 9000 §8.1.2: with Retry set, the Initial that returns the Retry's tok
     try testing.expect(support.served.transport.identity.retry_source != null);
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
-    try support.served.respond(fetch.id, ok, &.{}, true);
+    try support.served.respond(fetch.id, .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(ok, fetch.status);
 }
@@ -95,7 +95,7 @@ test "decision 103: a connection that is over is handed back once, and its slot 
     try support.pump(support.rounds_default);
     const served = support.served;
     served.shutdown(support.now_ns);
-    try served.respond(fetch.id, ok, &.{}, true);
+    try served.respond(fetch.id, .{ .status = ok, .end = true });
     // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass.
     try support.pump(support.rounds_default * 8);
     try testing.expect(served.ended());

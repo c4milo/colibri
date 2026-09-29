@@ -72,12 +72,12 @@ test "RFC 9846 §6: a record the provider will not seal ends the connection, and
     try attach_plain();
     const request_len = try record_at(0, plain_support.content_application_data, request);
     _ = try connection.receive(support.input[0..request_len], support.now_ns);
-    try connection.respond(1, ok, &.{}, true);
+    try connection.respond(1, .{ .status = ok, .end = true });
     plain.refuse_seal = true;
     try testing.expectEqual(0, connection.send(&support.output, support.now_ns));
     try testing.expectEqual(0, connection.output_len);
     try testing.expect(connection.should_close());
-    try testing.expectError(error.ConnectionClosed, connection.respond(1, ok, &.{}, true));
+    try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
 }
 
 test "RFC 9113 §9.2: a handshake below TLS 1.3 serves no HTTP, and the connection closes" {
@@ -98,7 +98,7 @@ test "RFC 9846 §5.1: what the protocol has not read waits, and the next record 
     try testing.expectEqualStrings("/one", received.event.?.request.path.?);
     received = try connection.receive(&.{}, support.now_ns);
     try testing.expectEqual(null, received.event);
-    try connection.respond(1, ok, &.{}, true);
+    try connection.respond(1, .{ .status = ok, .end = true });
     try support.expect_done(1);
     received = try connection.receive(&.{}, support.now_ns);
     try testing.expectEqual(2, received.event.?.request.id);

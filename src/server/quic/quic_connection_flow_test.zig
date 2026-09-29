@@ -31,8 +31,8 @@ fn response_reset(id: u64) bool {
 
 test "RFC 9000 §3.1: a response the peer acknowledged is done while the request's stream stays open" {
     const fetch = try open_request();
-    try connection.respond(fetch.id, ok, &.{}, false);
-    _ = try connection.write_body(fetch.id, "answer", true);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
+    _ = try connection.write_body(fetch.id, .{ .octets = "answer", .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqualStrings("answer", support.content_of(fetch));
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
@@ -45,8 +45,8 @@ test "RFC 9000 §3.1: a response the peer acknowledged is done while the request
 
 test "RFC 9000 §3.5: a client's STOP_SENDING cancels the request while its stream stays open" {
     const fetch = try open_request();
-    try connection.respond(fetch.id, ok, &.{}, false);
-    _ = try connection.write_body(fetch.id, "partial", false);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
+    _ = try connection.write_body(fetch.id, .{ .octets = "partial", .end = false });
     try support.stop_fetch(fetch);
     try support.pump(support.rounds_default);
     try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
@@ -56,7 +56,7 @@ test "RFC 9000 §3.5: a client's STOP_SENDING cancels the request while its stre
 
 test "RFC 9114 §4.1.1: a client's reset of its request cancels it, and the server resets its response" {
     const fetch = try open_request();
-    try connection.respond(fetch.id, ok, &.{}, false);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
     try support.reset_fetch(fetch);
     try support.pump(support.rounds_default);
     try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);

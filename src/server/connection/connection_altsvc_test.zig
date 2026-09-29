@@ -74,8 +74,8 @@ test "RFC 7838 §3: each final h11 response over TLS carries Alt-Svc, and an int
     try support.start_tls(&support.protocols_both, &support.protocols_h11);
     const received = try support.receive_sealed("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
     const id = received.event.?.request.id;
-    try connection.respond(id, early_hints, &.{}, false);
-    try connection.respond(id, ok, &.{}, true);
+    try connection.respond(id, .{ .status = early_hints, .end = false });
+    try connection.respond(id, .{ .status = ok, .end = true });
     try testing.expectEqualStrings(
         "HTTP/1.1 103 \r\n\r\n" ++
             "HTTP/1.1 200 OK\r\ncontent-length: 0\r\nalt-svc: h3=\":8443\"; ma=60\r\n\r\n",
@@ -88,7 +88,7 @@ test "RFC 9114 §3.1.2: a cleartext h11 response advertises no h3" {
     defer support.alternative = null;
     try support.start_cleartext(.h11);
     const received = try support.receive_copy("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    try connection.respond(received.event.?.request.id, ok, &.{}, true);
+    try connection.respond(received.event.?.request.id, .{ .status = ok, .end = true });
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n", support.drain());
 }
 
@@ -97,8 +97,8 @@ test "RFC 7838 §3, §4: an h2 connection over TLS sends one ALTSVC frame, befor
     defer support.alternative = null;
     try support.start_tls(&support.protocols_both, &support.protocols_h2);
     _ = try support.receive_sealed(client_preface ++ get_stream_1);
-    try connection.respond(1, early_hints, &.{}, false);
-    try connection.respond(1, ok, &.{}, true);
+    try connection.respond(1, .{ .status = early_hints, .end = false });
+    try connection.respond(1, .{ .status = ok, .end = true });
     var found_storage: [frames_max]Found = undefined;
     const sent = try support.open_sent();
     const found = try walk(sent, &found_storage);
@@ -115,7 +115,7 @@ test "RFC 7838 §3, §4: an h2 connection over TLS sends one ALTSVC frame, befor
     // RFC 7838 §3: "A single ALTSVC frame can be sent for a connection".
     try support.expect_done(1);
     try testing.expectEqual(3, (try support.receive_sealed(get_stream_3)).event.?.request.id);
-    try connection.respond(3, ok, &.{}, true);
+    try connection.respond(3, .{ .status = ok, .end = true });
     try testing.expectEqual(0, count_of(try walk(try support.open_sent(), &found_storage), h2.constants.frame_type_altsvc));
 }
 
@@ -124,11 +124,11 @@ test "RFC 9114 §3.1.2: an h2 connection in cleartext, or one naming no alternat
     try support.start_cleartext(.h2);
     support.alternative = null;
     _ = try support.receive_copy(client_preface ++ get_stream_1);
-    try connection.respond(1, ok, &.{}, true);
+    try connection.respond(1, .{ .status = ok, .end = true });
     var found_storage: [frames_max]Found = undefined;
     try testing.expectEqual(0, count_of(try walk(support.drain(), &found_storage), h2.constants.frame_type_altsvc));
     try support.start_tls(&support.protocols_both, &support.protocols_h2);
     _ = try support.receive_sealed(client_preface ++ get_stream_1);
-    try connection.respond(1, ok, &.{}, true);
+    try connection.respond(1, .{ .status = ok, .end = true });
     try testing.expectEqual(0, count_of(try walk(try support.open_sent(), &found_storage), h2.constants.frame_type_altsvc));
 }
