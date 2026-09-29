@@ -46,6 +46,7 @@ const retry_module = @import("connection_retry.zig");
 const handshake_module = @import("connection_handshake.zig");
 const migration_module = @import("connection_migration.zig");
 const connection_qlog = @import("connection_qlog.zig");
+const connection_version = @import("connection_version.zig");
 const PeerAddress = @import("../peer_address.zig").PeerAddress;
 
 const Level = core.Level;
@@ -59,6 +60,9 @@ pub const Role = crypto.suite.Role;
 /// instant, which no file under `src/` may read.
 pub const Options = struct {
     role: Role,
+    /// The version the connection starts in (RFC 9368 §2): a client's choice, which its TLS session
+    /// starts in too, or the version of the first flight a server accepted.
+    version: crypto.suite.Version = .v1,
     /// The parameters colibri will send (RFC 9000 §7.4). They fix what colibri grants the peer:
     /// its flow control windows, its stream limits and its idle timeout.
     local_parameters: Parameters,
@@ -125,6 +129,8 @@ pub const Connection = struct {
     /// Which levels may be sealed and opened (RFC 9001 §4.9, invariant 21). It holds no key:
     /// decision 48 leaves every one with the caller's `crypto.Suite`.
     keys: keys_module.Keys,
+    /// The original and the negotiated version (RFC 9368 §2, RFC 9369 §4.1).
+    versions: connection_version.Versions,
     /// The parameters colibri sent (RFC 9000 §7.4).
     local_parameters: Parameters,
     /// The peer's, once the handshake carried them, and null until then.
@@ -197,12 +203,11 @@ pub const Connection = struct {
         // RFC 9000 §7.3: the connection IDs the extension carries are the ones the headers
         // carried, so the connection writes all three rather than trusting them to agree.
         identity_module.describe(&connection.identity, &parameters, options.role);
-        // RFC 9368 §3: the connection states the version it chose and the versions it lists, and
-        // it runs version 1 alone, which a client listing its Chosen Version alone also keeps from
-        // compatible negotiation (§2.3).
-        parameters.version_information = .of(constants.version_1, &.{constants.version_1});
+        // RFC 9368 §3: the connection states the version it chose and the versions it lists.
+        parameters.version_information = connection_version.information_of(options.role, options.version);
         assert(parameters.valid());
         connection.role = options.role;
+        connection.versions = .init(options.role, options.version);
         connection.local_parameters = parameters;
         connection.peer_parameters = null;
         connection.handshake_complete = false;

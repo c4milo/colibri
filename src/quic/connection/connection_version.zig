@@ -37,6 +37,95 @@ const connection_module = @import("connection.zig");
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Role = crypto.suite.Role;
+const Version = crypto.suite.Version;
+const Level = core.Level;
+
+/// The versions a connection runs (RFC 9368 §2, RFC 9369 §4.1).
+pub const Versions = struct {
+    /// The version of the client's first Initial packet: the client's choice, or for a server the
+    /// version of the first flight it accepted (RFC 9368 §2).
+    original: Version,
+    /// The version of every packet this endpoint seals, and of every Handshake and 1-RTT packet it
+    /// opens (RFC 9369 §4.1). It is the original version until a client learns another.
+    negotiated: Version,
+    /// Whether the negotiated version is fixed. A server's is from the start. A client's is once it
+    /// switched, or read a CRYPTO octet from the server, which RFC 9369 §4.1 says "indicates that
+    /// the negotiated version is equal to the original version".
+    settled: bool,
+
+    pub fn init(role: Role, original: Version) Versions {
+        return .{ .original = original, .negotiated = original, .settled = role == .server };
+    }
+};
+
+/// The versions a client lists in its Version Information, in its order of preference (RFC 9368
+/// §3): version 2, then version 1. Each is compatible with the other (RFC 9369 §4), and RFC 9368
+/// §2.5 has a client start in the oldest version it supports while it advertises the newer ones.
+pub const client_versions = [_]u32{ constants.version_2, constants.version_1 };
+
+/// The Version Information an endpoint in `role` sends when it starts in `original` (RFC 9368 §3).
+/// A server lists its Fully Deployed Versions, which are the versions it accepts.
+pub fn information_of(role: Role, original: Version) transport_parameters.VersionInformation {
+    const available: []const u32 = switch (role) {
+        .client => &client_versions,
+        .server => &supported_versions,
+    };
+    return .of(@intFromEnum(original), available);
+}
+
+/// The version RFC 9368 §4 holds a peer's Chosen Version to: for a server, the version of the
+/// client's first flight; for a client, the Negotiated Version.
+pub fn in_use(connection: *const Connection) u32 {
+    return @intFromEnum(switch (connection.role) {
+        .client => connection.versions.negotiated,
+        .server => connection.versions.original,
+    });
+}
+
+/// What a long header's version asks of the connection that received it (RFC 9369 §4.1).
+pub const Admission = enum {
+    /// The packet's level admits the version.
+    open,
+    /// The client's one switch comes first, then the packet opens in the new version.
+    switch_then_open,
+    /// RFC 9369 §4.1: "An endpoint MUST drop packets using any other version."
+    drop,
+};
+
+/// Whether a long header of `version` at `level` opens, opens after the client's switch, or is
+/// dropped (RFC 9369 §4.1).
+pub fn admit(connection: *const Connection, level: Level, version: Version) Admission {
+    const versions = connection.versions;
+    if (version == versions.negotiated) return .open;
+    // RFC 9369 §4.1: a server answers Initial packets in the original version before it has
+    // processed the client's transport parameters, so one arriving after a switch still opens.
+    if (level == .initial and version == versions.original) return .open;
+    // RFC 9369 §4.1: "The client learns the negotiated version by observing the first long header
+    // Version field that differs from the original version", and RFC 9368 §4 holds the server's
+    // choice to a version the client listed. A server is settled from the start.
+    if (!versions.settled and connection.local_parameters.version_information.?.lists(@intFromEnum(version))) {
+        return .switch_then_open;
+    }
+    // RFC 9369 §4.1: "Both endpoints MUST send Handshake and 1-RTT packets using the negotiated
+    // version. An endpoint MUST drop packets using any other version."
+    return .drop;
+}
+
+/// The client's one switch (RFC 9369 §4.1), made before the packet that asked for it is opened,
+/// because chapulin derives the new version's keys only once it is the negotiated version.
+pub fn switch_to(connection: *Connection, suite: crypto.Suite, version: Version) crypto.suite.SwitchError!void {
+    assert(connection.role == .client and !connection.versions.settled);
+    assert(version != connection.versions.negotiated);
+    try suite.vtable.switch_version(suite.context, version);
+    connection.versions.negotiated = version;
+    connection.versions.settled = true;
+}
+
+/// A client read a CRYPTO octet from the server: RFC 9369 §4.1 fixes the negotiated version, and
+/// the suite refuses any switch after it.
+pub fn settle(connection: *Connection) void {
+    if (connection.role == .client) connection.versions.settled = true;
+}
 
 /// A peer's Version Information that fails RFC 9368 §4's check of the version it chose, which
 /// closes the connection with VERSION_NEGOTIATION_ERROR (§10.2).
@@ -201,7 +290,7 @@ fn verdict(connection: *const Connection, negotiation: header.VersionNegotiation
     if (processed(connection)) return .already_processed;
     // RFC 9000 §6.2's second exception: a packet listing the version the client chose says
     // nothing, and an attacker stripping the other entries must not end the attempt.
-    if (negotiation.supported.contains(constants.version_1)) return .lists_selected_version;
+    if (negotiation.supported.contains(@intFromEnum(connection.versions.original))) return .lists_selected_version;
     return addressing(connection, negotiation);
 }
 

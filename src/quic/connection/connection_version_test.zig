@@ -211,6 +211,20 @@ test "RFC 9000 §6.2: a packet listing the version the client selected is discar
         version.Reaction.abandon,
         version.on_version_negotiation(&test_connection, addressed_negotiation(&unlisted)),
     );
+    // A client that started in version 2 selected version 2, so a list naming version 1 alone
+    // ends its attempt too.
+    init_client();
+    test_connection.versions = .init(.client, .v2);
+    const lists_2 = [_]u32{ other_version, version_2 };
+    const lists_1 = [_]u32{ other_version, constants.version_1 };
+    try testing.expectEqual(
+        version.Reaction.lists_selected_version,
+        version.on_version_negotiation(&test_connection, addressed_negotiation(&lists_2)),
+    );
+    try testing.expectEqual(
+        version.Reaction.abandon,
+        version.on_version_negotiation(&test_connection, addressed_negotiation(&lists_1)),
+    );
 }
 
 test "RFC 9000 §6.2: a client that has processed a packet discards the Version Negotiation packet" {

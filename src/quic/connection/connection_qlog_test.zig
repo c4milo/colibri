@@ -13,6 +13,7 @@ const keys = @import("connection_keys.zig");
 const send = @import("connection_send.zig");
 const close_module = @import("connection_close.zig");
 const datagram_module = @import("connection_datagram.zig");
+const header_write = @import("../packet/packet_header_write.zig");
 const connection_qlog = @import("connection_qlog.zig");
 const connection_timer = @import("connection_timer.zig");
 const build_test = @import("packet_build/packet_build_test.zig");
@@ -115,7 +116,7 @@ fn count_of(log: *const qlog.Log, needle: []const u8) usize {
     return std.mem.count(u8, log.bytes(), needle);
 }
 
-test "a connection with a log starts it with its version and its own parameters" {
+test "a connection with a log starts it with its versions and its own parameters" {
     try open_pair(&.{});
     var log = qlog.Log.init(&client_log_buffer, qlog.Features.none());
     try log.start(.{ .vantage_point = .client, .group_id = &peer_id, .event_schemas = &schemas }, test_now_ns);
@@ -123,12 +124,12 @@ test "a connection with a log starts it with its version and its own parameters"
     open_connection(&client, .client, &log, &.{});
     const events = log.bytes()[header_len..];
     try testing.expect(std.mem.startsWith(u8, events, "\x1e{\"time\":0.000,\"name\":\"quic:version_information\",\"data\":" ++
-        "{\"client_versions\":[\"00000001\"],\"chosen_version\":\"00000001\"}}\n"));
+        "{\"client_versions\":[\"6b3343cf\",\"00000001\"],\"chosen_version\":\"00000001\"}}\n"));
     // RFC 9000 §7.3: a client's parameters carry its own first Source Connection ID alone.
     try expect_record(&log, "\"name\":\"quic:parameters_set\",\"data\":{\"initiator\":\"local\"," ++
         "\"initial_source_connection_id\":\"c1c1c1c1\",\"disable_active_migration\":false,");
     try testing.expectEqual(2, std.mem.count(u8, events, "\x1e"));
-    try expect_record(&server_log, "\"server_versions\":[\"00000001\"]");
+    try expect_record(&server_log, "\"server_versions\":[\"00000001\"],\"chosen_version\":\"00000001\"");
     try expect_record(&server_log, "\"original_destination_connection_id\":\"51515151\"");
 }
 
@@ -257,6 +258,19 @@ test "a packet that does not open is logged as dropped, with the octets it held"
     const received = try receive(&server, garbage_len, later_ns);
     try testing.expectEqual(0, received.processed);
     try expect_record(&server_log, "\"name\":\"quic:packet_dropped\",\"data\":{\"raw\":{\"length\":50},\"trigger\":\"invalid\"}}\n");
+}
+
+test "a packet in a version the connection does not admit is logged as dropped, unsupported" {
+    try open_pair(&.{.handshake});
+    server_log.clear();
+    var writer = core.Writer.init(&datagram);
+    try header_write.write_long(&writer, .{ .version = .v2, .type = .handshake, .dcid = &local_id, .scid = &peer_id, .packet_number = .{ .value = 0, .len = 1 }, .protected_payload_len = 32 });
+    try writer.write_bytes(&([_]u8{0} ** 32));
+    const received = try receive(&server, writer.written().len, later_ns);
+    try testing.expectEqual(0, received.processed);
+    // Quic-events §5.7: "unsupported: unknown or unsupported version".
+    try expect_record(&server_log, "\"name\":\"quic:packet_dropped\"");
+    try expect_record(&server_log, "\"trigger\":\"unsupported\"}}\n");
 }
 
 test "a close is logged once on each side, with its code and the state it enters" {

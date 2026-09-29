@@ -5750,6 +5750,44 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     level forgetting the original version, or every level admitting it; and seal or open ignoring
     the version.
 
+  **19d, the client's switch, 2026-09-29.** A connection keeps its original and its negotiated
+  version (`connection_version.Versions`), and a client switches once.
+  - `Options.version` names the original version, version 1 unless the caller names another.
+    Every packet is sealed in the negotiated version, and a long header names it (RFC 9369 §4.1).
+  - A client lists version 2, then version 1, in its version_information, starting in the oldest
+    and advertising the newer (RFC 9368 §2.5). A server lists the versions it accepts, version 1
+    alone until the next part.
+  - A client switches at the first long header in another version it listed, before that packet
+    opens, until it switched or read a CRYPTO octet from the server. A server is settled from the
+    start. A Handshake or 1-RTT packet in any version but the negotiated one is dropped, and so is
+    an Initial in neither version, as `other_version`, which qlog names `unsupported`. The walk
+    goes on past it, since both versions share the long header's layout.
+  - A client takes a Retry in its original version alone, and checks its tag in that version. A
+    Version Negotiation packet that lists the original version is discarded (RFC 9000 §6.2).
+  - A client holds the server's Chosen Version to the Negotiated Version, and a server holds the
+    client's to the version of the client's first flight (RFC 9368 §4). qlog's
+    `version_information` event lists the versions the endpoint sends.
+  - The runner's endpoint takes the `v2` case as a client, and `tools/interop.sh` runs it.
+  - The census digests moved with the client's longer version_information; the counts did not,
+    and both build modes gave the new values.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2382 of 2382 tests. `tools/quic_udp.sh`, `tools/quic_loopback.sh`,
+    `tools/quic_aioquic.sh`, `tools/h3spec.sh` and `tools/channel_interop.sh`: ok.
+  - `tools/interop.sh quic-go,ngtcp2,neqo,quinn v2`: with colibri as the client, `v2` passed
+    against ngtcp2 and neqo, whose servers switched it to version 2. quic-go's and quinn's servers
+    do not offer the case, and colibri's server does not until 19e.
+  - 24 mutations, each **CAUGHT**: the negotiated version not admitted first; an Initial of the
+    original version dropped after a switch, or every level admitting it; a settled client
+    switching, a server not settled from the start, a client switching to a version it did not
+    list, and a refused switch still opening its packet; the switch leaving the negotiated
+    version or unsettled; settling, or a CRYPTO frame's call to it, doing nothing; a dropped
+    version ending the walk; a long header or a 1-RTT packet opened in version 1; a packet sealed
+    in version 1, or naming it; a client listing what a server lists; a client checking the
+    original version, or a server the negotiated one; a Retry taken, or its tag checked, in
+    version 1 alone; Version Negotiation looking for version 1; and qlog listing one version, or
+    naming another trigger for a version dropped.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

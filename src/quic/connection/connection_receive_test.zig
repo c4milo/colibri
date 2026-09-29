@@ -35,7 +35,7 @@ const peer_octet: u8 = 0x51;
 const other_octet: u8 = 0x77;
 const id_len: usize = 4;
 pub const local_id: [id_len]u8 = @splat(local_octet);
-const peer_id: [id_len]u8 = @splat(peer_octet);
+pub const peer_id: [id_len]u8 = @splat(peer_octet);
 const other_id: [id_len]u8 = @splat(other_octet);
 
 /// One octet of made-up payload, repeated. Nothing reads its value.
@@ -44,7 +44,7 @@ const payload_octet: u8 = 0x33;
 /// room for the tag this opener pretends to strip.
 const payload_len: usize = 8;
 const tag_len: usize = constants.aead_tag_len;
-const protected_len: usize = payload_len + tag_len;
+pub const protected_len: usize = payload_len + tag_len;
 pub const test_payload: [protected_len]u8 = @splat(payload_octet);
 
 const datagram_len: usize = 512;
@@ -65,9 +65,20 @@ const Opener = struct {
     opened: usize,
     /// How many levels colibri told it to forget (RFC 9001 §4.9).
     discarded: usize,
+    /// The version colibri switched this suite to (RFC 9369 §4.1), or null before any switch.
+    switched: ?crypto.suite.Version,
+    /// Makes `switch_version` refuse, as chapulin refuses a switch past the server's CRYPTO octets.
+    refuses_switch: bool,
 
     fn init(held: *Opener) void {
-        held.* = .{ .refuses = null, .revealed_bits = 0, .reached_integrity_limit = false, .opened = 0, .discarded = 0 };
+        held.* = .{ .refuses = null, .revealed_bits = 0, .reached_integrity_limit = false, .opened = 0, .discarded = 0, .switched = null, .refuses_switch = false };
+    }
+
+    fn switch_version(context: *anyopaque, version: crypto.suite.Version) crypto.suite.SwitchError!void {
+        const held: *Opener = @ptrCast(@alignCast(context));
+        // RFC 9369 §4.1: chapulin refuses a switch past the server's first CRYPTO octet.
+        if (held.refuses_switch) return error.Refused;
+        held.switched = version;
     }
 
     fn discard(context: *anyopaque, _: Level) void {
@@ -81,9 +92,10 @@ const Opener = struct {
 
     fn open(context: *anyopaque, opening: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
         const held: *Opener = @ptrCast(@alignCast(context));
-        // A suite that derived version 1's keys alone, the version every connection runs
-        // (RFC 9369 §3.3).
-        if (opening.version != .v1) return error.KeysUnavailable;
+        const negotiated = held.switched orelse .v1;
+        // A suite that started in version 1 derives the keys of the version it switched to, and of
+        // version 1 at the Initial level (RFC 9369 §3.3, §4.1).
+        if (opening.version != negotiated and !(opening.level == .initial and opening.version == .v1)) return error.KeysUnavailable;
         // RFC 9001 §6.6: the integrity limit is counted "across all keys" over the connection's
         // lifetime, so it is reached whatever this packet holds.
         if (held.reached_integrity_limit) return error.IntegrityLimitReached;
@@ -110,7 +122,7 @@ const Opener = struct {
 
     const vtable: crypto.suite.VTable = .{
         .install_initial_keys = unreachable_install,
-        .switch_version = unreachable_switch,
+        .switch_version = switch_version,
         .keys_available = unreachable_available,
         .seal = unreachable_seal,
         .open = open,
@@ -128,9 +140,6 @@ const Opener = struct {
 /// The walk calls `open` alone, so every other member is unreached: a call to one would mean a
 /// test drove something these cases do not cover.
 fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypto.suite.InstallError!void {
-    unreachable;
-}
-fn unreachable_switch(_: *anyopaque, _: crypto.suite.Version) crypto.suite.SwitchError!void {
     unreachable;
 }
 fn unreachable_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
@@ -194,7 +203,7 @@ pub fn open_connection() void {
 
 /// A server with the Initial and Handshake levels installed for reading, which is the state RFC
 /// 9001 §4.9.1's server trigger is about.
-fn open_server() void {
+pub fn open_server() void {
     opener.init();
     test_connection.init(.{
         .role = .server,
@@ -295,17 +304,6 @@ test "RFC 9000 §12.2: a later packet with another Destination Connection ID is 
     try testing.expectEqual(2, third.opened.packet_number);
     // And the ignored one never reached the suite.
     try testing.expectEqual(2, opener.opened);
-}
-
-test "RFC 9000 §5.2: a long header in a version other than the connection's ends the walk unopened" {
-    open_connection();
-    var writer = Writer.init(&datagram);
-    try header_write.write_long(&writer, .{ .version = .v2, .type = .handshake, .dcid = &local_id, .scid = &peer_id, .packet_number = .{ .value = 0, .len = 1 }, .protected_payload_len = protected_len });
-    try writer.write_bytes(&test_payload);
-    start(writer.written().len);
-    const ended = (try receive.next(&walk, &test_connection, opener.suite())).?;
-    try testing.expectEqual(receive.Discarded.not_for_this_walk, ended.discarded);
-    try testing.expectEqual(0, opener.opened);
 }
 
 test "RFC 9000 §12.3: a packet number already processed is discarded, not read again" {
@@ -496,4 +494,5 @@ test "RFC 9001 §4.9.1: a server discards its Initial keys once it processes a H
 
 test {
     _ = @import("connection_receive_reserved_test.zig");
+    _ = @import("connection_receive_version_test.zig");
 }

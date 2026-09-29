@@ -103,6 +103,8 @@ pub fn receive_crypto(connection: *Connection, level: Level, crypto: frame_strea
     connection.crypto_at(level).receive(crypto.offset, crypto.data) catch |failure| switch (failure) {
         error.CryptoBufferExceeded => return Error.CryptoBufferExceeded,
     };
+    // RFC 9369 §4.1: a CRYPTO frame from the server fixes the negotiated version.
+    connection_version.settle(connection);
 }
 
 /// Hands the provider every octet it can read now, at every level (RFC 9001 §4.1.3). A level with
@@ -257,10 +259,9 @@ pub fn take_peer_parameters(connection: *Connection, provider: tls_provider.Quic
     // widens what colibri may spend.
     identity_module.authenticate(&connection.identity, &peer, connection.role) catch
         return Error.ConnectionIdsUnauthenticated;
-    // RFC 9368 §4: each endpoint checks the version its peer chose, and every connection runs
-    // version 1.
+    // RFC 9368 §4: each endpoint checks the version its peer chose.
     const local = &connection.local_parameters.version_information.?;
-    connection_version.check_information(connection.role, local, peer.version_information, constants.version_1) catch
+    connection_version.check_information(connection.role, local, peer.version_information, connection_version.in_use(connection)) catch
         return Error.VersionNegotiationFailed;
     connection.apply_peer_parameters(peer);
     return true;

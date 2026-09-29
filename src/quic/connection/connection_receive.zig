@@ -24,6 +24,7 @@ const error_code = @import("../error_code.zig");
 const connection_module = @import("connection.zig");
 const keys_module = @import("connection_keys.zig");
 const key_update = @import("connection_key_update.zig");
+const connection_version = @import("connection_version.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -60,6 +61,9 @@ pub const Discarded = enum {
     no_keys,
     /// RFC 9001 §5.5: the AEAD tag did not match.
     would_not_open,
+    /// RFC 9369 §4.1: a long header in a version the connection does not admit at its level, which
+    /// "MUST drop packets using any other version".
+    other_version,
     /// RFC 9000 §12.3: this number was processed before, or is below what the space remembers.
     already_processed,
     /// A Retry, a Version Negotiation or a packet of another version. Each is handled elsewhere
@@ -157,9 +161,7 @@ pub fn next(walk: *Walk, connection: *Connection, suite: Suite) Error!?Outcome {
         return .{ .discarded = .unreadable_header };
     };
     return switch (parsed) {
-        // RFC 9000 §5.2: a packet in a version other than the connection's is discarded, and every
-        // connection runs version 1.
-        .long => |long| if (long.version == .v1) try open_long(walk, connection, suite, long, rest) else end_walk(walk),
+        .long => |long| try open_long(walk, connection, suite, long, rest),
         .short => |short| try open_short(walk, connection, suite, short, rest),
         // §12.2: a Retry, a Version Negotiation and a packet of another version carry no Length
         // and cannot be followed by another packet, so the walk ends whatever the caller does
@@ -194,8 +196,12 @@ fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Lo
     if (!matches_peer_source(connection, long.scid)) {
         return advance(walk, long.packet_len, .other_source);
     }
+    // RFC 9369 §4.1: a version the level does not admit is dropped, and its Length says where the
+    // next packet starts, since versions 1 and 2 share the long header's layout.
+    const version = open_version(connection, suite, level, long.version) orelse
+        return advance(walk, long.packet_len, .other_version);
     const packet = rest[0..long.packet_len];
-    const outcome = try open_at(walk, connection, suite, level, packet, long.packet_number_offset, long.packet_len, long.dcid);
+    const outcome = try open_at(walk, connection, suite, level, version, packet, long.packet_number_offset, long.packet_len, long.dcid);
     // RFC 9000 §7.2: "After processing the first Initial packet, each endpoint sets the
     // Destination Connection ID field in subsequent packets it sends to the value of the Source
     // Connection ID field that it received." It is taken off a packet that opened, because until
@@ -205,6 +211,19 @@ fn open_long(walk: *Walk, connection: *Connection, suite: Suite, long: header.Lo
         .discarded => {},
     }
     return outcome;
+}
+
+/// The version a long header's packet opens in, or null when RFC 9369 §4.1 drops it. A client's
+/// switch comes before the packet opens, and a switch the suite refuses drops the packet.
+fn open_version(connection: *Connection, suite: Suite, level: Level, version: crypto.suite.Version) ?crypto.suite.Version {
+    switch (connection_version.admit(connection, level, version)) {
+        .open => return version,
+        .switch_then_open => {
+            connection_version.switch_to(connection, suite, version) catch return null;
+            return version;
+        },
+        .drop => return null,
+    }
 }
 
 /// RFC 9000 §7.2: the first Source Connection ID the peer sent is the one this endpoint addresses,
@@ -230,7 +249,9 @@ fn open_short(walk: *Walk, connection: *Connection, suite: Suite, short: header.
         return advance(walk, short.packet_len, .other_connection);
     }
     const packet = rest[0..short.packet_len];
-    return open_at(walk, connection, suite, .application, packet, short.packet_number_offset, short.packet_len, short.dcid);
+    // RFC 9369 §4.1: a 1-RTT packet is in the negotiated version, which its header does not name.
+    const version = connection.versions.negotiated;
+    return open_at(walk, connection, suite, .application, version, packet, short.packet_number_offset, short.packet_len, short.dcid);
 }
 
 /// Asks the suite to open one packet, having first asked whether the level may be read at all.
@@ -239,6 +260,7 @@ fn open_at(
     connection: *Connection,
     suite: Suite,
     level: Level,
+    version: crypto.suite.Version,
     packet: []u8,
     packet_number_offset: usize,
     packet_len: usize,
@@ -252,8 +274,7 @@ fn open_at(
     const space = connection.space_at(level);
     const opened = suite.open(.{
         .level = level,
-        // RFC 9000 §5.2: the reader routes a packet of any other version away before this.
-        .version = .v1,
+        .version = version,
         .packet = packet,
         .packet_number_offset = packet_number_offset,
         // RFC 9000 Appendix A.3: the truncated number is recovered against the largest already

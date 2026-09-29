@@ -130,11 +130,13 @@ pub const ConnectionClosed = struct {
     }
 };
 
-/// Quic-events §5.1 from an endpoint that supports one version and chose it: a client logs it
-/// when it starts, and a server once it took the client's first Initial.
+/// Quic-events §5.1: the versions an endpoint supports and the one it chose. A client logs it when
+/// it starts, and a server once it took the client's first Initial.
 pub const VersionInformation = struct {
     vantage_point: VantagePoint,
-    version: Hex,
+    /// The client's or the server's versions, whichever `vantage_point` names.
+    versions: []const Hex,
+    chosen_version: Hex,
 
     pub fn write(event: VersionInformation, text: *TextWriter) Error!void {
         try text.name(switch (event.vantage_point) {
@@ -142,9 +144,10 @@ pub const VersionInformation = struct {
             .server => "server_versions",
         });
         try text.begin_array();
-        try text.hex(event.version.octets);
+        // Bounded by the caller's list.
+        for (event.versions) |version| try text.hex(version.octets);
         try text.end_array();
-        try member.hex(text, "chosen_version", event.version.octets);
+        try member.hex(text, "chosen_version", event.chosen_version.octets);
     }
 };
 
@@ -320,14 +323,18 @@ test "a closed connection names a transport error, and an application's as unkno
     });
 }
 
-test "a version and a protocol, each as a hexstring" {
-    try expect_event("{\"client_versions\":[\"00000001\"],\"chosen_version\":\"00000001\"}", VersionInformation{
+test "versions and a protocol, each as a hexstring" {
+    const version_1: Hex = .{ .octets = &.{ 0, 0, 0, 1 } };
+    const version_2: Hex = .{ .octets = &.{ 0x6b, 0x33, 0x43, 0xcf } };
+    try expect_event("{\"client_versions\":[\"6b3343cf\",\"00000001\"],\"chosen_version\":\"00000001\"}", VersionInformation{
         .vantage_point = .client,
-        .version = .{ .octets = &.{ 0, 0, 0, 1 } },
+        .versions = &.{ version_2, version_1 },
+        .chosen_version = version_1,
     });
     try expect_event("{\"server_versions\":[\"00000001\"],\"chosen_version\":\"00000001\"}", VersionInformation{
         .vantage_point = .server,
-        .version = .{ .octets = &.{ 0, 0, 0, 1 } },
+        .versions = &.{version_1},
+        .chosen_version = version_1,
     });
     try expect_event("{\"chosen_alpn\":{\"byte_value\":\"6833\"}}", AlpnInformation{
         .chosen_alpn = .{ .byte_value = .{ .octets = "h3" } },

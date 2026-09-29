@@ -168,9 +168,9 @@ fn take_whole(
             return true;
         },
         .retry => |retry| {
-            // RFC 9000 §5.2 discards a packet in a version other than the connection's, and RFC
-            // 9369 §4.1 has a client ignore a Retry in any version but its original one, 1.
-            if (retry.version != .v1) return false;
+            // RFC 9369 §4.1: "If the server sends a Retry packet, it MUST use the original
+            // version. The client ignores Retry packets using other versions."
+            if (retry.version != connection.versions.original) return false;
             const outcome = connection_retry.receive(connection, suite, retry, &scratch.retry_pseudo);
             received.retry = outcome;
             const taken = switch (outcome) {

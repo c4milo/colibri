@@ -246,8 +246,8 @@ fn take_written(peer: *const Parameters, sender: connection_module.Role, body: [
 
 test "RFC 9368 §4: a Chosen Version the endpoint cannot accept closes the connection" {
     var body: [test_output_len]u8 = undefined;
-    // A server that says it chose version 2 over packets of version 1, which the client never
-    // listed either.
+    // A server that says it chose version 2, which the client listed, over packets of version 1:
+    // the Chosen Version is not the Negotiated Version.
     fresh(.client);
     test_connection.identity.on_peer_initial(&peer_id);
     var server = authentic_parameters();
@@ -273,14 +273,45 @@ test "RFC 9368 §4: a Chosen Version the endpoint cannot accept closes the conne
     try testing.expectEqual(constants.version_1, test_connection.peer_parameters.?.version_information.?.chosen_version);
 }
 
-test "RFC 9368 §3: a connection states version 1 as its Chosen Version and its one Available Version" {
-    // Listing the Chosen Version alone keeps a server from switching a client (§2.3).
-    for ([_]connection_module.Role{ .client, .server }) |role| {
-        fresh(role);
-        const info = test_connection.local_parameters.version_information.?;
-        try testing.expectEqual(0x0000_0001, info.chosen_version);
-        try testing.expectEqualSlices(u32, &.{0x0000_0001}, info.available_slice());
-    }
+test "RFC 9368 §4: a client holds the server to the Negotiated Version, a server the client to the first flight's" {
+    var body: [test_output_len]u8 = undefined;
+    // A client the server switched to version 2 (RFC 9369 §4.1).
+    fresh(.client);
+    test_connection.identity.on_peer_initial(&peer_id);
+    test_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
+    var server = authentic_parameters();
+    server.version_information = .of(version_2, &.{ constants.version_1, version_2 });
+    try testing.expect(try take_written(&server, .server, &body));
+    // A server that chose version 2 for a first flight of version 1 holds the client's Chosen
+    // Version to version 1.
+    fresh(.server);
+    test_connection.identity.on_peer_initial(&peer_id);
+    test_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
+    var client = Parameters.initial();
+    client.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
+    client.version_information = .of(constants.version_1, &.{ version_2, constants.version_1 });
+    try testing.expect(try take_written(&client, .client, &body));
+}
+
+test "RFC 9369 §4.1: a client's first CRYPTO octet from the server settles the negotiated version" {
+    fresh(.client);
+    try testing.expect(!test_connection.versions.settled);
+    try connection_crypto.receive_crypto(&test_connection, .initial, .{ .offset = 0, .data = "SH" });
+    try testing.expect(test_connection.versions.settled);
+    try testing.expectEqual(.v1, test_connection.versions.negotiated);
+}
+
+test "RFC 9368 §3: a connection states version 1 as its Chosen Version, and lists what it accepts" {
+    // A client starts in version 1 and lists version 2 first (RFC 9368 §2.5), so a server may
+    // switch it; a server lists the versions it accepts.
+    fresh(.client);
+    const offered = test_connection.local_parameters.version_information.?;
+    try testing.expectEqual(0x0000_0001, offered.chosen_version);
+    try testing.expectEqualSlices(u32, &.{ version_2, 0x0000_0001 }, offered.available_slice());
+    fresh(.server);
+    const deployed = test_connection.local_parameters.version_information.?;
+    try testing.expectEqual(0x0000_0001, deployed.chosen_version);
+    try testing.expectEqualSlices(u32, &.{0x0000_0001}, deployed.available_slice());
 }
 
 test "RFC 9001 §8.2: a handshake that carried no parameters is a connection error" {

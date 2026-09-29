@@ -17,7 +17,7 @@
 set -euo pipefail
 
 readonly peers="${1:-quic-go}"
-readonly tests="${2:-handshake,transfer,chacha20,multiplexing,handshakeloss,transferloss,retry,keyupdate,amplificationlimit,ipv6,ecn,longrtt,blackhole,rebind-port,rebind-addr,resumption,http3}"
+readonly tests="${2:-handshake,transfer,chacha20,multiplexing,handshakeloss,transferloss,retry,keyupdate,amplificationlimit,ipv6,ecn,longrtt,blackhole,rebind-port,rebind-addr,resumption,http3,v2}"
 readonly runner_commit="740c05a10b61d65e8abd3ad38d60898004d335d9"
 readonly runner="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/quic-interop-runner-${runner_commit}"
 readonly image="colibri-qns:latest"

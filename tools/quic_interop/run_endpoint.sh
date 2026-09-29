@@ -14,11 +14,12 @@ set -euo pipefail
 # and IPv6 cases. Both roles mark ECT(0) and report ECN counts in every case (decision 68), so
 # `ecn` is a transfer. A server issues a session ticket on every connection, and a client asked
 # for `resumption` presents the first connection's ticket on a second. `http3` fetches over h3,
-# which the server serves in its `h3` mode, through the `server` module (design §8 step 17b). The
-# rest are not built.
+# which the server serves in its `h3` mode, through the `server` module (design §8 step 17b). In
+# `v2` the client starts in version 1, lists version 2, and switches when the server answers in it
+# (RFC 9369 §4.1); a server that switches a client is design §8 step 19e. The rest are not built.
 case "$TESTCASE" in
   handshake | transfer | chacha20 | multiconnect | retry | ecn | resumption | http3) ;;
-  keyupdate) [ "$ROLE" = client ] || exit 127 ;;
+  keyupdate | v2) [ "$ROLE" = client ] || exit 127 ;;
   *) exit 127 ;;
 esac
 

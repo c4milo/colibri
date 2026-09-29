@@ -31,6 +31,7 @@ pub const DiscardError = error{
     OtherSource,
     NoKeys,
     WouldNotOpen,
+    OtherVersion,
     AlreadyProcessed,
     NotForThisWalk,
 };
@@ -85,6 +86,7 @@ fn discard_error(reason: receive.Discarded) DiscardError {
         .other_source => error.OtherSource,
         .no_keys => error.NoKeys,
         .would_not_open => error.WouldNotOpen,
+        .other_version => error.OtherVersion,
         .already_processed => error.AlreadyProcessed,
         .not_for_this_walk => error.NotForThisWalk,
     };

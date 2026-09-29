@@ -408,8 +408,9 @@ fn write_and_seal(
     try write_header(connection, suite, &header, pending);
     return suite.seal(.{
         .level = pending.level,
-        // The version `write_header` wrote, the one every connection runs (RFC 9000 §15).
-        .version = .v1,
+        // RFC 9369 §4.1: every packet goes out in the negotiated version, which `write_header`
+        // wrote into a long header.
+        .version = connection.versions.negotiated,
         .packet_number = pending.number,
         .header = header.written(),
         .packet_number_len = pending.truncated.len,
@@ -442,8 +443,10 @@ fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, p
         });
     }
     return header_write.write_long(writer, .{
-        // The version every connection runs (RFC 9000 §15).
-        .version = .v1,
+        // RFC 9369 §4.1: "Both endpoints MUST send Handshake and 1-RTT packets using the
+        // negotiated version", and a client that learned it "SHOULD send subsequent Initial
+        // packets using that version".
+        .version = connection.versions.negotiated,
         .type = if (pending.level == .initial) .initial else .handshake,
         .dcid = identity.destination().slice(),
         .scid = identity.source().slice(),

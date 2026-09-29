@@ -371,6 +371,8 @@ const RetrySuite = struct {
     installed: [id_len]u8 = @splat(0),
     installs: usize = 0,
     refuses: bool = false,
+    /// The version whose Retry key and nonce this suite holds (RFC 9369 §3.3.3).
+    tag_version: crypto.suite.Version = .v1,
 
     fn suite(self: *RetrySuite) crypto.Suite {
         return .{ .context = @ptrCast(self), .vtable = &table };
@@ -383,8 +385,9 @@ const RetrySuite = struct {
         @memcpy(self.installed[0..dcid.len], dcid);
         self.installs += 1;
     }
-    fn tag_valid(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.aead_tag_len]u8) bool {
-        return true;
+    fn tag_valid(context: *const anyopaque, version: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.aead_tag_len]u8) bool {
+        const self: *const RetrySuite = @ptrCast(@alignCast(context));
+        return version == self.tag_version;
     }
     /// The test marks the client's levels itself, so the suite reports holding none.
     fn none_available(_: *const anyopaque, _: Level, _: crypto.suite.Direction) bool {
@@ -468,10 +471,16 @@ test "RFC 9001 §5.2: a Retry the client takes derives the Initial keys from its
     const refused = try datagram_module.receive(&server, retry_suite.suite(), provider_holder.provider(), .{ .octets = datagram[0..try write_retry(.v1)], .now_ns = test_now_ns, .ecn = .not_ect }, &scratch);
     try testing.expect(refused.retry.? == .discarded);
     try testing.expectEqual(0, retry_suite.installs);
-    // RFC 9369 §4.1: a client ignores a Retry in any version but its original one, 1.
+    // RFC 9369 §4.1: a client ignores a Retry in any version but its original one.
     open_pair(&.{.initial});
     try testing.expectEqual(null, (try receive_retry(try write_retry(.v2))).retry);
     try testing.expectEqual(0, retry_suite.installs);
+    // A client that started in version 2 takes one in version 2, whose tag is version 2's.
+    open_pair(&.{.initial});
+    client.versions = .init(.client, .v2);
+    retry_suite = .{ .tag_version = .v2 };
+    try testing.expectEqual(null, (try receive_retry(try write_retry(.v1))).retry);
+    try testing.expect((try receive_retry(try write_retry(.v2))).retry.? == .taken);
 }
 
 test "RFC 9000 §20.1: each refusal closes with the code its piece names" {

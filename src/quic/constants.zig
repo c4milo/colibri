@@ -12,6 +12,8 @@ const crypto = @import("crypto");
 /// QUIC version 1 (RFC 9000 §15), named once in `crypto` because a suite's calls name it too
 /// (decision 108).
 pub const version_1: u32 = @intFromEnum(crypto.suite.Version.v1);
+/// QUIC version 2 (RFC 9369 §3.1), named in `crypto` for the same reason.
+pub const version_2: u32 = @intFromEnum(crypto.suite.Version.v2);
 
 /// Most Available Versions colibri keeps of a peer's Version Information (RFC 9368 §3). The list is
 /// bounded only by the parameter's length, so the reader checks every entry and keeps this many,

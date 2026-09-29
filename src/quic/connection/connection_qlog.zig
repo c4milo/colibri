@@ -36,14 +36,6 @@ const quic_frame = qlog.quic_frame;
 
 pub const Log = qlog.Log;
 
-/// QUIC version 1 as the octets a QuicVersion hexstring shows (quic-events §8.1), in the network
-/// byte order RFC 9000 §17.2 writes it in.
-const version_octets = octets: {
-    var octets: [@sizeOf(u32)]u8 = undefined;
-    std.mem.writeInt(u32, &octets, constants.version_1, .big);
-    break :octets octets;
-};
-
 /// A connection's log, and what its last events said.
 pub const State = struct {
     /// The caller's log, whose header the caller wrote (main schema §5), or null.
@@ -89,14 +81,31 @@ pub fn init(connection: *Connection, log: ?*Log, now_ns: u64) void {
     const held = log orelse return;
     // Main schema §5: the header comes first, and each event's time counts from its instant.
     assert(held.started and held.start_ns <= now_ns);
+    log_versions(connection, held, now_ns);
+    held.event(quic_event.name.parameters_set, now_ns, parameters_event(.local, &connection.local_parameters));
+}
+
+/// Quic-events §5.1: the versions this endpoint lists in its Version Information (RFC 9368 §3),
+/// and the one it chose, each as the octets a QuicVersion hexstring shows (§8.1).
+fn log_versions(connection: *const Connection, held: *Log, now_ns: u64) void {
+    const info = &connection.local_parameters.version_information.?;
+    var octets: [constants.version_information_versions_max][@sizeOf(u32)]u8 = undefined;
+    var listed: [constants.version_information_versions_max]quic_event.Hex = undefined;
+    // Bounded by the versions the parameter keeps.
+    for (info.available_slice(), 0..) |version, i| {
+        std.mem.writeInt(u32, &octets[i], version, .big);
+        listed[i] = .{ .octets = &octets[i] };
+    }
+    var chosen: [@sizeOf(u32)]u8 = undefined;
+    std.mem.writeInt(u32, &chosen, info.chosen_version, .big);
     held.event(quic_event.name.version_information, now_ns, quic_event.VersionInformation{
         .vantage_point = switch (connection.role) {
             .client => .client,
             .server => .server,
         },
-        .version = .{ .octets = &version_octets },
+        .versions = listed[0..info.available_len],
+        .chosen_version = .{ .octets = &chosen },
     });
-    held.event(quic_event.name.parameters_set, now_ns, parameters_event(.local, &connection.local_parameters));
 }
 
 /// Quic-events §5.5 for one packet `send` sealed. `payload` is the plaintext it was sealed from,
@@ -431,6 +440,8 @@ fn dropped_trigger(why: receive_module.Discarded) @FieldType(quic_event.PacketDr
         .other_connection, .other_source => .connection_unknown,
         .no_keys => .key_unavailable,
         .would_not_open => .decryption_failure,
+        // Quic-events §5.7: "unsupported: unknown or unsupported version".
+        .other_version => .unsupported,
         .already_processed => .duplicate,
         .not_for_this_walk => .unsupported,
     };

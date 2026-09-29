@@ -70,6 +70,8 @@ pub const RoundTrip = struct {
     seals_per_key: ?usize = null,
     /// Makes `open` answer §6.6's integrity limit, which a test reaches with no forged packet.
     reached_integrity_limit: bool = false,
+    /// The one version this suite derived keys for (RFC 9369 §3.3).
+    version: crypto.suite.Version = .v1,
     /// How many times `seal` was entered, refusals included. RFC 9001 §6.6 has an endpoint
     /// "stop using those keys", so a test reads this to see that it did.
     seal_attempts: usize = 0,
@@ -94,9 +96,8 @@ pub const RoundTrip = struct {
     fn seal(context: *anyopaque, sealing: crypto.suite.Sealing, output: []u8) crypto.suite.SealError!usize {
         const held: *RoundTrip = @ptrCast(@alignCast(context));
         held.seal_attempts += 1;
-        // A suite that derived version 1's keys alone, the version every connection runs
-        // (RFC 9369 §3.3).
-        if (sealing.version != .v1) return error.KeysUnavailable;
+        // A suite that derived one version's keys alone (RFC 9369 §3.3).
+        if (sealing.version != held.version) return error.KeysUnavailable;
         if (held.seals_left) |left| {
             // RFC 9001 §6.6: past the confidentiality limit "the endpoint MUST stop using those
             // keys", which is a refusal to protect anything more under them.
@@ -117,6 +118,8 @@ pub const RoundTrip = struct {
         // RFC 9001 §6.6: the integrity limit counts failures "across all keys" over a connection
         // and is reached whatever this packet holds.
         if (held.reached_integrity_limit) return error.IntegrityLimitReached;
+        // RFC 9369 §3.3: a version whose keys this suite did not derive.
+        if (opening.version != held.version) return error.KeysUnavailable;
         // RFC 9000 §17.2: byte 0's low two bits are the Packet Number Length less one. A real
         // suite reads them after removing header protection (RFC 9001 §5.4); this one has none.
         const number_len: u8 = (opening.packet[0] & constants.packet_number_len_mask) + 1;
@@ -302,6 +305,18 @@ test "RFC 9000 §17.2: a packet built at Initial is read back as one" {
         &handshake_octets,
         peer_connection.crypto_at(.initial).readable(),
     );
+}
+
+test "RFC 9369 §4.1: a client that switched builds its packets in the negotiated version" {
+    open_connection();
+    round_trip.version = .v2;
+    test_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
+    peer_connection.versions = .{ .original = .v1, .negotiated = .v2, .settled = true };
+    fake = .{ .owed = &handshake_octets, .owed_level = .handshake };
+    const built = (try build_at(.handshake)).?;
+    // RFC 9000 §17.2: the Version field follows byte 0, and RFC 9369 §3.1 gives version 2's.
+    try testing.expectEqualSlices(u8, &.{ 0x6b, 0x33, 0x43, 0xcf }, datagram[1..5]);
+    try testing.expectEqual(Level.handshake, (try walk_back(built)).level);
 }
 
 test "RFC 9001 §4.9: a level with nothing to send builds nothing" {
