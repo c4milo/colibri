@@ -3137,3 +3137,47 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      so such a record got 400 when it held a stray CR or LF, 414 after `start_line_len_max` octets
      without one, and otherwise nothing while the server waited for more. The alternatives
      refused: checking the request line's first octet alone, and leaving the scanner as it was.
+
+110. **The server's defences against denial of service: Rapid Reset first, then deadlines.** Ruled
+     by the owner on 2026-09-29 for [#82](https://github.com/c4milo/colibri/issues/82), on the
+     proposal in that issue. colibri reads no clock, so it closed no connection on time, and h2
+     counted no stream the peer reset.
+     - **Rapid Reset first.** h2 counts the streams the peer opened and then reset in each
+       `peer_reset_rate_period_ns`. Past `peer_reset_rate_max`, 100 a second, it ends the
+       connection with GOAWAY and ENHANCE_YOUR_CALM (RFC 9113 §10.5). Only a stream the peer
+       opened counts: a server that refuses a client's streams costs the client no work it did not
+       ask for.
+     - **Seven deadlines in `server.Connection`**, reported by `deadline_ns()` and fired by
+       `on_instant(now_ns)`, as `server.Endpoint` does for QUIC. They are the first request (the
+       TLS handshake and the first whole request head), idle (between requests), head (fixed from
+       a head's first octet), body and send (a minimum rate over a window after a grace period,
+       with a total cap per request), h2's SETTINGS acknowledgment, and drain (after
+       `shutdown()`). Only request octets count as progress, and a deadline pauses while colibri
+       waits on the application. h2 keeps them per stream and checks a minimum rate across the
+       connection.
+     - **What each does.** An idle or silent connection closes without a response, and h2 sends
+       GOAWAY with NO_ERROR first (RFC 9112 §9.5, RFC 9113 §9.1). A slow head or body before a
+       response gets 408 (RFC 9110 §15.5.9). An unfinished h2 field block ends the connection with
+       ENHANCE_YOUR_CALM. A stall after a response started closes, and h2 resets the stream with
+       CANCEL. The SETTINGS deadline is a connection error of SETTINGS_TIMEOUT. `close_linger_ns`
+       bounds every close.
+     - **The defaults**, each a named limit `server.Config` carries: first request 10 s, idle
+       30 s, head 10 s, grace and window 10 s each, 1,024 octets a second for body and send, a
+       300 s cap per request, a floor of 1,024 octets on a DATA frame, drain 30 s, linger 2 s, and
+       100 concurrent h2 streams, down from 128.
+     - **One control.** A caller may change one connection's limits at any time. Null turns a
+       deadline off, and 0 is refused.
+
+     The alternatives refused:
+     - For Rapid Reset: a limit on the share of its opened streams the peer resets, and building
+       it together with the deadlines.
+     - For the deadlines: a recipe of timeouts for each caller to write, and per-stream deadlines
+       without the check across a connection.
+     - For what each does: closing silently at every deadline.
+     - For the defaults: a gentler set (idle 60 s, 512 octets a second, 128 streams) and a
+       stricter one (idle 15 s, 2,048 octets a second, 64 streams).
+     - For the controls: `idle_since_ns()`, which would let a full server close its longest-idle
+       connection, and raising one request's cap after its head.
+
+     Cost: a deadline bounds how long an attacker holds a connection, not how many connections it
+     holds, so per-source limits stay the caller's. The deadlines land in design §8 step 20b.
