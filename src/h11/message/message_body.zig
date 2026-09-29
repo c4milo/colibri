@@ -101,10 +101,11 @@ pub fn response_body(asked: Asked, status: http.status.Status, version: Version,
     const no_content = @intFromEnum(http.status.Code.no_content);
     const not_modified = @intFromEnum(http.status.Code.not_modified);
     const bodiless = asked == .head or status.is_interim() or code == no_content or code == not_modified;
+    // RFC 9112 §6.3 rule 2 and RFC 9110 §6.4.1: every 2xx to CONNECT makes the connection a
+    // tunnel, a 204 too. Rule 1 ends a 204 at the empty line as well, so only the tunnel is new.
+    if (asked == .connect and status.class() == .successful) return .{ .length = .tunnel };
     // RFC 9112 §6.3 rule 1: a response to HEAD, and a 1xx, 204 or 304, ends at the empty line.
     if (bodiless) return .{ .length = .none };
-    // RFC 9112 §6.3 rule 2: a 2xx to CONNECT makes the connection a tunnel.
-    if (asked == .connect and status.class() == .successful) return .{ .length = .tunnel };
     if (try transfer_codings(section)) |codings| {
         // RFC 9112 §6.1: an HTTP/1.0 message with Transfer-Encoding has faulty framing.
         if (version.minor == 0) return error.TransferEncodingInHttp10;
@@ -301,7 +302,7 @@ test "RFC 9112 §6.3 rule 4 before §6.1: a request not ending in chunked gets 4
     try testing.expectError(error.CodingsStacked, response_body(.other, status_of(200), http11, try section_of(&.{.{ .name = "Transfer-Encoding", .value = "gzip, deflate" }})));
 }
 
-test "RFC 9112 §6.3 rules 1 and 2: HEAD, 1xx, 204 and 304 have no body, and a 2xx to CONNECT tunnels" {
+test "RFC 9112 §6.3 rules 1 and 2: HEAD, 1xx, 204 and 304 have no body, and any 2xx to CONNECT tunnels" {
     const framed = try section_of(&.{.{ .name = "Content-Length", .value = "5" }});
     try testing.expectEqual(Length.none, (try response_body(.head, status_of(200), http11, framed)).length);
     for ([_]u16{ 100, 101, 199, 204, 304 }) |code| {
@@ -309,6 +310,10 @@ test "RFC 9112 §6.3 rules 1 and 2: HEAD, 1xx, 204 and 304 have no body, and a 2
     }
     try testing.expectEqual(Length.tunnel, (try response_body(.connect, status_of(200), http11, framed)).length);
     try testing.expectEqual(Length.tunnel, (try response_body(.connect, status_of(299), http11, framed)).length);
+    // RFC 9110 §6.4.1: a 204 to CONNECT has no content because it opens the tunnel.
+    try testing.expectEqual(Length.tunnel, (try response_body(.connect, status_of(204), http11, framed)).length);
+    try testing.expectEqual(Length.none, (try response_body(.connect, status_of(100), http11, framed)).length);
+    try testing.expectEqual(Length.none, (try response_body(.connect, status_of(304), http11, framed)).length);
     try testing.expectEqual(Length{ .fixed = 5 }, (try response_body(.connect, status_of(407), http11, framed)).length);
     try testing.expectEqual(Length{ .fixed = 5 }, (try response_body(.other, status_of(205), http11, framed)).length);
 }

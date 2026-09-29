@@ -182,6 +182,17 @@ test "RFC 9112 §6.3 rule 2: a 2xx to CONNECT turns the connection into a tunnel
     try testing.expectEqual(3, try target.write_body(&test_output, "raw"));
 }
 
+test "RFC 9110 §6.4.1 and §8.6: any 2xx to CONNECT opens the tunnel, a 204 too, and names no framing" {
+    const target = server();
+    _ = try expect_request(target, "CONNECT a:443 HTTP/1.1\r\nHost: a:443\r\n\r\n", "CONNECT");
+    try testing.expectError(error.FramingInvalid, target.write_response(&test_output, 200, "", &.{.{ .name = "content-length", .value = "0" }}));
+    try testing.expectError(error.FramingInvalid, target.write_response(&test_output, 200, "", &.{.{ .name = "transfer-encoding", .value = "chunked" }}));
+    const written = try target.write_response(&test_output, 204, "", &.{});
+    try testing.expectEqualStrings("HTTP/1.1 204 \r\n\r\n", test_output[0..written]);
+    try testing.expectEqual(connection.Phase.tunnel, target.phase);
+    try testing.expectEqualStrings("raw", (try target.receive("raw", &.{})).event.?.tunnel);
+}
+
 test "RFC 9931 §8: a refused CONNECT ends the connection, and what follows it is never read" {
     var target = server();
     // RFC 9931 Figure 1: a POST the client sent before the CONNECT's answer.

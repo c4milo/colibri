@@ -156,6 +156,14 @@ test "101 and malformed responses fail the connection, and a 2xx to CONNECT tunn
     try testing.expectEqual(3, try target.write_body(&test_output, "raw"));
 }
 
+test "RFC 9110 §6.4.1: a 204 to CONNECT opens the tunnel as a 200 does" {
+    const target = client(.{});
+    _ = try target.write_request(&test_output, "CONNECT", "a:443", &.{.{ .name = "Host", .value = "a:443" }});
+    _ = try expect_status(target, "HTTP/1.1 204 No Content\r\n\r\n", 204);
+    try testing.expectEqual(connection.Phase.tunnel, target.phase);
+    try testing.expectEqualStrings("HTTP/1.1 200 OK\r\n\r\n", (try target.receive("HTTP/1.1 200 OK\r\n\r\n", &.{})).event.?.tunnel);
+}
+
 test "decision 95: a fixed body's octets the caller sends itself are counted, not copied" {
     var target = client(.{});
     _ = try target.write_request(&test_output, "PUT", "/", &.{ host[0], .{ .name = "Content-Length", .value = "5" } });
