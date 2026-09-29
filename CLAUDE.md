@@ -163,6 +163,9 @@ exists — never propose a second one.
 - Each module owns its `constants.zig`. A limit two modules share belongs in
   `src/core/constants.zig`. A comptime assert stays with the constant it pins.
 - Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.
+  The one exception is the TLS test identity, which the tests of several modules read: it lives
+  once in `src/testing/testdata/`, a test-only module no packaged module imports, beside the
+  openssl commands that made it.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
   library and is the only directory permitted to open a socket. Every endpoint there does its I/O
   without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
