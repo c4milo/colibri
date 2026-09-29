@@ -6,10 +6,13 @@ const std = @import("std");
 
 pub const constants = @import("constants.zig");
 
-/// stdx's JSON module (decision 102 as amended). Every record is one text of a JSON text sequence
-/// that its `TextWriter` writes, and its `TextReader` reads one back.
+/// stdx's JSON module (decision 102 as amended). Every record is one text of a JSON text sequence,
+/// and its `TextReader` reads one back.
 pub const json = @import("json");
-pub const TextWriter = json.TextWriter;
+
+/// What writes a record: its tokens gathered and handed to stdx's `TextWriter` many at a call
+/// (`batch.zig`), with `TextWriter`'s calls.
+pub const TextWriter = @import("batch.zig").Batch;
 
 /// The CPU features stdx's JSON writer may use, which a log's caller passes to `Log.init`
 /// (decision 102 as amended), as it passes them to h11's decoder pool (decision 98).
@@ -45,6 +48,7 @@ test {
     std.testing.refAllDecls(@This());
     _ = constants;
     _ = member;
+    _ = @import("batch.zig");
     _ = log;
     _ = quic_frame;
     _ = quic_event;

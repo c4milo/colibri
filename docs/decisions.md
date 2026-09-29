@@ -2901,6 +2901,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      with the log, and the caller takes its last records. Refused: one log per connection slot,
      given at init beside the receive pools, which holds a buffer per slot whether or not it logs.
 
+     Amended by the owner on 2026-09-29: `qlog` hands each record's tokens to stdx's `write_items`
+     many at a call (stdx's decision 33), with stdx pinned at c134f2c. `batch.zig` gathers them,
+     and copies each name's, string's and hex string's octets into its own buffer as it takes
+     them, so no writer's octets need to outlive the call that passed them. Octets longer than
+     that buffer go to `write_items` at once. The records are the same octets as before. The QUIC
+     simulator tests took 2.61 s in ReleaseSafe on an Apple M1 Pro, against 2.68 s writing one
+     token a call, about 2 ns less for each octet the logged runs write. Refused: one token a
+     call, which is simpler and 2.7% slower there; and gathering without copies, which has each
+     writer that formats a string on its stack write the gathered tokens before it returns, a rule
+     a later writer could break without any test failing.
+
 103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
      response body until the server reports it done.** Ruled by the owner on 2026-09-27, for
      design §8 step 17b and [#70](https://github.com/c4milo/colibri/issues/70).

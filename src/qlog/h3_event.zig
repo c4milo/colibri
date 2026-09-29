@@ -8,7 +8,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
-const TextWriter = @import("json").TextWriter;
+const TextWriter = @import("batch.zig").Batch;
 const Features = @import("codec").Features;
 const quic_event = @import("quic_event.zig");
 
@@ -173,7 +173,7 @@ test "a HEADERS frame's lines are text when printable, and octets otherwise" {
         "{\"name\":\":status\",\"value\":\"200\"}," ++
         "{\"name\":\"x-tag\",\"value_bytes\":\"61e9\"}," ++
         "{\"name\":\"x-tab\",\"value_bytes\":\"610962\"}]," ++
-        "\"raw\":{\"payload_length\":12}}}", text.written());
+        "\"raw\":{\"payload_length\":12}}}", (try text.written()));
 }
 
 test "a SETTINGS frame names each setting, and an unknown one carries its identifier" {
@@ -192,7 +192,7 @@ test "a SETTINGS frame names each setting, and an unknown one carries its identi
         "{\"name\":\"settings_max_field_section_size\",\"value\":65536}," ++
         "{\"name\":\"reserved\",\"value\":0}," ++
         "{\"name\":\"unknown\",\"name_bytes\":16962,\"value\":1}]," ++
-        "\"raw\":{\"payload_length\":11}}}", text.written());
+        "\"raw\":{\"payload_length\":11}}}", (try text.written()));
 }
 
 test "a GOAWAY names its identifier, and an unknown frame its type" {
@@ -203,14 +203,14 @@ test "a GOAWAY names its identifier, and an unknown frame its type" {
     try goaway_id(&text, 8);
     try end_frame(&text, 1);
     try text.end_object();
-    try testing.expectEqualStrings("{\"stream_id\":3,\"frame\":{\"frame_type\":\"goaway\",\"id\":8,\"raw\":{\"payload_length\":1}}}", text.written());
+    try testing.expectEqualStrings("{\"stream_id\":3,\"frame\":{\"frame_type\":\"goaway\",\"id\":8,\"raw\":{\"payload_length\":1}}}", (try text.written()));
     text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try begin_frame(&text, 4, "unknown");
     try frame_type_bytes(&text, 0x2f);
     try end_frame(&text, 0);
     try text.end_object();
-    try testing.expectEqualStrings("{\"stream_id\":4,\"frame\":{\"frame_type\":\"unknown\",\"frame_type_bytes\":47,\"raw\":{\"payload_length\":0}}}", text.written());
+    try testing.expectEqualStrings("{\"stream_id\":4,\"frame\":{\"frame_type\":\"unknown\",\"frame_type_bytes\":47,\"raw\":{\"payload_length\":0}}}", (try text.written()));
 }
 
 test "settings and stream types, under the draft's names" {
@@ -219,15 +219,15 @@ test "settings and stream types, under the draft's names" {
     try text.begin_object();
     try (ParametersSet{ .initiator = .remote, .max_field_section_size = 16_384, .blocked_streams_count = 0 }).write(&text);
     try text.end_object();
-    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"max_field_section_size\":16384,\"blocked_streams_count\":0}", text.written());
+    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"max_field_section_size\":16384,\"blocked_streams_count\":0}", (try text.written()));
     text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try (StreamTypeSet{ .initiator = .local, .stream_id = 2, .stream_type = .qpack_encode }).write(&text);
     try text.end_object();
-    try testing.expectEqualStrings("{\"initiator\":\"local\",\"stream_id\":2,\"stream_type\":\"qpack_encode\"}", text.written());
+    try testing.expectEqualStrings("{\"initiator\":\"local\",\"stream_id\":2,\"stream_type\":\"qpack_encode\"}", (try text.written()));
     text = TextWriter.init(&buffer, .text, Features.none());
     try text.begin_object();
     try (StreamTypeSet{ .initiator = .remote, .stream_id = 7, .stream_type = .unknown, .stream_type_bytes = 0x54 }).write(&text);
     try text.end_object();
-    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"stream_id\":7,\"stream_type\":\"unknown\",\"stream_type_bytes\":84}", text.written());
+    try testing.expectEqualStrings("{\"initiator\":\"remote\",\"stream_id\":7,\"stream_type\":\"unknown\",\"stream_type_bytes\":84}", (try text.written()));
 }

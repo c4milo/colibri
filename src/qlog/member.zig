@@ -1,13 +1,13 @@
-//! One member of a JSON object (RFC 8259 §4), its name and its value, written with stdx's
-//! `TextWriter` (decision 102 as amended). Every qlog record is objects of such members, so each
-//! writer here writes the name and then the value.
+//! One member of a JSON object (RFC 8259 §4), its name and its value, written through `batch.zig`
+//! to stdx's `TextWriter` (decision 102 as amended). Every qlog record is objects of such members,
+//! so each writer here writes the name and then the value.
 const std = @import("std");
 const assert = std.debug.assert;
 const json = @import("json");
 const Features = @import("codec").Features;
 const constants = @import("constants.zig");
 
-const TextWriter = json.TextWriter;
+const TextWriter = @import("batch.zig").Batch;
 
 /// What a write fails with: stdx's refusal of a string that is not UTF-8, or a buffer the record
 /// does not fit.
@@ -73,7 +73,7 @@ test "each member is its name and its value, with commas between members" {
     try hex(&text, "c", &.{ 0x00, 0xaf });
     try boolean(&text, "d", false);
     try text.end_object();
-    try testing.expectEqualStrings("{\"a\":1,\"b\":\"x\\\"y\",\"c\":\"00af\",\"d\":false}", text.written());
+    try testing.expectEqualStrings("{\"a\":1,\"b\":\"x\\\"y\",\"c\":\"00af\",\"d\":false}", (try text.written()));
 }
 
 test "milliseconds keep three digits of fraction" {
@@ -85,5 +85,5 @@ test "milliseconds keep three digits of fraction" {
     try milliseconds(&text, "c", 5_000);
     try milliseconds(&text, "d", 999);
     try text.end_object();
-    try testing.expectEqualStrings("{\"a\":0.000,\"b\":1234.567,\"c\":0.005,\"d\":0.000}", text.written());
+    try testing.expectEqualStrings("{\"a\":0.000,\"b\":1234.567,\"c\":0.005,\"d\":0.000}", (try text.written()));
 }

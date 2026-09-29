@@ -5467,6 +5467,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     quic-go http3` on an Apple M1 Pro passed every pairing, and the 4 qlog directories colibri
     left, its server's two among them, passed `tools/qlog_check.py`.
 
+  **18b and 18d, many tokens a call, 2026-09-29.** stdx is pinned at c134f2c, and `qlog` hands
+  each record's tokens to stdx's `write_items` in lists (decision 102 as amended). `batch.zig`'s
+  `Batch` has `TextWriter`'s calls, so the event writers changed only the type they name. It
+  copies each name's, string's and hex string's octets as it takes them, and writes octets longer
+  than its buffer at once.
+  - Every byte-exact test and the simulator's pinned logs hold, so the records are the same octets.
+    `zig build test` passed 2,327 of 2,327, and so did `tools/quic_udp.sh` and
+    `tools/consumer_check.sh`.
+  - 4 tests in `batch.zig`, and 4 mutations, each CAUGHT by `zig build test-qlog`: octets not
+    copied, a long string written before what came earlier, the copies never freed, and items
+    written past their array.
+  - `zig build test-sim-run-quic` in ReleaseSafe on an Apple M1 Pro, as user CPU time over five
+    rounds run side by side: 2.700 s at f647da1, 2.684 s at c134f2c writing one token a call, and
+    2.612 s with `write_items`. c134f2c's own speed work was for text outside ASCII, which qlog
+    does not write.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

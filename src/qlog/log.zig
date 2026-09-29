@@ -7,7 +7,7 @@
 //! counted in `dropped`: a log never fails the connection that writes it.
 const std = @import("std");
 const assert = std.debug.assert;
-const TextWriter = @import("json").TextWriter;
+const TextWriter = @import("batch.zig").Batch;
 const Features = @import("codec").Features;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
@@ -66,7 +66,7 @@ pub const Log = struct {
         try text.name("trace");
         try write_trace(&text, trace);
         try text.end_object();
-        log.len += text.written().len;
+        log.len += (try text.written()).len;
         log.start_ns = now_ns;
         log.started = true;
     }
@@ -147,7 +147,7 @@ fn write_event(buffer: []u8, features: Features, tuple: u32, name: []const u8, t
     try data.write(&text);
     try text.end_object();
     try text.end_object();
-    return text.written().len;
+    return (try text.written()).len;
 }
 
 const testing = std.testing;

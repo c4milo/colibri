@@ -20,6 +20,12 @@ pub const millisecond_fraction_digits: u5 = 3;
 /// schema §7.2, quic-events §4.7).
 pub const tuple_id_len_max: usize = 10;
 
+/// The tokens a record's writer gathers before it hands them to stdx's `write_items` (decision
+/// 102 as amended), and the octets of their names, strings and hex strings it holds copies of.
+/// Policy: a packet event with a few frames fits, and a longer record is written in several calls.
+pub const batch_items_max: usize = 64;
+pub const batch_octets_len: usize = 1024;
+
 /// Smallest buffer a log may be given, in octets: the header record fits with room for events.
 /// Policy.
 pub const log_len_min: usize = 1024;
@@ -36,6 +42,7 @@ comptime {
     assert(nanoseconds_per_millisecond % nanoseconds_per_microsecond == 0);
     assert(std.math.pow(u64, 10, millisecond_fraction_digits) == nanoseconds_per_millisecond / nanoseconds_per_microsecond);
     assert(log_len_min > 0);
+    assert(batch_items_max > 0 and batch_octets_len > 0);
     assert(std.fmt.count("{d}", .{std.math.maxInt(u32)}) == tuple_id_len_max);
     assert(crypto_error_last - crypto_error_first == 0xff);
     // RFC 8259 §7: a string escapes U+0000 through U+001F, and ASCII ends before 0x80.

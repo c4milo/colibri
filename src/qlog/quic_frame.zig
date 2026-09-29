@@ -9,7 +9,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
-const TextWriter = @import("json").TextWriter;
+const TextWriter = @import("batch.zig").Batch;
 const Features = @import("codec").Features;
 
 pub const Error = member.Error;
@@ -262,7 +262,7 @@ fn expect_frame(expected: []const u8, comptime write: anytype, arguments: anytyp
     var buffer: [test_buffer_len]u8 = undefined;
     var text = TextWriter.init(&buffer, .text, Features.none());
     try @call(.auto, write, .{&text} ++ arguments);
-    try testing.expectEqualStrings(expected, text.written());
+    try testing.expectEqualStrings(expected, (try text.written()));
 }
 
 test "padding, ping and handshake_done" {
@@ -279,7 +279,7 @@ test "an ack frame writes a single-packet range as one number, and its ECN count
     try ack_range(&text, 3, 3);
     try ack_end(&text, .{ .ect0 = 4, .ect1 = 0, .ce = 1 });
     try testing.expectEqualStrings("{\"frame_type\":\"ack\",\"ack_delay\":1.500,\"acked_ranges\":[[7,9],[3]]," ++
-        "\"ect1\":0,\"ect0\":4,\"ce\":1}", text.written());
+        "\"ect1\":0,\"ect0\":4,\"ce\":1}", (try text.written()));
 }
 
 test "stream and crypto frames log their length as raw.length" {

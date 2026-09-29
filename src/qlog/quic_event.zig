@@ -7,7 +7,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const member = @import("member.zig");
-const TextWriter = @import("json").TextWriter;
+const TextWriter = @import("batch.zig").Batch;
 const Features = @import("codec").Features;
 const quic_frame = @import("quic_frame.zig");
 const VantagePoint = @import("log.zig").VantagePoint;
@@ -260,7 +260,7 @@ fn expect_event(expected: []const u8, event: anytype) !void {
     try text.begin_object();
     try event.write(&text);
     try text.end_object();
-    try testing.expectEqualStrings(expected, text.written());
+    try testing.expectEqualStrings(expected, (try text.written()));
 }
 
 test "a lost packet's header and trigger, with the draft's packet type names" {
@@ -298,7 +298,7 @@ test "a long header carries its version and connection IDs as hexstrings" {
     });
     try text.end_object();
     try testing.expectEqualStrings("{\"header\":{\"packet_type\":\"initial\",\"packet_number\":0,\"version\":\"00000001\"," ++
-        "\"scid\":\"ab\",\"dcid\":\"cdef\"}}", text.written());
+        "\"scid\":\"ab\",\"dcid\":\"cdef\"}}", (try text.written()));
 }
 
 test "a closed connection names a transport error, and an application's as unknown" {
