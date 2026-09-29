@@ -1851,6 +1851,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - A PING on a timer of its own. It would send packets when nothing needs acknowledging, and
       §10.1.2 leaves keeping a connection alive to the application.
 
+    Amended by the owner on 2026-09-29: the count stays at two. In the QUIC Interop Runner's
+    `handshakeloss` case, colibri's server acknowledged quinn's client in two packets of ACK frames
+    alone, the network dropped both, and the PING would have gone with a third that the client
+    never asked for ([#76](https://github.com/c4milo/colibri/issues/76)). With nothing in flight
+    the server armed no PTO, so it sent nothing more, and quinn's probes never carried its lost
+    request again ([quinn#2893](https://github.com/quinn-rs/quinn/issues/2893)). Refused: a count
+    of one, which would have armed a PTO there, and whose probe would have repeated the ACK
+    (decision 107). colibri follows RFC 9000 in this case, and the count of two is what TLC
+    checks ends the exchange.
+
 74. **The QPACK decoder hands a blocked field section back to the caller unread, and holds the
     decoder instructions it owes until the caller asks for them.** Adopted on 2026-09-24 for
     design §8 step 11; the owner may overrule it.
