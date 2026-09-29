@@ -30,13 +30,14 @@ The name is Spanish for hummingbird.
 
 ## Status
 
-colibri 0.5.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
+colibri 0.6.0 is the latest release. 0.1.0 was the first, and carried the TLS that design §8 step
 16 put in the library. 0.2.0 has each TLS session draw from a source its caller passes. 0.3.0 ends
 a connection inside colibri on a TLS or QUIC error, and adds h2's trailers. 0.4.0 adds the `server`
 and `client` modules, whose `Channel` chooses h3 over QUIC or TCP for each server, and qlog. 0.5.0
 adds the server over QUIC and Alt-Svc advertising, and content codings: the server codes a response
 in gzip or deflate, and the client decodes one. The client also retires a QUIC connection near its
-idle timeout.
+idle timeout. 0.6.0 runs AES-256-GCM first where the CPU has the AES instructions, lets a TLS
+client choose the suites it offers, and sends a failed record's alert before it closes.
 
 | Protocol | Built | Checked against |
 | --- | --- | --- |
@@ -55,7 +56,7 @@ printed.
 Add colibri to your `build.zig.zon`:
 
 ```sh
-zig fetch --save git+https://github.com/c4milo/colibri#v0.5.0
+zig fetch --save git+https://github.com/c4milo/colibri#v0.6.0
 ```
 
 Then import the modules you use. Each of the fifteen library modules is exported by name: `core`,
