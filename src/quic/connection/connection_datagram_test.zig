@@ -435,10 +435,11 @@ const RetrySuite = struct {
 
 var retry_suite: RetrySuite align(@alignOf(RetrySuite)) = .{};
 
-/// A Retry answering the client's first Initial (RFC 9000 §17.2.5.1), written into `datagram`.
-fn write_retry() !usize {
+/// A Retry answering the client's first Initial (RFC 9000 §17.2.5.1) in `version`, written into
+/// `datagram`.
+fn write_retry(version: crypto.suite.Version) !usize {
     var writer = Writer.init(&datagram);
-    try header_write.write_retry(&writer, .{ .unused_bits = 0, .dcid = &local_id, .scid = &retry_id, .token = &retry_token });
+    try header_write.write_retry(&writer, .{ .version = version, .unused_bits = 0, .dcid = &local_id, .scid = &retry_id, .token = &retry_token });
     try writer.write_bytes(&tag);
     return writer.written().len;
 }
@@ -450,18 +451,22 @@ fn receive_retry(len: usize) datagram_module.Error!datagram_module.Received {
 test "RFC 9001 §5.2: a Retry the client takes derives the Initial keys from its connection ID" {
     open_pair(&.{.initial});
     retry_suite = .{};
-    const received = try receive_retry(try write_retry());
+    const received = try receive_retry(try write_retry(.v1));
     try testing.expect(received.retry.? == .taken);
     try testing.expectEqualSlices(u8, &retry_id, &retry_suite.installed);
     // A suite that will not derive them leaves no Initial packet to send, which closes.
     open_pair(&.{.initial});
     retry_suite = .{ .refuses = true };
-    try testing.expectError(error.InitialKeysRefused, receive_retry(try write_retry()));
+    try testing.expectError(error.InitialKeysRefused, receive_retry(try write_retry(.v1)));
     try testing.expectEqual(error_code.internal_error, datagram_module.connection_error_code(&client, error.InitialKeysRefused));
     // A Retry to a server is discarded by §17.2.5's own rules, and derives nothing.
     retry_suite = .{};
-    const refused = try datagram_module.receive(&server, retry_suite.suite(), provider_holder.provider(), .{ .octets = datagram[0..try write_retry()], .now_ns = test_now_ns, .ecn = .not_ect }, &scratch);
+    const refused = try datagram_module.receive(&server, retry_suite.suite(), provider_holder.provider(), .{ .octets = datagram[0..try write_retry(.v1)], .now_ns = test_now_ns, .ecn = .not_ect }, &scratch);
     try testing.expect(refused.retry.? == .discarded);
+    try testing.expectEqual(0, retry_suite.installs);
+    // RFC 9369 §4.1: a client ignores a Retry in any version but its original one, 1.
+    open_pair(&.{.initial});
+    try testing.expectEqual(null, (try receive_retry(try write_retry(.v2))).retry);
     try testing.expectEqual(0, retry_suite.installs);
 }
 

@@ -442,6 +442,8 @@ fn write_header(connection: *Connection, suite: crypto.Suite, writer: *Writer, p
         });
     }
     return header_write.write_long(writer, .{
+        // The version every connection runs (RFC 9000 §15).
+        .version = .v1,
         .type = if (pending.level == .initial) .initial else .handshake,
         .dcid = identity.destination().slice(),
         .scid = identity.source().slice(),

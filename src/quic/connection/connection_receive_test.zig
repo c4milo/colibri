@@ -211,6 +211,7 @@ pub fn write_packet(writer: *Writer, long_type: anytype, dcid: []const u8, numbe
 /// The same, with the Source Connection ID a test chose, which RFC 9000 §7.2 turns on.
 fn write_packet_from(writer: *Writer, long_type: anytype, dcid: []const u8, scid: []const u8, number: u8) !void {
     try header_write.write_long(writer, .{
+        .version = .v1,
         .type = long_type,
         .dcid = dcid,
         .scid = scid,
@@ -290,6 +291,17 @@ test "RFC 9000 §12.2: a later packet with another Destination Connection ID is 
     try testing.expectEqual(2, third.opened.packet_number);
     // And the ignored one never reached the suite.
     try testing.expectEqual(2, opener.opened);
+}
+
+test "RFC 9000 §5.2: a long header in a version other than the connection's ends the walk unopened" {
+    open_connection();
+    var writer = Writer.init(&datagram);
+    try header_write.write_long(&writer, .{ .version = .v2, .type = .handshake, .dcid = &local_id, .scid = &peer_id, .packet_number = .{ .value = 0, .len = 1 }, .protected_payload_len = protected_len });
+    try writer.write_bytes(&test_payload);
+    start(writer.written().len);
+    const ended = (try receive.next(&walk, &test_connection, opener.suite())).?;
+    try testing.expectEqual(receive.Discarded.not_for_this_walk, ended.discarded);
+    try testing.expectEqual(0, opener.opened);
 }
 
 test "RFC 9000 §12.3: a packet number already processed is discarded, not read again" {

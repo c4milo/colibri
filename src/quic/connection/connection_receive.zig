@@ -157,7 +157,9 @@ pub fn next(walk: *Walk, connection: *Connection, suite: Suite) Error!?Outcome {
         return .{ .discarded = .unreadable_header };
     };
     return switch (parsed) {
-        .long => |long| try open_long(walk, connection, suite, long, rest),
+        // RFC 9000 §5.2: a packet in a version other than the connection's is discarded, and every
+        // connection runs version 1.
+        .long => |long| if (long.version == .v1) try open_long(walk, connection, suite, long, rest) else end_walk(walk),
         .short => |short| try open_short(walk, connection, suite, short, rest),
         // §12.2: a Retry, a Version Negotiation and a packet of another version carry no Length
         // and cannot be followed by another packet, so the walk ends whatever the caller does

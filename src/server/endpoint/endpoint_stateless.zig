@@ -16,7 +16,9 @@ const PeerAddress = quic.peer_address.PeerAddress;
 pub fn destination_of(datagram: []const u8) ?[]const u8 {
     const parsed = quic.packet.header.read(datagram, constants.quic_id_len) catch return null;
     return switch (parsed) {
-        .long => |long| long.dcid,
+        // RFC 9000 §5.2.2: a packet in a version the server does not speak gets a Version
+        // Negotiation packet or is dropped, and reaches no connection.
+        .long => |long| if (quic.connection_version.speaks(@intFromEnum(long.version))) long.dcid else null,
         .short => |short| short.dcid,
         else => null,
     };
@@ -82,6 +84,7 @@ threadlocal var test_packet: [quic.constants.datagram_len_min]u8 = undefined;
 fn long_packet(long_type: quic.packet.header.LongType) ![]const u8 {
     var writer = quic.core.Writer.init(&test_packet);
     try quic.packet.header_write.write_long(&writer, .{
+        .version = .v1,
         .type = long_type,
         .dcid = &test_id,
         .scid = &test_id,

@@ -5545,8 +5545,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     unchanged.
   - **19b**, version 2's packets. The Version field `0x6b3343cf` and version 2's long header type
     codes (RFC 9369 §3.1 and §3.2) in the packet reader and writer, with invariant 22's
-    version-independent parse unchanged, and version 2 among the versions a Version Negotiation
-    packet lists.
+    version-independent parse unchanged.
     **Check:** RFC 9369 Appendix A's sample packets, read and written byte for byte through the
     suite.
   - **19c**, version_information. The transport parameter of RFC 9368 §3, sent by both endpoints
@@ -5557,8 +5556,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **19d**, the client's switch, and a server that starts in version 2. The client starts in
     version 1 with version 2 available (RFC 9368 §2.5), switches once at the first long header in
     another version, and drops Handshake and 1-RTT packets in any version but the negotiated one
-    (RFC 9369 §4.1). A server accepts a first flight in either version. Tickets and tokens belong
-    to the version that issued them (RFC 9369 §5).
+    (RFC 9369 §4.1). A server accepts a first flight in either version, and version 2 joins the
+    versions a Version Negotiation packet lists. Tickets and tokens belong to the version that
+    issued them (RFC 9369 §5).
     **Check:** a simulator check over both versions and the switch, and the QUIC Interop Runner's
     `v2` case with colibri as the client.
   - **19e**, the server's switch. A server answers a version 1 first flight in version 2 through
@@ -5584,6 +5584,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 9 mutations, each **CAUGHT**: a key's name without its version, `seal` or `open` ignoring its
     version, the Retry tag's name without its version, `tls.quic`'s suite naming version 1 always,
     a Retry tag checked or written in version 2, and packets sealed or opened in version 2.
+
+  **19b, the wire, 2026-09-29.** The packet reader and writer carry version 2's Version field and
+  type codes, and every connection still runs version 1.
+  - `header.read` reads a long header of either version and says which on `Long` and `Retry`. RFC
+    9369 §3.2's type codes are version 1's plus one, modulo four, which `type_bits` and `type_of`
+    compute. A version neither names is handed over as before, and invariant 22's reader is
+    unchanged.
+  - `header_write.Long` and `header_write.Retry` take a version, so every caller names one.
+  - Until 19d a version 2 packet goes where a packet of an unknown version went. A connection ends
+    its walk on one (RFC 9000 §5.2), a client takes no Retry in it (RFC 9369 §4.1), and the server
+    answers one with Version Negotiation rather than route it to a connection (RFC 9000 §5.2.2).
+  - Listing version 2 in a Version Negotiation packet moved to 19d, where a server first accepts
+    it; a server that lists a version it refuses would send the client a version that fails.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2342 of 2342 tests. RFC 9369 Appendix A's headers of both Initials and of
+    the Retry, octet for octet, and the Retry read back into its fields.
+  - 9 mutations, each **CAUGHT**: version 2's type bits written or read as version 1's, byte 0
+    carrying version 1's bits, the reader handing version 2 over as another version, either
+    header writing version 1's Version field, and each of the three places a version 2 packet is
+    refused letting it through.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

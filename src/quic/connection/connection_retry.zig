@@ -253,6 +253,8 @@ fn write_packet(
 ) Answer {
     var writer = Writer.init(output);
     header_write.write_retry(&writer, .{
+        // RFC 9369 §4.1: a Retry uses the client's original version, version 1.
+        .version = .v1,
         // §17.2.5: "The value in the Unused field is set to an arbitrary value by the server; a
         // client MUST ignore these bits." Zero is arbitrary, and invariant 5 forbids colibri the
         // random number a greased value would need.

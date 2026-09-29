@@ -80,7 +80,7 @@ fn draw_packet(storage: *Storage, random: *Random, material: []const u8, kind: K
         .initial, .zero_rtt, .handshake => try write_long(&copy, random, material, kind, dcid, scid, payload.len),
         .retry => {
             const token = draw_octets(random, material, 1, constants.quic_input_check_octets_len_max);
-            try header_write.write_retry(&copy, .{ .dcid = dcid, .scid = scid, .token = token });
+            try header_write.write_retry(&copy, .{ .version = .v1, .dcid = dcid, .scid = scid, .token = token });
             try copy.write_bytes(draw_octets(random, material, limits.retry_integrity_tag_len, limits.retry_integrity_tag_len));
             writer.* = copy;
             return;
@@ -120,6 +120,7 @@ fn write_long(
     };
     const token = if (kind == .initial) draw_octets(random, material, 0, constants.quic_input_check_octets_len_max) else &.{};
     try header_write.write_long(writer, .{
+        .version = .v1,
         .type = long_type,
         .dcid = dcid,
         .scid = scid,
@@ -160,7 +161,7 @@ fn packet_len_of(packet: header.Packet, rest_len: usize, short_dcid_len: usize) 
         .retry => |retry| retry.token.len > 0 and fixed(retry.first_octet) and
             retry.without_tag.len + limits.retry_integrity_tag_len == rest_len,
         .version_negotiation => |negotiation| negotiation.supported.count() > 0,
-        .other_version => |other| other.version != limits.version_1,
+        .other_version => |other| std.enums.fromInt(quic.packet.header.Version, other.version) == null,
     };
     if (!inside) return error.PacketOutsideDatagram;
     return if (packet == .long) packet.long.packet_len else rest_len;

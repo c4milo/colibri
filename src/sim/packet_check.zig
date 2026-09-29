@@ -211,6 +211,7 @@ fn write_header(storage: *Storage, plan: Plan, truncated: packet_number.Truncate
         }) catch unreachable;
     }
     header_write.write_long(writer, .{
+        .version = .v1,
         .type = if (plan.level == .initial) .initial else .handshake,
         .dcid = destination,
         .scid = source,

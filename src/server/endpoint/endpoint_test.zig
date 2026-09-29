@@ -78,6 +78,26 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     try testing.expectEqual(null, endpoint.send(&output, support.now_ns));
 }
 
+test "RFC 9000 §5.2.2: a version 2 datagram to a live connection gets Version Negotiation instead" {
+    try support.start_endpoint(null);
+    try support.connect();
+    @memset(&probe, 0);
+    var writer = quic.core.Writer.init(&probe);
+    try quic.packet.header_write.write_long(&writer, .{
+        .version = .v2,
+        .type = .handshake,
+        .dcid = support.client.identity.destination().slice(),
+        .scid = support.client.identity.source().slice(),
+        .packet_number = try quic.packet.packet_number.encode(0, null),
+        .protected_payload_len = short_payload_len,
+    });
+    const from = support.client_address();
+    try testing.expectEqual(null, endpoint.receive(&probe, .not_ect, from, support.now_ns));
+    var output: [quic.constants.datagram_len_max]u8 = undefined;
+    const reply = endpoint.send(&output, support.now_ns).?;
+    try testing.expect((try quic.packet.invariant.read_long(reply.octets)).is_version_negotiation());
+}
+
 test "RFC 9000 §5.2.2: with every slot in use, a client's Initial starts no connection" {
     try support.start_endpoint(null);
     for (&endpoint.live, &endpoint.connections) |*live, *connection| {
@@ -150,6 +170,7 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
     try support.start_endpoint(null);
     var writer = quic.core.Writer.init(&short_initial);
     try quic.packet.header_write.write_long(&writer, .{
+        .version = .v1,
         .type = .initial,
         .dcid = &short_id,
         .scid = &short_id,

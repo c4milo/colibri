@@ -1,4 +1,6 @@
-//! The version 1 packet reader (RFC 9000 §17), above the version-independent one. It reads one
+//! The packet reader of versions 1 and 2 (RFC 9000 §17, RFC 9369 §3), above the
+//! version-independent one. Version 2 is version 1 with another Version field and other long
+//! header type codes, and names the keys a packet is opened under (decision 108). It reads one
 //! packet of a datagram as far as header protection allows: the type, the connection IDs, the
 //! token, and where the Packet Number field starts and the packet ends. The low bits of byte 0 and
 //! the packet number are under header protection (RFC 9001 §5.4), so they are read by
@@ -8,25 +10,47 @@
 //! reports `packet_len`, so the caller reads the next one from there. A short header, a Retry and
 //! a Version Negotiation packet carry no Length and always end the datagram.
 //!
-//! Every rule of version 1 that RFC 8999 does not state is applied here and never below: this is
-//! the only file that names the 20-octet connection ID maximum, and the comptime block at the end
-//! holds `invariant.zig` to that (invariant 22).
+//! Every rule of versions 1 and 2 that RFC 8999 does not state is applied here and never below:
+//! this is the only file that names the 20-octet connection ID maximum, and the comptime block at
+//! the end holds `invariant.zig` to that (invariant 22).
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 const wire = @import("wire");
+const crypto = @import("crypto");
 const constants = @import("../constants.zig");
 const invariant = @import("invariant.zig");
 
 const Reader = core.Reader;
 
-/// The long packet types of version 1 (RFC 9000 §17.2, Table 5).
+/// A version whose packets this file reads (RFC 9000 §15, RFC 9369 §3.1).
+pub const Version = crypto.suite.Version;
+
+/// The long packet types, each valued at its two Long Packet Type bits in version 1 (RFC 9000
+/// §17.2, Table 5). `type_bits` gives a version's bits for a type.
 pub const LongType = enum(u2) {
     initial = 0,
     zero_rtt = 1,
     handshake = 2,
     retry = 3,
 };
+
+/// The two Long Packet Type bits of `long_type` in `version`. RFC 9369 §3.2's table for version 2,
+/// Initial 0b01, 0-RTT 0b10, Handshake 0b11 and Retry 0b00, is version 1's plus one, modulo four.
+pub fn type_bits(version: Version, long_type: LongType) u2 {
+    return switch (version) {
+        .v1 => @intFromEnum(long_type),
+        .v2 => @intFromEnum(long_type) +% 1,
+    };
+}
+
+/// The long packet type `bits` name in `version`, which `type_bits` inverts.
+pub fn type_of(version: Version, bits: u2) LongType {
+    return switch (version) {
+        .v1 => @enumFromInt(bits),
+        .v2 => @enumFromInt(bits -% 1),
+    };
+}
 
 /// Why a packet was not read. Each one means "discard the packet": none of them is a connection
 /// error, because nothing here has been authenticated yet.
@@ -48,6 +72,8 @@ pub const Error = invariant.Error || error{
 
 /// An Initial, 0-RTT or Handshake packet, read as far as header protection allows.
 pub const Long = struct {
+    /// The Version field, which names the keys that protect the packet (RFC 9369 §3.3).
+    version: Version,
     type: LongType,
     /// Byte 0 as it arrived. Its low four bits are still protected.
     first_octet: u8,
@@ -73,6 +99,9 @@ pub const Short = struct {
 
 /// A Retry packet (RFC 9000 §17.2.5). Nothing in it is protected.
 pub const Retry = struct {
+    /// The Version field, which names the key and nonce of the Retry Integrity Tag (RFC 9369
+    /// §3.3.3).
+    version: Version,
     first_octet: u8,
     dcid: []const u8,
     scid: []const u8,
@@ -93,8 +122,8 @@ pub const Packet = union(enum) {
     short: Short,
     retry: Retry,
     version_negotiation: VersionNegotiation,
-    /// A long header of a version other than 1, with the fields RFC 8999 fixes and no more. A
-    /// server answers it with a Version Negotiation packet (RFC 9000 §5.2.2).
+    /// A long header of a version other than 1 and 2, with the fields RFC 8999 fixes and no more.
+    /// A server answers it with a Version Negotiation packet (RFC 9000 §5.2.2).
     other_version: invariant.Long,
 };
 
@@ -116,17 +145,18 @@ pub fn read(datagram: []const u8, short_dcid_len: usize) Error!Packet {
     }
     // RFC 9000 §17.2.1: version-specific rules MUST NOT influence whether a Version Negotiation
     // packet is sent, so a packet of another version is handed over before any rule below runs.
-    if (header.version != constants.version_1) return .{ .other_version = header };
-    // RFC 9000 §17.2: packets containing a zero value for the Fixed Bit MUST be discarded.
+    const version = std.enums.fromInt(Version, header.version) orelse return .{ .other_version = header };
+    // RFC 9000 §17.2, which RFC 9369 §3 keeps for version 2: packets containing a zero value for
+    // the Fixed Bit MUST be discarded.
     if (header.first_octet & constants.fixed_bit == 0) return error.FixedBitClear;
     const longest = @max(header.dcid.len, header.scid.len);
-    // RFC 9000 §17.2: in version 1 neither connection ID length may exceed 20 octets, and an
-    // endpoint that receives a larger value MUST drop the packet.
+    // RFC 9000 §17.2, which RFC 9369 §3 keeps for version 2: neither connection ID length may
+    // exceed 20 octets, and an endpoint that receives a larger value MUST drop the packet.
     if (longest > constants.connection_id_len_max) return error.ConnectionIdTooLong;
-    const long_type: LongType = @enumFromInt((header.first_octet & constants.long_packet_type_mask) >>
-        constants.long_packet_type_shift);
-    if (long_type == .retry) return .{ .retry = try read_retry(datagram, header) };
-    return .{ .long = try read_long(long_type, header) };
+    const bits: u2 = @intCast((header.first_octet & constants.long_packet_type_mask) >> constants.long_packet_type_shift);
+    const long_type = type_of(version, bits);
+    if (long_type == .retry) return .{ .retry = try read_retry(datagram, header, version) };
+    return .{ .long = try read_long(long_type, header, version) };
 }
 
 fn read_short(datagram: []const u8, dcid_len: usize) Error!Short {
@@ -142,7 +172,7 @@ fn read_short(datagram: []const u8, dcid_len: usize) Error!Short {
 }
 
 /// The fields after the Source Connection ID of an Initial, 0-RTT or Handshake packet.
-fn read_long(long_type: LongType, header: invariant.Long) Error!Long {
+fn read_long(long_type: LongType, header: invariant.Long, version: Version) Error!Long {
     assert(long_type != .retry);
     var reader = Reader.init(header.rest);
     var token: []const u8 = &.{};
@@ -160,6 +190,7 @@ fn read_long(long_type: LongType, header: invariant.Long) Error!Long {
     if (length > reader.remaining_len()) return error.LengthPastDatagram;
     const packet_number_offset = header.header_len() + reader.offset;
     return .{
+        .version = version,
         .type = long_type,
         .first_octet = header.first_octet,
         .dcid = header.dcid,
@@ -171,7 +202,7 @@ fn read_long(long_type: LongType, header: invariant.Long) Error!Long {
 }
 
 /// The fields after the Source Connection ID of a Retry packet (RFC 9000 §17.2.5).
-fn read_retry(datagram: []const u8, header: invariant.Long) Error!Retry {
+fn read_retry(datagram: []const u8, header: invariant.Long, version: Version) Error!Retry {
     const tag_len = constants.retry_integrity_tag_len;
     // RFC 9000 §17.2.5: the Retry Token, then the 128-bit Retry Integrity Tag, and no Length: the
     // tag is the last 16 octets of the datagram.
@@ -180,6 +211,7 @@ fn read_retry(datagram: []const u8, header: invariant.Long) Error!Retry {
     // RFC 9000 §17.2.5.2: a client MUST discard a Retry packet with a zero-length Retry Token.
     if (token.len == 0) return error.RetryTokenEmpty;
     return .{
+        .version = version,
         .first_octet = header.first_octet,
         .dcid = header.dcid,
         .scid = header.scid,
@@ -250,11 +282,36 @@ const sample_handshake = "\xe0\x00\x00\x00\x01\x02\xaa\xbb\x01\xcc\x05\x01\x02\x
 
 test "RFC 9001 Appendix A.4: the published Retry packet reads into its fields" {
     const retry = (try read(sample_retry, 0)).retry;
+    try testing.expectEqual(.v1, retry.version);
     try testing.expectEqual(0, retry.dcid.len);
     try testing.expectEqualSlices(u8, sample_retry[7..15], retry.scid);
     try testing.expectEqualStrings("token", retry.token);
     try testing.expectEqualSlices(u8, sample_retry[20..], retry.integrity_tag);
     try testing.expectEqualSlices(u8, sample_retry[0..20], retry.without_tag);
+}
+
+/// RFC 9369 Appendix A.4's Retry packet, as published. Test-only.
+const sample_retry_v2 = "\xcf\x6b\x33\x43\xcf\x00\x08\xf0\x67\xa5\x50\x2a\x42\x62\xb5token" ++
+    "\xc8\x64\x6c\xe8\xbf\xe3\x39\x52\xd9\x55\x54\x36\x65\xdc\xc7\xb6";
+
+test "RFC 9369 Appendix A.4: the published version 2 Retry packet reads into its fields" {
+    const retry = (try read(sample_retry_v2, 0)).retry;
+    try testing.expectEqual(.v2, retry.version);
+    try testing.expectEqualSlices(u8, sample_retry_v2[7..15], retry.scid);
+    try testing.expectEqualStrings("token", retry.token);
+    try testing.expectEqualSlices(u8, sample_retry_v2[20..], retry.integrity_tag);
+}
+
+test "RFC 9369 §3.2: version 2's Long Packet Type bits, and each version's bits read back" {
+    try testing.expectEqual(0b01, type_bits(.v2, .initial));
+    try testing.expectEqual(0b10, type_bits(.v2, .zero_rtt));
+    try testing.expectEqual(0b11, type_bits(.v2, .handshake));
+    try testing.expectEqual(0b00, type_bits(.v2, .retry));
+    for (std.enums.values(Version)) |version| {
+        for (std.enums.values(LongType)) |long_type| {
+            try testing.expectEqual(long_type, type_of(version, type_bits(version, long_type)));
+        }
+    }
 }
 
 test "§17.2.5: a Retry too short for its tag, or with no token before it, is discarded" {
@@ -358,7 +415,7 @@ fn fuzz_read(_: void, smith: *testing.Smith) anyerror!void {
             try testing.expectEqual(datagram.len, retry.without_tag.len + constants.retry_integrity_tag_len);
         },
         .version_negotiation => |negotiation| try testing.expect(negotiation.supported.count() > 0),
-        .other_version => |other| try testing.expect(other.version != constants.version_1),
+        .other_version => |other| try testing.expectEqual(null, std.enums.fromInt(Version, other.version)),
     }
 }
 

@@ -252,6 +252,7 @@ pub fn open_as(role: connection_module.Role) void {
 fn write_retry_into(scid: []const u8, token: []const u8) !usize {
     var writer = Writer.init(&datagram);
     try header_write.write_retry(&writer, .{
+        .version = .v1,
         .unused_bits = unused_bits,
         .dcid = &c1,
         .scid = scid,

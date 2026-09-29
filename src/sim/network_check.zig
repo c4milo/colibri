@@ -206,6 +206,7 @@ fn write_header(storage: *Storage, from: Endpoint, level: Level, truncated: pack
         }) catch unreachable;
     }
     header_write.write_long(writer, .{
+        .version = .v1,
         .type = if (level == .initial) .initial else .handshake,
         .dcid = connection_id,
         .scid = connection_id,

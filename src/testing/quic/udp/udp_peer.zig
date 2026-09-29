@@ -284,6 +284,7 @@ var test_packet: [quic.constants.datagram_len_min]u8 = undefined;
 fn long_packet(long_type: quic.packet.header.LongType) ![]const u8 {
     var writer = quic.core.Writer.init(&test_packet);
     try quic.packet.header_write.write_long(&writer, .{
+        .version = .v1,
         .type = long_type,
         .dcid = &test_id,
         .scid = &test_id,

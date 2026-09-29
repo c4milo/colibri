@@ -1,4 +1,5 @@
-//! The version 1 header writers (RFC 9000 §17), split off `packet_header.zig` for length. Each
+//! The header writers of versions 1 and 2 (RFC 9000 §17, RFC 9369 §3), split off
+//! `packet_header.zig` for length. Each
 //! writes a header up to and including its Packet Number field, which is the associated data of
 //! the packet's AEAD (RFC 9001 §5.3), and leaves the low bits of byte 0 and the packet number
 //! unprotected: whoever holds the keys applies header protection after it seals the payload.
@@ -16,9 +17,13 @@ const packet_number = @import("packet_number.zig");
 
 const Writer = core.Writer;
 const LongType = packet_header.LongType;
+const Version = packet_header.Version;
 
 /// The header of an Initial, 0-RTT or Handshake packet (RFC 9000 §17.2.2 to §17.2.4).
 pub const Long = struct {
+    /// The version, whose Version field and Long Packet Type bits the header carries (RFC 9369
+    /// §3.1, §3.2).
+    version: Version,
     type: LongType,
     dcid: []const u8,
     scid: []const u8,
@@ -39,8 +44,8 @@ pub fn write_long(writer: *Writer, header: Long) core.writer.Error!void {
     var copy = writer.*;
     // RFC 9000 §17.2: Header Form 1, Fixed Bit 1, the type, Reserved Bits 0, and the Packet
     // Number Length as one less than the field's octets.
-    try copy.write_byte(long_first_octet(header.type) | (header.packet_number.len - 1));
-    try copy.write_int(u32, constants.version_1);
+    try copy.write_byte(long_first_octet(header.version, header.type) | (header.packet_number.len - 1));
+    try copy.write_int(u32, @intFromEnum(header.version));
     try invariant.write_connection_id(&copy, header.dcid);
     try invariant.write_connection_id(&copy, header.scid);
     // RFC 9000 §17.2.2: only an Initial packet carries a Token Length and a Token.
@@ -56,10 +61,11 @@ pub fn write_long(writer: *Writer, header: Long) core.writer.Error!void {
     writer.* = copy;
 }
 
-/// Byte 0 of a long header of `long_type`, less its Packet Number Length (RFC 9000 §17.2).
-fn long_first_octet(long_type: LongType) u8 {
+/// Byte 0 of a long header of `long_type` in `version`, less its Packet Number Length (RFC 9000
+/// §17.2, RFC 9369 §3.2).
+fn long_first_octet(version: Version, long_type: LongType) u8 {
     const form_and_fixed = invariant_long_form | constants.fixed_bit;
-    return form_and_fixed | (@as(u8, @intFromEnum(long_type)) << constants.long_packet_type_shift);
+    return form_and_fixed | (@as(u8, packet_header.type_bits(version, long_type)) << constants.long_packet_type_shift);
 }
 
 /// RFC 8999 §5.1: the Header Form bit of a long header.
@@ -89,6 +95,8 @@ pub fn write_short(writer: *Writer, header: Short) core.writer.Error!void {
 
 /// A Retry packet less its Retry Integrity Tag (RFC 9000 §17.2.5).
 pub const Retry = struct {
+    /// The client's original version, which RFC 9369 §4.1 has a Retry use.
+    version: Version,
     /// The four bits the RFC leaves to the server, which a client MUST ignore.
     unused_bits: u4 = 0,
     dcid: []const u8,
@@ -101,8 +109,8 @@ pub fn write_retry(writer: *Writer, retry: Retry) core.writer.Error!void {
     // RFC 9000 §17.2.5.2: a client discards a Retry with a zero-length token, so none is sent.
     assert(retry.token.len > 0);
     var copy = writer.*;
-    try copy.write_byte(long_first_octet(.retry) | retry.unused_bits);
-    try copy.write_int(u32, constants.version_1);
+    try copy.write_byte(long_first_octet(retry.version, .retry) | retry.unused_bits);
+    try copy.write_int(u32, @intFromEnum(retry.version));
     try invariant.write_connection_id(&copy, retry.dcid);
     try invariant.write_connection_id(&copy, retry.scid);
     try copy.write_bytes(retry.token);
@@ -131,38 +139,45 @@ const testing = std.testing;
 const client_dcid = "\x83\x94\xc8\xf0\x3e\x51\x57\x08".*;
 const server_scid = "\xf0\x67\xa5\x50\x2a\x42\x62\xb5".*;
 
-test "RFC 9001 Appendix A.2: the client Initial's unprotected header, octet for octet" {
-    var buffer: [64]u8 = undefined;
-    var writer = Writer.init(&buffer);
-    // 1162 octets of frames and the 16-octet tag, under a 4-octet packet number of 2.
-    try write_long(&writer, .{
-        .type = .initial,
-        .dcid = &client_dcid,
-        .scid = &.{},
-        .packet_number = .{ .value = 2, .len = 4 },
-        .protected_payload_len = 1162 + constants.aead_tag_len,
-        .length_len = 2,
-    });
-    const expected = [_]u8{ 0xc3, 0x00, 0x00, 0x00, 0x01, 0x08 } ++ client_dcid ++
-        [_]u8{ 0x00, 0x00, 0x44, 0x9e, 0x00, 0x00, 0x00, 0x02 };
-    try testing.expectEqualSlices(u8, &expected, writer.written());
+test "RFC 9001 and RFC 9369 Appendix A.2: the client Initial's unprotected header, octet for octet" {
+    // Byte 0 and the Version field of each version: RFC 9369 §3.1 and §3.2 change both.
+    const heads = [_][6]u8{ .{ 0xc3, 0x00, 0x00, 0x00, 0x01, 0x08 }, .{ 0xd3, 0x6b, 0x33, 0x43, 0xcf, 0x08 } };
+    inline for (comptime std.enums.values(Version), heads) |version, head| {
+        var buffer: [64]u8 = undefined;
+        var writer = Writer.init(&buffer);
+        // 1162 octets of frames and the 16-octet tag, under a 4-octet packet number of 2.
+        try write_long(&writer, .{
+            .version = version,
+            .type = .initial,
+            .dcid = &client_dcid,
+            .scid = &.{},
+            .packet_number = .{ .value = 2, .len = 4 },
+            .protected_payload_len = 1162 + constants.aead_tag_len,
+            .length_len = 2,
+        });
+        const expected = head ++ client_dcid ++ [_]u8{ 0x00, 0x00, 0x44, 0x9e, 0x00, 0x00, 0x00, 0x02 };
+        try testing.expectEqualSlices(u8, &expected, writer.written());
+    }
 }
 
-test "RFC 9001 Appendix A.3: the server Initial's unprotected header, octet for octet" {
-    var buffer: [64]u8 = undefined;
-    var writer = Writer.init(&buffer);
-    // The Length of 117 is written in two octets, which RFC 9000 §16 permits.
-    try write_long(&writer, .{
-        .type = .initial,
-        .dcid = &.{},
-        .scid = &server_scid,
-        .packet_number = .{ .value = 1, .len = 2 },
-        .protected_payload_len = 99 + constants.aead_tag_len,
-        .length_len = 2,
-    });
-    const expected = [_]u8{ 0xc1, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08 } ++ server_scid ++
-        [_]u8{ 0x00, 0x40, 0x75, 0x00, 0x01 };
-    try testing.expectEqualSlices(u8, &expected, writer.written());
+test "RFC 9001 and RFC 9369 Appendix A.3: the server Initial's unprotected header, octet for octet" {
+    const heads = [_][7]u8{ .{ 0xc1, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08 }, .{ 0xd1, 0x6b, 0x33, 0x43, 0xcf, 0x00, 0x08 } };
+    inline for (comptime std.enums.values(Version), heads) |version, head| {
+        var buffer: [64]u8 = undefined;
+        var writer = Writer.init(&buffer);
+        // The Length of 117 is written in two octets, which RFC 9000 §16 permits.
+        try write_long(&writer, .{
+            .version = version,
+            .type = .initial,
+            .dcid = &.{},
+            .scid = &server_scid,
+            .packet_number = .{ .value = 1, .len = 2 },
+            .protected_payload_len = 99 + constants.aead_tag_len,
+            .length_len = 2,
+        });
+        const expected = head ++ server_scid ++ [_]u8{ 0x00, 0x40, 0x75, 0x00, 0x01 };
+        try testing.expectEqualSlices(u8, &expected, writer.written());
+    }
 }
 
 test "RFC 9001 Appendix A.5: the short header, octet for octet" {
@@ -177,12 +192,18 @@ test "RFC 9001 Appendix A.5: the short header, octet for octet" {
     try testing.expectEqualSlices(u8, &.{ 0x42, 0x00, 0xbf, 0xf4 }, writer.written());
 }
 
-test "RFC 9001 Appendix A.4: the Retry packet less its tag, and the pseudo-packet over it" {
+test "RFC 9001 and RFC 9369 Appendix A.4: the Retry packet less its tag, and the pseudo-packet over it" {
     var buffer: [64]u8 = undefined;
     var writer = Writer.init(&buffer);
-    try write_retry(&writer, .{ .unused_bits = 0xf, .dcid = &.{}, .scid = &server_scid, .token = "token" });
+    try write_retry(&writer, .{ .version = .v1, .unused_bits = 0xf, .dcid = &.{}, .scid = &server_scid, .token = "token" });
     const expected = [_]u8{ 0xff, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08 } ++ server_scid ++ "token".*;
     try testing.expectEqualSlices(u8, &expected, writer.written());
+    // RFC 9369 Appendix A.4: version 2's Retry, whose type bits are 0b00.
+    var buffer_2: [64]u8 = undefined;
+    var version_2 = Writer.init(&buffer_2);
+    try write_retry(&version_2, .{ .version = .v2, .unused_bits = 0xf, .dcid = &.{}, .scid = &server_scid, .token = "token" });
+    const expected_v2 = [_]u8{ 0xcf, 0x6b, 0x33, 0x43, 0xcf, 0x00, 0x08 } ++ server_scid ++ "token".*;
+    try testing.expectEqualSlices(u8, &expected_v2, version_2.written());
     // RFC 9001 §5.8: the ODCID Length and the ODCID, then the packet as sent, less its tag.
     var pseudo_buffer: [64]u8 = undefined;
     var pseudo = Writer.init(&pseudo_buffer);
@@ -190,31 +211,35 @@ test "RFC 9001 Appendix A.4: the Retry packet less its tag, and the pseudo-packe
     try testing.expectEqualSlices(u8, &([_]u8{0x08} ++ client_dcid ++ expected), pseudo.written());
 }
 
-test "§17.2: every long type is read back as it was written, with what follows it left alone" {
+test "§17.2: every long type of each version is read back as it was written, and what follows it" {
     const token = "a token the server issued";
-    for ([_]LongType{ .initial, .zero_rtt, .handshake }) |long_type| {
-        var buffer: [128]u8 = @splat(0xee);
-        var writer = Writer.init(&buffer);
-        const header: Long = .{
-            .type = long_type,
-            .dcid = &client_dcid,
-            .scid = &server_scid,
-            .token = if (long_type == .initial) token else &.{},
-            .packet_number = .{ .value = 0x1234, .len = 2 },
-            .protected_payload_len = 20,
-        };
-        try write_long(&writer, header);
-        const header_len = writer.written().len;
-        // The payload, then the first octets of a second packet in the same datagram (§12.2).
-        const datagram = buffer[0 .. header_len + 20 + 5];
-        const packet = (try packet_header.read(datagram, 0)).long;
-        try testing.expectEqual(long_type, packet.type);
-        try testing.expectEqualSlices(u8, &client_dcid, packet.dcid);
-        try testing.expectEqualSlices(u8, &server_scid, packet.scid);
-        try testing.expectEqualSlices(u8, header.token, packet.token);
-        try testing.expectEqual(header_len - 2, packet.packet_number_offset);
-        try testing.expectEqual(header_len + 20, packet.packet_len);
-        try testing.expectEqual(2, try packet_header.unprotected_long(packet.first_octet));
+    for (std.enums.values(Version)) |version| {
+        for ([_]LongType{ .initial, .zero_rtt, .handshake }) |long_type| {
+            var buffer: [128]u8 = @splat(0xee);
+            var writer = Writer.init(&buffer);
+            const header: Long = .{
+                .version = version,
+                .type = long_type,
+                .dcid = &client_dcid,
+                .scid = &server_scid,
+                .token = if (long_type == .initial) token else &.{},
+                .packet_number = .{ .value = 0x1234, .len = 2 },
+                .protected_payload_len = 20,
+            };
+            try write_long(&writer, header);
+            const header_len = writer.written().len;
+            // The payload, then the first octets of a second packet in the same datagram (§12.2).
+            const datagram = buffer[0 .. header_len + 20 + 5];
+            const packet = (try packet_header.read(datagram, 0)).long;
+            try testing.expectEqual(version, packet.version);
+            try testing.expectEqual(long_type, packet.type);
+            try testing.expectEqualSlices(u8, &client_dcid, packet.dcid);
+            try testing.expectEqualSlices(u8, &server_scid, packet.scid);
+            try testing.expectEqualSlices(u8, header.token, packet.token);
+            try testing.expectEqual(header_len - 2, packet.packet_number_offset);
+            try testing.expectEqual(header_len + 20, packet.packet_len);
+            try testing.expectEqual(2, try packet_header.unprotected_long(packet.first_octet));
+        }
     }
 }
 
@@ -240,6 +265,7 @@ test "a header that does not fit writes nothing" {
     var buffer: [64]u8 = undefined;
     var whole = Writer.init(&buffer);
     const header: Long = .{
+        .version = .v1,
         .type = .handshake,
         .dcid = &client_dcid,
         .scid = &server_scid,
