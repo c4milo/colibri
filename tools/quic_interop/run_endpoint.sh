@@ -70,6 +70,8 @@ client_options=(pin)
 [ "$TESTCASE" = keyupdate ] && client_options+=(keyupdate)
 [ "$TESTCASE" = resumption ] && client_options+=(resumption)
 [ "$TESTCASE" = http3 ] && client_options+=(h3)
+# The chacha20 case requires the client to offer TLS_CHACHA20_POLY1305_SHA256 alone.
+[ "$TESTCASE" = chacha20 ] && client_options+=(chacha20)
 [ -n "${QLOGDIR:-}" ] && client_options+=("qlogdir=$QLOGDIR")
 
 client() {

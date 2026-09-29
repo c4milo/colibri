@@ -4,6 +4,7 @@
 //! may read the operating system's entropy; the library may not, and does not (invariant 5).
 const std = @import("std");
 const tls = @import("tls");
+const chapulin = @import("chapulin");
 const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
 const entropy = @import("../../entropy.zig");
@@ -152,21 +153,37 @@ pub fn server_start(now_seconds: u64) quic_session.Start {
     return .{ .server = .{ .config = &server_config, .now_seconds = now_seconds } };
 }
 
+/// TLS_CHACHA20_POLY1305_SHA256's codepoint (RFC 9846 Appendix B.4), the one suite a client with
+/// `chacha20` offers.
+pub const chacha20: u16 = @intFromEnum(chapulin.Suite.chacha20_poly1305_sha256);
+const chacha20_only = [_]u16{chacha20};
+
+/// Whether the object takes a client's own order. One without AES-GCM holds ChaCha20 alone,
+/// offers it alone, and refuses any order (decision 97).
+const takes_order = @hasField(chapulin.c.ch_cfg, "cipher_suites");
+
+/// The suites the client offers (RFC 9846 §4.2.2): ChaCha20 alone with `chacha20`, which the QUIC
+/// Interop Runner's chacha20 case requires, and the object's order otherwise.
+fn client_suites(asked: udp_arguments.Client) []const u16 {
+    return if (asked.chacha20 and takes_order) &chacha20_only else &.{};
+}
+
 /// The client offers h3 or hq-interop, as asked. By default it trusts the root the prefix names,
 /// and checks the chain and the host name; with `pin` it trusts the server's key alone, whose
 /// SHA-256 `<prefix>.pin` holds.
 fn configure_client(asked: udp_arguments.Client) !void {
     const prefix = asked.anchor_prefix;
     const alpn: []const []const u8 = if (asked.h3) &client_alpn_h3 else &client_alpn_hq;
+    const suites = client_suites(asked);
     if (asked.pin) {
         try read_key(prefix, ".pin", &pin_storage[0]);
-        return client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn });
+        return client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn, .cipher_suites = suites });
     }
     const anchors = [_]tls.Anchor{.{
         .subject = try check_file.read_part(prefix, ".name", &name_storage),
         .spki = try check_file.read_part(prefix, ".spki", &spki_storage),
     }};
-    return client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn });
+    return client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn, .cipher_suites = suites });
 }
 
 fn configure_server(asked: udp_arguments.Server) !void {

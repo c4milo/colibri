@@ -350,24 +350,26 @@ section when a step adds or renames a command.
 - UDP QUIC endpoint: `zig build quic-udp -- server <address> <port> <identity-prefix> <www> [once]
   [retry] [errors] [no-ecn] [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]`
   and `-- client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate]
-  [resumption] [h3] [pin] [qlogdir=<directory>] <path>...` run design §9's servers and clients
-  over Rotor's UDP loop and `tls.quic`. With `pin` the client trusts the server's key, whose
-  SHA-256 `<anchor-prefix>.pin` holds, and judges no chain, date or name. With `qlogdir` each
-  connection writes its qlog into the directory, as `<ODCID>_<vantage point>.sqlog` (decision
-  102). The server serves h3 or hq-interop, whichever its client's ALPN asks for, and a client
-  with `h3` fetches over h3. A server with `h3` serves h3 alone through the `server` module's
-  `Endpoint` (design §8 step 17b), holds `quic_connections_max` connections and writes no qlog;
-  `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run it. An address is IPv4 or
-  IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh [port]` runs a client
-  against a server on 127.0.0.1 over both protocols and against the `h3` mode, checks each file
-  arrives octet for octet, that a missing one is refused, and that a second connection resumes the
-  first one's session. It also checks each connection's qlog files with `tools/qlog_check.py`,
-  which requires each record to be a JSON text with the members its event requires.
-  `tools/qlog_to_qvis.py <file.sqlog> [output]` rewrites one into the qlog 0.3 form qvis reads
-  (decision 102 as amended). `tools/quic_aioquic.sh [port]` runs the same endpoint against
-  aioquic's, pinned and installed once into a cached virtual environment, over both protocols in
-  both directions, the `h3` mode serving h3, and checks that a handshake colibri's server refuses
-  ends with its CONNECTION_CLOSE; it also needs `python3`. `tools/ci.sh` runs both.
+  [resumption] [h3] [pin] [chacha20] [qlogdir=<directory>] <path>...` run design §9's servers and
+  clients over Rotor's UDP loop and `tls.quic`. With `pin` the client trusts the server's key, whose
+  SHA-256 `<anchor-prefix>.pin` holds, and judges no chain, date or name. With `chacha20` it offers
+  TLS_CHACHA20_POLY1305_SHA256 alone, as the runner's chacha20 case requires, and each client names
+  the suite it ran in its report. With `qlogdir` each connection writes its qlog into the directory,
+  as `<ODCID>_<vantage point>.sqlog` (decision 102). The server serves h3 or hq-interop, whichever
+  its client's ALPN asks for, and a client with `h3` fetches over h3. A server with `h3` serves h3
+  alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
+  connections and writes no qlog; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
+  it. An address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh
+  [port]` runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
+  checks each file arrives octet for octet, that a missing one is refused, that a client with
+  `chacha20` runs TLS_CHACHA20_POLY1305_SHA256, and that a second connection resumes the first one's
+  session. It also checks each connection's qlog files with `tools/qlog_check.py`, which requires
+  each record to be a JSON text with the members its event requires. `tools/qlog_to_qvis.py
+  <file.sqlog> [output]` rewrites one into the qlog 0.3 form qvis reads (decision 102 as amended).
+  `tools/quic_aioquic.sh [port]` runs the same endpoint against aioquic's, pinned and installed once
+  into a cached virtual environment, over both protocols in both directions, the `h3` mode serving
+  h3, and checks that a handshake colibri's server refuses ends with its CONNECTION_CLOSE; it also
+  needs `python3`. `tools/ci.sh` runs both.
 - Channel check: `zig build http-client -- --channel --tls <anchor-prefix> --seconds <unix-seconds>
   [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Channel`, which
   opens QUIC first and TCP once QUIC fails or the fallback delay passes (design §8 step 17d).

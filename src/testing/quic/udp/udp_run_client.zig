@@ -145,16 +145,25 @@ fn age_ms(received_ns: u64, now_ns: u64) u64 {
 }
 
 pub fn report(connection: *Connection, asked: udp_arguments.Client) void {
-    std.debug.print("quic-udp: fetched {d} of {d} files, {d} octets, alpn={s}\n", .{
+    std.debug.print("quic-udp: fetched {d} of {d} files, {d} octets, alpn={s} suite=0x{x:0>4}\n", .{
         fetched_before + finished_count(),
         asked.paths.len,
         received_before + received_len(),
         connection.peer.session.provider().negotiated_alpn() orelse "none",
+        suite_ran(connection),
     });
     // A connection that ended before every file arrived, by a timeout or the server's close, is a
     // failed run.
     if (!is_done()) udp_run.fail("the connection ended with files missing", .{});
     if (resuming) std.debug.print("quic-udp: the second connection resumed the first one's session\n", .{});
+}
+
+/// The suite the connection ran, as an RFC 9846 Appendix B.4 codepoint. A client of an object
+/// without AES-GCM offers ChaCha20 alone and records no suite (chapulin's `suite`), so none
+/// recorded means that one.
+fn suite_ran(connection: *Connection) u16 {
+    const recorded = connection.peer.session.client.session.suite() orelse return udp_identity.chacha20;
+    return @intFromEnum(recorded);
 }
 
 /// What the client grants: its receive pool, for the answers on the streams it opens, and h3's

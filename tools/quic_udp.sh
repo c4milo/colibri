@@ -113,10 +113,11 @@ fi
 kill "$server_pid" 2>/dev/null || true
 server_pid=""
 # The same three files over h3 (design §8 step 12): the server serves h3 to a client that asks
-# for it by ALPN, and a path it does not hold is answered 404, which the client reports.
+# for it by ALPN, and a path it does not hold is answered 404, which the client reports. This
+# client offers TLS_CHACHA20_POLY1305_SHA256 alone, as the runner's chacha20 case asks.
 rm -f "$scratch/downloads/small" "$scratch/downloads/medium" "$scratch/downloads/large"
 start_server once "$qlogdir"
-if ! client h3 "$qlogdir" /small /medium /large >"$scratch/h3.log" 2>&1; then
+if ! client h3 chacha20 "$qlogdir" /small /medium /large >"$scratch/h3.log" 2>&1; then
   echo "quic_udp: the h3 client failed:" >&2
   cat "$scratch/h3.log" "$scratch/server.log" >&2
   exit 1
@@ -124,6 +125,11 @@ fi
 cat "$scratch/h3.log"
 grep -q "alpn=h3" "$scratch/h3.log" || {
   echo "quic_udp: the h3 client did not negotiate h3" >&2
+  exit 1
+}
+# RFC 9846 §4.2.3: the server selects from what the client offered, whatever its own order.
+grep -q "suite=0x1303" "$scratch/h3.log" || {
+  echo "quic_udp: the client offering ChaCha20 alone ran another suite" >&2
   exit 1
 }
 for file in small medium large; do
