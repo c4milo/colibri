@@ -1,6 +1,7 @@
-//! The transport error codes of RFC 9000 §20.1, which a CONNECTION_CLOSE frame of type 0x1c
-//! carries (§19.19). They are named once, here, so every part of `quic` closes a connection with
-//! the same number for the same rule and no file writes one inline.
+//! The transport error codes of RFC 9000 §20.1, and the one RFC 9368 §10.2 adds, which a
+//! CONNECTION_CLOSE frame of type 0x1c carries (§19.19). They are named once, here, so every part
+//! of `quic` closes a connection with the same number for the same rule and no file writes one
+//! inline.
 //!
 //! Application error codes are not here: §20.2 leaves their meaning to the application protocol,
 //! and a CONNECTION_CLOSE of type 0x1d carries one colibri never chooses.
@@ -23,6 +24,8 @@ pub const application_error: u64 = 0x0c;
 pub const crypto_buffer_exceeded: u64 = 0x0d;
 pub const key_update_error: u64 = 0x0e;
 pub const aead_limit_reached: u64 = 0x0f;
+/// RFC 9368 §10.2: an error negotiating the version, which §4 has an endpoint close with.
+pub const version_negotiation_error: u64 = 0x11;
 
 /// RFC 9000 §20.1: a TLS alert of description `d` is reported as 0x0100 + d, so the range is
 /// 0x0100 to 0x01ff. RFC 9001 §4.8 is what maps an alert into it.

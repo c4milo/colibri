@@ -13,7 +13,12 @@ const Writer = core.Writer;
 const Id = transport_parameters.Id;
 const Parameters = transport_parameters.Parameters;
 const ConnectionId = transport_parameters.ConnectionId;
+const VersionInformation = transport_parameters.VersionInformation;
 const read = transport_parameters_read.read;
+
+/// RFC 9369 §3.1's version 2, and a reserved version of RFC 9000 §15's 0x?a?a?a?a form. Test-only.
+const version_2: u32 = 0x6b33_43cf;
+const reserved_version: u32 = 0x1a2a_3a4a;
 
 /// Octets one test's extension is built in. Larger than any set of parameters a test writes.
 const test_buffer_len: usize = 512;
@@ -237,6 +242,79 @@ test "octets that end inside a parameter are a value that cannot be read" {
     try testing.expectError(error.ParameterTruncated, read(&lone, .server));
 }
 
+test "RFC 9368 §3: Version Information is written as §3 lays it out and reads back the same" {
+    // Identifier 0x11 (§10.1), a length of 8, then the Chosen Version and one Available Version,
+    // four octets each in network byte order.
+    var sent = Parameters.initial();
+    sent.version_information = .of(constants.version_1, &.{version_2});
+    var writer = Writer.init(&test_buffer);
+    try transport_parameters.write(&writer, &sent, .server);
+    try testing.expectEqualSlices(u8, "\x11\x08\x00\x00\x00\x01\x6b\x33\x43\xcf", writer.written());
+    // A client lists its Chosen Version among the versions its first flight is compatible with,
+    // and a server lists its Fully Deployed Versions, which need not include its Chosen Version
+    // and may be none.
+    const cases = [_]struct { sender: transport_parameters.Role, info: VersionInformation }{
+        .{ .sender = .client, .info = .of(version_2, &.{ reserved_version, version_2, constants.version_1 }) },
+        .{ .sender = .server, .info = .of(constants.version_1, &.{reserved_version}) },
+        .{ .sender = .server, .info = .of(constants.version_1, &.{}) },
+    };
+    for (cases) |case| {
+        sent.version_information = case.info;
+        writer = Writer.init(&test_buffer);
+        try transport_parameters.write(&writer, &sent, case.sender);
+        var reader = Reader.init(writer.written());
+        try testing.expectEqualDeep(case.info, (try read(&reader, case.sender)).version_information.?);
+    }
+}
+
+test "RFC 9368 §4: Version Information that fails to parse is refused" {
+    const refused = [_]struct { sender: transport_parameters.Role, body: []const u8 }{
+        // "if it is too short or if its length is not divisible by four"
+        .{ .sender = .server, .body = "" },
+        .{ .sender = .server, .body = "\x00\x00\x00\x01\x00\x00" },
+        // "a Chosen Version equal to zero, or any Available Version equal to zero"
+        .{ .sender = .server, .body = "\x00\x00\x00\x00" },
+        .{ .sender = .server, .body = "\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x00" },
+        // "If a server receives Version Information where the Chosen Version is not included in
+        // Available Versions, it MUST treat it as a parsing failure."
+        .{ .sender = .client, .body = "\x00\x00\x00\x01\x6b\x33\x43\xcf" },
+        .{ .sender = .client, .body = "\x00\x00\x00\x01" },
+    };
+    for (refused) |case| {
+        var reader = Reader.init(try one(@intFromEnum(Id.version_information), case.body));
+        try testing.expectError(error.ParameterInvalid, read(&reader, case.sender));
+    }
+    // The last two from a server are read: §3 lets a server leave its Chosen Version out.
+    for (refused[refused.len - 2 ..]) |case| {
+        var reader = Reader.init(try one(@intFromEnum(Id.version_information), case.body));
+        try testing.expectEqual(constants.version_1, (try read(&reader, .server)).version_information.?.chosen_version);
+    }
+    // RFC 9000 §7.4: the parameter twice is a connection error, as any other known one is.
+    var repeated = Reader.init(try twice(@intFromEnum(Id.version_information), "\x00\x00\x00\x01"));
+    try testing.expectError(error.ParameterRepeated, read(&repeated, .server));
+}
+
+test "RFC 9368 §4: a list longer than colibri keeps is checked whole, and still names its Chosen Version" {
+    // One more version than colibri keeps, the client's Chosen Version last among them.
+    const listed = constants.version_information_versions_max + 1;
+    var body: [(listed + 1) * @sizeOf(u32)]u8 = undefined;
+    var writer = Writer.init(&body);
+    try writer.write_int(u32, version_2);
+    for (0..listed - 1) |i| try writer.write_int(u32, reserved_version + @as(u32, @intCast(i)));
+    try writer.write_int(u32, version_2);
+    var reader = Reader.init(try one(@intFromEnum(Id.version_information), writer.written()));
+    const info = (try read(&reader, .client)).version_information.?;
+    // The first versions in order, and the Chosen Version in the last place kept.
+    const kept = info.available_slice();
+    try testing.expectEqual(constants.version_information_versions_max, kept.len);
+    for (kept[0 .. kept.len - 1], 0..) |version, i| try testing.expectEqual(reserved_version + i, version);
+    try testing.expectEqual(version_2, kept[kept.len - 1]);
+    // The same list without the Chosen Version is refused, so the check read past what was kept.
+    std.mem.writeInt(u32, body[body.len - @sizeOf(u32) ..][0..@sizeOf(u32)], reserved_version, .big);
+    reader = Reader.init(try one(@intFromEnum(Id.version_information), &body));
+    try testing.expectError(error.ParameterInvalid, read(&reader, .client));
+}
+
 /// Most octets one fuzz input carries: room for a few parameters and one connection ID.
 const fuzz_input_len_max = 96;
 
@@ -258,8 +336,8 @@ fn fuzz_read(_: void, smith: *std.testing.Smith) anyerror!void {
     }
 }
 
-/// The identifiers of RFC 9000 §18.2, which `read` refuses to see twice (§7.4).
-const known_id_max: u64 = @intFromEnum(Id.retry_source_connection_id);
+/// The identifiers of RFC 9000 §18.2 and RFC 9368 §10.1, which `read` refuses to see twice (§7.4).
+const known_id_max: u64 = @intFromEnum(Id.version_information);
 
 /// The parameters RFC 9000 §18.2 gives a server alone.
 const server_only_ids = [_]Id{ .original_destination_connection_id, .preferred_address, .retry_source_connection_id, .stateless_reset_token };
@@ -299,12 +377,22 @@ fn expect_shape(id: u64, body: []const u8) !void {
         @intFromEnum(Id.retry_source_connection_id),
         => try testing.expect(body.len <= constants.connection_id_len_max),
         @intFromEnum(Id.preferred_address) => {},
+        @intFromEnum(Id.version_information) => try expect_versions(body),
         else => if (id <= known_id_max) {
             var integer_reader = Reader.init(body);
             _ = try wire.varint.decode(&integer_reader);
             try testing.expectEqual(0, integer_reader.remaining_len());
         },
     }
+}
+
+/// RFC 9368 §4's shape of Version Information: versions of four octets each, at least one, and
+/// none of them zero.
+fn expect_versions(body: []const u8) !void {
+    try testing.expect(body.len >= @sizeOf(u32) and body.len % @sizeOf(u32) == 0);
+    var reader = Reader.init(body);
+    // Bounded by the octets: every turn takes four.
+    while (reader.remaining_len() > 0) try testing.expect(try reader.read_int(u32) != 0);
 }
 
 /// The bounds RFC 9000 §18.2 states as values that are invalid, read again without `valid`.
@@ -349,6 +437,12 @@ test "fuzz: accepted transport parameters keep §18.2's bounds, and read back th
             // initial_max_data twice, and one whose integer has an octet after it.
             core.fuzz.input("\x04\x01\x10\x04\x01\x10"),
             core.fuzz.input("\x04\x02\x10\x00"),
+            // Version Information naming version 1 and listing it, listing nothing, listing a
+            // zero, and ending two octets into a version (RFC 9368 §4).
+            core.fuzz.input("\x11\x08\x00\x00\x00\x01\x00\x00\x00\x01"),
+            core.fuzz.input("\x11\x04\x00\x00\x00\x01"),
+            core.fuzz.input("\x11\x08\x00\x00\x00\x01\x00\x00\x00\x00"),
+            core.fuzz.input("\x11\x06\x00\x00\x00\x01\x00\x00"),
         },
     });
     try core.fuzz.sweep(fuzz_read, null);

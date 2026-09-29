@@ -18,11 +18,12 @@ const Parameters = transport_parameters.Parameters;
 const ConnectionId = transport_parameters.ConnectionId;
 const Role = transport_parameters.Role;
 
-/// The identifiers §18.2 defines, which is what `Seen` can track: 0x00 through 0x10.
-const known_id_max: u64 = @intFromEnum(Id.retry_source_connection_id);
+/// The identifiers §18.2 and RFC 9368 §10.1 define, which is what `Seen` can track: 0x00 through
+/// 0x11.
+const known_id_max: u64 = @intFromEnum(Id.version_information);
 
-/// Which of §18.2's parameters have been read, so a repeat is refused (RFC 9000 §7.4). One bit
-/// per identifier, which fits because §18.2 defines seventeen of them.
+/// Which of the known parameters have been read, so a repeat is refused (RFC 9000 §7.4). One bit
+/// per identifier, which fits because there are eighteen of them.
 const Seen = struct {
     bits: u32 = 0,
 
@@ -63,6 +64,10 @@ pub fn read(reader: *Reader, sender: Role) Error!Parameters {
         // a connection error of type TRANSPORT_PARAMETER_ERROR.
         if (sender == .client and transport_parameters.server_only(id)) {
             return Error.ParameterServerOnly;
+        }
+        if (id == .version_information) {
+            parameters.version_information = try version_information_of(body, sender);
+            continue;
         }
         try apply(&parameters, id, body);
     }
@@ -134,6 +139,47 @@ fn apply_connection_id(parameters: *Parameters, id: Id, body: []const u8) Error!
     if (body.len > constants.connection_id_len_max) return Error.ParameterInvalid;
     slot.* = ConnectionId.of(body);
     return true;
+}
+
+/// RFC 9368 §3's Version Information, parsed as §4 requires: a value that fails any rule below is
+/// a parsing failure, which in version 1 closes with TRANSPORT_PARAMETER_ERROR.
+fn version_information_of(body: []const u8, sender: Role) Error!transport_parameters.VersionInformation {
+    // RFC 9368 §4: one too short, or whose length is not divisible by four, fails to parse.
+    if (body.len < @sizeOf(u32) or body.len % @sizeOf(u32) != 0) return Error.ParameterInvalid;
+    var reader = Reader.init(body);
+    const chosen = reader.read_int(u32) catch unreachable;
+    // RFC 9368 §4: "If an endpoint receives a Chosen Version equal to zero, or any Available
+    // Version equal to zero, it MUST treat it as a parsing failure."
+    if (chosen == 0) return Error.ParameterInvalid;
+    var info = transport_parameters.VersionInformation.of(chosen, &.{});
+    const lists_chosen = try read_available(&reader, &info);
+    // RFC 9368 §4: "If a server receives Version Information where the Chosen Version is not
+    // included in Available Versions, it MUST treat it as a parsing failure."
+    if (sender == .client and !lists_chosen) return Error.ParameterInvalid;
+    return info;
+}
+
+/// Reads every Available Version into `info`, which keeps the first ones that fit, and answers
+/// whether any of them is the Chosen Version. The list is bounded only by the parameter's length
+/// (RFC 9368 §3), so each entry is checked whether or not it is kept.
+fn read_available(reader: *Reader, info: *transport_parameters.VersionInformation) Error!bool {
+    var lists_chosen = false;
+    // Bounded by the octets: every turn takes four.
+    while (reader.remaining_len() > 0) {
+        const available = reader.read_int(u32) catch unreachable;
+        // RFC 9368 §4: any Available Version equal to zero is a parsing failure.
+        if (available == 0) return Error.ParameterInvalid;
+        lists_chosen = lists_chosen or available == info.chosen_version;
+        if (info.available_len == info.available.len) continue;
+        info.available[info.available_len] = available;
+        info.available_len += 1;
+    }
+    // A Chosen Version listed past the entries kept takes the last one, so the kept list still
+    // names it, as the peer's did.
+    if (lists_chosen and !info.lists(info.chosen_version)) {
+        info.available[info.available_len - 1] = info.chosen_version;
+    }
+    return lists_chosen;
 }
 
 /// One parameter's value as a variable-length integer, which must be the whole of it.

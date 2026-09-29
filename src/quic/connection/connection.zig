@@ -197,6 +197,10 @@ pub const Connection = struct {
         // RFC 9000 §7.3: the connection IDs the extension carries are the ones the headers
         // carried, so the connection writes all three rather than trusting them to agree.
         identity_module.describe(&connection.identity, &parameters, options.role);
+        // RFC 9368 §3: the connection states the version it chose and the versions it lists, and
+        // it runs version 1 alone, which a client listing its Chosen Version alone also keeps from
+        // compatible negotiation (§2.3).
+        parameters.version_information = .of(constants.version_1, &.{constants.version_1});
         assert(parameters.valid());
         connection.role = options.role;
         connection.local_parameters = parameters;

@@ -25,6 +25,7 @@ const transport_parameters_read = @import("../transport_parameters_read.zig");
 const connection_module = @import("connection.zig");
 const recovery_sent = @import("../recovery/recovery_sent.zig");
 const identity_module = @import("connection_identity.zig");
+const connection_version = @import("connection_version.zig");
 
 const Level = core.Level;
 const Connection = connection_module.Connection;
@@ -52,6 +53,9 @@ pub const Error = error{
     /// RFC 9000 §7.3: the peer's parameters do not authenticate the connection IDs its packets
     /// carried, and `connection_identity.Error` says which of §7.3's rules it broke.
     ConnectionIdsUnauthenticated,
+    /// RFC 9368 §4: the version the peer chose is not the one in use, or not one this endpoint
+    /// listed.
+    VersionNegotiationFailed,
     /// One handshake message is larger than the provider's storage, or the output cannot hold
     /// what it owes.
     NoSpaceLeft,
@@ -69,6 +73,8 @@ pub fn connection_error_code(failure: Error) u64 {
         // RFC 9000 §7.3 names TRANSPORT_PARAMETER_ERROR for the absence of a connection ID
         // parameter, and permits it for every other rule the section states.
         error.ConnectionIdsUnauthenticated => error_code.transport_parameter_error,
+        // RFC 9368 §4: a version negotiation error, which §10.2 names.
+        error.VersionNegotiationFailed => error_code.version_negotiation_error,
         // RFC 9000 §12.5: octets at the wrong encryption level violate the protocol.
         error.WrongLevel => error_code.protocol_violation,
         // RFC 9000 §11: an endpoint with no more specific code sends INTERNAL_ERROR.
@@ -251,6 +257,11 @@ pub fn take_peer_parameters(connection: *Connection, provider: tls_provider.Quic
     // widens what colibri may spend.
     identity_module.authenticate(&connection.identity, &peer, connection.role) catch
         return Error.ConnectionIdsUnauthenticated;
+    // RFC 9368 §4: each endpoint checks the version its peer chose, and every connection runs
+    // version 1.
+    const local = &connection.local_parameters.version_information.?;
+    connection_version.check_information(connection.role, local, peer.version_information, constants.version_1) catch
+        return Error.VersionNegotiationFailed;
     connection.apply_peer_parameters(peer);
     return true;
 }

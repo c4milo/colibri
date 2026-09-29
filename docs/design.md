@@ -5608,15 +5608,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     suite.
   - **19c**, version_information. The transport parameter of RFC 9368 §3, sent by both endpoints
     and parsed and validated as §4 requires, with VERSION_NEGOTIATION_ERROR (§10.2) for a Chosen
-    Version the connection does not use, and qlog's `version_information` event naming both
-    versions.
+    Version the connection does not use.
     **Check:** a test for each rule of RFC 9368 §4, each proved by a mutation.
   - **19d**, the client's switch, and a server that starts in version 2. The client starts in
     version 1 with version 2 available (RFC 9368 §2.5), switches once at the first long header in
     another version, and drops Handshake and 1-RTT packets in any version but the negotiated one
     (RFC 9369 §4.1). A server accepts a first flight in either version, and version 2 joins the
     versions a Version Negotiation packet lists. Tickets and tokens belong to the version that
-    issued them (RFC 9369 §5).
+    issued them (RFC 9369 §5). qlog's `version_information` event names both versions, which the
+    lists first carry here.
     **Check:** a simulator check over both versions and the switch, and the QUIC Interop Runner's
     `v2` case with colibri as the client.
   - **19e**, the server's switch. A server answers a version 1 first flight in version 2 through
@@ -5687,6 +5687,38 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     every connection; a TCP client offering a QUIC ticket, and a QUIC client one of another
     version; chapulin's token minted or checked in version 1 always; the null suite's token
     ignoring the version; and `quic` writing or checking a token in version 2.
+
+  **19c, 2026-09-29.** Both endpoints send RFC 9368's version_information and check the one they
+  receive, and every connection still runs version 1.
+  - `transport_parameters` writes and reads the parameter, 0x11 (§10.1). The reader refuses what §4
+    calls a parsing failure with TRANSPORT_PARAMETER_ERROR, as version 1 requires: a value shorter
+    than four octets or not a multiple of four, a version of zero, and a client's Chosen Version
+    missing from its Available Versions. A repeat is refused, as for any known parameter.
+  - A peer's list is bounded only by the parameter's length, so the reader checks every entry and
+    keeps the first `version_information_versions_max`, 16. A Chosen Version listed past them
+    takes the last place kept.
+  - A connection states version 1 as its Chosen Version and its one Available Version, which keeps
+    a server from switching a client (§2.3). A peer whose Chosen Version is not the version its
+    packets carried closes the connection with VERSION_NEGOTIATION_ERROR (§10.2), and so does a
+    server that chose a version the client never listed. A peer that sent none passes (§4).
+  - qlog's `version_information` event moved to 19d. It names version 1 alone today, and names
+    both once the lists do.
+  - Every handshake carries ten more octets, so the simulator's census digests moved and its
+    datagram, packet and loss counts did not. Both build modes gave the new digests.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2355 of 2355 tests. `tools/quic_udp.sh`, `tools/quic_loopback.sh`,
+    `tools/quic_aioquic.sh`, `tools/h3spec.sh` and `tools/channel_interop.sh`: ok.
+  - 24 mutations, each **CAUGHT**: the reader admitting a value too short, a length not divisible
+    by four, or a Chosen or Available Version of zero; a client's Chosen Version left out of its
+    list, or that rule binding the server instead; a Chosen Version listed past the kept entries
+    dropped, or looked for only among them; a full list taking more; a repeat admitted; the
+    parameter read past, left unwritten, or written with a short length; no endpoint holding the
+    Chosen Version to the version in use, a client skipping that rule, a client accepting a
+    version it never listed, and a server checking its own list instead; a missing parameter
+    refused; the connection skipping the check, or closing with TRANSPORT_PARAMETER_ERROR;
+    VERSION_NEGOTIATION_ERROR numbered 0x10; a connection sending no parameter, or listing
+    version 2; and every list naming every version.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

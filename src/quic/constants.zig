@@ -13,6 +13,11 @@ const crypto = @import("crypto");
 /// (decision 108).
 pub const version_1: u32 = @intFromEnum(crypto.suite.Version.v1);
 
+/// Most Available Versions colibri keeps of a peer's Version Information (RFC 9368 §3). The list is
+/// bounded only by the parameter's length, so the reader checks every entry and keeps this many,
+/// more than any endpoint lists today, reserved versions included.
+pub const version_information_versions_max: usize = 16;
+
 /// Most octets of a connection ID in version 1 (RFC 9000 §17.2): a long header that carries a
 /// longer one MUST be dropped. RFC 8999 permits 255, and only the version 1 reader applies this.
 /// Named in `crypto`, because a Retry token carries two (decision 55).

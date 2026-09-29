@@ -3,6 +3,7 @@
 const std = @import("std");
 const core = @import("core");
 const tls_provider = @import("tls_provider");
+const constants = @import("../constants.zig");
 const error_code = @import("../error_code.zig");
 const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
@@ -230,6 +231,56 @@ test "RFC 9000 §7.3: parameters that do not match the headers close the connect
     // The limits are untouched: the check runs before they are raised.
     try testing.expectEqual(0, test_connection.send_flow.available());
     try testing.expectEqual(null, test_connection.peer_parameters);
+}
+
+/// RFC 9369 §3.1's version 2, which no connection here runs.
+const version_2: u32 = 0x6b33_43cf;
+
+/// Hands `test_connection` the parameters `peer` wrote as `sender`.
+fn take_written(peer: *const Parameters, sender: connection_module.Role, body: []u8) !bool {
+    var writer = core.Writer.init(body);
+    try transport_parameters.write(&writer, peer, sender);
+    var state: Fake = .{ .peer_body = writer.written() };
+    return connection_crypto.take_peer_parameters(&test_connection, state.provider());
+}
+
+test "RFC 9368 §4: a Chosen Version the endpoint cannot accept closes the connection" {
+    var body: [test_output_len]u8 = undefined;
+    // A server that says it chose version 2 over packets of version 1, which the client never
+    // listed either.
+    fresh(.client);
+    test_connection.identity.on_peer_initial(&peer_id);
+    var server = authentic_parameters();
+    server.version_information = .of(version_2, &.{version_2});
+    try testing.expectError(error.VersionNegotiationFailed, take_written(&server, .server, &body));
+    // The limits are untouched: the check runs before they are raised.
+    try testing.expectEqual(0, test_connection.send_flow.available());
+    try testing.expectEqual(null, test_connection.peer_parameters);
+    // A client that says it chose version 2 over packets of version 1.
+    fresh(.server);
+    test_connection.identity.on_peer_initial(&peer_id);
+    var client = Parameters.initial();
+    client.initial_source_connection_id = transport_parameters.ConnectionId.of(&peer_id);
+    client.version_information = .of(version_2, &.{ version_2, constants.version_1 });
+    try testing.expectError(error.VersionNegotiationFailed, take_written(&client, .client, &body));
+    // §4 closes with a version negotiation error, which §10.2 numbers 0x11.
+    try testing.expectEqual(0x11, connection_crypto.connection_error_code(error.VersionNegotiationFailed));
+    // The Chosen Version the connection runs is accepted.
+    fresh(.client);
+    test_connection.identity.on_peer_initial(&peer_id);
+    server.version_information = .of(constants.version_1, &.{ constants.version_1, version_2 });
+    try testing.expect(try take_written(&server, .server, &body));
+    try testing.expectEqual(constants.version_1, test_connection.peer_parameters.?.version_information.?.chosen_version);
+}
+
+test "RFC 9368 §3: a connection states version 1 as its Chosen Version and its one Available Version" {
+    // Listing the Chosen Version alone keeps a server from switching a client (§2.3).
+    for ([_]connection_module.Role{ .client, .server }) |role| {
+        fresh(role);
+        const info = test_connection.local_parameters.version_information.?;
+        try testing.expectEqual(0x0000_0001, info.chosen_version);
+        try testing.expectEqualSlices(u32, &.{0x0000_0001}, info.available_slice());
+    }
 }
 
 test "RFC 9001 §8.2: a handshake that carried no parameters is a connection error" {

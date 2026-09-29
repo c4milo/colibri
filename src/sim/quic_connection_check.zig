@@ -28,7 +28,7 @@ pub const run_seed = quic_connection_run.run_seed;
 /// The digest of every seed's run and the counts beside it. They change when the network, the
 /// null provider or suite, or colibri's connection changes, and are committed with the new values
 /// after both build modes agree.
-pub const census_crc32_expected: u32 = 0xaabd9551;
+pub const census_crc32_expected: u32 = 0xf001eb13;
 pub const census_datagrams_expected: u64 = 13_777;
 pub const census_packets_expected: u64 = 13_845;
 pub const census_dropped_expected: u64 = 692;
@@ -315,7 +315,7 @@ test "each way the driver fails is reported, so no report of it is unproved" {
 }
 
 /// The adversary check's census, pinned as the lossy check's is.
-pub const adversary_census_crc32_expected: u32 = 0xa7d6eae8;
+pub const adversary_census_crc32_expected: u32 = 0x237936df;
 pub const adversary_census_datagrams_expected: u64 = 4_598;
 pub const adversary_census_dropped_expected: u64 = 1_406;
 
@@ -339,7 +339,7 @@ test "decisions 64 and 66: a network that drops every datagram of ACK frames alo
 /// Decision 70 brought it from 10.4 to 8.4 seconds. Decision 64 as amended moved it to 10.3 on
 /// these 256 seeds, which is which seeds lose what: over 2,000 seeds it took the slowest from
 /// 34.2 to 32.2 seconds and the mean from 1.36 to 1.26.
-pub const runner_census_crc32_expected: u32 = 0x1d18f426;
+pub const runner_census_crc32_expected: u32 = 0x3794f78a;
 pub const runner_census_datagrams_expected: u64 = 3_905;
 pub const runner_census_dropped_expected: u64 = 1_136;
 pub const runner_census_handshake_max_ns_expected: u64 = 8_242_000_000;
@@ -362,10 +362,10 @@ test "the QUIC Interop Runner's handshakeloss network: every seed finishes" {
 
 /// The rebinding checks' censuses, pinned as the lossy check's is. The server moved once for each
 /// rebind: 276 of each in the port check and 275 in the address check.
-pub const rebind_port_census_crc32_expected: u32 = 0xaf0db6de;
+pub const rebind_port_census_crc32_expected: u32 = 0xe82bc138;
 pub const rebind_port_census_datagrams_expected: u64 = 14_534;
 pub const rebind_port_census_migrations_expected: u64 = 273;
-pub const rebind_address_census_crc32_expected: u32 = 0xc7747a48;
+pub const rebind_address_census_crc32_expected: u32 = 0xe221d9ea;
 pub const rebind_address_census_datagrams_expected: u64 = 14_349;
 pub const rebind_address_census_migrations_expected: u64 = 279;
 
@@ -402,11 +402,11 @@ test "decision 102: every check gives the same census when both endpoints write 
     // digest of every record and the events read back. The logs change when an event or its
     // fields change, and are committed with the new values after both build modes agree.
     const checks = [_]struct { adversary: Adversary, crc32: u32, qlog_len: u64, qlog_crc32: u32, qlog_events: u64 }{
-        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_773_200, .qlog_crc32 = 0xfac293ad, .qlog_events = 50_563 },
-        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_678_191, .qlog_crc32 = 0xcae3e2ad, .qlog_events = 18_885 },
-        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_798_850, .qlog_crc32 = 0xcacab72b, .qlog_events = 19_072 },
-        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_257_398, .qlog_crc32 = 0x1368a0a6, .qlog_events = 52_327 },
-        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 10_046_245, .qlog_crc32 = 0x1c19d8ee, .qlog_events = 51_244 },
+        .{ .adversary = .none, .crc32 = census_crc32_expected, .qlog_len = 9_773_784, .qlog_crc32 = 0xb6043a9f, .qlog_events = 50_563 },
+        .{ .adversary = .drop_ack_only, .crc32 = adversary_census_crc32_expected, .qlog_len = 3_678_749, .qlog_crc32 = 0x2bf09b6d, .qlog_events = 18_885 },
+        .{ .adversary = .runner_handshake_loss, .crc32 = runner_census_crc32_expected, .qlog_len = 3_799_316, .qlog_crc32 = 0x3aa893d3, .qlog_events = 19_072 },
+        .{ .adversary = .rebind_port, .crc32 = rebind_port_census_crc32_expected, .qlog_len = 10_257_982, .qlog_crc32 = 0xaeb0551d, .qlog_events = 52_327 },
+        .{ .adversary = .rebind_address, .crc32 = rebind_address_census_crc32_expected, .qlog_len = 10_046_829, .qlog_crc32 = 0x3556b81b, .qlog_events = 51_244 },
     };
     // Bounded by the checks above.
     for (checks) |logged| {

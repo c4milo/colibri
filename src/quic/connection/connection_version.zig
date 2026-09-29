@@ -31,11 +31,39 @@ const crypto = @import("crypto");
 const constants = @import("../constants.zig");
 const invariant = @import("../packet/invariant.zig");
 const header = @import("../packet/packet_header.zig");
+const transport_parameters = @import("../transport_parameters.zig");
 const connection_module = @import("connection.zig");
 
 const Writer = core.Writer;
 const Connection = connection_module.Connection;
 const Role = crypto.suite.Role;
+
+/// A peer's Version Information that fails RFC 9368 §4's check of the version it chose, which
+/// closes the connection with VERSION_NEGOTIATION_ERROR (§10.2).
+pub const InformationError = error{VersionNegotiation};
+
+/// RFC 9368 §4's check of the version a peer chose, once its parameters are read. `local` is what
+/// this endpoint sent, and `version_in_use` the version of the long headers that carried the
+/// peer's parameters: the client's first flight to a server, and the Negotiated Version to a
+/// client. A peer that sent no Version Information passes: "Servers MAY complete the handshake
+/// even if the Version Information is missing", and a client that did not react to a Version
+/// Negotiation packet may too.
+pub fn check_information(
+    role: Role,
+    local: *const transport_parameters.VersionInformation,
+    peer: ?transport_parameters.VersionInformation,
+    version_in_use: u32,
+) InformationError!void {
+    const info = peer orelse return;
+    // RFC 9368 §4: "the server MUST validate that the client's Chosen Version matches the version
+    // in use for the connection", and "clients MUST validate that the server's Chosen Version is
+    // equal to the Negotiated Version". Either closes with a version negotiation error.
+    if (info.chosen_version != version_in_use) return error.VersionNegotiation;
+    // RFC 9368 §4: "If a client receives Version Information where the server's Chosen Version was
+    // not sent by the client as part of its Available Versions, the client MUST close the
+    // connection with a version negotiation error."
+    if (role == .client and !local.lists(info.chosen_version)) return error.VersionNegotiation;
+}
 
 /// The versions colibri supports, which a Version Negotiation packet lists (RFC 9000 §6.1).
 ///

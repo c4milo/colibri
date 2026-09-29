@@ -68,6 +68,8 @@ pub const Id = enum(u64) {
     active_connection_id_limit = 0x0e,
     initial_source_connection_id = 0x0f,
     retry_source_connection_id = 0x10,
+    /// RFC 9368 §10.1.
+    version_information = 0x11,
     _,
 };
 
@@ -93,6 +95,34 @@ pub const ConnectionId = struct {
     /// the length is part of the comparison.
     pub fn equal(id: *const ConnectionId, other: ConnectionId) bool {
         return std.mem.eql(u8, id.slice(), other.slice());
+    }
+};
+
+/// RFC 9368 §3's Version Information: the version the sender chose for this connection, and the
+/// versions it lists as available, in its order. A peer's list is bounded only by the parameter's
+/// length, so the reader checks every entry and keeps the first
+/// `constants.version_information_versions_max`.
+pub const VersionInformation = struct {
+    chosen_version: u32,
+    available: [constants.version_information_versions_max]u32,
+    available_len: u8,
+
+    pub fn of(chosen_version: u32, available: []const u32) VersionInformation {
+        // RFC 9368 §4: a version of zero is a parsing failure, so no endpoint may send one.
+        assert(chosen_version != 0 and std.mem.indexOfScalar(u32, available, 0) == null);
+        assert(available.len <= constants.version_information_versions_max);
+        var info: VersionInformation = .{ .chosen_version = chosen_version, .available = @splat(0), .available_len = @intCast(available.len) };
+        @memcpy(info.available[0..available.len], available);
+        return info;
+    }
+
+    pub fn available_slice(info: *const VersionInformation) []const u32 {
+        return info.available[0..info.available_len];
+    }
+
+    /// Whether the Available Versions kept name `version`.
+    pub fn lists(info: *const VersionInformation, version: u32) bool {
+        return std.mem.indexOfScalar(u32, info.available_slice(), version) != null;
     }
 };
 
@@ -155,6 +185,9 @@ pub const Parameters = struct {
     disable_active_migration: bool,
     /// Connection IDs the sender will hold at once (0x0e).
     active_connection_id_limit: u64,
+    /// The version the sender chose and the versions it lists (0x11, RFC 9368 §3), absent when it
+    /// sent none.
+    version_information: ?VersionInformation,
 
     /// What a peer that sent an empty extension means: every default of §18.2, which is zero for
     /// most and is not for four of them.
@@ -176,6 +209,7 @@ pub const Parameters = struct {
             .max_ack_delay_ms = default_max_ack_delay_ms,
             .disable_active_migration = false,
             .active_connection_id_limit = default_active_connection_id_limit,
+            .version_information = null,
         };
     }
 
@@ -221,6 +255,8 @@ pub fn write(writer: *Writer, parameters: *const Parameters, sender: Role) core.
     assert(sender == .server or parameters.original_destination_connection_id == null);
     assert(sender == .server or parameters.retry_source_connection_id == null);
     assert(sender == .server or parameters.stateless_reset_token == null);
+    // RFC 9368 §3: a client's Available Versions include its Chosen Version.
+    if (parameters.version_information) |*info| assert(sender == .server or info.lists(info.chosen_version));
     try write_connection_ids(writer, parameters);
     try write_integers(writer, parameters);
     if (parameters.stateless_reset_token) |token| {
@@ -231,6 +267,15 @@ pub fn write(writer: *Writer, parameters: *const Parameters, sender: Role) core.
     if (parameters.disable_active_migration) {
         try write_octets(writer, .disable_active_migration, &.{});
     }
+    if (parameters.version_information) |*info| try write_version_information(writer, info);
+}
+
+/// RFC 9368 §3: the Chosen Version, then each Available Version, four octets each.
+fn write_version_information(writer: *Writer, info: *const VersionInformation) core.writer.Error!void {
+    try wire.varint.encode(writer, @intFromEnum(Id.version_information));
+    try wire.varint.encode(writer, @sizeOf(u32) * (1 + @as(usize, info.available_len)));
+    try writer.write_int(u32, info.chosen_version);
+    for (info.available_slice()) |version| try writer.write_int(u32, version);
 }
 
 fn write_connection_ids(writer: *Writer, parameters: *const Parameters) core.writer.Error!void {

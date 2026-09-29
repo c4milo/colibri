@@ -26,6 +26,8 @@ var test_connection: Connection align(@alignOf(Connection)) = undefined;
 const other_version: u32 = 0xfaceb00c;
 /// A reserved version of RFC 9000 §15's 0x?a?a?a?a form. Test-only.
 const reserved_version: u32 = 0x1a2a3a4a;
+/// RFC 9369 §3.1's version 2, which a peer may choose or list. Test-only.
+const version_2: u32 = 0x6b33_43cf;
 
 /// RFC 8999 §5: the Header Form bit, set in a long header. Test-only.
 const header_form_bit: u8 = 0x80;
@@ -276,4 +278,37 @@ test "RFC 9000 §6.1: colibri lists the one version it speaks" {
     try testing.expect(!version.speaks(other_version));
     // RFC 8999 §5.4 reserves 0 for version negotiation, so it is no version to speak.
     try testing.expect(!version.speaks(invariant.version_negotiation));
+}
+
+test "RFC 9368 §4: a server holds the client's Chosen Version to the version in use" {
+    // A server phasing version 1 out lists version 2 alone (§3), so its list decides nothing: what
+    // decides is the version the client's first flight carried.
+    const local: transport_parameters.VersionInformation = .of(constants.version_1, &.{version_2});
+    try version.check_information(.server, &local, .of(constants.version_1, &.{ version_2, constants.version_1 }), constants.version_1);
+    try testing.expectError(
+        error.VersionNegotiation,
+        version.check_information(.server, &local, .of(version_2, &.{ version_2, constants.version_1 }), constants.version_1),
+    );
+    // "Servers MAY complete the handshake even if the Version Information is missing."
+    try version.check_information(.server, &local, null, constants.version_1);
+}
+
+test "RFC 9368 §4: a client holds the server's Chosen Version to the Negotiated Version and its list" {
+    const local: transport_parameters.VersionInformation = .of(constants.version_1, &.{ constants.version_1, version_2 });
+    try version.check_information(.client, &local, .of(constants.version_1, &.{}), constants.version_1);
+    // A server that switched the client to version 2, which the client listed, chose it.
+    try version.check_information(.client, &local, .of(version_2, &.{}), version_2);
+    // A Chosen Version the client listed that is not the version its packets carried fails.
+    try testing.expectError(
+        error.VersionNegotiation,
+        version.check_information(.client, &local, .of(version_2, &.{constants.version_1}), constants.version_1),
+    );
+    // And so does one the client never listed, even when its packets carried it.
+    try testing.expectError(
+        error.VersionNegotiation,
+        version.check_information(.client, &local, .of(reserved_version, &.{}), reserved_version),
+    );
+    // A client that did not react to a Version Negotiation packet may complete the handshake
+    // without it.
+    try version.check_information(.client, &local, null, constants.version_1);
 }
