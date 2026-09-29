@@ -23,6 +23,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const modules = @import("build/modules.zig");
 const modules_test_roots = @import("build/modules_test_roots.zig");
+const modules_exports = @import("build/modules_exports.zig");
 const generated = @import("build/generated.zig");
 const lint = @import("build/lint.zig");
 const vectors = @import("build/vectors.zig");
@@ -61,6 +62,7 @@ pub fn build(b: *std.Build) void {
     assert(optimize == .Debug or optimize == .ReleaseSafe);
 
     const graph = modules.add(b, target, optimize);
+    modules_exports.add(b, graph.stdx);
 
     // Everything below is colibri's own build: the tests, the checks and the tools. A project that
     // depends on colibri stops here, before the tools request pepegrillo.

@@ -19,6 +19,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("http", colibri.module("http"));
     exe.root_module.addImport("h2", colibri.module("h2"));
     exe.root_module.addImport("tls", colibri.module("tls"));
+    // Decision 101: colibri's package exports stdx's codecs.
+    exe.root_module.addImport("gzip", colibri.module("gzip"));
 
     const run = b.addRunArtifact(exe);
     b.step("run", "Run the consumer").dependOn(&run.step);

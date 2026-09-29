@@ -1,16 +1,20 @@
-//! The program the consumer project builds: it reaches h11, h2 and tls through the modules colibri
-//! exports, writes a request, reads a response and starts a TLS handshake, which shows the modules
-//! link and run for a project that depends on colibri.
+//! The program the consumer project builds: it reaches h11, h2, tls and stdx's gzip through the
+//! modules colibri exports, writes a request, reads a response, starts a TLS handshake and codes
+//! content, which shows the modules link and run for a project that depends on colibri.
 const std = @import("std");
 const h11 = @import("h11");
 const h2 = @import("h2");
 const tls = @import("tls");
+const gzip = @import("gzip");
 
 var client: h11.connection.Connection align(@alignOf(h11.connection.Connection)) = undefined;
 var h2_client: h2.connection.Connection align(@alignOf(h2.connection.Connection)) = undefined;
 var tls_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
 var tls_client: tls.record.Client align(@alignOf(tls.record.Client)) = undefined;
 var output: [4096]u8 = undefined;
+var gzip_encoder: gzip.Encoder(.{ .level = 6 }) align(@alignOf(gzip.Encoder(.{ .level = 6 }))) = undefined;
+var gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
+var coded: [256]u8 = undefined;
 
 /// chapulin's one hook, which a program that links colibri's `tls` defines: its failed assertions
 /// are the program's to report.
@@ -70,5 +74,12 @@ pub fn main() !void {
     const hello = try tls_client.handshake(&.{}, &output);
     if (hello.written == 0 or output[0] != handshake_record) return error.HelloWrong;
     tls_client.close();
-    std.debug.print("consumer: h11, h2 and tls link and run as a dependency\n", .{});
+
+    // stdx's gzip, which colibri's package exports (decision 101), codes content and decodes it.
+    gzip_encoder.init(.target());
+    const coded_len = try gzip_encoder.encode_all("colibri", &coded);
+    gzip.init(&gzip_decoder, .target());
+    const decoded = try gzip.decode_all(&gzip_decoder, coded[0..coded_len], &output);
+    if (!std.mem.eql(u8, output[0..decoded.written], "colibri")) return error.CodingWrong;
+    std.debug.print("consumer: h11, h2, tls and gzip link and run as a dependency\n", .{});
 }
