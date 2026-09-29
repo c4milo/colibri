@@ -16,6 +16,7 @@
 //! `codable` goes out coded in the coding its request's Accept-Encoding accepts (decision 101).
 //! The pool is storage the caller places, and connections share it.
 const std = @import("std");
+const http = @import("http");
 
 pub const constants = @import("constants.zig");
 pub const event = @import("event.zig");
@@ -51,6 +52,8 @@ pub const Response = event.Response;
 pub const Content = event.Content;
 pub const Received = event.Received;
 pub const Alternative = alt_svc.Alternative;
+/// The content codings a server applies (decision 101).
+pub const Coding = http.content_coding.Coding;
 pub const EncoderPool = coding_pool.EncoderPool;
 pub const DefaultEncoderPool = coding_pool.DefaultEncoderPool;
 pub const Encoders = coding_pool.Encoders;
