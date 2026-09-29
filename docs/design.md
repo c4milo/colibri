@@ -4880,6 +4880,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   and over TLS, the h2 and h11 interop scripts with `--tls`, `tools/consumer_check.sh` and
   `tools/quic_udp.sh`: ok.
 
+  **A record that fails, 2026-09-29.** https://github.com/c4milo/colibri/issues/74 asked the test
+  endpoints to send the alert a record that does not authenticate owes (RFC 9846 §5.2). Since
+  `ecffe73` and `16ddd3d` they run on the `server` and `client` modules, whose next `send` writes
+  that alert, and each loop closes once the socket has taken it. Two things were missing:
+  - A check. `tools/h2_interop/forged_record.go` completes a handshake and then writes a record no
+    key sealed, as a client to colibri's server and as a server to colibri's client, offering one
+    protocol. The four h2 and h11 interop scripts with `--tls` require Go to read colibri's
+    `bad_record_mac`, and the two client scripts require the client to count the connection as
+    failed.
+  - A fix. Each module's `should_close` said to close once the record layer failed, before `send`
+    had written the alert, so a caller that asked before its next `send` closed without it. It now
+    waits until the alert is out. A test in each module feeds a forged record over h2 and over h11
+    and requires one alert record, `bad_record_mac`, before the close.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2331 of 2331 tests. The four scripts with `--tls go`: "a forged record ends
+    with the server's alert: bad record MAC" from both server scripts and "the client's alert: bad
+    record MAC" from both client scripts, with every exchange and request as planned.
+  - 8 mutations, each **CAUGHT**. `failure_sent` ignoring the owed alert, in each of its four arms,
+    by the module tests. The server sealing nothing once stopped, by the server test and both server
+    scripts. A failed record closing the client before its alert, by the client test and both client
+    scripts. Each loop closing before its output drained, by the h11 scripts' forged record; in the
+    h2 scripts the refused handshake fails first.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Seven parts. The owner ruled on 2026-09-27

@@ -8,7 +8,9 @@
 # tools/h2_interop/Dockerfile builds, the same peers tools/h2_interop.sh runs. Over TLS, Go serves
 # HTTP/1.1 alone and offers ALPN "http/1.1" alone, so a client offering "h2" and then "http/1.1"
 # gets h11 by the server's selection (RFC 7301 §3.2). h2o offers both and prefers h2, so the
-# client offers "http/1.1" alone with --h11. Every exchange must report protocol=h11.
+# client offers "http/1.1" alone with --h11. Every exchange must report protocol=h11. With --tls a
+# client that reads a record that does not authenticate after the handshake must answer
+# bad_record_mac.
 #
 # Usage: tools/h11_interop.sh [--tls] [go] [h2o]
 #        (no peer runs both)
@@ -106,9 +108,38 @@ run_go() {
     plan_go
     start_go -gzip "${identity}"
     plan_go_coded
+    forge_record
   fi
   mode_arguments=()
   stop_peer
+}
+
+# RFC 9846 §5.2: a record that does not authenticate ends the connection with a bad_record_mac
+# alert. forged_record.go's server sends one once the handshake is complete, over http/1.1, and reads
+# what the client answers. The client counts the connection as failed.
+forge_record() {
+  stop_peer
+  (cd "${peer_directory}" && go build -o "${scratch}/forged_record" forged_record.go)
+  "${scratch}/forged_record" server "${go_port}" "${identity}" http/1.1 >"${scratch}/forged.log" 2>&1 &
+  background_pid=$!
+  # The Go server takes one connection, so the run waits for its line: a probe of the port would
+  # be that connection.
+  for _ in $(seq 1 100); do
+    grep -qx ready "${scratch}/forged.log" && break
+    sleep 0.1
+  done
+  grep -qx ready "${scratch}/forged.log" || fail "forged_record.go did not listen on port ${go_port}"
+  local outcome=0
+  report="$("${client}" --port "${go_port}" --tls "${identity}" --seconds "$(date +%s)" --get / 2>&1)" || outcome=$?
+  [ "${outcome}" -ne 0 ] || fail "the client completed an exchange over a forged record"
+  [ "$(tail -1 <<<"${report}")" = "http-client: connections=1 succeeded=0 failed=1" ] ||
+    { echo "${report}"; fail "the client did not count the forged record's connection as failed"; }
+  wait "${background_pid}" || true
+  background_pid=""
+  grep -q "remote error: tls: bad record MAC" "${scratch}/forged.log" ||
+    { cat "${scratch}/forged.log" >&2; fail "Go's server read no bad_record_mac from the client"; }
+  echo "h11_interop.sh: a forged record ends with the client's alert:" \
+    "$(sed -n 's/.*remote error: tls: //p' "${scratch}/forged.log" | head -1)"
 }
 
 # start_go [-gzip] [<identity-prefix>]: starts Go's HTTP/1.1 server, over TLS when given the identity.

@@ -8,7 +8,9 @@
 # The peers are Go's net/http client, built with `go build`, and Debian's curl, run in the
 # container tools/h2_interop/Dockerfile builds, the same peers tools/h2_server_interop.sh runs.
 # Over TLS, Go offers ALPN "http/1.1" alone, and curl runs twice: offering "http/1.1" alone, and
-# offering no ALPN at all, which the server takes as h11 (decision 88).
+# offering no ALPN at all, which the server takes as h11 (decision 88). With --tls a Go client
+# that offers "http/1.1" and sends a record that does not authenticate after the handshake must
+# read bad_record_mac.
 #
 # Usage: tools/h11_server_interop.sh [--tls] [curl] [go]
 #        (no peer runs both)
@@ -89,6 +91,21 @@ in_both_modes() {
     "$1"
   fi
   stop_server
+}
+
+# RFC 9846 §5.2: a record that does not authenticate ends the connection with a bad_record_mac
+# alert. forged_record.go's client sends one once the handshake is complete, over http/1.1, and
+# reads what the server answers.
+forge_record() {
+  (cd "${peer_directory}" && go build -o "${scratch}/forged_record" forged_record.go)
+  start_server --tls "${identity}"
+  local report
+  report="$("${scratch}/forged_record" client "${port}" "${identity}" http/1.1 2>&1)" ||
+    { echo "${report}"; fail "the forged record's client did not complete its handshake"; }
+  grep -q "remote error: tls: bad record MAC" <<<"${report}" ||
+    { echo "${report}"; fail "the server did not answer a forged record with bad_record_mac"; }
+  stop_server
+  echo "h11_server_interop.sh: a forged record ends with the server's alert: ${report##*remote error: tls: }"
 }
 
 # curl_run <label> <curl arguments...>: every GET on one keep-alive connection, one after another,
@@ -239,6 +256,7 @@ for peer in "${peers[@]}"; do
     *) fail "unknown peer: ${peer}" ;;
   esac
 done
+[ -z "${tls}" ] || forge_record
 modes="cleartext"
 [ -z "${tls}" ] || modes="cleartext and TLS"
 echo "h11_server_interop.sh: every request ended with 200 over h11, in ${modes}, from: ${peers[*]}"

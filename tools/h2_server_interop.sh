@@ -9,7 +9,8 @@
 # needs `go` and `docker` on the path, and it names the versions it met. Over TLS the server
 # serves the identity tools/h2_interop/tls_identity.go mints. curl and Go check its chain against
 # the root and refuse one that fails; nghttp prints a warning and goes on. With --tls a Go client
-# that offers TLS 1.2 alone must read the alert the server refuses it with.
+# that offers TLS 1.2 alone must read the alert the server refuses it with, and one that sends a
+# record that does not authenticate after the handshake must read bad_record_mac.
 #
 # Usage: tools/h2_server_interop.sh [--tls] [curl] [nghttp] [go]
 #        (no peer runs all three)
@@ -189,6 +190,21 @@ refuse_tls_1_2() {
   echo "h2_server_interop.sh: a refused handshake ends with the server's alert: ${report##*remote error: tls: }"
 }
 
+# RFC 9846 §5.2: a record that does not authenticate ends the connection with a bad_record_mac
+# alert. forged_record.go's client sends one once the handshake is complete, over h2, and
+# reads what the server answers.
+forge_record() {
+  (cd "${peer_directory}" && go build -o "${scratch}/forged_record" forged_record.go)
+  start_server --tls "${identity}"
+  local report
+  report="$("${scratch}/forged_record" client "${port}" "${identity}" h2 2>&1)" ||
+    { echo "${report}"; fail "the forged record's client did not complete its handshake"; }
+  grep -q "remote error: tls: bad record MAC" <<<"${report}" ||
+    { echo "${report}"; fail "the server did not answer a forged record with bad_record_mac"; }
+  stop_server
+  echo "h2_server_interop.sh: a forged record ends with the server's alert: ${report##*remote error: tls: }"
+}
+
 # coded_round <plan>: runs the plan against the server in its --coded mode, in cleartext and, with
 # --tls, over TLS (decision 101). The plan reads ${mode}.
 coded_round() {
@@ -273,6 +289,7 @@ for peer in "${peers[@]}"; do
   esac
 done
 [ -z "${tls}" ] || refuse_tls_1_2
+[ -z "${tls}" ] || forge_record
 modes="cleartext"
 [ -z "${tls}" ] || modes="cleartext and TLS"
 echo "h2_server_interop.sh: every request ended with 200, in ${modes}, from: ${peers[*]}"

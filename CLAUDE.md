@@ -287,7 +287,10 @@ section when a step adds or renames a command.
   line naming h3 over TLS and none in cleartext. Both endpoints also take `--coded` (decision
   101): the server codes its answers in gzip or deflate, and each server script requires curl
   with `--compressed` and Go's client to read gzip; the client offers both and decodes, and each
-  client script runs it against Go's server with `-gzip` and h2o's `compress`. None is part of
+  client script runs it against Go's server with `-gzip` and h2o's `compress`. With `--tls` all
+  four also send colibri a record that does not authenticate once the handshake is complete, from
+  `tools/h2_interop/forged_record.go` as a client and as a server, and require Go to read
+  colibri's `bad_record_mac` (RFC 9846 §5.2). None is part of
   `zig build test`. CI runs each of them on every push, except `tools/interop.sh`, which it runs
   every Monday, and `tools/h3load.sh`, which only a person runs. A person runs each before calling
   a step done.
