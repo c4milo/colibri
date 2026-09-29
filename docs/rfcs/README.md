@@ -43,6 +43,8 @@ rule or none at all.
 | [9000](rfc9000.txt) | QUIC: A UDP-Based Multiplexed and Secure Transport | `quic`, and the variable-length integer in `wire` |
 | [9001](rfc9001.txt) | Using TLS to Secure QUIC | The TLS provider's QUIC mode and `crypto.Suite` (decisions 8 and 9) |
 | [9002](rfc9002.txt) | QUIC Loss Detection and Congestion Control | Loss recovery, design §8 step 10 |
+| [9369](rfc9369.txt) | QUIC Version 2 | Version 2 beside version 1, for [#54](https://github.com/c4milo/colibri/issues/54), copied on 2026-09-29 |
+| [9368](rfc9368.txt) | Compatible Version Negotiation for QUIC | The version_information transport parameter RFC 9369 §4 requires, copied on 2026-09-29 |
 
 ## TLS
 
