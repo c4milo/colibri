@@ -193,6 +193,14 @@ test "RFC 9110 §6.4.1 and §8.6: any 2xx to CONNECT opens the tunnel, a 204 too
     try testing.expectEqualStrings("raw", (try target.receive("raw", &.{})).event.?.tunnel);
 }
 
+test "RFC 9110 §9.3.6: a CONNECT request that declares content is a 400, and nothing after it is read" {
+    const target = server();
+    const input = "CONNECT a:443 HTTP/1.1\r\nHost: a:443\r\nContent-Length: 5\r\n\r\nhello";
+    try testing.expectError(error.ConnectionFailed, target.receive(input, &.{}));
+    try testing.expectEqual(error.ConnectWithContent, target.failure.?);
+    try testing.expectEqual(400, target.reply_status.?);
+}
+
 test "RFC 9931 §8: a refused CONNECT ends the connection, and what follows it is never read" {
     var target = server();
     // RFC 9931 Figure 1: a POST the client sent before the CONNECT's answer.

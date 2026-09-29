@@ -79,6 +79,8 @@ pub fn read_request(scanner: *Scanner, input: []const u8, section: *FieldSection
     try message_fields.parse(.request, fields, section);
     const form = try message_target.check(line, section);
     const body = try message_body.request_body(line.version, section);
+    // RFC 9110 §9.3.6: CONNECT alone has no content, and a 2xx opens a tunnel after its head.
+    if (http.method.standard(line.method) == .connect) try message_body.check_connect(body);
     return .{ .head_len = head_len, .line = line, .form = form, .body = body };
 }
 
@@ -163,5 +165,7 @@ test "a refused head resets the scanner, and each layer's refusal reaches the ca
     try testing.expectError(error.StartLineEmpty, read_response(&scanner, .other, "\r\nHTTP/1.1 200 X\r\n\r\n", &test_section));
     try testing.expectError(error.HostMissing, read_request(&scanner, "GET / HTTP/1.1\r\n\r\n", &test_section));
     try testing.expectError(error.ChunkedNotLast, read_request(&scanner, "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip\r\n\r\n", &test_section));
+    try testing.expectError(error.ConnectWithContent, read_request(&scanner, "CONNECT a:1 HTTP/1.1\r\nHost: a:1\r\nContent-Length: 5\r\n\r\n", &test_section));
+    _ = (try read_request(&scanner, "CONNECT a:1 HTTP/1.1\r\nHost: a:1\r\nContent-Length: 0\r\n\r\n", &test_section)).?;
     try testing.expectError(error.TransferEncodingWithContentLength, read_response(&scanner, .other, "HTTP/1.1 200 OK\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\n", &test_section));
 }

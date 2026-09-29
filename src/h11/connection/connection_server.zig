@@ -192,7 +192,7 @@ fn status_of(failure: anyerror) u16 {
         error.DecodersExhausted => @intFromEnum(Code.service_unavailable),
         // RFC 9110 §15.6.6: a major version the server does not support.
         error.VersionUnsupported => @intFromEnum(Code.http_version_not_supported),
-        // RFC 9112 §2.2, §3.2, §5.1 and §6.3: a malformed request is a 400.
+        // RFC 9112 §2.2, §3.2, §5.1 and §6.3, and RFC 9110 §9.3.6: a malformed request is a 400.
         else => @intFromEnum(Code.bad_request),
     };
 }

@@ -6,6 +6,7 @@
 //! a sender that a head alone decides:
 //!   - a request carries exactly one valid Host (RFC 9112 §3.2);
 //!   - no message carries both Content-Length and Transfer-Encoding (RFC 9112 §6.2);
+//!   - a CONNECT request declares no content (RFC 9110 §9.3.6, decision 109);
 //!   - no 1xx or 204 response carries Transfer-Encoding (RFC 9112 §6.1) or Content-Length
 //!     (RFC 9110 §8.6).
 //!
@@ -37,8 +38,9 @@ pub const Error = error{
     FieldValueInvalid,
     /// A request with no Host, or with more than one (RFC 9112 §3.2).
     HostInvalid,
-    /// Content-Length with Transfer-Encoding (RFC 9112 §6.2), or either in a response whose status
-    /// forbids it (RFC 9112 §6.1, RFC 9110 §8.6).
+    /// Content-Length with Transfer-Encoding (RFC 9112 §6.2), either in a response whose status
+    /// forbids it (RFC 9112 §6.1, RFC 9110 §8.6), or content declared on a CONNECT request
+    /// (RFC 9110 §9.3.6).
     FramingInvalid,
 };
 
@@ -59,6 +61,8 @@ pub fn write_request_head(output: []u8, method: []const u8, target: []const u8, 
     // RFC 9112 §3.2: a request-target of one of the four forms, as its method takes it.
     _ = message_target.target_form(line) catch return error.TargetInvalid;
     try check_fields(fields);
+    // RFC 9110 §9.3.6: a CONNECT request message does not have content.
+    if (http.method.standard(method) == .connect and declares_content(fields)) return error.FramingInvalid;
     // RFC 9112 §3.2: a client MUST send one Host in every HTTP/1.1 request.
     if (count_named(fields, host_name) != 1) return error.HostInvalid;
     // RFC 9110 §7.2: Host = uri-host [ ":" port ].
@@ -150,6 +154,14 @@ fn count_named(fields: []const Field, name: []const u8) usize {
     return count;
 }
 
+/// Whether a request's fields declare content: a Transfer-Encoding, or a Content-Length above 0
+/// (RFC 9112 §6.3 rules 4 to 7). `check_framing` has accepted both.
+fn declares_content(fields: []const Field) bool {
+    if (find(fields, transfer_encoding_name) != null) return true;
+    const length = find(fields, content_length_name) orelse return false;
+    return (std.fmt.parseUnsigned(u64, length, http.constants.content_length_radix) catch unreachable) > 0;
+}
+
 fn find(fields: []const Field, name: []const u8) ?[]const u8 {
     for (fields) |line| {
         if (http.field.names_equal(line.name, name)) return line.value;
@@ -239,6 +251,14 @@ test "framing fields are one digit-only Content-Length or a Transfer-Encoding of
     }
     _ = try write_response_head(&test_output, 200, "", &.{.{ .name = "transfer-encoding", .value = "Chunked" }});
     _ = try write_response_head(&test_output, 200, "", &.{.{ .name = "Content-Length", .value = "0" }});
+}
+
+test "RFC 9110 §9.3.6: a CONNECT request is written with no content" {
+    const host: Field = .{ .name = "Host", .value = "a:1" };
+    try testing.expectError(error.FramingInvalid, write_request_head(&test_output, "CONNECT", "a:1", &.{ host, .{ .name = "Content-Length", .value = "5" } }));
+    try testing.expectError(error.FramingInvalid, write_request_head(&test_output, "CONNECT", "a:1", &.{ host, .{ .name = "Transfer-Encoding", .value = "chunked" } }));
+    _ = try write_request_head(&test_output, "CONNECT", "a:1", &.{ host, .{ .name = "Content-Length", .value = "00" } });
+    _ = try write_request_head(&test_output, "CONNECT", "a:1", &.{host});
 }
 
 test "a head that does not fit is not written, and one that fits exactly is" {

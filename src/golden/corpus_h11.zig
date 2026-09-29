@@ -141,6 +141,10 @@ pub const server = [_]Case{
     // RFC 9112 §6.1: a transfer coding the server does not implement, and two stacked.
     reject("h11_server_coding_unknown", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: br, chunked\r\n\r\n", error.NotImplemented),
     reject("h11_server_codings_stacked", "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: gzip, deflate, chunked\r\n\r\n", error.NotImplemented),
+    // RFC 9110 §9.3.6: a CONNECT request has no content, so the octets after its head are a
+    // tunnel's, and one that declares content is refused (decision 109).
+    reject("h11_server_connect_content", "CONNECT a.example:443 HTTP/1.1\r\nHost: a.example:443\r\n" ++
+        "Content-Length: 5\r\n\r\nhello", error.BadRequest),
     // RFC 9110 §15.6.6: a major version the server does not support.
     reject("h11_server_version_two", "GET / HTTP/2.0\r\nHost: a\r\n\r\n", error.HttpVersionNotSupported),
     // RFC 9112 §8: the stream ends inside a body, and inside a head.

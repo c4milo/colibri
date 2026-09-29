@@ -10,6 +10,9 @@
 //!     §6.3 would read such a response until close, but decoding it would need chunked removed
 //!     after a compression coding, which decision 91 does not decode.
 //!
+//! A CONNECT request that declares content is refused: RFC 9110 §9.3.6 gives it none, so every
+//! octet after its head belongs to the tunnel a 2xx opens (decision 109).
+//!
 //! Decision 91 limits the codings: chunked, and at most one of gzip or deflate. A coding h11 does
 //! not decode is `CodingUnsupported`, which RFC 9112 §6.1 has a server answer with 501. A request
 //! whose final coding is not chunked is `ChunkedNotLast` whatever codings it names, because
@@ -39,6 +42,8 @@ pub const Error = error{
     CodingsStacked,
     /// A Content-Length that is not one valid value (RFC 9112 §6.3, RFC 9110 §8.6).
     ContentLengthInvalid,
+    /// A CONNECT request that declares content (RFC 9110 §9.3.6).
+    ConnectWithContent,
 };
 
 /// How a body is delimited (RFC 9112 §6.3).
@@ -92,6 +97,17 @@ pub fn request_body(version: Version, section: *const FieldSection) Error!Body {
     if (try content_length(section)) |octets| return .{ .length = .{ .fixed = octets } };
     // RFC 9112 §6.3 rule 7: a request with neither has no body.
     return .{ .length = .none };
+}
+
+/// Refuses the body of a CONNECT request unless it has none. `Content-Length: 0` declares none.
+pub fn check_connect(body: Body) Error!void {
+    const content = switch (body.length) {
+        .none => false,
+        .fixed => |octets| octets > 0,
+        .chunked, .close_delimited, .tunnel => true,
+    };
+    // RFC 9110 §9.3.6: a CONNECT request message does not have content.
+    if (content) return error.ConnectWithContent;
 }
 
 /// A response's body (RFC 9112 §6.3 rules 1 to 6 and 8), to a request that asked `asked`.
@@ -316,6 +332,15 @@ test "RFC 9112 §6.3 rules 1 and 2: HEAD, 1xx, 204 and 304 have no body, and any
     try testing.expectEqual(Length.none, (try response_body(.connect, status_of(304), http11, framed)).length);
     try testing.expectEqual(Length{ .fixed = 5 }, (try response_body(.connect, status_of(407), http11, framed)).length);
     try testing.expectEqual(Length{ .fixed = 5 }, (try response_body(.other, status_of(205), http11, framed)).length);
+}
+
+test "RFC 9110 §9.3.6: a CONNECT request declares no content, and Content-Length: 0 declares none" {
+    try check_connect(try request_body(http11, try section_of(&.{})));
+    try check_connect(try request_body(http11, try section_of(&.{.{ .name = "Content-Length", .value = "0" }})));
+    const length = try request_body(http11, try section_of(&.{.{ .name = "Content-Length", .value = "5" }}));
+    try testing.expectError(error.ConnectWithContent, check_connect(length));
+    const chunked = try request_body(http11, try section_of(&.{.{ .name = "Transfer-Encoding", .value = "chunked" }}));
+    try testing.expectError(error.ConnectWithContent, check_connect(chunked));
 }
 
 test "RFC 9112 §6.3 rules 4 and 8: a response without chunked or a length runs until close" {
