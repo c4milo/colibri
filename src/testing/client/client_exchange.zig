@@ -73,18 +73,19 @@ pub const Exchange = struct {
     pub fn print(exchange: *const Exchange, protocol: []const u8) void {
         const carried = &exchange.carried;
         std.debug.print(line_format, .{
-            protocol,             exchange.id,
-            exchange.plan.method, exchange.plan.path,
-            carried.status,       carried.interims,
-            carried.content_sent, exchange.sent_crc32(),
-            carried.body_len,     exchange.received_crc32(),
-            carried.outcome,      carried.error_code,
+            protocol,                                            exchange.id,
+            exchange.plan.method,                                exchange.plan.path,
+            carried.status,                                      carried.interims,
+            carried.content_sent,                                exchange.sent_crc32(),
+            carried.body_len,                                    exchange.received_crc32(),
+            carried.outcome,                                     carried.error_code,
+            if (carried.coding) |coding| coding.name() else "-",
         });
     }
 };
 
 const line_format = "protocol={s} exchange={d} {s} {s} status={d} interim={d} sent={d} " ++
-    "sent_crc32=0x{x:0>8} received={d} received_crc32=0x{x:0>8} outcome={t} error_code={d}\n";
+    "sent_crc32=0x{x:0>8} received={d} received_crc32=0x{x:0>8} outcome={t} error_code={d} coding={s}\n";
 
 /// The request content: octet `i` is `i % request_content_period`, as long as the longest content
 /// a plan may ask for. Every exchange's content is a prefix of it. `fill_content` writes it once,

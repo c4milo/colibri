@@ -103,6 +103,9 @@ const Worker = struct {
     /// (decisions 91 and 98).
     decoders: h11.coding.Pool(constants.h11_decoders_per_worker),
     decoded: [constants.h11_decoded_len]u8,
+    /// The encoders the worker's connections code responses with in the `--coded` mode (decision
+    /// 101).
+    encoders: server.EncoderPool(constants.encoders_per_worker, server.constants.encoder_level_default),
     /// What every connection of the worker borrows: the TLS configuration or none, the protocol a
     /// cleartext connection speaks, and the decoders.
     config: server.Config,
@@ -167,6 +170,11 @@ fn run_worker(index: usize, port: u16) !void {
         .decoded = &worker.decoded,
         .h3_alternative = h3_alternative,
     };
+    if (coded_mode) {
+        worker.encoders.reset(server.coding_pool.Features.detect());
+        worker.config.codings = &served_codings;
+        worker.config.encoders = worker.encoders.encoders();
+    }
     while (true) try turn(worker);
 }
 
@@ -338,6 +346,9 @@ fn consume(connection: *Connection, consumed: usize) void {
 var cleartext_protocol: Protocol align(@alignOf(Protocol)) = .h2;
 var listen_address: [server_options.ipv4_octets]u8 = server_options.loopback_octets;
 var echo_mode: bool = false;
+/// Whether responses are coded (`--coded`), in gzip or deflate, gzip first.
+var coded_mode: bool = false;
+const served_codings = [_]server.Coding{ .gzip, .deflate };
 /// The h3 endpoint each TLS connection advertises (`--h3-port`), or null.
 var h3_alternative: ?server.Alternative align(@alignOf(?server.Alternative)) = null;
 
@@ -357,6 +368,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     cleartext_protocol = options.protocol;
     listen_address = options.address;
     echo_mode = options.echo;
+    coded_mode = options.coded;
     if (options.h3_port) |port| h3_alternative = .{ .port = port };
     if (options.identity_prefix) |prefix| try load_tls(prefix, options.protocol);
     try listen_and_serve(options.port);

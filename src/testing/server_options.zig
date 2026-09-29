@@ -1,10 +1,11 @@
 //! The command line of the test-only server (`server.zig`), as `tools/h2spec.sh` and the interop
 //! scripts pass it. Split off the server for length.
 //!
-//!     http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--tls <identity-prefix>]
-//!         [--h3-port <port>]
+//!     http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--coded]
+//!         [--tls <identity-prefix>] [--h3-port <port>]
 //!
-//! `--h11` and `--echo` take no value. `--h11` makes a cleartext connection speak h11, or a TLS
+//! `--h11`, `--echo` and `--coded` take no value. `--coded` codes each response in gzip or
+//! deflate when its request accepts one (decision 101). `--h11` makes a cleartext connection speak h11, or a TLS
 //! server offer `http/1.1` alone. `--echo` answers every h11 request with what h11 read of it
 //! (`h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
 //! the UDP port each TLS connection advertises h3 on (design §8 step 17b): an Alt-Svc line on each
@@ -29,6 +30,7 @@ const tls_option = "--tls";
 const h11_option = "--h11";
 const echo_option = "--echo";
 const h3_port_option = "--h3-port";
+const coded_option = "--coded";
 
 /// What the command line asked for.
 pub const Options = struct {
@@ -39,6 +41,8 @@ pub const Options = struct {
     identity_prefix: ?[]const u8 = null,
     protocol: Protocol = .h2,
     echo: bool = false,
+    /// Whether responses are coded in a coding their request accepts (decision 101).
+    coded: bool = false,
     /// The UDP port each TLS connection advertises h3 on, or null for none.
     h3_port: ?u16 = null,
 };
@@ -56,6 +60,10 @@ pub fn read(arguments: anytype) ?Options {
         }
         if (std.mem.eql(u8, argument, echo_option)) {
             options.echo = true;
+            continue;
+        }
+        if (std.mem.eql(u8, argument, coded_option)) {
+            options.coded = true;
             continue;
         }
         const value = arguments.next() orelse return null;
@@ -82,7 +90,7 @@ fn read_setting(options: *Options, option: []const u8, value: []const u8) ?void 
     } else return null;
 }
 
-pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--tls <identity-prefix>] [--h3-port <port>]\n";
+pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--coded] [--tls <identity-prefix>] [--h3-port <port>]\n";
 
 const testing = std.testing;
 

@@ -31,6 +31,9 @@ pub const Run = struct {
     channel: bool,
     /// How long the channel's QUIC handshake runs before TCP opens beside it: `--fallback-ms`.
     fallback_delay_ns: u64,
+    /// Whether the client offers gzip and deflate, and decodes a response coded in either:
+    /// `--coded` (decision 101).
+    coded: bool,
 };
 
 /// How many octets an IPv4 address has (RFC 791 §3.1).
@@ -43,7 +46,7 @@ const loopback_first: u8 = 127;
 
 pub const usage =
     \\usage: http-client [--address <ipv4>] [--port <port>] [--authority <name>]
-    \\                 [--h11] [--tls <anchor-prefix> --seconds <unix-seconds>]
+    \\                 [--h11] [--coded] [--tls <anchor-prefix> --seconds <unix-seconds>]
     \\                 [--channel [--fallback-ms <milliseconds>]]
     \\                 [--connections <count>] (--get <path> | --post <path> <octets>)...
     \\
@@ -64,6 +67,7 @@ pub fn read_run(arguments: anytype) ?Run {
         .protocol = .h2,
         .channel = false,
         .fallback_delay_ns = constants.channel_fallback_delay_ns,
+        .coded = false,
     };
     for (0..constants.client_arguments_max) |_| {
         const option = arguments.next() orelse break;
@@ -91,6 +95,10 @@ fn read_flag(run: *Run, option: []const u8) bool {
     }
     if (std.mem.eql(u8, option, "--channel")) {
         run.channel = true;
+        return true;
+    }
+    if (std.mem.eql(u8, option, "--coded")) {
+        run.coded = true;
         return true;
     }
     return false;

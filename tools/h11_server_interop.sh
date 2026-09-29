@@ -160,6 +160,47 @@ plan_go() {
   echo "h11_server_interop.sh: go ${mode}: ${report#go_client: }"
 }
 
+# coded_round <plan>: runs the plan against the server in its --coded mode, in cleartext and, with
+# --tls, over TLS (decision 101). The plan reads ${mode}.
+coded_round() {
+  mode=cleartext
+  start_server --h11 --coded
+  "$1"
+  if [ -n "${tls}" ]; then
+    mode=tls
+    start_server --coded --tls "${identity}"
+    "$1"
+  fi
+  stop_server
+}
+
+# Decision 101: curl with --compressed offers gzip and deflate, and the server answers in gzip, its
+# first coding, which curl decodes to the body.
+plan_curl_coded() {
+  local base arguments=(--http1.1)
+  base="http://${container_host}:${port}"
+  if [ "${mode}" = tls ]; then
+    base="https://localhost:${port}"
+    arguments=(--http1.1 --cacert /identity/colibri.chain.pem --connect-to "localhost:${port}:${container_host}:${port}")
+  fi
+  local answered
+  answered="$(in_container curl -s "${arguments[@]}" --compressed -D - "${base}/get")" ||
+    fail "curl ${mode}, coded: the GET failed"
+  grep -qi '^content-encoding: gzip' <<<"${answered}" || fail "curl ${mode}, coded: the answer was not gzip: ${answered}"
+  [ "$(tail -1 <<<"${answered}")" = "${body}" ] || fail "curl ${mode}, coded: the body did not decode: ${answered}"
+  echo "h11_server_interop.sh: curl ${mode}: a GET with --compressed got gzip, which decoded to the body"
+}
+
+# Decision 101: Go's transport asks for gzip itself, and decodes each coded answer.
+plan_go_coded() {
+  local arguments=()
+  [ "${mode}" = cleartext ] || arguments=("${identity}")
+  local report
+  report="$("${scratch}/go_client" -h11 -coded "127.0.0.1:${port}" ${arguments[@]+"${arguments[@]}"} 2>&1)" ||
+    { echo "${report}"; fail "go ${mode}, coded: the client exited non-zero"; }
+  echo "h11_server_interop.sh: go ${mode}, coded: ${report#go_client: }"
+}
+
 tls=""
 if [ "${1:-}" = "--tls" ]; then
   tls="yes"
@@ -187,11 +228,13 @@ for peer in "${peers[@]}"; do
         docker build -q -t "${image}" "${peer_directory}" >/dev/null
       echo "h11_server_interop.sh: $(in_container curl --version | head -1)"
       in_both_modes plan_curl
+      coded_round plan_curl_coded
       ;;
     go)
       echo "h11_server_interop.sh: $(go version)"
       (cd "${peer_directory}" && go build -o "${scratch}/go_client" go_client.go)
       in_both_modes plan_go
+      coded_round plan_go_coded
       ;;
     *) fail "unknown peer: ${peer}" ;;
   esac

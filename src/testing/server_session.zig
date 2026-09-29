@@ -209,7 +209,8 @@ pub const Session = struct {
     /// not keep the request's content, 413 with none (RFC 9110 §15.5.14).
     fn write_head(session: *Session, request: Request) server.SendError!void {
         const connection = &session.connection;
-        const echo = session.echo orelse return connection.respond(request.id, .{ .status = constants.response_status, .fields = &response_fields, .end = request.head });
+        // Decision 101: the fixed answer may be coded, and an echo goes out as it arrived.
+        const echo = session.echo orelse return connection.respond(request.id, .{ .status = constants.response_status, .fields = &response_fields, .end = request.head, .codable = true });
         if (echo.body_too_long) return connection.respond(request.id, .{ .status = too_large_status, .end = true });
         var digits: [constants.content_length_digits_max]u8 = undefined;
         const length = std.fmt.bufPrint(&digits, "{d}", .{echo.written().len}) catch unreachable;

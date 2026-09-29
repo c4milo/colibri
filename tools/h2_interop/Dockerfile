@@ -5,10 +5,12 @@ FROM debian:bookworm-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends nghttp2-server nghttp2-client curl ca-certificates h2o python3 \
  && rm -rf /var/lib/apt/lists/*
-# What both servers serve: a short file, and one sixteen times the 65,535-octet window a stream
-# starts with (RFC 9113 §6.9.2), whose octet i is i % 251, the pattern the client's requests use.
+# What both servers serve: a short file, one sixteen times the 65,535-octet window a stream starts
+# with (RFC 9113 §6.9.2), whose octet i is i % 251, the pattern the client's requests use, and a
+# text file h2o codes in gzip for a client that accepts it (decision 101).
 RUN mkdir -p /www \
  && printf 'colibri\n' > /www/index.html \
- && python3 -c "open('/www/large','wb').write(bytes(i % 251 for i in range(1 << 20)))"
+ && python3 -c "open('/www/large','wb').write(bytes(i % 251 for i in range(1 << 20)))" \
+ && python3 -c "open('/www/text.txt','w').write('colibri\\n' * 8192)"
 COPY h2o.conf /etc/h2o/colibri.conf
 COPY h2o_tls.conf /etc/h2o/colibri_tls.conf

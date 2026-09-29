@@ -22,6 +22,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
 const client = @import("client");
+const h11 = @import("h11");
 const constants = @import("../constants.zig");
 const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
@@ -82,6 +83,10 @@ var bodies: [constants.client_connections_max]client_session.Bodies align(@align
 /// What every connection of the run borrows, and the root the TLS mode trusts, which `main` loads
 /// when `--tls` names one.
 var client_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
+/// The decoders every connection of a `--coded` run shares, and the codings it offers, gzip first
+/// (decision 101).
+var decoders: client.DefaultDecoderPool align(@alignOf(client.DefaultDecoderPool)) = .{};
+const offered_codings = [_]client.Coding{ .gzip, .deflate };
 var tls_anchors: client_tls.Anchors align(@alignOf(client_tls.Anchors)) = undefined;
 
 /// Opens every connection of `run`, serves them until each is closed, and returns how many
@@ -291,6 +296,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     };
     client_exchange.fill_content();
     client_config = .{ .authority = run.authority, .cleartext = protocol_of(run.protocol) };
+    if (run.coded) {
+        // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
+        decoders.storage().reset(h11.coding.Features.detect());
+        client_config.codings = &offered_codings;
+        client_config.decoders = decoders.storage();
+    }
     if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
     if (run.channel) {
         if (!try channel_loop.run_channel(&run, &client_config, &tls_anchors)) std.process.exit(exit_failed);

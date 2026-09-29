@@ -65,6 +65,10 @@ pub const arguments_max: u32 = 16;
 /// own connections and its own thread, and reads no other worker's memory.
 pub const workers_max: u32 = 8;
 
+/// The encoders each worker of the test-only server codes responses with in its `--coded` mode
+/// (decision 101): the coded responses its connections send at once.
+pub const encoders_per_worker: usize = 4;
+
 /// Connections one worker serves at once. SO_REUSEPORT ties a connection to the worker whose
 /// listener the kernel picked, and that choice is a hash rather than a balance: several peers can
 /// land on one worker while another sits idle. So a worker holds far more connections than an even

@@ -108,9 +108,13 @@ run_go() {
   (cd "${peer_directory}" && go build -o "${scratch}/go_server" go_server.go)
   start_go
   plan_go
+  start_go -gzip
+  plan_go_coded
   if [ -n "${tls}" ]; then
     start_go "${identity}"
     over_tls plan_go
+    start_go -gzip "${identity}"
+    over_tls plan_go_coded
     refuse_untrusted
   fi
   stop_peer
@@ -139,10 +143,12 @@ refuse_untrusted() {
     "$(sed -n 's/.*remote error: tls: //p' "${scratch}/refused.log" | head -1)"
 }
 
-# start_go [<identity-prefix>]: starts Go's server, over TLS when given the identity.
+# start_go [-gzip] [<identity-prefix>]: starts Go's server, over TLS when given the identity.
 start_go() {
   stop_peer
-  "${scratch}/go_server" "${go_port}" "$@" &
+  local coded=()
+  if [ "${1:-}" = -gzip ]; then coded=(-gzip); shift; fi
+  "${scratch}/go_server" ${coded[@]+"${coded[@]}"} "${go_port}" "$@" &
   background_pid=$!
   wait_for_port "${go_port}"
 }
@@ -158,6 +164,21 @@ plan_go() {
   expect /interim "status=200 interim=1"
   expect /trailers "status=200 interim=0 sent=0 sent_crc32=0x00000000 received=8"
   expect /missing "status=404"
+}
+
+# Decision 101: the client offers gzip and deflate, Go's server with -gzip codes each answer in
+# gzip, and the client decodes it octet for octet and names the coding it removed.
+plan_go_coded() {
+  run_client "${go_port}" --coded --get / --get /large
+  expect / "status=200 interim=0 sent=0 sent_crc32=0x00000000 received=8"
+  expect / "coding=gzip"
+  expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response error_code=0 coding=gzip"
+}
+
+# Decision 101: h2o codes a text file in gzip for a client that accepts it.
+plan_h2o_coded() {
+  run_client "${h2o_port}" --coded --get /text.txt
+  expect /text.txt "received=${text_len} received_crc32=${text_crc32} outcome=response error_code=0 coding=gzip"
 }
 
 start_container() {
@@ -194,9 +215,11 @@ run_h2o() {
   echo "h2_interop.sh: $(docker run --rm "${image}" h2o --version | head -1)"
   start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri.conf
   plan_h2o
+  plan_h2o_coded
   if [ -n "${tls}" ]; then
     start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri_tls.conf
     over_tls plan_h2o
+    over_tls plan_h2o_coded
   fi
   stop_peer
 }
@@ -236,6 +259,9 @@ fi
 [ -x "${client}" ] || fail "the client was not built at ${client}"
 readonly content_crc32="$(pattern_crc32 "${content_len}")"
 readonly large_crc32="$(pattern_crc32 "${large_len}")"
+# The text file h2o codes (tools/h2_interop/Dockerfile): "colibri\n" 8,192 times.
+readonly text_len=65536
+readonly text_crc32="$(python3 -c "import zlib; print('0x%08x' % zlib.crc32(b'colibri\\n' * 8192))")"
 
 for peer in "${peers[@]}"; do
   case "${peer}" in

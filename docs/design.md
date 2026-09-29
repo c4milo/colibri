@@ -5246,6 +5246,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     CRC-32, 0x69460a6e, is the same in Debug and ReleaseSafe.
   - `zig build test` passed: 2323 of 2323 tests.
 
+  **17e part 4, interop, 2026-09-29.** The test-only server and client take `--coded`. The server
+  codes its fixed answer in gzip or deflate, and echoes stay as they arrived, so the HTTP Garden
+  sees the same octets. The client offers both codings and decodes, and names the coding it
+  removed in its report. Go's test server takes `-gzip`, and h2o's configuration turns on
+  `compress` over a 64 KiB text file.
+
+  **17e check,** run on macOS 26.6.2 arm64 on 2026-09-29, the peers in Docker where the scripts
+  run them:
+  - `zig build sim -- --coding-check`: seeds=32 exchanges=82 decoded=19 passed_on=4 too_large=8
+    crc32=0x69460a6e.
+  - `tools/h2_server_interop.sh --tls` and `tools/h11_server_interop.sh --tls`: curl 7.88.1 with
+    `--compressed` got gzip and decoded it to the body, and every one of Go 1.27.1's 65 requests
+    came back coded in gzip, in cleartext and over TLS.
+  - `tools/h2_interop.sh --tls` and `tools/h11_interop.sh --tls`: the client decoded Go's gzip
+    answers, `/` and the 1 MiB `/large`, and h2o 2.2.5's gzip `/text.txt`, octet for octet, on one
+    connection and on 64, in cleartext and over TLS.
+  - Mutations: 93, each CAUGHT: 62 of the server's rules and 31 of the client's.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

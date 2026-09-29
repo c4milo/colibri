@@ -3,7 +3,7 @@
 // run against colibri's test-only server. Nothing here is colibri's code, which is the point: the
 // run says whether Go's client and colibri's server read RFC 9113 and RFC 9112 the same way.
 //
-//	go run tools/h2_interop/go_client.go [-h11] <address:port> [<identity-prefix>]
+//	go run tools/h2_interop/go_client.go [-h11] [-coded] <address:port> [<identity-prefix>]
 //
 // With a prefix it speaks TLS, trusts the root in <identity-prefix>.chain.pem, which
 // tools/h2_interop/tls_identity.go wrote, and asks for the name the leaf carries. With -h11 over
@@ -52,11 +52,15 @@ const deadline = 60 * time.Second
 // Whether the run speaks HTTP/1.1, and the major version every response must carry.
 var h11 = flag.Bool("h11", false, "speak HTTP/1.1 alone (RFC 9112) instead of h2")
 
+// Whether every response must arrive coded in gzip, which Go's transport asks for itself and
+// decodes: colibri's server in its --coded mode (decision 101).
+var coded = flag.Bool("coded", false, "require every response coded in gzip, which the transport decodes")
+
 func main() {
 	flag.Parse()
 	arguments := flag.Args()
 	if len(arguments) != 1 && len(arguments) != 2 {
-		log.Fatal("usage: go_client [-h11] <address:port> [<identity-prefix>]")
+		log.Fatal("usage: go_client [-h11] [-coded] <address:port> [<identity-prefix>]")
 	}
 	client, base := newClient(arguments)
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
@@ -160,6 +164,9 @@ func exchange(ctx context.Context, client *http.Client, method, uri string, cont
 	}
 	if response.ProtoMajor != major || response.StatusCode != http.StatusOK || string(received) != expectedBody {
 		return fmt.Errorf("%s %s: %s %d %q", method, uri, response.Proto, response.StatusCode, received)
+	}
+	if *coded && !response.Uncompressed {
+		return fmt.Errorf("%s %s: the response was not coded in gzip", method, uri)
 	}
 	return nil
 }

@@ -3,20 +3,23 @@
 // client's plan asks for, and nothing here is colibri's code, which is the point: the run says
 // whether colibri's client and Go's server read RFC 9113 and RFC 9112 the same way.
 //
-//	go run tools/h2_interop/go_server.go [-h11] <port> [<identity-prefix>]
+//	go run tools/h2_interop/go_server.go [-h11] [-gzip] <port> [<identity-prefix>]
 //
 // With a prefix it serves TLS with the chain and key tools/h2_interop/tls_identity.go wrote there.
 // With -h11 over TLS it offers ALPN "http/1.1" alone, so it selects that when a client offers
-// "h2" too.
+// "h2" too. With -gzip it codes each answer in gzip when the request accepts it (RFC 9110
+// §12.5.3), for colibri's client to decode (decision 101).
 package main
 
 import (
+	"compress/gzip"
 	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 )
 
 // Octets /large answers with: sixteen times the 65,535-octet window a stream starts with
@@ -28,6 +31,7 @@ const period = 251
 
 func main() {
 	h11 := flag.Bool("h11", false, "serve HTTP/1.1 alone (RFC 9112) instead of h2")
+	coded := flag.Bool("gzip", false, "code each answer in gzip when the request accepts it")
 	flag.Parse()
 	arguments := flag.Args()
 	if len(arguments) != 1 && len(arguments) != 2 {
@@ -67,8 +71,12 @@ func main() {
 	})
 	mux.HandleFunc("/missing", http.NotFound)
 
+	var handler http.Handler = mux
+	if *coded {
+		handler = gzipped(mux)
+	}
 	protocols := new(http.Protocols)
-	server := &http.Server{Addr: "127.0.0.1:" + arguments[0], Handler: mux, Protocols: protocols}
+	server := &http.Server{Addr: "127.0.0.1:" + arguments[0], Handler: handler, Protocols: protocols}
 	if *h11 {
 		// RFC 9112, in cleartext, and over TLS selected by ALPN, which this server offers alone.
 		protocols.SetHTTP1(true)
@@ -85,4 +93,36 @@ func main() {
 	server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS13}
 	prefix := arguments[1]
 	log.Fatal(server.ListenAndServeTLS(prefix+".chain.pem", prefix+".key.pem"))
+}
+
+// Codes each answer in gzip when its request's Accept-Encoding names gzip, which net/http leaves
+// to the handler. The coded content has a length no handler knows, so a Content-Length a handler
+// set goes (RFC 9110 §8.6), and Vary names the field that chose the coding (§12.5.5).
+func gzipped(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Add("Vary", "Accept-Encoding")
+		coder := gzip.NewWriter(w)
+		defer coder.Close()
+		next.ServeHTTP(&gzipWriter{ResponseWriter: w, coder: coder}, r)
+	})
+}
+
+type gzipWriter struct {
+	http.ResponseWriter
+	coder *gzip.Writer
+}
+
+func (writer *gzipWriter) WriteHeader(status int) {
+	writer.Header().Del("Content-Length")
+	writer.ResponseWriter.WriteHeader(status)
+}
+
+func (writer *gzipWriter) Write(content []byte) (int, error) {
+	writer.Header().Del("Content-Length")
+	return writer.coder.Write(content)
 }

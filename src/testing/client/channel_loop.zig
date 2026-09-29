@@ -66,7 +66,13 @@ var closed: bool = false;
 pub fn run_channel(run: *const Run, tcp_config: *const client.Config, anchors: *const client_tls.Anchors) !bool {
     assert(run.channel and run.anchor_prefix != null);
     assert(run.plans_count > 0 and run.plans_count <= constants.exchanges_max);
-    quic_config = .{ .tls = try client_tls.load_quic(&quic_tls, anchors, run.authority), .authority = run.authority };
+    quic_config = .{
+        .tls = try client_tls.load_quic(&quic_tls, anchors, run.authority),
+        .authority = run.authority,
+        // Decision 101: both transports offer the codings, and share the decoders.
+        .codings = tcp_config.codings,
+        .decoders = tcp_config.decoders,
+    };
     channel_config = .{ .tcp = tcp_config, .quic = &quic_config, .fallback_delay_ns = run.fallback_delay_ns };
     addresses[0] = Address.of(&run.address, 0);
     now_seconds = run.now_seconds;

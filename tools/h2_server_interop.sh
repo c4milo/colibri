@@ -189,6 +189,47 @@ refuse_tls_1_2() {
   echo "h2_server_interop.sh: a refused handshake ends with the server's alert: ${report##*remote error: tls: }"
 }
 
+# coded_round <plan>: runs the plan against the server in its --coded mode, in cleartext and, with
+# --tls, over TLS (decision 101). The plan reads ${mode}.
+coded_round() {
+  mode=cleartext
+  start_server --coded
+  "$1"
+  if [ -n "${tls}" ]; then
+    mode=tls
+    start_server --coded --tls "${identity}"
+    "$1"
+  fi
+  stop_server
+}
+
+# Decision 101: curl with --compressed offers gzip and deflate, and the server answers in gzip, its
+# first coding, which curl decodes to the body.
+plan_curl_coded() {
+  local base arguments=(--http2-prior-knowledge)
+  base="http://${container_host}:${port}"
+  if [ "${mode}" = tls ]; then
+    base="https://localhost:${port}"
+    arguments=(--http2 --cacert /identity/colibri.chain.pem --connect-to "localhost:${port}:${container_host}:${port}")
+  fi
+  local answered
+  answered="$(in_container curl -s "${arguments[@]}" --compressed -D - "${base}/get")" ||
+    fail "curl ${mode}, coded: the GET failed"
+  grep -qi '^content-encoding: gzip' <<<"${answered}" || fail "curl ${mode}, coded: the answer was not gzip: ${answered}"
+  [ "$(tail -1 <<<"${answered}")" = "${body}" ] || fail "curl ${mode}, coded: the body did not decode: ${answered}"
+  echo "h2_server_interop.sh: curl ${mode}: a GET with --compressed got gzip, which decoded to the body"
+}
+
+# Decision 101: Go's transport asks for gzip itself, and decodes each coded answer.
+plan_go_coded() {
+  local arguments=()
+  [ "${mode}" = cleartext ] || arguments=("${identity}")
+  local report
+  report="$("${scratch}/go_client" -coded "127.0.0.1:${port}" ${arguments[@]+"${arguments[@]}"} 2>&1)" ||
+    { echo "${report}"; fail "go ${mode}, coded: the client exited non-zero"; }
+  echo "h2_server_interop.sh: go ${mode}, coded: ${report#go_client: }"
+}
+
 tls=""
 if [ "${1:-}" = "--tls" ]; then
   tls="yes"
@@ -220,11 +261,13 @@ for peer in "${peers[@]}"; do
         echo "h2_server_interop.sh: $(in_container nghttp --version)"
       fi
       in_both_modes "plan_${peer}"
+      [ "${peer}" != curl ] || coded_round plan_curl_coded
       ;;
     go)
       echo "h2_server_interop.sh: $(go version)"
       (cd "${peer_directory}" && go build -o "${scratch}/go_client" go_client.go)
       in_both_modes plan_go
+      coded_round plan_go_coded
       ;;
     *) fail "unknown peer: ${peer}" ;;
   esac

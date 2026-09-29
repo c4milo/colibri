@@ -284,9 +284,13 @@ section when a step adds or renames a command.
   `tools/h11_interop.sh [--tls] [go] [h2o]` and `tools/h11_server_interop.sh [--tls] [curl]
   [go]` run the same peers over h11: the client against Go's and h2o's servers, and curl and Go's
   client against the server, where curl also offers no ALPN over TLS and must read an Alt-Svc
-  line naming h3 over TLS and none in cleartext. None is part of `zig build test`. CI runs each
-  of them on every push, except `tools/interop.sh`, which it runs every Monday, and
-  `tools/h3load.sh`, which only a person runs. A person runs each before calling a step done.
+  line naming h3 over TLS and none in cleartext. Both endpoints also take `--coded` (decision
+  101): the server codes its answers in gzip or deflate, and each server script requires curl
+  with `--compressed` and Go's client to read gzip; the client offers both and decodes, and each
+  client script runs it against Go's server with `-gzip` and h2o's `compress`. None is part of
+  `zig build test`. CI runs each of them on every push, except `tools/interop.sh`, which it runs
+  every Monday, and `tools/h3load.sh`, which only a person runs. A person runs each before calling
+  a step done.
 - CI: `tools/ci.sh [report.md]` runs every check above that exists, except `tools/interop.sh` and
   `tools/h3load.sh`, and writes the report; `.github/workflows/main.yml` runs it on each push to
   main (decision 47). A new check joins `tools/ci.sh`, never the workflow file, so CI and a person
