@@ -30,7 +30,8 @@ pub const root_spki = testdata.root_spki;
 pub const private_key: *const [tls.constants.p256_private_key_len]u8 = testdata.private_key;
 pub const public_key: *const [tls.constants.p256_public_key_len]u8 = testdata.public_key;
 
-/// The instant the identity was minted, inside the 48 hours its certificates are valid for.
+/// The instant the tests judge the chain at. Any instant inside the identity's validity works,
+/// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
 
 /// The instant each call passes, in nanoseconds. The tests hold it still.

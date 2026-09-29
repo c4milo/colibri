@@ -196,23 +196,28 @@ test "RFC 9846 §7.5: both sides export the same keying material" {
     try sides[0].vtable.export_keying_material(sides[0].context, "EXPORTER-test", null, from_client[0..0]);
 }
 
-test "RFC 9846 §6: a chain no anchor signed, or one past its validity, fails with an alert" {
+test "RFC 9846 §6: a chain no anchor signed, or one outside its validity, fails with an alert" {
     // The leaf's own key is no anchor of the chain.
     const impostor = [_]values.Anchor{.{ .subject = support.root_name, .spki = support.public_key }};
     try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols }, .{});
     try testing.expectError(error.HandshakeFailed, support.handshake_both(null));
     try testing.expect(client.alert() != null);
-    // Two days on, the certificates have expired.
-    try support.configure(support.web_pki, .{});
-    to_server.* = .{};
-    to_client.* = .{};
-    try client.start(&support.client_config, support.random(), support.now_seconds + 2 * support.day_seconds, null);
-    try server.start(&support.server_config, support.random(), support.now_seconds);
-    to_server.len += (try client.handshake(&.{}, to_server.free())).written;
-    to_client.len += (try server.handshake(to_server.held(), to_client.free())).written;
-    try testing.expectError(error.HandshakeFailed, client.handshake(to_client.held(), to_server.free()));
+    // A second before the identity's notBefore and a second after its notAfter, the leaf "has
+    // expired or is not currently valid", which is certificate_expired (RFC 9846 §6.2).
+    for ([_]u64{ support.not_before_seconds - 1, support.not_after_seconds + 1 }) |seconds| {
+        try support.configure(support.web_pki, .{});
+        try testing.expectError(error.HandshakeFailed, support.handshake_at(seconds, null));
+        try testing.expectEqual(@intFromEnum(tls_provider.Alert.certificate_expired), client.alert().?);
+    }
     // A clock of 0 with anchors is no clock at all.
     try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), 0, null));
+}
+
+test "the identity is valid at its notBefore and at its notAfter, so any instant between works" {
+    for ([_]u64{ support.not_before_seconds, support.now_seconds, support.not_after_seconds }) |seconds| {
+        try support.configure(support.web_pki, .{});
+        try support.handshake_at(seconds, null);
+    }
 }
 
 test "a pin of the server's key authenticates it with no anchor, clock or name" {

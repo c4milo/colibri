@@ -3,6 +3,9 @@
 //
 //	go run tools/h2_interop/tls_identity.go <prefix>
 //
+// Every identity it mints is valid from 2026-01-01 to 2126-01-01, the validity of the identity the
+// tests read (src/testing/testdata/), so a script may pass any clock in that range.
+//
 // A chapulin server provisions one identity per signature scheme. This writes the
 // ecdsa_secp256r1_sha256 one, which srv_cfg.h describes as a 32-byte big-endian private scalar
 // and a 64-byte uncompressed public point, with the end-entity certificate first in the chain.
@@ -43,7 +46,13 @@ const (
 	pubLen  = 64
 )
 
-const validity = 24 * time.Hour
+// The first and the last instant each certificate is valid at: the notBefore and the notAfter of
+// the identity in src/testing/testdata/.
+var (
+	notBefore = time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	notAfter  = time.Date(2126, time.January, 1, 0, 0, 0, 0, time.UTC)
+)
+
 const hostname = "localhost"
 
 func main() {
@@ -101,8 +110,8 @@ func mint(parentKey *ecdsa.PrivateKey, parentDER []byte, name string, isCA bool)
 	template := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: name},
-		NotBefore:             time.Now().Add(-validity),
-		NotAfter:              time.Now().Add(validity),
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
 		BasicConstraintsValid: true,
 	}
 	if isCA {

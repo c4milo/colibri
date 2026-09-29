@@ -17,10 +17,12 @@ pub const root_spki = testdata.root_spki;
 pub const private_key: *const [constants.p256_private_key_len]u8 = testdata.private_key;
 pub const public_key: *const [constants.p256_public_key_len]u8 = testdata.public_key;
 
-/// The instant the identity was minted, inside the 48 hours its certificates are valid for.
+/// The instant the tests judge the chain at. Any instant inside the identity's validity works,
+/// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// A day in seconds, past which the identity's certificates have expired.
-pub const day_seconds: u64 = 86_400;
+/// The first and the last instant the identity is valid at, which chapulin counts inside.
+pub const not_before_seconds = testdata.not_before_seconds;
+pub const not_after_seconds = testdata.not_after_seconds;
 /// Milliseconds in a second, for a ticket's age.
 pub const ms_per_second: u64 = 1000;
 
@@ -108,10 +110,15 @@ pub fn random() values.Random {
 /// Starts both sides and runs the handshake until both complete, leaving in `to_client` what the
 /// server wrote after it, such as its ticket.
 pub fn handshake_both(resumption: ?values.Resumption) !void {
+    return handshake_at(now_seconds, resumption);
+}
+
+/// As `handshake_both`, with both sides' clocks at `seconds`.
+pub fn handshake_at(seconds: u64, resumption: ?values.Resumption) !void {
     to_server = .{};
     to_client = .{};
-    try client.start(&client_config, random(), now_seconds, resumption);
-    try server.start(&server_config, random(), now_seconds);
+    try client.start(&client_config, random(), seconds, resumption);
+    try server.start(&server_config, random(), seconds);
     for (0..handshake_rounds_max) |_| {
         if (!client.state.completed) {
             const progress = try client.handshake(to_client.held(), to_server.free());
