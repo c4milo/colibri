@@ -360,7 +360,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
     RFC 9114 §4.2 permit TE only in a request, and only when its value is "trailers". RFC 9110
     §10.1.4 makes TE a list, and RFC 9110 §5.6.1.2 requires a recipient to accept empty members and
     whitespace around the commas. "trailers" is an ABNF quoted string, which matches in any case
-    (RFC 5234 §2.3). So the core accepts "Trailers", "trailers," and "trailers, TRAILERS", and
+    (RFC 7405 §2.1). So the core accepts "Trailers", "trailers," and "trailers, TRAILERS", and
     nothing with another member. The rejected alternative was comparing the exact octets. It refuses
     values the grammar admits, and a refusal there reports the peer's request as malformed when the
     fault is colibri's.

@@ -111,7 +111,8 @@ fn expect_separator(reader: *Reader) Error!void {
     if (octet != separator) return error.StartLineInvalid;
 }
 
-/// `HTTP-version = HTTP-name "/" DIGIT "." DIGIT`, `HTTP-name = %s"HTTP"` (RFC 9112 §2.3).
+/// `HTTP-version = HTTP-name "/" DIGIT "." DIGIT`, `HTTP-name = %s"HTTP"` (RFC 9112 §2.3), where
+/// `%s` marks a string that matches only as written (RFC 7405 §2.1).
 fn parse_version(octets: []const u8) Error!Version {
     // RFC 9112 §2.3: exactly the name, a slash, a digit, a dot and a digit.
     if (octets.len != constants.version_len) return error.VersionInvalid;

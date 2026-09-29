@@ -215,7 +215,7 @@ test "http2/8.1.2.2/2: te: trailers, deflate is TeNotTrailers, and TE of trailer
     try expect_request(error.TeNotTrailers, try request_with(&deflate));
     try expect_request(error.TeNotTrailers, try request_with(&.{line_of("te", "gzip")}));
     _ = try message.validate_request(try request_with(&.{line_of("te", "trailers")}));
-    // "trailers" is a quoted string, which matches in any case (RFC 5234 §2.3, decision 15).
+    // "trailers" is a quoted string, which matches in any case (RFC 7405 §2.1, decision 15).
     _ = try message.validate_request(try request_with(&.{line_of("te", "Trailers")}));
 }
 

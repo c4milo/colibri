@@ -109,6 +109,16 @@ test "decision 101: a coded response loses Content-Length, its ETag turns weak, 
     }, try rewrite(&weak, test_coded, &test_rewritten));
 }
 
+test "RFC 9110 §8.8.3: weak = %s\"W/\", which matches only as written, so w/ marks no tag weak" {
+    // RFC 7405 §2.1: a string with the %s prefix is case-sensitive.
+    const lower = [_]Field{.{ .name = "etag", .value = "w/\"7\"" }};
+    try expect_lines(&.{
+        .{ .name = "etag", .value = "W/w/\"7\"" },
+        .{ .name = "content-encoding", .value = "gzip" },
+        .{ .name = "vary", .value = "accept-encoding" },
+    }, try rewrite(&lower, test_coded, &test_rewritten));
+}
+
 test "decision 101: an uncoded response keeps its lines, and one Accept-Encoding chose gains Vary" {
     const fields = [_]Field{ .{ .name = "content-length", .value = "5" }, .{ .name = "etag", .value = "\"1\"" } };
     try testing.expectEqual(@as([*]const Field, &fields), (try rewrite(&fields, .{}, &test_rewritten)).ptr);

@@ -11,7 +11,7 @@
 //! `te_is_trailers` accepts every form of a trailers-only TE value that RFC 9110 admits, not one
 //! fixed string. TE is a list (`TE = #t-codings`, RFC 9110 §10.1.4), so members are separated by
 //! commas with optional whitespace, and empty members are ignored (RFC 9110 §5.6.1.2). "trailers"
-//! is an ABNF quoted string, which matches in any case (RFC 5234 §2.3). The owner ruled on
+//! is an ABNF quoted string, which matches in any case (RFC 7405 §2.1). The owner ruled on
 //! 2026-09-16 that colibri accepts all of these (decision 15). The function trims whitespace from
 //! every member, so it also accepts whitespace at either end of the value. Field validation
 //! refuses that whitespace before this function is called.
@@ -75,7 +75,7 @@ pub fn te_is_trailers(value: []const u8) bool {
         // RFC 9110 §5.6.1.2: OWS around the comma, and empty members are ignored.
         const trimmed = std.mem.trim(u8, member, optional_whitespace);
         if (trimmed.len == 0) continue;
-        // RFC 9113 §8.2.2, RFC 9114 §4.2: no member other than trailers; RFC 5234 §2.3: in any case.
+        // RFC 9113 §8.2.2, RFC 9114 §4.2: no member other than trailers; RFC 7405 §2.1: in any case.
         if (!std.ascii.eqlIgnoreCase(trimmed, te_trailers)) return false;
     }
     unreachable;

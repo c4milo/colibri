@@ -4202,6 +4202,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     fuzz properties. The equivalent mutant lets userinfo hold "@", which the first "@" always
     ends.
 
+  **RFC 7405, 2026-09-29.** RFC 9110 §2.1 and RFC 9112 §1.2 write their grammar in RFC 5234's
+  ABNF with RFC 7405's `%s` prefix, and `docs/rfcs/` now holds RFC 7405. Its §2.1 replaced the
+  note in RFC 5234 §2.3 that made every quoted string match in any case, and keeps that rule for a
+  string with no prefix, so the four citations of the rule now name RFC 7405 §2.1. `http.uri`
+  names RFC 3986 §3.2.2 instead, which says itself that IPvFuture's "v" is case-insensitive.
+  - colibri reads three `%s` strings, and compares each octet for octet: HTTP-name in h11 (RFC 9112
+    §2.3), the weak prefix `W/` in the server's ETag (RFC 9110 §8.8.3), and `clear` in the
+    client's Alt-Svc (RFC 7838 §3). RFC 9110 §5.6.7's HTTP-date uses `%s` too, and colibri parses
+    no HTTP-date.
+  - Mutations, on macOS arm64 with Zig 0.16.0: HTTP-name compared in any case, `clear` compared in
+    any case, and TE's "trailers" compared exactly, each **CAUGHT**. Two were **NOT CAUGHT**: the
+    weak prefix compared in any case, and an IPvFuture that starts with "V" refused. A test for
+    each now catches it.
+
 - **Step 15b — the connection.** Persistence (§9.3), the client's pipelining with responses
   matched to requests in order (§9.3.2), a server that reads one request at a time, and closing
   (§9.6). **Check:** a simulator check over step 2's byte pipe. A colibri client and server

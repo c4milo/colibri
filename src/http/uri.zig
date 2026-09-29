@@ -112,8 +112,8 @@ fn is_ip_literal(octets: []const u8) bool {
     return is_ipv6(inner);
 }
 
-/// `IPvFuture = "v" 1*HEXDIG "." 1*( unreserved / sub-delims / ":" )` (RFC 3986 §3.2.2). ABNF
-/// strings are case-insensitive (RFC 5234 §2.3), so "V" matches too.
+/// `IPvFuture = "v" 1*HEXDIG "." 1*( unreserved / sub-delims / ":" )` (RFC 3986 §3.2.2). The same
+/// section makes its "v" case-insensitive, so "V" matches too.
 fn is_ip_future(octets: []const u8) bool {
     var reader = Reader.init(octets);
     _ = reader.read_byte() catch unreachable;
@@ -295,7 +295,7 @@ test "RFC 3986 §3.2.2: IPv6 literals, eight groups or fewer with one ::, an IPv
     const valid = [_][]const u8{
         "[::]",                  "[::1]",             "[1::]",             "[2001:db8::8a2e:370:7334]",
         "[1:2:3:4:5:6:7:8]",     "[1:2:3:4:5:6:7::]", "[::2:3:4:5:6:7:8]", "[::ffff:192.0.2.1]",
-        "[1:2:3:4:5:6:1.2.3.4]", "[vF.a:b]",          "[v1.x]",
+        "[1:2:3:4:5:6:1.2.3.4]", "[vF.a:b]",          "[v1.x]",            "[V1.x]",
     };
     for (valid) |host| try testing.expect(is_host(host));
     const invalid = [_][]const u8{
