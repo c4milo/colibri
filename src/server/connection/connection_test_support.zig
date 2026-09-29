@@ -133,6 +133,12 @@ const handshake_rounds_max: usize = 8;
 /// A TLS connection whose server offers `server_protocols` and whose client offers
 /// `client_protocols`, with the handshake run until both sides complete it.
 pub fn start_tls(server_protocols: []const []const u8, client_protocols: []const []const u8) !void {
+    try begin_tls(server_protocols, client_protocols);
+    try run_handshake();
+}
+
+/// The connection and the client of `start_tls`, before either has sent anything.
+pub fn begin_tls(server_protocols: []const []const u8, client_protocols: []const []const u8) !void {
     try server_config.init(.{
         .ecdsa_p256 = .{ .chain = &chain, .public_key = public_key, .private_key = private_key },
         .cookie_key = &cookie_key,
@@ -147,7 +153,6 @@ pub fn start_tls(server_protocols: []const []const u8, client_protocols: []const
     try client.start(&client_config, stream.random(), now_seconds, null);
     to_client_len = 0;
     client_saw_alert = false;
-    try run_handshake();
 }
 
 /// Moves the flights between the client and the connection until the client completes.
@@ -168,7 +173,8 @@ fn run_handshake() !void {
     return error.TestUnexpectedResult;
 }
 
-fn take_to_client(consumed: usize) void {
+/// Drops the first `consumed` octets of what the client has not read.
+pub fn take_to_client(consumed: usize) void {
     std.mem.copyForwards(u8, &to_client, to_client[consumed..to_client_len]);
     to_client_len -= consumed;
 }

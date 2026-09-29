@@ -8,7 +8,7 @@ const testing = std.testing;
 const constants = h2.constants;
 
 /// The client connection preface, then an empty SETTINGS frame (RFC 9113 §3.4).
-const client_preface = constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
+pub const client_preface = constants.client_preface ++ "\x00\x00\x00\x04\x00\x00\x00\x00\x00";
 
 /// Where a test builds the frames the client sends. Test-only.
 pub var frames: [support.input_len]u8 = undefined;

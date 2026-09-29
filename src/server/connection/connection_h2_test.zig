@@ -44,6 +44,27 @@ test "RFC 9113 §8.3.1: a request's pseudo-header fields arrive as its parts, an
     try testing.expectEqualStrings("*/*", head.fields.find("accept").?.value);
 }
 
+test "RFC 9113 §3.4: the server's SETTINGS goes first, before a response to a request read with the preface" {
+    try support.start_cleartext(.h2);
+    // A client need not wait for the server's preface, so its own, its SETTINGS and a request can
+    // arrive in one read (RFC 9113 §3.4).
+    const preface = h2_support.client_preface;
+    const request = try request_frame(1, "/", true);
+    var flight: [preface.len + request_len_max]u8 = undefined;
+    @memcpy(flight[0..preface.len], preface);
+    @memcpy(flight[preface.len..][0..request.len], request);
+    const received = try support.receive_copy(flight[0 .. preface.len + request.len]);
+    try testing.expectEqual(1, received.event.?.request.id);
+    try connection.respond(1, .{ .status = ok, .end = true });
+    const sent = support.drain();
+    // RFC 9113 §3.4: the SETTINGS frame "MUST be the first frame the server sends".
+    try testing.expectEqual(constants.frame_type_settings, sent[type_index]);
+    try testing.expectEqual(0, sent[flags_index]);
+}
+
+/// The most octets `request_frame` writes for the paths these tests use.
+const request_len_max: usize = 256;
+
 test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame ends the stream" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));

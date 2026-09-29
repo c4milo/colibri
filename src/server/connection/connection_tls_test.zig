@@ -51,6 +51,36 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and a response comes back
     try testing.expectEqualStrings("hello", data[h2.constants.frame_header_len..]);
 }
 
+test "RFC 9113 §3.4: the SETTINGS goes first when a request comes in the flight of the client's Finished" {
+    try support.begin_tls(&support.protocols_both, &support.protocols_h2);
+    var to_server_len: usize = 0;
+    // The client's flights until it completes, which the second does. The server reads the first.
+    for (0..client_flights_max) |_| {
+        const progress = try support.client.handshake(support.to_client[0..support.to_client_len], support.input[to_server_len..]);
+        support.take_to_client(progress.consumed);
+        to_server_len += progress.written;
+        if (support.client.state.completed) break;
+        const received = try connection.receive(support.input[0..to_server_len], support.now_ns);
+        std.mem.copyForwards(u8, &support.input, support.input[received.consumed..to_server_len]);
+        to_server_len -= received.consumed;
+        support.to_client_len += connection.send(support.to_client[support.to_client_len..], support.now_ns);
+    }
+    try testing.expect(support.client.state.completed);
+    // A client need not wait for the server's preface, so its own and a request can follow its
+    // Finished in one flight (RFC 9113 §3.4), and the server reads them with the Finished.
+    to_server_len = try support.seal_all(to_server_len, client_preface ++ get_frame);
+    const received = try connection.receive(support.input[0..to_server_len], support.now_ns);
+    try testing.expectEqual(1, received.event.?.request.id);
+    try connection.respond(1, .{ .status = ok, .end = true });
+    const opened = try support.open_sent();
+    // RFC 9113 §3.4: the SETTINGS frame "MUST be the first frame the server sends".
+    try testing.expectEqual(h2.constants.frame_type_settings, opened[type_index]);
+    try testing.expectEqual(0, opened[flags_index]);
+}
+
+/// The flights a client sends in a full handshake: its ClientHello, then its Finished.
+const client_flights_max: usize = 2;
+
 test "decision 88: ALPN's http/1.1 serves h11, and the close_notify follows the last response" {
     try support.start_tls(&support.protocols_both, &support.protocols_h11);
     try testing.expectEqual(.h11, connection.protocol().?);

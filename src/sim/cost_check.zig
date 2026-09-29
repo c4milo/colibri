@@ -168,7 +168,11 @@ pub fn measure_server_cleartext(storage: *Storage) !Cost {
 pub fn measure_client_cleartext(storage: *Storage) !Cost {
     var cost: Cost = .{};
     storage.connection.init(.client);
-    const sent = try storage.connection.write_request(&storage.output, .{
+    // RFC 9113 §3.4: the client's preface goes out before its request.
+    const preface_len = storage.connection.write_pending(&storage.output, 0);
+    cost.write_calls += 1;
+    cost.octets_out += @intCast(preface_len);
+    const sent = try storage.connection.write_request(storage.output[preface_len..], .{
         .method = "GET",
         .scheme = "https",
         .path = "/",

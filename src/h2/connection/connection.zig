@@ -263,18 +263,18 @@ pub const Connection = struct {
         fields: []const hpack.Field,
         end_stream: bool,
     ) SendError!usize {
+        connection.assert_preface_written();
         return connection_send.write_response(connection, output, stream_id, status, fields, end_stream);
     }
 
-    /// Writes as much of `payload` as the windows and the room allow: see `connection_send.zig`.
-    /// Opens a stream and writes `request` on it as HEADERS and the CONTINUATION frames its field
-    /// section needs (RFC 9113 §8.1, §8.3.1). A client's call.
     /// Attaches the TLS provider h2 runs over, after checking everything RFC 9113 §3.2 and §9.2
     /// require of the connection (decision 44).
     pub fn attach_tls(connection: *Connection, provider: tls_provider.Provider) connection_tls.AttachError!void {
         return connection_tls.attach(connection, provider);
     }
 
+    /// Opens a stream and writes `request` on it as HEADERS and the CONTINUATION frames its field
+    /// section needs (RFC 9113 §8.1, §8.3.1). A client's call.
     pub fn write_request(
         connection: *Connection,
         output: []u8,
@@ -283,9 +283,11 @@ pub const Connection = struct {
         indexing: []const connection_request.Indexing,
         end_stream: bool,
     ) connection_request.Error!connection_request.Sent {
+        connection.assert_preface_written();
         return connection_request.write_request(connection, output, request, fields, indexing, end_stream);
     }
 
+    /// Writes as much of `payload` as the windows and the room allow: see `connection_send.zig`.
     pub fn write_data(
         connection: *Connection,
         output: []u8,
@@ -293,19 +295,30 @@ pub const Connection = struct {
         payload: []const u8,
         end_stream: bool,
     ) SendError!connection_send.DataWritten {
+        connection.assert_preface_written();
         return connection_send.write_data(connection, output, stream_id, payload, end_stream);
     }
 
     /// Writes a trailer section on `stream_id`, which ends colibri's side of the stream (RFC 9113
     /// §8.1): see `connection_send.zig`.
     pub fn write_trailers(connection: *Connection, output: []u8, stream_id: u32, fields: []const hpack.Field) SendError!usize {
+        connection.assert_preface_written();
         return connection_send.write_trailers(connection, output, stream_id, fields);
     }
 
     /// Writes an ALTSVC frame advertising `value` for the origin of `stream_id`'s request (RFC
     /// 7838 §4): see `connection_altsvc.zig`. A server's call.
     pub fn write_alt_svc(connection: *Connection, output: []u8, stream_id: u32, value: []const u8) SendError!usize {
+        connection.assert_preface_written();
         return connection_altsvc.write_alt_svc(connection, output, stream_id, value);
+    }
+
+    /// RFC 9113 §3.4: the preface is the first thing an endpoint sends, and the server's SETTINGS
+    /// "MUST be the first frame the server sends", so the caller has `write_pending` write it
+    /// before it writes any frame of its own. A connection whose record layer failed writes
+    /// nothing, so the call that follows fails without writing.
+    fn assert_preface_written(connection: *const Connection) void {
+        assert(connection.preface_done() or connection.tls_failed);
     }
 
     /// Queues a RST_STREAM for `stream_id` (RFC 9113 §6.4): see `connection_send.zig`.
@@ -370,7 +383,7 @@ pub const Connection = struct {
 
     /// Whether the preface colibri owes has been written: the client's 24 octets and the SETTINGS
     /// frame of RFC 9113 §3.4.
-    fn preface_done(connection: *const Connection) bool {
+    pub fn preface_done(connection: *const Connection) bool {
         return connection.settings_written and (connection.role == .server or connection.preface_written);
     }
 

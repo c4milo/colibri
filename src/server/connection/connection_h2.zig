@@ -26,6 +26,9 @@ const version_major: u8 = 2;
 /// or the replies h2 owes must be written first and `output` has no room for them.
 pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!Received {
     const session = &connection.session.h2;
+    // RFC 9113 §3.4: the server's SETTINGS "MUST be the first frame the server sends", so it goes
+    // into the output before any frame is read that could bring a request the caller answers.
+    if (!session.preface_done() and !connection.write_owed(now_ns)) return .{ .consumed = 0, .event = null };
     var consumed: usize = 0;
     for (0..constants.frames_per_receive_max) |_| {
         const received = session.receive(plaintext[consumed..], now_ns) catch return connection.fail();
