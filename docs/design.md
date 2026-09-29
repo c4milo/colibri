@@ -5565,6 +5565,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the callback chapulin's decision 79 names.
     **Check:** the QUIC Interop Runner's `v2` case in both roles, beside the version 1 matrix.
 
+  **19a, 2026-09-29.** Each packet call names its version, and every connection still runs
+  version 1 (decision 108).
+  - `crypto.suite.Version` names versions 1 and 2 by their Version fields, and `quic`'s
+    `version_1` is its value. `Sealing` and `Opening` carry the packet's version, and the two
+    Retry tag members take the original one.
+  - chapulin's calls already took a version, so `tls.quic`'s suite passes each packet's on. A Retry
+    tag chapulin refuses to write is `Unsupported`, where it was `unreachable`. The pin stays at
+    `10a5bc8`, which derives version 1's keys alone.
+  - The null suite folds a version other than 1 into every key's name and into the Retry tag's, so
+    version 1's octets are unchanged and a version 2 packet opens under version 2's keys alone.
+  - `quic` passes version 1 where it seals, opens, and checks or writes a Retry tag. Its test
+    suites refuse any other version, so a caller that names the wrong one fails a test.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2338 of 2338 tests, with the simulator's pinned censuses unchanged.
+    `tools/quic_udp.sh` and `tools/quic_loopback.sh`: ok.
+  - 9 mutations, each **CAUGHT**: a key's name without its version, `seal` or `open` ignoring its
+    version, the Retry tag's name without its version, `tls.quic`'s suite naming version 1 always,
+    a Retry tag checked or written in version 2, and packets sealed or opened in version 2.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

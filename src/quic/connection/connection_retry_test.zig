@@ -106,8 +106,10 @@ pub const TagChecker = struct {
         return .{ .context = held, .vtable = &vtable };
     }
 
-    fn tag_valid(context: *const anyopaque, pseudo_packet: []const u8, tag: *const [tag_len]u8) bool {
+    fn tag_valid(context: *const anyopaque, version: crypto.suite.Version, pseudo_packet: []const u8, tag: *const [tag_len]u8) bool {
         _ = context;
+        // RFC 9369 §4.1: a Retry uses the original version, version 1 here.
+        if (version != .v1) return false;
         @memcpy(seen[0..pseudo_packet.len], pseudo_packet);
         seen_len = pseudo_packet.len;
         var expected: [tag_len]u8 = undefined;
@@ -115,8 +117,10 @@ pub const TagChecker = struct {
         return std.mem.eql(u8, &expected, tag);
     }
 
-    fn tag_write(context: *const anyopaque, pseudo_packet: []const u8, tag: *[tag_len]u8) crypto.suite.RetryTagError!void {
+    fn tag_write(context: *const anyopaque, version: crypto.suite.Version, pseudo_packet: []const u8, tag: *[tag_len]u8) crypto.suite.RetryTagError!void {
         const held: *const TagChecker = @ptrCast(@alignCast(context));
+        // RFC 9369 §4.1: a Retry uses the original version, version 1 here.
+        if (version != .v1) return error.Unsupported;
         // RFC 9001 §5.8 gives the tag to the server that sends a Retry, so a suite written for
         // clients alone answers this, as `retry_token_write` does.
         if (!held.writes_tag) return error.Unsupported;

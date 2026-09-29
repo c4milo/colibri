@@ -57,6 +57,15 @@ pub const KeySet = enum {
     next,
 };
 
+/// A QUIC version whose packets a suite protects (decision 108). Version 2 changes the Initial
+/// salt, the HKDF labels and the Retry key and nonce of version 1 (RFC 9369 §3.3), so every packet
+/// call names the version of its packet. Each value is the version's Version field (RFC 9000 §15,
+/// RFC 9369 §3.1).
+pub const Version = enum(u32) {
+    v1 = 0x0000_0001,
+    v2 = 0x6b33_43cf,
+};
+
 /// Why a suite did not install the Initial keys. It is a configuration error and never the
 /// peer's fault (invariant 25).
 pub const InstallError = error{
@@ -162,6 +171,9 @@ pub const UpdateError = error{
 /// One packet to protect. Every slice is colibri's, and none overlaps the output.
 pub const Sealing = struct {
     level: Level,
+    /// The version whose keys protect the packet: the Version field its long header carries, or
+    /// for a short header the connection's (RFC 9369 §4.1).
+    version: Version,
     /// The full packet number, which the nonce is built from (RFC 9001 §5.3).
     packet_number: u64,
     /// The header through its Packet Number field, unprotected. It is the associated data of the
@@ -176,6 +188,9 @@ pub const Sealing = struct {
 /// One packet to open, in place.
 pub const Opening = struct {
     level: Level,
+    /// The version whose keys open the packet: the Version field its long header carries, or for
+    /// a short header the connection's (RFC 9369 §4.1).
+    version: Version,
     /// One whole packet, which colibri has separated from the rest of its datagram
     /// (RFC 9000 §12.2).
     packet: []u8,
@@ -224,17 +239,22 @@ pub const VTable = struct {
     /// starts none (§5.5, §6.3).
     open: *const fn (context: *anyopaque, opening: Opening) OpenError!Opened,
 
-    /// Whether `tag` is the Retry Integrity Tag of `pseudo_packet` (RFC 9001 §5.8), compared in
-    /// constant time. A client's call; colibri builds the pseudo-packet.
+    /// Whether `tag` is the Retry Integrity Tag of `pseudo_packet` (RFC 9001 §5.8) under
+    /// `version`'s Retry key and nonce (RFC 9369 §3.3.3), compared in constant time. A client's
+    /// call; colibri builds the pseudo-packet, and names the original version, which RFC 9369 §4.1
+    /// has a Retry use.
     retry_tag_valid: *const fn (
         context: *const anyopaque,
+        version: Version,
         pseudo_packet: []const u8,
         tag: *const [constants.retry_integrity_tag_len]u8,
     ) bool,
 
-    /// Writes the Retry Integrity Tag of `pseudo_packet` (RFC 9001 §5.8). A server's call.
+    /// Writes the Retry Integrity Tag of `pseudo_packet` (RFC 9001 §5.8) under `version`'s Retry
+    /// key and nonce, the original version's (RFC 9369 §4.1). A server's call.
     retry_tag_write: *const fn (
         context: *const anyopaque,
+        version: Version,
         pseudo_packet: []const u8,
         tag: *[constants.retry_integrity_tag_len]u8,
     ) RetryTagError!void,

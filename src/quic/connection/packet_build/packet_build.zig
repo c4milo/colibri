@@ -408,6 +408,8 @@ fn write_and_seal(
     try write_header(connection, suite, &header, pending);
     return suite.seal(.{
         .level = pending.level,
+        // The version `write_header` wrote, the one every connection runs (RFC 9000 §15).
+        .version = .v1,
         .packet_number = pending.number,
         .header = header.written(),
         .packet_number_len = pending.truncated.len,

@@ -179,6 +179,7 @@ fn send_packet(storage: *Storage, from: Endpoint, level: Level, payload_len: usi
     const suite = peer.suite.suite();
     const written = suite.seal(.{
         .level = level,
+        .version = .v1,
         .packet_number = full,
         .header = writer.written(),
         .packet_number_len = truncated.len,
@@ -234,6 +235,7 @@ fn open_delivery(storage: *Storage, to: Endpoint, octets: []u8, census: *Census)
     const suite = peer.suite.suite();
     const opened = suite.open(.{
         .level = framed.level,
+        .version = .v1,
         .packet = octets,
         .packet_number_offset = framed.packet_number_offset,
         // RFC 9000 Appendix A.3: recovery is against what this endpoint has processed, which

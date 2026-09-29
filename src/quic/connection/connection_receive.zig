@@ -250,6 +250,8 @@ fn open_at(
     const space = connection.space_at(level);
     const opened = suite.open(.{
         .level = level,
+        // RFC 9000 §5.2: the reader routes a packet of any other version away before this.
+        .version = .v1,
         .packet = packet,
         .packet_number_offset = packet_number_offset,
         // RFC 9000 Appendix A.3: the truncated number is recovered against the largest already

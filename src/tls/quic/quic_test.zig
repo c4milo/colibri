@@ -58,6 +58,7 @@ test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no
     // RFC 9001 §5.7: a level whose keys are not installed opens nothing.
     try testing.expectError(error.KeysUnavailable, server_suite.vtable.open(server_suite.context, .{
         .level = .handshake,
+        .version = .v1,
         .packet = support.packet[0 .. header.len + payload.len + crypto.constants.aead_tag_len],
         .packet_number_offset = header.len - support.packet_number_len,
         .largest_packet_number = null,
@@ -67,10 +68,20 @@ test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no
     try testing.expectEqual(support.packet_number_len, opened.packet_number_len);
     try testing.expectEqualStrings(payload, support.opened_payload(header.len, opened));
     // RFC 9001 §5.5: a packet that fails to open is dropped.
-    const written = try client_suite.vtable.seal(client_suite.context, .{ .level = .initial, .packet_number = 8, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet);
+    const written = try client_suite.vtable.seal(client_suite.context, .{ .level = .initial, .version = .v1, .packet_number = 8, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet);
+    // RFC 9369 §3.3: version 2's Initial keys are others, and a session that started in version 1
+    // derived none.
+    try testing.expectError(error.KeysUnavailable, server_suite.vtable.open(server_suite.context, .{
+        .level = .initial,
+        .version = .v2,
+        .packet = support.packet[0..written],
+        .packet_number_offset = header.len - support.packet_number_len,
+        .largest_packet_number = 7,
+    }));
     support.packet[written - 1] ^= 1;
     try testing.expectError(error.Discarded, server_suite.vtable.open(server_suite.context, .{
         .level = .initial,
+        .version = .v1,
         .packet = support.packet[0..written],
         .packet_number_offset = header.len - support.packet_number_len,
         .largest_packet_number = 7,
@@ -79,7 +90,7 @@ test "RFC 9001 §5.2: Initial packets open at the peer, and the wrong role or no
     client_suite.vtable.discard_keys(client_suite.context, .initial);
     try testing.expect(!client_suite.vtable.keys_available(client_suite.context, .initial, .write));
     try testing.expect(!client_suite.vtable.keys_available(client_suite.context, .initial, .read));
-    try testing.expectError(error.KeysUnavailable, client_suite.vtable.seal(client_suite.context, .{ .level = .initial, .packet_number = 9, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet));
+    try testing.expectError(error.KeysUnavailable, client_suite.vtable.seal(client_suite.context, .{ .level = .initial, .version = .v1, .packet_number = 9, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet));
     client.close();
     server.close();
 }
@@ -150,7 +161,7 @@ test "RFC 9001 §4.8: a flight chapulin refuses fails the handshake, and the ale
     try suite.vtable.install_initial_keys(suite.context, .client, &support.destination_id);
     var header_storage: [64]u8 = undefined;
     const header = try support.initial_header(0, payload.len, &header_storage);
-    const sealing: crypto.suite.Sealing = .{ .level = .initial, .packet_number = 0, .header = header, .packet_number_len = support.packet_number_len, .payload = payload };
+    const sealing: crypto.suite.Sealing = .{ .level = .initial, .version = .v1, .packet_number = 0, .header = header, .packet_number_len = support.packet_number_len, .payload = payload };
     // An output that cannot hold the packet takes none of it.
     try testing.expectError(error.NoSpaceLeft, suite.vtable.seal(suite.context, sealing, support.packet[0..header.len]));
     // RFC 9001 §4.1.3: nothing at the Handshake level is read before the Initial level's.
@@ -171,6 +182,7 @@ test "RFC 9001 §4.8: a flight chapulin refuses fails the handshake, and the ale
     try server_suite.vtable.install_initial_keys(server_suite.context, .server, &support.destination_id);
     const opened = try server_suite.vtable.open(server_suite.context, .{
         .level = .initial,
+        .version = .v1,
         .packet = support.packet[0..written],
         .packet_number_offset = header.len - support.packet_number_len,
         .largest_packet_number = null,
@@ -242,11 +254,11 @@ test "a session reports nothing before chapulin's starts, and owes nothing it ha
     suite.vtable.discard_keys(suite.context, .initial);
     suite.vtable.discard_previous_keys(suite.context);
     var tag: [crypto.constants.retry_integrity_tag_len]u8 = @splat(0);
-    try testing.expect(!suite.vtable.retry_tag_valid(suite.context, "a pseudo-packet", &tag));
+    try testing.expect(!suite.vtable.retry_tag_valid(suite.context, .v1, "a pseudo-packet", &tag));
     var header_storage: [64]u8 = undefined;
     const header = try support.short_header(0, false, &header_storage);
-    try testing.expectError(error.KeysUnavailable, suite.vtable.seal(suite.context, .{ .level = .application, .packet_number = 0, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet));
-    try testing.expectError(error.KeysUnavailable, suite.vtable.open(suite.context, .{ .level = .application, .packet = support.packet[0..header.len], .packet_number_offset = header.len - support.packet_number_len, .largest_packet_number = null }));
+    try testing.expectError(error.KeysUnavailable, suite.vtable.seal(suite.context, .{ .level = .application, .version = .v1, .packet_number = 0, .header = header, .packet_number_len = support.packet_number_len, .payload = payload }, &support.packet));
+    try testing.expectError(error.KeysUnavailable, suite.vtable.open(suite.context, .{ .level = .application, .version = .v1, .packet = support.packet[0..header.len], .packet_number_offset = header.len - support.packet_number_len, .largest_packet_number = null }));
     server.start(&support.server_config, identity.random(), identity.now_seconds);
     try testing.expectEqual(null, server.sni());
     try testing.expect(!server.resumed());
@@ -346,11 +358,11 @@ test "decision 55: a Retry token gives both connection IDs back, and the Retry t
     try support.configure(support.web_pki, .{});
     try support.start_both(null);
     var tag: [crypto.constants.retry_integrity_tag_len]u8 = undefined;
-    try suite.vtable.retry_tag_write(suite.context, "a pseudo-packet", &tag);
+    try suite.vtable.retry_tag_write(suite.context, .v1, "a pseudo-packet", &tag);
     const client_suite = client.suite();
-    try testing.expect(client_suite.vtable.retry_tag_valid(client_suite.context, "a pseudo-packet", &tag));
+    try testing.expect(client_suite.vtable.retry_tag_valid(client_suite.context, .v1, "a pseudo-packet", &tag));
     tag[0] ^= 1;
-    try testing.expect(!client_suite.vtable.retry_tag_valid(client_suite.context, "a pseudo-packet", &tag));
+    try testing.expect(!client_suite.vtable.retry_tag_valid(client_suite.context, .v1, "a pseudo-packet", &tag));
     // A session mints no token of its own.
     try testing.expectError(error.Unsupported, client_suite.vtable.retry_token_write(client_suite.context, "address", &ids, now_ns, &token));
     try testing.expectEqual(.not_retry, client_suite.vtable.retry_token_check(client_suite.context, "address", minted, now_ns));

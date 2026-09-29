@@ -182,6 +182,7 @@ fn seal_datagram(storage: *Storage, sender: Role) void {
         const suite = storage.suite_of(sender).suite();
         const written = suite.seal(.{
             .level = plan.level,
+            .version = .v1,
             .packet_number = plan.full,
             .header = writer.written(),
             .packet_number_len = truncated.len,
@@ -251,6 +252,7 @@ fn open_packet(storage: *Storage, sender: Role, rest: []u8, plan: Plan, strict: 
     const suite = storage.suite_of(sender.peer()).suite();
     const opened = suite.open(.{
         .level = framed.level,
+        .version = .v1,
         .packet = octets,
         .packet_number_offset = framed.packet_number_offset,
         .largest_packet_number = plan.largest_processed,

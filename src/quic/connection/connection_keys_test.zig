@@ -93,6 +93,7 @@ fn unreachable_open(_: *anyopaque, _: crypto.suite.Opening) crypto.suite.OpenErr
 }
 fn unreachable_tag_valid(
     _: *const anyopaque,
+    _: crypto.suite.Version,
     _: []const u8,
     _: *const [crypto.constants.retry_integrity_tag_len]u8,
 ) bool {
@@ -106,6 +107,7 @@ fn unreachable_token_check(_: *const anyopaque, _: []const u8, _: []const u8, _:
 }
 fn unreachable_tag_write(
     _: *const anyopaque,
+    _: crypto.suite.Version,
     _: []const u8,
     _: *[crypto.constants.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {

@@ -142,6 +142,7 @@ pub const Processed = struct {
 pub fn seal_and_open(from: crypto.Suite, to: crypto.Suite, level: Level, header: []const u8, packet_number: u64, payload: []const u8, processed: Processed) !crypto.suite.Opened {
     const written = try from.vtable.seal(from.context, .{
         .level = level,
+        .version = .v1,
         .packet_number = packet_number,
         .header = header,
         .packet_number_len = packet_number_len,
@@ -149,6 +150,7 @@ pub fn seal_and_open(from: crypto.Suite, to: crypto.Suite, level: Level, header:
     }, &packet);
     return to.vtable.open(to.context, .{
         .level = level,
+        .version = .v1,
         .packet = packet[0..written],
         .packet_number_offset = header.len - packet_number_len,
         .largest_packet_number = processed.largest,

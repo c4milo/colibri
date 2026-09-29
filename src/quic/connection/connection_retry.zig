@@ -164,7 +164,8 @@ fn tag_valid(
         connection.identity.original_destination.slice(),
         retry.without_tag,
     ) catch unreachable;
-    return suite.vtable.retry_tag_valid(suite.context, writer.written(), retry.integrity_tag);
+    // RFC 9369 §4.1: a Retry uses the client's original version, version 1.
+    return suite.vtable.retry_tag_valid(suite.context, .v1, writer.written(), retry.integrity_tag);
 }
 
 /// What a server needs to write a Retry (RFC 9000 §17.2.5.1). colibri chooses none of it: §5.1
@@ -269,7 +270,8 @@ fn write_packet(
         writer.written(),
     ) catch unreachable;
     var tag: [constants.retry_integrity_tag_len]u8 = undefined;
-    suite.vtable.retry_tag_write(suite.context, pseudo_writer.written(), &tag) catch
+    // RFC 9369 §4.1: a Retry uses the client's original version, version 1.
+    suite.vtable.retry_tag_write(suite.context, .v1, pseudo_writer.written(), &tag) catch
         return .{ .refused = .no_tag };
     writer.write_bytes(&tag) catch return .{ .refused = .no_space };
     return .{ .written = writer.written().len };

@@ -81,6 +81,9 @@ const Opener = struct {
 
     fn open(context: *anyopaque, opening: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
         const held: *Opener = @ptrCast(@alignCast(context));
+        // A suite that derived version 1's keys alone, the version every connection runs
+        // (RFC 9369 §3.3).
+        if (opening.version != .v1) return error.KeysUnavailable;
         // RFC 9001 §6.6: the integrity limit is counted "across all keys" over the connection's
         // lifetime, so it is reached whatever this packet holds.
         if (held.reached_integrity_limit) return error.IntegrityLimitReached;
@@ -134,6 +137,7 @@ fn unreachable_seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suit
 }
 fn unreachable_tag_valid(
     _: *const anyopaque,
+    _: crypto.suite.Version,
     _: []const u8,
     _: *const [crypto.constants.retry_integrity_tag_len]u8,
 ) bool {
@@ -147,6 +151,7 @@ fn unreachable_token_check(_: *const anyopaque, _: []const u8, _: []const u8, _:
 }
 fn unreachable_tag_write(
     _: *const anyopaque,
+    _: crypto.suite.Version,
     _: []const u8,
     _: *[crypto.constants.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {

@@ -94,6 +94,9 @@ pub const RoundTrip = struct {
     fn seal(context: *anyopaque, sealing: crypto.suite.Sealing, output: []u8) crypto.suite.SealError!usize {
         const held: *RoundTrip = @ptrCast(@alignCast(context));
         held.seal_attempts += 1;
+        // A suite that derived version 1's keys alone, the version every connection runs
+        // (RFC 9369 §3.3).
+        if (sealing.version != .v1) return error.KeysUnavailable;
         if (held.seals_left) |left| {
             // RFC 9001 §6.6: past the confidentiality limit "the endpoint MUST stop using those
             // keys", which is a refusal to protect anything more under them.
@@ -186,6 +189,7 @@ fn unreachable_install(_: *anyopaque, _: crypto.suite.Role, _: []const u8) crypt
 }
 fn unreachable_tag_valid(
     _: *const anyopaque,
+    _: crypto.suite.Version,
     _: []const u8,
     _: *const [crypto.constants.retry_integrity_tag_len]u8,
 ) bool {
@@ -199,6 +203,7 @@ fn unreachable_token_check(_: *const anyopaque, _: []const u8, _: []const u8, _:
 }
 fn unreachable_tag_write(
     _: *const anyopaque,
+    _: crypto.suite.Version,
     _: []const u8,
     _: *[crypto.constants.retry_integrity_tag_len]u8,
 ) crypto.suite.RetryTagError!void {

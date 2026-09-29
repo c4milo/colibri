@@ -142,6 +142,7 @@ test "RFC 9001 Appendix A.2: the client's Initial is sealed octet for octet" {
     var output: [client_protected.len]u8 = undefined;
     const written = try suite.seal(.{
         .level = .initial,
+        .version = .v1,
         .packet_number = client_packet_number,
         .header = &client_header,
         .packet_number_len = client_packet_number_len,
@@ -157,6 +158,7 @@ test "RFC 9001 Appendix A.3: the server's Initial opens to its header and payloa
     const packet_number_offset = server_header.len - server_packet_number_len;
     const opened = try suite.open(.{
         .level = .initial,
+        .version = .v1,
         .packet = &packet,
         .packet_number_offset = packet_number_offset,
         .largest_packet_number = null,
@@ -175,13 +177,13 @@ test "RFC 9001 Appendix A.4: the Retry Integrity Tag over the Retry pseudo-packe
     const tag = retry_packet[retry_packet.len - tag_len ..];
     var pseudo_buffer: [retry_packet.len + client_dcid.len + 1]u8 = undefined;
     const pseudo = try retry_pseudo_packet(&client_dcid, without_tag, &pseudo_buffer);
-    try testing.expect(suite.vtable.retry_tag_valid(suite.context, pseudo, tag));
+    try testing.expect(suite.vtable.retry_tag_valid(suite.context, .v1, pseudo, tag));
     var written: [tag_len]u8 = undefined;
-    try suite.vtable.retry_tag_write(suite.context, pseudo, &written);
+    try suite.vtable.retry_tag_write(suite.context, .v1, pseudo, &written);
     try testing.expectEqualSlices(u8, tag, &written);
     // Another original connection ID is another pseudo-packet, whose tag this is not.
     const other = try retry_pseudo_packet("other-id", without_tag, &pseudo_buffer);
-    try testing.expect(!suite.vtable.retry_tag_valid(suite.context, other, tag));
+    try testing.expect(!suite.vtable.retry_tag_valid(suite.context, .v1, other, tag));
 }
 
 /// RFC 9001 §5.8: the Retry pseudo-packet is the ODCID Length, the Original Destination

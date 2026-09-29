@@ -37,6 +37,7 @@ const KeySet = crypto.suite.KeySet;
 const Sealing = crypto.suite.Sealing;
 const Opening = crypto.suite.Opening;
 const Opened = crypto.suite.Opened;
+const Version = crypto.suite.Version;
 
 const null_suite_keys = @import("null_suite_keys.zig");
 const null_suite_retry = @import("null_suite_retry.zig");
@@ -94,15 +95,15 @@ pub const NullSuite = struct {
         return self.keys[@intFromEnum(level)][@intFromEnum(direction)];
     }
 
-    /// The name of the key `writer` protects a packet with at `level` and `phase`.
-    fn key_name(self: *const NullSuite, level: Level, writer: Role, phase: u32) u32 {
-        return null_suite_keys.key_name(level, writer, phase, self.initial_name);
+    /// The name of the key `writer` protects a packet with at `level`, `phase` and `version`.
+    fn key_name(self: *const NullSuite, level: Level, writer: Role, phase: u32, version: Version) u32 {
+        return null_suite_keys.key_name(level, writer, phase, self.initial_name, version);
     }
 
     /// The mask of a packet, under a name that leaves the key phase out, because a key update
     /// never changes the header protection key (RFC 9001 §6.1).
-    fn mask_of(self: *const NullSuite, level: Level, writer: Role, packet: []const u8, offset: usize) [mask_len]u8 {
-        return null_suite_keys.mask_of(self.key_name(level, writer, 0), packet, offset);
+    fn mask_of(self: *const NullSuite, level: Level, writer: Role, version: Version, packet: []const u8, offset: usize) [mask_len]u8 {
+        return null_suite_keys.mask_of(self.key_name(level, writer, 0, version), packet, offset);
     }
 
     /// Which keys a packet is opened with, or null when they are not held (RFC 9001 §6.5).
@@ -179,12 +180,12 @@ fn seal(context: *anyopaque, sealing: Sealing, output: []u8) crypto.suite.SealEr
     self.seals_left -= 1;
     @memcpy(output[0..header_len], sealing.header);
     @memcpy(output[header_len..][0..sealing.payload.len], sealing.payload);
-    const name = self.key_name(sealing.level, self.role, self.phase);
+    const name = self.key_name(sealing.level, self.role, self.phase, sealing.version);
     write_tag(output[written - tag_len ..][0..tag_len], name, sealing.packet_number, output[0 .. written - tag_len], header_len);
     // RFC 9001 §5.4: header protection is applied after packet protection, over byte 0 and the
     // Packet Number field, from a sample of the protected payload.
     const packet_number_offset = header_len - sealing.packet_number_len;
-    const mask = self.mask_of(sealing.level, self.role, output[0..written], packet_number_offset);
+    const mask = self.mask_of(sealing.level, self.role, sealing.version, output[0..written], packet_number_offset);
     apply_mask(output[0..written], packet_number_offset, sealing.packet_number_len, mask);
     return written;
 }
@@ -197,7 +198,7 @@ fn open(context: *anyopaque, opening: Opening) crypto.suite.OpenError!Opened {
     // RFC 9001 §5.4.2: a packet too short for the sample is discarded before it is read.
     if (packet.len < offset + sample_offset + sample_len) return error.Discarded;
     // The peer wrote the packet, so the mask and the tag are under the peer's names.
-    const mask = self.mask_of(opening.level, self.role.peer(), packet, offset);
+    const mask = self.mask_of(opening.level, self.role.peer(), opening.version, packet, offset);
     packet[0] ^= mask[0] & protected_bits_of(packet[0]);
     const packet_number_len = (packet[0] & crypto.constants.packet_number_len_mask) + 1;
     for (packet[offset..][0..packet_number_len], mask[1..][0..packet_number_len]) |*octet, mask_octet| {
@@ -214,7 +215,7 @@ fn open(context: *anyopaque, opening: Opening) crypto.suite.OpenError!Opened {
     };
     const header_len = offset + packet_number_len;
     var expected: [tag_len]u8 = undefined;
-    write_tag(&expected, self.key_name(opening.level, self.role.peer(), phase), packet_number, packet[0 .. packet.len - tag_len], header_len);
+    write_tag(&expected, self.key_name(opening.level, self.role.peer(), phase, opening.version), packet_number, packet[0 .. packet.len - tag_len], header_len);
     if (!std.mem.eql(u8, &expected, packet[packet.len - tag_len ..])) return self.count_failure();
     return .{
         .packet_number = packet_number,
@@ -283,9 +284,10 @@ const sealed_len_max = 128;
 /// Where the tests seal into, and open in place. Test-only.
 var sealed: [sealed_len_max]u8 = @splat(0);
 
-fn seal_initial(writer: *NullSuite) ![]u8 {
+fn seal_initial(writer: *NullSuite, version: Version) ![]u8 {
     const len = try writer.suite().seal(.{
         .level = .initial,
+        .version = version,
         .packet_number = initial_packet_number,
         .header = initial_header,
         .packet_number_len = initial_packet_number_len,
@@ -297,6 +299,7 @@ fn seal_initial(writer: *NullSuite) ![]u8 {
 fn seal_short(writer: *NullSuite, header: []const u8, packet_number: u64) ![]u8 {
     const len = try writer.suite().seal(.{
         .level = .application,
+        .version = .v1,
         .packet_number = packet_number,
         .header = header,
         .packet_number_len = short_packet_number_len,
@@ -305,9 +308,10 @@ fn seal_short(writer: *NullSuite, header: []const u8, packet_number: u64) ![]u8 
     return sealed[0..len];
 }
 
-fn open_initial(reader: *NullSuite, packet: []u8) !Opened {
+fn open_initial(reader: *NullSuite, packet: []u8, version: Version) !Opened {
     return reader.suite().open(.{
         .level = .initial,
+        .version = version,
         .packet = packet,
         .packet_number_offset = initial_header.len - initial_packet_number_len,
         .largest_packet_number = null,
@@ -317,6 +321,7 @@ fn open_initial(reader: *NullSuite, packet: []u8) !Opened {
 fn open_short(reader: *NullSuite, packet: []u8, largest: ?u64, lowest: ?u64) !Opened {
     return reader.suite().open(.{
         .level = .application,
+        .version = .v1,
         .packet = packet,
         .packet_number_offset = short_header.len - short_packet_number_len,
         .largest_packet_number = largest,
@@ -327,7 +332,7 @@ fn open_short(reader: *NullSuite, packet: []u8, largest: ?u64, lowest: ?u64) !Op
 test "a sealed packet is its header, its payload and a 16-octet tag, and opens to the same octets" {
     var pair: Pair = .{};
     try pair.init(sample_dcid);
-    const packet = try seal_initial(&pair.client);
+    const packet = try seal_initial(&pair.client, .v1);
     try testing.expectEqual(initial_header.len + payload.len + tag_len, packet.len);
     // RFC 9001 §5.4.1: the mask covers four bits of a long header's byte 0 and the Packet Number
     // field, and nothing else of the header. The payload is copied.
@@ -335,7 +340,7 @@ test "a sealed packet is its header, its payload and a 16-octet tag, and opens t
     try testing.expectEqualSlices(u8, initial_header[1 .. initial_header.len - 4], packet[1 .. initial_header.len - 4]);
     try testing.expectEqualSlices(u8, payload, packet[initial_header.len..][0..payload.len]);
     try testing.expect(!std.mem.eql(u8, initial_header[initial_header.len - 4 ..], packet[initial_header.len - 4 ..][0..4]));
-    const opened = try open_initial(&pair.server, packet);
+    const opened = try open_initial(&pair.server, packet, .v1);
     try testing.expectEqual(Opened{ .packet_number = 2, .packet_number_len = 4, .payload_len = payload.len, .key_set = .current }, opened);
     try testing.expectEqualSlices(u8, initial_header, packet[0..initial_header.len]);
 }
@@ -348,11 +353,19 @@ test "§5.2: the Initial keys follow the connection ID and the role" {
     var same_role: NullSuite = .{};
     try same_role.suite().vtable.install_initial_keys(&same_role, .client, sample_dcid);
     for ([_]*NullSuite{ &other, &same_role }) |reader| {
-        try testing.expectError(error.Discarded, open_initial(reader, try seal_initial(&pair.client)));
+        try testing.expectError(error.Discarded, open_initial(reader, try seal_initial(&pair.client, .v1), .v1));
     }
     // A Retry changes the connection ID, and installing again changes the keys with it.
     try pair.server.suite().vtable.install_initial_keys(&pair.server, .server, "\x01\x02\x03\x04");
-    try testing.expectError(error.Discarded, open_initial(&pair.server, try seal_initial(&pair.client)));
+    try testing.expectError(error.Discarded, open_initial(&pair.server, try seal_initial(&pair.client, .v1), .v1));
+}
+
+test "RFC 9369 §3.3: a packet sealed under one version's keys opens under that version's alone" {
+    var pair: Pair = .{};
+    try pair.init(sample_dcid);
+    _ = try open_initial(&pair.server, try seal_initial(&pair.client, .v2), .v2);
+    try testing.expectError(error.Discarded, open_initial(&pair.server, try seal_initial(&pair.client, .v2), .v1));
+    try testing.expectError(error.Discarded, open_initial(&pair.server, try seal_initial(&pair.client, .v1), .v2));
 }
 
 test "§4.9: a level with no keys, or with discarded ones, is refused by both calls" {
@@ -369,7 +382,7 @@ test "§4.9: a level with no keys, or with discarded ones, is refused by both ca
     try testing.expectEqual(KeyState.discarded, pair.server.state_of(.application, .read));
     try testing.expectError(error.KeysUnavailable, open_short(&pair.server, packet, null, null));
     vtable.discard_keys(&pair.client, .initial);
-    try testing.expectError(error.KeysUnavailable, seal_initial(&pair.client));
+    try testing.expectError(error.KeysUnavailable, seal_initial(&pair.client, .v1));
     // Invariant 21: each refusal is counted, three by the client and one by the server.
     try testing.expectEqual(3, pair.client.keys_unavailable);
     try testing.expectEqual(1, pair.server.keys_unavailable);
@@ -468,7 +481,7 @@ test "§6.6: both limits are reached at the number set, and a seal that fails co
     pair.install(.application);
     pair.client.seals_left = 1;
     var small: [8]u8 = undefined;
-    const sealing: Sealing = .{ .level = .application, .packet_number = 1, .header = short_header, .packet_number_len = 2, .payload = payload };
+    const sealing: Sealing = .{ .level = .application, .version = .v1, .packet_number = 1, .header = short_header, .packet_number_len = 2, .payload = payload };
     try testing.expectError(error.NoSpaceLeft, pair.client.suite().vtable.seal(&pair.client, sealing, &small));
     try testing.expectEqual(1, pair.client.seals_left);
     const packet = try seal_short(&pair.client, short_header, 0x9b32);

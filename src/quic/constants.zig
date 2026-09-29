@@ -9,8 +9,9 @@ const wire = @import("wire");
 const core = @import("core");
 const crypto = @import("crypto");
 
-/// QUIC version 1 (RFC 9000 §15).
-pub const version_1: u32 = 0x00000001;
+/// QUIC version 1 (RFC 9000 §15), named once in `crypto` because a suite's calls name it too
+/// (decision 108).
+pub const version_1: u32 = @intFromEnum(crypto.suite.Version.v1);
 
 /// Most octets of a connection ID in version 1 (RFC 9000 §17.2): a long header that carries a
 /// longer one MUST be dropped. RFC 8999 permits 255, and only the version 1 reader applies this.

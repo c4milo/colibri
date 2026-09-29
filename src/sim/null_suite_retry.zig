@@ -9,19 +9,30 @@ const null_suite = @import("null_suite.zig");
 const null_suite_keys = @import("null_suite_keys.zig");
 
 const Crc32 = std.hash.Crc32;
+const Version = crypto.suite.Version;
 const tag_len = null_suite_keys.tag_len;
 const write_tag = null_suite_keys.write_tag;
 
-pub fn tag_valid(context: *const anyopaque, pseudo_packet: []const u8, tag: *const [tag_len]u8) bool {
+pub fn tag_valid(context: *const anyopaque, version: Version, pseudo_packet: []const u8, tag: *const [tag_len]u8) bool {
     _ = context;
     var expected: [tag_len]u8 = undefined;
-    write_tag(&expected, constants.null_suite_retry_name, 0, pseudo_packet, pseudo_packet.len);
+    write_tag(&expected, retry_name(version), 0, pseudo_packet, pseudo_packet.len);
     return std.mem.eql(u8, &expected, tag);
 }
 
-pub fn tag_write(context: *const anyopaque, pseudo_packet: []const u8, tag: *[tag_len]u8) crypto.suite.RetryTagError!void {
+pub fn tag_write(context: *const anyopaque, version: Version, pseudo_packet: []const u8, tag: *[tag_len]u8) crypto.suite.RetryTagError!void {
     if (!null_suite.from_const(context).writes_retry_tag) return error.Unsupported;
-    write_tag(tag, constants.null_suite_retry_name, 0, pseudo_packet, pseudo_packet.len);
+    write_tag(tag, retry_name(version), 0, pseudo_packet, pseudo_packet.len);
+}
+
+/// The name a version's Retry Integrity Tag is computed under. Version 2 has its own Retry key
+/// and nonce (RFC 9369 §3.3.3), and version 1's name is what it was before versions were named.
+fn retry_name(version: Version) u32 {
+    if (version == .v1) return constants.null_suite_retry_name;
+    var crc = Crc32.init();
+    crc.update(std.mem.asBytes(&std.mem.nativeToBig(u32, constants.null_suite_retry_name)));
+    crc.update(std.mem.asBytes(&std.mem.nativeToBig(u32, @intFromEnum(version))));
+    return crc.final();
 }
 
 /// RFC 9000 §8.1.4: the token is "covered by integrity protection against modification or
@@ -101,13 +112,17 @@ test "§5.8: the Retry tag is a function of the pseudo-packet, and a suite may d
     var suite_under_test: NullSuite = .{};
     const vtable = suite_under_test.suite().vtable;
     var tag: [tag_len]u8 = undefined;
-    try vtable.retry_tag_write(&suite_under_test, "\x08" ++ sample_dcid ++ "retry", &tag);
-    try testing.expect(vtable.retry_tag_valid(&suite_under_test, "\x08" ++ sample_dcid ++ "retry", &tag));
-    try testing.expect(!vtable.retry_tag_valid(&suite_under_test, "\x08" ++ sample_dcid ++ "retrz", &tag));
+    try vtable.retry_tag_write(&suite_under_test, .v1, "\x08" ++ sample_dcid ++ "retry", &tag);
+    try testing.expect(vtable.retry_tag_valid(&suite_under_test, .v1, "\x08" ++ sample_dcid ++ "retry", &tag));
+    try testing.expect(!vtable.retry_tag_valid(&suite_under_test, .v1, "\x08" ++ sample_dcid ++ "retrz", &tag));
     // One host's tag is every host's: the checksums are taken over octets in network order.
     try testing.expectEqualSlices(u8, &retry_tag_expected, &tag);
+    // RFC 9369 §3.3.3: version 2's Retry key and nonce are its own.
+    try testing.expect(!vtable.retry_tag_valid(&suite_under_test, .v2, "\x08" ++ sample_dcid ++ "retry", &tag));
+    try vtable.retry_tag_write(&suite_under_test, .v2, "\x08" ++ sample_dcid ++ "retry", &tag);
+    try testing.expect(vtable.retry_tag_valid(&suite_under_test, .v2, "\x08" ++ sample_dcid ++ "retry", &tag));
     suite_under_test.writes_retry_tag = false;
-    try testing.expectError(error.Unsupported, vtable.retry_tag_write(&suite_under_test, "retry", &tag));
+    try testing.expectError(error.Unsupported, vtable.retry_tag_write(&suite_under_test, .v1, "retry", &tag));
 }
 
 test "RFC 9000 §8.1.4: a token checks for its address, within its lifetime, and gives its IDs back" {

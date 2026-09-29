@@ -383,7 +383,7 @@ const RetrySuite = struct {
         @memcpy(self.installed[0..dcid.len], dcid);
         self.installs += 1;
     }
-    fn tag_valid(_: *const anyopaque, _: []const u8, _: *const [crypto.constants.aead_tag_len]u8) bool {
+    fn tag_valid(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.aead_tag_len]u8) bool {
         return true;
     }
     /// The test marks the client's levels itself, so the suite reports holding none.
@@ -396,7 +396,7 @@ const RetrySuite = struct {
     fn unreached_open(_: *anyopaque, _: crypto.suite.Opening) crypto.suite.OpenError!crypto.suite.Opened {
         unreachable;
     }
-    fn unreached_tag_write(_: *const anyopaque, _: []const u8, _: *[crypto.constants.aead_tag_len]u8) crypto.suite.RetryTagError!void {
+    fn unreached_tag_write(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *[crypto.constants.aead_tag_len]u8) crypto.suite.RetryTagError!void {
         unreachable;
     }
     fn unreached_token_write(_: *anyopaque, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {

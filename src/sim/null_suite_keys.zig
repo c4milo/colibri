@@ -12,18 +12,22 @@ const Crc32 = std.hash.Crc32;
 const Level = crypto.suite.Level;
 const Role = crypto.suite.Role;
 const KeySet = crypto.suite.KeySet;
+const Version = crypto.suite.Version;
 
 /// Whether a level has keys in one direction.
 pub const KeyState = enum { none, available, discarded };
 
 /// The name of the key a packet's tag is computed under: the level, who wrote the packet, and at
 /// the application level the key phase. At the Initial level it carries the name of the
-/// connection ID the keys were installed from (RFC 9001 §5.2).
-pub fn key_name(level: Level, writer: Role, phase: u32, initial_name: u32) u32 {
+/// connection ID the keys were installed from (RFC 9001 §5.2). A version other than 1 is in it
+/// too, and version 1's names are what they were before versions were named.
+pub fn key_name(level: Level, writer: Role, phase: u32, initial_name: u32, version: Version) u32 {
     var crc = Crc32.init();
     crc.update(&.{ @intFromEnum(level), @intFromEnum(writer) });
     if (level == .initial) crc.update(std.mem.asBytes(&std.mem.nativeToBig(u32, initial_name)));
     if (level == .application) crc.update(std.mem.asBytes(&std.mem.nativeToBig(u32, phase)));
+    // RFC 9369 §3.3: version 2's salt and labels give every key of it another value.
+    if (version != .v1) crc.update(std.mem.asBytes(&std.mem.nativeToBig(u32, @intFromEnum(version))));
     return crc.final();
 }
 
@@ -169,13 +173,17 @@ test "§6.5: the bit picks the phase, and the packet number picks between the on
     try testing.expectEqual(null, key_set_of(other));
 }
 
-test "a key's name tells levels, writers, phases and connection IDs apart, and nothing else" {
-    const name = key_name(.application, .client, 1, 7);
-    try testing.expect(name != key_name(.application, .server, 1, 7));
-    try testing.expect(name != key_name(.application, .client, 2, 7));
-    try testing.expect(name != key_name(.handshake, .client, 1, 7));
+test "a key's name tells levels, writers, phases, connection IDs and versions apart, and nothing else" {
+    const name = key_name(.application, .client, 1, 7, .v1);
+    try testing.expect(name != key_name(.application, .server, 1, 7, .v1));
+    try testing.expect(name != key_name(.application, .client, 2, 7, .v1));
+    try testing.expect(name != key_name(.handshake, .client, 1, 7, .v1));
     // RFC 9001 §6.1: only 1-RTT keys have phases, and only Initial keys follow a connection ID.
-    try testing.expectEqual(name, key_name(.application, .client, 1, 8));
-    try testing.expectEqual(key_name(.handshake, .client, 0, 7), key_name(.handshake, .client, 5, 8));
-    try testing.expect(key_name(.initial, .client, 0, 7) != key_name(.initial, .client, 0, 8));
+    try testing.expectEqual(name, key_name(.application, .client, 1, 8, .v1));
+    try testing.expectEqual(key_name(.handshake, .client, 0, 7, .v1), key_name(.handshake, .client, 5, 8, .v1));
+    try testing.expect(key_name(.initial, .client, 0, 7, .v1) != key_name(.initial, .client, 0, 8, .v1));
+    // RFC 9369 §3.3: version 2's keys differ from version 1's at every level.
+    for (std.enums.values(Level)) |level| {
+        try testing.expect(key_name(level, .client, 1, 7, .v1) != key_name(level, .client, 1, 7, .v2));
+    }
 }

@@ -26,17 +26,26 @@ comptime {
         assert(@intFromEnum(direction) == @intFromEnum(@field(chapulin.quic.Direction, @tagName(direction))));
     }
     assert(crypto.constants.retry_integrity_tag_len == c.GCM_TAG);
+    // colibri's versions are chapulin's, value for value (RFC 9000 §15, RFC 9369 §3.1).
+    for (std.enums.values(suite_module.Version)) |named| {
+        assert(@intFromEnum(named) == @intFromEnum(@field(chapulin.quic.Version, @tagName(named))));
+    }
 }
 
 /// The bits of byte 0 that hold the Packet Number Length less one, once header protection is
 /// removed (RFC 9000 §17.2, §17.3.1).
 const packet_number_len_mask: u8 = 0x03;
 
-/// The QUIC version every session and Retry here protects packets for: version 1, the one
-/// colibri's `quic` speaks (RFC 9000 §15). chapulin derives each version's keys, salts and Retry
-/// key from the version a call names (RFC 9001 §5.2, §5.8). Version 2 is
+/// The QUIC version every session here starts in: version 1, the one colibri's `quic` speaks
+/// (RFC 9000 §15). Each packet call names its own version, which chapulin derives the keys, salt
+/// and Retry key of (RFC 9001 §5.2, §5.8; RFC 9369 §3.3). Version 2 is
 /// https://github.com/c4milo/colibri/issues/54.
 pub const version: chapulin.quic.Version = .v1;
+
+/// chapulin's name for `named`, which the comptime block above holds to the same value.
+fn chapulin_version(named: suite_module.Version) chapulin.quic.Version {
+    return @enumFromInt(@intFromEnum(named));
+}
 
 /// The vtable for a role's session type `Held`.
 pub fn Suite(comptime Held: type) type {
@@ -81,10 +90,11 @@ pub fn Suite(comptime Held: type) type {
             return unprotect(held(context), opening);
         }
 
-        /// RFC 9001 §5.8, which chapulin computes and compares in constant time.
-        fn retry_tag_valid(context: *const anyopaque, pseudo_packet: []const u8, tag: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+        /// RFC 9001 §5.8, which chapulin computes and compares in constant time, under the Retry
+        /// key and nonce of `named` (RFC 9369 §3.3.3).
+        fn retry_tag_valid(context: *const anyopaque, named: suite_module.Version, pseudo_packet: []const u8, tag: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
             const role = held_const(context);
-            return role.state.started and role.session.retryOk(version, pseudo_packet, tag);
+            return role.state.started and role.session.retryOk(chapulin_version(named), pseudo_packet, tag);
         }
 
         fn update_keys(context: *anyopaque) suite_module.UpdateError!void {
@@ -134,12 +144,13 @@ fn protect(role: anytype, sealing: suite_module.Sealing, output: []u8) suite_mod
     // seals one close per level after a failure, through its own call, and then drops that
     // level's write keys, which `keys_available` reports and decision 84's `take_lost` reads.
     const failed = role.session.state() == .failed;
-    // colibri never switches a session's version, so every packet carries the one it started in.
-    assert(role.session.negotiatedVersion() == version);
+    const named = chapulin_version(sealing.version);
+    // RFC 9369 §4.1: colibri seals every packet in the session's negotiated version.
+    assert(role.session.negotiatedVersion() == named);
     const sealed = if (failed)
-        role.session.sealClose(level, version, sealing.packet_number, sealing.packet_number_len, sealing.header, sealing.payload, output)
+        role.session.sealClose(level, named, sealing.packet_number, sealing.packet_number_len, sealing.header, sealing.payload, output)
     else
-        role.session.seal(level, version, sealing.packet_number, sealing.packet_number_len, sealing.header, sealing.payload, output);
+        role.session.seal(level, named, sealing.packet_number, sealing.packet_number_len, sealing.header, sealing.payload, output);
     return sealed catch |failure| switch (failure) {
         error.Cap => error.NoSpaceLeft,
         // RFC 9001 §4.8: after a failure, a close chapulin does not seal at this level.
@@ -157,7 +168,7 @@ fn unprotect(role: anytype, opening: suite_module.Opening) suite_module.OpenErro
     if (!role.state.started) return error.KeysUnavailable;
     const opened = role.session.open(
         level_of(opening.level),
-        version,
+        chapulin_version(opening.version),
         opening.packet,
         opening.packet_number_offset,
         // RFC 9000 Appendix A.3, and chapulin's "or 0 before the first".
@@ -170,7 +181,8 @@ fn unprotect(role: anytype, opening: suite_module.Opening) suite_module.OpenErro
         error.Discard => error.Discarded,
         // RFC 9001 §6.6: past the integrity limit.
         error.AeadLimit => error.IntegrityLimitReached,
-        // RFC 9001 §5.7: keys not held, discarded, or 1-RTT before the handshake completes.
+        // RFC 9001 §5.7: keys not held, discarded, or 1-RTT before the handshake completes; and
+        // RFC 9369 §4.1: keys never derived for the packet's version.
         error.Invalid => error.KeysUnavailable,
     };
     return .{
@@ -185,12 +197,12 @@ fn unprotect(role: anytype, opening: suite_module.Opening) suite_module.OpenErro
     };
 }
 
-/// RFC 9001 §5.8: the tag is the same for every connection, so any suite writes it.
-fn retry_tag_write(context: *const anyopaque, pseudo_packet: []const u8, tag: *[crypto.constants.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
+/// RFC 9001 §5.8: the tag is the same for every connection of a version, so any suite writes it.
+fn retry_tag_write(context: *const anyopaque, named: suite_module.Version, pseudo_packet: []const u8, tag: *[crypto.constants.retry_integrity_tag_len]u8) suite_module.RetryTagError!void {
     _ = context;
-    // RFC 9001 §5.8: chapulin refuses only a version it derives no Retry key for, and it derives
-    // version 1's.
-    chapulin.quic.retryTag(version, pseudo_packet, tag) catch unreachable;
+    // RFC 9369 §3.3.3: chapulin refuses only a version it derives no Retry key for, and a server
+    // over it then sends no Retry.
+    chapulin.quic.retryTag(chapulin_version(named), pseudo_packet, tag) catch return error.Unsupported;
 }
 
 /// A session mints no token: a server writes its Retry with `Retry`, before the session exists.
@@ -283,7 +295,7 @@ fn no_session_seal(_: *anyopaque, _: suite_module.Sealing, _: []u8) suite_module
 fn no_session_open(_: *anyopaque, _: suite_module.Opening) suite_module.OpenError!suite_module.Opened {
     unreachable;
 }
-fn no_session_tag_valid(_: *const anyopaque, _: []const u8, _: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+fn no_session_tag_valid(_: *const anyopaque, _: suite_module.Version, _: []const u8, _: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
     unreachable;
 }
 fn no_session_update(_: *anyopaque) suite_module.UpdateError!void {

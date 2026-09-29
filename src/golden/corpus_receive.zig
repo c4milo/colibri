@@ -177,10 +177,10 @@ const GoldenSuite = struct {
     fn seal(_: *anyopaque, _: crypto.suite.Sealing, _: []u8) crypto.suite.SealError!usize {
         unreachable;
     }
-    fn retry_tag_valid(_: *const anyopaque, _: []const u8, _: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
+    fn retry_tag_valid(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *const [crypto.constants.retry_integrity_tag_len]u8) bool {
         unreachable;
     }
-    fn retry_tag_write(_: *const anyopaque, _: []const u8, _: *[crypto.constants.retry_integrity_tag_len]u8) crypto.suite.RetryTagError!void {
+    fn retry_tag_write(_: *const anyopaque, _: crypto.suite.Version, _: []const u8, _: *[crypto.constants.retry_integrity_tag_len]u8) crypto.suite.RetryTagError!void {
         unreachable;
     }
     fn retry_token_write(_: *anyopaque, _: []const u8, _: *const crypto.suite.RetryConnectionIds, _: u64, _: []u8) crypto.suite.TokenError!usize {
