@@ -58,6 +58,7 @@ test {
     _ = @import("channel/channel_quic_flow_test.zig");
     _ = @import("quic/quic_connection_test.zig");
     _ = @import("quic/quic_connection_flow_test.zig");
+    _ = @import("quic/quic_connection_idle_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

@@ -4861,9 +4861,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
-  [#70](https://github.com/c4milo/colibri/issues/70). Six parts. The owner ruled on 2026-09-27
+  [#70](https://github.com/c4milo/colibri/issues/70). Seven parts. The owner ruled on 2026-09-27
   that 17c and 17d go before 17b, because cocuyo waits for the client and 17c does not depend on
-  step 17b. The order is 17a, 17c, 17d, 17b, 17e, 17f:
+  step 17b, and on 2026-09-28 that 17g goes after 17b. The order is 17a, 17c, 17d, 17b, 17g, 17e,
+  17f:
   - **17a**, the server over TCP. It takes octets tagged by connection, runs the handshake
     through `tls.record.Server`, and serves h11 or h2 as ALPN chose. One set of calls covers
     both: a request is an event with an id, and a response is written by that id, its status,
@@ -4899,6 +4900,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Each rule of decision 101 has a mutation that a test catches.
   - **17f**, what a dependent reads: an example of each module, docs/usage.md, and a release.
     **Check:** `zig build examples` and `tools/doc_snippets.sh` pass.
+  - **17g**, the client and QUIC's idle timeout (RFC 9114 §5.1), which cocuyo asked for. A QUIC
+    connection that has sat idle for its effective idle timeout (RFC 9000 §10.1) less a margin
+    takes no new exchange and closes, and the channel's next exchange opens another QUIC
+    connection, which the caller may resume with the first one's ticket. RFC 9114 §5.1 says a
+    client SHOULD open a new connection "if approaching the idle timeout". A connection that
+    holds an exchange instead sends a PING at that instant, as RFC 9000 §10.1.2 describes,
+    because RFC 9114 §5.1 expects a client to keep a connection open while responses are
+    outstanding. The margin is one PTO
+    (RFC 9002 §6.2.1) and at least 1 s, as the owner ruled on 2026-09-28, since RFC 9000 §10.1.2
+    warns that a packet sent close to the timeout can arrive after the peer's timer ran out.
+    **Check:** `spec/tla/client_exchanges` gains both rules, and a configuration that turns off
+    either finds a violation. The client trace run's plans leave QUIC idle past the margin and
+    answer past the idle timeout, and every seed ends with each exchange finished. TLC finds each
+    seed's log a behavior of the model.
 
   **17a, 2026-09-27.** `src/server/` is the `server` module, exported by name. It imports `core`,
   `http`, `h11`, `h2`, `tls` and `tls_provider`.
@@ -5110,6 +5125,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Mutations of the advertisement, each CAUGHT by a unit test: 13 in h2's frame and connection,
     8 in the server and 8 in the client.
   - `zig build test` passed: 2226 of 2226 tests.
+
+  **17g, the client and QUIC's idle timeout, 2026-09-28.**
+  - `quic.connection_idle` gives a caller the idle deadline and the effective idle timeout (RFC
+    9000 §10.1), and `owe_keep_alive`, which has the next packet at the application level elicit
+    an acknowledgment, with a PING when nothing else in it does (RFC 9000 §10.1.2). The packet
+    waits for the congestion window as any other.
+  - The client's `QuicConnection` acts once at each idle deadline less the margin. Holding an
+    exchange, it owes a keep-alive. Holding none, it retires: it takes no new exchange, closes with
+    H3_NO_ERROR, and reports `draining` and `closed` (RFC 9114 §5.1). A channel's next exchange
+    then opens another QUIC connection once the closing period ends. One that comes during the
+    closing period opens TCP, as the model's CanOpenTcp has for any QUIC connection still ending.
+  - The margin is also at most half the effective timeout, which the owner's ruling left open.
+    With a timeout under 2 s, a margin of 1 s would act again at once after each keep-alive's
+    acknowledgment.
+  - `spec/tla/client_exchanges` gains the variables `stale` and `quiet`, the actions Age, Silence
+    and TimeOut, and the rules RetireStale and KeepAlive. It holds in 4 scopes, 4.2 million states
+    in all, and each rule turned off finds Completes violated.
+  - The client trace run: one seed in two makes its last exchange 25 to 40 s after the others,
+    and one in three has its servers answer 30 to 45 s late. Over 256 seeds, 1 QUIC connection
+    retired and 4 keep-alives went out: QUIC carries few seeds' exchanges, since TCP often wins
+    the race. So `--client-trace-write` writes the first 64 seeds and each later one that reaches
+    an idle rule.
+  - Mutations, each CAUGHT: 4 in quic's keep-alive and 10 in the client, one of them after a new
+    test. With RetireStale off in the trace configurations, TLC finds the retiring seed no
+    behavior of the model.
+
+  **17g check,** run on macOS 26.6.2 arm64 on 2026-09-28:
+  - `zig build tla -- spec/tla/client_exchanges/*.cfg`: the 4 scopes hold, and the 8
+    configurations that turn a rule off are each violated.
+  - `tools/client_trace.sh`: 67 of 67 traces are behaviors of the model.
+  - `zig build test` passed: 2253 of 2253 tests.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:

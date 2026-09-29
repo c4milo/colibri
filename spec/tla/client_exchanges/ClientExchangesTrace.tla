@@ -15,6 +15,9 @@
 (* seed's configuration expects the invariant Unfinished to be violated. A *)
 (* log with a state the model cannot reach leaves it holding.              *)
 (*                                                                         *)
+(* The log leaves out quiet: the run keeps KeepAlive, so the model never   *)
+(* sets it.                                                                *)
+(*                                                                         *)
 (* The log leaves out goaways. A server sends its GOAWAY before the client *)
 (* reads it, and the model counts it when the client does, so the run      *)
 (* bounds it through GoawaysMax instead: the GOAWAY frames its servers     *)
@@ -42,6 +45,7 @@ Matches(i) ==
     /\ processed = AsFunction(t.processed)
     /\ phase = t.phase /\ opens = t.opens /\ tried = t.tried
     /\ fallback = t.fallback /\ learned = t.learned /\ shut = t.shut
+    /\ stale = t.stale
 
 TraceInit == Init /\ Matches(1) /\ index = 1 /\ since = 0
 

@@ -80,6 +80,9 @@ pub const World = struct {
     closed: bool,
     goaway_sent: bool,
     broken: bool,
+    /// The PINGs the channel's QUIC connections owed to keep an idle timeout off while an exchange
+    /// was outstanding (RFC 9000 §10.1.2, design §8 step 17g).
+    keep_alives: u64,
     network: sim.Network,
     to_server: Direction,
     to_client: Direction,
@@ -104,6 +107,7 @@ pub const World = struct {
         world.closed = false;
         world.goaway_sent = false;
         world.broken = false;
+        world.keep_alives = 0;
         world.ledger.init();
         world.to_server.clear();
         world.to_client.clear();
@@ -176,10 +180,21 @@ pub const World = struct {
         try world.act_on_plan();
         try world.deliver();
         const deadline = world.channel.deadline_ns();
-        if (deadline != null and deadline.? <= world.now_ns) world.channel.on_instant(world.now_ns);
+        if (deadline != null and deadline.? <= world.now_ns) world.fire_channel();
         if (world.quic_server.started) world.quic_server.on_instant(world.now_ns);
         try world.settle();
         if (world.cancel_on_end()) try world.settle();
+    }
+
+    /// Fires the channel's deadlines at the instant, and counts a keep-alive its QUIC connection
+    /// owes from then.
+    fn fire_channel(world: *World) void {
+        const quic_link = &world.channel.links.get(.quic);
+        const running = quic_link.state == .running;
+        const owed_before = running and quic.connection_idle.keep_alive_owed(&world.channel.quic.transport);
+        world.channel.on_instant(world.now_ns);
+        if (!running or owed_before) return;
+        if (quic.connection_idle.keep_alive_owed(&world.channel.quic.transport)) world.keep_alives += 1;
     }
 
     /// Cancels each exchange the plan cancels once its connection ended it, before the channel

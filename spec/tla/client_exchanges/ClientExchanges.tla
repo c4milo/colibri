@@ -22,6 +22,12 @@
 (* handshake completes, or when every transport it may open failed, which  *)
 (* ends each waiting exchange refused.                                     *)
 (*                                                                         *)
+(* A QUIC connection holding no exchange can sit idle until near its idle  *)
+(* timeout, after which the client gives it no new exchange and it drains  *)
+(* (RFC 9114 §5.1, design §8 step 17g). One holding an exchange sends a    *)
+(* PING then (RFC 9000 §10.1.2), so the timeout never ends it. A           *)
+(* connection the timeout reaches ends as a failed one does.               *)
+(*                                                                         *)
 (* A server passes a request to its application, then answers it or resets *)
 (* it. It may refuse a request it did not process (RFC 9113 §8.7, RFC 9114 *)
 (* §4.1.1) and send a GOAWAY (RFC 9113 §6.8, RFC 9114 §5.2), up to         *)
@@ -57,6 +63,12 @@
 (*                      processed it (RFC 9113 §8.7).                      *)
 (*   MoveRefused        an exchange refused by a connection that takes no  *)
 (*                      new exchange moves to another one.                 *)
+(*   RetireStale        a QUIC connection that held no exchange until near *)
+(*                      its idle timeout drains at once, so it takes no    *)
+(*                      new exchange (RFC 9114 §5.1).                      *)
+(*   KeepAlive          a QUIC connection holding an exchange sends a PING *)
+(*                      before its idle timeout (RFC 9000 §10.1.2), so it  *)
+(*                      never goes quiet until the timeout.                *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -72,7 +84,7 @@ CONSTANTS
     Refusals,       \* the transports whose server may refuse a request it did not process
     Resets,         \* the transports whose server may reset a request
     ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases, SentFailsClosed,
-    MoveRefused
+    MoveRefused, RetireStale, KeepAlive
 
 Transports == {"quic", "tcp"}
 
@@ -80,7 +92,7 @@ ASSUME N \in Nat \ {0} /\ Opens \in Nat \ {0} /\ MovesMax \in Nat /\ GoawaysMax 
 ASSUME QuicPolicy \in {"first", "learn", "never"}
 ASSUME \A set \in {HandshakeFails, Breaks, Goaways, Refusals, Resets} : set \subseteq Transports
 ASSUME \A rule \in {ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases,
-                    SentFailsClosed, MoveRefused} : rule \in BOOLEAN
+                    SentFailsClosed, MoveRefused, RetireStale, KeepAlive} : rule \in BOOLEAN
 
 Exchanges == 1..N
 \* An exchange's stage: not made; held by the client, which no connection has given it to;
@@ -107,10 +119,14 @@ VARIABLES
     \* The transports this attempt opened, whether the fallback delay passed during QUIC's
     \* handshake, whether a TCP response named h3 in Alt-Svc (RFC 7838), and whether the caller
     \* shut the client down.
-    tried, fallback, learned, shut
+    tried, fallback, learned, shut,
+    \* Whether the QUIC connection held no exchange until near its idle timeout, and whether it
+    \* held one and heard nothing until then (RFC 9000 §10.1).
+    stale, quiet
 
 exchangeVars == <<stage, carrier, holds, outcome, moved, seen, processed>>
-connectionVars == <<phase, opens, goaways, tried, fallback, learned, shut>>
+idleVars == <<stale, quiet>>
+connectionVars == <<phase, opens, goaways, tried, fallback, learned, shut, stale, quiet>>
 vars == <<exchangeVars, connectionVars>>
 
 TypeOK ==
@@ -126,6 +142,7 @@ TypeOK ==
     /\ goaways \in 0..GoawaysMax
     /\ tried \subseteq Transports
     /\ fallback \in BOOLEAN /\ learned \in BOOLEAN /\ shut \in BOOLEAN
+    /\ stale \in BOOLEAN /\ quiet \in BOOLEAN
 
 Init ==
     /\ stage = [e \in Exchanges |-> "unmade"]
@@ -140,6 +157,7 @@ Init ==
     /\ goaways = 0
     /\ tried = {}
     /\ fallback = FALSE /\ learned = FALSE /\ shut = FALSE
+    /\ stale = FALSE /\ quiet = FALSE
 
 Live(t) == phase[t] \in {"open", "draining"}
 Idle(t) == phase[t] \in {"none", "closed"}
@@ -274,6 +292,7 @@ Goaway(t, unprocessed) ==
     /\ goaways' = goaways + 1
     /\ UNCHANGED <<carrier, holds, moved, seen, processed>>
     /\ UNCHANGED <<opens, tried, fallback, learned, shut>>
+    /\ UNCHANGED idleVars
 
 -----------------------------------------------------------------------------
 (* The connections and the choice between them.                            *)
@@ -295,6 +314,7 @@ Open(t) ==
     /\ opens' = [opens EXCEPT ![t] = @ + 1]
     /\ tried' = tried \cup {t}
     /\ UNCHANGED <<goaways, fallback, learned, shut>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* The fallback delay passes while QUIC runs its handshake.                *)
@@ -302,6 +322,7 @@ Fallback ==
     /\ phase["quic"] = "handshake" /\ ~fallback
     /\ fallback' = TRUE
     /\ UNCHANGED <<phase, opens, goaways, tried, learned, shut>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* Connection t's handshake completes. The first one open takes the        *)
@@ -315,6 +336,7 @@ Handshake(t) ==
        ELSE /\ phase' = [phase EXCEPT ![t] = "draining"]
             /\ UNCHANGED <<tried, fallback>>
     /\ UNCHANGED <<opens, goaways, learned, shut>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* The client abandons a handshake another connection won, or one a client *)
@@ -324,6 +346,7 @@ Abandon(t) ==
     /\ OpenOnes # {} \/ (shut /\ \A e \in Exchanges : stage[e] \in {"unmade", "reported", "cancelled"})
     /\ phase' = [phase EXCEPT ![t] = "failed"]
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* Connection t's handshake fails: the server does not answer, TLS refuses *)
@@ -332,17 +355,16 @@ FailHandshake(t) ==
     /\ t \in HandshakeFails /\ phase[t] = "handshake"
     /\ phase' = [phase EXCEPT ![t] = "failed"]
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* How a connection that fails ends an exchange it holds: `refused` when   *)
 (* its request was not written, `failed` when it was (RFC 9113 §8.7).      *)
 FailedOutcome(e) == IF stage[e] = "queued" \/ ~SentFailsClosed THEN "refused" ELSE "failed"
 
-(* Open connection t fails: a protocol error, the idle timeout, or the     *)
-(* server's close. Each exchange it holds ends, and with ReleaseOnFail its *)
-(* streams read no exchange's octets any more.                             *)
-Break(t) ==
-    /\ t \in Breaks /\ Live(t)
+(* Live connection t fails. Each exchange it holds ends, and with          *)
+(* ReleaseOnFail its streams read no exchange's octets any more.            *)
+Fail(t) ==
     /\ LET ending == {e \in Held(t) : stage[e] # "ended"} IN
        /\ stage' = [e \in Exchanges |-> IF e \in ending THEN "ended" ELSE stage[e]]
        /\ outcome' = [e \in Exchanges |-> IF e \in ending THEN FailedOutcome(e) ELSE outcome[e]]
@@ -350,6 +372,36 @@ Break(t) ==
     /\ phase' = [phase EXCEPT ![t] = "failed"]
     /\ UNCHANGED <<carrier, moved, seen, processed>>
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
+    /\ UNCHANGED idleVars
+
+(* Open connection t fails: a protocol error or the server's close.        *)
+Break(t) == t \in Breaks /\ Live(t) /\ Fail(t)
+
+(* The QUIC connection holds no exchange until near its idle timeout (RFC  *)
+(* 9114 §5.1). An open connection takes a waiting exchange at once, so no  *)
+(* exchange waits while it idles. With RetireStale the client gives it no  *)
+(* new exchange from then on: it drains at once.                           *)
+Age ==
+    /\ phase["quic"] = "open" /\ Held("quic") = {} /\ Waiting = {} /\ ~stale
+    /\ stale' = TRUE
+    /\ phase' = IF RetireStale THEN [phase EXCEPT !["quic"] = "draining"] ELSE phase
+    /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut, quiet>>
+    /\ UNCHANGED exchangeVars
+
+(* The QUIC connection holds an exchange and hears nothing until near its  *)
+(* idle timeout. With KeepAlive it sends a PING then (RFC 9000 §10.1.2),   *)
+(* and the PING's acknowledgment restarts its idle timer, so it never gets *)
+(* here.                                                                   *)
+Silence ==
+    /\ ~KeepAlive /\ Live("quic") /\ Held("quic") # {} /\ ~quiet
+    /\ quiet' = TRUE
+    /\ UNCHANGED <<phase, opens, goaways, tried, fallback, learned, shut, stale>>
+    /\ UNCHANGED exchangeVars
+
+(* The QUIC connection's idle timeout passes (RFC 9000 §10.1): it closes   *)
+(* silently, and each exchange it holds ends as a failed connection's      *)
+(* does.                                                                   *)
+TimeOut == Live("quic") /\ (stale \/ quiet) /\ Fail("quic")
 
 (* A TCP response names h3 in Alt-Svc (RFC 7838), which the next attempt   *)
 (* uses.                                                                   *)
@@ -357,6 +409,7 @@ Learn ==
     /\ QuicPolicy = "learn" /\ ~learned /\ Live("tcp")
     /\ learned' = TRUE
     /\ UNCHANGED <<phase, opens, goaways, tried, fallback, shut>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* The caller shuts the client down: it takes no new exchange.             *)
@@ -364,6 +417,7 @@ Shutdown ==
     /\ ~shut
     /\ shut' = TRUE
     /\ UNCHANGED <<phase, opens, goaways, tried, fallback, learned>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* Shut down, an open connection with no exchange waiting drains.          *)
@@ -371,14 +425,17 @@ Drain(t) ==
     /\ shut /\ phase[t] = "open" /\ Waiting = {}
     /\ phase' = [phase EXCEPT ![t] = "draining"]
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
+    /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
 (* Connection t reports `closed` once it holds no exchange: after it       *)
-(* failed, or, draining, after its last exchange.                          *)
+(* failed, or, draining, after its last exchange. A QUIC connection that   *)
+(* closed has no idle timer left.                                          *)
 Close(t) ==
     /\ phase[t] = "failed" \/ (CloseWhenDrained /\ phase[t] = "draining")
     /\ Held(t) = {}
     /\ phase' = [phase EXCEPT ![t] = "closed"]
+    /\ stale' = (stale /\ t # "quic") /\ quiet' = (quiet /\ t # "quic")
     /\ UNCHANGED <<opens, goaways, tried, fallback, learned, shut>>
     /\ UNCHANGED exchangeVars
 
@@ -393,6 +450,7 @@ GiveUp ==
     /\ tried' = {} /\ fallback' = FALSE
     /\ UNCHANGED <<carrier, holds, moved, seen, processed>>
     /\ UNCHANGED <<phase, opens, goaways, learned, shut>>
+    /\ UNCHANGED idleVars
 
 -----------------------------------------------------------------------------
 
@@ -405,7 +463,7 @@ Next ==
         \/ Open(t) \/ Handshake(t) \/ Abandon(t) \/ FailHandshake(t) \/ Break(t)
         \/ Drain(t) \/ Close(t)
         \/ \E unprocessed \in SUBSET Exchanges : Goaway(t, unprocessed)
-    \/ Fallback \/ Learn \/ Shutdown \/ GiveUp
+    \/ Fallback \/ Learn \/ Shutdown \/ GiveUp \/ Age \/ Silence \/ TimeOut
 
 Spec == Init /\ [][Next]_vars
 

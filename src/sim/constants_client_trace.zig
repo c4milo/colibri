@@ -36,6 +36,19 @@ pub const lossy_drop_run_max: u32 = 3;
 
 /// The most a server waits before it answers or resets a request.
 pub const answer_delay_max_ns: u64 = 60_000_000;
+
+/// Design §8 step 17g: one seed in `late_one_in` makes its last exchange this long after the
+/// others, around the 30 s idle timeout both QUIC endpoints advertise. Before the client's idle
+/// margin the exchange takes the connection that stands; after it, the connection has retired and
+/// the exchange opens another (RFC 9114 §5.1).
+pub const late_one_in: u64 = 2;
+pub const late_gap_min_ns: u64 = 25_000_000_000;
+pub const late_gap_max_ns: u64 = 40_000_000_000;
+/// One seed in `slow_answer_one_in` has its servers answer this late, past the 30 s idle timeout,
+/// so a QUIC connection outlives the wait only with the client's PING (RFC 9000 §10.1.2).
+pub const slow_answer_one_in: u64 = 3;
+pub const slow_answer_min_ns: u64 = 30_000_000_000;
+pub const slow_answer_max_ns: u64 = 45_000_000_000;
 /// The window a server's GOAWAY is drawn in, and one seed in this many draws one.
 pub const goaway_window_ns: u64 = 600_000_000;
 pub const goaway_one_in: u64 = 4;
@@ -71,6 +84,10 @@ pub const module_len_max: u32 = 2_097_152;
 /// between two logged states: an instant can end each exchange, report it, move it and assign
 /// it again, and open, close or drain each transport.
 pub const written_seeds: u64 = 64;
+/// Seeds past those that `sim --client-trace-write` also writes, each one whose run retired a
+/// QUIC connection or kept one alive (design §8 step 17g), so TLC checks both idle rules: a QUIC
+/// connection carries exchanges in few seeds, since TCP often wins the race.
+pub const idle_seeds_written_max: u64 = 16;
 pub const steps_between_max: u64 = steps_per_exchange * exchanges_max + steps_per_instant;
 const steps_per_exchange: u64 = 6;
 const steps_per_instant: u64 = 12;
@@ -80,4 +97,6 @@ comptime {
     // A slow QUIC loses the race to TCP: its first round trip is past the fallback delay.
     assert(slow_delay_min_ns > fallback_delay_ns);
     assert(tcp_delay_ns < fallback_delay_ns);
+    assert(late_one_in > 0 and late_gap_min_ns < late_gap_max_ns);
+    assert(slow_answer_one_in > 0 and slow_answer_min_ns < slow_answer_max_ns);
 }

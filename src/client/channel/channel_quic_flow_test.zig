@@ -8,6 +8,7 @@ const quic_support = @import("../quic/quic_test_support.zig");
 const fixture = @import("channel_quic_test_support.zig");
 const channel_module = @import("channel.zig");
 const event = @import("../event.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const Transport = channel_module.Transport;
@@ -218,4 +219,37 @@ test "a cancelled exchange leaves nothing to open" {
     channel.cancel(id);
     try collect();
     try testing.expectEqual(null, opened(0));
+}
+
+/// Rounds that run past a closing period, three times the Probe Timeout (RFC 9000 §10.2).
+const closing_rounds: usize = 128;
+
+test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the next exchange opens a new one" {
+    try start(&quic_support.alpn_h3, values_at(https_port), true);
+    var first = get(&bodies[0]);
+    _ = try channel.request(&first);
+    try collect();
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.response, first.outcome);
+    // Holding no exchange, the connection retires at its idle deadline less the 1 s margin.
+    const acts_at = quic.connection_idle.deadline_ns(&channel.quic.transport).? - constants.quic_idle_margin_ns_min;
+    try testing.expect(channel.deadline_ns().? <= acts_at);
+    quic_support.now_ns = acts_at;
+    channel.on_instant(acts_at);
+    try collect();
+    try testing.expect(channel.quic.retired);
+    try testing.expectEqual(.draining, channel.phase(.quic));
+    // It closes with H3_NO_ERROR, and once its closing period has run the channel asks the caller
+    // to close its flow.
+    try pump(closing_rounds);
+    try testing.expectEqual(Transport.quic, nth(.close, 0).?.close);
+    try testing.expectEqual(.closed, channel.phase(.quic));
+    // The next exchange opens a new QUIC connection, which carries it, and TCP never opens.
+    var second = get(&bodies[1]);
+    _ = try channel.request(&second);
+    try collect();
+    try testing.expectEqual(Transport.quic, opened(1).?.transport);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.response, second.outcome);
+    try testing.expectEqual(null, opened(2));
 }

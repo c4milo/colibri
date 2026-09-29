@@ -41,6 +41,9 @@ pub const State = struct {
     fallback: bool,
     learned: bool,
     shut: bool,
+    /// The running QUIC connection sat idle until near its idle timeout, and retired (RFC 9114
+    /// §5.1).
+    stale: bool,
 };
 
 /// What the run remembers of each exchange across instants, which the channel forgets once the
@@ -106,6 +109,9 @@ pub fn compute(world: *World, tracker: *const Tracker) State {
     // The model learns only under its "learn" policy, and no run makes the channel forget.
     state.learned = world.plan.policy == .learn and channel.alternative() != null;
     state.shut = channel.shut;
+    // The model forgets a QUIC connection's idleness once it closes, and the channel keeps the
+    // connection's memory until the next one starts in it.
+    state.stale = channel.links.get(.quic).state == .running and channel.quic.retired;
     return state;
 }
 

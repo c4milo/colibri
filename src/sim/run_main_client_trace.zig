@@ -34,16 +34,35 @@ pub fn check(seeds: u64) !void {
     std.debug.print("client-trace: seeds={d} exchanges={d} responses={d} refused={d} failed={d} cancelled={d}", .{
         census.seeds, result.exchanges, result.responses, result.refused, result.failed, result.cancelled,
     });
-    std.debug.print(" moved={d} quic={d} tcp={d} goaways={d} learned={d} states={d} closing_ms_max={d}\n", .{
-        result.moved,                                                       result.quic_connections, result.tcp_connections, result.goaways, result.learned, result.states,
-        census.closing_max_ns / quic.constants.nanoseconds_per_millisecond,
+    std.debug.print(" moved={d} quic={d} tcp={d} goaways={d} learned={d} retired={d} keep_alives={d}", .{
+        result.moved, result.quic_connections, result.tcp_connections, result.goaways, result.learned, result.retired, result.keep_alives,
     });
+    std.debug.print(" states={d} closing_ms_max={d}\n", .{ result.states, census.closing_max_ns / quic.constants.nanoseconds_per_millisecond });
 }
 
 /// Runs `seed` and prints its plan's shape and its trace as TLA+.
 pub fn seed_trace(seed: u64) !void {
     const files = try files_of(seed);
     std.debug.print("{s}\n{s}", .{ files.module, files.config });
+}
+
+/// The seeds `--client-trace-write` writes into `into`: the first `written_seeds`, then each later
+/// seed of the check's range whose run retired a QUIC connection or kept one alive, up to
+/// `idle_seeds_written_max` of them.
+pub fn written_seeds(into: *[limits.written_seeds + limits.idle_seeds_written_max]u64) ![]const u64 {
+    var count: usize = 0;
+    for (0..limits.written_seeds) |seed| {
+        into[count] = seed;
+        count += 1;
+    }
+    for (limits.written_seeds..sim.constants.check_seeds_default) |seed| {
+        if (count == into.len) break;
+        const result = try client_trace_check.run_seed(&storage, seed);
+        if (result.retired == 0 and result.keep_alives == 0) continue;
+        into[count] = seed;
+        count += 1;
+    }
+    return into[0..count];
 }
 
 /// Runs `seed` and writes its trace as TLA+. The files stay valid until the next call.

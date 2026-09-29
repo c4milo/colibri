@@ -463,13 +463,16 @@ fn h2_trace_write(io: std.Io, directory: []const u8) !void {
 /// Writes seeds `[0, written_seeds)` of the client trace run into `directory`, as
 /// `h2_trace_write` does for the h2 run (decision 105).
 fn client_trace_write(io: std.Io, directory: []const u8) !void {
-    for (0..constants.client_trace.written_seeds) |seed| {
+    const seeds = try run_main_client_trace.written_seeds(&client_trace_seeds);
+    for (seeds) |seed| {
         const files = try run_main_client_trace.files_of(seed);
         try write_file(io, directory, files.name, ".tla", files.module);
         try write_file(io, directory, files.name, ".cfg", files.config);
     }
-    std.debug.print("client-trace: wrote {d} seeds to {s}\n", .{ constants.client_trace.written_seeds, directory });
+    std.debug.print("client-trace: wrote {d} seeds to {s}\n", .{ seeds.len, directory });
 }
+
+var client_trace_seeds: [constants.client_trace.written_seeds + constants.client_trace.idle_seeds_written_max]u64 = undefined;
 
 fn write_file(io: std.Io, directory: []const u8, name: []const u8, extension: []const u8, data: []const u8) !void {
     var path_storage: [std.fs.max_path_bytes]u8 = undefined;

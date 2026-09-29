@@ -108,6 +108,12 @@ pub const QuicConnection = struct {
     failed: bool,
     /// The latest ticket the server issued, until `take_ticket` hands it over.
     ticket: ?tls.Ticket,
+    /// The idle deadline the connection last acted on (RFC 9114 §5.1), so one deadline is acted
+    /// on once: a keep-alive whose packet has not moved the deadline yet asks for no second one.
+    idle_acted_ns: ?u64,
+    /// The connection sat idle until near its idle timeout with no exchange, so it takes no new
+    /// one and closes (RFC 9114 §5.1).
+    retired: bool,
 
     /// Prepares a connection whose first datagram `send` writes. `receive_pool` holds the server's
     /// octets until h3 reads them (decision 61), and no other connection uses it while this one
@@ -127,6 +133,8 @@ pub const QuicConnection = struct {
         connection.closed = false;
         connection.failed = false;
         connection.ticket = null;
+        connection.idle_acted_ns = null;
+        connection.retired = false;
         connection.transport.init(.{
             .role = .client,
             .local_parameters = parameters(config, receive_pool.capacity),
@@ -225,23 +233,53 @@ pub const QuicConnection = struct {
         return .{ .octets = output[0..sent.len], .ecn = sent.ecn, .to = sent.to };
     }
 
-    /// The instant the connection next wants `on_instant` at (design §4.2), or null for none.
+    /// The instant the connection next wants `on_instant` at (design §4.2), or null for none:
+    /// QUIC's next deadline, or the instant the idle rules of RFC 9114 §5.1 act at.
     pub fn deadline_ns(connection: *QuicConnection) ?u64 {
         if (connection.closed) return null;
-        const deadline = quic.connection_timer.next(&connection.transport) orelse return null;
-        return deadline.at_ns;
+        const idle_at = connection.idle_action_at_ns();
+        const deadline = quic.connection_timer.next(&connection.transport) orelse return idle_at;
+        return @min(deadline.at_ns, idle_at orelse deadline.at_ns);
     }
 
-    /// Fires whichever deadlines `now_ns` has reached: a loss, the idle timeout, the end of the
-    /// closing period (RFC 9002 §6.2, RFC 9000 §10).
+    /// Fires whichever deadlines `now_ns` has reached: the idle rules of RFC 9114 §5.1, a loss,
+    /// the idle timeout, the end of the closing period (RFC 9002 §6.2, RFC 9000 §10).
     pub fn on_instant(connection: *QuicConnection, now_ns: u64) void {
         const at_ns = connection.deadline_ns() orelse return;
         if (now_ns < at_ns) return;
+        connection.act_on_idle(now_ns);
         _ = quic.connection_timer.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
             connection.fail();
             return;
         };
         connection.after_change(now_ns);
+    }
+
+    /// The instant RFC 9114 §5.1's rules act at: the idle deadline less the margin, once for each
+    /// deadline. Null before h3 runs, once the connection ends, and once it acted on the deadline
+    /// that stands.
+    fn idle_action_at_ns(connection: *const QuicConnection) ?u64 {
+        if (!connection.started or connection.stopped or connection.closed) return null;
+        const transport = &connection.transport;
+        const deadline = quic.connection_idle.deadline_ns(transport) orelse return null;
+        if (connection.idle_acted_ns == deadline) return null;
+        const timeout = quic.connection_idle.timeout_ns(transport).?;
+        return deadline - idle_margin_ns(transport, timeout);
+    }
+
+    /// Acts on an idle deadline `now_ns` is within the margin of. RFC 9114 §5.1: a client keeps a
+    /// connection open while responses are outstanding, which a PING does (RFC 9000 §10.1.2), and
+    /// opens a new connection for new requests "if approaching the idle timeout", so one holding no
+    /// exchange takes no new one and closes.
+    fn act_on_idle(connection: *QuicConnection, now_ns: u64) void {
+        const at_ns = connection.idle_action_at_ns() orelse return;
+        if (now_ns < at_ns) return;
+        connection.idle_acted_ns = quic.connection_idle.deadline_ns(&connection.transport);
+        if (!connection.slots.idle()) return quic.connection_idle.owe_keep_alive(&connection.transport);
+        // A connection already draining closes after its last exchange anyway.
+        if (connection.draining) return;
+        connection.retired = true;
+        connection.start_draining();
     }
 
     /// Ends the connection once the exchanges it holds have finished: no new request is taken, and
@@ -388,6 +426,14 @@ pub const QuicConnection = struct {
 
 /// RFC 9114 §3.1: the ALPN token of h3.
 const h3_alpn = "h3";
+
+/// The margin before the idle deadline RFC 9114 §5.1's rules act at: one PTO (RFC 9002 §6.2.1)
+/// and at least `quic_idle_margin_ns_min`, as the owner ruled on 2026-09-28, and at most the
+/// effective idle timeout `timeout_ns` over `quic_idle_margin_timeout_divisor`.
+fn idle_margin_ns(transport: *const quic.Connection, timeout_ns: u64) u64 {
+    const margin = @max(constants.quic_idle_margin_ns_min, quic.connection_idle.probe_timeout_ns(transport));
+    return @min(margin, timeout_ns / constants.quic_idle_margin_timeout_divisor);
+}
 
 /// What the client grants the server (RFC 9000 §18.2): its receive pool of `capacity` octets for
 /// the responses on the streams it opens, and h3's unidirectional streams (RFC 9114 §6.2).

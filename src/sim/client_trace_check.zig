@@ -70,6 +70,10 @@ pub const Result = struct {
     tcp_connections: u64 = 0,
     goaways: u64 = 0,
     learned: u64 = 0,
+    /// QUIC connections that retired near their idle timeout, and the PINGs that kept one with an
+    /// exchange outstanding from it (design §8 step 17g).
+    retired: u64 = 0,
+    keep_alives: u64 = 0,
 };
 
 pub const Census = struct {
@@ -184,7 +188,12 @@ fn result_of(storage: *const Storage) Result {
         .tcp_connections = world.channel.links.get(.tcp).opens,
         .goaways = world.ledger.goaways,
         .learned = @intFromBool(world.plan.policy == .learn and world.channel.alternative() != null),
+        .keep_alives = world.keep_alives,
     };
+    // Each logged state that finds the QUIC connection stale where the one before did not.
+    for (storage.states[1..storage.states_len], storage.states[0 .. storage.states_len - 1]) |now, before| {
+        result.retired += @intFromBool(now.stale and !before.stale);
+    }
     const last = &storage.states[storage.states_len - 1];
     for (0..world.plan.exchanges) |index| {
         result.cancelled += @intFromBool(world.cancelled[index]);
@@ -223,20 +232,23 @@ test "client trace run: every seed closes the channel with each exchange reporte
         return failure;
     };
     // The seeds reached the paths the model checks: QUIC and TCP carried exchanges, exchanges
-    // moved after a refusal, a GOAWAY went out, the channel learned h3, and some were cancelled.
-    // A seed replays in every build mode (invariant 5), so the census is pinned, as Debug and
-    // `-Drelease` both give it.
+    // moved after a refusal, a GOAWAY went out, the channel learned h3, some were cancelled, a
+    // QUIC connection retired near its idle timeout, and PINGs kept others from it. A seed replays
+    // in every build mode (invariant 5), so the census is pinned, as Debug and `-Drelease` both
+    // give it.
     try testing.expectEqual(Result{
-        .states = 2553,
+        .states = 2570,
         .exchanges = 534,
-        .responses = 355,
-        .refused = 82,
-        .failed = 64,
-        .cancelled = 33,
-        .moved = 9,
-        .quic_connections = 116,
-        .tcp_connections = 266,
-        .goaways = 60,
-        .learned = 61,
+        .responses = 342,
+        .refused = 83,
+        .failed = 61,
+        .cancelled = 48,
+        .moved = 3,
+        .quic_connections = 120,
+        .tcp_connections = 272,
+        .goaways = 49,
+        .learned = 60,
+        .retired = 1,
+        .keep_alives = 4,
     }, census.result);
 }

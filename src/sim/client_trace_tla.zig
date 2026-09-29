@@ -51,6 +51,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {s}\n    Resets = {s}\n", .{ goaways, all, all });
     try writer.write_bytes("    ReleaseOnFail = TRUE\n    CloseWhenDrained = TRUE\n    ReportWhenReleased = TRUE\n");
     try writer.write_bytes("    CancelReleases = TRUE\n    SentFailsClosed = TRUE\n    MoveRefused = TRUE\n");
+    try writer.write_bytes("    RetireStale = TRUE\n    KeepAlive = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{steps_max});
 }
@@ -75,7 +76,8 @@ fn write_state(writer: *Writer, exchanges: u32, state: *const State) Error!void 
     if (state.tried[0]) try writer.write_bytes("\"quic\"");
     if (state.tried[0] and state.tried[1]) try writer.write_bytes(", ");
     if (state.tried[1]) try writer.write_bytes("\"tcp\"");
-    try print(writer, "}}, fallback |-> {s}, learned |-> {s}, shut |-> {s}]", .{ boolean(state.fallback), boolean(state.learned), boolean(state.shut) });
+    try print(writer, "}}, fallback |-> {s}, learned |-> {s}, shut |-> {s}, ", .{ boolean(state.fallback), boolean(state.learned), boolean(state.shut) });
+    try print(writer, "stale |-> {s}]", .{boolean(state.stale)});
 }
 
 fn write_numbers(writer: *Writer, field: []const u8, values: []const u8) Error!void {

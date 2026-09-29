@@ -111,6 +111,18 @@ pub const Plan = struct {
         }
         plan.draw_transports(random);
         plan.answer_delay_ns = random.below(limits.answer_delay_max_ns);
+        // Design §8 step 17g: a QUIC connection idle near its timeout, and one waiting past it.
+        if (random.below(limits.late_one_in) == 0) {
+            const late = plan.exchanges - 1;
+            const late_ns = limits.late_gap_min_ns + random.below(limits.late_gap_max_ns - limits.late_gap_min_ns);
+            const moved_ns = limits.make_window_ns + late_ns - plan.make_at_ns[late];
+            plan.make_at_ns[late] += moved_ns;
+            if (plan.cancel_at_ns[late]) |cancel_at_ns| plan.cancel_at_ns[late] = cancel_at_ns + moved_ns;
+            last_make_ns = @max(last_make_ns, plan.make_at_ns[late]);
+        }
+        if (random.below(limits.slow_answer_one_in) == 0) {
+            plan.answer_delay_ns = limits.slow_answer_min_ns + random.below(limits.slow_answer_max_ns - limits.slow_answer_min_ns);
+        }
         plan.answer_early = random.below(one_in_two) == 0;
         plan.draw_goaway(random);
         plan.break_kind = @enumFromInt(random.below(std.meta.fields(Break).len));
