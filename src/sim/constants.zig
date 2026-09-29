@@ -488,9 +488,6 @@ comptime {
     assert(h2_input_check_octets_len_max <= h2_input_check_material_len);
     assert(qpack_check_sections_max > 0 and qpack_check_lines_max > 0);
     assert(qpack_check_streams > 0);
-}
-
-comptime {
     assert(null_quic_message_header_len ==
         null_quic_message_type_len + null_quic_message_length_len);
     // One level holds the longest message the provider writes and the Finished that follows it.

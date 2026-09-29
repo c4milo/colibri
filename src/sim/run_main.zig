@@ -27,7 +27,8 @@
 //!     sim --content-coding-seed <hex>  one seed's content codings, client to server
 //!     sim --content-coding-check [seeds] (step 17e)
 //!
-//! The h11 commands are in `run_main_h11.zig`, split off for length.
+//! The h11 commands are in `run_main_h11.zig`, and the QPACK and h3 ones in `run_main_h3.zig`,
+//! split off for length.
 //!
 //! It is the one file under `src/sim/` that reads its arguments and writes to the terminal, and
 //! `tools/lint/io.zig` exempts it by path for that reason. Nothing reaches it but `zig build sim`.
@@ -36,14 +37,12 @@ const sim = @import("sim");
 const chunk_check = @import("chunk_check.zig");
 const run_main_h11 = @import("run_main_h11.zig");
 const run_main_content_coding = @import("run_main_content_coding.zig");
+const run_main_h3 = @import("run_main_h3.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
 const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
-const qpack_check = @import("qpack_check.zig");
-const qpack_input_check = @import("qpack_input_check.zig");
 const h2_input_check = @import("h2_input_check.zig");
-const h3_check = @import("h3_check.zig");
 const h3_trace_check = @import("h3_trace_check.zig");
 const h3_trace_state = @import("h3_trace_state.zig");
 const h3_trace_tla = @import("h3_trace_tla.zig");
@@ -105,10 +104,7 @@ pub const Command = union(enum) {
 var chunk_storage: chunk_check.Storage align(@alignOf(chunk_check.Storage)) = .zeroed;
 var connection_storage: connection_check.Storage align(@alignOf(connection_check.Storage)) = .zeroed;
 var tls_storage: tls_check.Storage align(@alignOf(tls_check.Storage)) = .zeroed;
-var qpack_storage: qpack_check.Storage align(@alignOf(qpack_check.Storage)) = undefined;
-var qpack_input_storage: qpack_input_check.Storage align(@alignOf(qpack_input_check.Storage)) = undefined;
 var h2_input_storage: h2_input_check.Storage align(@alignOf(h2_input_check.Storage)) = undefined;
-var h3_storage: h3_check.Storage align(@alignOf(h3_check.Storage)) = undefined;
 var h3_trace_storage: h3_trace_check.Storage align(@alignOf(h3_trace_check.Storage)) = undefined;
 var h3_trace_module: [constants.h3_trace_module_len_max]u8 = undefined;
 
@@ -132,12 +128,12 @@ pub fn main(init: std.process.Init) !void {
         .connection_seed => |seed| try connection_seed(seed),
         .connection_check => |seeds| try connection_check_seeds(seeds),
         .tls_check => |seeds| try tls_check_seeds(seeds),
-        .qpack_seed => |seed| try qpack_seed(seed),
-        .qpack_check => |seeds| try qpack_check_seeds(seeds),
-        .qpack_input_check => |seeds| try qpack_input_check_seeds(seeds),
+        .qpack_seed => |seed| try run_main_h3.qpack_seed(seed),
+        .qpack_check => |seeds| try run_main_h3.qpack_check_seeds(seeds),
+        .qpack_input_check => |seeds| try run_main_h3.qpack_input_check_seeds(seeds),
         .h2_input_check => |seeds| try h2_input_check_seeds(seeds),
-        .h3_check => |seeds| try h3_check_seeds(seeds, .normal),
-        .h3_long_check => |seeds| try h3_check_seeds(seeds, .long),
+        .h3_check => |seeds| try run_main_h3.h3_check_seeds(seeds, .normal),
+        .h3_long_check => |seeds| try run_main_h3.h3_check_seeds(seeds, .long),
         .h3_trace_check => |seeds| try h3_trace_check_seeds(seeds),
         .h3_trace_write => |directory| try h3_trace_write(init.io, directory),
         .h2_trace_check => |seeds| try run_main_h2_trace.check(seeds),
@@ -353,49 +349,6 @@ fn tls_check_seeds(seeds: u64) !void {
     });
 }
 
-/// One seed of the QPACK check: its trace, then what it did.
-fn qpack_seed(seed: u64) !void {
-    const result = qpack_check.run_seed(&qpack_storage, seed) catch |failure| {
-        std.debug.print("{s}", .{qpack_storage.first[0..whole_lines_len(&qpack_storage.first)]});
-        std.debug.print("qpack: seed 0x{x} failed: {t}\n", .{ seed, failure });
-        return failure;
-    };
-    const counts = result.counts;
-    std.debug.print("{s}qpack: seed 0x{x} decoded={d} blocked={d} cancelled={d} inserts={d}\n", .{
-        result.trace, seed, counts.decoded, counts.blocked, counts.cancelled, counts.inserts,
-    });
-}
-
-/// The QPACK check of design §8 step 11, over `[0, seeds)`.
-fn qpack_check_seeds(seeds: u64) !void {
-    var census: qpack_check.Census = .{};
-    var failed_seed: ?u64 = null;
-    qpack_check.run_check(&qpack_storage, seeds, &census, &failed_seed) catch |failure| {
-        std.debug.print("qpack: seed 0x{x} failed: {t}; rerun it with --qpack-seed\n", .{ failed_seed.?, failure });
-        return failure;
-    };
-    const counts = census.counts;
-    std.debug.print("qpack: seeds={d} decoded={d} lines={d} blocked={d} cancelled={d} inserts={d} octets={d}" ++
-        " trace_octets={d} crc32=0x{x:0>8}\n", .{
-        census.seeds,   counts.decoded, counts.lines,        counts.blocked,       counts.cancelled,
-        counts.inserts, counts.octets,  census.trace_octets, census.crc32.final(),
-    });
-}
-
-/// The QPACK input check of design §8 step 11, over `[0, seeds)`.
-fn qpack_input_check_seeds(seeds: u64) !void {
-    var census: qpack_input_check.Census = .{};
-    var failed_seed: ?u64 = null;
-    qpack_input_check.run_check(&qpack_input_storage, seeds, &census, &failed_seed) catch |failure| {
-        std.debug.print("qpack-input: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
-        return failure;
-    };
-    const counts = census.counts;
-    std.debug.print("qpack-input: seeds={d} inputs={d} taken={d} blocked={d} refused={d} crc32=0x{x:0>8}\n", .{
-        census.seeds, counts.inputs, counts.taken, counts.blocked, counts.refused, census.crc32.final(),
-    });
-}
-
 /// The h2 input check (https://github.com/c4milo/colibri/issues/53), over `[0, seeds)`.
 fn h2_input_check_seeds(seeds: u64) !void {
     var census: h2_input_check.Census = .{};
@@ -409,22 +362,6 @@ fn h2_input_check_seeds(seeds: u64) !void {
         census.seeds,                                              outcomes[@intFromEnum(h2_input_check.Outcome.taken)],
         outcomes[@intFromEnum(h2_input_check.Outcome.incomplete)], outcomes[@intFromEnum(h2_input_check.Outcome.refused)],
         census.counts.frames_read,                                 census.crc32.final(),
-    });
-}
-
-/// The h3 check of design §8 step 12, over `[0, seeds)`, in the normal or the long shape.
-fn h3_check_seeds(seeds: u64, shape: h3_check.Shape) !void {
-    h3_storage.shape = shape;
-    h3_storage.logged = false;
-    var census: h3_check.Census = .{};
-    var failed_seed: ?u64 = null;
-    h3_check.run_check(&h3_storage, seeds, &census, &failed_seed) catch |failure| {
-        std.debug.print("{s}: seed 0x{x} failed: {t}\n", .{ label_of(shape), failed_seed.?, failure });
-        return failure;
-    };
-    std.debug.print("{s}: seeds={d} exchanges={d} content={d} inserts={d} acknowledged_dropped={d} datagrams={d} dropped={d} crc32=0x{x:0>8}\n", .{
-        label_of(shape),             census.seeds,     census.exchanges, census.content_len,   census.inserts,
-        census.acknowledged_dropped, census.datagrams, census.dropped,   census.crc32.final(),
     });
 }
 
@@ -492,9 +429,4 @@ fn write_file(io: std.Io, directory: []const u8, name: []const u8, extension: []
     var path_storage: [std.fs.max_path_bytes]u8 = undefined;
     const path = try std.fmt.bufPrint(&path_storage, "{s}/{s}{s}", .{ directory, name, extension });
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = data });
-}
-
-/// The name a census line starts with, which `tools/ci.sh` looks for.
-fn label_of(shape: h3_check.Shape) []const u8 {
-    return if (shape.exchanges_max == h3_check.Shape.long.exchanges_max) "h3-long" else "h3";
 }
