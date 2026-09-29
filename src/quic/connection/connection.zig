@@ -142,6 +142,10 @@ pub const Connection = struct {
     /// The probe packets RFC 9002 §6.2.4 owes at each level, which a PTO sets
     /// (`connection_send.owe_probes`) and each ack-eliciting packet at that level counts off.
     probes_owed: [core.levels_count]u8,
+    /// A PING the caller asked for to keep the connection from its idle timeout (RFC 9000
+    /// §10.1.2, `connection_idle.owe_keep_alive`), which the next ack-eliciting packet at the
+    /// application level answers.
+    keep_alive_owed: bool,
     /// Where the CRYPTO octets the last PTO's probes carry begin, at each handshake level, which a
     /// second probe with nothing else to carry repeats (decision 64 as amended). Null until a PTO.
     crypto_probe_from: [core.levels_count]?u64,
@@ -201,6 +205,7 @@ pub const Connection = struct {
         connection.handshake_confirmed = false;
         connection.handshake_done = .{};
         connection.probes_owed = @splat(0);
+        connection.keep_alive_owed = false;
         connection.crypto_probe_from = @splat(null);
         connection.early_crypto_resends = 0;
         connection.early_crypto_resent_at_ns = 0;

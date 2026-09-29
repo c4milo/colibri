@@ -37,6 +37,7 @@ pub const connection_keys = @import("connection/connection_keys.zig");
 pub const connection_key_update = @import("connection/connection_key_update.zig");
 pub const connection_retry = @import("connection/connection_retry.zig");
 pub const connection_timer = @import("connection/connection_timer.zig");
+pub const connection_idle = @import("connection/connection_idle.zig");
 pub const connection_receive = @import("connection/connection_receive.zig");
 pub const connection_frames = @import("connection/connection_frames.zig");
 pub const connection_stream_frames = @import("connection/connection_stream/connection_stream_frames.zig");

@@ -130,7 +130,7 @@ pub fn write(
     const eliciting = data.len > 0 or path.carries_path_response or path.path_challenge != null or
         carries_handshake_done or carries_control;
     const framed_len = written_path + data.len;
-    const ping_owed = !eliciting and ack.owed and elicit_due(connection, level, now_ns);
+    const ping_owed = (!eliciting and ack.owed and elicit_due(connection, level, now_ns)) or keep_alive_due(connection, level);
     const probe_len = write_probe(connection, level, payload[framed_len..budget], eliciting, ping_owed);
     // RFC 9000 §13.2.1 asks for an ACK "with other frames": one written only because it was
     // pending, with nothing after it, does not go out, and the space is as it was.
@@ -140,6 +140,9 @@ pub fn write(
     }
     const ack_eliciting = eliciting or probe_len > 0;
     count_probe(connection, level, ack_eliciting);
+    // RFC 9000 §10.1.2: any ack-eliciting packet keeps the connection from its idle timeout, so
+    // it answers the keep-alive, PING or not.
+    if (level == .application and ack_eliciting) connection.keep_alive_owed = false;
     return .{
         .len = framed_len + probe_len,
         .carries = data.carries,
@@ -217,6 +220,13 @@ fn elicit_due(connection: *const Connection, level: Level, now_ns: u64) bool {
     const held = connection.recovery.timer.spaces[@intFromEnum(Level.application)];
     const last_ns = held.last_ack_eliciting_sent_at_ns orelse return false;
     return now_ns -| last_ns >= connection.recovery.rtt.smoothed_ns;
+}
+
+/// Whether the caller asked for a PING to keep the connection from its idle timeout, which goes
+/// at the application level (RFC 9000 §10.1.2). `write_probe` writes it only when nothing else in
+/// the packet elicits an acknowledgment.
+fn keep_alive_due(connection: *const Connection, level: Level) bool {
+    return level == .application and connection.keep_alive_owed;
 }
 
 /// Counts off one probe for an ack-eliciting packet at `level` (RFC 9002 §6.2.4: "All probe

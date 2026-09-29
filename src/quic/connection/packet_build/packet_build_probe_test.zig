@@ -10,6 +10,7 @@ const constants = @import("../../constants.zig");
 const frames = @import("../connection_frames.zig");
 const keys = @import("../connection_keys.zig");
 const send = @import("../connection_send.zig");
+const idle = @import("../connection_idle.zig");
 const connection_module = @import("../connection.zig");
 const fixture = @import("packet_build_test.zig");
 
@@ -175,4 +176,28 @@ test "decision 64 as amended: a lone probe carries its level's octets once" {
     try testing.expectEqual(Carries.crypto, probe.carries);
     // With no probe owed at that level, its octets are not sent a second time.
     try testing.expectEqual(null, try fixture.build_at(.handshake));
+}
+
+test "RFC 9000 §10.1.2: a keep-alive is one PING at the application level, and nothing more" {
+    open_application();
+    idle.owe_keep_alive(&fixture.test_connection);
+    // The Initial level carries none of it.
+    try testing.expectEqual(null, try fixture.build_at(.initial));
+    const built = (try fixture.build_at(.application)).?;
+    try testing.expect(built.ack_eliciting);
+    const report = try read_back(built);
+    try testing.expectEqual(1, report.frames);
+    try testing.expect(report.ack_eliciting);
+    try testing.expect(!idle.keep_alive_owed(&fixture.test_connection));
+    try testing.expectEqual(null, try fixture.build_at(.application));
+}
+
+test "RFC 9000 §10.1.2: a packet that elicits an acknowledgment anyway answers the keep-alive" {
+    open_application();
+    idle.owe_keep_alive(&fixture.test_connection);
+    fixture.test_connection.path.owe_challenge(challenge_data);
+    const built = (try fixture.build_at(.application)).?;
+    // The PATH_CHALLENGE alone: no PING beside a frame that elicits an acknowledgment.
+    try testing.expectEqual(1, (try read_back(built)).frames);
+    try testing.expect(!idle.keep_alive_owed(&fixture.test_connection));
 }

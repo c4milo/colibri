@@ -19,6 +19,7 @@ const connection_recovery = @import("connection_recovery.zig");
 const connection_flow = @import("connection_flow.zig");
 const migration = @import("connection_migration.zig");
 const connection_qlog = @import("connection_qlog.zig");
+const connection_idle = @import("connection_idle.zig");
 
 const Connection = connection_module.Connection;
 const Suite = crypto.Suite;
@@ -57,7 +58,7 @@ pub fn next(connection: *Connection) ?Deadline {
     // RFC 9002 Appendix A.8's `SetLossDetectionTimer` decides between a loss time and a probe,
     // and answers null when neither is armed.
     var earliest = of(connection_recovery.loss_deadline_ns(connection), .loss);
-    earliest = nearer(earliest, of(connection.termination.idle_deadline_ns(idle_probe_timeout_ns(connection)), .idle));
+    earliest = nearer(earliest, of(connection_idle.deadline_ns(connection), .idle));
     earliest = nearer(earliest, of(connection.termination.period_deadline_ns(), .period));
     earliest = nearer(earliest, of(challenge_deadline_ns(connection), .path));
     earliest = nearer(earliest, of(key_update.previous_keys_deadline_ns(connection), .previous_keys));
@@ -160,7 +161,7 @@ pub fn on_instant(
 /// RFC 9000 §10.1's "current Probe Timeout", which the idle timeout is never less than three of.
 /// It includes the peer's max_ack_delay, as the closing period's does (§10.2).
 fn idle_probe_timeout_ns(connection: *const Connection) u64 {
-    return connection.recovery.rtt.probe_timeout_ns(true);
+    return connection_idle.probe_timeout_ns(connection);
 }
 
 /// Owes the BLOCKED frames again once their deadline has come (RFC 9000 §4.1).
