@@ -8,6 +8,7 @@ const tls = @import("tls");
 const support = @import("../quic/quic_test_support.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const constants = @import("../constants.zig");
+const endpoint_module = @import("endpoint.zig");
 
 const testing = std.testing;
 const endpoint = &support.endpoint;
@@ -159,4 +160,82 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
     @memset(short_initial[writer.written().len..len], 0);
     try testing.expectEqual(null, endpoint.receive(short_initial[0..len], .not_ect, support.client_address(), support.now_ns));
     try testing.expect(!std.mem.containsAtLeastScalar(bool, &endpoint.live, 1, true));
+}
+
+/// A log provider for the tests below: one log, given to the connection that asks when `giving`
+/// is set, and what the provider was asked. Test-only.
+const TestLogs = struct {
+    log: quic.qlog.Log,
+    buffer: [test_log_len]u8,
+    giving: bool,
+    opened: u32,
+    closed: u32,
+    original_destination: [quic.constants.connection_id_len_max]u8,
+    original_destination_len: usize,
+};
+threadlocal var test_logs: TestLogs align(@alignOf(TestLogs)) = undefined;
+const test_log_len: usize = 65_536;
+const test_schemas = [_][]const u8{ quic.qlog.quic_event_schema, quic.qlog.http3_event_schema };
+const test_log_vtable: endpoint_module.LogProvider.VTable = .{ .open = open_test_log, .close = close_test_log };
+
+fn open_test_log(context: *anyopaque, original_destination: []const u8, now_ns: u64) ?*quic.qlog.Log {
+    const logs: *TestLogs = @ptrCast(@alignCast(context));
+    logs.opened += 1;
+    @memcpy(logs.original_destination[0..original_destination.len], original_destination);
+    logs.original_destination_len = original_destination.len;
+    if (!logs.giving) return null;
+    logs.log = quic.qlog.Log.init(&logs.buffer, quic.qlog.Features.none());
+    logs.log.start(.{ .vantage_point = .server, .group_id = original_destination, .event_schemas = &test_schemas }, now_ns) catch return null;
+    return &logs.log;
+}
+
+fn close_test_log(context: *anyopaque, log: *quic.qlog.Log) void {
+    const logs: *TestLogs = @ptrCast(@alignCast(context));
+    std.debug.assert(log == &logs.log);
+    logs.closed += 1;
+}
+
+/// An endpoint whose connections ask `test_logs` for their logs.
+fn start_logged_endpoint(giving: bool) !void {
+    try support.start_endpoint(null);
+    test_logs.giving = giving;
+    test_logs.opened = 0;
+    test_logs.closed = 0;
+    support.endpoint_config.logs = .{ .context = &test_logs, .vtable = &test_log_vtable };
+}
+
+fn expect_in_log(expected: []const u8) !void {
+    if (std.mem.indexOf(u8, test_logs.log.bytes(), expected) != null) return;
+    std.debug.print("record not in the log: {s}\n", .{expected});
+    return error.TestExpectedRecord;
+}
+
+test "decision 102: each connection the endpoint starts asks for a log, and hands it back once over" {
+    try start_logged_endpoint(true);
+    try support.connect();
+    try testing.expectEqual(1, test_logs.opened);
+    // Main schema §12.1 names a log's file after the original destination connection ID.
+    const original = support.served.transport.identity.original_destination.slice();
+    try testing.expectEqualSlices(u8, original, test_logs.original_destination[0..test_logs.original_destination_len]);
+    const fetch = try support.request("GET", "/", "");
+    try support.pump(support.rounds_default);
+    // The QUIC connection's events and h3's go into the one log (h3-events §1.1).
+    try expect_in_log("\"name\":\"quic:version_information\"");
+    try expect_in_log("\"name\":\"http3:frame_parsed\"");
+    const served = support.served;
+    served.shutdown(support.now_ns);
+    try served.respond(fetch.id, .{ .status = ok, .end = true });
+    // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass.
+    try support.pump(support.rounds_default * 8);
+    try testing.expectEqual(0, test_logs.closed);
+    try testing.expectEqual(served, endpoint.ended().?);
+    try testing.expectEqual(1, test_logs.closed);
+}
+
+test "decision 102: a connection the provider gives no log writes none, and hands none back" {
+    try start_logged_endpoint(false);
+    try support.connect();
+    try testing.expectEqual(1, test_logs.opened);
+    try testing.expectEqual(null, support.served.transport.qlog.log);
+    try testing.expectEqual(null, support.served.h3.options.qlog);
 }

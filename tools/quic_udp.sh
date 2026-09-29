@@ -163,11 +163,14 @@ fi
 kill "$server_pid" 2>/dev/null || true
 server_pid=""
 # The same three files from the server's `h3` mode, which serves h3 through the `server` module
-# (design §8 step 17b). It writes no qlog. The client's close ends its connection, which is no
-# connection error, and a path it does not hold is answered 404.
+# (design §8 step 17b), and logs its connection through the endpoint's log provider (decision 102
+# as amended). The client's close ends its connection, which is no connection error, and a path it
+# does not hold is answered 404.
 rm -f "$scratch/downloads/small" "$scratch/downloads/medium" "$scratch/downloads/large"
-start_server once h3
-if ! client h3 /small /medium /large >"$scratch/h3_mode.log" 2>&1; then
+mkdir -p "$scratch/qlog_h3"
+readonly qlogdir_h3="qlogdir=$scratch/qlog_h3/"
+start_server once h3 "$qlogdir_h3"
+if ! client h3 "$qlogdir_h3" /small /medium /large >"$scratch/h3_mode.log" 2>&1; then
   echo "quic_udp: the h3 client failed against the h3 mode:" >&2
   cat "$scratch/h3_mode.log" "$scratch/server.log" >&2
   exit 1
@@ -183,6 +186,20 @@ await_close "the h3 mode"
 cat "$scratch/server.log"
 grep -q "served 3 files, 0 connection errors" "$scratch/server.log" || {
   echo "quic_udp: the h3 mode did not report the three files it served" >&2
+  exit 1
+}
+# The connection's two logs, the client's and the one the `server` module wrote, each whole.
+python3 tools/qlog_check.py "$scratch/qlog_h3" complete
+if grep -h "qlog dropped" "$scratch/h3_mode.log" "$scratch/server.log"; then
+  echo "quic_udp: an endpoint's qlog dropped events in the h3 mode" >&2
+  exit 1
+fi
+for file in "$scratch"/qlog_h3/*.sqlog; do
+  python3 tools/qlog_to_qvis.py "$file" "$scratch/qvis.sqlog" >/dev/null
+done
+[ "$(find "$scratch/qlog_h3" -name '*.sqlog' | wc -l | tr -d ' ')" = 2 ] || {
+  echo "quic_udp: the h3 mode's connection left no two qlog files:" >&2
+  ls "$scratch/qlog_h3" >&2
   exit 1
 }
 start_server once h3

@@ -26,6 +26,7 @@ const Sent = quic_connection.Sent;
 const Ecn = quic.connection_receive.Datagram.Ecn;
 
 pub const Config = endpoint_connections.Config;
+pub const LogProvider = endpoint_connections.LogProvider;
 
 /// An endpoint of the default size: `quic_connections_default` connections, each with a receive
 /// pool of `receive_pool_len_default` octets.

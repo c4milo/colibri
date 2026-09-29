@@ -23,6 +23,35 @@ pub const Config = struct {
     /// When set, every client proves its address with a Retry token before a connection starts
     /// (RFC 9000 §8.1.2), which the endpoint seals and opens under this key (decision 55).
     retry: ?*const tls.quic.Retry = null,
+    /// Where each connection's qlog log comes from (decision 102 as amended), or null for none.
+    logs: ?LogProvider = null,
+};
+
+/// The caller's source of qlog logs, a provider the endpoint asks once for each connection it
+/// starts (decision 102 as amended). colibri writes the connection's QUIC and h3 events into the
+/// log the caller returns. The caller takes the records after each call it makes, and gets the
+/// log back through `close` once the connection is over.
+pub const LogProvider = struct {
+    context: *anyopaque,
+    vtable: *const VTable,
+
+    pub const VTable = struct {
+        /// A log whose header the caller wrote, for the connection whose client first addressed
+        /// `original_destination` (RFC 9000 §7.3), which main schema §12.1 names a file after; or
+        /// null for a connection the caller does not log.
+        open: *const fn (context: *anyopaque, original_destination: []const u8, now_ns: u64) ?*quic.qlog.Log,
+        /// Hands `log` back once its connection is over. Nothing writes into it again, and the
+        /// caller takes its last records.
+        close: *const fn (context: *anyopaque, log: *quic.qlog.Log) void,
+    };
+
+    pub fn open(provider: LogProvider, original_destination: []const u8, now_ns: u64) ?*quic.qlog.Log {
+        return provider.vtable.open(provider.context, original_destination, now_ns);
+    }
+
+    pub fn close(provider: LogProvider, log: *quic.qlog.Log) void {
+        provider.vtable.close(provider.context, log);
+    }
 };
 
 pub const Connections = struct {
@@ -116,6 +145,7 @@ pub const Connections = struct {
             live.* = false;
             // The connection's secrets are wiped, and nothing more is read or written.
             connection.transport_closed();
+            held.close_log(connection);
             return connection;
         }
         return null;
@@ -194,8 +224,20 @@ pub const Connections = struct {
         held.random.bytes(&how.local_id);
         const connection = &held.connections[index];
         connection.start(held.config.quic, held.pools[index], how, held.random, held.seconds_at(now_ns), now_ns) catch return null;
+        // Decision 102 as amended: a log only for a connection that started, so each log the
+        // provider gives comes back through `close`.
+        if (held.config.logs) |logs| {
+            if (logs.open(original_destination, now_ns)) |log| connection.attach_log(log, now_ns);
+        }
         held.live[index] = true;
         return connection;
+    }
+
+    /// Hands the log of a connection that is over back to the caller.
+    fn close_log(held: *const Connections, connection: *QuicConnection) void {
+        const logs = held.config.logs orelse return;
+        const log = connection.transport.qlog.log orelse return;
+        logs.close(log);
     }
 
     fn free_slot(held: *const Connections) ?usize {

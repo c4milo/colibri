@@ -5419,6 +5419,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/qlog_to_qvis.py` leaves the event out, since qlog 0.3 has none.
   - `tools/quic_udp.sh`: 4 files, 17,346 events, each record a JSON text.
 
+  **18c and 18d, the server's connections, 2026-09-28.** `server.Endpoint` takes a log provider in
+  its config (decision 102 as amended). Once a connection starts, the endpoint asks the provider
+  for a log with the original destination connection ID, gives it to the QUIC connection and to
+  h3 through `QuicConnection.attach_log`, and hands it back through `close` when `ended` returns
+  the connection. The UDP endpoint's `h3` mode fills the provider from a pool of its logs, so the
+  runner's `http3` cases and `tools/quic_udp.sh`'s h3 mode now leave a server qlog as well.
+  - 2 tests in `endpoint_test.zig`: a connection's log carries its QUIC and h3 events and comes
+    back once the connection is over, and a connection the provider gives no log writes none.
+  - 5 mutations, each CAUGHT by `zig build test-server`: the provider never asked, the provider
+    asked with the client's connection ID, the QUIC connection given no log, h3 given none, and
+    the log never handed back.
+  - `tools/quic_udp.sh`: the h3 mode's connection left 2 files, 8,692 events, each whole.
+    `tools/interop.sh` no longer skips the `http3` server's qlog directory: `tools/interop.sh
+    quic-go http3` on an Apple M1 Pro passed every pairing, and the 4 qlog directories colibri
+    left, its server's two among them, passed `tools/qlog_check.py`.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

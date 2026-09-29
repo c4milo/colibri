@@ -112,6 +112,16 @@ pub const QuicConnection = struct {
     /// Whether the spare connection IDs went out (`issue_spare_ids`).
     spare_ids_issued: bool,
 
+    /// Has the connection write its QUIC and h3 events into `log`, whose header the caller wrote
+    /// (decision 102): once, after `start` and before any datagram. h3's events go into the same
+    /// log as the QUIC connection's, one trace for both (h3-events §1.1).
+    pub fn attach_log(connection: *QuicConnection, log: *quic.qlog.Log, now_ns: u64) void {
+        assert(connection.transport.qlog.log == null and connection.h3.options.qlog == null);
+        assert(!connection.started);
+        quic.connection_qlog.init(&connection.transport, log, now_ns);
+        connection.h3.options.qlog = log;
+    }
+
     /// Starts the connection a client's first Initial asked for. `receive_pool` holds the client's
     /// octets until h3 reads them (decision 61), and no other connection uses it while this one
     /// runs. Every draw the handshake makes comes from `random`, and `now_seconds` is the instant

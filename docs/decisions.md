@@ -2882,6 +2882,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      itself, which keeps `Log.init` as it is but leaves the caller no choice, and gives a build for
      a baseline CPU the scalar paths.
 
+     Amended by the owner on 2026-09-28: `server.Endpoint`, which starts its QUIC connections
+     itself (decision 103), gets their logs from a log provider in its config, a vtable the caller
+     fills. Once a connection has started, the endpoint calls `open` with the original destination
+     connection ID, which main schema §12.1 names the file after, and gets a log whose header the
+     caller wrote, or null for a connection the caller does not log. The connection writes its
+     QUIC and h3 events into it. When `ended` hands the connection back, the endpoint calls `close`
+     with the log, and the caller takes its last records. Refused: one log per connection slot,
+     given at init beside the receive pools, which holds a buffer per slot whether or not it logs.
+
 103. **The server over QUIC: one endpoint owns the connections, and the caller keeps each
      response body until the server reports it done.** Ruled by the owner on 2026-09-27, for
      design §8 step 17b and [#70](https://github.com/c4milo/colibri/issues/70).

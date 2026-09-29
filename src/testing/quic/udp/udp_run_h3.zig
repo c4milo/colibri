@@ -8,7 +8,9 @@
 //! octets belong to Rotor until its send's event (Rotor's rule 3), so each is built in a slot of
 //! its own, and a datagram Rotor has no room for is one lost on the way, which RFC 9002 recovers.
 //!
-//! It writes no qlog: `server` takes no log yet.
+//! With `qlogdir`, each connection writes its qlog there: the endpoint asks its log provider for a
+//! log as each connection starts, and hands it back once the connection is over (decision 102 as
+//! amended). Each turn writes what every open log took.
 const std = @import("std");
 const quic = @import("quic");
 const server = @import("server");
@@ -20,6 +22,7 @@ const udp_peer = @import("udp_peer.zig");
 const udp_arguments = @import("udp_arguments.zig");
 const udp_identity = @import("udp_identity.zig");
 const udp_h3_files = @import("udp_h3_files.zig");
+const udp_qlog = @import("udp_qlog.zig");
 
 const Endpoint = server.EndpointOf(constants.quic_connections_max, constants.h3_receive_pool_len);
 
@@ -37,12 +40,24 @@ var slot_outbound: [constants.udp_send_slots]udp.Outbound align(@alignOf(udp.Out
 /// (`errors`), and files the ended connections served.
 var connection_errors: u64 = 0;
 var served: u64 = 0;
+/// The logs the endpoint's provider gives out, whether each is in use, and the directory their
+/// files go in, null for a run that logs nothing.
+var qlogs: [constants.quic_connections_max]udp_qlog.Qlog align(@alignOf(udp_qlog.Qlog)) = undefined;
+var qlog_in_use: [constants.quic_connections_max]bool = @splat(false);
+var qlog_directory: ?[]const u8 = null;
+var log_context: u8 = 0;
+const log_vtable: server.LogProvider.VTable = .{ .open = open_log, .close = close_log };
 
 /// Serves until the run is over: with `once`, the first connection's end; without it, the ticks
 /// running out.
 pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64) void {
     quic_config = .{ .tls = udp_identity.server_tls(), .ecn = asked.ecn, .idle_timeout_ms = constants.quic_idle_timeout_ms };
-    endpoint_config = .{ .quic = &quic_config, .retry = if (asked.retry) udp_identity.retry_config() else null };
+    qlog_directory = asked.qlogdir;
+    endpoint_config = .{
+        .quic = &quic_config,
+        .retry = if (asked.retry) udp_identity.retry_config() else null,
+        .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
+    };
     endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns);
     for (&files) |*held| held.init(asked.www);
     for (0..constants.quic_run_ticks_max) |_| {
@@ -52,8 +67,10 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
         endpoint.on_instant(now_ns);
         answer_all(asked, now_ns);
         flush(socket, now_ns);
+        write_logs();
         if (reap() and asked.once) break;
     }
+    close_logs();
     socket.close() catch |failure| fail("the socket did not close: {t}", .{failure});
     std.debug.print("quic-udp: served {d} files, {d} connection errors\n", .{ served, connection_errors });
 }
@@ -135,7 +152,49 @@ fn slot_of(connection: *const server.QuicConnection) usize {
     unreachable;
 }
 
+/// The endpoint's log provider: a free log, whose file is named for the connection (main schema
+/// §12.1), or null when every log is in use or the file cannot be created.
+fn open_log(context: *anyopaque, original_destination: []const u8, now_ns: u64) ?*quic.qlog.Log {
+    _ = context;
+    for (&qlogs, &qlog_in_use) |*qlog, *in_use| {
+        if (in_use.*) continue;
+        const log = qlog.open(qlog_directory, .server, original_destination, now_ns) orelse return null;
+        in_use.* = true;
+        return log;
+    }
+    return null;
+}
+
+/// Writes the rest of a connection's log and closes its file, once the endpoint hands it back.
+fn close_log(context: *anyopaque, log: *quic.qlog.Log) void {
+    _ = context;
+    for (&qlogs, &qlog_in_use) |*qlog, *in_use| {
+        if (!in_use.* or &qlog.log != log) continue;
+        qlog.close();
+        in_use.* = false;
+        return;
+    }
+    unreachable;
+}
+
+/// Writes what each open log took this turn (decision 102).
+fn write_logs() void {
+    for (&qlogs, qlog_in_use) |*qlog, in_use| {
+        if (in_use) qlog.write();
+    }
+}
+
+/// Closes every log still open, when the run ends or fails, so a failed run leaves its qlogs.
+fn close_logs() void {
+    for (&qlogs, &qlog_in_use) |*qlog, *in_use| {
+        if (!in_use.*) continue;
+        qlog.close();
+        in_use.* = false;
+    }
+}
+
 fn fail(comptime format: []const u8, values: anytype) noreturn {
+    close_logs();
     std.debug.print("quic-udp: " ++ format ++ "\n", values);
     std.process.exit(check_file.exit_failed);
 }

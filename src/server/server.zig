@@ -32,6 +32,7 @@ pub const QuicConfig = quic_connection.Config;
 pub const Endpoint = endpoint.Endpoint;
 pub const EndpointOf = endpoint.EndpointOf;
 pub const EndpointConfig = endpoint.Config;
+pub const LogProvider = endpoint.LogProvider;
 pub const Error = connection.Error;
 pub const StartError = connection.StartError;
 pub const SendError = connection.SendError;
