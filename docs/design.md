@@ -6501,6 +6501,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     held to units, `init` or `set_deadlines` checking no unit, and the simulator's h2 slow-body
     server keeping its short window. 1 mutation of the Lean `fitsUnit` stops the proofs.
 
+  **The floor and the server's timeout in the flow-control model, 2026-09-30**
+  ([#88](https://github.com/c4milo/colibri/issues/88)). `spec/tla/h2_flow_control` sent each DATA
+  frame as one unit and had no time, so two of decision 110's rules were outside it.
+  - DATA frames carry lengths. A sender's caller offers `Chunk` units at a time, and a frame
+    carries what both windows take of the offer, up to `FrameMax`, as `sendable` has it. The
+    server holds a frame while the windows are below `Floor` and do not take the whole offer. It
+    holds it only once the peer's initial window is at least the floor and the peer has sent an
+    increment below it. The client has no floor. With `FrameMax` of 1 and no floor, every earlier
+    configuration that holds explores the states it did before.
+  - With `ServerTimeout`, the server ends the connection while the channel toward the client stays
+    full: its send deadline passes, then its linger. `Finishes` now reads: every exchange
+    finishes, or the server ends the connection.
+  - `zig build tla -- spec/tla/h2_flow_control/*.cfg`: colibri's floor holds with the peer's window
+    below it (`floor_small_peer_window`, 504 states) and above it (`floor`, 813 states, and
+    `floor_two_streams`, 7,117). The rule before each amendment is violated: the floor whatever the
+    peer's window (`floor_small_window`), and the floor after any increment (`floor_any_update`).
+    The stall of [#85](https://github.com/c4milo/colibri/issues/85) is violated with no timeout
+    (`queue_stall`) and holds with the server's (`queue_stall_timeout`, 137,068 states): the
+    server's send deadline ends it. The client has no deadline, so the stall stays open on its side,
+    which #85 rules on.
+  - 144 small configurations of one stream under colibri's floor found no stall: the peer's
+    window from 2 to 4 units, the floor 2 or 3, its threshold 1 to 3, offers of 1 to 4 units and
+    bodies of 4 or 6.
+  - 6 mutations of the model, each **CAUGHT** by the new configurations: the floor with no small
+    increment, or whatever the peer's window; every increment counted as small; no floor; and the
+    server's timeout never enabled, or not fair. The third was **NOT CAUGHT** until `floor` sent a
+    body of 7 units rather than 4, long enough for a second round of the window after the floor
+    turns on.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
