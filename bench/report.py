@@ -20,9 +20,13 @@ import sys
 import tempfile
 import unittest
 
-# Decision 33: anything under about 5% is noise until the judge's own floor, measured and
-# recorded in docs/performance.md, says otherwise. BENCH_FLOOR sets it for one run.
-FLOOR_DEFAULT = 0.05
+# The floor of a judge run, for instructions per unit, which the owner set on 2026-09-30 from runs
+# of a tree against itself on the runner, whose spreads stayed at or under 0.20%
+# (docs/performance.md).
+JUDGE_FLOOR = 0.005
+# The floor of a filter run: a laptop's CPU time moves by several percent from run to run, so it
+# keeps decision 33's "anything under about 5% is noise". BENCH_FLOOR sets either for one run.
+FILTER_FLOOR = 0.05
 # The rounds before this one are the warm-up, which the report discards.
 FIRST_COUNTED_ROUND = 1
 # The events a judge run counts, by the names perf stat writes.
@@ -126,7 +130,7 @@ def main():
     machine = dict(line.strip().split("=", 1) for line in open(os.path.join(arguments.scratch, "machine.txt")) if "=" in line)
     mode = machine["mode"]
     primary = "cpu_nanoseconds" if mode == "filter" else "instructions"
-    floor = float(os.environ.get("BENCH_FLOOR", FLOOR_DEFAULT))
+    floor = float(os.environ.get("BENCH_FLOOR", FILTER_FLOOR if mode == "filter" else JUDGE_FLOOR))
 
     samples, tls = {}, {}
     for line in open(os.path.join(arguments.scratch, "records.csv")):
@@ -184,6 +188,8 @@ def main():
 
 TEST_UNITS = {"h2-many": 20000, "h2-tls-one": 640}
 TEST_INSTRUCTIONS_PER_UNIT = {"h2-many": 50000.0, "h2-tls-one": 900000.0}
+# The floor the tests pass in BENCH_FLOOR, which the expected verdicts assume.
+TEST_FLOOR = 0.05
 # The nanoseconds the server runs a unit in, before a round's factor.
 TEST_NANOSECONDS_PER_UNIT = 4000
 # What h2load writes about a TLS connection, before its count of requests.
@@ -243,13 +249,17 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
 
 
 class Verdicts(unittest.TestCase):
-    def report(self, change_factor, **options):
-        """report.py's exit status and output on a run with the change costing `change_factor`."""
+    def report(self, change_factor, floor=TEST_FLOOR, **options):
+        """report.py's exit status and output on a run with the change costing `change_factor`,
+        under `floor`, or under the mode's own floor when `floor` is None."""
+        environment = {name: value for name, value in os.environ.items() if name != "BENCH_FLOOR"}
+        if floor is not None:
+            environment["BENCH_FLOOR"] = str(floor)
         with tempfile.TemporaryDirectory() as directory:
             write_test_run(directory, change_factor, **options)
             result = subprocess.run([sys.executable, os.path.abspath(__file__), directory, os.path.join(directory, "report.md"),
                                      "--many-requests", str(TEST_UNITS["h2-many"]), "--one-connections", str(TEST_UNITS["h2-tls-one"])],
-                                    capture_output=True, text=True, env=dict(os.environ, BENCH_FLOOR=str(FLOOR_DEFAULT)))
+                                    capture_output=True, text=True, env=environment)
             return result.returncode, result.stdout + result.stderr
 
     def test_a_tree_against_itself_is_within_the_noise(self):
@@ -315,6 +325,16 @@ class Verdicts(unittest.TestCase):
             status, output = self.report(1.0, task_clock_unit=unit)
             self.assertEqual(status, 0, output)
             self.assertIn(" | 4,004.0 (0.70%) |", output)
+
+    def test_each_mode_has_its_own_floor(self):
+        status, output = self.report(1.0, floor=None)
+        self.assertEqual(status, 0, output)
+        self.assertIn("- floor: 0.50%\n", output)
+        # The rounds of the test runs spread by 0.70%, which is then the noise.
+        self.assertIn("| h2-many | 1.0000 | 0.70% | within the noise |", output)
+        status, output = self.report(1.0, floor=None, mode="filter")
+        self.assertEqual(status, 0, output)
+        self.assertIn("- floor: 5.00%\n", output)
 
     def test_a_filter_run_compares_cpu_time(self):
         status, output = self.report(1.10, mode="filter")

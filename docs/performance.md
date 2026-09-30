@@ -31,7 +31,16 @@ Performance section states the rules, and design §11 holds the method's numbers
   each build ran.
 - The workflow runs two jobs, each on a runner of its own, and a change stays only when it wins
   past the noise in both. A number from one job is never compared with a number from another.
-- The floor is 5% (decision 33) until the runner's own is measured and recorded here.
+- The floor is 0.5% for a judge run's instructions per unit, which the owner set on 2026-09-30,
+  and decision 33's 5% for a filter run's CPU time, which moves by more on a laptop. In five jobs
+  of a tree against itself on the runner, no ratio of instructions per unit moved from 1 by more
+  than 0.13%. Every spread stayed at or under 0.20%, except h2-one's once the programs had their
+  own `memset`, which reached 0.80%: a cleartext connection then costs about 305,000 instructions,
+  and how the server's loop groups connections from tick to tick moves some of them. That input's
+  own spread then sets its noise. The runs are
+  [36686649022](https://github.com/c4milo/colibri/actions/runs/36686649022) (its one job that
+  passed), [36717711394](https://github.com/c4milo/colibri/actions/runs/36717711394), and, with
+  the `memset` override, [36727047216](https://github.com/c4milo/colibri/actions/runs/36727047216).
 - A laptop run is a filter: it orders candidates and never lands in a document.
   `bench/run.sh --filter` needs neither perf nor taskset, and reads the server's CPU time from
   each thread's `/proc` schedstat.
