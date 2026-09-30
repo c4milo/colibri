@@ -89,7 +89,9 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     }
 }
 
-fn start_or_stop(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const deadline.Deadlines) void {
+/// Starts `meter` at `now_ns` when it `runs` and is stopped, and stops it when it does not: a
+/// pause, after which it starts again with a grace period.
+pub fn start_or_stop(meter: *rate.Meter, runs: bool, now_ns: u64, limits: *const deadline.Deadlines) void {
     if (!runs) return meter.stop();
     if (!meter.running()) meter.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
 }

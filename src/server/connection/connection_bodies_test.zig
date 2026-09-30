@@ -238,3 +238,39 @@ fn trailers_frame(stream_id: u32, fields: []const support.Field) ![]const u8 {
     try h2.frame.write_headers(&writer, stream_id, block_writer.written(), true, true, 0, null);
     return writer.written();
 }
+
+/// DATA frames of the largest size that bring enough of a body for colibri to owe a WINDOW_UPDATE
+/// (RFC 9113 §6.9).
+const update_frames: usize = h2.constants.window_update_threshold / h2.constants.frame_size_max + 1;
+
+/// Opens an h2 upload at `early_ns` and reads enough of its body, a nanosecond later, for colibri
+/// to owe a WINDOW_UPDATE on the stream and on the connection. Test-only.
+fn upload_until_update() !void {
+    try h2_support.start();
+    try open_upload(1, early_ns);
+    for (0..update_frames) |_| {
+        _ = try receive_at(try deadline_support.data_frame(1, filler[0..h2.constants.frame_size_max], false, 0), early_ns + 1);
+    }
+    try testing.expect(connection.session.h2.owes_window_update());
+}
+
+test "decision 110 as amended: a body's rate waits while colibri owes a WINDOW_UPDATE, and its cap does not" {
+    try upload_until_update();
+    // The rate waits, so only the cap runs.
+    try testing.expectEqual(early_ns + server_constants.body_timeout_ns, connection.deadline_ns().?);
+    // Once the WINDOW_UPDATE is out, the rate starts again with a grace period.
+    _ = send_at(early_ns + 2);
+    try testing.expectEqual(early_ns + 2 + grace_ns + window_ns, connection.deadline_ns().?);
+}
+
+test "decision 110 as amended: while the output holds the WINDOW_UPDATE, the send deadline judges the peer" {
+    try upload_until_update();
+    // The WINDOW_UPDATE goes into the output, and the peer takes none of it.
+    var none: [0]u8 = .{};
+    try testing.expectEqual(0, connection.send(&none, early_ns + 2));
+    const end_ns = early_ns + 2 + grace_ns + window_ns;
+    connection.on_instant(end_ns);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
+    // The body's rate waited, so its stream was not cut first.
+    try testing.expectEqual(null, (try connection.receive(&.{}, end_ns)).event);
+}

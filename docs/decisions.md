@@ -3297,6 +3297,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      documenting the clients it stalls, and removing the floor, which leaves the send deadline
      alone against many tiny frames.
 
+     Amended a fourth time by the owner on 2026-09-30: a request body's rate waits while colibri
+     holds a WINDOW_UPDATE its peer has not been handed, owed or in the output, and starts again
+     with a grace period once the update is out. `spec/tla/server_deadlines` found the overlap the
+     first amendment removed for SETTINGS: a client whose window is spent waits for that
+     WINDOW_UPDATE behind whatever the output holds, so its upload waits on its reading, which the
+     send deadline already judges. A client that uploads while it reads a large response at the
+     minimum rate could have its body cut ([#89](https://github.com/c4milo/colibri/issues/89)).
+     The cap on a body does not wait. Refused: writing owed WINDOW_UPDATE frames ahead of the DATA
+     the output holds, which shortens the wait but leaves the kernel's buffers ahead of the update,
+     and keeping the rule with a note that a client must read to go on uploading.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

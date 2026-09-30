@@ -397,6 +397,11 @@ pub const Connection = struct {
             connection.streams.resets_owed > 0;
     }
 
+    /// Whether colibri owes the peer a WINDOW_UPDATE it has not written (RFC 9113 §6.9).
+    pub fn owes_window_update(connection: *const Connection) bool {
+        return connection.replies.owes_window_update();
+    }
+
     /// Whether colibri's SETTINGS_ENABLE_PUSH of 0 has been acknowledged, after which RFC 9113
     /// §6.5.2 makes a PUSH_PROMISE a connection error. a client sends the value in its preface and never changes it, so the acknowledgment is the only thing to wait for (decision 17); a server omits the setting (§6.5.2) and never reaches this call, because `on_push_promise` refuses a PUSH_PROMISE on its role first.
     pub fn push_refused(connection: *const Connection) bool {

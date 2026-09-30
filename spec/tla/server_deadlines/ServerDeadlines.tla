@@ -23,8 +23,8 @@
 (* time passes.                                                            *)
 (*                                                                         *)
 (* Rule 2 becomes one invariant for each deadline a peer can hold up. TLC  *)
-(* finds the first three holding under colibri's rules, and each of the    *)
-(* earlier rules breaking one of them:                                     *)
+(* finds all four holding under colibri's rules, and each of the earlier   *)
+(* rules breaking one of them:                                             *)
 (*   - IdleWaitsOnPeer: the idle deadline runs only when colibri's output  *)
 (*     holds none of the last response. Before 6639950 it started when the *)
 (*     response was written, so the peer's reading of the response counted *)
@@ -45,8 +45,9 @@
 (*   - BodyWaitsOnPeer: a body's deadline does not run while the client's  *)
 (*     window is spent and the WINDOW_UPDATE that reopens it waits in      *)
 (*     colibri's output, which the send deadline already judges the peer   *)
-(*     on. colibri's rules break it (body_update_held,                     *)
-(*     https://github.com/c4milo/colibri/issues/89).                       *)
+(*     on. The rate once ran then (body_update_held,                       *)
+(*     https://github.com/c4milo/colibri/issues/89), and now waits while   *)
+(*     colibri holds a WINDOW_UPDATE (upload_update_held).                 *)
 (*                                                                         *)
 (* Left out: TLS, h11, the head, first-request and drain deadlines, which  *)
 (* no honest peer holds up; the caps on a body and on a connection's       *)
@@ -80,7 +81,8 @@ CONSTANTS
     IdleAfterOutput,    \* whether the idle deadline starts once the output is empty (6639950)
     SettingsPause,      \* whether the SETTINGS deadline pauses while a body waits (decision 110)
     FloorOnlyAbove,     \* whether the floor applies only while PeerWindow is at least Floor
-    FloorAfterSmall     \* whether it applies only once the client sent an increment below Floor
+    FloorAfterSmall,    \* whether it applies only once the client sent an increment below Floor
+    BodyPauseForUpdate  \* whether a body's rate waits while colibri holds a WINDOW_UPDATE
 
 (* A client's streams take odd identifiers, in the order it opens them     *)
 (* (§5.1.1).                                                               *)
@@ -93,8 +95,8 @@ ASSUME /\ StreamCount \in Nat \ {0}
        /\ {ConnectionWindow, LocalWindow, LocalThreshold, PeerWindow, PeerThreshold, Floor,
            OutputMax, ChannelMax} \subseteq Nat \ {0}
        /\ LocalThreshold <= LocalWindow /\ PeerThreshold <= PeerWindow
-       /\ {Pipelining, IdleAfterOutput, SettingsPause, FloorOnlyAbove, FloorAfterSmall}
-          \subseteq BOOLEAN
+       /\ {Pipelining, IdleAfterOutput, SettingsPause, FloorOnlyAbove, FloorAfterSmall,
+           BodyPauseForUpdate} \subseteq BOOLEAN
 
 Min(a, b) == IF a < b THEN a ELSE b
 
@@ -444,8 +446,17 @@ Spec == Init /\ [][Next]_vars
 (* waits (decision 110 as amended).                                        *)
 SettingsRuns == ~settingsAcked /\ ~(SettingsPause /\ BodiesWait)
 
-(* connection_bodies.zig: a body's meter runs from its head to its end.    *)
-BodyRuns(s) == BodyWaits(s)
+(* A WINDOW_UPDATE on `stream` colibri has not handed to the caller's      *)
+(* socket: owed, or in its output.                                         *)
+UpdateHeld(stream) ==
+    \/ \E i \in 1..Len(owed) : owed[i].stream = stream
+    \/ \E i \in 1..Len(out) : out[i].type = "WINDOW_UPDATE" /\ out[i].stream = stream
+UpdateHeldAny == owed # <<>> \/ \E i \in 1..Len(out) : out[i].type = "WINDOW_UPDATE"
+
+(* connection_bodies.zig: a body's rate runs from its head to its end,     *)
+(* and waits while colibri holds a WINDOW_UPDATE (decision 110 as          *)
+(* amended).                                                               *)
+BodyRuns(s) == BodyWaits(s) /\ ~(BodyPauseForUpdate /\ UpdateHeldAny)
 
 (* connection_sends.zig: a stream's meter runs while a window holds it and *)
 (* the output is empty.                                                    *)
@@ -462,11 +473,6 @@ IdleWaitsOnPeer ==
 (* which the body's clock judges.                                          *)
 SettingsWaitsOnPeer ==
     Quiescent /\ SettingsRuns => ~(toServer # <<>> /\ Head(toServer).type = "DATA")
-
-(* A WINDOW_UPDATE colibri has not handed to the caller's socket.          *)
-UpdateHeld(stream) ==
-    \/ \E i \in 1..Len(owed) : owed[i].stream = stream
-    \/ \E i \in 1..Len(out) : out[i].type = "WINDOW_UPDATE" /\ out[i].stream = stream
 
 (* A body's clock never runs while the client has more of it to send, its  *)
 (* window is spent, and the WINDOW_UPDATE that would let it send waits in  *)

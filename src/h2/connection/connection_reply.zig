@@ -78,6 +78,15 @@ pub const Replies = struct {
             replies.goaway == null;
     }
 
+    /// Whether a WINDOW_UPDATE is owed, on the connection or on a stream (RFC 9113 §6.9).
+    pub fn owes_window_update(replies: *const Replies) bool {
+        if (replies.connection_increment > 0) return true;
+        for (replies.stream_replies[0..replies.stream_reply_count]) |reply| {
+            if (reply.kind == .window_update) return true;
+        }
+        return false;
+    }
+
     /// Whether any queue is at its limit, which is when the connection stops reading frames: the
     /// next frame could owe a reply there is no slot for.
     pub fn is_full(replies: *const Replies) bool {
@@ -357,4 +366,16 @@ test "dropping a stream's owed WINDOW_UPDATE keeps its RST_STREAM and every othe
     try testing.expectEqual(3, test_replies.stream_replies[0].stream_id);
     try testing.expectEqual(.rst_stream, test_replies.stream_replies[1].kind);
     try testing.expectEqual(1, test_replies.stream_replies[1].stream_id);
+}
+
+test "RFC 9113 §6.9: a WINDOW_UPDATE is owed on the connection or on a stream, and a RST_STREAM is none" {
+    test_replies.init();
+    try testing.expect(!test_replies.owes_window_update());
+    test_replies.push_stream_reply(.{ .stream_id = 1, .kind = .rst_stream, .value = constants.error_cancel });
+    try testing.expect(!test_replies.owes_window_update());
+    test_replies.push_stream_reply(.{ .stream_id = 3, .kind = .window_update, .value = 1 });
+    try testing.expect(test_replies.owes_window_update());
+    test_replies.init();
+    test_replies.add_connection_increment(1);
+    try testing.expect(test_replies.owes_window_update());
 }

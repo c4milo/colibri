@@ -4,7 +4,11 @@
 //! to it, and ends with the body or with its request.
 //!
 //! Only a body's own octets count: in h11 the octets h11 reads while it reads the body, its
-//! framing included, and in h2 the octets of its DATA frames' data, without padding.
+//! framing included, and in h2 the octets of its DATA frames' data, without padding. In h2 the
+//! rate waits while colibri holds a WINDOW_UPDATE the peer has not been handed, owed or in the
+//! output: the peer's upload then waits on its reading, which the send deadline judges, and the
+//! rate starts again with a grace period once the update is out (decision 110 as amended). The
+//! cap does not wait.
 //!
 //! In h11 a body that falls short ends the connection, with a 408 when its response has not
 //! begun. In h2 it ends its stream: a 408 that ends the stream and then RST_STREAM with NO_ERROR,
@@ -107,8 +111,8 @@ pub fn count(connection: *Connection, id: Id, octets: usize) void {
     bodies.together.count(octets);
 }
 
-/// Starts the wait of every body whose head was read and which owes no 100 (Continue), at
-/// `now_ns`.
+/// Starts the wait of every body whose head was read and which owes no 100 (Continue), and
+/// pauses or resumes the rates, at `now_ns`.
 pub fn observe(connection: *Connection, now_ns: u64) void {
     const bodies = &connection.bodies;
     const limits = &connection.deadlines;
@@ -119,10 +123,20 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
         if (connection.continue_owed == body.id) continue;
         body.started = true;
         body.since_ns = now_ns;
-        body.meter.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
-        if (bodies.waiting == 0 and connection.session == .h2) bodies.together.start(now_ns, limits.rate_grace_ns, limits.rate_window_ns);
         bodies.waiting += 1;
     }
+    if (bodies.waiting == 0) return;
+    const rates_run = !update_held(connection);
+    for (&bodies.entries) |*body| {
+        if (body.started) connection_sends.start_or_stop(&body.meter, rates_run, now_ns, limits);
+    }
+    if (connection.session == .h2) connection_sends.start_or_stop(&bodies.together, rates_run, now_ns, limits);
+}
+
+/// Whether colibri holds a WINDOW_UPDATE its h2 peer has not been handed: owed, or in the output.
+fn update_held(connection: *const Connection) bool {
+    if (connection.session != .h2) return false;
+    return connection.update_held_len > 0 or connection.session.h2.owes_window_update();
 }
 
 /// The soonest instant a body deadline passes, or `current` when it is sooner or none does.
@@ -133,7 +147,9 @@ pub fn soonest(connection: *const Connection, current: ?u64) ?u64 {
     for (&bodies.entries) |*body| {
         if (!body.started) continue;
         if (limits.body_ns) |cap_ns| at = earlier(at, body.since_ns + cap_ns);
-        if (limits.body_quota()) |quota| at = earlier(at, body.meter.check_ns(quota, limits.rate_window_ns).?);
+        const quota = limits.body_quota() orelse continue;
+        // A body's rate waits while colibri holds a WINDOW_UPDATE, and its meter is stopped.
+        if (body.meter.check_ns(quota, limits.rate_window_ns)) |check_ns| at = earlier(at, check_ns);
     }
     if (limits.body_quota()) |quota| {
         if (bodies.together.check_ns(quota, limits.rate_window_ns)) |check_ns| at = earlier(at, check_ns);

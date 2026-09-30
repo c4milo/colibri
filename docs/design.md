@@ -6289,6 +6289,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     increment or whatever the peer's initial window, either reader of WINDOW_UPDATE noting nothing,
     and `init` keeping the last connection's note.
 
+  **A body's rate and a held WINDOW_UPDATE, 2026-09-30**
+  ([#89](https://github.com/c4milo/colibri/issues/89)). Decision 110's fourth amendment. h2 says
+  whether it owes a WINDOW_UPDATE, and the server counts down the octets its output holds ahead of
+  the last one it wrote. While either holds one, every body's rate meter and the bodies' shared
+  meter stop, and they start again with a grace period once the update is out. The cap on a body
+  keeps running. The count makes a `server.Connection` 8 octets larger, 306,280 in all, as
+  `docs/performance.md`'s table says, and the reply queue is read only while a body waits.
+  - `zig build test`: 131 of 131 steps and 2499 of 2499 tests passed. The deadline check's census
+    did not change: none of its runs holds a WINDOW_UPDATE while a body's rate matters.
+  - `zig build tla -- spec/tla/server_deadlines/*.cfg`: colibri's rules now hold all four
+    invariants, and `upload_update_held` holds. The rule before the amendment is violated, kept as
+    `body_update_held`.
+  - 8 mutations, each **CAUGHT** by `zig build test-h2` or `zig build test-server`: an owed
+    WINDOW_UPDATE on a stream, or on the connection, not counted; the rate ignoring h2's queue or
+    the output; a written WINDOW_UPDATE not tracked, or never counted out; and the shared meter or
+    a body's own meter not waiting. The first run found two NOT CAUGHT: the rate ignoring the
+    output, and a written WINDOW_UPDATE not tracked. The test checked that the connection ended on
+    the send deadline, and not that the body deadline had cut the stream first. It checks both now.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

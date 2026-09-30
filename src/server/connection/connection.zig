@@ -103,6 +103,9 @@ pub const Connection = struct {
     output: [constants.output_len]u8,
     output_len: usize,
     records_len: usize,
+    /// h2: the octets at the front of `output` that go out before the last WINDOW_UPDATE written
+    /// into it has gone. While any remain, a body's rate deadline waits (decision 110 as amended).
+    update_held_len: usize,
     /// A KeyUpdate's reply is owed, and no record opens until `send` has sealed it (RFC 9846
     /// §4.7.3).
     reply_owed: bool,
@@ -159,6 +162,7 @@ pub const Connection = struct {
         connection.plain_in_read = 0;
         connection.output_len = 0;
         connection.records_len = 0;
+        connection.update_held_len = 0;
         connection.reply_owed = false;
         connection.peer_closed = false;
         connection.close_sent = false;
@@ -374,6 +378,7 @@ pub const Connection = struct {
         connection.stopped = true;
         connection.output_len = 0;
         connection.records_len = 0;
+        connection.update_held_len = 0;
         connection.done_owed.clear();
         connection_coding.forget_all(connection);
         // chapulin's close wipes every secret, and is safe on a session that closed or failed.
@@ -406,6 +411,7 @@ pub const Connection = struct {
     pub fn write_owed(connection: *Connection, now_ns: u64) bool {
         if (connection.phase != .open) return false;
         const free = connection.room();
+        const update_owed = connection.session == .h2 and connection.session.h2.owes_window_update();
         const written = switch (connection.session) {
             .h2 => connection.session.h2.write_pending(free, now_ns),
             .h11 => connection.session.h11.write_pending(free) catch 0,
@@ -413,6 +419,8 @@ pub const Connection = struct {
             .none => unreachable,
         };
         connection.output_len += written;
+        // Decision 110 as amended: a WINDOW_UPDATE written now is out once these octets are.
+        if (update_owed and written > 0) connection.update_held_len = connection.output_len;
         return written > 0;
     }
 
@@ -430,6 +438,7 @@ pub const Connection = struct {
         std.mem.copyForwards(u8, &connection.output, connection.output[written..connection.output_len]);
         connection.output_len -= written;
         connection.records_len -= @min(connection.records_len, written);
+        connection.update_held_len -= @min(connection.update_held_len, written);
     }
 
     /// Drops the protocol's octets the last event pointed into.
