@@ -640,6 +640,28 @@ because a refused feature still imposes obligations on the wire.
     result look better than it would on a real link — so a published number names the path it was
     measured over.
 
+    Amended by the owner on 2026-09-30, for design §8 step 13: the judge is GitHub's hosted
+    `ubuntu-24.04-arm` runner, a Neoverse N2, which `.github/workflows/bench.yml` runs when a person
+    starts it, as stdx's judge runs. The method is pepegrillo's `docs/performance/performance.md`,
+    which `zig build guide` installs. A hosted runner fixes no governor, so the rule rests on the
+    count and on pairing, not on the machine:
+
+    - Instructions retired per unit, from `perf stat`, stay the primary metric: they survive the
+      runner's other tenants and its clock. Cycles, task-clock and system calls per unit stand
+      beside them.
+    - A comparison stays inside one job. The job builds a base and the change and measures them in
+      turns on one runner, and a change stays only when it wins past the noise in every one of at
+      least two such jobs. A number from one job is never compared with a number from another.
+    - The job pins the server and the load generator to cores of their own with `taskset`, and
+      writes the CPU model, the kernel and the core count beside the numbers. It claims nothing
+      about the governor.
+    - The x86-64 runner refuses `perf_event_open` and draws a different CPU from run to run, so it
+      judges nothing.
+
+    The alternatives offered: a self-hosted runner on a dedicated machine, which meets this entry
+    as first written and costs a machine to keep; and both, the N2 runner now and a dedicated
+    machine for published numbers later.
+
 34. **The regression check has two layers.** It was ruled when there was no CI here; entry 47
     adds one and keeps both layers. The cheap layer runs
     inside the deterministic simulator and does not vary between runs: counted syscalls, copies
@@ -964,6 +986,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     arm64 is the development host, where until then a person ran every check by hand; the job runs
     `zig build test` there on each push, with the test endpoints on Rotor's kqueue backend. The
     checks that need Docker stay on Linux, because GitHub's Apple Silicon runners have no Docker.
+
+    Amended by the owner on 2026-09-30, for design §8 step 13: `bench/run.sh` runs in a workflow
+    of its own, `.github/workflows/bench.yml`, which a person starts with a base to compare
+    against, and in no push job. Entry 33 as amended makes its `ubuntu-24.04-arm` runner the judge,
+    and an A/B builds two trees and measures each over many rounds, which the push job's hour does
+    not hold. The work is still one script, which a person on Linux runs for the same answer; the
+    workflow adds the base's checkout and `perf`, which the script runs as root, so that it counts
+    the kernel's instructions and reads the system call tracepoint with no kernel setting changed.
 
 48. **The suite holds every key and protects every packet, and colibri holds none.** Ruled by the
     owner on 2026-09-19. It amends entries 8 and 9. `crypto.Suite` stays the second

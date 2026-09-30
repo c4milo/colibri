@@ -4164,9 +4164,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   Every check step 12 names has passed, and the step owes nothing more.
 
-- **Step 13 — `bench/`.** The competitor matrix, the committed baselines, the memory measurement.
-  **Check:** §11's method, run on Linux, five runs reported as median with spread, the A/B in the
-  same session, and the machine written down beside the numbers. *Medium.*
+- **Step 13 — `bench/`.** The judge, the competitor matrix and the memory measurement, under
+  §11's method on the `ubuntu-24.04-arm` runner (decision 33 as amended on 2026-09-30). Six parts;
+  the owner ruled on 2026-09-30 that 13a and 13b come first:
+  - **13a**, the judge. `bench/run.sh` builds colibri's test-only servers in ReleaseSafe, pins each
+    server and h2load to cores of their own, and counts the server's instructions, cycles and
+    system calls with `perf stat`, per request and per connection: h2 in cleartext and over TLS,
+    with many requests on a connection and with one. `.github/workflows/bench.yml` measures a
+    `base` and the change in turns in one job, five rounds each after a warm-up it discards, and
+    reports each input's median and spread. **Check:** two jobs of a tree against itself give the
+    noise floor, which `docs/performance.md` records, and a mutant that adds a known cost per
+    request loses past it.
+  - **13b**, static memory per connection: each connection struct's size, printed from the code
+    being committed, the way chapulin's `bench/sram.sh` measures its rows. **Check:** the table in
+    `docs/performance.md` matches what the build prints, and `zig build test` fails when a struct
+    changes size without the table.
+  - **13c**, h2 against h2o and nginx under h2load, in the same job.
+  - **13d**, h3 against quiche and quic-go under `h2load --h3`, from `tools/h3load/`'s pinned
+    build, with handshakes per second for §11.1's short connections.
+  - **13e**, QUIC throughput under msquic's `secnetperf`, through the `perf` ALPN endpoint of §9.
+  - **13f**, latency percentiles at stated offered loads, from a generator that sends on a
+    schedule.
+
+  *Medium.*
 
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
@@ -6295,18 +6315,25 @@ and not a performance target.
 ### 11.4 Method
 
 [Decision 33](decisions.md#performance) fixes it before the first measurement so the numbers
-cannot be shaped afterwards: Linux for every real number, pinned cores, a fixed governor, warmup
-discarded, at least five runs reported as median with spread and never a best-of, the A/B in the
-same session on the same kernel, and the machine written down beside the numbers. Anything under
-about 5% is noise until shown otherwise.
+cannot be shaped afterwards: Linux for every real number, warmup discarded, at least five runs
+reported as median with spread and never a best-of, the A/B in the same session on the same
+kernel, and the machine written down beside the numbers. As amended on 2026-09-30, the judge is
+GitHub's `ubuntu-24.04-arm` runner, a Neoverse N2, under pepegrillo's method: instructions per
+unit from `perf stat` are the primary metric, the base and the change are measured in turns in one
+job with cores pinned, and a change stays only when it wins past the noise in at least two such
+jobs. The runner fixes no governor, so a time is never compared across jobs. Anything under about
+5% is noise until the judge's own floor, measured and recorded in `docs/performance.md`, says
+otherwise.
 
 ### 11.5 What must hold
 
-Two layers. The cheap layer is step 6's counted costs in the simulator — exact numbers a diff
-must change on purpose — and it runs in `zig build test`. The expensive layer is `bench/` with
-committed baselines and a threshold that fails, run by a person before a step is called done.
-[Decision 47](decisions.md) runs the cheap layer on each push to main and prints an h2load
-figure beside it, which is indicative and carries no threshold: a hosted runner cannot meet §11.4.
+Two layers. The cheap layer is step 6's counted costs in the simulator — exact numbers a diff must
+change on purpose — and it runs in `zig build test`. The expensive layer is `bench/run.sh`, which
+`.github/workflows/bench.yml` runs on the judge when a person asks, with a base to compare against:
+the job fails when an input loses past the floor, and a person runs it before a step is called done.
+[Decision 47](decisions.md) runs the cheap layer on each push to main and prints an h2load figure
+beside it, which is indicative and carries no threshold: the push job's x86-64 runner counts no
+instructions and draws a different CPU from run to run.
 
 ## 12. Open questions for the owner
 
