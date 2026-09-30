@@ -105,8 +105,8 @@ def per_unit(counts, units, mode):
         "user_instructions": counts["instructions:u"] / units,
         "cycles": (counts["cycles:u"] + counts["cycles:k"]) / units,
         "system_calls": counts["raw_syscalls:sys_enter"] / units,
-        # perf stat writes task-clock, the time the server's threads ran, in milliseconds.
-        "cpu_nanoseconds": counts["task-clock"] * 1e6 / units,
+        # task-clock is the time the server's threads ran, which read_counts gives in nanoseconds.
+        "cpu_nanoseconds": counts["task-clock"] / units,
     }
 
 
@@ -184,6 +184,8 @@ def main():
 
 TEST_UNITS = {"h2-many": 20000, "h2-tls-one": 640}
 TEST_INSTRUCTIONS_PER_UNIT = {"h2-many": 50000.0, "h2-tls-one": 900000.0}
+# The nanoseconds the server runs a unit in, before a round's factor.
+TEST_NANOSECONDS_PER_UNIT = 4000
 # What h2load writes about a TLS connection, before its count of requests.
 TEST_TLS = "TLS Protocol: TLSv1.3\nCipher: {cipher}\nServer Temp Key: X25519 253 bits\nApplication protocol: h2\n"
 # Each round's factor on every count. Round 0 is the warm-up and costs half as much again, as a
@@ -192,11 +194,12 @@ TEST_ROUND_FACTORS = (1.5, 1.004, 0.997, 1.002, 0.999, 1.001)
 
 
 def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), failed_request=False, mode="judge", kernel_only=False,
-                   change_cipher="TLS_AES_256_GCM_SHA384"):
+                   change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec"):
     """Writes the files a run of bench/run.sh leaves, with the change costing `change_factor` times
     the base on each input in `changed_inputs`: in the server's user and kernel instructions both,
     or with `kernel_only` in the kernel's alone, as a change that adds system calls costs. The base
-    runs TLS_AES_256_GCM_SHA384 on its TLS input, and the change runs `change_cipher`."""
+    runs TLS_AES_256_GCM_SHA384 on its TLS input, and the change runs `change_cipher`. The server
+    runs TEST_NANOSECONDS_PER_UNIT a unit, which perf writes in `task_clock_unit`."""
     with open(os.path.join(directory, "machine.txt"), "w") as machine:
         machine.write(f"mode={mode}\nrounds={len(TEST_ROUND_FACTORS) - 1}\n")
     records = []
@@ -207,6 +210,7 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
                 changed = variant == "change" and input_name in changed_inputs
                 base_instructions = TEST_INSTRUCTIONS_PER_UNIT[input_name] * units * round_factor
                 user = base_instructions * 0.7 * (change_factor if changed and not kernel_only else 1.0)
+                nanoseconds = TEST_NANOSECONDS_PER_UNIT * units * round_factor
                 kernel = base_instructions * 0.3 * (change_factor if changed else 1.0)
                 instructions = user + kernel
                 with open(name + ".perf", "w") as perf:
@@ -216,7 +220,10 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
                         perf.write(f"# started on a test\n\n{user:.0f},,instructions:u,1,100.00,,\n")
                         perf.write(f"{kernel:.0f},,instructions:k,1,100.00,,\n")
                         perf.write(f"{instructions:.0f},,cycles:u,1,100.00,,\n{instructions / 4:.0f},,cycles:k,1,100.00,,\n")
-                        perf.write(f"{instructions / 3e6:.3f},msec,task-clock,1,100.00,,\n")
+                        if task_clock_unit == "msec":
+                            perf.write(f"{nanoseconds / 1e6:.6f},msec,task-clock,1,100.00,,\n")
+                        else:
+                            perf.write(f"{nanoseconds:.0f},,task-clock,{nanoseconds:.0f},100.00,,\n")
                         perf.write(f"{units * 4},,raw_syscalls:sys_enter,1,100.00,,\n")
                 failed = 1 if failed_request and changed and round_number == 3 else 0
                 with open(name + ".server", "w") as server_log:
@@ -301,6 +308,13 @@ class Verdicts(unittest.TestCase):
                 perf.write("235,furlongs,task-clock,235,100.00,,\n")
             with self.assertRaises(SystemExit):
                 read_counts(path)
+
+    def test_a_report_gives_cpu_time_in_nanoseconds(self):
+        # 4,000 ns a unit times the median round's factor, 1.001, in either unit perf writes.
+        for unit in ("msec", ""):
+            status, output = self.report(1.0, task_clock_unit=unit)
+            self.assertEqual(status, 0, output)
+            self.assertIn(" | 4,004.0 (0.70%) |", output)
 
     def test_a_filter_run_compares_cpu_time(self):
         status, output = self.report(1.10, mode="filter")
