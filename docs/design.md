@@ -5173,6 +5173,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     colibri gives it, and compiles against the `platform.Cpu` that `tls` names.
 
   What each check printed, on macOS arm64:
+  - `tools/ci.sh`, on the 0.7.0 release commit that carries it: every section passed, with 2505 of
+    2505 tests in Debug and in ReleaseSafe.
   - 6 mutations, each **CAUGHT**: `yes` running no AES instruction, `no` or `not_known` running
     them, and the client's or the server's probe not handed on; and, by `tools/h3spec.sh`, the test
     programs' probe saying `no`, since h3spec's client offers AES-GCM alone.
