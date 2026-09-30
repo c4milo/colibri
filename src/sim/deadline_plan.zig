@@ -168,6 +168,8 @@ fn draw_short_deadlines(random: *Random) server.Deadlines {
         .rate_grace_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.rate_grace_ns),
         .rate_window_ns = shorter_ns(random, window_ms_min(body_rate), defaults.rate_window_ns),
         .body_ns = shorter_ns(random, limits.short_body_ms_min, defaults.body_timeout_ns),
+        .send_rate_min = @intCast(random.between(defaults.send_rate_min, limits.short_rate_max)),
+        .linger_ns = shorter_ns(random, limits.short_linger_ms_min, defaults.close_linger_ns),
     };
 }
 
@@ -248,7 +250,8 @@ fn draw_read_pace(plan: *Plan, random: *Random) void {
     switch (plan.peer) {
         .slow_reader => {
             plan.read_gap_ms = random.between(limits.read_gap_ms_min, limits.read_gap_ms_max);
-            const rate = random.between(limits.read_rate_min, limits.read_rate_max);
+            const rate_min = plan.deadlines.send_rate_min.?;
+            const rate = random.between(limits.read_rate_factor_min * rate_min, limits.read_rate_factor_max * rate_min);
             // Rounded up, so the pace is the rate or more.
             plan.read_len = @intCast((rate * plan.read_gap_ms + limits.ms_per_s - 1) / limits.ms_per_s);
         },
@@ -297,18 +300,19 @@ fn expect_write_pace(plan: *const Plan) !void {
 /// An honest slow reader reads at twice the minimum send rate or more, a hostile one at a small
 /// fraction of it, and each reads a long answer.
 fn expect_read_pace(plan: *const Plan) !void {
-    if (plan.peer == .slow_reader) try testing.expect(plan.read_len * limits.ms_per_s >= limits.read_rate_min * plan.read_gap_ms);
+    const read_rate_min = limits.read_rate_factor_min * plan.deadlines.send_rate_min.?;
+    if (plan.peer == .slow_reader) try testing.expect(plan.read_len * limits.ms_per_s >= read_rate_min * plan.read_gap_ms);
     if (plan.peer == .reads_slowly) try testing.expect(plan.read_len * limits.ms_per_s <= limits.slow_read_rate_max * plan.read_gap_ms);
     if (reads_long(plan.peer)) try testing.expect(plan.content_len[0] >= limits.read_content_len_min);
 }
 
 comptime {
     // A slow hostile reader's first window falls short under any limits a plan draws: over the
-    // longest grace period and a piece more, it reads less than the quota the lowest minimum rate,
-    // the default, leaves over the shortest window once its own reading within that window counts.
+    // longest grace period and a piece more, it reads less than the quota the lowest minimum send
+    // rate, the default, leaves over the shortest window once its own reading within it counts.
     const grace_ms_max = server.constants.rate_grace_ns / limits.ns_per_ms;
     const read_ms = grace_ms_max + limits.hostile_gap_ms_max;
-    const left = (server.constants.body_rate_min - limits.slow_read_rate_max) * window_ms_min(limits.short_rate_max);
+    const left = (server.constants.send_rate_min - limits.slow_read_rate_max) * window_ms_min(limits.short_rate_max);
     assert(limits.slow_read_rate_max * read_ms < left);
     // A body's cap stays past the longest honest upload, at twice the lowest minimum rate.
     const upload_ms_max = limits.upload_len_max * limits.ms_per_s / (limits.upload_rate_factor_min * server.constants.body_rate_min);

@@ -15,6 +15,7 @@ const http = @import("http");
 const deadline = @import("../deadline.zig");
 const connection_module = @import("connection.zig");
 const connection_bodies = @import("connection_bodies.zig");
+const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
 const Deadline = deadline.Deadline;
@@ -34,6 +35,10 @@ pub const Clock = struct {
     idle_since_ns: ?u64,
     /// The deadline that ended the connection, once one has.
     timed_out: ?Deadline,
+    /// The instant the connection ended with octets still to send, and whether `linger_ns` has
+    /// passed since, after which it closes with them unsent (decision 110).
+    linger_since_ns: ?u64,
+    lingered: bool,
 
     pub fn init(now_ns: u64) Clock {
         return .{
@@ -42,6 +47,8 @@ pub const Clock = struct {
             .head_since_ns = null,
             .idle_since_ns = null,
             .timed_out = null,
+            .linger_since_ns = null,
+            .lingered = false,
         };
     }
 };
@@ -103,18 +110,35 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
         clock.idle_since_ns = now_ns;
     }
     connection_bodies.observe(connection, now_ns);
+    connection_sends.observe(connection, now_ns);
+    // Decision 110: every close is bounded, from the instant the connection ended with octets
+    // still to send.
+    const ended = connection.stopped or connection.phase == .closed or connection.finished();
+    if (clock.linger_since_ns == null and ended and connection.output_len > 0) clock.linger_since_ns = now_ns;
 }
 
 /// The soonest instant a deadline passes, or null when none runs.
 pub fn soonest(connection: *const Connection) ?u64 {
-    if (!running(connection)) return null;
+    const linger_end = linger_end_ns(connection);
+    if (!running(connection)) return linger_end;
     const clock = &connection.clock;
     const limits = &connection.deadlines;
     var at: ?u64 = null;
     if (!clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
     if (clock.head_since_ns) |since| at = earlier(at, since, limits.head_ns);
     if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
-    return connection_bodies.soonest(connection, at);
+    at = connection_sends.soonest(connection, connection_bodies.soonest(connection, at));
+    const end_ns = linger_end orelse return at;
+    return @min(at orelse end_ns, end_ns);
+}
+
+/// The instant a connection's linger passes, or null when none runs.
+fn linger_end_ns(connection: *const Connection) ?u64 {
+    const clock = &connection.clock;
+    if (clock.lingered) return null;
+    const since_ns = clock.linger_since_ns orelse return null;
+    const limit_ns = connection.deadlines.linger_ns orelse return null;
+    return since_ns + limit_ns;
 }
 
 /// Whether the deadlines run: the connection reads on, and its protocol has not closed.
@@ -164,8 +188,10 @@ fn is_past(since: u64, limit: ?u64, now_ns: u64) bool {
 /// Ends the connection when a deadline has passed at `now_ns`, and returns whether one had. An h2
 /// body's deadline ends its stream alone.
 pub fn fire(connection: *Connection, now_ns: u64) bool {
+    connection_sends.linger(connection, now_ns);
     if (!running(connection)) return false;
-    const passed = due(connection, now_ns) orelse connection_bodies.fire(connection, now_ns) orelse return false;
+    const passed = due(connection, now_ns) orelse connection_bodies.fire(connection, now_ns) orelse
+        connection_sends.fire(connection, now_ns) orelse return false;
     connection.clock.timed_out = passed;
     end(connection, passed);
     assert(!running(connection));
@@ -173,11 +199,14 @@ pub fn fire(connection: *Connection, now_ns: u64) bool {
 }
 
 /// What a deadline does (decision 110): a head that began, or a body that did not arrive in time,
-/// gets a 408 in h11, and in h2 a GOAWAY with ENHANCE_YOUR_CALM; with neither, h11 closes without
-/// a response and h2 sends a GOAWAY with NO_ERROR first. Nothing more is read either way.
+/// gets a 408 in h11, and in h2 a GOAWAY with ENHANCE_YOUR_CALM; a peer that takes too little of
+/// what the connection sends ends h11 with nothing more and h2 with the same GOAWAY; with none of
+/// these, h11 closes without a response and h2 sends a GOAWAY with NO_ERROR first. Nothing more is
+/// read either way.
 fn end(connection: *Connection, passed: Deadline) void {
     const wait = wait_of(connection);
     const body = passed == .body_rate or passed == .body;
+    const send = passed == .send_rate;
     connection.stopped = true;
     if (wait == .handshake) {
         // The TLS handshake had not completed: the connection closes with nothing more written.
@@ -194,12 +223,19 @@ fn end(connection: *Connection, passed: Deadline) void {
                 const failure = session.fail(error.RequestTimeout, request_timeout);
                 assert(failure == error.ConnectionFailed);
             }
+            // RFC 9112 §9.6: a server that closes sends nothing after it; a 408 would wait behind
+            // the octets the peer has not taken.
+            if (send) {
+                const failure = session.fail(error.SendTimeout, null);
+                assert(failure == error.ConnectionFailed);
+            }
         },
         .h2 => |*session| {
-            // RFC 9113 §10.5: a field block held open past its deadline, or bodies that together
-            // arrive under the minimum rate, are excess use of the connection. RFC 9113 §9.1: a
-            // server that closes an idle connection sends GOAWAY.
-            if (wait == .head or body) {
+            // RFC 9113 §10.5: a field block held open past its deadline, bodies that together
+            // arrive under the minimum rate, and a peer that takes too little of what it asked
+            // for are excess use of the connection. RFC 9113 §9.1: a server that closes an idle
+            // connection sends GOAWAY.
+            if (wait == .head or body or send) {
                 const failure = session.fail(h2.constants.error_enhance_your_calm);
                 assert(failure == error.ConnectionFailed);
             } else {

@@ -139,6 +139,15 @@ pub const rate_grace_ns: u64 = 10 * nanoseconds_per_second;
 pub const rate_window_ns: u64 = 10 * nanoseconds_per_second;
 pub const body_timeout_ns: u64 = 300 * nanoseconds_per_second;
 
+/// Decision 110's send deadline: while the connection holds octets its peer has not taken, the
+/// peer must take `send_rate_min` octets a second over each window, as a body brings them. A
+/// connection a deadline ended, or that has nothing more to say, closes once its last octets are
+/// out or `close_linger_ns` after it ended, whichever comes first. h2 sends no DATA frame shorter
+/// than `data_frame_len_min` unless the window holds the whole payload.
+pub const send_rate_min: u32 = 1_024;
+pub const close_linger_ns: u64 = 2 * nanoseconds_per_second;
+pub const data_frame_len_min: u32 = 1_024;
+
 /// The longest deadline a caller may set: a day. A deadline starts at an instant the caller
 /// passed, and this keeps the start plus the limit inside a `u64`.
 pub const timeout_ns_max: u64 = 86_400 * nanoseconds_per_second;
@@ -167,6 +176,7 @@ comptime {
     // Every chunk the output holds leaves room for the last one.
     assert(output_len > chunk_framing_len_max + last_chunk_len);
     assert(done_owed_max > 0);
-    assert(bodies_max > 0 and body_rate_min > 0);
+    assert(bodies_max > 0 and body_rate_min > 0 and send_rate_min > 0);
+    assert(data_frame_len_min <= h2.constants.max_frame_size_initial and close_linger_ns > 0);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
 }

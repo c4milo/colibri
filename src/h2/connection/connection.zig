@@ -51,6 +51,7 @@ pub const SendError = connection_send.Error;
 
 /// What `write_data` sent and wrote (`connection_send.zig`).
 pub const DataWritten = connection_send.DataWritten;
+pub const ShortBy = connection_send.ShortBy;
 
 /// Why a request the caller asked for did not go out (`connection_request.zig`).
 pub const RequestError = connection_request.Error;
@@ -219,6 +220,10 @@ pub const Connection = struct {
     peer_resets: u32,
     /// The instant the current period of the peer's resets began.
     peer_reset_period_start_ns: u64,
+    /// The shortest DATA frame colibri sends when a window, not the payload, decides its length,
+    /// or 0 for none: below it the frame waits (§10.5, decision 110). A server sets it after
+    /// `init`.
+    data_frame_len_min: u32,
 
     /// Makes a connection for an endpoint in `role`, with nothing read and nothing written. The
     /// caller writes the preface with `write_pending` before it reads the peer's.
@@ -251,6 +256,7 @@ pub const Connection = struct {
         connection.rst_stream_period_start_ns = 0;
         connection.peer_resets = 0;
         connection.peer_reset_period_start_ns = 0;
+        connection.data_frame_len_min = 0;
         assert(!connection.has_failed());
         assert(connection.streams.len() == 0);
     }

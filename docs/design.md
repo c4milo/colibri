@@ -5918,10 +5918,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     deadline's instant, a simulator check with seeded slow and flooding peers and an honest slow
     peer that is never cut, and mutations. It lands in three parts:
     - the first-request, idle and head deadlines, and the calls that run them;
-    - the body and send rates, the cap per request, h2's floor on a DATA frame, and 100
-      concurrent h2 streams;
-    - the SETTINGS acknowledgment, drain and linger deadlines, the close reasons, and the
-      test-only server taking its instants from Rotor's loop.
+    - the body and send rates, the cap per request, h2's floor on a DATA frame, the linger of a
+      close, and 100 concurrent h2 streams;
+    - the SETTINGS acknowledgment and drain deadlines, the close reasons, and the test-only server
+      taking its instants from Rotor's loop.
 
   **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
   period its instant falls in, beside the count of the resets colibri sends. What was checked, on
@@ -6029,6 +6029,58 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     reason but a deadline's.
   - The check's own commit reports three mutations, each **CAUGHT**: `init` ignoring
     `Config.deadlines`, the clock starting at 0, and h2 never crediting its connection window.
+
+  **The send deadlines, 2026-09-29.** More of the second part of 20b, after the check's slow
+  readers and a fix: the idle deadline had started when a response's last octets went into the
+  output, not when the peer took them, and cut a peer that read a long response slowly.
+  - While the connection holds octets its peer has not taken, the peer must take `send_rate_min`
+    octets a second over each window, as a body brings them. The meter counts what `send` hands
+    out and stops when the output is empty. A peer that takes too little ends the connection: h11
+    sends nothing more, and h2 queues a GOAWAY with ENHANCE_YOUR_CALM.
+  - In h2 a stream whose response waits on a flow-control window has a meter of its own, which
+    counts what the window lets through. It runs only while the output is empty: a client that
+    opens its window once it has read what fills it would otherwise be cut, and while the output
+    holds octets the connection's meter judges the peer. When the stream's meter falls short, the
+    stream is reset with CANCEL and the caller reads `cancelled`. When the connection's window is
+    the one that holds it, the connection ends with ENHANCE_YOUR_CALM, a code decision 110 left
+    open.
+  - h2 sends no DATA frame shorter than `data_frame_len_min`, 1,024 octets, unless the window
+    holds the whole payload (RFC 9113 §10.5). `server.Config` carries it, the h2 connection takes
+    it as a field that is 0 for none, and `DataWritten` now says what held a frame short.
+  - A connection that has ended with octets still to send closes once they are out or
+    `close_linger_ns` after it ended, whichever comes first.
+  - A body arrives a unit at a time, an h2 DATA frame or a TLS record of up to 16,384 octets. A
+    peer at twice the minimum rate brings one each window only when the window's quota is half a
+    unit or more, as the defaults' 10,240 octets are. `Deadlines` says so, and the check's stricter
+    plans keep to it; an earlier plan whose windows held no whole frame cut an honest upload.
+
+  What each check printed, on macOS arm64 with Zig 0.16.0:
+  - `zig build test`: 128 of 128 steps and 2455 of 2455 tests passed.
+  - The deadline check over 256 seeds: 141 exchanges; 45 connections ended at the first-request
+    deadline, 114 at idle, 14 at head, 5 for a body's rate, 12 for its cap and 66 for the send
+    rate; 33 h2 streams cut, and none held open. Debug and ReleaseSafe print the same census.
+  - 34 mutations, each **CAUGHT** by `zig build test-h2` and `zig build test-server`. Three were
+    **NOT CAUGHT** at first, and a test now catches each: a stream held after its window let a
+    write through, a stream's meter running while the output holds octets, and a stream's octets
+    left uncounted.
+    - h2's floor: never holding a frame, holding a payload the window holds whole, or holding a
+      window at the floor; the connection's window read as the stream's; room read as nothing
+      held; and the server setting no floor.
+    - The meters: a write a window held not noted; the connection's window noted as the stream's;
+      the connection's meter running with an empty output; a running meter starting again at each
+      call; `send`'s octets not counted; the connection's meter never falling short; and
+      `deadline_ns` leaving out either meter.
+    - The actions: a stream the connection's window holds cancelled rather than ending the
+      connection; a held stream never cancelled; a cancelled one owing no `cancelled`, or reset
+      with NO_ERROR; and h2 ending a send deadline with NO_ERROR.
+    - The linger: never ending, ending a nanosecond late, never starting, ignored by
+      `should_close`, or left out of `deadline_ns` once the connection has stopped.
+    - The limits and the ends: `validate` accepting a send rate or a linger of 0; and trailers, a
+      peer's reset, the caller's cancel or the other deadline leaving a stream's send meter, or its
+      body's meter, behind.
+  - The deadline check caught 23 of the 34 by itself. None of its peers sends trailers, cancels, or
+    opens a window a floor at a time, and it leaves the limits valid.
+  - The check's own commit reports one mutation, **CAUGHT**: idle starting with the output held.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

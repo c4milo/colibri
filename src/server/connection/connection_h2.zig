@@ -9,6 +9,7 @@ const h2 = @import("h2");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_module = @import("connection.zig");
+const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
@@ -108,6 +109,7 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
         return send_error(connection, failure);
     };
     connection.output_len += sent.written;
+    connection_sends.on_write(connection, id, octets.len, sent);
     // RFC 9113 §6.9: no window, or no room for a frame, and nothing moved.
     if (sent.written == 0) return error.Blocked;
     // h2 sets END_STREAM on the frame that carries the last octet, and only then.
@@ -125,6 +127,7 @@ pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) Se
     connection.output_len += written;
     // RFC 9113 §8.1: a trailer section ends the stream.
     connection.done_owed.push(id);
+    connection_sends.remove(connection, id);
 }
 
 pub fn cancel(connection: *Connection, id: Id) void {

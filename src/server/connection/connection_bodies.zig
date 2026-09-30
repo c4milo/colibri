@@ -20,6 +20,7 @@ const deadline = @import("../deadline.zig");
 const rate = @import("../rate.zig");
 const connection_module = @import("connection.zig");
 const connection_coding = @import("connection_coding.zig");
+const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
 const Id = event.Id;
@@ -186,6 +187,7 @@ fn cancel_stream(connection: *Connection, id: Id, passed: Deadline) void {
         assert(failure == error.StreamNotSendable);
     };
     connection_coding.forget(connection, id);
+    connection_sends.remove(connection, id);
     remove(connection, id);
     owe_cancelled(connection, .{ .id = id, .reason = .{ .deadline = passed } });
 }
@@ -200,9 +202,10 @@ fn write_timeout(connection: *Connection, stream_id: u32) bool {
     return true;
 }
 
-fn owe_cancelled(connection: *Connection, cancelled: event.Cancelled) void {
+/// Owes the caller `cancelled`, for a request a deadline ended.
+pub fn owe_cancelled(connection: *Connection, cancelled: event.Cancelled) void {
     const bodies = &connection.bodies;
-    // Each body is cancelled once, and the ring holds one for each.
+    // Each request is cancelled once, and the ring holds one for each h2 stream.
     assert(bodies.cancelled_len < bodies.cancelled.len);
     const slot = (bodies.cancelled_first + bodies.cancelled_len) % bodies.cancelled.len;
     bodies.cancelled[slot] = cancelled;

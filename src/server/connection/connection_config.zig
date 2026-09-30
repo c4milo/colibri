@@ -8,6 +8,7 @@ const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const deadline = @import("../deadline.zig");
+const constants = @import("../constants.zig");
 
 const Protocol = event.Protocol;
 
@@ -37,4 +38,7 @@ pub const Config = struct {
     /// The limits of decision 110's deadlines. A connection copies them when it starts, and
     /// `Connection.set_deadlines` changes one connection's.
     deadlines: deadline.Deadlines = .{},
+    /// The shortest DATA frame h2 sends when a window, not the content, decides its length
+    /// (decision 110).
+    data_frame_len_min: u32 = constants.data_frame_len_min,
 };

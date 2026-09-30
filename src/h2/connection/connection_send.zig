@@ -11,9 +11,10 @@
 //!
 //! DATA is bounded by four things at once: what the connection's send window holds, what the
 //! stream's holds (§6.9.1), what one frame carries and what the caller's buffer has room for. The
-//! call writes what all four allow and says how much of the payload that was, so a caller loops
-//! until the whole payload is sent or a call sends nothing, and waits for a WINDOW_UPDATE when a
-//! call sends nothing.
+//! call writes what all four allow and says how much of the payload that was, and which of them
+//! held it short, so a caller loops until the whole payload is sent or a call sends nothing, and
+//! waits for a WINDOW_UPDATE when a window held it. A window below `data_frame_len_min` sends
+//! nothing unless it holds the whole payload (`connection_send_window.zig`).
 //!
 //! The state machine decides every send before a frame is written (§5.1): a frame colibri may not
 //! send on a stream is `error.StreamNotSendable` and writes nothing, which is the `illegal` verdict
@@ -28,6 +29,7 @@ const frame = @import("../frame/frame.zig");
 const stream = @import("../stream/stream.zig");
 const streams_table = @import("../stream/streams.zig");
 const connection = @import("connection.zig");
+const connection_send_window = @import("connection_send_window.zig");
 const connection_request = @import("connection_request.zig");
 
 const Connection = connection.Connection;
@@ -60,7 +62,11 @@ pub const DataWritten = struct {
     consumed: usize,
     /// Octets written into the caller's buffer, headers included.
     written: usize,
+    /// What held the frame short of the whole payload, if anything did.
+    short_by: ShortBy,
 };
+
+pub const ShortBy = connection_send_window.ShortBy;
 
 /// Writes the response field section for `stream_id`: a `:status` pseudo-header field and the
 /// field lines after it (RFC 9113 §8.3.2). A server's call.
@@ -135,9 +141,10 @@ pub fn write_data(
     // RFC 9113 §8.1: a message's DATA frames follow its final header section, so a server sends
     // none before its final response.
     if (!record.final_sent) return error.SectionOutOfOrder;
-    const room = sendable_len(target, record, output, payload.len);
+    const next = connection_send_window.sendable(target, record, output.len, payload.len);
+    const room = next.len;
     // A frame that carries nothing and ends nothing is one RFC 9113 §6.1 has no use for.
-    if (room == 0 and !(payload.len == 0 and end_stream)) return .{ .consumed = 0, .written = 0 };
+    if (room == 0 and !(payload.len == 0 and end_stream)) return .{ .consumed = 0, .written = 0, .short_by = next.short_by };
     const last = room == payload.len;
     const flag = end_stream and last;
     var writer = Writer.init(output);
@@ -147,7 +154,7 @@ pub fn write_data(
     spend_windows(target, record, @intCast(room));
     const verdict = stream.on_send(record.state, record.closed, .data, flag, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .data, flag);
-    return .{ .consumed = room, .written = writer.written().len };
+    return .{ .consumed = room, .written = writer.written().len, .short_by = next.short_by };
 }
 
 /// Ends one stream with a RST_STREAM the caller asked for (RFC 9113 §6.4). The frame is queued
@@ -257,17 +264,9 @@ pub fn write_block(target: *Connection, output: []u8, stream_id: u32, block: []c
     unreachable;
 }
 
-/// The octets of a payload the two windows, one frame and the caller's buffer allow.
-fn sendable_len(target: *const Connection, record: *const Stream, output: []const u8, payload_len: usize) usize {
-    // RFC 9113 §6.9.1: a sender spends both the stream's window and the connection's.
-    const windows = @min(target.send_window.sendable(), record.send_window.sendable());
-    const room = if (output.len > constants.frame_header_len) output.len - constants.frame_header_len else 0;
-    return @min(@min(windows, target.peer.max_frame_size), @min(room, payload_len));
-}
-
 /// Takes `len` octets out of both send windows (RFC 9113 §6.9.1).
 fn spend_windows(target: *Connection, record: *Stream, len: u32) void {
-    // `sendable_len` took the smaller of the two windows, so neither can be exceeded here.
+    // `sendable` took the smaller of the two windows, so neither can be exceeded here.
     target.send_window.consume(len) catch unreachable;
     record.send_window.consume(len) catch unreachable;
 }
@@ -457,4 +456,5 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
 test {
     _ = @import("connection_send_trailers_test.zig");
     _ = @import("connection_send_room_test.zig");
+    _ = @import("connection_send_window.zig");
 }

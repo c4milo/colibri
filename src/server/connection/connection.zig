@@ -36,6 +36,7 @@ const connection_config = @import("connection_config.zig");
 const connection_continue = @import("connection_continue.zig");
 const connection_deadline = @import("connection_deadline.zig");
 const connection_bodies = @import("connection_bodies.zig");
+const connection_sends = @import("connection_sends.zig");
 const connection_events = @import("connection_events.zig");
 const deadline = @import("../deadline.zig");
 const done = @import("../done.zig");
@@ -126,6 +127,7 @@ pub const Connection = struct {
     deadlines: Deadlines,
     clock: connection_deadline.Clock,
     bodies: connection_bodies.Bodies,
+    sends: connection_sends.Sends,
 
     /// Prepares a connection the listener accepted at `now_ns`, with nothing read or written. Over
     /// TLS, every draw the handshake makes comes from `random`, and `now_seconds` is the clock its
@@ -134,10 +136,12 @@ pub const Connection = struct {
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3.
         assert(config.cleartext != .h3);
         assert((config.codings.len == 0) == (config.encoders == null));
+        assert(config.data_frame_len_min <= h2.constants.max_frame_size_initial);
         try config.deadlines.validate();
         connection.deadlines = config.deadlines;
         connection.clock = .init(now_ns);
         connection.bodies.init();
+        connection.sends.init();
         connection.config = config;
         connection.plain_in_len = 0;
         connection.plain_in_read = 0;
@@ -174,6 +178,7 @@ pub const Connection = struct {
             .h2 => {
                 connection.session = .{ .h2 = undefined };
                 connection.session.h2.init(.server);
+                connection.session.h2.data_frame_len_min = connection.config.data_frame_len_min;
             },
             .h11 => {
                 connection.session = .{ .h11 = undefined };
@@ -270,6 +275,7 @@ pub const Connection = struct {
         if (connection.phase != .open) return;
         connection_coding.forget(connection, id);
         connection_bodies.remove(connection, id);
+        connection_sends.remove(connection, id);
         switch (connection.session) {
             .h2 => connection_h2.cancel(connection, id),
             .h11 => connection_h11.cancel(connection, id),
@@ -295,6 +301,7 @@ pub const Connection = struct {
     pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
         _ = connection_deadline.fire(connection, now_ns);
         const written = connection.send_owed(output, now_ns);
+        connection_sends.count(connection, written);
         connection_deadline.observe(connection, now_ns);
         return written;
     }
@@ -341,6 +348,8 @@ pub const Connection = struct {
     /// written everything, over TLS the `close_notify` too (RFC 9846 §6.1), or the alert of a
     /// failure.
     pub fn should_close(connection: *const Connection) bool {
+        // Decision 110: once its linger has passed, a connection closes with octets still owed.
+        if (connection.clock.lingered) return true;
         if (connection.output_len > 0) return false;
         return switch (connection.phase) {
             .handshake => false,
@@ -483,4 +492,5 @@ test {
     _ = @import("connection_coding_h2_test.zig");
     _ = @import("connection_deadline_test.zig");
     _ = @import("connection_bodies_test.zig");
+    _ = @import("connection_sends_test.zig");
 }

@@ -7,6 +7,7 @@ const connection_module = @import("connection.zig");
 const connection_coding = @import("connection_coding.zig");
 const connection_deadline = @import("connection_deadline.zig");
 const connection_bodies = @import("connection_bodies.zig");
+const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
 
@@ -27,6 +28,7 @@ pub fn note(connection: *Connection, reported: event.Event) void {
         .cancelled => |cancelled| {
             connection_coding.forget(connection, cancelled.id);
             connection_bodies.remove(connection, cancelled.id);
+            connection_sends.remove(connection, cancelled.id);
         },
         .done => {},
     }

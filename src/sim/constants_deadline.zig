@@ -35,12 +35,12 @@ pub const socket_len: u32 = 16_384;
 pub const read_content_len_min: u32 = 98_304;
 pub const read_content_len_max: u32 = 163_840;
 
-/// An honest slow reader's pace: a piece every gap, at two to four times decision 110's minimum
-/// send rate of 1,024 octets a second.
+/// An honest slow reader's pace: a piece every gap, at two to four times the plan's minimum send
+/// rate.
 pub const read_gap_ms_min: u64 = 50;
 pub const read_gap_ms_max: u64 = 250;
-pub const read_rate_min: u32 = 2_048;
-pub const read_rate_max: u32 = 4_096;
+pub const read_rate_factor_min: u32 = 2;
+pub const read_rate_factor_max: u32 = 4;
 
 /// A hostile slow reader's rate in octets a second, so slow that its first window always falls
 /// short of the quota under the limits a plan draws (`deadline_plan.zig` asserts it).
@@ -77,6 +77,9 @@ pub const short_limit_ms_min: u64 = 5_000;
 pub const short_rate_ms_min: u64 = 2_000;
 pub const short_rate_max: u32 = 2_048;
 pub const short_body_ms_min: u64 = 60_000;
+
+/// The shortest linger a plan draws when it makes the defaults stricter, in milliseconds.
+pub const short_linger_ms_min: u64 = 500;
 
 /// The octets a window owes at its minimum rate, at least, in the limits a plan draws. A body
 /// arrives a unit at a time, an h2 DATA frame of up to 16,384 octets, so an honest peer at twice
@@ -151,7 +154,7 @@ comptime {
     assert(short_rate_ms_min <= short_limit_ms_min and long_body_rate_min > 0);
     assert(long_body_cap_ms_max < long_body_ms and long_body_gap_ms_max * 4 <= short_rate_ms_min);
     assert(exchanges_max * read_content_len_max < stream_len_max and read_content_len_min <= read_content_len_max);
-    assert(read_gap_ms_min <= read_gap_ms_max and read_rate_min <= read_rate_max);
+    assert(read_gap_ms_min <= read_gap_ms_max and read_rate_factor_min <= read_rate_factor_max);
     assert(slow_read_rate_min <= slow_read_rate_max);
     assert(long_body_rate * long_body_ms / ms_per_s + long_body_ms / long_body_gap_ms_min * data_frame_header_len < script_len_max);
 }
