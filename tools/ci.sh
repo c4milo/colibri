@@ -147,6 +147,9 @@ section "h11 interop, client direction, cleartext and TLS" tools/h11_interop.sh 
 h11_interop_lines="$(grep -E "^h11_interop.sh: (go version|h2o version|over TLS|every exchange)" "${scratch}/last.log")"
 section "h11 interop, server direction, cleartext and TLS" tools/h11_server_interop.sh --tls
 h11_server_interop_lines="$(grep -E "^h11_server_interop.sh: (curl|go|over TLS|every request)" "${scratch}/last.log")"
+# Decision 110: the test-only server's deadlines, over real sockets and on its loop's clock.
+section "Deadlines of the test-only server" tools/deadlines.sh
+deadline_lines="$(grep -E "^deadlines.sh: (an |every)" "${scratch}/last.log")"
 section "TLS handshake, colibri as client" tools/tls_handshake.sh
 tls_lines="$(grep -E "^tls-handshake:|^tls_handshake: a refused handshake" "${scratch}/last.log")"
 section "TLS handshake, colibri as server" tools/tls_accept.sh
@@ -241,6 +244,7 @@ fi
     echo "${server_interop_lines}"
     echo "${h11_interop_lines}"
     echo "${h11_server_interop_lines}"
+    echo "${deadline_lines}"
   } | fenced
   echo
   echo "## TLS, both directions"

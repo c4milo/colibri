@@ -6115,6 +6115,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     ignoring the peer's initial window, and a peer whose initial window is the floor counting as
     small.
 
+  **The test-only server's clock, 2026-09-29.** Design §9's server ran each connection on a counter
+  of a millisecond a step, so no deadline ever passed on a real socket. It now takes the instant
+  its Rotor loop read at the last tick, as the UDP endpoints do (decision 63), and a tick waits no
+  longer than the soonest deadline of its connections. `tools/deadlines.sh` runs it in h11 and h2,
+  and `tools/ci.sh` runs that.
+  - `tools/deadlines.sh`: half a head cut at 10.00 s, a silent peer at 10.00 s while another
+    connection opens halfway, a body too slow at 20.00 s, and an h2 preface alone at 10.00 s.
+  - `tools/h2spec.sh 18443 --tls`: 144 of 146 cases in each mode. `tools/h2_server_interop.sh
+    --tls` and `tools/h11_server_interop.sh --tls`: every request answered.
+  - 2 mutations, each **CAUGHT** by `tools/deadlines.sh`: the loop never waking a connection at
+    its deadline, and a tick waiting Rotor's longest. The default deadlines are multiples of that
+    wait, 10 s, so the second is caught only because another connection opens halfway.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

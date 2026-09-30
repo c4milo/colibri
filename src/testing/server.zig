@@ -17,6 +17,10 @@
 //! receive, one send and, at its end, one close. A peer that stops reading holds up only its own
 //! connection: its octets wait in that connection's buffer.
 //!
+//! Each connection runs on the instant the loop read at its last tick, which reads no clock of
+//! its own (decision 63), and a tick waits no longer than the soonest deadline of a connection
+//! (decision 110), which then gets the instant through `on_instant`.
+//!
 //! A receive writes into `received`, and its octets are appended to `input` when its event
 //! arrives. The session consumes `input` from the front, which moves what is left, and Rotor owns
 //! a receive's buffer until its final event (its rule 3), so a receive never targets `input`.
@@ -179,22 +183,50 @@ fn run_worker(index: usize, port: u16) !void {
     while (true) try turn(worker);
 }
 
-/// One turn of the loop: an accept when a slot is free, then one tick and its events.
+/// One turn of the loop: an accept when a slot is free, one tick and its events, then the
+/// connections whose deadline has passed.
 fn turn(worker: *Worker) !void {
     arm_accept(worker);
-    const count = try worker.loop.tick(&worker.events, rotor.constants.wait_ns_max);
-    for (worker.events[0..count]) |event| on_event(worker, event);
+    const count = try worker.loop.tick(&worker.events, wait_ns(worker));
+    const now_ns = worker.loop.now_ns();
+    for (worker.events[0..count]) |event| on_event(worker, event, now_ns);
+    wake(worker, now_ns);
 }
 
-fn on_event(worker: *Worker, event: rotor.Event) void {
-    if (event.user_data == accept_user_data) return on_accept(worker, event);
+/// How long the next tick may wait: until the soonest deadline of a live connection, and never
+/// longer than Rotor's longest wait.
+fn wait_ns(worker: *const Worker) u64 {
+    const now_ns = worker.loop.now_ns();
+    var wait: u64 = rotor.constants.wait_ns_max;
+    for (&worker.connections) |*connection| {
+        if (!connection.live or connection.close_submitted or connection.failed) continue;
+        const deadline_ns = connection.session.deadline_ns() orelse continue;
+        wait = @min(wait, deadline_ns -| now_ns);
+    }
+    return wait;
+}
+
+/// Hands each live connection whose deadline has passed the instant, and sends what it then owes.
+fn wake(worker: *Worker, now_ns: u64) void {
+    for (&worker.connections, 0..) |*connection, slot| {
+        if (!connection.live or connection.close_submitted or connection.failed) continue;
+        const deadline_ns = connection.session.deadline_ns() orelse continue;
+        if (deadline_ns > now_ns) continue;
+        connection.session.on_instant(now_ns);
+        step(connection, now_ns);
+        arm(worker, slot);
+    }
+}
+
+fn on_event(worker: *Worker, event: rotor.Event, now_ns: u64) void {
+    if (event.user_data == accept_user_data) return on_accept(worker, event, now_ns);
     const slot: usize = @intCast(event.user_data >> kind_bits);
     const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data)));
     const connection = &worker.connections[slot];
     assert(connection.live);
     switch (kind) {
-        .receive => on_received(connection, event),
-        .send => on_sent(connection, event),
+        .receive => on_received(connection, event, now_ns),
+        .send => on_sent(connection, event, now_ns),
         .close => connection.closed = true,
     }
     if (connection.closed and !connection.receiving and !connection.sending) {
@@ -215,8 +247,8 @@ fn arm_accept(worker: *Worker) void {
     worker.accepting = true;
 }
 
-/// Takes the connection an accept delivered into a free slot.
-fn on_accept(worker: *Worker, event: rotor.Event) void {
+/// Takes the connection an accept delivered into a free slot, at `now_ns`.
+fn on_accept(worker: *Worker, event: rotor.Event, now_ns: u64) void {
     worker.accepting = false;
     const descriptor: rotor.Descriptor = @intCast(event.outcome() catch return);
     const slot = free_slot(worker) orelse unreachable; // `arm_accept` waits for one.
@@ -234,7 +266,7 @@ fn on_accept(worker: *Worker, event: rotor.Event) void {
     connection.live = true;
     // `server_options.read` refuses `--echo` but for h11 in cleartext.
     const echo: ?*h11_echo.Echo = if (echo_mode) &echoes[worker.index][slot] else null;
-    connection.session.init(&worker.config, entropy.random(), echo) catch {
+    connection.session.init(&worker.config, entropy.random(), echo, now_ns) catch {
         connection.failed = true;
     };
     arm(worker, slot);
@@ -250,7 +282,7 @@ fn free_slot(worker: *Worker) ?usize {
 
 /// Appends what a receive read to the input and steps the session over it. A receive of no
 /// octets is the peer closing its side, which ends the connection.
-fn on_received(connection: *Connection, event: rotor.Event) void {
+fn on_received(connection: *Connection, event: rotor.Event, now_ns: u64) void {
     connection.receiving = false;
     const read = event.outcome() catch 0;
     if (read == 0) {
@@ -260,12 +292,12 @@ fn on_received(connection: *Connection, event: rotor.Event) void {
     assert(read <= connection.input.len - connection.input_len);
     @memcpy(connection.input[connection.input_len..][0..read], connection.received[0..read]);
     connection.input_len += read;
-    step(connection);
+    step(connection, now_ns);
 }
 
 /// Counts what a send took, and steps the session: the room the send freed may be what it
 /// waited for.
-fn on_sent(connection: *Connection, event: rotor.Event) void {
+fn on_sent(connection: *Connection, event: rotor.Event, now_ns: u64) void {
     connection.sending = false;
     const sent = event.outcome() catch {
         connection.failed = true;
@@ -278,7 +310,7 @@ fn on_sent(connection: *Connection, event: rotor.Event) void {
         connection.output_len = 0;
         connection.output_sent = 0;
     }
-    step(connection);
+    step(connection, now_ns);
 }
 
 /// Submits what the connection needs next: its close once it is failed or finished and drained,
@@ -318,13 +350,14 @@ fn submit(worker: *Worker, slot: usize, kind: Kind) void {
     assert(taken == 1);
 }
 
-/// Steps the session until it stops moving, appending what it writes to the output buffer.
-fn step(connection: *Connection) void {
+/// Steps the session at `now_ns` until it stops moving, appending what it writes to the output
+/// buffer.
+fn step(connection: *Connection, now_ns: u64) void {
     if (connection.failed or connection.close_submitted) return;
     for (0..constants.steps_per_read_max) |_| {
         const room = connection.output[connection.output_len..];
         if (room.len == 0) return;
-        const stepped = connection.session.step(connection.input[0..connection.input_len], room);
+        const stepped = connection.session.step(connection.input[0..connection.input_len], room, now_ns);
         connection.output_len += stepped.written;
         consume(connection, stepped.consumed);
         if (stepped.done) {
@@ -415,11 +448,11 @@ test "a TLS connection's session is wiped when its slot is freed" {
     connection.receiving = false;
     connection.sending = false;
     connection.closed = false;
-    try connection.session.init(&worker.config, entropy.random(), null);
+    try connection.session.init(&worker.config, entropy.random(), null, 0);
     try testing.expect(connection.session.connection.tls_server.session.recordState() != .closed);
     // Rotor's close of the connection is its last operation: the slot is freed on it.
     const user_data = (@as(u64, slot) << kind_bits) | @intFromEnum(Kind.close);
-    on_event(worker, .{ .user_data = user_data, .result = 0, .flags = .{} });
+    on_event(worker, .{ .user_data = user_data, .result = 0, .flags = .{} }, 0);
     try testing.expect(!connection.live);
     try testing.expectEqual(.closed, connection.session.connection.tls_server.session.recordState());
 }

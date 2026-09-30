@@ -12,6 +12,9 @@
 //! h11 reads a pipelined request only once the one before it is answered (decision 92), so the
 //! answer to one request is what lets the next be read.
 //!
+//! The caller hands each call the instant it runs at, and wakes at `deadline_ns` to hand one to
+//! `on_instant`, so decision 110's deadlines run on the caller's clock.
+//!
 //! The connection runs TLS itself when its configuration names it, so this file holds no record
 //! and no protocol rule: it answers requests through the calls every program uses.
 const std = @import("std");
@@ -72,25 +75,38 @@ pub const Session = struct {
     content_sent: usize,
     /// Where the `--echo` mode keeps the request it returns, or null in every other mode.
     echo: ?*h11_echo.Echo,
-    /// The instant the next step reports (design §4.2).
+    /// The instant of the last call (design §4.2).
     now_ns: u64,
 
-    /// Prepares a connection the listener accepted, under `config`.
-    pub fn init(session: *Session, config: *const server.Config, random: std.Random, echo: ?*h11_echo.Echo) server.StartError!void {
+    /// Prepares a connection the listener accepted at `now_ns`, under `config`.
+    pub fn init(session: *Session, config: *const server.Config, random: std.Random, echo: ?*h11_echo.Echo, now_ns: u64) server.StartError!void {
         session.reading_count = 0;
         session.owed_count = 0;
         session.head_written = false;
         session.content_sent = 0;
         session.echo = echo;
-        session.now_ns = 0;
+        session.now_ns = now_ns;
         // The server issues no ticket, so it judges none at a clock: chapulin's 0 for none.
-        try session.connection.init(config, random, 0, session.now_ns);
+        try session.connection.init(config, random, 0, now_ns);
         assert(session.connection.output_len == 0);
     }
 
-    /// Consumes what it can of `input` and writes what it can into `output`. See the header.
-    pub fn step(session: *Session, input: []u8, output: []u8) Step {
-        session.now_ns += constants.tick_ns;
+    /// The soonest instant one of the connection's deadlines passes, or null (decision 110).
+    pub fn deadline_ns(session: *const Session) ?u64 {
+        return session.connection.deadline_ns();
+    }
+
+    /// Hands the connection `now_ns`, which a deadline has passed at. The next `step` sends what
+    /// the connection then owes.
+    pub fn on_instant(session: *Session, now_ns: u64) void {
+        session.now_ns = now_ns;
+        session.connection.on_instant(now_ns);
+    }
+
+    /// Consumes what it can of `input` and writes what it can into `output`, at `now_ns`. See the
+    /// header.
+    pub fn step(session: *Session, input: []u8, output: []u8, now_ns: u64) Step {
+        session.now_ns = now_ns;
         var consumed: usize = 0;
         var written: usize = 0;
         // Bounded: a pass that neither reads nor finishes a response ends the loop.

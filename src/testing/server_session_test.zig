@@ -34,15 +34,21 @@ const response = "HTTP/1.1 200 OK\r\ncontent-type: " ++ constants.response_conte
 fn fresh_session(protocol: server.Protocol, echo: ?*h11_echo.Echo) !*Session {
     test_config = .{ .cleartext = protocol };
     // Cleartext draws nothing from the source.
-    try test_session.init(&test_config, entropy.random(), echo);
+    test_now_ns = 0;
+    try test_session.init(&test_config, entropy.random(), echo, test_now_ns);
     return &test_session;
 }
 
-/// Steps the session over `input`, copied where the connection may read it. Test-only.
+/// Steps the session over `input`, copied where the connection may read it, a tick after the step
+/// before. Test-only.
 fn step(input: []const u8, output: []u8) session_module.Step {
     @memcpy(test_input[0..input.len], input);
-    return test_session.step(test_input[0..input.len], output);
+    test_now_ns += constants.tick_ns;
+    return test_session.step(test_input[0..input.len], output, test_now_ns);
 }
+
+/// The instant of the tests' last step. Test-only.
+var test_now_ns: u64 = 0;
 
 test "every h11 request is answered with 200 and the body, pipelined ones in order" {
     _ = try fresh_session(.h11, null);
@@ -128,7 +134,8 @@ test "the echo mode answers content past its limit with 413, and writes a long e
         std.fmt.comptimePrint("{d}", .{constants.echo_body_len_max + 1}) ++ "\r\n\r\n";
     @memcpy(test_input[0..head.len], head);
     @memset(test_input[head.len..][0 .. constants.echo_body_len_max + 1], 'x');
-    const refused = test_session.step(test_input[0 .. head.len + constants.echo_body_len_max + 1], &test_output);
+    test_now_ns += constants.tick_ns;
+    const refused = test_session.step(test_input[0 .. head.len + constants.echo_body_len_max + 1], &test_output, test_now_ns);
     try testing.expect(std.mem.startsWith(u8, test_output[0..refused.written], "HTTP/1.1 413 Content Too Large\r\n"));
     // A GET whose echo is longer than the output: the content goes out over several steps.
     _ = try fresh_session(.h11, &test_echo);

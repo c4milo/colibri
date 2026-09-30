@@ -354,6 +354,10 @@ section when a step adds or renames a command.
   handshake colibri refuses, a name the certificate does not carry and a client that offers TLS 1.2
   alone, and requires the Go peer to read colibri's alert (RFC 9846 §6.2). Both need a Go
   toolchain, and `tools/ci.sh` runs them.
+- Deadline check: `tools/deadlines.sh [port]` runs the test-only server in h11 and h2 on its
+  loop's clock and requires four peers to be cut at decision 110's default deadlines, each within
+  a second after its instant: half a head and a silent peer at 10 s, a body too slow at 20 s, and
+  an h2 preface alone at 10 s. It needs `python3`, and `tools/ci.sh` runs it.
 - QUIC check: `tools/quic_loopback.sh` runs a colibri client and a colibri server over the QUIC
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.

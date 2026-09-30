@@ -144,6 +144,9 @@ var test_config: client.Config align(@alignOf(client.Config)) = .{ .authority = 
 /// Most rounds a test exchanges octets for, which bounds its loop. Test-only.
 const test_rounds_max: u32 = 4096;
 
+/// The instant of the server's last step, a tick after the one before. Test-only.
+var test_server_now_ns: u64 = 0;
+
 fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
     std.mem.copyForwards(u8, buffer[0 .. len - consumed], buffer[consumed..len]);
     return len - consumed;
@@ -157,7 +160,8 @@ fn test_run() u32 {
         const stepped = test_client.step(test_to_client[0..to_client_len], test_to_server[to_server_len..]);
         to_client_len = test_drop(&test_to_client, to_client_len, stepped.consumed);
         to_server_len += stepped.written;
-        const served = test_server.step(test_to_server[0..to_server_len], test_to_client[to_client_len..]);
+        test_server_now_ns += constants.tick_ns;
+        const served = test_server.step(test_to_server[0..to_server_len], test_to_client[to_client_len..], test_server_now_ns);
         to_server_len = test_drop(&test_to_server, to_server_len, served.consumed);
         to_client_len += served.written;
         const moved = stepped.consumed + stepped.written + served.consumed + served.written;
@@ -168,7 +172,8 @@ fn test_run() u32 {
 
 test "h2: every exchange of the plan shares the connection, and content past the window goes out" {
     client_exchange.fill_content();
-    try test_server.init(&.{ .cleartext = .h2 }, entropy.random(), null);
+    test_server_now_ns = 0;
+    try test_server.init(&.{ .cleartext = .h2 }, entropy.random(), null, test_server_now_ns);
     test_config = .{ .authority = "localhost", .cleartext = .h2 };
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
     const content_len = 3 * 65_535;
@@ -188,7 +193,8 @@ test "h2: every exchange of the plan shares the connection, and content past the
 
 test "h11: the exchanges go out in order, and the connection ends after the last" {
     client_exchange.fill_content();
-    try test_server.init(&.{ .cleartext = .h11 }, entropy.random(), null);
+    test_server_now_ns = 0;
+    try test_server.init(&.{ .cleartext = .h11 }, entropy.random(), null, test_server_now_ns);
     test_config = .{ .authority = "localhost", .cleartext = .h11 };
     try test_client.init(&test_config, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
