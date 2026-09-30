@@ -39,6 +39,10 @@ pub const Clock = struct {
     /// passed since, after which it closes with them unsent (decision 110).
     linger_since_ns: ?u64,
     lingered: bool,
+    /// How long h2's SETTINGS deadline has waited while bodies arrived, and since when it waits
+    /// now (decision 110 as amended).
+    settings_paused_ns: u64,
+    settings_pause_since_ns: ?u64,
 
     pub fn init(now_ns: u64) Clock {
         return .{
@@ -49,6 +53,8 @@ pub const Clock = struct {
             .timed_out = null,
             .linger_since_ns = null,
             .lingered = false,
+            .settings_paused_ns = 0,
+            .settings_pause_since_ns = null,
         };
     }
 };
@@ -111,6 +117,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     }
     connection_bodies.observe(connection, now_ns);
     connection_sends.observe(connection, now_ns);
+    observe_settings(connection, now_ns);
     // Decision 110: every close is bounded, from the instant the connection ended with octets
     // still to send.
     const ended = connection.stopped or connection.phase == .closed or connection.finished();
@@ -127,6 +134,7 @@ pub fn soonest(connection: *const Connection) ?u64 {
     if (!clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
     if (clock.head_since_ns) |since| at = earlier(at, since, limits.head_ns);
     if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
+    if (settings_deadline_ns(connection)) |settings_ns| at = @min(at orelse settings_ns, settings_ns);
     at = connection_sends.soonest(connection, connection_bodies.soonest(connection, at));
     const end_ns = linger_end orelse return at;
     return @min(at orelse end_ns, end_ns);
@@ -162,6 +170,36 @@ fn earlier(current: ?u64, since: u64, limit: ?u64) ?u64 {
     return @min(current orelse at, at);
 }
 
+/// Pauses h2's SETTINGS deadline while a request body arrives, since a client's acknowledgment
+/// goes out behind the DATA it queued first, and resumes it when none does (decision 110 as
+/// amended). The server sends SETTINGS once, so the pauses count toward that frame alone.
+fn observe_settings(connection: *Connection, now_ns: u64) void {
+    const clock = &connection.clock;
+    if (h2_settings_deadline_ns(connection) == null) return;
+    const arriving = connection.bodies.waiting > 0;
+    if (arriving and clock.settings_pause_since_ns == null) clock.settings_pause_since_ns = now_ns;
+    if (!arriving) {
+        const since_ns = clock.settings_pause_since_ns orelse return;
+        clock.settings_paused_ns += now_ns - since_ns;
+        clock.settings_pause_since_ns = null;
+    }
+}
+
+fn h2_settings_deadline_ns(connection: *const Connection) ?u64 {
+    return switch (connection.session) {
+        .h2 => |*session| session.settings_deadline_ns(),
+        .h11, .none => null,
+    };
+}
+
+/// The instant h2's SETTINGS acknowledgment is overdue, the pauses added, or null while none is
+/// owed or a body arrives (RFC 9113 §6.5.3).
+fn settings_deadline_ns(connection: *const Connection) ?u64 {
+    if (connection.clock.settings_pause_since_ns != null) return null;
+    const deadline_ns = h2_settings_deadline_ns(connection) orelse return null;
+    return deadline_ns + connection.clock.settings_paused_ns;
+}
+
 /// The deadline that has passed at `now_ns`, or null.
 fn due(connection: *const Connection, now_ns: u64) ?Deadline {
     if (!running(connection)) return null;
@@ -176,6 +214,10 @@ fn due(connection: *const Connection, now_ns: u64) ?Deadline {
     if (clock.idle_since_ns) |since| {
         if (is_past(since, limits.idle_ns, now_ns)) return .idle;
     }
+    // RFC 9113 §6.5.3: a SETTINGS frame not acknowledged within a reasonable time may be a
+    // connection error of SETTINGS_TIMEOUT; decision 110 as amended pauses it while a body arrives.
+    const settings_ns = settings_deadline_ns(connection) orelse return null;
+    if (now_ns >= settings_ns) return .settings;
     return null;
 }
 
@@ -235,7 +277,10 @@ fn end(connection: *Connection, passed: Deadline) void {
             // arrive under the minimum rate, and a peer that takes too little of what it asked
             // for are excess use of the connection. RFC 9113 §9.1: a server that closes an idle
             // connection sends GOAWAY.
-            if (wait == .head or body or send) {
+            if (passed == .settings) {
+                const failure = session.fail(h2.constants.error_settings_timeout);
+                assert(failure == error.ConnectionFailed);
+            } else if (wait == .head or body or send) {
                 const failure = session.fail(h2.constants.error_enhance_your_calm);
                 assert(failure == error.ConnectionFailed);
             } else {

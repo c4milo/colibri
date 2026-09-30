@@ -232,3 +232,50 @@ test "decision 110: the configuration's limits apply from the instant init is gi
     try connection.init(&support.config, support.stream.random(), 0, idle_ns);
     try testing.expectEqual(idle_ns + early_ns, connection.deadline_ns().?);
 }
+
+test "RFC 9113 §6.5.3: a peer that never acknowledges the server's SETTINGS gets a GOAWAY with SETTINGS_TIMEOUT" {
+    try support.start_cleartext(.h2);
+    // The client's preface and SETTINGS, without an acknowledgment of the server's, which the
+    // server writes as it reads them.
+    const preface = h2_support.client_preface[0 .. h2_support.client_preface.len - h2_support.settings_ack.len];
+    _ = try receive_at(preface, early_ns);
+    _ = send_at(early_ns);
+    _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
+    const overdue_ns = early_ns + h2.constants.settings_timeout_ns;
+    try testing.expectEqual(overdue_ns, connection.deadline_ns().?);
+    connection.on_instant(overdue_ns - 1);
+    try testing.expectEqual(null, connection.timed_out());
+    connection.on_instant(overdue_ns);
+    try testing.expectEqual(.settings, connection.timed_out().?);
+    try testing.expectEqual(h2.constants.error_settings_timeout, try goaway_code(send_at(overdue_ns)));
+}
+
+test "decision 110 as amended: a SETTINGS deadline pauses while a body arrives, and resumes once none does" {
+    try support.start_cleartext(.h2);
+    const preface = h2_support.client_preface[0 .. h2_support.client_preface.len - h2_support.settings_ack.len];
+    _ = try receive_at(preface, early_ns);
+    _ = send_at(early_ns);
+    _ = try receive_at(try h2_support.request_frame_with(1, "POST", "/u", &.{}, false), early_ns);
+    const overdue_ns = early_ns + h2.constants.settings_timeout_ns;
+    // The body's first window ends after the acknowledgment is overdue, and holds its quota.
+    const quota = server_constants.body_rate_min * (server_constants.rate_window_ns / server_constants.nanoseconds_per_second);
+    var data: [quota]u8 = @splat('b');
+    _ = try receive_at(try deadline_support.data_frame(1, &data, false, 0), early_ns + 1);
+    connection.on_instant(overdue_ns);
+    try testing.expectEqual(null, connection.timed_out());
+    // The body ends, and the deadline resumes with the time the body took added.
+    const ended_ns = overdue_ns + 1;
+    _ = try receive_at(try deadline_support.data_frame(1, &.{}, true, 0), ended_ns);
+    const resumed_ns = overdue_ns + (ended_ns - early_ns);
+    try testing.expectEqual(resumed_ns, connection.deadline_ns().?);
+    connection.on_instant(resumed_ns - 1);
+    try testing.expectEqual(null, connection.timed_out());
+    connection.on_instant(resumed_ns);
+    try testing.expectEqual(.settings, connection.timed_out().?);
+}
+
+test "decision 110: an acknowledged SETTINGS runs no deadline" {
+    try h2_support.start();
+    _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
+    try testing.expectEqual(null, connection.deadline_ns());
+}

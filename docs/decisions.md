@@ -3227,6 +3227,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      Cost: a deadline bounds how long an attacker holds a connection, not how many connections it
      holds, so per-source limits stay the caller's. The deadlines land in design §8 step 20b.
 
+     Amended by the owner on 2026-09-29: the SETTINGS deadline waits while a request body arrives.
+     The deadline check found an honest h2 upload at 2.5 KB/s cut at 10 s: the client had queued
+     64 KB of DATA before it read the server's SETTINGS, and its acknowledgment arrived behind
+     them. The SETTINGS clock stops while any body waits and resumes when none does, so a peer
+     that never acknowledges is still cut, later by the time it spent uploading. The owner ruled
+     for waiting; a pause, rather than an overdue acknowledgment passing the moment the last body
+     ends, keeps the acknowledgment one piece behind that body from being cut. Refused: a longer
+     timeout, which a slower upload still outlasts; dropping the deadline, which RFC 9113 §6.5.3
+     leaves to the server; and keeping 10 s as ruled.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

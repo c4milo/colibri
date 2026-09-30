@@ -394,6 +394,13 @@ pub const Connection = struct {
         return error.ConnectionFailed;
     }
 
+    /// The instant the peer's acknowledgment of colibri's oldest SETTINGS frame it has not
+    /// acknowledged is overdue, or null (RFC 9113 §6.5.3). colibri reads no clock, so the caller
+    /// ends the connection with SETTINGS_TIMEOUT once its instant has passed it.
+    pub fn settings_deadline_ns(connection: *const Connection) ?u64 {
+        return connection.pending.deadline_ns();
+    }
+
     /// Whether the preface colibri owes has been written: the client's 24 octets and the SETTINGS
     /// frame of RFC 9113 §3.4.
     pub fn preface_done(connection: *const Connection) bool {

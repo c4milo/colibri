@@ -22,6 +22,9 @@ pub const Deadline = enum {
     /// The peer took the connection's octets, or in h2 opened a stream's window, under the
     /// minimum rate.
     send_rate,
+    /// The h2 peer did not acknowledge colibri's SETTINGS within `settings_timeout_ns` (RFC 9113
+    /// §6.5.3).
+    settings,
 };
 
 /// Each deadline's limit, or null to turn it off.

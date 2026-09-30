@@ -78,6 +78,7 @@ pub const Census = struct {
     body_rate: u64 = 0,
     body: u64 = 0,
     send_rate: u64 = 0,
+    settings: u64 = 0,
     /// The h2 streams a body deadline ended, the connection going on.
     streams_cut: u64 = 0,
     held: u64 = 0,
@@ -126,6 +127,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
             .body_rate => census.body_rate += 1,
             .body => census.body += 1,
             .send_rate => census.send_rate += 1,
+            .settings => census.settings += 1,
         }
     }
 }

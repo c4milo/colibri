@@ -6082,6 +6082,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     opens a window a floor at a time, and it leaves the limits valid.
   - The check's own commit reports one mutation, **CAUGHT**: idle starting with the output held.
 
+  **The SETTINGS deadline, 2026-09-29.** The first piece of 20b's last part. An h2 peer that does
+  not acknowledge the server's SETTINGS within `settings_timeout_ns`, 10 s, ends its connection
+  with SETTINGS_TIMEOUT (RFC 9113 §6.5.3): h2 reports the instant with
+  `Connection.settings_deadline_ns`, and the server's deadlines honour it. The deadline check
+  found it cutting an honest upload whose acknowledgment arrived behind its own DATA, and the
+  owner amended decision 110: the SETTINGS clock stops while a request body arrives.
+  - `zig build test`: 128 of 128 steps and 2458 of 2458 tests passed. The deadline check's census
+    did not change, and no connection in it ended at the SETTINGS deadline.
+  - 8 mutations, each **CAUGHT** by `zig build test-server`: the deadline never passing, passing
+    a nanosecond late, or left out of `deadline_ns`; the connection ending with another code; the
+    clock not pausing while a body arrives, the pause adding nothing, or the deadline running
+    while paused; and h2 reporting no SETTINGS deadline.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
