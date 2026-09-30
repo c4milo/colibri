@@ -2720,6 +2720,22 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternatives refused: a program that adds stdx as its own dependency to probe, and keeping
     the build target's answer in the programs.
 
+    **Amended again by the owner on 2026-09-30.** colibri's package no longer exports `platform`,
+    and `values.Client` and `values.Server` take `cpu`, the `platform.Cpu` the program's one probe
+    returned, in place of `aes_instructions`. The caller runs the probe, so colibri takes its result
+    as it is. `tls` imports `platform` for the `Cpu` type alone and never calls `probe()`. A session
+    runs the AES instructions only when `aes_clmul` is `yes`, and `no` and `not_known` run ChaCha20
+    alone. The multiply's answer (https://github.com/c4milo/colibri/issues/84) will read `dit` from
+    the same value, with no second change to the values.
+    - A program depends on stdx itself, at the commit colibri pins and with the options colibri
+      gives it, `.target` and `.release`. Zig then builds one stdx for both, so the program's
+      `platform.Cpu` is the type `tls` names. Other options build a second stdx, whose `Cpu` is
+      another type, and the program does not compile. `tools/consumer_check.sh` fetches stdx that
+      way.
+
+    The alternatives refused: keeping the export, which the previous amendment ruled; and keeping
+    colibri's own `present` or `absent` answer, which each caller would translate from the probe.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.
