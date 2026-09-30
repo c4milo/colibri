@@ -6140,6 +6140,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A peer that opens 110 streams at once joins the deadline check once h2's queue of replies can
     hold a reset for each stream a deadline cuts in one call: 32 fit today.
 
+  **The close reasons, 2026-09-30.** The last piece of 20b. An operator cannot tell an attack from
+  a limit set too tight unless the connection says what ended it
+  ([#82](https://github.com/c4milo/colibri/issues/82)). `server.Connection.close_reason` replaces
+  `timed_out`: it names the deadline that passed, or the limit the peer passed, and is null after
+  any other end. h2 records which of its four limits ended a connection with ENHANCE_YOUR_CALM,
+  and h11 names its one limit, on a run of records that carry no data.
+  - `zig build test`: 128 of 128 steps and 2479 of 2479 tests passed. The deadline check's
+    census did not change.
+  - 15 mutations, each **CAUGHT** by `zig build test-h2`, `zig build test-server`, `zig build
+    test-sim-run` or the deadline check: h2 naming no limit, naming one after an earlier failure,
+    keeping the last connection's limit, or naming any of its four limits as another; the server
+    naming no limit or no deadline, not reading h2's limits or h11's, or naming every h2 or h11
+    failure a limit; and the simulator recording no close reason, or reading a limit as a
+    deadline.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

@@ -59,9 +59,9 @@ test "decision 110: an h11 body under the minimum rate gets a 408 when its first
     try testing.expectEqual(first_end_ns, connection.deadline_ns().?);
     try feed(filler[0 .. quota - 1], early_ns + 1);
     connection.on_instant(first_end_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.body_rate, connection.timed_out().?);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
     try testing.expect(std.mem.startsWith(u8, send_at(first_end_ns), "HTTP/1.1 408 Request Timeout\r\n"));
     try testing.expect(connection.should_close());
 }
@@ -74,9 +74,9 @@ test "decision 110: each window owes the quota, and octets at a window's end cou
     try testing.expectEqual(first_end_ns + window_ns, connection.deadline_ns().?);
     try feed(filler[0 .. quota - 1], first_end_ns);
     connection.on_instant(first_end_ns + window_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(first_end_ns + window_ns);
-    try testing.expectEqual(.body_rate, connection.timed_out().?);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
 }
 
 test "decision 110: a body that keeps the rate still ends at its cap" {
@@ -87,9 +87,9 @@ test "decision 110: a body that keeps the rate still ends at its cap" {
     try feed(filler[0..quota], early_ns + 1);
     try testing.expectEqual(early_ns + cap_ns, connection.deadline_ns().?);
     connection.on_instant(early_ns + cap_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(early_ns + cap_ns);
-    try testing.expectEqual(.body, connection.timed_out().?);
+    try testing.expectEqual(.body, connection.close_reason().?.deadline);
     try testing.expect(std.mem.startsWith(u8, send_at(early_ns + cap_ns), "HTTP/1.1 408 "));
 }
 
@@ -112,7 +112,7 @@ test "decision 110: an h11 body that falls short after its response began closes
     try connection.respond(request.event.?.request.id, .{ .status = ok_status, .end = false });
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.body_rate, connection.timed_out().?);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
     try testing.expectEqual(0, send_at(first_end_ns).len);
     try testing.expect(connection.should_close());
 }
@@ -124,7 +124,7 @@ test "RFC 9112 §9.3: no deadline runs once h11 closes after a response to a req
     _ = send_at(early_ns);
     try testing.expectEqual(null, connection.deadline_ns());
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
 }
 
 test "RFC 9110 §10.1.1: a body owed a 100 (Continue) starts its wait when the 100 is written" {
@@ -141,7 +141,7 @@ test "RFC 9113 §8.1: an h2 body under the rate gets a 408 and RST_STREAM with N
     try testing.expectEqual(first_end_ns, connection.deadline_ns().?);
     connection.on_instant(first_end_ns);
     // The stream ends, and the connection goes on.
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     const sent = send_at(first_end_ns);
     try testing.expectEqual(timeout_status, try deadline_support.response_status(sent, 1));
     try testing.expectEqual(h2.constants.error_no_error, try deadline_support.reset_code(sent, 1));
@@ -185,7 +185,7 @@ test "decision 110: h2 bodies that together fall under the rate end the connecti
     const together_end_ns = first_end_ns + window_ns;
     try testing.expectEqual(together_end_ns, connection.deadline_ns().?);
     connection.on_instant(together_end_ns);
-    try testing.expectEqual(.body_rate, connection.timed_out().?);
+    try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
     try testing.expectEqual(h2.constants.error_enhance_your_calm, try deadline_support.goaway_code(send_at(together_end_ns)));
 }
 
@@ -221,7 +221,7 @@ test "decision 110: a body ended by trailers, or a request the peer resets or th
     // Stream 1 waits on the application, and no body deadline runs.
     try testing.expectEqual(null, connection.deadline_ns());
     connection.on_instant(first_end_ns + window_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try testing.expectEqual(null, (try connection.receive(&.{}, first_end_ns + window_ns)).event);
 }
 

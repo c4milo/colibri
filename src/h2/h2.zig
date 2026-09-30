@@ -30,6 +30,7 @@ pub const connection = @import("connection/connection.zig");
 pub const connection_tls = @import("connection/connection_tls.zig");
 pub const Connection = connection.Connection;
 pub const Event = connection.Event;
+pub const Limit = connection.Limit;
 
 test {
     std.testing.refAllDecls(@This());

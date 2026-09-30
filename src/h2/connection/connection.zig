@@ -53,6 +53,20 @@ pub const SendError = connection_send.Error;
 pub const DataWritten = connection_send.DataWritten;
 pub const ShortBy = connection_send.ShortBy;
 
+/// The limit that ended a connection with ENHANCE_YOUR_CALM: a peer used a feature more than
+/// colibri allows (RFC 9113 §10.5).
+pub const Limit = enum {
+    /// More CONTINUATION frames in one field block than `continuation_count_max` (§6.10).
+    continuation_frames,
+    /// More records in a row that carried no data than `records_without_data_max`.
+    records_without_data,
+    /// More streams refused with RST_STREAM in one period than `rst_stream_rate_max`.
+    resets_sent,
+    /// More streams the peer opened and reset in one period than `peer_reset_rate_max`: Rapid
+    /// Reset, CVE-2023-44487.
+    peer_resets,
+};
+
 /// Why a request the caller asked for did not go out (`connection_request.zig`).
 pub const RequestError = connection_request.Error;
 
@@ -177,6 +191,8 @@ pub const Connection = struct {
     first_frame_read: bool,
     /// The code of the GOAWAY colibri queued once the peer broke the protocol, or null (§5.4.1).
     failure: ?u32,
+    /// The limit that ended the connection, when `failure` is ENHANCE_YOUR_CALM for one (§10.5).
+    failure_limit: ?Limit,
     /// The decoder of the field blocks the peer sends, with colibri's own table limit (§4.3).
     decoder: hpack.Decoder,
     /// The encoder of the field blocks colibri sends, under the peer's table limit (§4.3).
@@ -237,6 +253,7 @@ pub const Connection = struct {
         connection.settings_written = false;
         connection.first_frame_read = false;
         connection.failure = null;
+        connection.failure_limit = null;
         connection.decoder.init(connection.local.header_table_size);
         connection.encoder.init(connection.peer.header_table_size, .when_shorter);
         connection.streams.init(role);
@@ -389,6 +406,13 @@ pub const Connection = struct {
         return &connection.block.section;
     }
 
+    /// Ends the connection with ENHANCE_YOUR_CALM for `limit` (RFC 9113 §10.5), and notes which
+    /// limit it was. The first failure stands.
+    pub fn fail_limit(connection: *Connection, limit: Limit) Error {
+        if (connection.failure == null) connection.failure_limit = limit;
+        return connection.fail(constants.error_enhance_your_calm);
+    }
+
     /// Ends the connection with `code`: queues the GOAWAY of RFC 9113 §6.8, drops a field block in
     /// progress, and gives `receive` its error. The first failure stands.
     pub fn fail(connection: *Connection, code: u32) Error {
@@ -437,50 +461,6 @@ pub const Connection = struct {
     }
 };
 
-const testing = std.testing;
-
-const support = @import("connection_test_support.zig");
-const test_connection = &support.test_connection;
-const test_output = &support.test_output;
-
-test "a server writes its SETTINGS and no preface, and a client writes the 24 octets first" {
-    test_connection.init(.server);
-    try testing.expect(test_connection.has_pending());
-    const server_len = test_connection.write_pending(test_output, 0);
-    // The server's SETTINGS omits ENABLE_PUSH, so it carries five of the six settings.
-    try testing.expectEqual(constants.frame_header_len + 5 * constants.setting_len, server_len);
-    try testing.expectEqual(constants.frame_type_settings, test_output[3]);
-    try testing.expect(!test_connection.has_pending());
-    try testing.expectEqual(1, test_connection.pending.len());
-    test_connection.init(.client);
-    const client_len = test_connection.write_pending(test_output, 0);
-    try testing.expectEqualStrings(constants.client_preface, test_output[0..constants.client_preface_len]);
-    try testing.expectEqual(constants.client_preface_len + constants.frame_header_len + 6 * constants.setting_len, client_len);
-    try testing.expect(!test_connection.has_pending());
-}
-
-test "a buffer too short for the preface writes nothing and keeps it pending" {
-    test_connection.init(.client);
-    try testing.expectEqual(0, test_connection.write_pending(test_output[0 .. constants.client_preface_len - 1], 0));
-    try testing.expect(test_connection.has_pending());
-    try testing.expectEqual(0, test_connection.pending.len());
-    // The 24 octets fit, the SETTINGS frame does not.
-    try testing.expectEqual(constants.client_preface_len, test_connection.write_pending(test_output[0..constants.client_preface_len], 0));
-    try testing.expect(test_connection.has_pending());
-    const rest = test_connection.write_pending(test_output, 0);
-    try testing.expectEqual(constants.frame_header_len + 6 * constants.setting_len, rest);
-    try testing.expect(!test_connection.has_pending());
-}
-
-test "fail queues one GOAWAY, records it against the streams and stands on the first code" {
-    test_connection.init(.server);
-    _ = test_connection.write_pending(test_output, 0);
-    try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.error_protocol_error));
-    try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
-    try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.error_internal_error));
-    try testing.expectEqual(constants.error_protocol_error, test_connection.failure.?);
-    const written = test_connection.write_pending(test_output, 0);
-    const expected = "\x00\x00\x08\x07\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01";
-    try testing.expectEqualSlices(u8, expected, test_output[0..written]);
-    try testing.expect(!test_connection.has_pending());
+test {
+    _ = @import("connection_test.zig");
 }

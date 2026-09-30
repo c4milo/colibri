@@ -29,10 +29,10 @@ test "decision 110: a connection that sends nothing ends at the first-request de
     try support.start_cleartext(.h11);
     try testing.expectEqual(first_request_ns, connection.deadline_ns().?);
     connection.on_instant(first_request_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try testing.expect(!connection.should_close());
     connection.on_instant(first_request_ns);
-    try testing.expectEqual(.first_request, connection.timed_out().?);
+    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
     try testing.expectEqual(0, send_at(first_request_ns).len);
     try testing.expect(connection.should_close());
     try testing.expectEqual(null, connection.deadline_ns());
@@ -41,7 +41,7 @@ test "decision 110: a connection that sends nothing ends at the first-request de
 test "decision 110: send fires a deadline its instant has passed, as receive and on_instant do" {
     try support.start_cleartext(.h11);
     try testing.expectEqual(0, send_at(first_request_ns).len);
-    try testing.expectEqual(.first_request, connection.timed_out().?);
+    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
     try testing.expect(connection.should_close());
 }
 
@@ -50,7 +50,7 @@ test "decision 110: the idle deadline runs only after a first request" {
     try connection.set_deadlines(.{ .first_request_ns = null });
     connection.on_instant(early_ns);
     connection.on_instant(early_ns + 2 * idle_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try testing.expectEqual(null, connection.deadline_ns());
 }
 
@@ -58,7 +58,7 @@ test "decision 110: octets that arrive at the deadline's instant are not read" {
     try support.start_cleartext(.h11);
     const received = try receive_at(whole_request, first_request_ns);
     try testing.expectEqual(null, received.event);
-    try testing.expectEqual(.first_request, connection.timed_out().?);
+    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
 }
 
 test "RFC 9110 §15.5.9: a request head that began and did not end gets a 408 at the deadline" {
@@ -80,13 +80,13 @@ test "decision 110: no deadline runs while the application holds a request, and 
     // Far past every limit, and the application still has the request.
     const answered_ns = early_ns + first_request_ns + idle_ns + head_ns;
     connection.on_instant(answered_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try answer_at(received, answered_ns);
     try testing.expectEqual(answered_ns + idle_ns, connection.deadline_ns().?);
     connection.on_instant(answered_ns + idle_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(answered_ns + idle_ns);
-    try testing.expectEqual(.idle, connection.timed_out().?);
+    try testing.expectEqual(.idle, connection.close_reason().?.deadline);
     // RFC 9112 §9.5: an idle connection closes without a 408.
     try testing.expectEqual(0, send_at(answered_ns + idle_ns).len);
     try testing.expect(connection.should_close());
@@ -98,7 +98,7 @@ test "decision 110: no deadline runs while an h2 request is open, and idle runs 
     try testing.expectEqual(null, connection.deadline_ns());
     const answered_ns = early_ns + first_request_ns + idle_ns + head_ns;
     connection.on_instant(answered_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try answer_at(received, answered_ns);
     try testing.expectEqual(answered_ns + idle_ns, connection.deadline_ns().?);
 }
@@ -149,7 +149,7 @@ test "decision 110: a later head's deadline runs from its first octet, and its e
     _ = try receive_at("GET /b HTTP/1.1\r\nHost: ", began_ns + 1);
     try testing.expectEqual(began_ns + head_ns, connection.deadline_ns().?);
     connection.on_instant(began_ns + head_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     const rest = "GET /b HTTP/1.1\r\nHost: h\r\n\r\n";
     const whole = try receive_at(rest, began_ns + head_ns - 1);
     try testing.expectEqualStrings("/b", whole.event.?.request.target);
@@ -162,7 +162,7 @@ test "decision 110: a later head that does not end in time gets a 408" {
     const began_ns = early_ns + idle_ns / 2;
     _ = try receive_at("GET /b HTTP/1.1\r\nHo", began_ns);
     connection.on_instant(began_ns + head_ns);
-    try testing.expectEqual(.head, connection.timed_out().?);
+    try testing.expectEqual(.head, connection.close_reason().?.deadline);
     try testing.expect(std.mem.startsWith(u8, send_at(began_ns + head_ns), "HTTP/1.1 408 "));
 }
 
@@ -173,7 +173,7 @@ test "decision 110: an h2 peer that sends only PINGs gets a GOAWAY with NO_ERROR
     _ = try receive_at(&(try ping_frame()), first_request_ns - 1);
     try testing.expectEqual(first_request_ns, connection.deadline_ns().?);
     connection.on_instant(first_request_ns);
-    try testing.expectEqual(.first_request, connection.timed_out().?);
+    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
     try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(first_request_ns)));
     try testing.expect(connection.should_close());
 }
@@ -190,7 +190,7 @@ test "RFC 9113 §6.10: an h2 field block left unfinished ends the connection wit
     _ = try receive_at(open_block[0..frame.len], began_ns);
     try testing.expectEqual(began_ns + head_ns, connection.deadline_ns().?);
     connection.on_instant(began_ns + head_ns);
-    try testing.expectEqual(.head, connection.timed_out().?);
+    try testing.expectEqual(.head, connection.close_reason().?.deadline);
     try testing.expectEqual(h2.constants.error_enhance_your_calm, try goaway_code(send_at(began_ns + head_ns)));
 }
 
@@ -203,14 +203,14 @@ test "decision 110: an idle h2 connection gets a GOAWAY with NO_ERROR at the idl
     _ = send_at(early_ns + idle_ns / 2);
     try testing.expectEqual(early_ns + idle_ns, connection.deadline_ns().?);
     connection.on_instant(early_ns + idle_ns);
-    try testing.expectEqual(.idle, connection.timed_out().?);
+    try testing.expectEqual(.idle, connection.close_reason().?.deadline);
     try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(early_ns + idle_ns)));
 }
 
 test "decision 110: a TLS handshake that does not end in time closes the connection with nothing sent" {
     try support.begin_tls(&support.protocols_both, &support.protocols_both);
     connection.on_instant(first_request_ns);
-    try testing.expectEqual(.first_request, connection.timed_out().?);
+    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
     try testing.expectEqual(0, send_at(first_request_ns).len);
     try testing.expect(connection.should_close());
 }
@@ -244,9 +244,9 @@ test "RFC 9113 §6.5.3: a peer that never acknowledges the server's SETTINGS get
     const overdue_ns = early_ns + h2.constants.settings_timeout_ns;
     try testing.expectEqual(overdue_ns, connection.deadline_ns().?);
     connection.on_instant(overdue_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(overdue_ns);
-    try testing.expectEqual(.settings, connection.timed_out().?);
+    try testing.expectEqual(.settings, connection.close_reason().?.deadline);
     try testing.expectEqual(h2.constants.error_settings_timeout, try goaway_code(send_at(overdue_ns)));
 }
 
@@ -262,16 +262,16 @@ test "decision 110 as amended: a SETTINGS deadline pauses while a body arrives, 
     var data: [quota]u8 = @splat('b');
     _ = try receive_at(try deadline_support.data_frame(1, &data, false, 0), early_ns + 1);
     connection.on_instant(overdue_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     // The body ends, and the deadline resumes with the time the body took added.
     const ended_ns = overdue_ns + 1;
     _ = try receive_at(try deadline_support.data_frame(1, &.{}, true, 0), ended_ns);
     const resumed_ns = overdue_ns + (ended_ns - early_ns);
     try testing.expectEqual(resumed_ns, connection.deadline_ns().?);
     connection.on_instant(resumed_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(resumed_ns);
-    try testing.expectEqual(.settings, connection.timed_out().?);
+    try testing.expectEqual(.settings, connection.close_reason().?.deadline);
 }
 
 test "decision 110: an acknowledged SETTINGS runs no deadline" {
@@ -290,9 +290,9 @@ test "decision 110: requests a shutdown leaves open end with the connection when
     _ = send_at(early_ns + 1);
     try testing.expectEqual(early_ns + 1 + drain_ns, connection.deadline_ns().?);
     connection.on_instant(early_ns + drain_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(early_ns + 1 + drain_ns);
-    try testing.expectEqual(.drain, connection.timed_out().?);
+    try testing.expectEqual(.drain, connection.close_reason().?.deadline);
     try testing.expect(connection.should_close());
     // h2: its GOAWAY went out with the shutdown.
     try h2_support.start();
@@ -300,7 +300,7 @@ test "decision 110: requests a shutdown leaves open end with the connection when
     connection.shutdown();
     try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(early_ns + 1)));
     connection.on_instant(early_ns + 1 + drain_ns);
-    try testing.expectEqual(.drain, connection.timed_out().?);
+    try testing.expectEqual(.drain, connection.close_reason().?.deadline);
     try testing.expect(connection.should_close());
 }
 
@@ -311,7 +311,7 @@ test "decision 110: a shutdown whose requests finish in time closes without a de
     _ = send_at(early_ns + 1);
     try answer_at(received, early_ns + 2);
     try testing.expect(connection.should_close());
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try support.start_cleartext(.h11);
     try connection.set_deadlines(.{ .drain_ns = null });
     _ = try receive_at(whole_request, early_ns);

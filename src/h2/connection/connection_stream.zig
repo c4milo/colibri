@@ -164,7 +164,7 @@ fn count_reset(target: *Connection, now_ns: u64) Error!void {
         target.rst_stream_sent = 0;
     }
     if (target.rst_stream_sent == constants.rst_stream_rate_max) {
-        return target.fail(constants.error_enhance_your_calm);
+        return target.fail_limit(.resets_sent);
     }
     target.rst_stream_sent += 1;
 }
@@ -180,7 +180,7 @@ fn count_peer_reset(target: *Connection, now_ns: u64) Error!void {
     // RFC 9113 §10.5: an endpoint tracks the use of the features that cost it work, sets limits on
     // them, and treats excess as ENHANCE_YOUR_CALM.
     if (target.peer_resets == constants.peer_reset_rate_max) {
-        return target.fail(constants.error_enhance_your_calm);
+        return target.fail_limit(.peer_resets);
     }
     target.peer_resets += 1;
 }
@@ -389,6 +389,7 @@ test "§10.5: more than rst_stream_rate_max resets in one period ends the connec
     const zero = try frame_bytes(test_input, constants.frame_type_window_update, 0, id, "\x00\x00\x00\x00");
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(zero, 0));
     try testing.expectEqual(constants.error_enhance_your_calm, test_connection.failure.?);
+    try testing.expectEqual(.resets_sent, test_connection.failure_limit.?);
 }
 
 test "§10.5: a peer that resets more than peer_reset_rate_max of its streams in one period ends the connection" {
@@ -406,6 +407,7 @@ test "§10.5: a peer that resets more than peer_reset_rate_max of its streams in
     const reset = try frame_bytes(test_input, constants.frame_type_rst_stream, 0, id, "\x00\x00\x00\x08");
     try testing.expectError(error.ConnectionFailed, test_connection.receive(reset, 0));
     try testing.expectEqual(constants.error_enhance_your_calm, test_connection.failure.?);
+    try testing.expectEqual(.peer_resets, test_connection.failure_limit.?);
 }
 
 test "the peer's reset count starts again in the next period, and a reset of a closed stream is not counted" {

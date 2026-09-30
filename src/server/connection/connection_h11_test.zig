@@ -194,6 +194,8 @@ test "decision 92: a malformed request fails the connection, and the 400 goes ou
     const sent = support.drain();
     try testing.expect(std.mem.startsWith(u8, sent, "HTTP/1.1 400 Bad Request\r\n"));
     try testing.expect(connection.should_close());
+    // The peer broke the protocol, and passed no limit.
+    try testing.expectEqual(null, connection.close_reason());
 }
 
 test "RFC 9112 §3.2.3, §3.2.4: CONNECT's target is an authority, and OPTIONS * has the path *" {

@@ -24,8 +24,9 @@
 //! soonest instant one passes, and the caller wakes then and calls `on_instant`. `receive` and
 //! `send` end the connection first when their instant is past a deadline. A deadline counts only
 //! what colibri has seen, so the caller hands `receive` every octet its socket holds and calls
-//! `send` whenever its socket takes octets, before it calls `on_instant`. `timed_out` names the
-//! deadline that ended the connection, and `set_deadlines` changes one connection's limits.
+//! `send` whenever its socket takes octets, before it calls `on_instant`. `close_reason` names the
+//! deadline that ended the connection, or the limit its peer passed, and `set_deadlines` changes
+//! one connection's limits.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -47,6 +48,7 @@ const connection_sends = @import("connection_sends.zig");
 const connection_events = @import("connection_events.zig");
 const connection_close = @import("connection_close.zig");
 const deadline = @import("../deadline.zig");
+const close_reason_module = @import("../close_reason.zig");
 const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
 
@@ -57,6 +59,7 @@ pub const Received = event.Received;
 pub const Field = http.field.Field;
 pub const Deadline = deadline.Deadline;
 pub const Deadlines = deadline.Deadlines;
+pub const CloseReason = close_reason_module.CloseReason;
 
 pub const Config = connection_config.Config;
 
@@ -349,9 +352,10 @@ pub const Connection = struct {
         connection.deadlines = deadlines;
     }
 
-    /// The deadline that ended the connection, or null.
-    pub fn timed_out(connection: *const Connection) ?Deadline {
-        return connection.clock.timed_out;
+    /// Why colibri closed the connection on its own: the deadline that passed, or the limit the
+    /// peer passed. Null while the connection runs, and after any other end.
+    pub fn close_reason(connection: *const Connection) ?CloseReason {
+        return connection_close.close_reason(connection);
     }
 
     /// Whether the caller closes the transport now: the connection has finished and `send` has

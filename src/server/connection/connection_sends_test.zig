@@ -55,9 +55,9 @@ test "decision 110: a peer that takes too little of what the connection holds is
     try testing.expectEqual(first_end_ns, connection.deadline_ns().?);
     try testing.expectEqual(quota - 1, take(quota - 1, early_ns + 1));
     connection.on_instant(first_end_ns - 1);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.send_rate, connection.timed_out().?);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
     // RFC 9112 §9.6: nothing more goes out, and the connection closes when its linger passes.
     try testing.expect(!connection.should_close());
     try testing.expectEqual(first_end_ns + linger_ns, connection.deadline_ns().?);
@@ -74,7 +74,7 @@ test "decision 110: a peer that takes the quota each window is not cut, and an e
     try testing.expectEqual(first_end_ns + window_ns, connection.deadline_ns().?);
     try testing.expectEqual(quota, take(quota, first_end_ns));
     connection.on_instant(first_end_ns + window_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     _ = send_at(first_end_ns + window_ns);
     // The response is out, and only the idle deadline runs.
     try testing.expectEqual(first_end_ns + window_ns + server_constants.idle_timeout_ns, connection.deadline_ns().?);
@@ -103,7 +103,7 @@ test "decision 110: with no send rate and no linger, a connection waits on its p
     try answer_slowly();
     try testing.expectEqual(null, connection.deadline_ns());
     connection.on_instant(first_end_ns + window_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
 }
 
 /// An h2 connection whose client asked for streams with a window of `stream_window` octets, and
@@ -134,7 +134,7 @@ test "RFC 9113 §10.5: a stream whose window stays under the floor is reset with
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = &content, .end = true }));
     connection.on_instant(first_end_ns);
     // The stream ends, and the connection goes on.
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try testing.expectEqual(h2.constants.error_cancel, try deadline_support.reset_code(send_at(first_end_ns), 1));
     const cancelled = (try connection.receive(&.{}, first_end_ns)).event.?.cancelled;
     try testing.expectEqual(1, cancelled.id);
@@ -147,7 +147,7 @@ test "decision 110: a stream's window meter waits while the connection holds oth
     try testing.expectEqual(0, take(0, early_ns));
     connection.on_instant(first_end_ns);
     // The connection's meter judges it, not the stream's.
-    try testing.expectEqual(.send_rate, connection.timed_out().?);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
 }
 
 test "decision 110: a stream the connection's window holds ends the connection with ENHANCE_YOUR_CALM" {
@@ -158,7 +158,7 @@ test "decision 110: a stream the connection's window holds ends the connection w
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = &content, .end = true }));
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(.send_rate, connection.timed_out().?);
+    try testing.expectEqual(.send_rate, connection.close_reason().?.deadline);
     try testing.expectEqual(h2.constants.error_enhance_your_calm, try deadline_support.goaway_code(send_at(first_end_ns)));
 }
 
@@ -248,7 +248,7 @@ test "decision 110: a stream whose window opens a floor at a time, at the rate, 
         _ = send_at(now_ns);
     }
     connection.on_instant(first_end_ns + window_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     try testing.expect(try nothing_owed(first_end_ns + window_ns));
 }
 
@@ -277,7 +277,7 @@ test "decision 110: a stream's window meter does not run while another stream's 
     try testing.expectEqual(quota, take(quota, early_ns + 1));
     try testing.expectEqual(quota, take(quota, first_end_ns));
     connection.on_instant(first_end_ns);
-    try testing.expectEqual(null, connection.timed_out());
+    try testing.expectEqual(null, connection.close_reason());
     // Stream 3's answer is done, and stream 1 is not cut.
     try testing.expectEqual(3, (try connection.receive(&.{}, first_end_ns)).event.?.done.id);
     try testing.expect(try nothing_owed(first_end_ns));

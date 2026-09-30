@@ -52,8 +52,18 @@ pub const Record = struct {
     reset_code: ?u32,
     reset_at_ms: ?u64,
     goaway_code: ?u32,
-    /// The deadline that ended the connection, if one did (decision 110).
-    timed_out: ?server.Deadline,
+    /// Why the server closed the connection on its own, if it did (decision 110).
+    close_reason: ?server.CloseReason,
+
+    /// The deadline that closed the connection, or null when none did.
+    pub fn deadline_passed(record: *const Record) ?server.Deadline {
+        const reason = record.close_reason orelse return null;
+        return switch (reason) {
+            .deadline => |passed| passed,
+            // The check's peers pass no limit, so `verify` refuses a run a limit closed.
+            .limit => null,
+        };
+    }
 };
 
 /// One direction's octets: written at the back, delivered to the reader, consumed from the front.
@@ -151,7 +161,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .reset_code = null,
         .reset_at_ms = null,
         .goaway_code = null,
-        .timed_out = null,
+        .close_reason = null,
     };
     storage.record.app.init();
     storage.next_piece_ms = 0;
@@ -326,7 +336,7 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
     const record = &storage.record;
     record.end = end;
     record.end_ms = end_ms;
-    record.timed_out = storage.server_connection.timed_out();
+    record.close_reason = storage.server_connection.close_reason();
     if (plan.honest()) return;
     const received = storage.to_client.octets[0..storage.to_client.delivered];
     switch (plan.protocol) {
@@ -338,4 +348,14 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
             record.goaway_code = storage.hostile.goaway_code;
         },
     }
+}
+
+test "a run a limit closed names no deadline, so the check refuses it" {
+    var record: Record = undefined;
+    record.close_reason = .{ .limit = .peer_resets };
+    try std.testing.expectEqual(null, record.deadline_passed());
+    record.close_reason = .{ .deadline = .idle };
+    try std.testing.expectEqual(.idle, record.deadline_passed().?);
+    record.close_reason = null;
+    try std.testing.expectEqual(null, record.deadline_passed());
 }

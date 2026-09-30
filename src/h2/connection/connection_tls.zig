@@ -181,7 +181,7 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
     // RFC 9113 §10.5: a peer generating excessive load is a connection error of
     // ENHANCE_YOUR_CALM, which is what a run of records carrying nothing is.
     if (target.records_without_data > core.constants.records_without_data_max) {
-        return target.fail(constants.error_enhance_your_calm);
+        return target.fail_limit(.records_without_data);
     }
     return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = false };
 }

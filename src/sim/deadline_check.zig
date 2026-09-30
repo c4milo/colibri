@@ -117,11 +117,11 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
         if (result.record.app.cancelled != null) census.streams_cut += 1;
-        const timed_out = result.record.timed_out orelse {
+        const passed = result.record.deadline_passed() orelse {
             census.held += 1;
             continue;
         };
-        switch (timed_out) {
+        switch (passed) {
             .first_request => census.first_request += 1,
             .idle => census.idle += 1,
             .head => census.head += 1,
@@ -141,11 +141,11 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     // An honest peer's exchanges end whole, however long the application takes (decision 110).
     if (plan.honest() and record.exchanges_done != plan.exchanges_len) return error.ExchangeLost;
     const expected = expect(plan, record) orelse {
-        if (record.end != .held or record.timed_out != null) return error.EndedWrong;
+        if (record.end != .held or record.close_reason != null) return error.EndedWrong;
         return;
     };
     if (record.end != .closed or record.end_ms != expected.end_ms) return error.EndedWrong;
-    if (record.timed_out != expected.deadline) return error.EndedWrong;
+    if (record.deadline_passed() != expected.deadline) return error.EndedWrong;
     if (!plan.honest() and !ended_as_expected(plan, record, expected)) return error.EndedWrong;
 }
 
@@ -319,7 +319,7 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
             index, answered.read_ms, answered.body_end_ms, answered.answered_ms, answered.content_sent, answered.drained_ms,
         });
     }
-    try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d}", .{ record.end, record.end_ms, record.timed_out, record.exchanges_done });
+    try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d}", .{ record.end, record.end_ms, record.deadline_passed(), record.exchanges_done });
     try line(storage, " timeout_response={} status={?d} reset={?d} reset_at_ms={?d} cancelled={?t} goaway={?d}\n", .{
         record.saw_timeout_response, record.response_status, record.reset_code, record.reset_at_ms, record.app.cancelled, record.goaway_code,
     });

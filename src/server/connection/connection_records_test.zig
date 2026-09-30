@@ -4,6 +4,7 @@
 //! refuses, and a handshake below TLS 1.3.
 const std = @import("std");
 const h11 = @import("h11");
+const h2 = @import("h2");
 const tls_provider = @import("tls_provider");
 const support = @import("connection_test_support.zig");
 const plain_support = @import("../plain_provider_test_support.zig");
@@ -66,6 +67,20 @@ test "RFC 9846 §6.1: a record after the peer's close_notify is not read" {
     const received = try connection.receive(support.input[0 .. close_len + request_len], support.now_ns);
     try testing.expectEqual(close_len, received.consumed);
     try testing.expectEqual(null, received.event);
+}
+
+test "decision 110: a run of records carrying no data ends the connection, and the limit is named" {
+    for ([_][]const u8{ "http/1.1", "h2" }) |alpn| {
+        support.config = .{ .cleartext = .h11 };
+        try attach_plain_with(.{ .alpn = alpn });
+        // An empty record of application data carries no data, as a ticket does.
+        var sealed: usize = 0;
+        for (0..h2.core.constants.records_without_data_max + 1) |_| {
+            sealed += try record_at(sealed, plain_support.content_application_data, "");
+        }
+        try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..sealed], support.now_ns));
+        try testing.expectEqual(.records_without_data, connection.close_reason().?.limit);
+    }
 }
 
 test "RFC 9846 §6: a record the provider will not seal ends the connection, and no data follows" {

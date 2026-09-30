@@ -129,15 +129,15 @@ fn reserve_promised(target: *Connection, promised_id: u32, now_ns: u64) Error!?E
 
 /// Feeds one fragment to the field-block slot, and turns its refusals into connection errors.
 fn feed_fragment(target: *Connection, fragment: []const u8, end_headers: bool) Error!?field_block.Done {
-    return target.block.feed(&target.decoder, fragment, end_headers) catch |failure| {
-        return target.fail(switch (failure) {
-            // RFC 9113 §10.5: the CONTINUATION frames of one block are bounded, and §6.10's excess
-            // is ENHANCE_YOUR_CALM.
-            error.TooManyContinuations => constants.error_enhance_your_calm,
-            // RFC 9113 §4.3: a field block that does not decompress is a connection error of
-            // COMPRESSION_ERROR.
-            error.DecodeFailed, error.RepresentationTooLong, error.BlockCutInsideRepresentation => constants.error_compression_error,
-        });
+    return target.block.feed(&target.decoder, fragment, end_headers) catch |failure| switch (failure) {
+        // RFC 9113 §10.5: the CONTINUATION frames of one block are bounded, and §6.10's excess is
+        // ENHANCE_YOUR_CALM.
+        error.TooManyContinuations => return target.fail_limit(.continuation_frames),
+        // RFC 9113 §4.3: a field block that does not decompress is a connection error of
+        // COMPRESSION_ERROR.
+        error.DecodeFailed, error.RepresentationTooLong, error.BlockCutInsideRepresentation => {
+            return target.fail(constants.error_compression_error);
+        },
     };
 }
 
@@ -392,4 +392,21 @@ fn expect_queued_reset(stream_id: u32, code: u32) !void {
     var writer = Writer.init(&expected);
     try frame.write_rst_stream(&writer, stream_id, code);
     try testing.expectEqualSlices(u8, writer.written(), write_queued());
+}
+
+test "§10.5: CONTINUATION frames past continuation_count_max end the connection, and the limit is named" {
+    try start_server();
+    var block: [constants.frame_size_max]u8 = undefined;
+    // A path long enough that the block holds an octet for every frame.
+    const fragment = try support.request_block(&block, "/" ++ "a" ** (constants.continuation_count_max + 1));
+    // A HEADERS frame that leaves its block open, then one CONTINUATION frame too many, each
+    // carrying one octet of the block.
+    _ = try feed(try frame_bytes(test_input, constants.frame_type_headers, 0, 1, fragment[0..1]));
+    for (0..constants.continuation_count_max) |index| {
+        _ = try feed(try frame_bytes(test_input, constants.frame_type_continuation, 0, 1, fragment[index + 1 ..][0..1]));
+    }
+    const past = try frame_bytes(test_input, constants.frame_type_continuation, 0, 1, fragment[constants.continuation_count_max + 1 ..][0..1]);
+    try testing.expectError(error.ConnectionFailed, test_connection.receive(past, 0));
+    try testing.expectEqual(constants.error_enhance_your_calm, test_connection.failure.?);
+    try testing.expectEqual(.continuation_frames, test_connection.failure_limit.?);
 }

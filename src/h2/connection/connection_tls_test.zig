@@ -367,6 +367,25 @@ test "a run of records carrying no data is bounded, and one past it is ENHANCE_Y
         decrypt(&support.test_connection, "record", &plaintext, 0),
     );
     try testing.expectEqual(constants.error_enhance_your_calm, support.test_connection.failure.?);
+    try testing.expectEqual(.records_without_data, support.test_connection.failure_limit.?);
+}
+
+test "a limit passed after another failure names no limit, since the first failure stands" {
+    Fake.init_table();
+    var state: Fake = .{ .content = .new_session_ticket };
+    support.test_connection.init(.client);
+    try attach(&support.test_connection, state.provider());
+    var plaintext: [16]u8 = undefined;
+    try testing.expectEqual(error.ConnectionFailed, support.test_connection.fail(constants.error_protocol_error));
+    for (0..core.constants.records_without_data_max) |_| {
+        _ = try decrypt(&support.test_connection, "record", &plaintext, 0);
+    }
+    try testing.expectEqual(
+        error.ConnectionFailed,
+        decrypt(&support.test_connection, "record", &plaintext, 0),
+    );
+    try testing.expectEqual(constants.error_protocol_error, support.test_connection.failure.?);
+    try testing.expectEqual(null, support.test_connection.failure_limit);
 }
 
 test "a record carrying data ends the run, so an interleaved stream never reaches the bound" {

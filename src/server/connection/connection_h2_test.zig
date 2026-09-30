@@ -199,6 +199,8 @@ test "RFC 9113 §5.4.1: a connection error fails the connection, and its GOAWAY 
     try testing.expectEqual(constants.frame_type_goaway, sent[type_index]);
     try testing.expect(connection.should_close());
     try testing.expectError(error.ConnectionClosed, connection.respond(1, .{ .status = ok, .end = true }));
+    // The peer broke the protocol, and passed no limit.
+    try testing.expectEqual(null, connection.close_reason());
 }
 
 test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and ends it" {
@@ -346,4 +348,28 @@ fn lists_streams_max(sent: []const u8, limit: u32) bool {
         return std.mem.readInt(u32, entry[@sizeOf(u16)..][0..@sizeOf(u32)], .big) == limit;
     }
     return false;
+}
+
+test "decision 110: a peer that resets streams past peer_reset_rate_max ends the connection, and the limit is named" {
+    try start();
+    var id: u32 = 1;
+    for (0..constants.peer_reset_rate_max) |_| {
+        try open_and_reset(id);
+        id += 2;
+    }
+    try testing.expectEqual(null, connection.close_reason());
+    // RFC 9113 §10.5: the reset past the limit is excess use, and ends the connection.
+    try testing.expectError(error.ConnectionFailed, open_and_reset(id));
+    try testing.expectEqual(.peer_resets, connection.close_reason().?.limit);
+}
+
+/// Opens stream `id` with a whole request, then resets it, as a Rapid Reset peer does
+/// (CVE-2023-44487). Test-only.
+fn open_and_reset(id: u32) !void {
+    const opened = try support.receive_copy(try request_frame(id, "/", true));
+    try testing.expectEqual(id, opened.event.?.request.id);
+    var writer = h2.core.Writer.init(frames);
+    try h2.frame.write_rst_stream(&writer, id, constants.error_cancel);
+    const reset = try support.receive_copy(writer.written());
+    try testing.expectEqual(id, reset.event.?.cancelled.id);
 }
