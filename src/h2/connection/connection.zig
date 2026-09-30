@@ -242,6 +242,9 @@ pub const Connection = struct {
     /// or 0 for none: below it the frame waits (§10.5, decision 110). A server sets it after
     /// `init`.
     data_frame_len_min: u32,
+    /// Whether the peer has sent a WINDOW_UPDATE whose increment is below `data_frame_len_min`,
+    /// from which on the floor applies (decision 110 as amended).
+    tiny_update_read: bool,
 
     /// Makes a connection for an endpoint in `role`, with nothing read and nothing written. The
     /// caller writes the preface with `write_pending` before it reads the peer's.
@@ -276,6 +279,7 @@ pub const Connection = struct {
         connection.peer_resets = 0;
         connection.peer_reset_period_start_ns = 0;
         connection.data_frame_len_min = 0;
+        connection.tiny_update_read = false;
         assert(!connection.has_failed());
         assert(connection.streams.len() == 0);
     }

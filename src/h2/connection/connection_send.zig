@@ -13,8 +13,9 @@
 //! stream's holds (§6.9.1), what one frame carries and what the caller's buffer has room for. The
 //! call writes what all four allow and says how much of the payload that was, and which of them
 //! held it short, so a caller loops until the whole payload is sent or a call sends nothing, and
-//! waits for a WINDOW_UPDATE when a window held it. A window below `data_frame_len_min` sends
-//! nothing unless it holds the whole payload (`connection_send_window.zig`).
+//! waits for a WINDOW_UPDATE when a window held it. Once the peer has sent a small increment, a
+//! window below `data_frame_len_min` sends nothing unless it holds the whole payload
+//! (`connection_send_window.zig`).
 //!
 //! The state machine decides every send before a frame is written (§5.1): a frame colibri may not
 //! send on a stream is `error.StreamNotSendable` and writes nothing, which is the `illegal` verdict

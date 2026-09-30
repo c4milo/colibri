@@ -3286,6 +3286,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      opens its window a few octets at a time. Refused: dropping the floor, keeping it and skipping
      the six cases, and turning it off for h2spec alone.
 
+     Amended a third time by the owner on 2026-09-30: the floor applies only once the peer has
+     sent a WINDOW_UPDATE whose increment is below it. `spec/tla/server_deadlines` found a client
+     the floor still stalled: one that sends a WINDOW_UPDATE only once it has more credit than its
+     window less the floor, which RFC 9113 allows. colibri held the last octets of the window, the
+     client never reached its threshold, and the send deadline cut it
+     ([#90](https://github.com/c4milo/colibri/issues/90)). The floor defends against the tiny
+     increments RFC 9113 §10.5 warns of, so one of them now turns it on, and a peer that gives
+     credit back in pieces of the floor or more never meets it. Refused: keeping the rule and
+     documenting the clients it stalls, and removing the floor, which leaves the send deadline
+     alone against many tiny frames.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

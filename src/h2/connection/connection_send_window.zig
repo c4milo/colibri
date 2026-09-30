@@ -3,10 +3,12 @@
 //! payload. Split off `connection_send.zig` for length.
 //!
 //! A window below `Connection.data_frame_len_min` sends nothing unless it holds the whole payload,
-//! while the peer's SETTINGS_INITIAL_WINDOW_SIZE is at least the floor (decision 110 as amended).
-//! A peer that opens a window of its usual size a few octets at a time then gets no frame for each
-//! few octets, which RFC 9113 §10.5 names as a way to make a sender write many frames; a peer
-//! that asks for small windows gets frames that fit them.
+//! once the peer has sent a WINDOW_UPDATE whose increment is below the floor, and while its
+//! SETTINGS_INITIAL_WINDOW_SIZE is at least the floor (decision 110 as amended). A peer that opens
+//! a window of its usual size a few octets at a time then gets no frame for each few octets, which
+//! RFC 9113 §10.5 names as a way to make a sender write many frames. A peer that asks for small
+//! windows gets frames that fit them, and one that gives credit back in pieces of the floor or more
+//! never meets it.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -44,9 +46,9 @@ pub fn sendable(target: *const Connection, record: *const Stream, room_len: usiz
     const window: usize = @min(stream_window, connection_window);
     if (window < next.len) {
         // RFC 9113 §10.5: tiny window increments can make a sender write many frames, so a window
-        // below the floor sends nothing, unless the peer asked for windows that small (decision
-        // 110 as amended).
-        const floor = if (target.peer.initial_window_size < target.data_frame_len_min) 0 else target.data_frame_len_min;
+        // below the floor sends nothing once the peer has sent one, unless it asked for windows
+        // that small (decision 110 as amended).
+        const floor = if (target.peer.initial_window_size < target.data_frame_len_min or !target.tiny_update_read) 0 else target.data_frame_len_min;
         const floored = if (window < floor) 0 else window;
         const held_by: ShortBy = if (connection_window < stream_window) .connection_window else .stream_window;
         next = .{ .len = floored, .short_by = held_by };
@@ -59,10 +61,19 @@ pub fn sendable(target: *const Connection, record: *const Stream, room_len: usiz
     return next;
 }
 
+/// Notes an increment the peer granted on the connection or a stream: one below the floor makes
+/// the floor apply from then on (decision 110 as amended).
+pub fn note_increment(target: *Connection, increment: u32) void {
+    // RFC 9113 §10.5: a peer that opens a window a few octets at a time makes its sender write
+    // many small frames.
+    if (increment < target.data_frame_len_min) target.tiny_update_read = true;
+}
+
 const testing = std.testing;
 const window_module = @import("../window.zig");
 const connection_send = @import("connection_send.zig");
 const support = @import("connection_test_support.zig");
+const Writer = @import("core").Writer;
 const test_connection = &support.test_connection;
 const test_output = &support.test_output;
 
@@ -73,12 +84,14 @@ const ok: u16 = 200;
 const test_body: [constants.frame_size_max + 1]u8 = @splat('x');
 
 /// A server that has read a request on stream 1 and answered it with a head, with a floor of
-/// `floor_len` and a stream window of `stream_window` octets. Test-only.
+/// `floor_len` that applies, as after a small increment, and a stream window of `stream_window`
+/// octets. Test-only.
 fn start(stream_window: u32) !*Stream {
     try support.start_server();
     _ = try support.feed_request(1, "/", true);
     _ = try connection_send.write_response(test_connection, test_output, 1, ok, &.{}, false);
     test_connection.data_frame_len_min = floor_len;
+    test_connection.tiny_update_read = true;
     const record = test_connection.streams.lookup(1).live;
     record.send_window = window_module.Window.init(stream_window);
     return record;
@@ -127,4 +140,40 @@ test "decision 110: with no floor, a window of one octet sends one" {
     _ = try start(1);
     test_connection.data_frame_len_min = 0;
     try testing.expectEqual(1, (try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], true)).consumed);
+}
+
+test "decision 110 as amended: until the peer sends an increment below the floor, a short window sends what fits" {
+    _ = try start(floor_len - 1);
+    test_connection.tiny_update_read = false;
+    const sent = try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], true);
+    try testing.expectEqual(floor_len - 1, sent.consumed);
+    try testing.expectEqual(.stream_window, sent.short_by);
+}
+
+/// A WINDOW_UPDATE frame on `stream_id` granting `increment` octets. Test-only.
+fn window_update(stream_id: u32, increment: u32) ![]const u8 {
+    var payload: [constants.window_update_len]u8 = undefined;
+    var writer = Writer.init(&payload);
+    try writer.write_int(u32, increment);
+    return support.frame_bytes(&support.test_input, constants.frame_type_window_update, 0, stream_id, writer.written());
+}
+
+test "RFC 9113 §10.5: an increment below the floor, on the connection or a stream, makes the floor apply" {
+    _ = try start(floor_len);
+    test_connection.tiny_update_read = false;
+    // An increment of the floor or more leaves it off.
+    _ = try support.feed(try window_update(constants.connection_stream_id, floor_len));
+    _ = try support.feed(try window_update(1, floor_len));
+    try testing.expect(!test_connection.tiny_update_read);
+    _ = try support.feed(try window_update(1, floor_len - 1));
+    try testing.expect(test_connection.tiny_update_read);
+    test_connection.tiny_update_read = false;
+    _ = try support.feed(try window_update(constants.connection_stream_id, floor_len - 1));
+    try testing.expect(test_connection.tiny_update_read);
+}
+
+test "decision 110 as amended: a new connection's floor waits for a small increment" {
+    // The tests above leave the connection with the floor on.
+    try support.start_server();
+    try testing.expect(!test_connection.tiny_update_read);
 }

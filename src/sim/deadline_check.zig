@@ -41,7 +41,7 @@ pub const check_name = "deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0xa02e1727;
+pub const census_crc32_expected: u32 = 0x6d3f1273;
 
 pub const Violation = deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.

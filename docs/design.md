@@ -6272,6 +6272,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Checking the deadline check's runs against the model is the rest of
     [#86](https://github.com/c4milo/colibri/issues/86).
 
+  **The floor after a small increment, 2026-09-30**
+  ([#90](https://github.com/c4milo/colibri/issues/90)). Decision 110's third amendment. h2 notes
+  a WINDOW_UPDATE whose increment is below `data_frame_len_min`, on the connection or on a stream,
+  and the floor applies only from then.
+  - `zig build test`: 131 of 131 steps and 2496 of 2496 tests passed. The deadline check's
+    census moved to `0x6d3f1273`, the same in Debug and ReleaseSafe, with every count unchanged:
+    one honest slow reader, seed `0x1b`, drains its last response 60 ms later, since colibri now
+    sends a short frame the floor held before.
+  - `zig build tla -- spec/tla/server_deadlines/*.cfg`: `late_update` holds. The first
+    amendment's rule is violated, kept as `floor_any_update`, which the model named
+    `floor_late_update` before.
+  - `tools/h2spec.sh 28443 --tls`: 144 of 146 cases in each mode, the two decision 41 skips.
+  - 7 mutations, each **CAUGHT** by `zig build test-h2` or `zig build test-server`: no increment
+    turning the floor on, an increment of the floor turning it on, the floor applied before a small
+    increment or whatever the peer's initial window, either reader of WINDOW_UPDATE noting nothing,
+    and `init` keeping the last connection's note.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

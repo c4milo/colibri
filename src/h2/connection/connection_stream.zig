@@ -26,6 +26,7 @@ const frame = @import("../frame/frame.zig");
 const stream = @import("../stream/stream.zig");
 const streams_table = @import("../stream/streams.zig");
 const connection = @import("connection.zig");
+const connection_send_window = @import("connection_send_window.zig");
 const data_frames = @import("connection_data.zig");
 const header_frames = @import("connection_headers.zig");
 
@@ -227,6 +228,7 @@ fn on_window_update(target: *Connection, header: frame.Header, payload: frame.Wi
                 return try reset_stream(target, header.stream_id, constants.error_flow_control_error, now_ns);
             };
             target.streams.transition(acting.record, acting.verdict, .receive, .window_update, false);
+            connection_send_window.note_increment(target, payload.increment);
             return null;
         },
     }

@@ -18,6 +18,7 @@ const frame = @import("../frame/frame.zig");
 const settings = @import("../settings.zig");
 const window = @import("../window.zig");
 const connection = @import("connection.zig");
+const connection_send_window = @import("connection_send_window.zig");
 
 const Connection = connection.Connection;
 const Event = connection.Event;
@@ -111,6 +112,7 @@ pub fn on_window_update(target: *Connection, update: frame.WindowUpdate) Error!?
         // of FLOW_CONTROL_ERROR on the connection's window.
         return target.fail(constants.error_flow_control_error);
     };
+    connection_send_window.note_increment(target, update.increment);
     return null;
 }
 

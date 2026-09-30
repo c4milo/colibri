@@ -142,8 +142,9 @@ pub const body_timeout_ns: u64 = 300 * nanoseconds_per_second;
 /// Decision 110's send deadline: while the connection holds octets its peer has not taken, the
 /// peer must take `send_rate_min` octets a second over each window, as a body brings them. A
 /// connection a deadline ended, or that has nothing more to say, closes once its last octets are
-/// out or `close_linger_ns` after it ended, whichever comes first. h2 sends no DATA frame shorter
-/// than `data_frame_len_min` unless the window holds the whole payload.
+/// out or `close_linger_ns` after it ended, whichever comes first. Once the peer has sent a
+/// WINDOW_UPDATE smaller than `data_frame_len_min`, h2 sends no DATA frame shorter than it unless
+/// the window holds the whole payload.
 pub const send_rate_min: u32 = 1_024;
 pub const close_linger_ns: u64 = 2 * nanoseconds_per_second;
 pub const data_frame_len_min: u32 = 1_024;

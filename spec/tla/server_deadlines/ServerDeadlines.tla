@@ -36,12 +36,12 @@
 (*     decision 110 was amended).                                          *)
 (*   - SendWaitsOnPeer: a stream's send deadline runs only while the       *)
 (*     client holds credit that reaches its threshold, so it will open the *)
-(*     window that holds the stream. Before decision 110 was amended, the  *)
-(*     floor on a DATA frame held a stream whose peer never had credit     *)
-(*     (floor_small_window). The amended floor still holds one whose peer  *)
-(*     gives credit back only once it has nearly its whole window, more    *)
-(*     than PeerWindow - Floor + 1 (floor_late_update,                     *)
-(*     https://github.com/c4milo/colibri/issues/90).                       *)
+(*     window that holds the stream. The floor on a DATA frame once held a *)
+(*     stream whose peer never had credit (floor_small_window), and then   *)
+(*     one whose peer gives credit back only for nearly its whole window   *)
+(*     (floor_any_update, https://github.com/c4milo/colibri/issues/90). It *)
+(*     now applies only once the client has sent a small increment         *)
+(*     (late_update).                                                      *)
 (*   - BodyWaitsOnPeer: a body's deadline does not run while the client's  *)
 (*     window is spent and the WINDOW_UPDATE that reopens it waits in      *)
 (*     colibri's output, which the send deadline already judges the peer   *)
@@ -79,7 +79,8 @@ CONSTANTS
     Pipelining,         \* whether the client opens a stream before it has read the last response
     IdleAfterOutput,    \* whether the idle deadline starts once the output is empty (6639950)
     SettingsPause,      \* whether the SETTINGS deadline pauses while a body waits (decision 110)
-    FloorOnlyAbove      \* whether the floor applies only while PeerWindow is at least Floor
+    FloorOnlyAbove,     \* whether the floor applies only while PeerWindow is at least Floor
+    FloorAfterSmall     \* whether it applies only once the client sent an increment below Floor
 
 (* A client's streams take odd identifiers, in the order it opens them     *)
 (* (§5.1.1).                                                               *)
@@ -92,7 +93,8 @@ ASSUME /\ StreamCount \in Nat \ {0}
        /\ {ConnectionWindow, LocalWindow, LocalThreshold, PeerWindow, PeerThreshold, Floor,
            OutputMax, ChannelMax} \subseteq Nat \ {0}
        /\ LocalThreshold <= LocalWindow /\ PeerThreshold <= PeerWindow
-       /\ {Pipelining, IdleAfterOutput, SettingsPause, FloorOnlyAbove} \subseteq BOOLEAN
+       /\ {Pipelining, IdleAfterOutput, SettingsPause, FloorOnlyAbove, FloorAfterSmall}
+          \subseteq BOOLEAN
 
 Min(a, b) == IF a < b THEN a ELSE b
 
@@ -118,6 +120,7 @@ VARIABLES
     firstRequestRead,   \* whether a whole request head has arrived
     idleStarted,        \* whether the idle deadline's clock has started
     settingsAcked,      \* whether the client acknowledged colibri's SETTINGS
+    smallIncrement,     \* whether the client sent a WINDOW_UPDATE with an increment below Floor
     \* the network
     toClient,           \* the frames the caller's socket took, which the client has not read
     toServer,           \* the frames the client sent, which have not arrived at colibri
@@ -132,7 +135,8 @@ VARIABLES
     cliOwed             \* the frames the client owes and has not sent, oldest first
 
 colibri == <<reqRead, resp, respWritten, produced, sendWindow, sendConnection, released,
-             releasedConnection, owed, out, firstRequestRead, idleStarted, settingsAcked>>
+             releasedConnection, owed, out, firstRequestRead, idleStarted, settingsAcked,
+             smallIncrement>>
 client == <<cliReq, cliSent, cliWindow, cliConnection, cliResp, cliReleased,
             cliReleasedConnection, cliOwed>>
 vars == <<colibri, toClient, toServer, client>>
@@ -142,6 +146,7 @@ TypeOK ==
     /\ respWritten \in [StreamIds -> 0..ResponseBody] /\ produced \in [StreamIds -> 0..ResponseBody]
     /\ sendWindow \in [StreamIds -> Int] /\ sendConnection \in Int
     /\ firstRequestRead \in BOOLEAN /\ idleStarted \in BOOLEAN /\ settingsAcked \in BOOLEAN
+    /\ smallIncrement \in BOOLEAN
     /\ Len(out) <= OutputMax /\ Len(toClient) <= ChannelMax /\ Len(toServer) <= ChannelMax
     /\ cliReq \in [StreamIds -> Parts] /\ cliSent \in [StreamIds -> 0..RequestBody]
     /\ cliResp \in [StreamIds -> Parts]
@@ -161,6 +166,7 @@ Init ==
     /\ firstRequestRead = FALSE
     /\ idleStarted = FALSE
     /\ settingsAcked = FALSE
+    /\ smallIncrement = FALSE
     /\ toClient = <<>>
     /\ toServer = <<>>
     /\ cliReq = [s \in StreamIds |-> "none"]
@@ -199,8 +205,9 @@ Ready(s) == produced[s] - respWritten[s]
 Window(s) == Min(sendWindow[s], sendConnection)
 
 (* connection_send_window.zig's sendable: what fits both windows, but      *)
-(* nothing when the windows are below the floor and do not take it all.    *)
-FloorApplies == ~FloorOnlyAbove \/ PeerWindow >= Floor
+(* nothing when the windows are below the floor and do not take it all,   *)
+(* once the client has sent a small increment (decision 110 as amended).   *)
+FloorApplies == (~FloorOnlyAbove \/ PeerWindow >= Floor) /\ (~FloorAfterSmall \/ smallIncrement)
 Sendable(s) ==
     IF Window(s) >= Ready(s) THEN Ready(s)
     ELSE IF FloorApplies /\ Window(s) < Floor THEN 0
@@ -217,7 +224,8 @@ Flush ==
     /\ out' = Append(out, Head(owed))
     /\ owed' = Tail(owed)
     /\ UNCHANGED <<reqRead, resp, respWritten, produced, sendWindow, sendConnection, released,
-                   releasedConnection, firstRequestRead, settingsAcked, toClient, toServer>>
+                   releasedConnection, firstRequestRead, settingsAcked, smallIncrement, toClient,
+                   toServer>>
     /\ UNCHANGED client
     /\ ObserveIdle
 
@@ -227,7 +235,8 @@ Send ==
     /\ toClient' = Append(toClient, Head(out))
     /\ out' = Tail(out)
     /\ UNCHANGED <<reqRead, resp, respWritten, produced, sendWindow, sendConnection, released,
-                   releasedConnection, owed, firstRequestRead, settingsAcked, toServer>>
+                   releasedConnection, owed, firstRequestRead, settingsAcked, smallIncrement,
+                   toServer>>
     /\ UNCHANGED client
     /\ ObserveIdle
 
@@ -243,7 +252,7 @@ WriteData(s) ==
        /\ sendConnection' = sendConnection - taken
        /\ resp' = [resp EXCEPT ![s] = IF end THEN "ended" ELSE @]
        /\ UNCHANGED <<reqRead, produced, released, releasedConnection, owed, firstRequestRead,
-                      settingsAcked, toClient, toServer>>
+                      settingsAcked, smallIncrement, toClient, toServer>>
        /\ UNCHANGED client
        /\ ObserveIdle
 
@@ -271,7 +280,7 @@ ArriveData(f) ==
        /\ releasedConnection' = IF connectionOwes THEN 0 ELSE releasedConnection + 1
        /\ owed' = owed \o connectionUpdate \o streamUpdate
        /\ reqRead' = [reqRead EXCEPT ![s] = IF f.end THEN "ended" ELSE @]
-       /\ UNCHANGED <<firstRequestRead, settingsAcked, sendWindow, sendConnection>>
+       /\ UNCHANGED <<firstRequestRead, settingsAcked, sendWindow, sendConnection, smallIncrement>>
 
 Arrive ==
     /\ toServer # <<>>
@@ -281,18 +290,20 @@ Arrive ==
                     /\ reqRead' = [reqRead EXCEPT ![f.stream] = IF f.end THEN "ended" ELSE "head"]
                     /\ firstRequestRead' = TRUE
                     /\ UNCHANGED <<released, releasedConnection, owed, settingsAcked, sendWindow,
-                                   sendConnection>>
+                                   sendConnection, smallIncrement>>
                [] f.type = "DATA" -> ArriveData(f)
                [] f.type = "SETTINGS_ACK" ->
                     /\ settingsAcked' = TRUE
                     /\ UNCHANGED <<reqRead, released, releasedConnection, owed, firstRequestRead,
-                                   sendWindow, sendConnection>>
+                                   sendWindow, sendConnection, smallIncrement>>
                [] f.type = "WINDOW_UPDATE" ->
                     /\ IF f.stream = Connection
                        THEN /\ sendConnection' = sendConnection + f.value
                             /\ UNCHANGED sendWindow
                        ELSE /\ sendWindow' = [sendWindow EXCEPT ![f.stream] = @ + f.value]
                             /\ UNCHANGED sendConnection
+                    \* RFC 9113 §10.5: a small increment makes the floor apply from then on.
+                    /\ smallIncrement' = (smallIncrement \/ f.value < Floor)
                     /\ UNCHANGED <<reqRead, released, releasedConnection, owed, firstRequestRead,
                                    settingsAcked>>
     /\ out' = out
@@ -310,8 +321,8 @@ Respond(s) ==
        /\ out' = Append(out, Frame("HEADERS", s, 0, end, 0))
        /\ resp' = [resp EXCEPT ![s] = IF end THEN "ended" ELSE "head"]
        /\ UNCHANGED <<reqRead, respWritten, produced, sendWindow, sendConnection, released,
-                      releasedConnection, owed, firstRequestRead, settingsAcked, toClient,
-                      toServer>>
+                      releasedConnection, owed, firstRequestRead, settingsAcked, smallIncrement,
+                      toClient, toServer>>
        /\ UNCHANGED client
        /\ ObserveIdle
 
@@ -320,8 +331,8 @@ Produce(s) ==
     /\ resp[s] = "head" /\ produced[s] < ResponseBody
     /\ produced' = [produced EXCEPT ![s] = @ + 1]
     /\ UNCHANGED <<reqRead, resp, respWritten, sendWindow, sendConnection, released,
-                   releasedConnection, owed, out, firstRequestRead, settingsAcked, toClient,
-                   toServer>>
+                   releasedConnection, owed, out, firstRequestRead, settingsAcked, smallIncrement,
+                   toClient, toServer>>
     /\ UNCHANGED client
     /\ ObserveIdle
 
