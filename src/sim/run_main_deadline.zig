@@ -10,6 +10,8 @@ var storage: deadline_check.Storage align(@alignOf(deadline_check.Storage)) = un
 
 pub fn seed(value: u64) !void {
     const result = deadline_check.run_seed(&storage, value) catch |failure| {
+        // The trace the run wrote before it failed says where it went wrong.
+        std.debug.print("{s}", .{storage.trace[0..storage.trace_len]});
         std.debug.print("deadline: seed 0x{x} failed: {t}\n", .{ value, failure });
         return failure;
     };
@@ -23,10 +25,14 @@ pub fn check(seeds: u64) !void {
         std.debug.print("deadline: seed 0x{x} failed: {t}; rerun it with --deadline-seed\n", .{ failed_seed.?, failure });
         return failure;
     };
-    std.debug.print("deadline: seeds={d} exchanges={d} closed={d} held={d} trace_octets={d} crc32=0x{x:0>8}\n", .{
+    const format = "deadline: seeds={d} exchanges={d} first_request={d} idle={d} head={d} held={d}" ++
+        " trace_octets={d} crc32=0x{x:0>8}\n";
+    std.debug.print(format, .{
         census.seeds,
         census.exchanges,
-        census.closed,
+        census.first_request,
+        census.idle,
+        census.head,
         census.held,
         census.trace_octets,
         census.crc32.final(),

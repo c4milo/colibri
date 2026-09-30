@@ -202,6 +202,7 @@ fn reason_of(status: u16) []const u8 {
     if (status == status_fields_too_large) return "Request Header Fields Too Large";
     return switch (@as(Code, @enumFromInt(status))) {
         .uri_too_long => "URI Too Long",
+        .request_timeout => "Request Timeout",
         .not_implemented => "Not Implemented",
         .service_unavailable => "Service Unavailable",
         .http_version_not_supported => "HTTP Version Not Supported",

@@ -1,0 +1,195 @@
+//! The deadlines of one server connection over TCP (decision 110, design §8 step 20b): the instant
+//! each started at, the soonest one the caller wakes for, and what the connection does when one
+//! passes. A deadline starts at the instant of the first call that sees what starts it, `receive`,
+//! `send` or `on_instant`, because `respond` and `write_body` take no instant.
+//!
+//! Only request octets move a deadline. A head's first octet ends the idle wait and starts the
+//! head deadline, and a whole head ends both. Nothing else the peer sends, such as an h2 PING or
+//! SETTINGS frame, starts or ends one. No deadline runs while a request is open, because the
+//! connection then waits on the application.
+const std = @import("std");
+const assert = std.debug.assert;
+const h11 = @import("h11");
+const h2 = @import("h2");
+const http = @import("http");
+const deadline = @import("../deadline.zig");
+const connection_module = @import("connection.zig");
+
+const Connection = connection_module.Connection;
+const Deadline = deadline.Deadline;
+const Deadlines = deadline.Deadlines;
+
+/// RFC 9110 §15.5.9: 408 (Request Timeout).
+const request_timeout: u16 = @intFromEnum(http.status.Code.request_timeout);
+
+/// Where a connection stands for its deadlines.
+pub const Clock = struct {
+    opened_ns: u64,
+    /// A whole request head has arrived, so the first-request deadline no longer runs.
+    first_request_read: bool,
+    /// The instant the first octet of the current request head was seen, or null.
+    head_since_ns: ?u64,
+    /// The instant the connection went idle after a response, or null while it is not idle.
+    idle_since_ns: ?u64,
+    /// The deadline that ended the connection, once one has.
+    timed_out: ?Deadline,
+
+    pub fn init(now_ns: u64) Clock {
+        return .{
+            .opened_ns = now_ns,
+            .first_request_read = false,
+            .head_since_ns = null,
+            .idle_since_ns = null,
+            .timed_out = null,
+        };
+    }
+};
+
+/// What the connection waits for, read from its protocol.
+const Wait = enum {
+    /// The TLS handshake, or nothing: the connection is closed.
+    handshake,
+    /// The rest of a request head that has begun.
+    head,
+    /// The next request, with none open.
+    idle,
+    /// The application, or the rest of a request that is open.
+    request,
+};
+
+fn wait_of(connection: *const Connection) Wait {
+    if (connection.phase != .open) return .handshake;
+    return switch (connection.session) {
+        .h11 => |*session| wait_h11(session),
+        .h2 => |*session| wait_h2(session),
+        .none => .handshake,
+    };
+}
+
+fn wait_h11(session: *const h11.connection.Connection) Wait {
+    if (session.phase != .head) return .request;
+    return if (session.scanner.scanned > 0) .head else .idle;
+}
+
+fn wait_h2(session: *const h2.Connection) Wait {
+    // RFC 9113 §6.10: a field block that is not whole holds the connection until its last
+    // CONTINUATION frame.
+    if (session.block.is_in_progress()) return .head;
+    return if (session.streams.peer_active == 0) .idle else .request;
+}
+
+/// A whole request head arrived. `observe` ends the head's deadline.
+pub fn on_request(connection: *Connection) void {
+    connection.clock.first_request_read = true;
+}
+
+/// Notes the waits that began or ended since the last call, at `now_ns`.
+pub fn observe(connection: *Connection, now_ns: u64) void {
+    const clock = &connection.clock;
+    const wait = wait_of(connection);
+    if (wait != .head) {
+        clock.head_since_ns = null;
+    } else if (clock.head_since_ns == null) {
+        clock.head_since_ns = now_ns;
+    }
+    // Decision 110: the idle deadline runs between requests, after the first one.
+    const idle = wait == .idle and clock.first_request_read;
+    if (!idle) {
+        clock.idle_since_ns = null;
+    } else if (clock.idle_since_ns == null) {
+        clock.idle_since_ns = now_ns;
+    }
+}
+
+/// The soonest instant a deadline passes, or null when none runs.
+pub fn soonest(connection: *const Connection) ?u64 {
+    if (!running(connection)) return null;
+    const clock = &connection.clock;
+    const limits = &connection.deadlines;
+    var at: ?u64 = null;
+    if (!clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
+    if (clock.head_since_ns) |since| at = earlier(at, since, limits.head_ns);
+    if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
+    return at;
+}
+
+fn running(connection: *const Connection) bool {
+    // `end` stops the connection, so a deadline that fired runs no more.
+    return !connection.stopped and connection.phase != .closed;
+}
+
+fn earlier(current: ?u64, since: u64, limit: ?u64) ?u64 {
+    const span = limit orelse return current;
+    // `Deadlines.validate` bounds every limit, and the caller's instants stay far below the end of
+    // a `u64` (design §4.2).
+    assert(since <= std.math.maxInt(u64) - span);
+    const at = since + span;
+    return @min(current orelse at, at);
+}
+
+/// The deadline that has passed at `now_ns`, or null.
+fn due(connection: *const Connection, now_ns: u64) ?Deadline {
+    if (!running(connection)) return null;
+    const clock = &connection.clock;
+    const limits = &connection.deadlines;
+    if (!clock.first_request_read and passed(clock.opened_ns, limits.first_request_ns, now_ns)) {
+        return .first_request;
+    }
+    if (clock.head_since_ns) |since| {
+        if (passed(since, limits.head_ns, now_ns)) return .head;
+    }
+    if (clock.idle_since_ns) |since| {
+        if (passed(since, limits.idle_ns, now_ns)) return .idle;
+    }
+    return null;
+}
+
+fn passed(since: u64, limit: ?u64, now_ns: u64) bool {
+    const span = limit orelse return false;
+    // Decision 110: a deadline passes at its instant, not a nanosecond later.
+    return now_ns >= since + span;
+}
+
+/// Ends the connection when a deadline has passed at `now_ns`, and returns whether one had.
+pub fn fire(connection: *Connection, now_ns: u64) bool {
+    const passed_deadline = due(connection, now_ns) orelse return false;
+    connection.clock.timed_out = passed_deadline;
+    end(connection);
+    assert(!running(connection));
+    return true;
+}
+
+/// What a deadline does (decision 110): a head that began gets a 408 in h11 and a GOAWAY with
+/// ENHANCE_YOUR_CALM in h2; with none begun, h11 closes without a response and h2 sends a GOAWAY
+/// with NO_ERROR first. Nothing more is read either way.
+fn end(connection: *Connection) void {
+    const wait = wait_of(connection);
+    connection.stopped = true;
+    if (wait == .handshake) {
+        // The TLS handshake had not completed: the connection closes with nothing more written.
+        connection.phase = .closed;
+        return;
+    }
+    switch (connection.session) {
+        .h11 => |*session| {
+            // RFC 9110 §15.5.9: 408 says the server did not receive a complete request in the time
+            // it was prepared to wait. RFC 9112 §9.5: an idle connection closes without one, since
+            // a 408 there could be read as the answer to a request the client sent meanwhile.
+            if (wait == .head) {
+                const failure = session.fail(error.RequestTimeout, request_timeout);
+                assert(failure == error.ConnectionFailed);
+            }
+        },
+        .h2 => |*session| {
+            // RFC 9113 §10.5: a field block held open past its deadline is excess use of the
+            // connection, and RFC 9113 §9.1: a server that closes an idle connection sends GOAWAY.
+            if (wait == .head) {
+                const failure = session.fail(h2.constants.error_enhance_your_calm);
+                assert(failure == error.ConnectionFailed);
+            } else {
+                session.shutdown(h2.constants.error_no_error);
+            }
+        },
+        .none => unreachable,
+    }
+}

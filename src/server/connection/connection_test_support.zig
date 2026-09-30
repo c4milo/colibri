@@ -16,7 +16,7 @@ const zlib = @import("zlib");
 
 const Connection = connection_module.Connection;
 const Config = connection_module.Config;
-const Received = connection_module.Received;
+pub const Received = connection_module.Received;
 pub const Field = connection_module.Field;
 pub const server_constants = @import("../constants.zig");
 pub const Request = event.Request;
@@ -67,7 +67,7 @@ pub const input_len: usize = 65_536;
 /// A cleartext connection speaking `protocol`, with nothing read or written.
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
     config = .{ .cleartext = protocol, .h3_alternative = alternative };
-    try connection.init(&config, stream.random(), 0);
+    try connection.init(&config, stream.random(), 0, 0);
 }
 
 /// The encoder pool the coding tests give a connection, and the codings it applies, gzip first
@@ -82,7 +82,7 @@ const pool_level: u4 = 1;
 pub fn start_coding(protocol: connection_module.Protocol) !void {
     pool.reset(.none());
     config = .{ .cleartext = protocol, .codings = &codings, .encoders = pool.encoders() };
-    try connection.init(&config, stream.random(), 0);
+    try connection.init(&config, stream.random(), 0, 0);
 }
 
 /// The decoders the coding tests read coded content back with, and where they decode it.
@@ -207,7 +207,7 @@ pub fn begin_tls(server_protocols: []const []const u8, client_protocols: []const
         .aes_instructions = aes_instructions,
     });
     config = .{ .tls = &server_config, .h3_alternative = alternative };
-    try connection.init(&config, stream.random(), now_seconds);
+    try connection.init(&config, stream.random(), now_seconds, 0);
     try client.start(&client_config, stream.random(), now_seconds, null);
     to_client_len = 0;
     client_saw_alert = false;

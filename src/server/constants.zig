@@ -122,6 +122,18 @@ pub const encoder_ring_len: usize = 65_536;
 pub const encoders_default: usize = 4;
 pub const encoder_level_default: u4 = 6;
 
+/// Decision 110's deadlines for a connection over TCP, each the default `Config.deadlines` carries
+/// and a caller may change: from the instant the connection opens to its first whole request head,
+/// the TLS handshake included; between requests, after at least one response, while none is open;
+/// and from the first octet of a request head to its end.
+pub const first_request_timeout_ns: u64 = 10 * nanoseconds_per_second;
+pub const idle_timeout_ns: u64 = 30 * nanoseconds_per_second;
+pub const head_timeout_ns: u64 = 10 * nanoseconds_per_second;
+
+/// The longest deadline a caller may set: a day. A deadline starts at an instant the caller
+/// passed, and this keeps the start plus the limit inside a `u64`.
+pub const timeout_ns_max: u64 = 86_400 * nanoseconds_per_second;
+
 comptime {
     assert(encoder_ring_len > 0 and encoders_default > 0);
     assert(quic_requests_max > 0 and quic_requests_max <= h3.constants.request_streams_max);

@@ -124,11 +124,18 @@ pub const Hostile = struct {
 
     fn script_h11(hostile: *Hostile, plan: *const Plan) Error!void {
         var slow_start_ms = start_ms;
-        if (plan.peer == .slow_second_head) {
-            try hostile.add(start_ms, h11_request);
-            slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
+        switch (plan.peer) {
+            .silent => return,
+            // h11 has no PING, so an idle pinger makes its exchange and sends nothing more.
+            .idle_pinger => return hostile.add(start_ms, h11_request),
+            .slow_second_head => {
+                try hostile.add(start_ms, h11_request);
+                slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
+            },
+            .slow_head => {},
+            // `draw` makes an h11 pinger silent, and colibri's client plays an honest peer.
+            .honest, .slow_honest, .pinger => unreachable,
         }
-        if (plan.peer == .silent) return;
         try hostile.add_slowly(slow_start_ms, plan, h11_slow_head);
     }
 
@@ -140,13 +147,12 @@ pub const Hostile = struct {
         try h2.frame.write_settings(&writer, &.{});
         hostile.encoder.init(constants.header_table_size_initial, .never);
         var slow_start_ms = start_ms + block_after_opening_ms;
-        if (plan.peer == .slow_second_head) {
-            try hostile.write_request(&writer, whole_stream_id, "/", true);
-            slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
-        }
+        // A peer that makes one exchange sends its request whole, in its opening.
+        if (plan.exchanges_len > 0) try hostile.write_request(&writer, whole_stream_id, "/", true);
+        if (plan.peer == .slow_second_head) slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
         try hostile.add(start_ms, writer.written());
         switch (plan.peer) {
-            .pinger => try hostile.add_pings(plan),
+            .pinger, .idle_pinger => try hostile.add_pings(plan),
             .slow_head, .slow_second_head => try hostile.add_slow_block(slow_start_ms, plan),
             .honest, .slow_honest, .silent => unreachable,
         }

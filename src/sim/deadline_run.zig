@@ -1,8 +1,9 @@
 //! One run of the deadline check (`deadline_check.zig`, decision 110): a server over one
 //! connection, the application that answers its requests, and the peer of the seed's plan, in
 //! simulated time. At each instant the run moves octets both ways until nothing moves, then goes
-//! to the next instant something is due: a piece of the peer's, or an answer of the application's.
-//! A run ends when the server says to close the connection, or at the horizon with it still open.
+//! to the next instant something is due: a piece of the peer's, an answer of the application's, or
+//! a deadline of the server's. A run ends when the server says to close the connection, or at the
+//! horizon with it still open.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -51,6 +52,8 @@ pub const Record = struct {
     /// Whether a hostile h11 peer read a 408, and the code of the GOAWAY a hostile h2 peer read.
     saw_timeout_response: bool,
     goaway_code: ?u32,
+    /// The deadline that ended the connection, if one did (decision 110).
+    timed_out: ?server.Deadline,
 };
 
 /// One direction's octets: written at the back, delivered to the reader, consumed from the front.
@@ -123,7 +126,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.server_config = .{ .cleartext = protocol };
     storage.tls_random = Random.init(seed);
     const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.server_connection.init(&storage.server_config, source, 0);
+    try storage.server_connection.init(&storage.server_config, source, 0, 0);
     storage.to_server.reset();
     storage.to_client.reset();
     storage.record = .{
@@ -134,6 +137,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .exchanges_done = 0,
         .saw_timeout_response = false,
         .goaway_code = null,
+        .timed_out = null,
     };
     storage.next_piece_ms = 0;
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
@@ -161,8 +165,10 @@ fn ns_of(ms: u64) u64 {
     return ms * limits.ns_per_ms;
 }
 
-/// Moves octets both ways at `now_ms` until nothing moves.
+/// Moves octets both ways at `now_ms` until nothing moves, after the server's caller hands it the
+/// instant, as it does whenever it wakes (decision 110).
 fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
+    storage.server_connection.on_instant(ns_of(now_ms));
     for (0..limits.passes_per_instant_max) |_| {
         var moved = try peer_write(storage, plan, now_ms);
         moved = try server_read(storage, plan, now_ms) or moved;
@@ -279,10 +285,15 @@ fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
     return moved;
 }
 
-/// The next instant something is due: a piece of the peer's, or an answer, or null for none.
+/// The next instant something is due: a piece of the peer's, an answer, or a deadline of the
+/// server's, or null for none.
 fn next_instant(storage: *Storage, plan: *const Plan) ?u64 {
     var soonest: ?u64 = null;
-    if (!plan.honest()) soonest = storage.hostile.next_ms();
+    // The run's instants are whole milliseconds, and so is every deadline that starts at one.
+    if (storage.server_connection.deadline_ns()) |at_ns| soonest = std.math.divCeil(u64, at_ns, limits.ns_per_ms) catch unreachable;
+    if (!plan.honest()) {
+        if (storage.hostile.next_ms()) |at_ms| soonest = earlier(soonest, at_ms);
+    }
     const to_server = &storage.to_server;
     if (plan.peer == .slow_honest and to_server.written > to_server.delivered) soonest = earlier(soonest, storage.next_piece_ms);
     const record = &storage.record;
@@ -300,6 +311,7 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
     const record = &storage.record;
     record.end = end;
     record.end_ms = end_ms;
+    record.timed_out = storage.server_connection.timed_out();
     if (plan.honest()) return;
     const received = storage.to_client.octets[0..storage.to_client.delivered];
     switch (plan.protocol) {

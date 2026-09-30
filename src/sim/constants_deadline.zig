@@ -8,7 +8,7 @@ const assert = std.debug.assert;
 pub const ns_per_ms: u64 = 1_000_000;
 
 /// The seeds `run_check` covers when its caller names none, and which the census test pins.
-pub const check_seeds_default: u64 = 64;
+pub const check_seeds_default: u64 = 256;
 
 /// The simulated time one run lasts at most, in milliseconds: well past every deadline decision
 /// 110 names, so a connection the server never ends is still open here.

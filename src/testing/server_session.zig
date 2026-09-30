@@ -84,7 +84,7 @@ pub const Session = struct {
         session.echo = echo;
         session.now_ns = 0;
         // The server issues no ticket, so it judges none at a clock: chapulin's 0 for none.
-        try session.connection.init(config, random, 0);
+        try session.connection.init(config, random, 0, session.now_ns);
         assert(session.connection.output_len == 0);
     }
 

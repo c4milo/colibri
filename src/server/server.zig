@@ -25,8 +25,11 @@ pub const quic_connection = @import("quic/quic_connection.zig");
 pub const endpoint = @import("endpoint/endpoint.zig");
 pub const alt_svc = @import("alt_svc.zig");
 pub const coding_pool = @import("coding/coding_pool.zig");
+pub const deadline = @import("deadline.zig");
 
 pub const Config = connection.Config;
+pub const Deadline = deadline.Deadline;
+pub const Deadlines = deadline.Deadlines;
 pub const Connection = connection.Connection;
 pub const QuicConnection = quic_connection.QuicConnection;
 pub const QuicConfig = quic_connection.Config;

@@ -29,6 +29,9 @@ pub const Peer = enum {
     slow_second_head,
     /// h2 alone: sends its preface and SETTINGS, then PINGs and nothing else.
     pinger,
+    /// Makes one exchange, then PINGs and nothing else. h11 has no PING, so in h11 it makes its
+    /// exchange and sends nothing more.
+    idle_pinger,
 };
 
 pub const Plan = struct {
@@ -82,7 +85,7 @@ pub fn draw(random: *Random) Plan {
 fn exchanges_of(peer: Peer, random: *Random) u8 {
     return switch (peer) {
         .honest, .slow_honest => @intCast(random.between(1, limits.exchanges_max)),
-        .slow_second_head => 1,
+        .slow_second_head, .idle_pinger => 1,
         .silent, .slow_head, .pinger => 0,
     };
 }
@@ -95,7 +98,7 @@ fn draw_pace(plan: *Plan, random: *Random) void {
             plan.gap_ms = random.between(limits.honest_gap_ms_min, limits.honest_gap_ms_max);
             plan.piece_len = @intCast(random.between(limits.honest_piece_len_min, limits.honest_piece_len_max));
         },
-        .slow_head, .slow_second_head, .pinger => {
+        .slow_head, .slow_second_head, .pinger, .idle_pinger => {
             plan.gap_ms = random.between(limits.hostile_gap_ms_min, limits.hostile_gap_ms_max);
             plan.piece_len = @intCast(random.between(1, limits.hostile_piece_len_max));
         },
@@ -111,6 +114,7 @@ test "a plan's pace fits its peer, and an h11 peer never pings" {
         if (plan.protocol == .h11) try testing.expect(plan.peer != .pinger);
         if (plan.peer == .slow_honest) try testing.expect(plan.gap_ms <= limits.honest_gap_ms_max);
         if (plan.peer == .slow_head) try testing.expect(plan.gap_ms >= limits.hostile_gap_ms_min);
-        try testing.expectEqual(plan.honest(), plan.exchanges_len > 0 and plan.peer != .slow_second_head);
+        const hostile_exchange = plan.peer == .slow_second_head or plan.peer == .idle_pinger;
+        try testing.expectEqual(plan.honest(), plan.exchanges_len > 0 and !hostile_exchange);
     }
 }

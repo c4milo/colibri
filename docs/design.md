@@ -5914,10 +5914,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and ends the connection past `peer_reset_rate_max` in one `peer_reset_rate_period_ns`.
     **Check:** unit tests at the limit and across a period, a client whose streams its server
     refuses never ending the connection, and mutations.
-  - **20b**, the deadlines of decision 110 in `server.Connection`, with the test-only server taking
-    its instants from Rotor's loop. **Check:** unit tests at each deadline's instant, a simulator
-    check with seeded slow and flooding peers and an honest slow peer that is never cut, and
-    mutations.
+  - **20b**, the deadlines of decision 110 in `server.Connection`. **Check:** unit tests at each
+    deadline's instant, a simulator check with seeded slow and flooding peers and an honest slow
+    peer that is never cut, and mutations. It lands in three parts:
+    - the first-request, idle and head deadlines, and the calls that run them;
+    - the body and send rates, the cap per request, h2's floor on a DATA frame, and 100
+      concurrent h2 streams;
+    - the SETTINGS acknowledgment, drain and linger deadlines, the close reasons, and the
+      test-only server taking its instants from Rotor's loop.
 
   **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
   period its instant falls in, beside the count of the resets colibri sends. What was checked, on
@@ -5929,6 +5933,52 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Mutations, each **CAUGHT**: the peer's resets not counted, every reset counted, the reset at
     the limit refused, one past the limit allowed, the period never starting again, a period
     starting one nanosecond late, and the wrong error code.
+
+  **The first-request, idle and head deadlines, 2026-09-29.** The first part of 20b.
+  - `server.Connection.init` takes the instant the listener accepted the connection, and
+    `Config.deadlines` holds each deadline's limit, or null to turn it off. `set_deadlines`
+    changes one connection's limits. Both refuse 0, and a limit past `timeout_ns_max`, a day.
+  - `deadline_ns` reports the soonest instant a deadline passes, and `on_instant` ends the
+    connection then. `receive` and `send` end it first when their instant is past a deadline, so
+    octets that arrive late are not read. `timed_out` names the deadline that ended it.
+  - A silent or idle h11 connection closes with nothing sent, and a head that began and did not
+    end gets a 408 with `Connection: close`. h2 sends GOAWAY with NO_ERROR, or with
+    ENHANCE_YOUR_CALM for a field block left unfinished.
+  - Only a request head starts or ends a deadline. An h2 PING does not, and no deadline runs
+    while the application holds a request.
+  - The deadline check (`zig build sim -- --deadline-check`) came first, in a commit of its own.
+    Before the deadlines, every hostile peer held the server open until the end of the run. With
+    them it also runs a peer that makes one exchange and then sends nothing but PINGs, over 256
+    seeds.
+
+  What each check printed, on macOS arm64 with Zig 0.16.0:
+  - `zig build test`: 128 of 128 steps and 2408 of 2408 tests passed.
+  - The deadline check over 256 seeds: 130 exchanges; 104 connections ended at the first-request
+    deadline, 107 at idle and 45 at head, and none held open. Debug and ReleaseSafe print the
+    same census.
+  - 39 mutations, each **CAUGHT** by `zig build test-server` but one: the idle limit raised to
+    31 s, which the unit tests read from its constant and the deadline check's census catches.
+    - The calls: `receive`, `send` or `on_instant` not ending a connection past its deadline, or
+      not noting a wait that began; a deadline passing a nanosecond late; and `deadline_ns`
+      reporting the later deadline, or leaving out the head's or the first request's.
+    - The limits: `init` or `set_deadlines` not validating them; `init` ignoring
+      `Config.deadlines`; the clock starting at 0 rather than at `init`'s instant;
+      `set_deadlines` keeping the old limits; and `validate` accepting 0 or a limit past a day,
+      or refusing a day.
+    - The waits: a request not ending the first-request deadline, or that deadline passing after
+      the first request; a head's deadline outliving the head, or restarting at each call; idle
+      running before the first request, never starting, or restarting at each call; the idle or
+      head deadline never passing; and an unfinished h2 block, a begun h11 head, an h2 connection
+      with open streams, or an h11 request being read taken for idle.
+    - The actions: a begun h11 head ending without a 408, or an idle h11 connection with one; the
+      408 without its reason phrase; an unfinished h2 block ending with NO_ERROR; an idle h2
+      connection ending without a GOAWAY; a handshake deadline leaving the connection open; and a
+      deadline not stopping the connection.
+  - The deadline check caught 22 of the 39 by itself. It calls `receive`, `send` and `on_instant`
+    at every instant, runs in cleartext, and leaves every limit at its default. So it cannot tell
+    which call ended a connection, and it misses the handshake deadline, the checks on limits,
+    the reason phrase, and idle running before a first request, which the first-request deadline
+    always ends first.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

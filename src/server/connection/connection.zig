@@ -32,7 +32,10 @@ const connection_h2 = @import("connection_h2.zig");
 const connection_tls = @import("connection_tls.zig");
 const connection_errors = @import("connection_errors.zig");
 const connection_coding = @import("connection_coding.zig");
-const coding_pool = @import("../coding/coding_pool.zig");
+const connection_config = @import("connection_config.zig");
+const connection_continue = @import("connection_continue.zig");
+const connection_deadline = @import("connection_deadline.zig");
+const deadline = @import("../deadline.zig");
 const expect = @import("../expect.zig");
 const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
@@ -42,31 +45,10 @@ pub const Protocol = event.Protocol;
 pub const Event = event.Event;
 pub const Received = event.Received;
 pub const Field = http.field.Field;
+pub const Deadline = deadline.Deadline;
+pub const Deadlines = deadline.Deadlines;
 
-/// What every connection of a server borrows. The caller keeps it alive while any connection
-/// holds it.
-pub const Config = struct {
-    /// The TLS configuration, or null for cleartext. Its ALPN list names what the server offers,
-    /// `h2` and `http/1.1` in the order it prefers them (RFC 7301 §3.2).
-    tls: ?*const tls.record.ServerConfig = null,
-    /// The protocol a cleartext connection speaks: h11, or h2 with prior knowledge (RFC 9113
-    /// §3.3). Over TLS, ALPN chooses (decision 88).
-    cleartext: Protocol = .h11,
-    /// h11's decoders of the `gzip` and `deflate` transfer codings, which connections may share
-    /// (decision 91). With none, h11 answers a request carrying either coding 501.
-    decoders: ?h11.coding.Storage = null,
-    /// Where h11 decodes a body carrying `gzip` or `deflate` (decision 98). A `body` event's octets
-    /// point into it until the next `receive` of any connection sharing it. Empty with no decoders.
-    decoded: []u8 = &.{},
-    /// The h3 endpoint each connection over TLS advertises (decision 100): an Alt-Svc line on each
-    /// final h11 response, and one ALTSVC frame per h2 connection (`alt_svc.zig`). Null for none.
-    h3_alternative: ?alt_svc.Alternative = null,
-    /// The content codings the server applies to a response the caller marks `codable`, in its
-    /// order of preference, and the pool their encoders come from, which connections may share
-    /// (decision 101). Both or neither.
-    codings: []const http.content_coding.Coding = &.{},
-    encoders: ?coding_pool.Encoders = null,
-};
+pub const Config = connection_config.Config;
 
 pub const Error = connection_errors.Error;
 pub const StartError = connection_errors.StartError;
@@ -139,14 +121,20 @@ pub const Connection = struct {
     advert: alt_svc.Advert,
     /// The requests whose responses may be coded, and the coded responses (decision 101).
     coding: connection_coding.Table,
+    /// This connection's limits and where its deadlines stand (decision 110).
+    deadlines: Deadlines,
+    clock: connection_deadline.Clock,
 
-    /// Prepares a connection the listener accepted, with nothing read or written. Over TLS, every
-    /// draw the handshake makes comes from `random`, and `now_seconds` is the clock its tickets
-    /// are issued at, or 0 for none.
-    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64) StartError!void {
+    /// Prepares a connection the listener accepted at `now_ns`, with nothing read or written. Over
+    /// TLS, every draw the handshake makes comes from `random`, and `now_seconds` is the clock its
+    /// tickets are issued at, or 0 for none.
+    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3.
         assert(config.cleartext != .h3);
         assert((config.codings.len == 0) == (config.encoders == null));
+        try config.deadlines.validate();
+        connection.deadlines = config.deadlines;
+        connection.clock = .init(now_ns);
         connection.config = config;
         connection.plain_in_len = 0;
         connection.plain_in_read = 0;
@@ -196,10 +184,18 @@ pub const Connection = struct {
     }
 
     /// Reads at most one event from `input`, the octets the transport read. Over TLS it runs the
-    /// handshake first, and `input` is records, which chapulin may open in place.
+    /// handshake first, and `input` is records, which chapulin may open in place. A deadline that
+    /// has passed at `now_ns` ends the connection first (decision 110).
     pub fn receive(connection: *Connection, input: []u8, now_ns: u64) Error!Received {
+        _ = connection_deadline.fire(connection, now_ns);
+        const received = try connection.receive_event(input, now_ns);
+        connection_deadline.observe(connection, now_ns);
+        return received;
+    }
+
+    fn receive_event(connection: *Connection, input: []u8, now_ns: u64) Error!Received {
         // RFC 9110 §10.1.1: the 100 goes out before the server waits for the content.
-        if (!connection.write_continue()) return .{ .consumed = 0, .event = null };
+        if (!connection_continue.write(connection)) return .{ .consumed = 0, .event = null };
         // Decision 103: a response made whole since the last call is reported before anything
         // more is read, so no request arrives while one is owed.
         if (connection.done_owed.take()) |id| return .{ .consumed = 0, .event = .{ .done = .{ .id = id } } };
@@ -214,35 +210,14 @@ pub const Connection = struct {
         const reported = received.event orelse return received;
         if (reported == .request and expect.expects_continue(reported.request)) connection.continue_owed = reported.request.id;
         switch (reported) {
-            .request => |request| connection_coding.on_request(connection, request),
+            .request => |request| {
+                connection_coding.on_request(connection, request);
+                connection_deadline.on_request(connection);
+            },
             .cancelled => |cancelled| connection_coding.forget(connection, cancelled.id),
             .body, .trailers, .done => {},
         }
         return received;
-    }
-
-    /// Writes the 100 (Continue) owed, and returns whether none is owed any more. A request the
-    /// caller answered with a final response, or cancelled, needs none, and the protocol refuses one.
-    fn write_continue(connection: *Connection) bool {
-        const id = connection.continue_owed orelse return true;
-        if (connection.phase != .open or connection.stopped) {
-            connection.continue_owed = null;
-            return true;
-        }
-        const written = switch (connection.session) {
-            .h2 => connection_h2.write_continue(connection, id),
-            .h11 => connection_h11.write_continue(connection),
-            .none => unreachable,
-        } catch |failure| {
-            // No room: the caller sends, and the 100 goes out on the next call.
-            if (failure == error.NoSpaceLeft) return false;
-            // The request ended before the 100 could go out, and needs none.
-            connection.continue_owed = null;
-            return true;
-        };
-        connection.output_len += written;
-        connection.continue_owed = null;
-        return true;
     }
 
     /// Reads at most one event from the protocol's octets, and the octets before it that mean
@@ -311,11 +286,19 @@ pub const Connection = struct {
     }
 
     /// Writes what the connection owes the peer into `output`, sealed over TLS, and returns the
-    /// octets written. What does not fit waits for the next call.
+    /// octets written. What does not fit waits for the next call. A deadline that has passed at
+    /// `now_ns` ends the connection first (decision 110).
     pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
+        _ = connection_deadline.fire(connection, now_ns);
+        const written = connection.send_owed(output, now_ns);
+        connection_deadline.observe(connection, now_ns);
+        return written;
+    }
+
+    fn send_owed(connection: *Connection, output: []u8, now_ns: u64) usize {
         // What the protocol owes goes out whether or not this call finds any, the 100 first, and
         // then what the coded responses' rings hold.
-        _ = connection.write_continue();
+        _ = connection_continue.write(connection);
         _ = connection.write_owed(now_ns);
         connection_coding.drain(connection);
         if (connection.config.tls != null) return connection_tls.send(connection, output, now_ns);
@@ -323,6 +306,31 @@ pub const Connection = struct {
         @memcpy(output[0..written], connection.output[0..written]);
         connection.take_output(written);
         return written;
+    }
+
+    /// The soonest instant one of decision 110's deadlines passes, or null when none runs. The
+    /// caller wakes then and calls `on_instant`, and asks again after each `receive` and `send`.
+    pub fn deadline_ns(connection: *const Connection) ?u64 {
+        return connection_deadline.soonest(connection);
+    }
+
+    /// Ends the connection when a deadline has passed at `now_ns` (decision 110). What it then owes
+    /// the peer waits for `send`, and `should_close` says when to close.
+    pub fn on_instant(connection: *Connection, now_ns: u64) void {
+        _ = connection_deadline.fire(connection, now_ns);
+        connection_deadline.observe(connection, now_ns);
+    }
+
+    /// Replaces this connection's limits (decision 110), for a caller short of connections that
+    /// shortens its deadlines. A deadline that has started keeps its start.
+    pub fn set_deadlines(connection: *Connection, deadlines: Deadlines) error{DeadlineInvalid}!void {
+        try deadlines.validate();
+        connection.deadlines = deadlines;
+    }
+
+    /// The deadline that ended the connection, or null.
+    pub fn timed_out(connection: *const Connection) ?Deadline {
+        return connection.clock.timed_out;
     }
 
     /// Whether the caller closes the transport now: the connection has finished and `send` has
@@ -469,4 +477,5 @@ test {
     _ = @import("connection_altsvc_test.zig");
     _ = @import("connection_coding_h11_test.zig");
     _ = @import("connection_coding_h2_test.zig");
+    _ = @import("connection_deadline_test.zig");
 }

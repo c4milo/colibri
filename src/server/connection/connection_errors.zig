@@ -8,6 +8,8 @@ pub const Error = error{ConnectionFailed};
 pub const StartError = error{
     /// chapulin refused the TLS configuration (`tls.record.Error.Refused`).
     TlsRefused,
+    /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
+    DeadlineInvalid,
 };
 
 pub const SendError = error{

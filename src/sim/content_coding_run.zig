@@ -128,7 +128,7 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     }
     storage.tls_random = Random.init(content_seed);
     const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.server_connection.init(&storage.server_config, source, 0);
+    try storage.server_connection.init(&storage.server_config, source, 0, now_ns);
     try storage.client_connection.init(&storage.client_config, source, 0, null);
     storage.to_server.reset();
     storage.to_client.reset();
