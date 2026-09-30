@@ -37,7 +37,9 @@ pub const Deadline = enum {
 /// window exactly when twice the rate over one window is a whole unit or more. The bound is on the
 /// rate times the window before the quota rounds it up: a quota rounded up to half a unit can fall
 /// short, and one of half a unit and one octet cannot. The defaults' 10,240 octets are past it. A
-/// caller that lowers the rate or the window further may cut an honest peer that sends whole units.
+/// server whose bodies arrive in units refuses a body rate under the bound (`validate_units`,
+/// decision 110 as amended), and an h11 connection in cleartext, which reads a body octet by
+/// octet, keeps any rate.
 pub const Deadlines = struct {
     first_request_ns: ?u64 = constants.first_request_timeout_ns,
     idle_ns: ?u64 = constants.idle_timeout_ns,
@@ -75,6 +77,15 @@ pub const Deadlines = struct {
         if (deadlines.body_rate_min == 0 or deadlines.send_rate_min == 0) return error.DeadlineInvalid;
     }
 
+    /// Refuses a `body_rate_min` under which a peer that sends whole units at twice the rate can
+    /// fall short, for a connection whose bodies arrive in units (decision 110 as amended).
+    pub fn validate_units(deadlines: Deadlines) error{DeadlineInvalid}!void {
+        const rate = deadlines.body_rate_min orelse return;
+        // RFC 9846 §5.1 and RFC 9113 §4.2 bound a record and a DATA frame at `body_unit_len`, and
+        // decision 110 as amended refuses a rate that cuts an honest peer sending them.
+        if (!fits_unit(rate, deadlines.rate_window_ns)) return error.DeadlineInvalid;
+    }
+
     /// The octets a window must bring for the body rate, at least 1, or null with no rate.
     pub fn body_quota(deadlines: *const Deadlines) ?u64 {
         const rate = deadlines.body_rate_min orelse return null;
@@ -96,6 +107,15 @@ pub fn quota(rate: u32, window_ns: u64) u64 {
     const octets: u64 = @intCast((product + constants.nanoseconds_per_second - 1) / constants.nanoseconds_per_second);
     assert(octets > 0);
     return octets;
+}
+
+/// Whether `honest_rate_factor` times `rate` octets a second over `window_ns` bring a whole unit
+/// of `body_unit_len` octets or more. spec/lean/Colibri/Server/RateMeter.lean's `never_short_iff`
+/// proves an honest peer never falls short in a window exactly when they do (`fitsUnit`).
+pub fn fits_unit(rate: u32, window_ns: u64) bool {
+    assert(rate > 0 and window_ns > 0);
+    const brought = @as(u128, constants.honest_rate_factor) * rate * window_ns;
+    return brought >= @as(u128, constants.body_unit_len) * constants.nanoseconds_per_second;
 }
 
 const testing = std.testing;
@@ -125,6 +145,19 @@ test "decision 110: a window owes the rate times its length, rounded up" {
     try testing.expectEqual(3, quota(2, constants.nanoseconds_per_second + 1));
 }
 
+test "decision 110 as amended: where bodies arrive in units, a rate an honest peer can fall short of is refused" {
+    // Twice 819 octets a second over 10 s windows is 16,380 octets, under a unit of 16,384, and
+    // twice 820 is over it.
+    try testing.expect(!fits_unit(819, constants.rate_window_ns));
+    try testing.expect(fits_unit(820, constants.rate_window_ns));
+    // A quota rounded up to half a unit falls short, and the bound itself does not.
+    try testing.expect(!fits_unit(8_192, constants.nanoseconds_per_second - 1));
+    try testing.expect(fits_unit(8_192, constants.nanoseconds_per_second));
+    try (Deadlines{}).validate_units();
+    try (Deadlines{ .body_rate_min = null, .rate_window_ns = 1 }).validate_units();
+    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .body_rate_min = 819 }).validate_units());
+}
+
 test "decision 77: every quota vector of spec/lean is this quota" {
     // spec/lean/Colibri/Server/RateMeter.lean proves its theorems about this rounding, and its
     // outputs over the rates and windows below are here: each side of an octet a window and of a
@@ -143,4 +176,24 @@ test "decision 77: every quota vector of spec/lean is this quota" {
     }
     // Nine rates over ten windows.
     try testing.expectEqual(90, count);
+}
+
+test "decision 77: every unit vector of spec/lean is this bound" {
+    // spec/lean/Colibri/Server/RateMeter.lean's `fitsUnit` is `never_short_iff`'s condition, for
+    // units of 16,384 octets, over the rates and windows of the quota vectors and each side of the
+    // bound at the default window.
+    var lines = std.mem.splitScalar(u8, @embedFile("rate_vectors.txt"), '\n');
+    var count: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "fits ")) continue;
+        var fields = std.mem.tokenizeScalar(u8, line["fits ".len..], ' ');
+        const rate = try std.fmt.parseUnsigned(u32, fields.next().?, 10);
+        const window_ns = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        const fits = std.mem.eql(u8, fields.next().?, "yes");
+        try testing.expectEqual(fits, fits_unit(rate, window_ns));
+        count += 1;
+    }
+    // Eleven rates over ten windows.
+    try testing.expectEqual(110, count);
 }

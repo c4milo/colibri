@@ -325,6 +325,21 @@ theorem never_short_iff (rate window grace unit t0 : Nat) (hr : 0 < rate) (hw : 
   · intro h peerRate peerStart k hpeer hs hk
     exact never_short rate window grace unit peerRate peerStart t0 k hu hpeer hs hk h
 
+/-- Whether twice `rate` over one `window` is a whole `unit` or more: `never_short_iff`'s condition,
+which `deadline.zig`'s `fits_unit` computes for units of 16,384 octets, and which a server whose
+bodies arrive in units requires of its body rate (decision 110 as amended). -/
+def fitsUnit (rate window unit : Nat) : Bool :=
+  decide (unit * nanosecondsPerSecond ≤ 2 * (rate * window))
+
+/-- `fitsUnit` holds exactly when every honest peer brings every window its quota. -/
+theorem fitsUnit_iff (rate window grace unit t0 : Nat) (hr : 0 < rate) (hw : 0 < window)
+    (hg : 0 < grace) (hu : 0 < unit) :
+    fitsUnit rate window unit = true ↔
+      ∀ peerRate peerStart k, 2 * rate ≤ peerRate → peerStart < t0 + grace → 1 ≤ k →
+        quota rate window ≤ brought peerRate unit peerStart t0 grace window k := by
+  rw [never_short_iff rate window grace unit t0 hr hw hg hu]
+  simp [fitsUnit]
+
 /-- A quota that rounds up to half a unit is not enough. At 8,192 octets a second over windows of
 999,999,999 nanoseconds a window owes 8,192 octets, half of 16,384, yet a peer at twice the rate
 can bring its first window nothing. -/

@@ -149,6 +149,14 @@ pub const send_rate_min: u32 = 1_024;
 pub const close_linger_ns: u64 = 2 * nanoseconds_per_second;
 pub const data_frame_len_min: u32 = 1_024;
 
+/// Decision 110 as amended a fifth time: over TLS a request body arrives a record at a time
+/// (RFC 9846 §5.1), and in h2 a DATA frame at a time (RFC 9113 §4.2), each of up to this many
+/// octets. An honest peer sends a body at `honest_rate_factor` times the minimum rate or more, and
+/// a server whose bodies arrive in units refuses a `body_rate_min` under which such a peer can fall
+/// short (spec/lean/Colibri/Server/RateMeter.lean).
+pub const body_unit_len: u64 = tls_provider.constants.record_plaintext_len_max;
+pub const honest_rate_factor: u64 = 2;
+
 /// Decision 110's drain deadline: after the caller's `shutdown`, the time the requests it holds
 /// have before the connection closes.
 pub const drain_timeout_ns: u64 = 30 * nanoseconds_per_second;
@@ -188,6 +196,8 @@ comptime {
     assert(done_owed_max > 0);
     assert(bodies_max > 0 and body_rate_min > 0 and send_rate_min > 0);
     assert(data_frame_len_min <= h2.constants.max_frame_size_initial and close_linger_ns > 0);
+    // The largest DATA frame a peer may send colibri is a record's plaintext too.
+    assert(body_unit_len == h2.constants.max_frame_size_initial and honest_rate_factor > 1);
     assert(h2_streams_max > 0 and h2_streams_max <= h2.constants.concurrent_streams_max);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
 }

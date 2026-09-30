@@ -131,7 +131,7 @@ pub fn draw(random: *Random) Plan {
         .protocol = protocol,
         .peer = peer,
         .base_ms = random.below(limits.base_ms_max),
-        .deadlines = if (peer == .long_body) long_body_deadlines(random) else draw_deadlines(random),
+        .deadlines = if (peer == .long_body) long_body_deadlines(random, protocol) else draw_deadlines(random),
         .exchanges_len = exchanges_of(peer, random),
         .gap_ms = 0,
         .piece_len = 0,
@@ -178,12 +178,21 @@ fn draw_short_deadlines(random: *Random) server.Deadlines {
 }
 
 /// The limits a long body runs under: a server that allows slow bodies and caps them, with a cap
-/// its body outlasts.
-fn long_body_deadlines(random: *Random) server.Deadlines {
+/// its body outlasts. In h2 a body arrives a DATA frame at a time, so the window is long enough
+/// that twice the slow rate brings a whole frame, as decision 110 as amended requires.
+fn long_body_deadlines(random: *Random, protocol: Protocol) server.Deadlines {
     var deadlines = draw_short_deadlines(random);
     deadlines.body_rate_min = limits.long_body_rate_min;
     deadlines.body_ns = random.between(limits.long_body_cap_ms_min, limits.long_body_cap_ms_max) * limits.ns_per_ms;
+    if (protocol == .h2) deadlines.rate_window_ns = @max(deadlines.rate_window_ns, unit_window_ns(limits.long_body_rate_min));
     return deadlines;
+}
+
+/// The shortest window over which twice `rate` octets a second bring a whole unit of a body.
+fn unit_window_ns(rate: u32) u64 {
+    const unit_ns = server.constants.body_unit_len * server.constants.nanoseconds_per_second;
+    const rate_twice = server.constants.honest_rate_factor * rate;
+    return (unit_ns + rate_twice - 1) / rate_twice;
 }
 
 /// The shortest window a plan draws for a minimum rate: one whose quota is `window_quota_min`.

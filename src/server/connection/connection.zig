@@ -153,6 +153,7 @@ pub const Connection = struct {
         assert(config.data_frame_len_min <= h2.constants.max_frame_size_initial);
         assert(config.h2_streams_max > 0 and config.h2_streams_max <= h2.constants.concurrent_streams_max);
         try config.deadlines.validate();
+        if (config.whole_units()) try config.deadlines.validate_units();
         connection.deadlines = config.deadlines;
         connection.clock = .init(now_ns);
         connection.bodies.init();
@@ -350,9 +351,11 @@ pub const Connection = struct {
     }
 
     /// Replaces this connection's limits (decision 110), for a caller short of connections that
-    /// shortens its deadlines. A deadline that has started keeps its start.
+    /// shortens its deadlines. It refuses what `init` refuses. A deadline that has started keeps
+    /// its start.
     pub fn set_deadlines(connection: *Connection, deadlines: Deadlines) error{DeadlineInvalid}!void {
         try deadlines.validate();
+        if (connection.config.whole_units()) try deadlines.validate_units();
         connection.deadlines = deadlines;
     }
 

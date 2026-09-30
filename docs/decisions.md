@@ -3324,6 +3324,20 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      the output holds, which shortens the wait but leaves the kernel's buffers ahead of the update,
      and keeping the rule with a note that a client must read to go on uploading.
 
+     Amended a fifth time by the owner on 2026-09-30: a server whose bodies arrive in units refuses
+     a body rate an honest peer can fall short of. `spec/lean/Colibri/Server/RateMeter.lean` proves
+     the exact bound ([#87](https://github.com/c4milo/colibri/issues/87)). Take a peer that sends
+     whole units at twice the minimum rate or more and starts before the grace period ends. It never
+     falls short in a window exactly when twice the rate over one window is a whole unit or more.
+     Over TLS a body arrives a record at a time, and in h2 a DATA frame at a time, each of up to
+     16,384 octets (RFC 9846 §5.1, RFC 9113 §4.2). So `server.Connection` refuses a `body_rate_min`
+     under the bound, at `init` and at `set_deadlines`, when its configuration has TLS or speaks h2
+     in cleartext. An h11 connection in cleartext reads a body octet by octet and keeps any rate.
+     The defaults, 1,024 octets a second over 10 s windows, pass. The send rate is unchanged: the
+     proof is about a peer that sends, not one that reads. Refused: refusing in
+     `Deadlines.validate`, which cannot see the protocol and would refuse h11 in cleartext too; and
+     accepting such limits with the bound in a note.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

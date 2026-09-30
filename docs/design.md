@@ -6485,6 +6485,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 2 mutations of the Lean definitions stop the proofs, and 1 edit to the vector file is refused
     by `zig build lean`.
 
+  **Body rates an honest peer can meet, 2026-09-30.** Decision 110's fifth amendment.
+  `server.Connection` refuses a `body_rate_min` under the bound that
+  `spec/lean/Colibri/Server/RateMeter.lean` proves, at `init` and at `set_deadlines`, when its
+  configuration has TLS or speaks h2 in cleartext (`Config.whole_units`). Twice the rate over one
+  `rate_window_ns` must be a whole unit or more, where a unit, `body_unit_len`, is a record's or a
+  DATA frame's 16,384 octets. `fits_unit` in `deadline.zig` computes the bound. The Lean
+  `fitsUnit`, which `fitsUnit_iff` proves equal to `never_short_iff`'s condition, gives the same
+  answer over 110 vectors. In h2 the deadline check's slow-body server now has windows of 32 s,
+  over which twice its 256 octets a second is a unit. Every count of its census is unchanged, and
+  its CRC-32 moved to `0x280860ff` in Debug and ReleaseSafe.
+  - `zig build test`: 131 of 131 steps and 2513 of 2513 tests passed.
+  - 7 mutations, each **CAUGHT** by `zig build test-server` or `zig build test-sim-run`: the bound
+    itself refused, a peer at the minimum rate rather than twice it, TLS or h2 in cleartext not
+    held to units, `init` or `set_deadlines` checking no unit, and the simulator's h2 slow-body
+    server keeping its short window. 1 mutation of the Lean `fitsUnit` stops the proofs.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

@@ -227,6 +227,22 @@ test "decision 110: a caller changes one connection's limits, null turns one off
     try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
 }
 
+test "decision 110 as amended: where bodies arrive in units, a rate an honest peer can fall short of is refused" {
+    // Twice 819 octets a second over the default 10 s window is 16,380 octets, under a unit of
+    // 16,384 (spec/lean/Colibri/Server/RateMeter.lean), and twice 820 is over it.
+    try support.start_cleartext(.h2);
+    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = 819 }));
+    try connection.set_deadlines(.{ .body_rate_min = 820 });
+    support.config = .{ .cleartext = .h2, .deadlines = .{ .body_rate_min = 819 } };
+    try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
+    // h11 in cleartext reads a body octet by octet, so any rate stands.
+    try support.start_cleartext(.h11);
+    try connection.set_deadlines(.{ .body_rate_min = 819 });
+    // Over TLS a body arrives a record at a time, whichever protocol ALPN picks.
+    try support.begin_tls(&support.protocols_both, &support.protocols_both);
+    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = 819 }));
+}
+
 test "decision 110: the configuration's limits apply from the instant init is given" {
     support.config = .{ .cleartext = .h11, .deadlines = .{ .first_request_ns = early_ns } };
     try connection.init(&support.config, support.stream.random(), 0, idle_ns);

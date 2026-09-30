@@ -44,4 +44,11 @@ pub const Config = struct {
     /// The h2 streams a client may have open at once, from 1 to h2's `concurrent_streams_max`
     /// (decision 110).
     h2_streams_max: u32 = constants.h2_streams_max,
+
+    /// Whether a request body arrives in units, which decision 110 as amended bounds the body rate
+    /// by: over TLS a record at a time, and in h2 a DATA frame at a time. h11 in cleartext reads a
+    /// body octet by octet.
+    pub fn whole_units(config: *const Config) bool {
+        return config.tls != null or config.cleartext == .h2;
+    }
 };
