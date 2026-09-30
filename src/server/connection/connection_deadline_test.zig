@@ -103,19 +103,39 @@ test "decision 110: no deadline runs while an h2 request is open, and idle runs 
     try testing.expectEqual(answered_ns + idle_ns, connection.deadline_ns().?);
 }
 
-test "decision 110: a wait that begins in respond starts at the instant of the next call, send's or on_instant's" {
+test "decision 110: a wait that begins between calls starts at the instant of the next call, send's or on_instant's" {
+    // The response goes out in `send`, and the idle deadline starts then.
     try support.start_cleartext(.h11);
-    var received = try receive_at(whole_request, early_ns);
+    const received = try receive_at(whole_request, early_ns);
     try connection.respond(received.event.?.request.id, .{ .status = no_content, .end = true });
     try testing.expectEqual(null, connection.deadline_ns());
     _ = send_at(early_ns + 1);
     try testing.expectEqual(early_ns + 1 + idle_ns, connection.deadline_ns().?);
-    try support.start_cleartext(.h11);
-    received = try receive_at(whole_request, early_ns);
-    try connection.respond(received.event.?.request.id, .{ .status = no_content, .end = true });
+    // The caller cancels an h2 request, which leaves the connection idle with nothing to send.
+    try h2_support.start();
+    _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
+    connection.cancel(1);
+    try testing.expectEqual(null, connection.deadline_ns());
     connection.on_instant(early_ns + 2);
     try testing.expectEqual(early_ns + 2 + idle_ns, connection.deadline_ns().?);
 }
+
+test "decision 110: the idle deadline starts once the last response's octets are out" {
+    try support.start_cleartext(.h11);
+    const id = (try receive_at(whole_request, early_ns)).event.?.request.id;
+    try connection.respond(id, .{ .status = ok_status, .end = false });
+    _ = try connection.write_body(id, .{ .octets = "a response the peer reads slowly", .end = true });
+    // The peer's socket takes a few octets, and the rest wait in the output.
+    try testing.expect(connection.send(support.output[0..partial_len], early_ns) == partial_len);
+    try testing.expectEqual(null, connection.deadline_ns());
+    _ = send_at(early_ns + 1);
+    try testing.expectEqual(early_ns + 1 + idle_ns, connection.deadline_ns().?);
+}
+
+/// A status with content, 200 (OK), RFC 9110 §15.3.1, and the octets of a send that takes part of
+/// a response.
+const ok_status: u16 = 200;
+const partial_len: usize = 10;
 
 test "decision 110: a later head's deadline runs from its first octet, and its end stops it" {
     try support.start_cleartext(.h11);

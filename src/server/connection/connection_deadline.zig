@@ -93,11 +93,13 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     } else if (clock.head_since_ns == null) {
         clock.head_since_ns = now_ns;
     }
-    // Decision 110: the idle deadline runs between requests, after the first one.
+    // Decision 110: the idle deadline runs between requests, after the first one. It starts once
+    // the last response's octets are out, since until then the connection waits on the peer to
+    // read them, and colibri's own frames written later do not stop it.
     const idle = wait == .idle and clock.first_request_read;
     if (!idle) {
         clock.idle_since_ns = null;
-    } else if (clock.idle_since_ns == null) {
+    } else if (clock.idle_since_ns == null and connection.output_len == 0) {
         clock.idle_since_ns = now_ns;
     }
     connection_bodies.observe(connection, now_ns);
