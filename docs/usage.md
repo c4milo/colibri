@@ -254,11 +254,19 @@ program sends them, then closes the connection. An output of
 configuration names the most anchors and ALPN protocols it takes, `anchors_max` and
 `protocols_max`.
 
+Every configuration also takes `aes_instructions`, which has no default: whether the CPU the
+program runs on has the AES instructions and the carry-less multiply. colibri probes nothing. A
+program asks its CPU once, at start, and passes the answer to each configuration. Under `absent` a
+session runs no AES instruction and holds TLS_CHACHA20_POLY1305_SHA256 alone. stdx's `platform`
+module will answer it (https://github.com/c4milo/stdx/issues/15); until then this program answers
+for the target it was built for.
+
 ```zig
 const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
 try tls_config.init(.{
     .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
     .alpn = &.{ "h2", "http/1.1" },
+    .aes_instructions = aes_instructions(),
 });
 try tls_client.start(&tls_config, entropy, now_seconds, null);
 const hello = try tls_client.handshake(&.{}, &output);

@@ -55,10 +55,12 @@ fn prepare_tls(server_protocols: []const []const u8, client_protocols: []const [
         .cookie_key = &support.cookie_key,
         .ticket_key = if (tickets) &support.ticket_key else null,
         .alpn = server_protocols,
+        .aes_instructions = support.aes_instructions,
     });
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = server_name } },
         .alpn = client_protocols,
+        .aes_instructions = support.aes_instructions,
     });
     support.config = .{ .authority = support.authority, .tls = &client_config };
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null);
@@ -341,6 +343,7 @@ test "RFC 9846 §4.1.2: the ClientHello goes out on the first send, before any r
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } },
         .alpn = &support.protocols_both,
+        .aes_instructions = support.aes_instructions,
     });
     support.config = .{ .authority = support.authority, .tls = &client_config };
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null);

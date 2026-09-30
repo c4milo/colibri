@@ -395,7 +395,7 @@ pub fn create(
 
 /// chapulin's `AES`, `SUITE`, `CHACHA` and `KEYLOG` values the library's objects choose between,
 /// spelled as its build spells them.
-const Aes = enum { soft, hw };
+const Aes = enum { soft, hw, runtime };
 const Suite = enum { chacha, aesgcm };
 const Chacha = enum { portable, vector };
 const Keylog = enum { on, off };
@@ -410,7 +410,7 @@ const Keylog = enum { on, off };
 /// match the object it links. The library's object is `KEYLOG=off` (decision 94); only the tests
 /// of `tls_keylog` build one `on`.
 fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
-    const native = aes_native(target);
+    const aes = aes_of(target);
     return b.dependency("chapulin", .{
         .target = target,
         .RAND = .session,
@@ -418,21 +418,33 @@ fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylo
         .ROLE = .both,
         .TRUST = .webpki,
         .EXPORTER = .on,
-        .SUITE = if (native) Suite.aesgcm else Suite.chacha,
-        .AES = if (native) Aes.hw else Aes.soft,
-        .CH_NATIVE_AES = native,
+        .SUITE = if (aes == .soft) Suite.chacha else Suite.aesgcm,
+        .AES = aes,
+        .CH_NATIVE_AES = aes != .soft,
         .CHACHA = chacha_of(target),
         .TX_RECORD = "16384",
         .KEYLOG = keylog,
     });
 }
 
-/// Decision 97: `AES=hw`, with the builder's statement `CH_NATIVE_AES`, on a target whose features
-/// include the instructions chapulin's `aes_hw.c` runs on, and `AES=soft` on any other. Those are
-/// the AES instructions and the carry-less multiply: aes and pclmul on x86, and aes on Arm, where
-/// the 64-bit PMULL is part of the AES extension (chapulin's `aesTarget`). chapulin refuses
-/// `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed with the key (its `ct.h`, INV-26), so an
-/// object with software AES carries `SUITE=chacha`, TLS_CHACHA20_POLY1305_SHA256 alone.
+/// Decision 97 as amended for design §8 step 16e: `AES=runtime` on x86-64 and arm64, whose objects
+/// hold the AES instructions and a fallback and run the one each session's caller names. Any other
+/// target keeps the build target's choice: `AES=hw` where its features include the instructions
+/// chapulin's `aes_hw.c` runs on, and `AES=soft` elsewhere. Every object but a software one states
+/// `CH_NATIVE_AES`, that the instructions run in constant time where the part has them, and
+/// carries `SUITE=aesgcm`. chapulin refuses `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed
+/// with the key (its `ct.h`, INV-26), so a software object carries `SUITE=chacha`,
+/// TLS_CHACHA20_POLY1305_SHA256 alone.
+fn aes_of(target: std.Build.ResolvedTarget) Aes {
+    return switch (target.result.cpu.arch) {
+        .x86_64, .aarch64 => .runtime,
+        else => if (aes_native(target)) .hw else .soft,
+    };
+}
+
+/// Whether the target's features include the AES instructions and the carry-less multiply: aes
+/// and pclmul on x86, and aes on Arm, where the 64-bit PMULL is part of the AES extension
+/// (chapulin's `aesTarget`).
 fn aes_native(target: std.Build.ResolvedTarget) bool {
     const cpu = target.result.cpu;
     return switch (cpu.arch) {
@@ -462,16 +474,16 @@ fn chacha_of(target: std.Build.ResolvedTarget) Chacha {
 /// which is also the only kind of suite h3spec offers. The library's object is `KEYLOG=off`; `tls_keylog` builds
 /// one `on`, which hands the tests and the endpoints each traffic secret.
 fn chapulin_quic_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog: Keylog) *std.Build.Dependency {
-    const native = aes_native(target);
+    const aes = aes_of(target);
     return b.dependency("chapulin", .{
         .target = target,
         .RAND = .session,
         .TRANSPORT = .@"quic-nonblocking",
         .ROLE = .both,
         .TRUST = .webpki,
-        .SUITE = if (native) Suite.aesgcm else Suite.chacha,
-        .AES = if (native) Aes.hw else Aes.soft,
-        .CH_NATIVE_AES = native,
+        .SUITE = if (aes == .soft) Suite.chacha else Suite.aesgcm,
+        .AES = aes,
+        .CH_NATIVE_AES = aes != .soft,
         .CHACHA = chacha_of(target),
         .KEYLOG = keylog,
     });

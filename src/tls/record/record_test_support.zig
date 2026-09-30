@@ -20,6 +20,8 @@ pub const public_key: *const [constants.p256_public_key_len]u8 = testdata.public
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
+/// The CPU answer the tests pass: the build target's, since a test runs where it was built.
+pub const aes_instructions: values.AesInstructions = if (testdata.aes_instructions_present) .present else .absent;
 /// The first and the last instant the identity is valid at, which chapulin counts inside.
 pub const not_before_seconds = testdata.not_before_seconds;
 pub const not_after_seconds = testdata.not_after_seconds;
@@ -68,10 +70,25 @@ pub const Wire = struct {
     }
 };
 
-/// The suites the linked object holds: the three colibri admits with AES-GCM, and ChaCha20 alone
-/// without it (decision 97).
+/// Whether the linked object holds AES-GCM beside ChaCha20 (decision 97), and whether it takes the
+/// caller's answer on the AES instructions, as an `AES=runtime` object does (decision 97 as amended
+/// on 2026-09-29).
 pub const aes_gcm = @hasField(chapulin.c.ch_srv_cfg, "cipher_suites");
-pub const suites_held: []const u16 = if (aes_gcm) &tls_provider.constants.cipher_suites_admitted else &.{chacha};
+pub const takes_answer = @hasField(chapulin.c.ch_cfg, "aes_instructions");
+
+/// Whether a session whose caller answers `answer` holds AES-GCM: an object with AES-GCM, under
+/// `present` when the object takes the answer.
+pub fn holds_aes_gcm(answer: values.AesInstructions) bool {
+    return aes_gcm and (!takes_answer or answer == .present);
+}
+
+/// The answers a test may run a session under. `present` needs the instructions, which the build
+/// target has or does not, so a target without them runs `absent` alone.
+pub const answers: []const values.AesInstructions = if (takes_answer and aes_instructions == .present) &.{ .present, .absent } else &.{aes_instructions};
+
+/// The suites a session under the tests' answer holds: the three colibri admits with AES-GCM, and
+/// ChaCha20 alone without it.
+pub const suites_held: []const u16 = if (holds_aes_gcm(aes_instructions)) &tls_provider.constants.cipher_suites_admitted else &.{chacha};
 pub const chacha = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256;
 
 /// A server order naming `suite` alone, or none in an object that holds one suite and no order.
@@ -79,9 +96,15 @@ pub fn order_of(suite: *const [1]u16) []const u16 {
     return if (aes_gcm) suite else &.{};
 }
 
-/// The suite chapulin's own order runs when neither side names one: AES-256-GCM first in an object
-/// with AES-GCM (chapulin's decision 80), and ChaCha20, the one suite, in an object without it.
-pub const default_suite: u16 = if (aes_gcm) tls_provider.constants.cipher_suite_aes_256_gcm_sha384 else chacha;
+/// The suite chapulin's own order runs when neither side names one: AES-256-GCM first when both
+/// sessions hold AES-GCM (chapulin's decision 80), and ChaCha20 when either holds it alone.
+pub fn default_suite_of(client_answer: values.AesInstructions, server_answer: values.AesInstructions) u16 {
+    if (holds_aes_gcm(client_answer) and holds_aes_gcm(server_answer)) return tls_provider.constants.cipher_suite_aes_256_gcm_sha384;
+    return chacha;
+}
+
+/// The suite chapulin's own order runs under the tests' answer on both sides.
+pub const default_suite: u16 = default_suite_of(aes_instructions, aes_instructions);
 
 /// `web_pki` with a client order naming `suite` alone, or none in an object with no order.
 pub fn offering(suite: *const [1]u16) values.Client {
@@ -95,6 +118,8 @@ pub const ServerChoice = struct {
     tickets: bool = false,
     /// The suites the server selects from, in its order; empty for chapulin's.
     suites: []const u16 = &.{},
+    /// The server's answer on the AES instructions.
+    aes_instructions: values.AesInstructions = aes_instructions,
 };
 
 pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
@@ -104,6 +129,7 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
         .cookie_key = &cookie_key,
         .ticket_key = if (choice.tickets) &ticket_key else null,
         .alpn = &protocols,
+        .aes_instructions = choice.aes_instructions,
         .cipher_suites = choice.suites,
     });
 }
@@ -111,6 +137,7 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
 pub const web_pki: values.Client = .{
     .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } },
     .alpn = &protocols,
+    .aes_instructions = aes_instructions,
 };
 
 /// The source each session of the tests draws from: the stream the tests share.

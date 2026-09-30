@@ -112,14 +112,15 @@ tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
 # Decision 47 as amended: the tests in ReleaseSafe too, the mode colibri ships in.
 section "Tests in ReleaseSafe" zig build test -Drelease --summary all
 release_tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
-# Decision 97: a target without the AES instructions builds chapulin with software AES and
-# ChaCha20 alone, so the TLS tests run over those objects too, on a CPU model that has none:
-# x86-64's baseline, `x86_64`, or Arm's `generic`. Each architecture names its own models.
+# Decision 97 as amended for design §8 step 16e: the TLS tests pass the build target's answer on
+# the AES instructions, so on a CPU model that has none they run every session under `absent`, with
+# no AES instruction and ChaCha20 alone: x86-64's baseline, `x86_64`, or Arm's `generic`. Each
+# architecture names its own models.
 case "$(uname -m)" in
   x86_64 | amd64) cpu_without_aes=x86_64 ;;
   *) cpu_without_aes=generic ;;
 esac
-section "TLS tests over objects without AES-GCM" zig build test-tls test-tls-keylog -Dcpu="${cpu_without_aes}" --summary all
+section "TLS tests under absent, on a CPU model without AES" zig build test-tls test-tls-keylog -Dcpu="${cpu_without_aes}" --summary all
 # Decision 96: every program in examples/ builds and runs.
 section "Examples" zig build examples
 # Every Zig block in README.md and the docs is an excerpt of code that runs, and a project that

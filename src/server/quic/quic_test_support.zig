@@ -142,8 +142,9 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &alpn_h3,
+        .aes_instructions = support.aes_instructions,
     });
-    try client_tls.init(.{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } }, .alpn = &alpn_h3 });
+    try client_tls.init(.{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } }, .alpn = &alpn_h3, .aes_instructions = support.aes_instructions });
     config = .{ .tls = &server_tls };
     now_ns = start_ns;
     server_started = false;

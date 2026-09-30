@@ -123,11 +123,13 @@ pub const World = struct {
         try world.tcp_tls.init(.{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
             .alpn = &alpn_tcp,
+            .aes_instructions = identity.aes_instructions,
         });
         world.tcp_config = .{ .authority = identity.authority, .tls = &world.tcp_tls };
         try world.quic_tls.init(.{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
             .alpn = &alpn_quic,
+            .aes_instructions = identity.aes_instructions,
         });
         world.quic_config = .{ .tls = &world.quic_tls, .authority = identity.authority };
         world.channel_config = .{

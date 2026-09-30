@@ -51,6 +51,9 @@ pub fn ClientConfig(comptime chapulin: type) type {
             const alpn = try protocols(chapulin, &config.alpn, client.alpn);
             const trust = try config.trust_of(client.trust);
             config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq };
+            // Decided when the object is built, so an object that takes no answer never names
+            // chapulin's `AesInstructions`, which exists in an `AES=runtime` object alone.
+            if (comptime takes_answer(chapulin.Client)) config.values.aes_instructions = answer_of(chapulin, client.aes_instructions);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, client.cipher_suites);
             } else if (client.cipher_suites.len > 0) {
@@ -110,6 +113,9 @@ pub fn ServerConfig(comptime chapulin: type) type {
                 .alpn = try protocols(chapulin, &config.alpn, server.alpn),
                 .require_server_name = server.require_server_name,
             };
+            // Decided when the object is built, so an object that takes no answer never names
+            // chapulin's `AesInstructions`, which exists in an `AES=runtime` object alone.
+            if (comptime takes_answer(chapulin.Server)) config.values.aes_instructions = answer_of(chapulin, server.aes_instructions);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, server.cipher_suites);
             } else if (server.cipher_suites.len > 0) {
@@ -141,6 +147,21 @@ pub fn ServerConfig(comptime chapulin: type) type {
             // must verify; a server with no identity has none.
             checked.check() catch return error.IdentityRefused;
         }
+    };
+}
+
+/// Whether an object's `Values`, chapulin's `Client` or `Server`, take the caller's answer on the AES
+/// instructions, which an `AES=runtime` object alone does (decision 97 as amended on 2026-09-29).
+fn takes_answer(comptime Values: type) bool {
+    return @TypeOf(@as(Values, undefined).aes_instructions) != void;
+}
+
+/// The caller's answer on the AES instructions in the object's own type. chapulin refuses a session
+/// whose answer is unset, and colibri's values have no unset answer.
+fn answer_of(comptime chapulin: type, answer: values.AesInstructions) chapulin.AesInstructions {
+    return switch (answer) {
+        .present => .present,
+        .absent => .absent,
     };
 }
 

@@ -42,6 +42,20 @@ fn fill_entropy(_: *anyopaque, buffer: []u8) void {
     }
 }
 
+/// Whether the CPU has the AES instructions and the carry-less multiply, which colibri's TLS values
+/// require: aes and pclmul on x86-64, and aes on arm64. A program asks its CPU once, at start, and
+/// passes the answer down; until stdx's `platform` module offers that probe
+/// (https://github.com/c4milo/stdx/issues/15), this one answers for the target it was built for.
+fn aes_instructions() tls.AesInstructions {
+    const cpu = @import("builtin").cpu;
+    const present = switch (cpu.arch) {
+        .x86_64 => std.Target.x86.featureSetHasAll(cpu.features, .{ .aes, .pclmul }),
+        .aarch64 => std.Target.aarch64.featureSetHas(cpu.features, .aes),
+        else => false,
+    };
+    return if (present) .present else .absent;
+}
+
 /// A root this client never meets a chain of: an empty DER SEQUENCE for its name and its key.
 const empty_sequence = [_]u8{ 0x30, 0 };
 /// Unix seconds, which a program reads from its clock; colibri reads none.
@@ -69,6 +83,7 @@ pub fn main() !void {
     try tls_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
         .alpn = &.{ "h2", "http/1.1" },
+        .aes_instructions = aes_instructions(),
     });
     try tls_client.start(&tls_config, entropy, now_seconds, null);
     const hello = try tls_client.handshake(&.{}, &output);

@@ -321,11 +321,14 @@ section when a step adds or renames a command.
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
   the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
   `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
-  object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. On a target whose features include
-  the AES instructions each is `SUITE=aesgcm AES=hw` with the builder's statement `CH_NATIVE_AES`,
-  which adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256; on any other it is `AES=soft` with
-  ChaCha20 alone, because chapulin refuses AES-GCM over software AES (decision 97, chapulin's
-  INV-26). On a little-endian target with SSE2 or NEON, which every x86-64 and arm64 CPU has, each
+  object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. On x86-64 and arm64 each is
+  `SUITE=aesgcm AES=runtime` with the builder's statement `CH_NATIVE_AES`: it holds the AES
+  instructions and a fallback, and each session runs the one its caller's `aes_instructions` names,
+  which has no default (decision 97 as amended for design §8 step 16e). Under `present` a session
+  holds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, and under `absent` ChaCha20 alone. On any
+  other target the build target decides: `SUITE=aesgcm AES=hw` where its features include the AES
+  instructions, and `AES=soft` with ChaCha20 alone elsewhere, because chapulin refuses AES-GCM over
+  software AES (chapulin's INV-26). On a little-endian target with SSE2 or NEON, which every x86-64 and arm64 CPU has, each
   is also `CHACHA=vector`, and `CHACHA=portable` on any other (decision 97 as amended on
   2026-09-29). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
   endpoint runs it inside its loop (decisions 46 and 82), and `TRUST=webpki` is the one client
@@ -336,12 +339,14 @@ section when a step adds or renames a command.
   Zig API (its `docs/zig.md`), which carries the object, with the public headers translated under
   the object's own defines as its `c`. Because the module carries the object, nothing else may add
   it: a second copy fails the link. A program that links `tls` defines chapulin's one hook,
-  `ch_assert_fail`, and passes each session's `start` the `std.Random` it draws from. Each image of
-  `src/testing/` defines the hook (`src/testing/tls/hooks.zig`) and passes `getentropy`'s octets
-  (`src/testing/entropy.zig`), and a QUIC image defines `ch_keylog` too
-  (`src/testing/quic/keylog.zig`). `zig build test-tls test-tls-keylog -Dcpu=<model>` runs the
-  `tls` tests over the objects without AES-GCM, on a CPU model without the AES instructions:
-  `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
+  `ch_assert_fail`, passes each session's `start` the `std.Random` it draws from, and passes each
+  configuration its CPU's `aes_instructions`, which it asks once, at start. Each image of
+  `src/testing/` defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s octets
+  (`src/testing/entropy.zig`) and the CPU's answer (`src/testing/cpu.zig`), and a QUIC image
+  defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests pass the build target's
+  answer, and run both answers where it has the instructions. `zig build test-tls test-tls-keylog
+  -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES instructions, so under
+  `absent` alone: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
   --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
 - TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,

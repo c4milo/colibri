@@ -74,6 +74,7 @@ pub const TcpServer = struct {
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
             .alpn = &alpn_h2,
+            .aes_instructions = identity.aes_instructions,
         });
     }
 

@@ -18,6 +18,7 @@ const quic = @import("quic");
 const constants = @import("../constants.zig");
 const check_file = @import("../tls/check_file.zig");
 const entropy = @import("../entropy.zig");
+const cpu = @import("../cpu.zig");
 const keylog_module = @import("keylog.zig");
 const loopback_endpoint = @import("loopback_endpoint.zig");
 
@@ -106,11 +107,13 @@ fn configure(asked: Arguments) !void {
         .ecdsa_p256 = .{ .chain = &chain, .public_key = &public_storage, .private_key = &private_storage },
         .cookie_key = &cookie_storage,
         .alpn = &.{alpn},
+        .aes_instructions = cpu.aes_instructions(),
     });
     server_config.check(entropy.random()) catch fail("chapulin refused the server's identity", .{});
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
         .alpn = &.{alpn},
+        .aes_instructions = cpu.aes_instructions(),
     });
 }
 

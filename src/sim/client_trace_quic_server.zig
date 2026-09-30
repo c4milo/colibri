@@ -79,6 +79,7 @@ pub const QuicServer = struct {
             .cookie_key = &identity.cookie_key,
             .ticket_key = null,
             .alpn = protocols,
+            .aes_instructions = identity.aes_instructions,
         });
     }
 

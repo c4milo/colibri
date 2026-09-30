@@ -250,6 +250,7 @@ pub const Server = struct {
 
 test {
     _ = @import("record_test.zig");
+    _ = @import("record_aes_test.zig");
     _ = @import("record_failure_test.zig");
     // Sealing a peer's KeyUpdate needs the traffic secrets, which only a `KEYLOG=on` object logs.
     if (@hasDecl(chapulin.c, "ch_keylog")) _ = @import("record_keylog_test.zig");

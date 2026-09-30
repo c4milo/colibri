@@ -33,6 +33,8 @@ pub const public_key: *const [tls.constants.p256_public_key_len]u8 = testdata.pu
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
+/// The CPU answer the tests pass: the build target's, since a test runs where it was built.
+pub const aes_instructions: tls.AesInstructions = if (testdata.aes_instructions_present) .present else .absent;
 
 /// The instant each call passes, in nanoseconds. The tests hold it still.
 pub const now_ns: u64 = 1_000_000;
@@ -197,10 +199,12 @@ pub fn begin_tls(server_protocols: []const []const u8, client_protocols: []const
         .ecdsa_p256 = .{ .chain = &chain, .public_key = public_key, .private_key = private_key },
         .cookie_key = &cookie_key,
         .alpn = server_protocols,
+        .aes_instructions = aes_instructions,
     });
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } },
         .alpn = client_protocols,
+        .aes_instructions = aes_instructions,
     });
     config = .{ .tls = &server_config, .h3_alternative = alternative };
     try connection.init(&config, stream.random(), now_seconds);

@@ -7,6 +7,7 @@
 //! orders them, and each connection speaks what the server selected.
 const std = @import("std");
 const tls = @import("tls");
+const cpu = @import("../cpu.zig");
 const constants = @import("../constants.zig");
 const check_file = @import("check_file.zig");
 const alpn = @import("../alpn.zig");
@@ -29,6 +30,7 @@ pub fn load(storage: *Anchors, prefix: []const u8, hostname: []const u8, protoco
     try storage.config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &storage.anchors, .server_name = hostname } },
         .alpn = protocols,
+        .aes_instructions = cpu.aes_instructions(),
     });
     return &storage.config;
 }
@@ -39,6 +41,7 @@ pub fn load_quic(config: *tls.quic.ClientConfig, storage: *const Anchors, hostna
     try config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &storage.anchors, .server_name = hostname } },
         .alpn = &alpn.alpn_h3,
+        .aes_instructions = cpu.aes_instructions(),
     });
     return config;
 }

@@ -8,6 +8,7 @@ const tls = @import("tls");
 const constants = @import("../constants.zig");
 const check_file = @import("check_file.zig");
 const entropy = @import("../entropy.zig");
+const cpu = @import("../cpu.zig");
 
 /// How many certificates this server presents: the end-entity and the one root above it.
 const chain_len: usize = 2;
@@ -49,6 +50,7 @@ pub fn load(prefix: []const u8, storage: *Storage, protocols: []const []const u8
         .ecdsa_p256 = .{ .chain = &storage.chain, .public_key = &storage.public_key, .private_key = &storage.private_key },
         .cookie_key = &storage.cookie_key,
         .alpn = protocols,
+        .aes_instructions = cpu.aes_instructions(),
     };
 }
 

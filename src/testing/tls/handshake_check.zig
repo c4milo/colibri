@@ -13,6 +13,7 @@
 //! peer wrote. colibri pins that one root and nothing else, so a chain from any other root fails.
 const std = @import("std");
 const entropy = @import("../entropy.zig");
+const cpu = @import("../cpu.zig");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
@@ -121,6 +122,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
         .alpn = &.{&tls_provider.constants.alpn_h2},
+        .aes_instructions = cpu.aes_instructions(),
     }) catch |failure| {
         std.debug.print("tls-handshake: the configuration was refused: {t}\n", .{failure});
         std.process.exit(exit_failed);

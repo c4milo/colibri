@@ -170,13 +170,13 @@ test "RFC 9846 §4.2.2: a client's order naming one suite runs it, and chapulin'
     server.close();
 }
 
-/// The suite a session ran. A client of an object without AES-GCM offers ChaCha20 alone and
-/// records no suite (chapulin's `suite`), so null means ChaCha20 there and nowhere else.
+/// The suite a session ran. A client that holds ChaCha20 alone offers it alone and records no
+/// suite (chapulin's `suite`), so null means ChaCha20 there and nowhere else.
 fn suite_ran(session: anytype) !u16 {
     if (session.suite()) |recorded| return @intFromEnum(recorded);
     // RFC 9846 §4.2.3: a client that offered more than one suite takes the one the ServerHello
-    // names, so only an object that holds ChaCha20 alone records none.
-    try testing.expect(!identity.aes_gcm);
+    // names, so only a session that holds ChaCha20 alone records none.
+    try testing.expect(!identity.holds_aes_gcm(identity.aes_instructions));
     return identity.chacha;
 }
 

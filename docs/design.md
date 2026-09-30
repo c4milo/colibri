@@ -5008,6 +5008,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     each of the five calls; and the shared length check. The close a failed session seals was
     caught only once a test opened it at the peer, which this change adds.
 
+  **16e, 2026-09-30.** Both objects are built `AES=runtime` on x86-64 and arm64, and each session
+  runs the AES instructions or ChaCha20 alone, as its caller answers (decision 97 as amended on
+  2026-09-29).
+  - `values.Client` and `values.Server` require `aes_instructions`, `present` or `absent`, with no
+    default, and `config.zig` hands it to an object that takes it. An object built for another
+    architecture fixes the choice when it is built, and there the answer changes nothing.
+  - The tests pass the build target's answer (`testdata.aes_instructions_present`), and run both
+    answers where the target has the instructions. In record mode and in QUIC every pair of
+    answers completes a handshake, and runs AES-256-GCM only when both sides hold it. Under
+    `absent` a suite order that names AES-GCM is refused when a session starts.
+  - `src/testing/cpu.zig` answers for the test programs, and `tools/consumer` for itself, each for
+    the target it was built for, until stdx's `platform` module answers
+    ([stdx#15](https://github.com/c4milo/stdx/issues/15)). `tools/ci.sh`'s leg on a CPU model
+    without the instructions runs the `tls` tests under `absent` alone.
+
+  What each check printed, on macOS arm64:
+  - `tools/ci.sh`: every section passed, with 2407 of 2407 tests in Debug and in ReleaseSafe.
+  - 8 mutations, each **CAUGHT**: the client's or the server's answer not handed on, either answer
+    handed on as the other, no object taking the answer, the build keeping the target's choice on
+    x86-64 and arm64, and no constant-time statement, which chapulin's build refuses. The test
+    programs answering `absent` was caught by `tools/h3spec.sh`, whose client offers AES-GCM
+    alone. The build mutation first failed to compile, which showed that `config.zig` named
+    chapulin's `AesInstructions` for an object without it. The answer's condition is now decided
+    at compile time, and a test pins the choice.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Seven parts. The owner ruled on 2026-09-27

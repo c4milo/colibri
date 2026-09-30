@@ -31,6 +31,7 @@
 //! (its `drbg.h`), so two threads must not run handshakes at once.
 const std = @import("std");
 const entropy = @import("entropy.zig");
+const cpu = @import("cpu.zig");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
@@ -403,6 +404,7 @@ test "a TLS connection's session is wiped when its slot is freed" {
         .ecdsa_p256 = .{ .chain = &test_chain, .public_key = &test_public_key, .private_key = &test_private_key },
         .cookie_key = &test_cookie,
         .alpn = &alpn.alpn_both,
+        .aes_instructions = cpu.aes_instructions(),
     });
     const worker = &workers[0];
     const slot: usize = 0;

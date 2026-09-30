@@ -120,10 +120,12 @@ test "RFC 7301 §3.2: a handshake with no protocol in common ends with the serve
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols_h2,
+        .aes_instructions = support.aes_instructions,
     });
     try support.client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } },
         .alpn = &support.protocols_h11,
+        .aes_instructions = support.aes_instructions,
     });
     support.config = .{ .tls = &support.server_config };
     try connection.init(&support.config, support.stream.random(), support.now_seconds);
@@ -169,7 +171,7 @@ fn expect_forged_record_refused(client_protocols: []const []const u8) !void {
 }
 
 test "RFC 9846 §9.2: a configuration chapulin cannot serve from is refused at the start" {
-    try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols_h2 });
+    try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols_h2, .aes_instructions = support.aes_instructions });
     support.config = .{ .tls = &support.server_config };
     try testing.expectError(error.TlsRefused, connection.init(&support.config, support.stream.random(), support.now_seconds));
 }
@@ -179,10 +181,12 @@ test "RFC 9846 §4.1: the handshake waits for room for a whole flight, and answe
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols_both,
+        .aes_instructions = support.aes_instructions,
     });
     try support.client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } },
         .alpn = &support.protocols_h11,
+        .aes_instructions = support.aes_instructions,
     });
     support.config = .{ .tls = &support.server_config };
     try connection.init(&support.config, support.stream.random(), support.now_seconds);

@@ -199,4 +199,5 @@ test {
     _ = @import("quic_test.zig");
     _ = @import("quic_vectors_test.zig");
     _ = @import("quic_version_test.zig");
+    _ = @import("quic_aes_test.zig");
 }
