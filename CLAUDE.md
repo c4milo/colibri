@@ -233,8 +233,7 @@ tree. Design §11 holds the method and the numbers.
 
 ## Commands
 
-Everything below exists but `bench/run.sh`, which lands with design §8 step 13. Change this
-section when a step adds or renames a command.
+Everything below exists. Change this section when a step adds or renames a command.
 
 - Build: `zig build`. `-Drelease` builds ReleaseSafe; ReleaseFast and ReleaseSmall are not
   offered, because assertions stay on in production.
@@ -316,8 +315,16 @@ section when a step adds or renames a command.
   disk. With `GARDEN_REGISTRY` set it pulls the origins' images from that repository and builds
   only the missing ones, and with `GARDEN_PUSH=1` it pushes what it built; the CI job uses
   `ghcr.io/c4milo/colibri-http-garden` (decision 88 as amended).
-- Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
-  produces no published number (decision 32). `zig build bench-memory` prints the static memory
+- Bench: `bench/run.sh [--filter] [--base <tree>] [--rounds <n>] [report.md]`, on Linux only, with
+  the machine written down beside the numbers; macOS produces no published number (decision 32).
+  It builds the test-only h2 server in ReleaseSafe and counts the server's instructions, cycles and
+  system calls per request and per connection with `perf stat`, run as root through `sudo -n`, in
+  cleartext and over TLS (design §8 step 13a). With `--base` it builds a second tree, measures the
+  two in turns, and fails when an input loses past the noise. `.github/workflows/bench.yml` runs it
+  on the `ubuntu-24.04-arm` runner, the judge, in two jobs when a person starts it (decision 33 as
+  amended). `--filter` needs neither perf nor taskset and reads the server's CPU time from /proc:
+  its numbers order candidates on a laptop and are never published. It needs Zig, h2load, python3,
+  and Go to mint the TLS identity. `zig build bench-memory` prints the static memory
   per connection for the objects the build targets (design §8 step 13b), and `zig build test`
   fails when `docs/performance.md`'s table for those objects differs from it.
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from

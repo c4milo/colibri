@@ -1,0 +1,95 @@
+# The judge of design §8 step 13a (decision 33 as amended on 2026-09-30): bench/run.sh on the
+# ubuntu-24.04-arm runner, a Neoverse N2, started by a person and never by a push (decision 47 as
+# amended). With `base`, each job builds that commit beside the change and measures the two in
+# turns, so that a ratio compares two builds on one machine. The two jobs run on two runners, and
+# a change stays only when it wins past the noise in both. The work is bench/run.sh, which a
+# person on Linux with perf runs for the same answer; this file only installs what it needs.
+name: bench
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "A commit, branch or tag to measure in turns with this one; empty for none"
+        type: string
+        default: ""
+      rounds:
+        description: "The rounds each build is counted in, after the warm-up round"
+        type: string
+        default: "5"
+permissions:
+  contents: read
+env:
+  ZIG_VERSION: 0.16.0
+  ZIG_SHA256: ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17
+jobs:
+  bench:
+    name: bench (job ${{ matrix.job }})
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [1, 2]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    env:
+      RUNNER_LABEL: ubuntu-24.04-arm
+      BASE: ${{ inputs.base }}
+      ROUNDS: ${{ inputs.rounds }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The whole history, so that `base` names any commit, branch or tag.
+          fetch-depth: 0
+      # tools/h2_interop/tls_identity.go mints the TLS identity the server presents.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: stable
+          cache: false
+      - name: Install Zig
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-linux-${ZIG_VERSION}.tar.xz"
+          echo "${ZIG_SHA256}  zig.tar.xz" | sha256sum -c -
+          mkdir -p "${HOME}/zig" && tar -xJf zig.tar.xz -C "${HOME}/zig" --strip-components=1
+          rm zig.tar.xz
+          echo "${HOME}/zig" >>"${GITHUB_PATH}"
+      # perf comes in the tools built for the running kernel. bench/run.sh runs it as root, which
+      # lets it count the kernel's instructions and read the system call tracepoint, so no kernel
+      # setting changes.
+      - name: Install h2load and perf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nghttp2-client linux-tools-common "linux-tools-$(uname -r)"
+          echo "PERF=/usr/lib/linux-tools/$(uname -r)/perf" >>"${GITHUB_ENV}"
+      # The arm64 job's caches in main.yml, under its keys: this job restores them and saves none.
+      - name: Restore the Zig caches
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            ~/.cache/zig
+            .zig-cache
+            zig-pkg
+          key: zig-${{ runner.os }}-${{ runner.arch }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-${{ github.sha }}
+          restore-keys: |
+            zig-${{ runner.os }}-${{ runner.arch }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-
+      # Zig 0.16 keeps a project's packages in zig-pkg beside its build.zig.zon, so the base shares
+      # the checkout's and fetches only those its own build.zig.zon adds.
+      - name: Check the base out
+        if: env.BASE != ''
+        run: |
+          commit="$(git rev-parse --verify "${BASE}^{commit}" 2>/dev/null || git rev-parse --verify "origin/${BASE}^{commit}")"
+          git worktree add --detach base "${commit}"
+          ln -s "${GITHUB_WORKSPACE}/zig-pkg" base/zig-pkg
+      - name: Measure
+        run: |
+          arguments=(--rounds "${ROUNDS}")
+          if [ -n "${BASE}" ]; then arguments+=(--base base); fi
+          bench/run.sh "${arguments[@]}" bench-report.md
+      - name: Publish the report
+        if: always()
+        run: if [ -f bench-report.md ]; then cat bench-report.md >>"${GITHUB_STEP_SUMMARY}"; fi
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-report-${{ matrix.job }}
+          path: bench-report.md
+          retention-days: 90

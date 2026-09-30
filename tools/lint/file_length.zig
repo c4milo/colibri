@@ -3,9 +3,9 @@
 //! after the file it came from: `hpack.zig` becomes `hpack_decode.zig`, `hpack_table.zig`, and so
 //! on, keeping the original name as the entry point.
 //!
-//! Over every `.zig` and `.sh` file under `src/`, `tools/` and `build/`, the rule counts lines the
-//! way an editor numbers them — one per newline, plus one for a last line with no newline — and
-//! reports a file over the limit once, at the first line past it.
+//! Over every `.zig` and `.sh` file under `src/`, `tools/`, `build/` and `bench/`, the rule counts
+//! lines the way an editor numbers them — one per newline, plus one for a last line with no
+//! newline — and reports a file over the limit once, at the first line past it.
 //!
 //! Markdown is exempt: a document's audited unit is the section, not the file, and the design set
 //! is deliberately long.
@@ -21,9 +21,9 @@ const file_length = lint.rules.file_length;
 /// The most lines a hand-written file may hold.
 pub const max_lines: u32 = 500;
 
-/// The configuration: `.zig` and `.sh` files under `src/`, `tools/` and `build/`.
+/// The configuration: `.zig` and `.sh` files under `src/`, `tools/`, `build/` and `bench/`.
 pub const config: file_length.Config = .{
-    .scope = .{ .extensions = &.{ ".zig", ".sh" }, .include_directories = &.{ "src", "tools", "build" } },
+    .scope = .{ .extensions = &.{ ".zig", ".sh" }, .include_directories = &.{ "src", "tools", "build", "bench" } },
     .max_lines = max_lines,
     .message_suffix = "; split the file",
 };
@@ -58,15 +58,16 @@ test "file-length flags one line over the limit, at that line" {
     try testing.expectEqual(max_lines + 1, findings[0].line);
 }
 
-test "file-length reads .zig and .sh under src, tools and build" {
+test "file-length reads .zig and .sh under src, tools, build and bench" {
     try testing.expect(config.scope.applies("src/quic/quic.zig"));
     try testing.expect(config.scope.applies("./tools/lint/main.zig"));
     try testing.expect(config.scope.applies("build/modules.zig"));
     try testing.expect(config.scope.applies("tools/h2spec.sh"));
+    try testing.expect(config.scope.applies("bench/run.sh"));
     try testing.expect(!config.scope.applies("docs/design.md"));
     try testing.expect(!config.scope.applies("README.md"));
     try testing.expect(!config.scope.applies("build.zig"));
-    try testing.expect(!config.scope.applies("bench/run.sh"));
+    try testing.expect(!config.scope.applies("spec/tla/check.sh"));
 }
 
 test "file-length reads no file outside the directories it names" {
@@ -74,5 +75,5 @@ test "file-length reads no file outside the directories it names" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     try harness.expect_messages(try harness.run(arena, Rule, "docs/design.md", failing_fixture), &.{});
-    try harness.expect_messages(try harness.run(arena, Rule, "bench/run.sh", failing_fixture), &.{});
+    try harness.expect_messages(try harness.run(arena, Rule, "spec/tla/check.sh", failing_fixture), &.{});
 }

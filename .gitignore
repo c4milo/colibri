@@ -2,5 +2,6 @@
 zig-out/
 zig-pkg/
 ci-report.md
+bench-report.md
 spec/lean/.lake/
 __pycache__/

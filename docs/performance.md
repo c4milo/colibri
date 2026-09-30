@@ -8,9 +8,29 @@ Performance section states the rules, and design §11 holds the method's numbers
 
 ## The instruments
 
-- The judge is `bench/run.sh`, on Linux only, with the machine written down beside the numbers;
-  macOS publishes no number (decision 32). `bench/` holds the baselines.
+- The judge is `bench/run.sh` on the `ubuntu-24.04-arm` runner, a Neoverse N2, which
+  `.github/workflows/bench.yml` runs when a person starts it (decision 33 as amended on
+  2026-09-30, design §8 step 13a). macOS publishes no number (decision 32). The script builds the
+  test-only h2 server in ReleaseSafe, pins it to one core and h2load to two others, and counts the
+  server's instructions, cycles, CPU time and system calls with `perf stat`, run as root. It has
+  four inputs:
+  - `h2-many` and `h2-tls-many`: many requests on each of a few connections, counted per request,
+    in cleartext and over TLS.
+  - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
+- Each input runs one warm-up round, which the report discards, and then five rounds. With
+  `--base`, the base and the change take turns in each round, and the order alternates. The report
+  gives each input's median and spread, and the ratio of the change to the base with the losses
+  first. The run fails when an input loses past the noise: the larger of the two spreads and the
+  floor.
+- The report writes the machine beside the numbers, as decision 33 requires: the CPU, the kernel,
+  the core count, the path, the socket buffer sizes, the certificate type, and the cipher suite
+  each build ran.
+- The workflow runs two jobs, each on a runner of its own, and a change stays only when it wins
+  past the noise in both. A number from one job is never compared with a number from another.
+- The floor is 5% (decision 33) until the runner's own is measured and recorded here.
 - A laptop run is a filter: it orders candidates and never lands in a document.
+  `bench/run.sh --filter` needs neither perf nor taskset, and reads the server's CPU time from
+  each thread's `/proc` schedstat.
 - `tools/h3load.sh [requests] [port]` runs `h2load --h3` from an image built from pinned tags; the
   QUIC Interop Runner (`tools/interop.sh`) and Go's h2 server over TLS are peers for conformance,
   and a load's peer where a number says so.
@@ -67,7 +87,8 @@ rule.
 ## Commands
 
 ```bash
-bench/run.sh
+bench/run.sh [--filter] [--base <tree>] [--rounds <n>] [report.md]
+zig build bench-memory
 tools/h3load.sh [requests] [port]
 tools/interop.sh [peers] [tests]
 ```
