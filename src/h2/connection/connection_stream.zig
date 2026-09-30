@@ -12,11 +12,6 @@
 //!   3. open: the stream is idle and a HEADERS frame opens it, which `connection_headers.zig` does
 //!      (§5.1);
 //!   4. refused: the stream ends with the RST_STREAM the state machine's verdict names (§5.4.2).
-//!   1. a record: the state machine decides the frame, and its verdict is returned with it;
-//!   2. discard: RFC 9113 §5.1 says to drop the frame after the minimal processing the caller does,
-//!      which is the frames that arrive after a RST_STREAM colibri sent and those the state machine
-//!      ignores, PRIORITY among them;
-//!   3. refused: the stream ends with the RST_STREAM the state machine's verdict names (§5.4.2).
 //! A frame the state forbids outright ends the connection from inside `find` (§5.4.1).
 //!
 //! An identifier the table has forgotten is a connection error of PROTOCOL_ERROR: the peer never
