@@ -5259,6 +5259,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     either finds a violation. The client trace run's plans leave QUIC idle past the margin and
     answer past the idle timeout, and every seed ends with each exchange finished. TLC finds each
     seed's log a behavior of the model.
+  - **17h**, the client decodes `zstd` and `br` ([decision 101](decisions.md) as amended on
+    2026-09-30, [#80](https://github.com/c4milo/colibri/issues/80)). The caller places a pool for
+    each coding. The client offers a coding only when its pool has a free decoder, takes one from
+    each pool it offers as it writes the request, and gives back the others at the response's
+    head. A `br` window holds 16 MiB, RFC 7932 §9.1's largest, and a `zstd` one 8 MB (RFC 9659
+    §3).
+    **Check:** client tests decode fixtures that the `zstd` and `brotli` programs wrote, in pieces
+    as they arrive; a stream whose window passes the limit fails its response; a pool with no
+    free decoder drops its coding from the offer; the client decodes `br` from h2o and `zstd`
+    from Caddy, in cleartext and over TLS; and mutations.
 
   **17a, 2026-09-27.** `src/server/` is the `server` module, exported by name. It imports `core`,
   `http`, `h11`, `h2`, `tls` and `tls_provider`.

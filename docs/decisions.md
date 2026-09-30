@@ -2926,6 +2926,34 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      ([#80](https://github.com/c4milo/colibri/issues/80)), whose decoders the pinned stdx already
      has.
 
+     **Amended by the owner on 2026-09-30, for [#80](https://github.com/c4milo/colibri/issues/80)
+     and design §8 step 17h.** The client decodes `zstd` (RFC 8878 §7.2) and `br` (RFC 7932 §13)
+     beside `gzip` and `deflate`.
+     - The caller places and manages a pool for each coding it decodes:
+       `client.DecoderPool(count)` for `gzip` and `deflate`, whose decoders hold a window of 32 KiB;
+       `client.ZstdDecoderPool(count)`, whose decoders hold RFC 9659 §3's window of 8 MB; and
+       `client.BrotliDecoderPool(count)`, whose decoders hold 16 MiB, RFC 7932 §9.1's largest
+       window, which the named limit `brotli_window_bits_max` sets. A caller that decodes `gzip`
+       alone places no large window.
+     - The client offers a coding in Accept-Encoding only when its configuration names it and the
+       coding's pool has a free decoder. As this decision already has it take a decoder when it
+       sends the request, it takes one from the pool of each coding it offers, and gives back the
+       others once the response's Content-Encoding names one, so the response finds its decoder.
+     - The server codes `gzip` and `deflate` alone until stdx writes the other encoders, so a server
+       configuration that names `zstd` or `br` is the caller's error.
+     - The check: client tests over fixtures the `zstd` and `brotli` programs wrote, and the
+       client against h2o for `br` and Caddy for `zstd`, both from Debian's packages in the image
+       the interop scripts build.
+
+     The alternatives refused:
+     - colibri's own pools inside the client, sized at compile time. Every connection or channel
+       would carry the windows, which decision 91's shared pools avoid, and the owner ruled that
+       the caller manages them.
+     - One pool whose slots hold any coding: each slot would cost 16 MiB, 512 times what a `gzip`
+       decoder needs.
+     - A `br` window of 4 MiB, the default of Google's encoder. A server that codes with a larger
+       window would have its responses refused.
+
 102. **colibri writes qlog when its caller asks, from the pinned drafts.** Ruled by the owner on
      2026-09-27. The QUIC Interop Runner asks each endpoint for a qlog (entry 28), and colibri's
      had none (design §8 step 9e).
