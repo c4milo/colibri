@@ -6095,6 +6095,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     clock not pausing while a body arrives, the pause adding nothing, or the deadline running
     while paused; and h2 reporting no SETTINGS deadline.
 
+  **The drain deadline, 2026-09-29.** After the caller's `shutdown`, the requests the connection
+  holds have `drain_timeout_ns`, 30 s, before it closes. `shutdown` takes no instant, so the drain
+  runs from the first call after it. When it passes the connection stops: h2's GOAWAY went out
+  with the shutdown (RFC 9113 §6.8), and h11 says nothing more.
+  - `zig build test`: 128 of 128 steps and 2460 of 2460 tests passed. The deadline check's census
+    did not change, since none of its runs shuts down.
+  - 6 mutations, each **CAUGHT** by `zig build test-server`: the drain never starting, starting
+    again at each call, never passing, or left out of `deadline_ns`; a drain ending as the other
+    deadlines do, with a second GOAWAY; and `validate` accepting a drain of 0.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

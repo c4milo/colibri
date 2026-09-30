@@ -279,3 +279,43 @@ test "decision 110: an acknowledged SETTINGS runs no deadline" {
     _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
     try testing.expectEqual(null, connection.deadline_ns());
 }
+
+const drain_ns = server_constants.drain_timeout_ns;
+
+test "decision 110: requests a shutdown leaves open end with the connection when the drain passes" {
+    // h11: the application holds its request.
+    try support.start_cleartext(.h11);
+    _ = try receive_at(whole_request, early_ns);
+    connection.shutdown();
+    _ = send_at(early_ns + 1);
+    try testing.expectEqual(early_ns + 1 + drain_ns, connection.deadline_ns().?);
+    connection.on_instant(early_ns + drain_ns);
+    try testing.expectEqual(null, connection.timed_out());
+    connection.on_instant(early_ns + 1 + drain_ns);
+    try testing.expectEqual(.drain, connection.timed_out().?);
+    try testing.expect(connection.should_close());
+    // h2: its GOAWAY went out with the shutdown.
+    try h2_support.start();
+    _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
+    connection.shutdown();
+    try testing.expectEqual(h2.constants.error_no_error, try goaway_code(send_at(early_ns + 1)));
+    connection.on_instant(early_ns + 1 + drain_ns);
+    try testing.expectEqual(.drain, connection.timed_out().?);
+    try testing.expect(connection.should_close());
+}
+
+test "decision 110: a shutdown whose requests finish in time closes without a deadline, and a drain of null runs none" {
+    try support.start_cleartext(.h11);
+    const received = try receive_at(whole_request, early_ns);
+    connection.shutdown();
+    _ = send_at(early_ns + 1);
+    try answer_at(received, early_ns + 2);
+    try testing.expect(connection.should_close());
+    try testing.expectEqual(null, connection.timed_out());
+    try support.start_cleartext(.h11);
+    try connection.set_deadlines(.{ .drain_ns = null });
+    _ = try receive_at(whole_request, early_ns);
+    connection.shutdown();
+    _ = send_at(early_ns + 1);
+    try testing.expectEqual(null, connection.deadline_ns());
+}

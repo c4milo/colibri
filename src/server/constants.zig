@@ -148,6 +148,10 @@ pub const send_rate_min: u32 = 1_024;
 pub const close_linger_ns: u64 = 2 * nanoseconds_per_second;
 pub const data_frame_len_min: u32 = 1_024;
 
+/// Decision 110's drain deadline: after the caller's `shutdown`, the time the requests it holds
+/// have before the connection closes.
+pub const drain_timeout_ns: u64 = 30 * nanoseconds_per_second;
+
 /// The longest deadline a caller may set: a day. A deadline starts at an instant the caller
 /// passed, and this keeps the start plus the limit inside a `u64`.
 pub const timeout_ns_max: u64 = 86_400 * nanoseconds_per_second;

@@ -43,6 +43,8 @@ pub const Clock = struct {
     /// now (decision 110 as amended).
     settings_paused_ns: u64,
     settings_pause_since_ns: ?u64,
+    /// The instant the first call after `shutdown` saw it, from which the drain runs.
+    drain_since_ns: ?u64,
 
     pub fn init(now_ns: u64) Clock {
         return .{
@@ -55,6 +57,7 @@ pub const Clock = struct {
             .lingered = false,
             .settings_paused_ns = 0,
             .settings_pause_since_ns = null,
+            .drain_since_ns = null,
         };
     }
 };
@@ -118,6 +121,8 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     connection_bodies.observe(connection, now_ns);
     connection_sends.observe(connection, now_ns);
     observe_settings(connection, now_ns);
+    // Decision 110: the drain runs from the first call that sees the shutdown.
+    if (connection.shutting_down and clock.drain_since_ns == null) clock.drain_since_ns = now_ns;
     // Decision 110: every close is bounded, from the instant the connection ended with octets
     // still to send.
     const ended = connection.stopped or connection.phase == .closed or connection.finished();
@@ -134,6 +139,7 @@ pub fn soonest(connection: *const Connection) ?u64 {
     if (!clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
     if (clock.head_since_ns) |since| at = earlier(at, since, limits.head_ns);
     if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
+    if (clock.drain_since_ns) |since| at = earlier(at, since, limits.drain_ns);
     if (settings_deadline_ns(connection)) |settings_ns| at = @min(at orelse settings_ns, settings_ns);
     at = connection_sends.soonest(connection, connection_bodies.soonest(connection, at));
     const end_ns = linger_end orelse return at;
@@ -214,6 +220,9 @@ fn due(connection: *const Connection, now_ns: u64) ?Deadline {
     if (clock.idle_since_ns) |since| {
         if (is_past(since, limits.idle_ns, now_ns)) return .idle;
     }
+    if (clock.drain_since_ns) |since| {
+        if (is_past(since, limits.drain_ns, now_ns)) return .drain;
+    }
     // RFC 9113 §6.5.3: a SETTINGS frame not acknowledged within a reasonable time may be a
     // connection error of SETTINGS_TIMEOUT; decision 110 as amended pauses it while a body arrives.
     const settings_ns = settings_deadline_ns(connection) orelse return null;
@@ -250,6 +259,9 @@ fn end(connection: *Connection, passed: Deadline) void {
     const body = passed == .body_rate or passed == .body;
     const send = passed == .send_rate;
     connection.stopped = true;
+    // Decision 110: a drain that passes closes the connection. h2's GOAWAY went out with the
+    // shutdown (RFC 9113 §6.8), and h11 says nothing more.
+    if (passed == .drain) return;
     if (wait == .handshake) {
         // The TLS handshake had not completed: the connection closes with nothing more written.
         connection.phase = .closed;

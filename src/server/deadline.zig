@@ -25,6 +25,8 @@ pub const Deadline = enum {
     /// The h2 peer did not acknowledge colibri's SETTINGS within `settings_timeout_ns` (RFC 9113
     /// §6.5.3).
     settings,
+    /// The requests the connection held when the caller shut it down did not finish in time.
+    drain,
 };
 
 /// Each deadline's limit, or null to turn it off.
@@ -49,13 +51,15 @@ pub const Deadlines = struct {
     send_rate_min: ?u32 = constants.send_rate_min,
     /// How long a connection that has ended waits for its last octets to go out before it closes.
     linger_ns: ?u64 = constants.close_linger_ns,
+    /// How long the requests a connection holds have after `shutdown` before it closes.
+    drain_ns: ?u64 = constants.drain_timeout_ns,
 
     /// Refuses a limit of 0, which null says better, and a span past `timeout_ns_max`.
     pub fn validate(deadlines: Deadlines) error{DeadlineInvalid}!void {
         const spans = [_]?u64{
             deadlines.first_request_ns, deadlines.idle_ns,        deadlines.head_ns,
             deadlines.rate_grace_ns,    deadlines.rate_window_ns, deadlines.body_ns,
-            deadlines.linger_ns,
+            deadlines.linger_ns,        deadlines.drain_ns,
         };
         for (spans) |span| {
             const limit = span orelse continue;
@@ -105,6 +109,7 @@ test "decision 110: the defaults are valid, 0 and a limit past a day are refused
     try testing.expectError(error.DeadlineInvalid, (Deadlines{ .body_ns = 0 }).validate());
     try testing.expectError(error.DeadlineInvalid, (Deadlines{ .send_rate_min = 0 }).validate());
     try testing.expectError(error.DeadlineInvalid, (Deadlines{ .linger_ns = 0 }).validate());
+    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .drain_ns = 0 }).validate());
     try (Deadlines{ .send_rate_min = null, .linger_ns = null }).validate();
 }
 
