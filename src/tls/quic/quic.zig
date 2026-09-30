@@ -27,6 +27,14 @@ pub const Retry = quic_suite.Retry;
 pub const token_key_len = quic_suite.token_key_len;
 pub const version = quic_suite.version;
 
+/// The version a ticket's connection negotiated, which RFC 9369 §5 binds it to, or null for no
+/// ticket, a ticket a TCP connection issued, or a version colibri does not run.
+fn ticket_version(resumption: ?values.Resumption) ?chapulin.quic.Version {
+    const offer = resumption orelse return null;
+    const named = std.enums.fromInt(crypto.suite.Version, offer.ticket.quic_version) orelse return null;
+    return @enumFromInt(@intFromEnum(named));
+}
+
 pub const Error = error{
     /// The ticket's fields are not ones chapulin can offer (RFC 9846 §4.7.1), or it was issued by
     /// a TCP connection or in another QUIC version (RFC 9369 §5). Nothing was sent, and a caller
@@ -54,9 +62,9 @@ pub const Client = struct {
         client.state = .{};
         client.chosen = config.values;
         client.chosen.random = random;
-        // RFC 9368 §2.5: the version of the client's first Initial packet, its original one, which
-        // is version 1 unless its configuration names another.
-        client.chosen.quic_version = config.values.quic_version orelse version;
+        // RFC 9368 §2.5: the version of the client's first Initial packet, its original one: the
+        // version its configuration names, else its ticket's (decision 111), else version 1.
+        client.chosen.quic_version = config.values.quic_version orelse ticket_version(resumption) orelse version;
         switch (client.chosen.trust) {
             .web_pki => |*judged| judged.now_seconds = now_seconds,
             .pins => {},
@@ -78,10 +86,16 @@ pub const Client = struct {
         return .{ .context = @ptrCast(client), .vtable = &Suite.vtable };
     }
 
-    /// What a `KEYLOG=on` object's `ch_keylog` receives back through `chapulin.hookContext`. Set
-    /// after `start` and before the transport parameters.
+    /// What a `KEYLOG=on` object's `ch_keylog` reads from the provider's state, which
+    /// `chapulin.hookContext` answers. Set after `start` and before the transport parameters.
     pub fn set_keylog_context(client: *Client, context: ?*anyopaque) void {
         client.state.keylog_context = context;
+    }
+
+    /// The version the client's first Initial packet carries (RFC 9368 §2), which `start` chose
+    /// and the connection starts in too.
+    pub fn original_version(client: *const Client) crypto.suite.Version {
+        return @enumFromInt(@intFromEnum(client.chosen.quic_version.?));
     }
 
     /// The latest ticket the server sent, which the call hands over and clears (RFC 9846 §4.7.1).
@@ -140,6 +154,29 @@ pub const Server = struct {
         server.state.keylog_context = context;
     }
 
+    /// The version of the client's first Initial packet, which `start` was given (RFC 9368 §2).
+    pub fn original_version(server: *const Server) crypto.suite.Version {
+        return @enumFromInt(@intFromEnum(server.chosen.quic_version.?));
+    }
+
+    /// The chooser chapulin asks for the negotiated version (decision 111), set after `start` and
+    /// before the transport parameters. Without one the server keeps the client's original version.
+    pub fn set_version_chooser(server: *Server, chooser: tls_provider.VersionChooser) void {
+        server.state.chooser = chooser;
+        server.chosen.choose_version = choose_version;
+    }
+
+    /// chapulin's `choose_version` (its decision 79), once the client's transport parameters are
+    /// here and before anything is sent. The hook's context is the provider's state, this server's.
+    fn choose_version(context: ?*anyopaque) chapulin.quic.Version {
+        const state: *State = @ptrCast(@alignCast(context.?));
+        const server: *Server = @fieldParentPtr("state", state);
+        const chooser = state.chooser.?;
+        // RFC 9001 §8.2: chapulin holds the client's parameters by now, so none is a refusal.
+        const client_parameters = (server.session.peerTransportParams() catch null) orelse &.{};
+        return @enumFromInt(chooser.choose(chooser.context, client_parameters, state.local_parameters[0..state.local_len]));
+    }
+
     /// The server_name the client sent, or null when it sent none or a longer one.
     pub fn sni(server: *const Server) ?[]const u8 {
         if (!server.state.started) return null;
@@ -161,4 +198,5 @@ pub const Server = struct {
 test {
     _ = @import("quic_test.zig");
     _ = @import("quic_vectors_test.zig");
+    _ = @import("quic_version_test.zig");
 }

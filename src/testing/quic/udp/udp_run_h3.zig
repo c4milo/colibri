@@ -51,7 +51,12 @@ const log_vtable: server.LogProvider.VTable = .{ .open = open_log, .close = clos
 /// Serves until the run is over: with `once`, the first connection's end; without it, the ticks
 /// running out.
 pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64) void {
-    quic_config = .{ .tls = udp_identity.server_tls(), .ecn = asked.ecn, .idle_timeout_ms = constants.quic_idle_timeout_ms };
+    quic_config = .{
+        .tls = udp_identity.server_tls(),
+        .ecn = asked.ecn,
+        .idle_timeout_ms = constants.quic_idle_timeout_ms,
+        .switch_to = asked.switch_to,
+    };
     qlog_directory = asked.qlogdir;
     endpoint_config = .{
         .quic = &quic_config,

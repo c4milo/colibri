@@ -63,6 +63,9 @@ pub const Options = struct {
     /// The version the connection starts in (RFC 9368 §2): a client's choice, which its TLS session
     /// starts in too, or the version of the first flight a server accepted.
     version: crypto.suite.Version = .v1,
+    /// The version a server switches a client to when the client lists it (RFC 9368 §2.3,
+    /// decision 111), or null to keep every client in its original version. A client ignores it.
+    switch_to: ?crypto.suite.Version = .v2,
     /// The parameters colibri will send (RFC 9000 §7.4). They fix what colibri grants the peer:
     /// its flow control windows, its stream limits and its idle timeout.
     local_parameters: Parameters,
@@ -207,7 +210,7 @@ pub const Connection = struct {
         parameters.version_information = connection_version.information_of(options.role, options.version);
         assert(parameters.valid());
         connection.role = options.role;
-        connection.versions = .init(options.role, options.version);
+        connection.versions = .init(options.role, options.version, options.switch_to);
         connection.local_parameters = parameters;
         connection.peer_parameters = null;
         connection.handshake_complete = false;

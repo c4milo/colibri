@@ -5,11 +5,13 @@
 //! and the reader agree about RFC 8999 §6's layout rather than each agreeing with itself.
 const std = @import("std");
 const core = @import("core");
+const crypto = @import("crypto");
 const constants = @import("../constants.zig");
 const invariant = @import("../packet/invariant.zig");
 const header = @import("../packet/packet_header.zig");
 const connection_module = @import("connection.zig");
 const transport_parameters = @import("../transport_parameters.zig");
+const transport_parameters_read = @import("../transport_parameters_read.zig");
 const version = @import("connection_version.zig");
 
 const Connection = connection_module.Connection;
@@ -216,7 +218,7 @@ test "RFC 9000 §6.2: a packet listing the version the client selected is discar
     // A client that started in version 2 selected version 2, so a list naming version 1 alone
     // ends its attempt too.
     init_client();
-    test_connection.versions = .init(.client, .v2);
+    test_connection.versions = .init(.client, .v2, null);
     const lists_2 = [_]u32{ other_version, version_2 };
     const lists_1 = [_]u32{ other_version, constants.version_1 };
     try testing.expectEqual(
@@ -326,4 +328,90 @@ test "RFC 9368 §4: a client holds the server's Chosen Version to the Negotiated
     // A client that did not react to a Version Negotiation packet may complete the handshake
     // without it.
     try version.check_information(.client, &local, null, constants.version_1);
+}
+
+/// A server's connection whose client's first Initial carried `original`, and which switches a
+/// client that lists `switch_to` to it. Test-only.
+fn init_server(original: crypto.suite.Version, switch_to: ?crypto.suite.Version) void {
+    var parameters = transport_parameters.Parameters.initial();
+    parameters.initial_max_data = test_max_data;
+    test_connection.init(.{
+        .role = .server,
+        .version = original,
+        .switch_to = switch_to,
+        .local_parameters = parameters,
+        .now_ns = 0,
+        .identity = .{
+            .local_initial_source = &client_destination,
+            .original_destination = &client_destination,
+            .peer_initial_source = &client_source,
+        },
+    });
+}
+
+/// The server's parameters as its TLS session holds them, and the client's. Test-only.
+const parameters_len_max: usize = 256;
+var own_octets: [parameters_len_max]u8 = undefined;
+var client_octets: [parameters_len_max]u8 = undefined;
+
+fn own_parameters() ![]u8 {
+    var writer = core.Writer.init(&own_octets);
+    try transport_parameters.write(&writer, &test_connection.local_parameters, .server);
+    return own_octets[0..writer.written().len];
+}
+
+/// A client's parameters naming `chosen` and listing `listed`, or listing nothing at all when
+/// `listed` is null. Test-only.
+fn client_parameters(chosen: u32, listed: ?[]const u32) ![]const u8 {
+    var client = transport_parameters.Parameters.initial();
+    client.initial_source_connection_id = transport_parameters.ConnectionId.of(&client_source);
+    if (listed) |versions| client.version_information = .of(chosen, versions);
+    var writer = core.Writer.init(&client_octets);
+    try transport_parameters.write(&writer, &client, .client);
+    return writer.written();
+}
+
+test "decision 111: a server switches a client that lists version 2, and its parameters name it" {
+    init_server(.v1, .v2);
+    const own = try own_parameters();
+    const own_len = own.len;
+    const chosen = version.choose(&test_connection, try client_parameters(constants.version_1, &.{ version_2, constants.version_1 }), own);
+    try testing.expectEqual(.v2, chosen);
+    try testing.expect(test_connection.versions.negotiated == .v2 and test_connection.versions.original == .v1);
+    // RFC 9368 §3: the octets the session sends name version 2 as the Chosen Version, and are as
+    // long as before.
+    try testing.expectEqual(own_len, own.len);
+    var reader = core.Reader.init(own);
+    try testing.expectEqual(version_2, (try transport_parameters_read.read(&reader, .server)).version_information.?.chosen_version);
+    try testing.expectEqual(version_2, test_connection.local_parameters.version_information.?.chosen_version);
+}
+
+test "decision 111: a client that does not list version 2, or whose parameters do not read, keeps version 1" {
+    init_server(.v1, .v2);
+    const own = try own_parameters();
+    var kept: [parameters_len_max]u8 = undefined;
+    @memcpy(kept[0..own.len], own);
+    try testing.expectEqual(.v1, version.choose(&test_connection, try client_parameters(constants.version_1, &.{constants.version_1}), own));
+    try testing.expectEqual(.v1, version.choose(&test_connection, try client_parameters(constants.version_1, null), own));
+    // RFC 9000 §7.4: parameters that do not read close the connection when they are taken.
+    try testing.expectEqual(.v1, version.choose(&test_connection, "\x04\x08\x01", own));
+    try testing.expectEqual(.v1, test_connection.versions.negotiated);
+    try testing.expectEqualSlices(u8, kept[0..own.len], own);
+}
+
+test "decision 111: a server whose options name no version to switch to keeps every client" {
+    init_server(.v1, null);
+    const own = try own_parameters();
+    const listed = try client_parameters(constants.version_1, &.{ version_2, constants.version_1 });
+    try testing.expectEqual(.v1, version.choose(&test_connection, listed, own));
+    try testing.expectEqual(.v1, test_connection.versions.negotiated);
+    try testing.expectEqual(constants.version_1, test_connection.local_parameters.version_information.?.chosen_version);
+}
+
+test "RFC 9368 §2.3: a first flight in version 2 stays in version 2" {
+    init_server(.v2, .v2);
+    const own = try own_parameters();
+    const chosen = version.choose(&test_connection, try client_parameters(version_2, &.{ version_2, constants.version_1 }), own);
+    try testing.expectEqual(.v2, chosen);
+    try testing.expect(test_connection.versions.negotiated == .v2 and test_connection.versions.original == .v2);
 }

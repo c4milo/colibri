@@ -84,6 +84,30 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     try testing.expectEqual(null, endpoint.send(&output, support.now_ns));
 }
 
+test "decision 111: a server switches a client of version 1 that lists version 2 to version 2" {
+    try support.start_endpoint(null);
+    try support.connect();
+    try testing.expectEqual(.v1, support.served.transport.versions.original);
+    try testing.expectEqual(.v2, support.served.transport.versions.negotiated);
+    try testing.expectEqual(.v2, support.client.versions.negotiated);
+    // RFC 9368 §3: the server's Chosen Version names the version it chose, which the client held
+    // to the Negotiated Version (§4).
+    try testing.expectEqual(0x6b33_43cf, support.client.peer_parameters.?.version_information.?.chosen_version);
+    const fetch = try support.request("GET", "/", "");
+    try support.pump(support.rounds_default);
+    try support.served.respond(fetch.id, .{ .status = ok, .end = true });
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(ok, fetch.status);
+}
+
+test "decision 111: a server whose configuration names no version to switch to keeps the client" {
+    try support.start_endpoint(null);
+    support.config.switch_to = null;
+    try support.connect();
+    try testing.expectEqual(.v1, support.served.transport.versions.negotiated);
+    try testing.expectEqual(.v1, support.client.versions.negotiated);
+}
+
 test "RFC 9368 §2: a client's first Initial in version 2 starts a connection that runs version 2" {
     support.client_version = .v2;
     defer support.client_version = .v1;

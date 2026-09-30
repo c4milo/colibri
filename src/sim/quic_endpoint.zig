@@ -141,7 +141,12 @@ pub const Endpoint = struct {
             .peer_address = peer_address(if (role == .client) sim.network.server_address else sim.network.client_address_initial),
             .qlog = log,
         });
-        endpoint.provider = .{ .role = role, .suite = &endpoint.suite };
+        endpoint.provider = .{
+            .role = role,
+            .suite = &endpoint.suite,
+            // Decision 111: a server switches a client that lists version 2 to it.
+            .chooser = if (role == .server) quic.connection_version.chooser(&endpoint.connection) else null,
+        };
         endpoint.suite = .{ .versions = .of(version) };
         endpoint.send_scratch = .{};
         endpoint.transfer_started = false;

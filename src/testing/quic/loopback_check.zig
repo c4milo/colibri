@@ -200,12 +200,18 @@ fn report(run: Run) void {
     const provider = client.session.provider();
     const selected = provider.negotiated_alpn() orelse fail("the client selected no protocol", .{});
     if (!std.mem.eql(u8, selected, alpn)) fail("the client selected {s}", .{selected});
+    // Decision 111: the client starts in version 1 and lists version 2, and the server switches it.
+    const negotiated = client.connection.versions.negotiated;
+    if (negotiated != .v2 or server.connection.versions.negotiated != .v2) {
+        fail("the connection ran version 0x{x:0>8}, not version 2", .{@intFromEnum(negotiated)});
+    }
     std.debug.print(
-        "quic-loopback: complete alpn={s} handshake_round={?d} confirmed_round={?d} rounds={d} " ++
+        "quic-loopback: complete alpn={s} version=0x{x:0>8} handshake_round={?d} confirmed_round={?d} rounds={d} " ++
             "round_ns={d} client_datagrams={d} client_octets={d} server_datagrams={d} server_octets={d} " ++
             "stream_octets={d}\n",
         .{
             selected,
+            @intFromEnum(negotiated),
             run.handshake_round,
             run.confirmed_round,
             run.rounds,

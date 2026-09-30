@@ -24,18 +24,20 @@ pub const Start = union(enum) {
         now_seconds: u64,
         /// The version of the client's first Initial, which the connection runs (RFC 9368 §2).
         version: quic.crypto.suite.Version = .v1,
+        /// The version the server switches a client to when the client lists it (decision 111),
+        /// or null to keep every client in its original version.
+        switch_to: ?quic.crypto.suite.Version = .v2,
     },
 
     pub fn role(start: Start) quic.crypto.Role {
         return if (start == .client) .client else .server;
     }
 
-    /// The version the connection starts in (RFC 9368 §2): the one a client's configuration names,
-    /// version 1 unless it names another, or the version of the client's first Initial.
-    pub fn version(start: Start) quic.crypto.suite.Version {
+    /// The version a server switches a client to (decision 111). A client switches no one.
+    pub fn switch_to(start: Start) ?quic.crypto.suite.Version {
         return switch (start) {
-            .client => |client| if (client.config.values.quic_version) |named| @enumFromInt(@intFromEnum(named)) else .v1,
-            .server => |server| server.version,
+            .client => null,
+            .server => |server| server.switch_to,
         };
     }
 };
@@ -57,6 +59,23 @@ pub const Session = union(enum) {
                 session.server.start(server.config, entropy.random(), server.now_seconds, server.version);
                 session.server.set_keylog_context(keylog);
             },
+        }
+    }
+
+    /// The version the session started in, which the connection starts in too (RFC 9368 §2): a
+    /// client's, its ticket's when it offers one (decision 111), or the first flight's.
+    pub fn original_version(session: *const Session) quic.crypto.suite.Version {
+        return switch (session.*) {
+            inline else => |*role| role.original_version(),
+        };
+    }
+
+    /// Decision 111: a server's session switches a client that lists version 2 to it, through the
+    /// connection's choice. A client's has nothing to choose.
+    pub fn choose_with(session: *Session, connection: *quic.Connection) void {
+        switch (session.*) {
+            .client => {},
+            .server => |*server| server.set_version_chooser(quic.connection_version.chooser(connection)),
         }
     }
 

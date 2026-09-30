@@ -477,7 +477,7 @@ test "RFC 9001 §5.2: a Retry the client takes derives the Initial keys from its
     try testing.expectEqual(0, retry_suite.installs);
     // A client that started in version 2 takes one in version 2, whose tag is version 2's.
     open_pair(&.{.initial});
-    client.versions = .init(.client, .v2);
+    client.versions = .init(.client, .v2, null);
     retry_suite = .{ .tag_version = .v2 };
     try testing.expectEqual(null, (try receive_retry(try write_retry(.v1))).retry);
     try testing.expect((try receive_retry(try write_retry(.v2))).retry.? == .taken);

@@ -292,7 +292,7 @@ fn free_slot() ?usize {
 fn start(delivery: udp.Delivery, now_ns: u64, identity: udp_peer.Identity, version: quic.crypto.suite.Version) ?*Connection {
     const connection = free_connection() orelse return null;
     const asked = arguments.server;
-    const how = udp_identity.server_start(asked.seconds_at(started_ns, now_ns), version);
+    const how = udp_identity.server_start(asked.seconds_at(started_ns, now_ns), version, asked.switch_to);
     connection.peer.init(how, udp_identity.keylog(), identity, server_parameters(), now_ns, delivery.from.peer, asked.ecn, asked.qlogdir) catch |failure|
         fail("the server did not start: {t}", .{failure});
     connection.outbound = outbound_to(delivery.from.peer);

@@ -330,14 +330,23 @@ test "RFC 9846 §4.7.1: the server's ticket resumes a later connection, and a ma
     // Closing wipes the copy of the ticket the connection offered.
     try testing.expect(std.mem.allEqual(u8, std.mem.asBytes(&client.offered), 0));
     server.close();
-    // RFC 9369 §5: the ticket names version 1, and no connection offers one another version or a
-    // TCP connection issued.
+    // RFC 9369 §5: the ticket names version 1. A connection offered a ticket starts in its version
+    // (decision 111), so one naming version 2 starts in version 2.
     try testing.expectEqual(@intFromEnum(crypto.suite.Version.v1), ticket.quic_version);
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &ticket, .age_ms = 0 });
+    try testing.expectEqual(.v1, client.original_version());
     var elsewhere = ticket;
-    for ([_]u32{ @intFromEnum(crypto.suite.Version.v2), 0 }) |other| {
-        elsewhere.quic_version = other;
-        try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 }));
-    }
+    elsewhere.quic_version = @intFromEnum(crypto.suite.Version.v2);
+    try client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 });
+    try testing.expectEqual(.v2, client.original_version());
+    // A ticket a TCP connection issued names no QUIC version, and no connection offers it.
+    var over_tcp = ticket;
+    over_tcp.quic_version = 0;
+    try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &over_tcp, .age_ms = 0 }));
+    // A configuration that names another version wins, and then no connection offers the ticket.
+    support.client_config.values.quic_version = .v1;
+    defer support.client_config.values.quic_version = null;
+    try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &elsewhere, .age_ms = 0 }));
     var malformed = ticket;
     malformed.psk_len = 5;
     try testing.expectError(error.Refused, client.start(&support.client_config, identity.random(), identity.now_seconds, .{ .ticket = &malformed, .age_ms = 0 }));
@@ -354,7 +363,10 @@ test "the keylog context a program sets is the one chapulin's hook carries" {
     try client.start(&support.client_config, identity.random(), identity.now_seconds, null);
     client.set_keylog_context(&marker);
     try client.provider().set_transport_params(support.client_parameters);
-    try testing.expectEqual(@as(?*anyopaque, &marker), client.session.hook.context);
+    // The hook's context is the provider's state, which keeps the program's context (decision 111).
+    const state: *quic.State = @ptrCast(@alignCast(client.session.hook.context.?));
+    try testing.expectEqual(&client.state, state);
+    try testing.expectEqual(@as(?*anyopaque, &marker), state.keylog_context);
     client.close();
 }
 

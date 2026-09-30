@@ -148,9 +148,10 @@ pub fn client_start(asked: udp_arguments.Client, resumption: ?tls.Resumption) qu
 }
 
 /// A server session's start: `now_seconds` is the Unix seconds its ticket carries, or 0 to issue
-/// none, and `version` the version of the client's first Initial.
-pub fn server_start(now_seconds: u64, version: quic.crypto.suite.Version) quic_session.Start {
-    return .{ .server = .{ .config = &server_config, .now_seconds = now_seconds, .version = version } };
+/// none, `version` the version of the client's first Initial, and `switch_to` the version it
+/// switches a client that lists it to (decision 111), or null for none.
+pub fn server_start(now_seconds: u64, version: quic.crypto.suite.Version, switch_to: ?quic.crypto.suite.Version) quic_session.Start {
+    return .{ .server = .{ .config = &server_config, .now_seconds = now_seconds, .version = version, .switch_to = switch_to } };
 }
 
 /// TLS_CHACHA20_POLY1305_SHA256's codepoint (RFC 9846 Appendix B.4), the one suite a client with

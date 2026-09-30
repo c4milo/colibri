@@ -22,6 +22,7 @@ pub const Content = provider.Content;
 pub const Negotiated = provider.Negotiated;
 pub const QuicProvider = quic_provider.QuicProvider;
 pub const QuicVTable = quic_provider.VTable;
+pub const VersionChooser = quic_provider.VersionChooser;
 pub const Level = quic_provider.Level;
 
 test {

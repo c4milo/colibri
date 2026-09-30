@@ -6,6 +6,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const chapulin = @import("chapulin");
+const tls = @import("tls");
 const constants = @import("../constants.zig");
 const check_file = @import("../tls/check_file.zig");
 
@@ -72,8 +73,9 @@ const hex_digits_per_octet: usize = 2;
 /// chapulin's `keylog.h` hook: one traffic secret as it was derived. A session with no log set
 /// drops it.
 fn keylog_hook(io: ?*anyopaque, label: [*:0]const u8, client_random: [*]const u8, secret: [*]const u8, secret_len: usize) callconv(.c) void {
-    const context = chapulin.hookContext(io) orelse return;
-    const keylog: *Keylog = @ptrCast(@alignCast(context));
+    // The hook's context is the session's provider state, where the endpoint set its log.
+    const state: *tls.quic.State = @ptrCast(@alignCast(chapulin.hookContext(io) orelse return));
+    const keylog: *Keylog = @ptrCast(@alignCast(state.keylog_context orelse return));
     // `keylog.h`: the secret is as long as the suite's hash, 32 octets, or 48 in an object that
     // holds TLS_AES_256_GCM_SHA384.
     assert(secret_len == c.SHA256_LEN or secret_len == sha384_len);

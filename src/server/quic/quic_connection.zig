@@ -50,6 +50,9 @@ pub const Config = struct {
     /// (decision 101). Both or neither.
     codings: []const http.content_coding.Coding = &.{},
     encoders: ?coding_pool.Encoders = null,
+    /// The version the server switches a client to when the client lists it (RFC 9368 §2.3,
+    /// decision 111), or null to keep every client in its original version.
+    switch_to: ?quic.packet.header.Version = .v2,
 };
 
 /// What a connection starts from, which the endpoint read off the client's first Initial or drew
@@ -145,6 +148,7 @@ pub const QuicConnection = struct {
         connection.transport.init(.{
             .role = .server,
             .version = how.version,
+            .switch_to = config.switch_to,
             .local_parameters = parameters(config, receive_pool.capacity),
             .now_ns = now_ns,
             .identity = .{
@@ -161,6 +165,8 @@ pub const QuicConnection = struct {
         connection.send_scratch = .{};
         connection.h3.init(.{ .role = .server, .grease = how.grease });
         connection.session.start(config.tls, random, now_seconds, how.version);
+        // Decision 111: a client that lists version 2 is switched to it (RFC 9368 §2.3).
+        connection.session.set_version_chooser(quic.connection_version.chooser(&connection.transport));
         try connection.hand_over_parameters();
         const suite = connection.session.suite();
         const keys_destination = how.retry_source orelse how.original_destination;

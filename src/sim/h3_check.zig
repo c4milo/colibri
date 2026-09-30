@@ -28,8 +28,8 @@ const Side = sim.network.Endpoint;
 const constants = sim.constants;
 
 /// The digest of every seed's run, committed after both build modes agree on it.
-pub const census_crc32_expected: u32 = 0x5afad603;
-pub const long_census_crc32_expected: u32 = 0x8a72b95a;
+pub const census_crc32_expected: u32 = 0xc2f35d33;
+pub const long_census_crc32_expected: u32 = 0x50dfb6dc;
 /// The logs of `h3_qlog_check_seeds` seeds with a qlog on each endpoint: their octets, the digest
 /// of every record and the events read back. They change when an event or its fields change.
 pub const qlog_census_len_expected: u64 = 10_851_361;

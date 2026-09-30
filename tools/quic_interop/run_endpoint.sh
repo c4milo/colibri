@@ -16,10 +16,12 @@ set -euo pipefail
 # for `resumption` presents the first connection's ticket on a second. `http3` fetches over h3,
 # which the server serves in its `h3` mode, through the `server` module (design §8 step 17b). In
 # `v2` the client starts in version 1, lists version 2, and switches when the server answers in it
-# (RFC 9369 §4.1); a server that switches a client is design §8 step 19e. The rest are not built.
+# (RFC 9369 §4.1), and the server switches every client that lists version 2 (decision 111). Every
+# other case requires one version on the wire, version 1, so there the server keeps each client in
+# the version it started in (`no-switch`, decision 111). The rest are not built.
 case "$TESTCASE" in
-  handshake | transfer | chacha20 | multiconnect | retry | ecn | resumption | http3) ;;
-  keyupdate | v2) [ "$ROLE" = client ] || exit 127 ;;
+  handshake | transfer | chacha20 | multiconnect | retry | ecn | resumption | http3 | v2) ;;
+  keyupdate) [ "$ROLE" = client ] || exit 127 ;;
   *) exit 127 ;;
 esac
 
@@ -33,6 +35,7 @@ if [ "$ROLE" = server ]; then
   # The Unix time the server starts at, which its session tickets carry (RFC 9846 §4.7.1).
   server_options=("seconds=$(date +%s)")
   [ "$TESTCASE" = retry ] && server_options+=(retry)
+  [ "$TESTCASE" = v2 ] || server_options+=(no-switch)
   # The `h3` mode serves `http3` through the `server` module, whose log provider writes each
   # connection's qlog too (decision 102 as amended).
   if [ "$TESTCASE" = http3 ]; then

@@ -122,6 +122,9 @@ pub const NullQuicProvider = struct {
     /// 9001 §4.1.4, decision 48), and colibri asks the suite before the next packet (decision
     /// 62). This field is that code for the null pair.
     suite: ?*NullSuite = null,
+    /// A server's choice of the negotiated version (decision 111), which it asks once it read the
+    /// ClientHello, where chapulin asks through `choose_version`. Null keeps the original version.
+    chooser: ?tls_provider.VersionChooser = null,
 
     /// The vtable-shaped view colibri holds.
     pub fn provider(self: *NullQuicProvider) tls_provider.QuicProvider {
@@ -290,6 +293,18 @@ pub const NullQuicProvider = struct {
         if (body.len == 0 or body.len > self.peer_params.len) return;
         @memcpy(self.peer_params[0..body.len], body);
         self.peer_params_len = body.len;
+        if (step.message == .client_hello) self.choose_version();
+    }
+
+    /// RFC 9368 §2.3: a server chooses the negotiated version once the client's parameters are
+    /// here and before it sends anything, and may rewrite its own parameters to name it (§3). Its
+    /// suite derives that version's keys from then on (RFC 9369 §4.1).
+    fn choose_version(self: *NullQuicProvider) void {
+        const chooser = self.chooser orelse return;
+        assert(self.role == .server);
+        const chosen = chooser.choose(chooser.context, self.peer_params[0..self.peer_params_len], self.params[0..self.params_len]);
+        const version = std.enums.fromInt(crypto.suite.Version, chosen).?;
+        if (self.suite) |suite| suite.versions.negotiated = version;
     }
 
     /// Drops the first `taken` octets of a level's flow and keeps the rest in order.

@@ -72,6 +72,17 @@ pub const ExportError = error{
     TlsFailed,
 };
 
+/// A QUIC server's choice of the negotiated version (RFC 9368 §2.3, decision 111), which a TLS
+/// stack asks for once: the client's transport parameters have arrived, and nothing was selected
+/// or sent. `client_parameters` is the client's quic_transport_parameters body, and
+/// `own_parameters` the server's, which the stack sends later and the chooser may rewrite in place,
+/// at the same length, to name the version it chose (RFC 9368 §3). The answer is a Version field
+/// value (RFC 9000 §15).
+pub const VersionChooser = struct {
+    context: *anyopaque,
+    choose: *const fn (context: *anyopaque, client_parameters: []const u8, own_parameters: []u8) u32,
+};
+
 /// The calls colibri makes on a TLS stack it does not own, in QUIC mode. Decision 8 fixes this
 /// list, and decision 48 is why no member moves a secret.
 pub const VTable = struct {

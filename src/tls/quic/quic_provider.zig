@@ -53,8 +53,14 @@ pub const State = struct {
     alert_taken: bool = false,
     /// Whether a level's buffer could not hold what chapulin wrote, which fails the handshake.
     overflowed: bool = false,
-    /// What a `KEYLOG=on` object's `ch_keylog` reads back through `chapulin.hookContext`.
+    /// What a `KEYLOG=on` object's `ch_keylog` reads from this state, which chapulin's hook
+    /// context points at.
     keylog_context: ?*anyopaque = null,
+    /// A server's choice of the negotiated version (decision 111), which chapulin's
+    /// `choose_version` reaches through the same hook context, or null to keep the original one.
+    chooser: ?tls_provider.VersionChooser = null,
+    /// Octets of `local_parameters` that hold this endpoint's transport parameters.
+    local_len: usize = 0,
 };
 
 /// The vtable for a role's session type `Held`.
@@ -127,6 +133,7 @@ fn start_session(role: anytype, body: []const u8) provider_module.TransportParam
     // RFC 9001 §8.2: parameters longer than chapulin's `CH_TRANSPORT_PARAMS_MAX` fit no message.
     if (body.len > state.local_parameters.len) return error.TlsFailed;
     @memcpy(state.local_parameters[0..body.len], body);
+    state.local_len = body.len;
     const local = state.local_parameters[0..body.len];
     state.started = true;
     const started = if (@TypeOf(role.*).is_client)
@@ -135,8 +142,9 @@ fn start_session(role: anytype, body: []const u8) provider_module.TransportParam
         role.session.init(role.chosen, local, &state.peer_parameters, &role.server_name);
     // RFC 9001 §4.8: chapulin refused the values, which fails the handshake before it starts.
     started catch return error.TlsFailed;
-    // chapulin's `init` clears the hook, and a `KEYLOG=on` object reads it from here on.
-    role.session.hook.context = state.keylog_context;
+    // chapulin's `init` clears the hook. Its context is this state, where a `KEYLOG=on` object's
+    // `ch_keylog` finds its log and a server's `choose_version` its chooser.
+    role.session.hook.context = state;
     // RFC 9001 §4.1.3: a client's ClientHello is staged now.
     if (@TypeOf(role.*).is_client) pull_staged(role);
 }

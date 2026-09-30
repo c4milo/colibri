@@ -176,9 +176,12 @@ pub const Peer = struct {
         qlogdir: ?[]const u8,
     ) Error!void {
         const role = start.role();
+        peer.session.start(start, keylog) catch return error.SessionRefused;
         peer.connection.init(.{
             .role = role,
-            .version = start.version(),
+            // RFC 9368 §2: the version the session started in.
+            .version = peer.session.original_version(),
+            .switch_to = start.switch_to(),
             .local_parameters = parameters,
             .now_ns = now_ns,
             .identity = .{
@@ -196,7 +199,7 @@ pub const Peer = struct {
             .peer_address = peer_address(address),
             .qlog = peer.qlog.open(qlogdir, role, identity.original_destination, now_ns),
         });
-        peer.session.start(start, keylog) catch return error.SessionRefused;
+        peer.session.choose_with(&peer.connection);
         peer.send_scratch = .{};
         // RFC 9001 §8.2: the parameters travel in the handshake. `Connection.init` wrote the
         // connection IDs into them (RFC 9000 §7.3).

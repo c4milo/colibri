@@ -79,14 +79,17 @@ pub const Endpoint = struct {
     pub fn init(endpoint: *Endpoint, start: quic_session.Start, keylog: ?*keylog_module.Keylog, now_ns: u64) Error!void {
         const role = start.role();
         const local_source: []const u8 = if (role == .client) &client_id else &server_id;
+        endpoint.session.start(start, keylog) catch return error.SessionRefused;
         endpoint.connection.init(.{
             .role = role,
+            // RFC 9368 §2: the version the session started in.
+            .version = endpoint.session.original_version(),
             .local_parameters = parameters(),
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = local_source, .original_destination = &original_id },
             .receive = endpoint.pool.storage(),
         });
-        endpoint.session.start(start, keylog) catch return error.SessionRefused;
+        endpoint.session.choose_with(&endpoint.connection);
         endpoint.send_scratch = .{};
         endpoint.transfer_started = false;
         endpoint.transfer_done = false;

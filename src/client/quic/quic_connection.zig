@@ -143,8 +143,13 @@ pub const QuicConnection = struct {
         connection.ticket = null;
         connection.idle_acted_ns = null;
         connection.retired = false;
+        // RFC 9846 §4.7.1: chapulin refuses values it cannot run and a ticket too old. The session
+        // chooses the original version, a ticket's when one is offered (decision 111), and the
+        // transport starts in it.
+        connection.session.start(config.tls, random, now_seconds, resumption) catch return error.TlsRefused;
         connection.transport.init(.{
             .role = .client,
+            .version = connection.session.original_version(),
             .local_parameters = parameters(config, receive_pool.capacity),
             .now_ns = now_ns,
             .identity = .{ .local_initial_source = &connection.start_values.source_id, .original_destination = &connection.start_values.original_destination_id },
@@ -155,8 +160,6 @@ pub const QuicConnection = struct {
         });
         connection.send_scratch = .{};
         connection.h3.init(.{ .role = .client, .grease = start.grease });
-        // RFC 9846 §4.7.1: chapulin refuses values it cannot run and a ticket too old.
-        connection.session.start(config.tls, random, now_seconds, resumption) catch return error.TlsRefused;
         try connection.hand_over_parameters();
         const suite = connection.session.suite();
         // RFC 9001 §5.2: the Initial keys derive from the client's first Destination Connection ID.

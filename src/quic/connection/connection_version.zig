@@ -34,6 +34,8 @@ const constants = @import("../constants.zig");
 const invariant = @import("../packet/invariant.zig");
 const header = @import("../packet/packet_header.zig");
 const transport_parameters = @import("../transport_parameters.zig");
+const transport_parameters_read = @import("../transport_parameters_read.zig");
+const tls_provider = @import("tls_provider");
 const connection_module = @import("connection.zig");
 
 const Writer = core.Writer;
@@ -54,9 +56,12 @@ pub const Versions = struct {
     /// switched, or read a CRYPTO octet from the server, which RFC 9369 §4.1 says "indicates that
     /// the negotiated version is equal to the original version".
     settled: bool,
+    /// The version a server switches a client to when the client lists it (decision 111), or null
+    /// to keep every client in its original version. Only a server reads it.
+    switch_to: ?Version = null,
 
-    pub fn init(role: Role, original: Version) Versions {
-        return .{ .original = original, .negotiated = original, .settled = role == .server };
+    pub fn init(role: Role, original: Version, target: ?Version) Versions {
+        return .{ .original = original, .negotiated = original, .settled = role == .server, .switch_to = target };
     }
 };
 
@@ -127,6 +132,44 @@ pub fn switch_to(connection: *Connection, suite: crypto.Suite, version: Version)
 /// the suite refuses any switch after it.
 pub fn settle(connection: *Connection) void {
     if (connection.role == .client) connection.versions.settled = true;
+}
+
+/// The server's choice of the negotiated version (RFC 9368 §2.3, decision 111): the version it
+/// switches to when the client lists it, version 2 unless its options name none, and otherwise the
+/// client's original version. A TLS stack asks once, when the client's transport parameters have
+/// arrived and before anything is sent. The connection moves to the version, and `own_parameters`,
+/// the octets this server's session sends, are written again so their Chosen Version names it
+/// (RFC 9368 §3).
+pub fn choose(connection: *Connection, client_parameters: []const u8, own_parameters: []u8) Version {
+    assert(connection.role == .server);
+    const original = connection.versions.original;
+    const target = connection.versions.switch_to orelse return original;
+    var reader = core.Reader.init(client_parameters);
+    // RFC 9000 §7.4: parameters that do not read close the connection once they are taken, so
+    // they choose nothing here.
+    const parsed = transport_parameters_read.read(&reader, .client) catch return original;
+    const info = parsed.version_information orelse return original;
+    // RFC 9368 §2.3: the server selects a version the client lists, that it supports, and that the
+    // client's Chosen Version is compatible with, which versions 1 and 2 are (RFC 9369 §4).
+    if (!info.lists(@intFromEnum(target))) return original;
+    connection.versions.negotiated = target;
+    const local = &connection.local_parameters;
+    local.version_information.?.chosen_version = @intFromEnum(target);
+    var writer = core.Writer.init(own_parameters);
+    transport_parameters.write(&writer, local, .server) catch unreachable;
+    // Only the four octets of the Chosen Version changed, so the octets are as long as before.
+    assert(writer.written().len == own_parameters.len);
+    return target;
+}
+
+/// `choose` as the hook a server's TLS session calls (`tls_provider.VersionChooser`).
+pub fn chooser(connection: *Connection) tls_provider.VersionChooser {
+    assert(connection.role == .server);
+    return .{ .context = connection, .choose = choose_for_provider };
+}
+
+fn choose_for_provider(context: *anyopaque, client_parameters: []const u8, own_parameters: []u8) u32 {
+    return @intFromEnum(choose(@ptrCast(@alignCast(context)), client_parameters, own_parameters));
 }
 
 /// A peer's Version Information that fails RFC 9368 §4's check of the version it chose, which

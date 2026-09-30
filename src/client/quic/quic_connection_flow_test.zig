@@ -5,6 +5,7 @@ const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
 const support = @import("quic_test_support.zig");
+const connection_support = @import("../connection/connection_test_support.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
@@ -111,6 +112,21 @@ test "RFC 9846 §4.6.1: a ticket the server issues is reported, and take_ticket 
     defer ticket.wipe();
     try testing.expect(ticket.identity_len > 0);
     try testing.expectEqual(null, connection.take_ticket());
+}
+
+test "decision 111: a connection offered a ticket starts in the ticket's version" {
+    try support.start(&support.alpn_h3, &support.alpn_h3, true);
+    try support.pump(support.rounds_default);
+    var ticket = connection.take_ticket().?;
+    defer ticket.wipe();
+    try testing.expectEqual(0x0000_0001, ticket.quic_version);
+    // RFC 9369 §5: a ticket belongs to the version its connection negotiated, here as though a
+    // server had switched that connection to version 2.
+    ticket.quic_version = 0x6b33_43cf;
+    try support.prepare(&support.alpn_h3, &support.alpn_h3, true);
+    try connection.init(&support.config, support.client_pool.storage(), support.client_start, connection_support.stream.random(), connection_support.now_seconds, support.now_ns, .{ .ticket = &ticket, .age_ms = 0 });
+    try testing.expectEqual(.v2, connection.session.original_version());
+    try testing.expectEqual(.v2, connection.transport.versions.original);
 }
 
 test "RFC 9114 §3.1: a handshake that selects another protocol ends the connection before any exchange" {

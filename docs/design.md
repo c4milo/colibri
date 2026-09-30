@@ -5825,6 +5825,53 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 3 mutations of the UDP endpoint, each **CAUGHT** by `tools/quic_udp.sh`: its server's
     connection or session starting in version 1, and the client ignoring `v2`.
 
+  **19e, 2026-09-29.** A server switches a client that lists version 2 to it, and a client resumes
+  in its ticket's version (decision 111).
+  - chapulin asks a server for the negotiated version through `choose_version` once the client's
+    transport parameters have arrived and before anything is sent. `tls.quic.Server` takes a
+    `tls_provider.VersionChooser` and answers with it. chapulin's hook context is now the
+    provider's state, which keeps a `KEYLOG=on` object's context beside the chooser.
+  - `quic.connection_version.choose` reads the client's version_information. When the client lists
+    the connection's `switch_to`, the negotiated version becomes it, and the server's own
+    parameters are written again, at the same length, with it as the Chosen Version (RFC 9368 §3).
+    A client that does not list it, sends no version_information, or sends parameters that do not
+    read keeps its original version.
+  - `switch_to` is version 2 unless the caller names another, in `quic.connection.Options` and in
+    `server.QuicConfig`, and null keeps every client in its original version. The UDP endpoint's
+    `no-switch` sets it to null, and the runner's endpoint passes it in every case but `v2`.
+  - A client offered a ticket starts in the ticket's version unless its configuration names
+    another (RFC 9369 §5), and its connection starts in the version its session chose.
+  - The simulator's null provider asks the chooser once it reads the ClientHello. In the QUIC
+    connection check every seed runs version 2, the 128 that start in version 1 because the server
+    switched them. The loopback check requires version 2 at both endpoints.
+  - The census digests moved with the switch; the counts did not, and both build modes gave the
+    new values.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2397 of 2397 tests. `tools/quic_udp.sh`, `tools/quic_loopback.sh`,
+    `tools/quic_aioquic.sh`, `tools/h3spec.sh` and `tools/channel_interop.sh`: ok.
+  - `tools/interop.sh quic-go,ngtcp2,neqo,quinn`, over `handshake`, `transfer`, `chacha20`,
+    `retry`, `resumption`, `http3` and `v2`:
+    - With colibri as the server, every case passed against colibri's, ngtcp2's and neqo's clients,
+      `v2` included, and every case but `v2` against quic-go's, which does not offer it.
+    - quinn's client passed every case but `v2`. Its ClientHello carries no version_information,
+      so the server keeps it in version 1 (RFC 9368 §2.3), where the runner expects version 2.
+    - With colibri as the client, every case passed. quic-go's and quinn's servers do not offer
+      `v2`.
+  - 23 mutations, each **CAUGHT**: a server with no version to switch to switching; a client that
+    does not list version 2, sends no version_information or sends parameters that do not read being
+    switched; the switch leaving the negotiated version, the Chosen Version or the server's
+    parameters as they were; `Options.switch_to` ignored; chapulin's callback or the chooser never
+    set; the chooser given no client parameters, or none of the server's, or the provider keeping no
+    length for them; the hook context left the keylog's; the ticket's version ignored, preferred to
+    the configuration's, or taken unchecked; the client's connection starting in version 1; the
+    `server` module ignoring `switch_to` or installing no chooser; and the simulator's provider
+    never asking, its server given no chooser, or its suite sealing the original version.
+  - 6 mutations of the test endpoints, each **CAUGHT** by `tools/quic_udp.sh` or
+    `tools/quic_loopback.sh`: either server mode ignoring `no-switch`, the word read as a switch,
+    the UDP server or the loopback server installing no chooser, and the UDP connection starting in
+    version 1.
+
 - **Step 20 — denial of service at the server.** [Decision 110](decisions.md) rules the defences
   that [#82](https://github.com/c4milo/colibri/issues/82) planned, in two parts.
   - **20a**, Rapid Reset (CVE-2023-44487). h2 counts the streams the peer opens and then resets,

@@ -1,7 +1,7 @@
 //! The command line of `zig build quic-udp` (design §8 step 9e, piece 11):
 //!
 //!     quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn]
-//!         [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
+//!         [no-switch] [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]
 //!     quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads>
 //!         [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...
 //!
@@ -14,6 +14,9 @@
 //!   fails: a suite such as h3spec breaks a rule on purpose on every connection it opens.
 //! - `no-ecn` turns decision 68's two flags off: the server reads no ECN codepoint, so its ACK
 //!   frames carry no counts (RFC 9000 §13.4.1), and marks none.
+//! - `no-switch` keeps every client in the version of its first Initial, where without it the
+//!   server switches a client that lists version 2 to it (decision 111). The QUIC Interop Runner
+//!   requires one version in every case but its `v2`.
 //! - `h3` serves h3 alone, through colibri's `server` module and its `Endpoint` (design §8 step
 //!   17b), where without it the server serves h3 or hq-interop by ALPN on its own connections. It
 //!   holds `quic_connections_max` connections, and writes no qlog.
@@ -45,6 +48,7 @@ const constants = @import("../../constants.zig");
 const check_file = @import("../../tls/check_file.zig");
 const hq = @import("../hq/hq.zig");
 const udp = @import("../../udp.zig");
+const quic = @import("quic");
 
 pub const Role = enum { server, client };
 
@@ -61,6 +65,9 @@ pub const Server = struct {
     errors: bool = false,
     /// Whether the server reads and marks ECN codepoints (decision 68).
     ecn: bool = true,
+    /// The version the server switches a client to when the client lists it (decision 111), or
+    /// null to keep every client in its original version.
+    switch_to: ?quic.crypto.suite.Version = .v2,
     /// Whether the server serves h3 alone, through `server` (design §8 step 17b).
     h3: bool = false,
     /// The connections the server holds at once.
@@ -136,17 +143,8 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
     // Bounded by the options there are, each of which may appear once.
     for (0..server_options_count) |_| {
         const word = arguments.next() orelse return server;
-        if (std.mem.eql(u8, word, "once")) {
-            server.once = true;
-        } else if (std.mem.eql(u8, word, "retry")) {
-            server.retry = true;
-        } else if (std.mem.eql(u8, word, "errors")) {
-            server.errors = true;
-        } else if (std.mem.eql(u8, word, "no-ecn")) {
-            server.ecn = false;
-        } else if (std.mem.eql(u8, word, h3_word)) {
-            server.h3 = true;
-        } else if (parse_seconds(word)) |seconds| {
+        if (parse_server_word(&server, word)) continue;
+        if (parse_seconds(word)) |seconds| {
             server.now_seconds = seconds;
         } else if (parse_qlogdir(word)) |directory| {
             server.qlogdir = directory;
@@ -156,6 +154,25 @@ fn parse_server(arguments: *std.process.Args.Iterator, address: udp.Address) Ser
     }
     if (arguments.next() != null) usage();
     return server;
+}
+
+/// Sets the server option `word` names when it is one of the words that carry no value, and
+/// answers whether it was.
+fn parse_server_word(server: *Server, word: []const u8) bool {
+    if (std.mem.eql(u8, word, "once")) {
+        server.once = true;
+    } else if (std.mem.eql(u8, word, "retry")) {
+        server.retry = true;
+    } else if (std.mem.eql(u8, word, "errors")) {
+        server.errors = true;
+    } else if (std.mem.eql(u8, word, "no-ecn")) {
+        server.ecn = false;
+    } else if (std.mem.eql(u8, word, "no-switch")) {
+        server.switch_to = null;
+    } else if (std.mem.eql(u8, word, h3_word)) {
+        server.h3 = true;
+    } else return false;
+    return true;
 }
 
 /// The client's words for one key update, a second, resumed connection, h3, a pinned key,
@@ -171,9 +188,9 @@ const client_options_count: usize = 7;
 /// Paths a client with `resumption` needs: one for each of its two connections.
 const resumption_paths_min: usize = 2;
 
-/// `once`, `retry`, `errors`, `no-ecn`, `h3`, `connections=<n>`, `seconds=<unix-seconds>` and
-/// `qlogdir=<directory>`.
-const server_options_count: usize = 8;
+/// `once`, `retry`, `errors`, `no-ecn`, `no-switch`, `h3`, `connections=<n>`,
+/// `seconds=<unix-seconds>` and `qlogdir=<directory>`.
+const server_options_count: usize = 9;
 
 const connections_prefix = "connections=";
 const seconds_prefix = "seconds=";
@@ -277,7 +294,7 @@ fn parse_address(text: []const u8, port: u16) ?udp.Address {
 
 pub fn usage() noreturn {
     std.debug.print(
-        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
+        "usage: quic-udp server <address> <port> <identity-prefix> <www> [once] [retry] [errors] [no-ecn] [no-switch] [h3] [connections=<n>] [seconds=<unix-seconds>] [qlogdir=<directory>]\n" ++
             "       quic-udp client <address> <port> <anchor-prefix> <hostname> <unix-seconds> <downloads> [keyupdate] [resumption] [h3] [pin] [chacha20] [v2] [qlogdir=<directory>] <path>...\n",
         .{},
     );

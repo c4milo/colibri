@@ -132,10 +132,10 @@ grep -q "suite=0x1303" "$scratch/h3.log" || {
   echo "quic_udp: the client offering ChaCha20 alone ran another suite" >&2
   exit 1
 }
-# RFC 9368 §2.5: a client starts in version 1, and colibri's server keeps a client in the version
-# its first flight carried.
-grep -q "version=0x00000001" "$scratch/h3.log" || {
-  echo "quic_udp: the client did not run version 1" >&2
+# RFC 9368 §2.5: a client starts in version 1 and lists version 2, and colibri's server switches
+# it to version 2 (decision 111).
+grep -q "version=0x6b3343cf" "$scratch/h3.log" || {
+  echo "quic_udp: the server did not switch the client to version 2" >&2
   exit 1
 }
 for file in small medium large; do
@@ -188,6 +188,12 @@ if ! client h3 "$qlogdir_h3" /small /medium /large >"$scratch/h3_mode.log" 2>&1;
   exit 1
 fi
 cat "$scratch/h3_mode.log"
+# Decision 111: the `server` module switches a client that lists version 2 to it, as the other
+# server does.
+grep -q "version=0x6b3343cf" "$scratch/h3_mode.log" || {
+  echo "quic_udp: the h3 mode did not switch the client to version 2" >&2
+  exit 1
+}
 for file in small medium large; do
   if ! cmp -s "$scratch/www/$file" "$scratch/downloads/$file"; then
     echo "quic_udp: $file arrived from the h3 mode different from what the server holds" >&2
@@ -235,6 +241,32 @@ for mode in hq h3; do
     exit 1
   }
   await_close "the $mode server in version 2"
+done
+# A server with `no-switch` keeps a client that lists version 2 in version 1, the version of its
+# first flight (decision 111), in both modes.
+for mode in hq h3; do
+  rm -f "$scratch/downloads/small"
+  if [ "$mode" = h3 ]; then
+    start_server once h3 no-switch
+    options=(h3 /small)
+  else
+    start_server once no-switch
+    options=(/small)
+  fi
+  if ! client "${options[@]}" >"$scratch/no_switch_$mode.log" 2>&1; then
+    echo "quic_udp: the $mode server with no-switch did not serve the client:" >&2
+    cat "$scratch/no_switch_$mode.log" "$scratch/server.log" >&2
+    exit 1
+  fi
+  grep -q "version=0x00000001" "$scratch/no_switch_$mode.log" || {
+    echo "quic_udp: the $mode server with no-switch switched the client" >&2
+    exit 1
+  }
+  cmp -s "$scratch/www/small" "$scratch/downloads/small" || {
+    echo "quic_udp: small arrived in version 1 different from what the $mode server holds" >&2
+    exit 1
+  }
+  await_close "the $mode server with no-switch"
 done
 start_server once h3
 if client h3 /small /missing >"$scratch/h3_mode_missing.log" 2>&1; then
