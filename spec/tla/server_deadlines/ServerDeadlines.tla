@@ -11,13 +11,13 @@
 (* each deadline's clock runs, as colibri's code starts, pauses and stops  *)
 (* it, against what the peer must do for the clock to stop. The steps are  *)
 (* of three kinds:                                                         *)
-(*   - colibri's own, which take no time: it writes the WINDOW_UPDATE      *)
-(*     frames it owes into its output, its caller's socket takes a frame   *)
-(*     from the output, and it takes the content write_body offers;        *)
+(*   - colibri's own, which take no time: it writes the replies it owes    *)
+(*     into its output, its caller's socket takes a frame from the output, *)
+(*     and it takes the content write_body offers;                         *)
 (*   - the peer's and the network's: a frame arrives at colibri, which     *)
 (*     reads it, and the client reads, sends or opens a request;           *)
-(*   - the application's: it answers a request, and produces the content   *)
-(*     of the answer a unit at a time.                                     *)
+(*   - the application's: it answers a request, and offers the content of  *)
+(*     the answer ProduceStep octets at a time.                            *)
 (* A state in which colibri can take no step of its own is Quiescent, and  *)
 (* rule 2 is checked there: in any other state, colibri acts before any    *)
 (* time passes.                                                            *)
@@ -49,6 +49,16 @@
 (*     https://github.com/c4milo/colibri/issues/89), and now waits while   *)
 (*     colibri holds a WINDOW_UPDATE (upload_update_held).                 *)
 (*                                                                         *)
+(* The model counts octets as colibri does, so that a run of colibri's h2  *)
+(* client and server can be checked against it state for state: each      *)
+(* frame is HeaderLen octets and its payload, colibri's output holds       *)
+(* OutputLen octets and each direction ChannelLen, and a DATA frame is as  *)
+(* long as the windows, the floor, FrameMax and the room allow, as         *)
+(* connection_send_window.zig's sendable has it. colibri owes the replies  *)
+(* as connection_reply.zig queues them: SETTINGS acknowledgments, one      *)
+(* increment for the connection, then the streams' in order. The client   *)
+(* is colibri's h2 too, and owes its replies the same way.                 *)
+(*                                                                         *)
 (* Left out: TLS, h11, the head, first-request and drain deadlines, which  *)
 (* no honest peer holds up; the caps on a body and on a connection's       *)
 (* bodies together, which follow the same clocks; h2's stop on a full      *)
@@ -57,27 +67,31 @@
 (* knows colibri's SETTINGS_INITIAL_WINDOW_SIZE from the start, since      *)
 (* colibri advertises the default, and colibri knows the client's, which   *)
 (* comes first in the client's preface.                                    *)
-(*                                                                         *)
-(* Numbers are small stand-ins, in units of DATA: the windows for their    *)
-(* 65,535 octets, LocalThreshold for window_update_threshold and Floor for *)
-(* data_frame_len_min. OutputMax counts the frames colibri's output holds, *)
-(* and ChannelMax those a transport's buffers hold.                        *)
 (***************************************************************************)
 EXTENDS Integers, Sequences, FiniteSets
 
 CONSTANTS
     StreamCount,        \* the streams the client opens, one after another
-    RequestBody,        \* the DATA units each request carries
-    ResponseBody,       \* the DATA units each response carries
+    RequestBody,        \* the octets of DATA each request carries
+    ResponseBody,       \* the octets of DATA each response carries
+    ProduceStep,        \* the octets the application offers write_body at once
     ConnectionWindow,   \* the initial connection window, in both directions (§6.9.2)
     LocalWindow,        \* the SETTINGS_INITIAL_WINDOW_SIZE colibri advertises
     LocalThreshold,     \* the credit colibri gathers before it owes a WINDOW_UPDATE
     PeerWindow,         \* the SETTINGS_INITIAL_WINDOW_SIZE the client advertises
     PeerThreshold,      \* the credit the client gathers before it sends a WINDOW_UPDATE
-    Floor,              \* data_frame_len_min, in units
-    OutputMax,          \* the frames colibri's output holds
-    ChannelMax,         \* the frames in flight toward one endpoint
+    Floor,              \* data_frame_len_min
+    FrameMax,           \* the longest payload one DATA frame carries (§4.2)
+    HeaderLen,          \* the octets of a frame's header (§4.1)
+    SettingsLen,        \* the payload octets of colibri's SETTINGS
+    UpdateLen,          \* the payload octets of a WINDOW_UPDATE (§6.9)
+    PrefaceLen,         \* the octets of the client's preface and its SETTINGS (§3.4)
+    RequestHeadLen,     \* the payload octets of a request's HEADERS
+    ResponseHeadLen,    \* the payload octets of a response's HEADERS
+    OutputLen,          \* the octets colibri's output holds
+    ChannelLen,         \* the octets in flight toward one endpoint at once
     Pipelining,         \* whether the client opens a stream before it has read the last response
+    MaximalUploads,     \* whether the client's DATA frames are as long as it can send
     IdleAfterOutput,    \* whether the idle deadline starts once the output is empty (6639950)
     SettingsPause,      \* whether the SETTINGS deadline pauses while a body waits (decision 110)
     FloorOnlyAbove,     \* whether the floor applies only while PeerWindow is at least Floor
@@ -91,19 +105,31 @@ StreamIds == {Streams[i] : i \in 1..StreamCount}
 Connection == 0         \* the stream identifier of the connection's own frames (§6.9)
 
 ASSUME /\ StreamCount \in Nat \ {0}
-       /\ {RequestBody, ResponseBody} \subseteq Nat
-       /\ {ConnectionWindow, LocalWindow, LocalThreshold, PeerWindow, PeerThreshold, Floor,
-           OutputMax, ChannelMax} \subseteq Nat \ {0}
+       /\ {RequestBody, ResponseBody, HeaderLen, SettingsLen, UpdateLen, RequestHeadLen,
+           ResponseHeadLen} \subseteq Nat
+       /\ {ProduceStep, ConnectionWindow, LocalWindow, LocalThreshold, PeerWindow, PeerThreshold,
+           Floor, FrameMax, PrefaceLen, OutputLen, ChannelLen} \subseteq Nat \ {0}
        /\ LocalThreshold <= LocalWindow /\ PeerThreshold <= PeerWindow
-       /\ {Pipelining, IdleAfterOutput, SettingsPause, FloorOnlyAbove, FloorAfterSmall,
-           BodyPauseForUpdate} \subseteq BOOLEAN
+       /\ {Pipelining, MaximalUploads, IdleAfterOutput, SettingsPause, FloorOnlyAbove,
+           FloorAfterSmall, BodyPauseForUpdate} \subseteq BOOLEAN
 
 Min(a, b) == IF a < b THEN a ELSE b
 
 (* One frame. Every frame carries every field, so any two compare: len is  *)
-(* a DATA frame's units, and value a WINDOW_UPDATE's increment.            *)
+(* its payload's octets, and value a WINDOW_UPDATE's increment. PREFACE is *)
+(* the client's connection preface and its SETTINGS, which are no one      *)
+(* frame.                                                                  *)
 Frame(type, stream, len, end, value) ==
     [type |-> type, stream |-> stream, len |-> len, end |-> end, value |-> value]
+
+Octets(f) == IF f.type = "PREFACE" THEN PrefaceLen ELSE HeaderLen + f.len
+
+RECURSIVE Used(_)
+Used(frames) == IF frames = <<>> THEN 0 ELSE Octets(Head(frames)) + Used(Tail(frames))
+
+(* A queue of replies with the WINDOW_UPDATE frames owed on s dropped      *)
+(* (connection_reply.zig's drop_window_updates).                           *)
+DropStream(queue, s) == SelectSeq(queue, LAMBDA reply : reply[1] # s)
 
 Parts == {"none", "head", "ended"}
 
@@ -111,13 +137,15 @@ VARIABLES
     \* colibri
     reqRead,            \* reqRead[s]: what colibri has read of request s
     resp,               \* resp[s]: what colibri has written of the response to s
-    respWritten,        \* respWritten[s]: the response's units colibri has written
-    produced,           \* produced[s]: the response's units the application has offered in all
+    respWritten,        \* respWritten[s]: the response's octets colibri has written
+    produced,           \* produced[s]: the response's octets the application has offered in all
     sendWindow,         \* sendWindow[s]: colibri's credit on s, which the client advertised
     sendConnection,     \* colibri's credit on the connection
     released,           \* released[s]: credit colibri gathered on s and does not owe yet
     releasedConnection, \* the same for the connection
-    owed,               \* the WINDOW_UPDATE frames colibri owes and has not written, oldest first
+    acksOwed,           \* the acknowledgments of the client's SETTINGS colibri owes
+    connectionOwed,     \* the increment colibri owes on the connection, 0 for none
+    streamOwed,         \* the increments colibri owes on streams, oldest first, as <<s, n>>
     out,                \* the frames colibri's output holds, oldest first
     firstRequestRead,   \* whether a whole request head has arrived
     idleStarted,        \* whether the idle deadline's clock has started
@@ -128,19 +156,21 @@ VARIABLES
     toServer,           \* the frames the client sent, which have not arrived at colibri
     \* the client
     cliReq,             \* cliReq[s]: what the client has sent of request s
-    cliSent,            \* cliSent[s]: the request's units the client has sent
+    cliSent,            \* cliSent[s]: the request's octets the client has sent
     cliWindow,          \* cliWindow[s]: the client's credit on s, which colibri advertised
     cliConnection,      \* the client's credit on the connection
     cliResp,            \* cliResp[s]: what the client has read of the response to s
     cliReleased,        \* cliReleased[s]: credit the client gathered on s and has not returned
     cliReleasedConnection,
-    cliOwed             \* the frames the client owes and has not sent, oldest first
+    cliAcksOwed,        \* the acknowledgments of colibri's SETTINGS the client owes
+    cliConnectionOwed,  \* the increment the client owes on the connection, 0 for none
+    cliStreamOwed       \* the increments the client owes on streams, oldest first
 
 colibri == <<reqRead, resp, respWritten, produced, sendWindow, sendConnection, released,
-             releasedConnection, owed, out, firstRequestRead, idleStarted, settingsAcked,
-             smallIncrement>>
+             releasedConnection, acksOwed, connectionOwed, streamOwed, out, firstRequestRead,
+             idleStarted, settingsAcked, smallIncrement>>
 client == <<cliReq, cliSent, cliWindow, cliConnection, cliResp, cliReleased,
-            cliReleasedConnection, cliOwed>>
+            cliReleasedConnection, cliAcksOwed, cliConnectionOwed, cliStreamOwed>>
 vars == <<colibri, toClient, toServer, client>>
 
 TypeOK ==
@@ -149,7 +179,7 @@ TypeOK ==
     /\ sendWindow \in [StreamIds -> Int] /\ sendConnection \in Int
     /\ firstRequestRead \in BOOLEAN /\ idleStarted \in BOOLEAN /\ settingsAcked \in BOOLEAN
     /\ smallIncrement \in BOOLEAN
-    /\ Len(out) <= OutputMax /\ Len(toClient) <= ChannelMax /\ Len(toServer) <= ChannelMax
+    /\ Used(out) <= OutputLen /\ Used(toClient) <= ChannelLen /\ Used(toServer) <= ChannelLen
     /\ cliReq \in [StreamIds -> Parts] /\ cliSent \in [StreamIds -> 0..RequestBody]
     /\ cliResp \in [StreamIds -> Parts]
 
@@ -162,15 +192,17 @@ Init ==
     /\ sendConnection = ConnectionWindow
     /\ released = [s \in StreamIds |-> 0]
     /\ releasedConnection = 0
-    /\ owed = <<>>
+    /\ acksOwed = 0
+    /\ connectionOwed = 0
+    /\ streamOwed = <<>>
     \* RFC 9113 §3.4: the server's connection preface is its SETTINGS, the first frame it sends.
-    /\ out = <<Frame("SETTINGS", Connection, 0, FALSE, 0)>>
+    /\ out = <<Frame("SETTINGS", Connection, SettingsLen, FALSE, 0)>>
     /\ firstRequestRead = FALSE
     /\ idleStarted = FALSE
     /\ settingsAcked = FALSE
     /\ smallIncrement = FALSE
     /\ toClient = <<>>
-    /\ toServer = <<>>
+    /\ toServer = <<Frame("PREFACE", Connection, 0, FALSE, 0)>>
     /\ cliReq = [s \in StreamIds |-> "none"]
     /\ cliSent = [s \in StreamIds |-> 0]
     /\ cliWindow = [s \in StreamIds |-> LocalWindow]
@@ -178,7 +210,9 @@ Init ==
     /\ cliResp = [s \in StreamIds |-> "none"]
     /\ cliReleased = [s \in StreamIds |-> 0]
     /\ cliReleasedConnection = 0
-    /\ cliOwed = <<>>
+    /\ cliAcksOwed = 0
+    /\ cliConnectionOwed = 0
+    /\ cliStreamOwed = <<>>
 
 -----------------------------------------------------------------------------
 (* What colibri knows and does.                                            *)
@@ -201,10 +235,11 @@ ObserveIdle ==
 BodyWaits(s) == reqRead[s] = "head"
 BodiesWait == \E s \in StreamIds : BodyWaits(s)
 
-(* The units write_body has offered on s that colibri has not taken.       *)
+(* The octets write_body has offered on s that colibri has not taken.      *)
 Ready(s) == produced[s] - respWritten[s]
 
 Window(s) == Min(sendWindow[s], sendConnection)
+OutputRoom == OutputLen - Used(out)
 
 (* connection_send_window.zig's sendable: what fits both windows, but      *)
 (* nothing when the windows are below the floor and do not take it all,   *)
@@ -215,16 +250,31 @@ Sendable(s) ==
     ELSE IF FloorApplies /\ Window(s) < Floor THEN 0
     ELSE Window(s)
 
+(* The DATA frame colibri writes next on s: what Sendable lets through, cut *)
+(* at the frame size and at the room the output has left.                 *)
+DataLen(s) == Min(Min(Sendable(s), FrameMax), OutputRoom - HeaderLen)
+
 (* A stream a window holds: content waits and the windows take none of it  *)
 (* (connection_sends.zig's entries).                                       *)
 Held(s) == resp[s] = "head" /\ Ready(s) > 0 /\ Sendable(s) = 0
 HeldByConnection(s) == sendConnection < sendWindow[s]
 
-(* colibri writes the oldest WINDOW_UPDATE it owes into its output.        *)
+(* What colibri owes, in connection_reply.zig's order.                     *)
+Owes == acksOwed > 0 \/ connectionOwed > 0 \/ streamOwed # <<>>
+OwedFrame ==
+    CASE acksOwed > 0 -> Frame("SETTINGS_ACK", Connection, 0, FALSE, 0)
+      [] acksOwed = 0 /\ connectionOwed > 0 ->
+            Frame("WINDOW_UPDATE", Connection, UpdateLen, FALSE, connectionOwed)
+      [] acksOwed = 0 /\ connectionOwed = 0 /\ streamOwed # <<>> ->
+            Frame("WINDOW_UPDATE", Head(streamOwed)[1], UpdateLen, FALSE, Head(streamOwed)[2])
+
+(* colibri writes the oldest reply it owes into its output.                *)
 Flush ==
-    /\ owed # <<>> /\ Len(out) < OutputMax
-    /\ out' = Append(out, Head(owed))
-    /\ owed' = Tail(owed)
+    /\ Owes /\ Octets(OwedFrame) <= OutputRoom
+    /\ out' = Append(out, OwedFrame)
+    /\ acksOwed' = IF acksOwed > 0 THEN acksOwed - 1 ELSE 0
+    /\ connectionOwed' = IF acksOwed = 0 THEN 0 ELSE connectionOwed
+    /\ streamOwed' = IF acksOwed = 0 /\ connectionOwed = 0 THEN Tail(streamOwed) ELSE streamOwed
     /\ UNCHANGED <<reqRead, resp, respWritten, produced, sendWindow, sendConnection, released,
                    releasedConnection, firstRequestRead, settingsAcked, smallIncrement, toClient,
                    toServer>>
@@ -233,28 +283,29 @@ Flush ==
 
 (* The caller's socket takes the oldest frame colibri's output holds.      *)
 Send ==
-    /\ out # <<>> /\ Len(toClient) < ChannelMax
+    /\ out # <<>> /\ Used(toClient) + Octets(Head(out)) <= ChannelLen
     /\ toClient' = Append(toClient, Head(out))
     /\ out' = Tail(out)
     /\ UNCHANGED <<reqRead, resp, respWritten, produced, sendWindow, sendConnection, released,
-                   releasedConnection, owed, firstRequestRead, settingsAcked, smallIncrement,
-                   toServer>>
+                   releasedConnection, acksOwed, connectionOwed, streamOwed, firstRequestRead,
+                   settingsAcked, smallIncrement, toServer>>
     /\ UNCHANGED client
     /\ ObserveIdle
 
-(* colibri takes what write_body offered on s as one DATA frame, as much   *)
-(* as Sendable lets through, the last one ending the stream.               *)
+(* colibri takes what write_body offered on s as one DATA frame, the last  *)
+(* one ending the stream.                                                  *)
 WriteData(s) ==
-    LET taken == Sendable(s)
+    LET taken == DataLen(s)
         end == respWritten[s] + taken = ResponseBody
-    IN /\ resp[s] = "head" /\ taken > 0 /\ Len(out) < OutputMax
+    IN /\ resp[s] = "head" /\ taken > 0
        /\ out' = Append(out, Frame("DATA", s, taken, end, 0))
        /\ respWritten' = [respWritten EXCEPT ![s] = @ + taken]
        /\ sendWindow' = [sendWindow EXCEPT ![s] = @ - taken]
        /\ sendConnection' = sendConnection - taken
        /\ resp' = [resp EXCEPT ![s] = IF end THEN "ended" ELSE @]
-       /\ UNCHANGED <<reqRead, produced, released, releasedConnection, owed, firstRequestRead,
-                      settingsAcked, smallIncrement, toClient, toServer>>
+       /\ UNCHANGED <<reqRead, produced, released, releasedConnection, acksOwed, connectionOwed,
+                      streamOwed, firstRequestRead, settingsAcked, smallIncrement, toClient,
+                      toServer>>
        /\ UNCHANGED client
        /\ ObserveIdle
 
@@ -264,50 +315,57 @@ Quiescent == ~ENABLED ColibriStep
 -----------------------------------------------------------------------------
 (* A frame arrives at colibri, which reads it.                             *)
 
-(* A DATA unit: the credit goes back at once, and colibri owes a           *)
-(* WINDOW_UPDATE once it reaches LocalThreshold (window.Receiver), on the  *)
-(* connection first (connection_reply.zig).                                *)
+(* DATA: the credit goes back at once, and colibri owes a WINDOW_UPDATE    *)
+(* once it reaches LocalThreshold (window.Receiver). A stream the client   *)
+(* ended owes nothing more (connection_reply.zig's drop_window_updates).   *)
 ArriveData(f) ==
     LET s == f.stream
-        streamOwes == released[s] + 1 >= LocalThreshold /\ ~f.end
-        connectionOwes == releasedConnection + 1 >= LocalThreshold
-        connectionUpdate == IF connectionOwes
-                            THEN <<Frame("WINDOW_UPDATE", Connection, 0, FALSE,
-                                         releasedConnection + 1)>>
-                            ELSE <<>>
-        streamUpdate == IF streamOwes
-                        THEN <<Frame("WINDOW_UPDATE", s, 0, FALSE, released[s] + 1)>>
-                        ELSE <<>>
-    IN /\ released' = [released EXCEPT ![s] = IF streamOwes \/ f.end THEN 0 ELSE @ + 1]
-       /\ releasedConnection' = IF connectionOwes THEN 0 ELSE releasedConnection + 1
-       /\ owed' = owed \o connectionUpdate \o streamUpdate
+        streamOwes == released[s] + f.len >= LocalThreshold /\ ~f.end
+        connectionOwes == releasedConnection + f.len >= LocalThreshold
+        kept == IF f.end THEN DropStream(streamOwed, s) ELSE streamOwed
+    IN /\ released' = [released EXCEPT ![s] = IF streamOwes \/ f.end THEN 0 ELSE @ + f.len]
+       /\ releasedConnection' = IF connectionOwes THEN 0 ELSE releasedConnection + f.len
+       /\ connectionOwed' = IF connectionOwes THEN connectionOwed + releasedConnection + f.len
+                            ELSE connectionOwed
+       /\ streamOwed' = IF streamOwes THEN Append(kept, <<s, released[s] + f.len>>) ELSE kept
        /\ reqRead' = [reqRead EXCEPT ![s] = IF f.end THEN "ended" ELSE @]
-       /\ UNCHANGED <<firstRequestRead, settingsAcked, sendWindow, sendConnection, smallIncrement>>
+       /\ UNCHANGED <<acksOwed, firstRequestRead, settingsAcked, sendWindow, sendConnection,
+                      smallIncrement>>
+
+ArriveUpdate(f) ==
+    /\ IF f.stream = Connection
+       THEN /\ sendConnection' = sendConnection + f.value
+            /\ UNCHANGED sendWindow
+       ELSE /\ sendWindow' = [sendWindow EXCEPT ![f.stream] = @ + f.value]
+            /\ UNCHANGED sendConnection
+    \* RFC 9113 §10.5: a small increment makes the floor apply from then on.
+    /\ smallIncrement' = (smallIncrement \/ f.value < Floor)
+    /\ UNCHANGED <<reqRead, released, releasedConnection, acksOwed, connectionOwed, streamOwed,
+                   firstRequestRead, settingsAcked>>
 
 Arrive ==
     /\ toServer # <<>>
     /\ LET f == Head(toServer)
        IN /\ toServer' = Tail(toServer)
-          /\ CASE f.type = "HEADERS" ->
+          /\ CASE f.type = "PREFACE" ->
+                    \* RFC 9113 §6.5.3: colibri acknowledges the client's SETTINGS.
+                    /\ acksOwed' = acksOwed + 1
+                    /\ UNCHANGED <<reqRead, released, releasedConnection, connectionOwed,
+                                   streamOwed, firstRequestRead, settingsAcked, sendWindow,
+                                   sendConnection, smallIncrement>>
+               [] f.type = "HEADERS" ->
                     /\ reqRead' = [reqRead EXCEPT ![f.stream] = IF f.end THEN "ended" ELSE "head"]
                     /\ firstRequestRead' = TRUE
-                    /\ UNCHANGED <<released, releasedConnection, owed, settingsAcked, sendWindow,
-                                   sendConnection, smallIncrement>>
+                    /\ UNCHANGED <<released, releasedConnection, acksOwed, connectionOwed,
+                                   streamOwed, settingsAcked, sendWindow, sendConnection,
+                                   smallIncrement>>
                [] f.type = "DATA" -> ArriveData(f)
                [] f.type = "SETTINGS_ACK" ->
                     /\ settingsAcked' = TRUE
-                    /\ UNCHANGED <<reqRead, released, releasedConnection, owed, firstRequestRead,
-                                   sendWindow, sendConnection, smallIncrement>>
-               [] f.type = "WINDOW_UPDATE" ->
-                    /\ IF f.stream = Connection
-                       THEN /\ sendConnection' = sendConnection + f.value
-                            /\ UNCHANGED sendWindow
-                       ELSE /\ sendWindow' = [sendWindow EXCEPT ![f.stream] = @ + f.value]
-                            /\ UNCHANGED sendConnection
-                    \* RFC 9113 §10.5: a small increment makes the floor apply from then on.
-                    /\ smallIncrement' = (smallIncrement \/ f.value < Floor)
-                    /\ UNCHANGED <<reqRead, released, releasedConnection, owed, firstRequestRead,
-                                   settingsAcked>>
+                    /\ UNCHANGED <<reqRead, released, releasedConnection, acksOwed,
+                                   connectionOwed, streamOwed, firstRequestRead, sendWindow,
+                                   sendConnection, smallIncrement>>
+               [] f.type = "WINDOW_UPDATE" -> ArriveUpdate(f)
     /\ out' = out
     /\ UNCHANGED <<resp, respWritten, produced, toClient>>
     /\ UNCHANGED client
@@ -319,30 +377,33 @@ Arrive ==
 (* It answers a request whose head arrived with the response's HEADERS.    *)
 Respond(s) ==
     LET end == ResponseBody = 0
-    IN /\ reqRead[s] # "none" /\ resp[s] = "none" /\ Len(out) < OutputMax
-       /\ out' = Append(out, Frame("HEADERS", s, 0, end, 0))
+    IN /\ reqRead[s] # "none" /\ resp[s] = "none" /\ HeaderLen + ResponseHeadLen <= OutputRoom
+       /\ out' = Append(out, Frame("HEADERS", s, ResponseHeadLen, end, 0))
        /\ resp' = [resp EXCEPT ![s] = IF end THEN "ended" ELSE "head"]
        /\ UNCHANGED <<reqRead, respWritten, produced, sendWindow, sendConnection, released,
-                      releasedConnection, owed, firstRequestRead, settingsAcked, smallIncrement,
-                      toClient, toServer>>
+                      releasedConnection, acksOwed, connectionOwed, streamOwed,
+                      firstRequestRead, settingsAcked, smallIncrement, toClient, toServer>>
        /\ UNCHANGED client
        /\ ObserveIdle
 
-(* It offers one more unit of the response's content to write_body.        *)
+(* It offers write_body ProduceStep more octets of the response, or what   *)
+(* is left.                                                                *)
 Produce(s) ==
     /\ resp[s] = "head" /\ produced[s] < ResponseBody
-    /\ produced' = [produced EXCEPT ![s] = @ + 1]
+    /\ produced' = [produced EXCEPT ![s] = @ + Min(ProduceStep, ResponseBody - @)]
     /\ UNCHANGED <<reqRead, resp, respWritten, sendWindow, sendConnection, released,
-                   releasedConnection, owed, out, firstRequestRead, settingsAcked, smallIncrement,
-                   toClient, toServer>>
+                   releasedConnection, acksOwed, connectionOwed, streamOwed, out,
+                   firstRequestRead, settingsAcked, smallIncrement, toClient, toServer>>
     /\ UNCHANGED client
     /\ ObserveIdle
 
 -----------------------------------------------------------------------------
-(* The honest client. What it owes, the SETTINGS acknowledgment and its    *)
-(* WINDOW_UPDATE frames, goes out before anything it sends later.          *)
+(* The honest client, colibri's h2. What it owes, its SETTINGS             *)
+(* acknowledgments and its WINDOW_UPDATE frames, goes out before anything  *)
+(* it sends later.                                                         *)
 
-ClientRoom == Len(toServer) < ChannelMax
+ClientOwes == cliAcksOwed > 0 \/ cliConnectionOwed > 0 \/ cliStreamOwed # <<>>
+ClientRoom == ChannelLen - Used(toServer)
 ClientPut(f) == toServer' = Append(toServer, f)
 
 (* Whether the client has read every response to the streams before s.     *)
@@ -355,53 +416,76 @@ Open(i) ==
     IN /\ cliReq[s] = "none"
        /\ \A j \in 1..(i - 1) : cliReq[Streams[j]] # "none"
        /\ Pipelining \/ EarlierRead(i)
-       /\ cliOwed = <<>> /\ ClientRoom
-       /\ ClientPut(Frame("HEADERS", s, 0, end, 0))
+       /\ ~ClientOwes /\ HeaderLen + RequestHeadLen <= ClientRoom
+       /\ ClientPut(Frame("HEADERS", s, RequestHeadLen, end, 0))
        /\ cliReq' = [cliReq EXCEPT ![s] = IF end THEN "ended" ELSE "head"]
        /\ UNCHANGED <<cliSent, cliWindow, cliConnection, cliResp, cliReleased,
-                      cliReleasedConnection, cliOwed>>
+                      cliReleasedConnection, cliAcksOwed, cliConnectionOwed, cliStreamOwed>>
        /\ UNCHANGED <<colibri, toClient>>
 
-(* It sends one DATA unit within both windows, the last ending the stream. *)
-Upload(s) ==
-    LET end == cliSent[s] + 1 = RequestBody
-    IN /\ cliReq[s] = "head" /\ cliWindow[s] > 0 /\ cliConnection > 0
-       /\ cliOwed = <<>> /\ ClientRoom
-       /\ ClientPut(Frame("DATA", s, 1, end, 0))
-       /\ cliSent' = [cliSent EXCEPT ![s] = @ + 1]
-       /\ cliWindow' = [cliWindow EXCEPT ![s] = @ - 1]
-       /\ cliConnection' = cliConnection - 1
+(* The longest DATA frame the client can send on s now.                    *)
+UploadMax(s) ==
+    Min(Min(Min(cliWindow[s], cliConnection), RequestBody - cliSent[s]),
+        Min(FrameMax, ClientRoom - HeaderLen))
+UploadLens(s) == IF MaximalUploads THEN {UploadMax(s)} ELSE 1..UploadMax(s)
+
+(* It sends a DATA frame within both windows, the last ending the stream.  *)
+Upload(s, len) ==
+    LET end == cliSent[s] + len = RequestBody
+    IN /\ cliReq[s] = "head" /\ len >= 1 /\ len <= UploadMax(s) /\ ~ClientOwes
+       /\ ClientPut(Frame("DATA", s, len, end, 0))
+       /\ cliSent' = [cliSent EXCEPT ![s] = @ + len]
+       /\ cliWindow' = [cliWindow EXCEPT ![s] = @ - len]
+       /\ cliConnection' = cliConnection - len
        /\ cliReq' = [cliReq EXCEPT ![s] = IF end THEN "ended" ELSE @]
-       /\ UNCHANGED <<cliResp, cliReleased, cliReleasedConnection, cliOwed>>
+       /\ UNCHANGED <<cliResp, cliReleased, cliReleasedConnection, cliAcksOwed,
+                      cliConnectionOwed, cliStreamOwed>>
        /\ UNCHANGED <<colibri, toClient>>
+
+(* What the client owes, in connection_reply.zig's order.                  *)
+ClientOwedFrame ==
+    CASE cliAcksOwed > 0 -> Frame("SETTINGS_ACK", Connection, 0, FALSE, 0)
+      [] cliAcksOwed = 0 /\ cliConnectionOwed > 0 ->
+            Frame("WINDOW_UPDATE", Connection, UpdateLen, FALSE, cliConnectionOwed)
+      [] cliAcksOwed = 0 /\ cliConnectionOwed = 0 /\ cliStreamOwed # <<>> ->
+            Frame("WINDOW_UPDATE", Head(cliStreamOwed)[1], UpdateLen, FALSE,
+                  Head(cliStreamOwed)[2])
 
 (* It sends the oldest frame it owes.                                      *)
 Settle ==
-    /\ cliOwed # <<>> /\ ClientRoom
-    /\ ClientPut(Head(cliOwed))
-    /\ cliOwed' = Tail(cliOwed)
+    /\ ClientOwes /\ Octets(ClientOwedFrame) <= ClientRoom
+    /\ ClientPut(ClientOwedFrame)
+    /\ cliAcksOwed' = IF cliAcksOwed > 0 THEN cliAcksOwed - 1 ELSE 0
+    /\ cliConnectionOwed' = IF cliAcksOwed = 0 THEN 0 ELSE cliConnectionOwed
+    /\ cliStreamOwed' = IF cliAcksOwed = 0 /\ cliConnectionOwed = 0 THEN Tail(cliStreamOwed)
+                        ELSE cliStreamOwed
     /\ UNCHANGED <<cliReq, cliSent, cliWindow, cliConnection, cliResp, cliReleased,
                    cliReleasedConnection>>
     /\ UNCHANGED <<colibri, toClient>>
 
-(* It reads DATA: the credit goes back once it reaches PeerThreshold, on   *)
-(* the connection first, and a stream colibri ended owes nothing more.     *)
+(* It reads DATA: the credit goes back once it reaches PeerThreshold, and  *)
+(* a stream colibri ended owes nothing more.                               *)
 ReadData(f) ==
     LET s == f.stream
         streamOwes == cliReleased[s] + f.len >= PeerThreshold /\ ~f.end
         connectionOwes == cliReleasedConnection + f.len >= PeerThreshold
-        connectionUpdate == IF connectionOwes
-                            THEN <<Frame("WINDOW_UPDATE", Connection, 0, FALSE,
-                                         cliReleasedConnection + f.len)>>
-                            ELSE <<>>
-        streamUpdate == IF streamOwes
-                        THEN <<Frame("WINDOW_UPDATE", s, 0, FALSE, cliReleased[s] + f.len)>>
-                        ELSE <<>>
+        kept == IF f.end THEN DropStream(cliStreamOwed, s) ELSE cliStreamOwed
     IN /\ cliReleased' = [cliReleased EXCEPT ![s] = IF streamOwes \/ f.end THEN 0 ELSE @ + f.len]
        /\ cliReleasedConnection' = IF connectionOwes THEN 0 ELSE cliReleasedConnection + f.len
-       /\ cliOwed' = cliOwed \o connectionUpdate \o streamUpdate
+       /\ cliConnectionOwed' = IF connectionOwes THEN cliConnectionOwed + cliReleasedConnection + f.len
+                               ELSE cliConnectionOwed
+       /\ cliStreamOwed' = IF streamOwes THEN Append(kept, <<s, cliReleased[s] + f.len>>) ELSE kept
        /\ cliResp' = [cliResp EXCEPT ![s] = IF f.end THEN "ended" ELSE @]
-       /\ UNCHANGED <<cliWindow, cliConnection>>
+       /\ UNCHANGED <<cliWindow, cliConnection, cliAcksOwed>>
+
+ReadUpdate(f) ==
+    /\ IF f.stream = Connection
+       THEN /\ cliConnection' = cliConnection + f.value
+            /\ UNCHANGED cliWindow
+       ELSE /\ cliWindow' = [cliWindow EXCEPT ![f.stream] = @ + f.value]
+            /\ UNCHANGED cliConnection
+    /\ UNCHANGED <<cliResp, cliReleased, cliReleasedConnection, cliAcksOwed, cliConnectionOwed,
+                   cliStreamOwed>>
 
 (* It reads the oldest frame toward it.                                    *)
 Read ==
@@ -410,28 +494,27 @@ Read ==
        IN /\ toClient' = Tail(toClient)
           /\ CASE f.type = "SETTINGS" ->
                     \* RFC 9113 §6.5.3: the receiver acknowledges SETTINGS once it applies them.
-                    /\ cliOwed' = Append(cliOwed, Frame("SETTINGS_ACK", Connection, 0, FALSE, 0))
+                    /\ cliAcksOwed' = cliAcksOwed + 1
                     /\ UNCHANGED <<cliWindow, cliConnection, cliResp, cliReleased,
-                                   cliReleasedConnection>>
+                                   cliReleasedConnection, cliConnectionOwed, cliStreamOwed>>
+               [] f.type = "SETTINGS_ACK" ->
+                    /\ UNCHANGED <<cliWindow, cliConnection, cliResp, cliReleased,
+                                   cliReleasedConnection, cliAcksOwed, cliConnectionOwed,
+                                   cliStreamOwed>>
                [] f.type = "HEADERS" ->
                     /\ cliResp' = [cliResp EXCEPT ![f.stream] = IF f.end THEN "ended" ELSE "head"]
                     /\ UNCHANGED <<cliWindow, cliConnection, cliReleased, cliReleasedConnection,
-                                   cliOwed>>
+                                   cliAcksOwed, cliConnectionOwed, cliStreamOwed>>
                [] f.type = "DATA" -> ReadData(f)
-               [] f.type = "WINDOW_UPDATE" ->
-                    /\ IF f.stream = Connection
-                       THEN /\ cliConnection' = cliConnection + f.value
-                            /\ UNCHANGED cliWindow
-                       ELSE /\ cliWindow' = [cliWindow EXCEPT ![f.stream] = @ + f.value]
-                            /\ UNCHANGED cliConnection
-                    /\ UNCHANGED <<cliResp, cliReleased, cliReleasedConnection, cliOwed>>
+               [] f.type = "WINDOW_UPDATE" -> ReadUpdate(f)
     /\ UNCHANGED <<cliReq, cliSent>>
     /\ UNCHANGED <<colibri, toServer>>
 
 Next ==
     \/ ColibriStep
     \/ Arrive
-    \/ \E s \in StreamIds : Respond(s) \/ Produce(s) \/ Upload(s)
+    \/ \E s \in StreamIds : Respond(s) \/ Produce(s)
+    \/ \E s \in StreamIds : \E len \in UploadLens(s) : Upload(s, len)
     \/ \E i \in 1..StreamCount : Open(i)
     \/ Settle
     \/ Read
@@ -449,9 +532,12 @@ SettingsRuns == ~settingsAcked /\ ~(SettingsPause /\ BodiesWait)
 (* A WINDOW_UPDATE on `stream` colibri has not handed to the caller's      *)
 (* socket: owed, or in its output.                                         *)
 UpdateHeld(stream) ==
-    \/ \E i \in 1..Len(owed) : owed[i].stream = stream
+    \/ stream = Connection /\ connectionOwed > 0
+    \/ \E i \in 1..Len(streamOwed) : streamOwed[i][1] = stream
     \/ \E i \in 1..Len(out) : out[i].type = "WINDOW_UPDATE" /\ out[i].stream = stream
-UpdateHeldAny == owed # <<>> \/ \E i \in 1..Len(out) : out[i].type = "WINDOW_UPDATE"
+UpdateHeldAny ==
+    \/ connectionOwed > 0 \/ streamOwed # <<>>
+    \/ \E i \in 1..Len(out) : out[i].type = "WINDOW_UPDATE"
 
 (* connection_bodies.zig: a body's rate runs from its head to its end,     *)
 (* and waits while colibri holds a WINDOW_UPDATE (decision 110 as          *)
@@ -483,22 +569,21 @@ BodyWaitsOnPeer ==
             ~(\/ cliWindow[s] <= 0 /\ UpdateHeld(s)
               \/ cliConnection <= 0 /\ UpdateHeld(Connection))
 
-(* The units of DATA on s the client has not read yet.                     *)
-Unread(s) == LET units[i \in 0..Len(toClient)] ==
-                     IF i = 0 THEN 0
-                     ELSE units[i - 1] + (IF toClient[i].type = "DATA" /\ toClient[i].stream = s
-                                          THEN toClient[i].len ELSE 0)
-             IN units[Len(toClient)]
-UnreadAll == LET units[i \in 0..Len(toClient)] ==
-                     IF i = 0 THEN 0
-                     ELSE units[i - 1] + (IF toClient[i].type = "DATA" THEN toClient[i].len ELSE 0)
-             IN units[Len(toClient)]
+(* The octets of DATA on s, or on every stream, the client has not read.  *)
+RECURSIVE UnreadOf(_, _)
+UnreadOf(frames, streams) ==
+    IF frames = <<>> THEN 0
+    ELSE (IF Head(frames).type = "DATA" /\ Head(frames).stream \in streams
+          THEN Head(frames).len ELSE 0) + UnreadOf(Tail(frames), streams)
+Unread(s) == UnreadOf(toClient, {s})
+UnreadAll == UnreadOf(toClient, StreamIds)
 
 (* Whether the client will give back credit on the window that holds s: a  *)
 (* WINDOW_UPDATE on its way, or credit that reaches its threshold once it  *)
 (* reads what is in flight.                                                *)
 UpdateOnItsWay(stream) ==
-    \/ \E i \in 1..Len(cliOwed) : cliOwed[i].type = "WINDOW_UPDATE" /\ cliOwed[i].stream = stream
+    \/ stream = Connection /\ cliConnectionOwed > 0
+    \/ \E i \in 1..Len(cliStreamOwed) : cliStreamOwed[i][1] = stream
     \/ \E i \in 1..Len(toServer) : toServer[i].type = "WINDOW_UPDATE" /\ toServer[i].stream = stream
 WillCredit(s) ==
     IF HeldByConnection(s)

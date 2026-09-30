@@ -6351,6 +6351,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     output, and a written WINDOW_UPDATE not tracked. The test checked that the connection ended on
     the send deadline, and not that the body deadline had cut the stream first. It checks both now.
 
+  **The deadline model in octets, 2026-09-30.** A run of colibri's h2 client and server can be
+  checked against the model only if the model sends what they send
+  ([#86](https://github.com/c4milo/colibri/issues/86)). It now counts octets as colibri does:
+  - a frame is a header and its payload, colibri's output holds `OutputLen` octets and each
+    direction `ChannelLen`;
+  - a DATA frame from colibri is as long as the windows, the floor, the frame size and the room
+    allow, as `sendable` has it;
+  - both endpoints owe their replies as `connection_reply.zig` queues them: SETTINGS
+    acknowledgments, one increment for the connection, then the streams' in order;
+  - the client's preface and both acknowledgments of SETTINGS are frames of their own, and the
+    client sends DATA frames of any length its windows allow, or with `MaximalUploads` only the
+    longest, as colibri's h2 does.
+
+  `zig build tla -- spec/tla/server_deadlines/*.cfg`, in about a minute and a half: colibri's
+  rules hold the four invariants in two configurations, `colibri`, with two streams at once and
+  small buffers (7,310,332 states), and `colibri_one_at_a_time`, with larger buffers (1,377,905
+  states). The five earlier rules are each violated, as before.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
