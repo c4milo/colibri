@@ -5628,9 +5628,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     lists first carry here.
     **Check:** a simulator check over both versions, and the QUIC Interop Runner's `v2` case with
     colibri as the client.
-  - **19e**, the server's switch. A server answers a version 1 first flight in version 2 through
-    the callback chapulin's decision 79 names, which chapulin `3f775fa`, the pinned commit,
-    carries.
+  - **19e**, the server's switch. A server answers a version 1 first flight in version 2 whenever
+    the client lists version 2 (decision 111), through the callback chapulin's decision 79 names,
+    which chapulin `3f775fa`, the pinned commit, carries, unless its configuration's `switch_to` is
+    null. A client offered a ticket starts in the ticket's version.
     **Check:** a simulator check of the client's switch against that server, and the QUIC Interop
     Runner's `v2` case in both roles, beside the version 1 matrix.
 
