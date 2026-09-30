@@ -34,10 +34,11 @@ pub const End = enum {
     held,
 };
 
-/// A request the application read, and when it answered it.
+/// A request the application read, when its body ended, and when the application answered it.
 pub const Answer = struct {
     id: server.Id,
     read_ms: u64,
+    body_end_ms: ?u64,
     answered_ms: ?u64,
 };
 
@@ -49,8 +50,11 @@ pub const Record = struct {
     answers_len: u8,
     /// Exchanges an honest peer ended with a whole response.
     exchanges_done: u8,
-    /// Whether a hostile h11 peer read a 408, and the code of the GOAWAY a hostile h2 peer read.
+    /// Whether a hostile h11 peer read a 408, and in h2 the status of the last response, the code
+    /// of the last RST_STREAM and the code of the GOAWAY a hostile peer read.
     saw_timeout_response: bool,
+    response_status: ?u16,
+    reset_code: ?u32,
     goaway_code: ?u32,
     /// The deadline that ended the connection, if one did (decision 110).
     timed_out: ?server.Deadline,
@@ -96,8 +100,12 @@ pub const Storage = struct {
     exchanges: [limits.exchanges_max]client.HttpExchange,
     bodies: [limits.exchanges_max][limits.content_len_max]u8,
     content: [limits.content_len_max]u8,
+    /// The content an uploading peer's requests carry.
+    upload: [limits.upload_len_max]u8,
+    /// The exchanges colibri's client was given: all at once, or for an upload one at a time.
+    exchanges_requested: u8,
     record: Record,
-    /// When a slow honest peer delivers its next piece.
+    /// When a paced honest peer delivers its next piece.
     next_piece_ms: u64,
     tls_random: Random,
 };
@@ -123,10 +131,10 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .h11 => .h11,
         .h2 => .h2,
     };
-    storage.server_config = .{ .cleartext = protocol };
+    storage.server_config = .{ .cleartext = protocol, .deadlines = plan.deadlines };
     storage.tls_random = Random.init(seed);
     const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.server_connection.init(&storage.server_config, source, 0, 0);
+    try storage.server_connection.init(&storage.server_config, source, 0, ns_of(plan, 0));
     storage.to_server.reset();
     storage.to_client.reset();
     storage.record = .{
@@ -136,11 +144,15 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .answers_len = 0,
         .exchanges_done = 0,
         .saw_timeout_response = false,
+        .response_status = null,
+        .reset_code = null,
         .goaway_code = null,
         .timed_out = null,
     };
     storage.next_piece_ms = 0;
+    storage.exchanges_requested = 0;
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
+    for (&storage.upload, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     if (!plan.honest()) return storage.hostile.start(plan);
     const client_protocol: client.Protocol = switch (plan.protocol) {
         .h11 => .h11,
@@ -150,8 +162,20 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     try storage.client_connection.init(&storage.client_config, source, 0, null);
     for (storage.exchanges[0..plan.exchanges_len], 0..) |*exchange, index| {
         exchange.* = .{ .method = "GET", .path = "/", .body = &storage.bodies[index] };
-        _ = try storage.client_connection.request(exchange);
+        if (plan.peer == .upload) {
+            exchange.method = "POST";
+            exchange.content = storage.upload[0..plan.upload_len[index]];
+        }
     }
+    // An upload's exchanges go one at a time, so each request's body has the whole link.
+    const at_once = if (plan.peer == .upload) 1 else plan.exchanges_len;
+    for (0..at_once) |_| try request_next(storage);
+}
+
+/// Gives colibri's client its next exchange.
+fn request_next(storage: *Storage) Error!void {
+    _ = try storage.client_connection.request(&storage.exchanges[storage.exchanges_requested]);
+    storage.exchanges_requested += 1;
 }
 
 /// The octets of each response's content: letters alone, so no content reads as a status line.
@@ -161,20 +185,21 @@ fn fill(random: *Random, buffer: []u8) void {
     for (buffer) |*octet| octet.* = @truncate(random.next());
 }
 
-fn ns_of(ms: u64) u64 {
-    return ms * limits.ns_per_ms;
+/// The instant `ms` milliseconds into the run, from its base, in nanoseconds.
+fn ns_of(plan: *const Plan, ms: u64) u64 {
+    return (plan.base_ms + ms) * limits.ns_per_ms;
 }
 
 /// Moves octets both ways at `now_ms` until nothing moves, after the server's caller hands it the
 /// instant, as it does whenever it wakes (decision 110).
 fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
-    storage.server_connection.on_instant(ns_of(now_ms));
+    storage.server_connection.on_instant(ns_of(plan, now_ms));
     for (0..limits.passes_per_instant_max) |_| {
         var moved = try peer_write(storage, plan, now_ms);
         moved = try server_read(storage, plan, now_ms) or moved;
         moved = try answer(storage, plan, now_ms) or moved;
-        moved = server_send(storage, now_ms) or moved;
-        moved = peer_read(storage, plan, now_ms) or moved;
+        moved = server_send(storage, plan, now_ms) or moved;
+        moved = try peer_read(storage, plan, now_ms) or moved;
         if (!moved) return;
     }
     return error.RunStalled;
@@ -196,8 +221,8 @@ fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
         if (plan.peer != .silent) stream.written += try storage.hostile.write_acks(stream.free());
         return stream.deliver(stream.written) or moved;
     }
-    stream.written += storage.client_connection.send(stream.free(), ns_of(now_ms));
-    if (plan.peer == .honest) return stream.deliver(stream.written);
+    stream.written += storage.client_connection.send(stream.free(), ns_of(plan, now_ms));
+    if (!plan.paced()) return stream.deliver(stream.written);
     if (now_ms < storage.next_piece_ms or stream.written == stream.delivered) return false;
     storage.next_piece_ms = now_ms + plan.gap_ms;
     return stream.deliver(plan.piece_len);
@@ -209,7 +234,7 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     var moved = false;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.server_connection.receive(stream.held(), ns_of(now_ms)) catch {
+        const received = storage.server_connection.receive(stream.held(), ns_of(plan, now_ms)) catch {
             // A hostile peer's octets may end the connection; an honest peer's may not.
             if (plan.honest()) return error.ExchangeRefused;
             return moved;
@@ -217,7 +242,12 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;
-        if (reported == .request) note_request(storage, reported.request.id, now_ms);
+        switch (reported) {
+            .request => |request| note_request(storage, request.id, now_ms, request.end),
+            .body => |body| if (body.end) note_body_end(storage, body.id, now_ms),
+            .trailers => |trailers| note_body_end(storage, trailers.id, now_ms),
+            .cancelled, .done => {},
+        }
     }
     return error.RunStalled;
 }
@@ -229,45 +259,62 @@ const events_max: usize = limits.exchanges_max * events_per_exchange + 1;
 /// The status each answer carries: 200 (OK), RFC 9110 §15.3.1.
 const answer_status: u16 = 200;
 
-fn note_request(storage: *Storage, id: server.Id, now_ms: u64) void {
+fn note_request(storage: *Storage, id: server.Id, now_ms: u64, ended: bool) void {
     const record = &storage.record;
     // The application answers as many requests as a peer makes whole.
     if (record.answers_len == limits.exchanges_max) return;
-    record.answers[record.answers_len] = .{ .id = id, .read_ms = now_ms, .answered_ms = null };
+    record.answers[record.answers_len] = .{
+        .id = id,
+        .read_ms = now_ms,
+        .body_end_ms = if (ended) now_ms else null,
+        .answered_ms = null,
+    };
     record.answers_len += 1;
 }
 
-/// The application answers each request whose delay has passed, with the content the plan names.
+fn note_body_end(storage: *Storage, id: server.Id, now_ms: u64) void {
+    const record = &storage.record;
+    for (record.answers[0..record.answers_len]) |*pending| {
+        if (pending.id == id) pending.body_end_ms = now_ms;
+    }
+}
+
+/// The application answers each request whose body has ended and whose delay has passed since,
+/// with the content the plan names.
 fn answer(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     var moved = false;
     const record = &storage.record;
     for (record.answers[0..record.answers_len], 0..) |*pending, index| {
         if (pending.answered_ms != null) continue;
-        if (now_ms < pending.read_ms + plan.answer_delay_ms[index]) continue;
-        const content = storage.content[0..plan.content_len[index]];
-        storage.server_connection.respond(pending.id, .{ .status = answer_status, .end = content.len == 0 }) catch return error.ExchangeRefused;
-        if (content.len > 0) {
-            const taken = storage.server_connection.write_body(pending.id, .{ .octets = content, .end = true }) catch return error.ExchangeRefused;
-            // The server's output holds a whole response of the longest content.
-            if (taken != content.len) return error.ExchangeRefused;
-        }
+        const body_end_ms = pending.body_end_ms orelse continue;
+        if (now_ms < body_end_ms + plan.answer_delay_ms[index]) continue;
+        try respond(storage, pending.id, storage.content[0..plan.content_len[index]]);
         pending.answered_ms = now_ms;
         moved = true;
     }
     return moved;
 }
 
-fn server_send(storage: *Storage, now_ms: u64) bool {
+/// Writes a whole response to request `id`, carrying `content`.
+fn respond(storage: *Storage, id: server.Id, content: []const u8) Error!void {
+    storage.server_connection.respond(id, .{ .status = answer_status, .end = content.len == 0 }) catch return error.ExchangeRefused;
+    if (content.len == 0) return;
+    const taken = storage.server_connection.write_body(id, .{ .octets = content, .end = true }) catch return error.ExchangeRefused;
+    // The server's output holds a whole response of the longest content.
+    if (taken != content.len) return error.ExchangeRefused;
+}
+
+fn server_send(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
     const stream = &storage.to_client;
-    const written = storage.server_connection.send(stream.free(), ns_of(now_ms));
+    const written = storage.server_connection.send(stream.free(), ns_of(plan, now_ms));
     stream.written += written;
     _ = stream.deliver(written);
     return written > 0;
 }
 
 /// The peer reads what the server sent: colibri's client reads its responses, and a hostile peer
-/// reads the frames it must acknowledge.
-fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
+/// reads the frames it must acknowledge. An upload's next exchange starts when one finishes.
+fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     const stream = &storage.to_client;
     if (!plan.honest()) {
         if (plan.protocol == .h2) storage.hostile.read_h2(stream.octets[0..stream.delivered]);
@@ -276,11 +323,13 @@ fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
     var moved = false;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.client_connection.receive(stream.held(), ns_of(now_ms));
+        const received = storage.client_connection.receive(stream.held(), ns_of(plan, now_ms));
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;
-        if (reported == .finished and reported.finished.exchange.outcome == .response) storage.record.exchanges_done += 1;
+        if (reported != .finished) continue;
+        if (reported.finished.exchange.outcome == .response) storage.record.exchanges_done += 1;
+        if (plan.peer == .upload and storage.exchanges_requested < plan.exchanges_len) try request_next(storage);
     }
     return moved;
 }
@@ -290,15 +339,20 @@ fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
 fn next_instant(storage: *Storage, plan: *const Plan) ?u64 {
     var soonest: ?u64 = null;
     // The run's instants are whole milliseconds, and so is every deadline that starts at one.
-    if (storage.server_connection.deadline_ns()) |at_ns| soonest = std.math.divCeil(u64, at_ns, limits.ns_per_ms) catch unreachable;
+    if (storage.server_connection.deadline_ns()) |at_ns| {
+        const at_ms = std.math.divCeil(u64, at_ns, limits.ns_per_ms) catch unreachable;
+        assert(at_ms >= plan.base_ms);
+        soonest = at_ms - plan.base_ms;
+    }
     if (!plan.honest()) {
         if (storage.hostile.next_ms()) |at_ms| soonest = earlier(soonest, at_ms);
     }
     const to_server = &storage.to_server;
-    if (plan.peer == .slow_honest and to_server.written > to_server.delivered) soonest = earlier(soonest, storage.next_piece_ms);
+    if (plan.paced() and to_server.written > to_server.delivered) soonest = earlier(soonest, storage.next_piece_ms);
     const record = &storage.record;
     for (record.answers[0..record.answers_len], 0..) |pending, index| {
-        if (pending.answered_ms == null) soonest = earlier(soonest, pending.read_ms + plan.answer_delay_ms[index]);
+        if (pending.answered_ms != null) continue;
+        if (pending.body_end_ms) |body_end_ms| soonest = earlier(soonest, body_end_ms + plan.answer_delay_ms[index]);
     }
     return soonest;
 }
@@ -316,6 +370,10 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
     const received = storage.to_client.octets[0..storage.to_client.delivered];
     switch (plan.protocol) {
         .h11 => record.saw_timeout_response = std.mem.indexOf(u8, received, peer_module.h11_timeout_line) != null,
-        .h2 => record.goaway_code = storage.hostile.goaway_code,
+        .h2 => {
+            record.response_status = storage.hostile.response_status;
+            record.reset_code = storage.hostile.reset_code;
+            record.goaway_code = storage.hostile.goaway_code;
+        },
     }
 }

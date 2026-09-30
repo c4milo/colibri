@@ -4,8 +4,10 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-/// Nanoseconds in a millisecond, the unit a plan's instants are drawn in.
+/// Nanoseconds in a millisecond, the unit a plan's instants are drawn in, and milliseconds in a
+/// second, the unit of a rate.
 pub const ns_per_ms: u64 = 1_000_000;
+pub const ms_per_s: u64 = 1_000;
 
 /// The seeds `run_check` covers when its caller names none, and which the census test pins.
 pub const check_seeds_default: u64 = 256;
@@ -40,6 +42,35 @@ pub const hostile_piece_len_max: u32 = 4;
 /// How long after its first response a peer that ends slow starts its next head, in milliseconds.
 pub const second_head_after_ms: u64 = 1_000;
 
+/// A run's instants start at a base drawn below this, in milliseconds, so the server counts no
+/// deadline from the instant 0.
+pub const base_ms_max: u64 = 1_000_000;
+
+/// The shortest limit a plan gives the server when it shortens decision 110's defaults, as a
+/// server short of connections does, in milliseconds. An honest peer's head takes less to arrive.
+pub const short_limit_ms_min: u64 = 5_000;
+
+/// The octets of content an uploading peer's request carries at most.
+pub const upload_len_max: u32 = 49_152;
+
+/// An honest upload's pace: a piece every gap, at two to four times decision 110's minimum body
+/// rate of 1,024 octets a second.
+pub const upload_gap_ms_min: u64 = 50;
+pub const upload_gap_ms_max: u64 = 250;
+pub const upload_rate_min: u32 = 2_048;
+pub const upload_rate_max: u32 = 4_096;
+
+/// A slow body's rate in octets a second, below decision 110's minimum of 1,024, and how long it
+/// lasts in milliseconds: past the last instant a body deadline can pass at the default limits,
+/// a grace period and two windows after the head.
+pub const slow_body_rate_min: u32 = 16;
+pub const slow_body_rate_max: u32 = 960;
+pub const slow_body_ms: u64 = 60_000;
+
+/// The octets a hostile peer's script holds: its opening, and a slow body with a DATA frame's
+/// header on each piece.
+pub const script_len_max: u32 = 65_536;
+
 /// The CONTINUATION frames a hostile h2 peer cuts its field block into, after its HEADERS frame.
 pub const continuation_frames: u32 = 16;
 
@@ -49,7 +80,7 @@ const pieces_extra: u32 = 256;
 
 /// The octets each direction holds: every request and response of a run, with its framing, and
 /// every PING a pinger sends.
-pub const stream_len_max: u32 = 32_768;
+pub const stream_len_max: u32 = 196_608;
 
 /// The instants one run visits at most, and the passes one instant takes at most before nothing
 /// moves.
@@ -67,4 +98,7 @@ comptime {
     assert(hostile_gap_ms_min <= hostile_gap_ms_max and hostile_piece_len_max > 0);
     assert(pieces_max > horizon_ms / hostile_gap_ms_min);
     assert(exchanges_max > 0 and content_len_max > 0 and continuation_frames > 0);
+    assert(upload_gap_ms_min <= upload_gap_ms_max and upload_rate_min <= upload_rate_max);
+    assert(slow_body_rate_min <= slow_body_rate_max and slow_body_rate_max * slow_body_ms / ms_per_s < script_len_max);
+    assert(exchanges_max * (upload_len_max + content_len_max) < stream_len_max);
 }

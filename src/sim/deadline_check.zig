@@ -3,10 +3,11 @@
 //!   1. the two runs must write the same trace (invariant 5);
 //!   2. an honest peer's exchanges must each end with a whole response, however long the
 //!      application takes to answer;
-//!   3. every run must end at the deadline decision 110 names, at its instant: an honest peer or
-//!      an idle pinger at the idle deadline after its last response, a silent peer or a pinger at
-//!      the first-request deadline, and a slow head at the first-request or the head deadline. A
-//!      PING moves no deadline;
+//!   3. every run must end at the deadline decision 110 names, at its instant under the plan's
+//!      limits: an honest peer or an idle pinger at the idle deadline after its last response, a
+//!      silent peer or a pinger at the first-request deadline, and a slow head at the
+//!      first-request or the head deadline. A PING moves no deadline. The server has no deadline
+//!      for a body yet, so a slow body holds it open until the horizon;
 //!   4. and as decision 110 says: a head that began gets a 408 in h11 and a GOAWAY with
 //!      ENHANCE_YOUR_CALM in h2, and with none begun h11 sends nothing and h2 a GOAWAY with
 //!      NO_ERROR.
@@ -21,6 +22,7 @@ const h2 = @import("h2");
 const server = @import("server");
 const deadline_plan = @import("deadline_plan.zig");
 const deadline_run = @import("deadline_run.zig");
+const deadline_peer = @import("deadline_peer.zig");
 
 const Random = sim.Random;
 const limits = sim.constants.deadline;
@@ -33,7 +35,7 @@ pub const check_name = "deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0xe8cd1f42;
+pub const census_crc32_expected: u32 = 0xe2af1a07;
 
 pub const Violation = deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -100,6 +102,8 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         };
         census.seeds += 1;
         census.exchanges += result.record.exchanges_done;
+        census.trace_octets += result.trace.len;
+        census.crc32.update(result.trace);
         const timed_out = result.record.timed_out orelse {
             census.held += 1;
             continue;
@@ -109,27 +113,19 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
             .idle => census.idle += 1,
             .head => census.head += 1,
         }
-        census.trace_octets += result.trace.len;
-        census.crc32.update(result.trace);
     }
 }
 
 /// Checks the run's record against the plan, and writes the run's trace.
 fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     const record = &storage.run.record;
-    storage.trace_len = 0;
-    try line(storage, "{s} seed=0x{x} protocol={t} peer={t} exchanges={d} gap_ms={d} piece_len={d}\n", .{
-        check_name, seed, plan.protocol, plan.peer, plan.exchanges_len, plan.gap_ms, plan.piece_len,
-    });
-    for (record.answers[0..record.answers_len], 0..) |answered, index| {
-        try line(storage, "answer={d} read_ms={d} answered_ms={?d}\n", .{ index, answered.read_ms, answered.answered_ms });
-    }
-    try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d} timeout_response={} goaway={?d}\n", .{
-        record.end, record.end_ms, record.timed_out, record.exchanges_done, record.saw_timeout_response, record.goaway_code,
-    });
+    try write_trace(storage, plan, seed);
     // An honest peer's exchanges end whole, however long the application takes (decision 110).
     if (plan.honest() and record.exchanges_done != plan.exchanges_len) return error.ExchangeLost;
-    const expected = expect(plan, record);
+    const expected = expect(plan, record) orelse {
+        if (record.end != .held or record.timed_out != null) return error.EndedWrong;
+        return;
+    };
     if (record.end != .closed or record.end_ms != expected.end_ms) return error.EndedWrong;
     if (record.timed_out != expected.deadline) return error.EndedWrong;
     if (!plan.honest() and !ended_as_expected(plan, record, expected)) return error.EndedWrong;
@@ -143,23 +139,34 @@ const Expected = struct {
     head: bool,
 };
 
-fn expect(plan: *const Plan, record: *const Record) Expected {
-    const first_request_ms = ms_of(server.constants.first_request_timeout_ns);
-    const head_ms = ms_of(server.constants.head_timeout_ns);
+/// How decision 110 says the run ends under the plan's limits, or null for a run the server holds
+/// open until the horizon.
+fn expect(plan: *const Plan, record: *const Record) ?Expected {
+    const first_request_ms = ms_of(plan.deadlines.first_request_ns.?);
+    const head_ms = ms_of(plan.deadlines.head_ns.?);
     return switch (plan.peer) {
-        .honest, .slow_honest, .idle_pinger => .{
+        .honest, .slow_honest, .upload, .idle_pinger => .{
             .deadline = .idle,
-            .end_ms = last_answer_ms(record) + ms_of(server.constants.idle_timeout_ns),
+            .end_ms = last_answer_ms(record) + ms_of(plan.deadlines.idle_ns.?),
             .head = false,
         },
         .silent, .pinger => .{ .deadline = .first_request, .end_ms = first_request_ms, .head = false },
-        .slow_head => .{ .deadline = .first_request, .end_ms = first_request_ms, .head = true },
+        .slow_head => slow_first_head(plan, first_request_ms, head_ms),
         .slow_second_head => .{
             .deadline = .head,
             .end_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms + head_ms,
             .head = true,
         },
+        .slow_body => null,
     };
+}
+
+/// A slow first head ends at the first-request deadline or at its own, whichever passes first. At
+/// one instant the server names the first-request deadline.
+fn slow_first_head(plan: *const Plan, first_request_ms: u64, head_ms: u64) Expected {
+    const head_end_ms = deadline_peer.slow_head_start_ms(plan.protocol) + head_ms;
+    if (first_request_ms <= head_end_ms) return .{ .deadline = .first_request, .end_ms = first_request_ms, .head = true };
+    return .{ .deadline = .head, .end_ms = head_end_ms, .head = true };
 }
 
 /// What a hostile peer read at the end: a 408 in h11 when a head had begun, and a GOAWAY in h2
@@ -179,6 +186,25 @@ fn last_answer_ms(record: *const Record) u64 {
 
 fn ms_of(ns: u64) u64 {
     return ns / limits.ns_per_ms;
+}
+
+/// The run's trace: the plan, each answer, and how the run ended.
+fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
+    const record = &storage.run.record;
+    const deadlines = &plan.deadlines;
+    storage.trace_len = 0;
+    try line(storage, "{s} seed=0x{x} protocol={t} peer={t} base_ms={d}", .{ check_name, seed, plan.protocol, plan.peer, plan.base_ms });
+    try line(storage, " limits_ms={d}/{d}/{d}", .{ ms_of(deadlines.first_request_ns.?), ms_of(deadlines.idle_ns.?), ms_of(deadlines.head_ns.?) });
+    try line(storage, " exchanges={d} gap_ms={d} piece_len={d}\n", .{ plan.exchanges_len, plan.gap_ms, plan.piece_len });
+    for (record.answers[0..record.answers_len], 0..) |answered, index| {
+        try line(storage, "answer={d} read_ms={d} body_end_ms={?d} answered_ms={?d}\n", .{
+            index, answered.read_ms, answered.body_end_ms, answered.answered_ms,
+        });
+    }
+    try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d}", .{ record.end, record.end_ms, record.timed_out, record.exchanges_done });
+    try line(storage, " timeout_response={} status={?d} reset={?d} goaway={?d}\n", .{
+        record.saw_timeout_response, record.response_status, record.reset_code, record.goaway_code,
+    });
 }
 
 fn line(storage: *Storage, comptime format: []const u8, arguments: anytype) Violation!void {

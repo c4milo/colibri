@@ -1,7 +1,8 @@
 //! The hostile peers of the deadline check (`deadline_plan.zig`, decision 110). Each writes a script
 //! up front: its octets, cut into pieces, each with the instant it goes out. It reads what the
-//! server sends only to acknowledge an h2 SETTINGS frame and to learn how the server ended the
-//! connection: with a 408 in h11, or with a GOAWAY in h2.
+//! server sends only to acknowledge an h2 SETTINGS frame and to learn how the server ended a
+//! request or the connection: with a 408 in h11, and in h2 with the status of a response, a
+//! RST_STREAM or a GOAWAY.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -31,10 +32,20 @@ const h11_request = "GET / HTTP/1.1\r\nHost: a.example\r\n\r\n";
 const h11_slow_head = "GET /slow HTTP/1.1\r\nHost: a.example\r\nX-Filler: " ++ filler ++ "\r\n\r\n";
 const filler = "abcdefghijklmnopqrstuvwxyz0123456789";
 
+/// The head of the request a slow body follows. Its Content-Length is more than the peer ever
+/// sends, so the body never ends.
+const h11_upload_head = "POST /upload HTTP/1.1\r\nHost: a.example\r\nContent-Length: " ++ upload_length ++ "\r\n\r\n";
+const upload_length = "1000000";
+
+/// The octets of a slow body's piece, the longest one included.
+const body_filler: [body_piece_len_max]u8 = @splat('b');
+const body_piece_len_max: usize = limits.slow_body_rate_max * limits.hostile_gap_ms_max / limits.ms_per_s;
+
 /// The octets of the h11 status line of a 408 (RFC 9110 §15.5.9), which the check looks for.
 pub const h11_timeout_line = "HTTP/1.1 408 ";
 
-/// The streams a hostile h2 peer opens: its whole request, and its slow one.
+/// The streams a hostile h2 peer opens: its whole request or the one its slow body follows, and
+/// its slow head's.
 const whole_stream_id: u32 = 1;
 const slow_stream_id: u32 = 3;
 
@@ -45,8 +56,17 @@ const start_ms: u64 = 0;
 /// server's SETTINGS goes out first: RFC 9113 §6.10 lets no other frame into a field block.
 const block_after_opening_ms: u64 = 1;
 
+/// The instant the first octet of a slow first head goes out: an h11 head starts the script, and
+/// an h2 field block follows the opening.
+pub fn slow_head_start_ms(protocol: plan_module.Protocol) u64 {
+    return switch (protocol) {
+        .h11 => start_ms,
+        .h2 => start_ms + block_after_opening_ms,
+    };
+}
+
 pub const Hostile = struct {
-    script: [limits.stream_len_max]u8,
+    script: [limits.script_len_max]u8,
     script_len: u32,
     pieces: [limits.pieces_max]Piece,
     pieces_len: u32,
@@ -58,7 +78,13 @@ pub const Hostile = struct {
     acks_owed: u32,
     /// The error code of the GOAWAY the server sent, if one arrived (h2).
     goaway_code: ?u32,
+    /// The status of the last response the server sent, and the error code of the last RST_STREAM
+    /// it sent (h2).
+    response_status: ?u16,
+    reset_code: ?u32,
     encoder: h2.hpack.Encoder,
+    /// Reads the server's field blocks, all of them, so its table follows the server's encoder.
+    decoder: h2.hpack.Decoder,
 
     /// Writes the script `plan` names. A silent peer's is empty.
     pub fn start(hostile: *Hostile, plan: *const Plan) Error!void {
@@ -69,6 +95,9 @@ pub const Hostile = struct {
         hostile.parsed = 0;
         hostile.acks_owed = 0;
         hostile.goaway_code = null;
+        hostile.response_status = null;
+        hostile.reset_code = null;
+        hostile.decoder.init(constants.header_table_size_initial);
         switch (plan.protocol) {
             .h11 => try hostile.script_h11(plan),
             .h2 => try hostile.script_h2(plan),
@@ -111,6 +140,41 @@ pub const Hostile = struct {
         if (frame_type == constants.frame_type_goaway and payload.len >= goaway_code_end) {
             hostile.goaway_code = std.mem.readInt(u32, payload[goaway_code_start..goaway_code_end], .big);
         }
+        if (frame_type == constants.frame_type_rst_stream and payload.len == constants.rst_stream_len) {
+            hostile.reset_code = std.mem.readInt(u32, payload[0..constants.rst_stream_len], .big);
+        }
+        if (frame_type == constants.frame_type_headers) hostile.on_headers(flags, payload);
+    }
+
+    /// Decodes a field block the server sent whole, and notes its status.
+    fn on_headers(hostile: *Hostile, flags: u8, payload: []const u8) void {
+        // The server's responses are short, so each fits one HEADERS frame.
+        if (flags & constants.flag_end_headers == 0) return;
+        const block = field_block(flags, payload) orelse return;
+        var lines = hostile.decoder.block(block);
+        // Bounded: each line takes an octet of the block at least.
+        for (0..block.len + 1) |_| {
+            const line = (lines.next() catch return) orelse return;
+            if (std.mem.eql(u8, line.name, ":status")) {
+                hostile.response_status = std.fmt.parseInt(u16, line.value, status_radix) catch null;
+            }
+        }
+    }
+
+    /// The field block of a HEADERS frame's payload, or null for a payload too short for its flags.
+    fn field_block(flags: u8, payload: []const u8) ?[]const u8 {
+        var block = payload;
+        // RFC 9113 §6.2: the Pad Length and the priority fields come before the field block, and
+        // the padding after it.
+        if (flags & constants.flag_padded != 0) {
+            if (block.len < constants.pad_length_len or block[0] >= block.len) return null;
+            block = block[constants.pad_length_len .. block.len - block[0]];
+        }
+        if (flags & constants.flag_priority != 0) {
+            if (block.len < constants.priority_fields_len) return null;
+            block = block[constants.priority_fields_len..];
+        }
+        return block;
     }
 
     /// Writes the SETTINGS acknowledgments owed into `output`, and returns the octets written.
@@ -128,13 +192,17 @@ pub const Hostile = struct {
             .silent => return,
             // h11 has no PING, so an idle pinger makes its exchange and sends nothing more.
             .idle_pinger => return hostile.add(start_ms, h11_request),
+            .slow_body => {
+                try hostile.add(start_ms, h11_upload_head);
+                return hostile.add_body(plan, null);
+            },
             .slow_second_head => {
                 try hostile.add(start_ms, h11_request);
                 slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
             },
             .slow_head => {},
             // `draw` makes an h11 pinger silent, and colibri's client plays an honest peer.
-            .honest, .slow_honest, .pinger => unreachable,
+            .honest, .slow_honest, .upload, .pinger => unreachable,
         }
         try hostile.add_slowly(slow_start_ms, plan, h11_slow_head);
     }
@@ -147,28 +215,32 @@ pub const Hostile = struct {
         try h2.frame.write_settings(&writer, &.{});
         hostile.encoder.init(constants.header_table_size_initial, .never);
         var slow_start_ms = start_ms + block_after_opening_ms;
-        // A peer that makes one exchange sends its request whole, in its opening.
-        if (plan.exchanges_len > 0) try hostile.write_request(&writer, whole_stream_id, "/", true);
+        // A peer that makes one exchange sends its request whole, in its opening, and a slow body's
+        // head leaves its stream open.
+        if (plan.exchanges_len > 0) try hostile.write_request(&writer, whole_stream_id, "GET", "/", true);
+        if (plan.peer == .slow_body) try hostile.write_request(&writer, whole_stream_id, "POST", "/upload", false);
         if (plan.peer == .slow_second_head) slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
         try hostile.add(start_ms, writer.written());
         switch (plan.peer) {
             .pinger, .idle_pinger => try hostile.add_pings(plan),
             .slow_head, .slow_second_head => try hostile.add_slow_block(slow_start_ms, plan),
-            .honest, .slow_honest, .silent => unreachable,
+            .slow_body => try hostile.add_body(plan, whole_stream_id),
+            .honest, .slow_honest, .upload, .silent => unreachable,
         }
     }
 
-    /// A HEADERS frame carrying a whole request for `path` on `stream_id`, ending the stream.
-    fn write_request(hostile: *Hostile, writer: *Writer, stream_id: u32, path: []const u8, end_stream: bool) Error!void {
+    /// A HEADERS frame carrying a whole request head for `path` on `stream_id`, which ends the
+    /// stream when `end_stream` says so.
+    fn write_request(hostile: *Hostile, writer: *Writer, stream_id: u32, method: []const u8, path: []const u8, end_stream: bool) Error!void {
         var block_storage: [block_len_max]u8 = undefined;
-        const block = try hostile.encode(&block_storage, path);
+        const block = try hostile.encode(&block_storage, method, path);
         try h2.frame.write_headers(writer, stream_id, block, end_stream, true, 0, null);
     }
 
-    fn encode(hostile: *Hostile, storage: []u8, path: []const u8) Error![]const u8 {
+    fn encode(hostile: *Hostile, storage: []u8, method: []const u8, path: []const u8) Error![]const u8 {
         var block = Writer.init(storage);
         try hostile.encoder.begin_block(&block);
-        try hostile.encoder.write_field(&block, ":method", "GET", .without_indexing);
+        try hostile.encoder.write_field(&block, ":method", method, .without_indexing);
         try hostile.encoder.write_field(&block, ":scheme", "http", .without_indexing);
         try hostile.encoder.write_field(&block, ":path", path, .without_indexing);
         try hostile.encoder.write_field(&block, ":authority", "a.example", .without_indexing);
@@ -180,7 +252,7 @@ pub const Hostile = struct {
     /// HEADERS frame at `first_ms` and each CONTINUATION frame a gap after the one before.
     fn add_slow_block(hostile: *Hostile, first_ms: u64, plan: *const Plan) Error!void {
         var block_storage: [block_len_max]u8 = undefined;
-        const block = try hostile.encode(&block_storage, "/slow");
+        const block = try hostile.encode(&block_storage, "GET", "/slow");
         const fragments = limits.continuation_frames + 1;
         assert(block.len >= fragments);
         const fragment_len = block.len / fragments;
@@ -207,6 +279,28 @@ pub const Hostile = struct {
             if (at_ms >= limits.horizon_ms) return;
             var writer = Writer.init(&frame_storage);
             try h2.frame.write_ping(&writer, @splat(0), false);
+            try hostile.add(at_ms, writer.written());
+            at_ms += plan.gap_ms;
+        }
+    }
+
+    /// A body of `piece_len` octets every gap, from one gap after the start until `slow_body_ms`:
+    /// raw octets in h11, and a DATA frame on `stream_id` for each piece in h2.
+    fn add_body(hostile: *Hostile, plan: *const Plan, stream_id: ?u32) Error!void {
+        assert(plan.piece_len <= body_piece_len_max);
+        const piece = body_filler[0..plan.piece_len];
+        var frame_storage: [constants.frame_header_len + body_piece_len_max]u8 = undefined;
+        var at_ms = start_ms + plan.gap_ms;
+        // Bounded: `pieces_max` holds a piece for each of the run's shortest gaps.
+        for (0..limits.pieces_max) |_| {
+            if (at_ms >= limits.slow_body_ms) return;
+            const id = stream_id orelse {
+                try hostile.add(at_ms, piece);
+                at_ms += plan.gap_ms;
+                continue;
+            };
+            var writer = Writer.init(&frame_storage);
+            try h2.frame.write_data(&writer, id, piece, false, 0);
             try hostile.add(at_ms, writer.written());
             at_ms += plan.gap_ms;
         }
@@ -248,6 +342,9 @@ const frame_flags_offset: usize = frame_type_offset + @sizeOf(u8);
 const goaway_code_start: usize = 4;
 const goaway_code_end: usize = 8;
 
+/// A status code is three decimal digits (RFC 9110 §15).
+const status_radix: u8 = 10;
+
 /// The longest field block and frame a hostile peer writes, and its opening: the preface, then
 /// its SETTINGS frame and a whole request.
 const block_len_max: usize = 128;
@@ -258,4 +355,5 @@ const preface_len_max: usize = constants.client_preface_len + opening_frames * f
 comptime {
     assert(goaway_code_end - goaway_code_start == @sizeOf(u32));
     assert(h11_slow_head.len > h11_request.len);
+    assert(body_piece_len_max > 0 and body_piece_len_max <= constants.max_frame_size_initial);
 }
