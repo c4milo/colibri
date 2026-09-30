@@ -2634,6 +2634,25 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
     Cost: on such a target, colibri connects to no server that offers AES-GCM alone.
 
+    **Amended by the owner on 2026-09-29.** Each object is built `CHACHA=vector` on a
+    little-endian target with SSE2 on x86 or NEON on Arm, which every x86-64 and arm64 CPU has,
+    and `CHACHA=portable` on any other, where chapulin refuses the vector path. The path computes
+    ChaCha20 four blocks at a time in 128-bit vectors (chapulin's entry 82, in the pinned commit
+    044a49c).
+    - chapulin timed one 16 KiB record on an Apple M1 Pro that ran other work, in its
+      `docs/performance.md`. `rec_seal` took 67.3 µs with the portable loop and 47.6 with the
+      vector path under macOS and Apple clang 21, 61.6 and 41.6 in a Linux VM under clang 18, and
+      83.7 and 65.6 under gcc 13. chapulin calls these the filter's figures. No x86-64 figure
+      exists, and colibri's judge, `bench/run.sh`, lands with design §8 step 13, so no number of
+      colibri's admits the change yet.
+    - The path adds, rotates and exclusive-ors, and reads no table, so it runs in constant time as
+      the portable loop does. CBMC cannot read its intrinsics, so chapulin holds it equal to the
+      portable loop with tests, 30,771 cases and RFC 8439's vectors, where the loop has a proof.
+
+    Not taken with it: `WIDEMUL=native`, which takes the same record to about 27 µs but needs the
+    builder's statement that the target's widening multiply runs in constant time. It waits for a
+    ruling of its own.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.
