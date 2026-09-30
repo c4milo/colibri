@@ -31,10 +31,13 @@ pub const Deadline = enum {
 
 /// Each deadline's limit, or null to turn it off.
 ///
-/// A body arrives a unit at a time: an h2 DATA frame, or a TLS record, of up to 16,384 octets. A
-/// peer at twice the minimum rate brings a whole unit each window only when the window's quota is
-/// half a unit or more, as the defaults' 10,240 octets are. A caller that lowers the rate or the
-/// window further may cut an honest peer that sends whole units.
+/// A body arrives a unit at a time: an h2 DATA frame, or a TLS record, of up to 16,384 octets.
+/// spec/lean/Colibri/Server/RateMeter.lean proves the exact bound. A peer that sends whole units at
+/// twice the minimum rate or more, and starts before the grace period ends, is never short in a
+/// window exactly when twice the rate over one window is a whole unit or more. The bound is on the
+/// rate times the window before the quota rounds it up: a quota rounded up to half a unit can fall
+/// short, and one of half a unit and one octet cannot. The defaults' 10,240 octets are past it. A
+/// caller that lowers the rate or the window further may cut an honest peer that sends whole units.
 pub const Deadlines = struct {
     first_request_ns: ?u64 = constants.first_request_timeout_ns,
     idle_ns: ?u64 = constants.idle_timeout_ns,
@@ -120,4 +123,24 @@ test "decision 110: a window owes the rate times its length, rounded up" {
     // Half an octet rounds up to one.
     try testing.expectEqual(1, quota(1, constants.nanoseconds_per_second / 2));
     try testing.expectEqual(3, quota(2, constants.nanoseconds_per_second + 1));
+}
+
+test "decision 77: every quota vector of spec/lean is this quota" {
+    // spec/lean/Colibri/Server/RateMeter.lean proves its theorems about this rounding, and its
+    // outputs over the rates and windows below are here: each side of an octet a window and of a
+    // second, the defaults, and the largest rate over a day.
+    var lines = std.mem.splitScalar(u8, @embedFile("rate_vectors.txt"), '\n');
+    var count: usize = 0;
+    // Bounded by the file, which spec/lean/Vectors.lean writes.
+    while (lines.next()) |line| {
+        if (!std.mem.startsWith(u8, line, "quota ")) continue;
+        var fields = std.mem.tokenizeScalar(u8, line["quota ".len..], ' ');
+        const rate = try std.fmt.parseUnsigned(u32, fields.next().?, 10);
+        const window_ns = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        const octets = try std.fmt.parseUnsigned(u64, fields.next().?, 10);
+        try testing.expectEqual(octets, quota(rate, window_ns));
+        count += 1;
+    }
+    // Nine rates over ten windows.
+    try testing.expectEqual(90, count);
 }

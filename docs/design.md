@@ -6426,6 +6426,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `sendable` writing nothing when the room is short of a whole frame: the run fails, with more
       frames in flight than `frames_max`.
 
+  **The rate meter proved, 2026-09-30** ([#87](https://github.com/c4milo/colibri/issues/87)).
+  `spec/lean/Colibri/Server/RateMeter.lean` states `rate.zig`'s `Meter` and `deadline.zig`'s
+  `quota` as colibri computes them. It also states a peer that sends a body in whole units at a
+  steady rate, each unit arriving at the first nanosecond its last octet is sent. It proves:
+  - the meter's windows: the first ends a grace period and a window after the start, each later
+    one follows the one before, and a window that brought its quota gives way at its end with
+    nothing counted, so octets that arrive at a window's end count in the next one;
+  - `arrival_lt_iff` and `arrives_in_iff`: `brought`, the octets a window receives, counts exactly
+    the units that arrive in it;
+  - `never_short_iff`: a peer that sends whole units at twice the rate or more, and starts before
+    the grace period ends, brings every window its quota exactly when twice the rate over one
+    window is a whole unit or more;
+  - `half_unit_quota_short` and `half_unit_and_one_enough`: the bound is on the rate times the
+    window before the quota rounds it up. At 8,192 octets a second over windows of 999,999,999
+    ns, a window owes half of 16,384 octets, and a peer at twice the rate can bring the first
+    window nothing. A quota of half a unit and one octet always suffices.
+
+  The note on `Deadlines` said a quota of half a unit was enough, and now states the proved bound.
+  The defaults, 10,240 octets over 10 s, and the simulator's `window_quota_min` of 9,216 octets are
+  past it. `src/server/rate_vectors.txt` holds 90 quotas and 404 honest peers. For each peer it
+  names the first window the proved model leaves short: none for 374, and window 1, 2, 4 or 6 for
+  30. A test in `deadline.zig` requires `quota` to give each quota. A test in `rate.zig` drives
+  the meter as the server does, `short` at each arrival and at each instant `check_ns` names, and
+  requires it to name the same window.
+  - `zig build lean`: the proofs build, and every vector file is what the definitions give.
+  - `zig build test`: 131 of 131 steps and 2507 of 2507 tests passed.
+  - 5 mutations of `rate.zig` and `deadline.zig`, each **CAUGHT** by `zig build test-server`:
+    octets at a window's end counted in that window, the next window starting where `short` is
+    called, no grace period, a window after a full one never short, and the quota rounding down.
+    Only the new meter test caught the second, because every earlier test called `short` at a
+    window's exact end.
+  - 2 mutations of the Lean definitions stop the proofs, and 1 edit to the vector file is refused
+    by `zig build lean`.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

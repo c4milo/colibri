@@ -82,9 +82,10 @@ pub const short_body_ms_min: u64 = 60_000;
 pub const short_linger_ms_min: u64 = 500;
 
 /// The octets a window owes at its minimum rate, at least, in the limits a plan draws. A body
-/// arrives a unit at a time, an h2 DATA frame of up to 16,384 octets, so an honest peer at twice
-/// the rate brings a whole one each window only when the quota is half a unit or more; this is
-/// half a unit, and a piece of an honest peer's more.
+/// arrives a unit at a time, an h2 DATA frame of up to 16,384 octets, and an honest peer at twice
+/// the rate brings every window its quota when the quota is half a unit and one octet or more
+/// (spec/lean/Colibri/Server/RateMeter.lean); this is half a unit, and a piece of an honest
+/// peer's more.
 pub const window_quota_min: u64 = 9_216;
 
 /// The octets of content an uploading peer's request carries at most.
