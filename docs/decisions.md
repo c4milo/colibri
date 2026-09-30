@@ -2709,6 +2709,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - For the multiply, `WIDEMUL=native` on every x86-64 and arm64 build, which neither
       architecture promises without Arm's DIT or Intel's DOITM.
 
+    **Amended by the owner on 2026-09-30.** stdx's `platform` module landed at stdx `fa53aa4`, and
+    colibri pins that commit. Each program of `src/testing/` asks its CPU once, through
+    `src/testing/cpu.zig`, and passes `present` only when `platform.probe()` answers `aes_clmul`
+    with `yes`; `no` and `not_known` pass `absent`. colibri's package exports `platform` beside
+    stdx's codecs (decision 101), so a program that depends on colibri reaches it without a
+    dependency of its own. The tests keep the build target's answer, since a test runs where it was
+    built.
+
+    The alternatives refused: a program that adds stdx as its own dependency to probe, and keeping
+    the build target's answer in the programs.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.
