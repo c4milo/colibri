@@ -4,10 +4,11 @@
 //!   2. an honest peer's exchanges must each end with a whole response, however long the
 //!      application takes to answer;
 //!   3. every run must end at the deadline decision 110 names, at its instant under the plan's
-//!      limits: an honest peer or an idle pinger at the idle deadline after its last response, a
-//!      silent peer or a pinger at the first-request deadline, a slow head at the first-request
-//!      or the head deadline, and a slow body at the end of its first window short of the quota,
-//!      or at its cap. A PING moves no deadline;
+//!      limits: an honest peer or an idle pinger at the idle deadline after its last response has
+//!      left the server's output, a silent peer or a pinger at the first-request deadline, a slow
+//!      head at the first-request or the head deadline, and a slow body at the end of its first
+//!      window short of the quota, or at its cap. A PING moves no deadline. The server has no
+//!      deadline for a send yet, so a peer that reads too slowly holds it open until the horizon;
 //!   4. and as decision 110 says: a head that began gets a 408 in h11 and a GOAWAY with
 //!      ENHANCE_YOUR_CALM in h2, and with none begun h11 sends nothing and h2 a GOAWAY with
 //!      NO_ERROR. A slow body gets a 408: in h11 on a connection that then closes, and in h2 on
@@ -36,7 +37,7 @@ pub const check_name = "deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0xe24eddd9;
+pub const census_crc32_expected: u32 = 0x7ff7db83;
 
 pub const Violation = deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -109,7 +110,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.exchanges += result.record.exchanges_done;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
-        if (result.record.cancelled != null) census.streams_cut += 1;
+        if (result.record.app.cancelled != null) census.streams_cut += 1;
         const timed_out = result.record.timed_out orelse {
             census.held += 1;
             continue;
@@ -160,9 +161,9 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
     const first_request_ms = ms_of(plan.deadlines.first_request_ns.?);
     const head_ms = ms_of(plan.deadlines.head_ns.?);
     return switch (plan.peer) {
-        .honest, .slow_honest, .upload, .idle_pinger => .{
+        .honest, .slow_honest, .upload, .slow_reader, .idle_pinger => .{
             .deadline = .idle,
-            .end_ms = last_answer_ms(record) + ms_of(plan.deadlines.idle_ns.?),
+            .end_ms = record.app.last_drained_ms() + ms_of(plan.deadlines.idle_ns.?),
             .head = false,
         },
         .silent, .pinger => .{ .deadline = .first_request, .end_ms = first_request_ms, .head = false },
@@ -173,6 +174,7 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
             .head = true,
         },
         .slow_body, .long_body => slow_body(plan),
+        .reads_nothing, .reads_slowly, .opens_window_slowly, .opens_no_connection_window => null,
     };
 }
 
@@ -242,18 +244,12 @@ fn cut_as_expected(plan: *const Plan, record: *const Record, cut: Cut) bool {
         .h11 => record.saw_timeout_response,
         .h2 => record.response_status == timeout_status and
             record.reset_code == h2.constants.error_no_error and record.reset_at_ms == cut.at_ms and
-            record.cancelled == cut.deadline and record.goaway_code == h2.constants.error_no_error,
+            record.app.cancelled == cut.deadline and record.goaway_code == h2.constants.error_no_error,
     };
 }
 
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
 const timeout_status: u16 = 408;
-
-fn last_answer_ms(record: *const Record) u64 {
-    var last: u64 = 0;
-    for (record.answers[0..record.answers_len]) |answered| last = @max(last, answered.answered_ms.?);
-    return last;
-}
 
 fn ms_of(ns: u64) u64 {
     return ns / limits.ns_per_ms;
@@ -270,14 +266,14 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
         deadlines.body_rate_min.?, ms_of(deadlines.rate_grace_ns), ms_of(deadlines.rate_window_ns), ms_of(deadlines.body_ns.?),
     });
     try line(storage, " exchanges={d} gap_ms={d} piece_len={d}\n", .{ plan.exchanges_len, plan.gap_ms, plan.piece_len });
-    for (record.answers[0..record.answers_len], 0..) |answered, index| {
-        try line(storage, "answer={d} read_ms={d} body_end_ms={?d} answered_ms={?d}\n", .{
-            index, answered.read_ms, answered.body_end_ms, answered.answered_ms,
+    for (record.app.answers[0..record.app.answers_len], 0..) |answered, index| {
+        try line(storage, "answer={d} read_ms={d} body_end_ms={?d} answered_ms={?d} sent={d} drained_ms={?d}\n", .{
+            index, answered.read_ms, answered.body_end_ms, answered.answered_ms, answered.content_sent, answered.drained_ms,
         });
     }
     try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d}", .{ record.end, record.end_ms, record.timed_out, record.exchanges_done });
     try line(storage, " timeout_response={} status={?d} reset={?d} reset_at_ms={?d} cancelled={?t} goaway={?d}\n", .{
-        record.saw_timeout_response, record.response_status, record.reset_code, record.reset_at_ms, record.cancelled, record.goaway_code,
+        record.saw_timeout_response, record.response_status, record.reset_code, record.reset_at_ms, record.app.cancelled, record.goaway_code,
     });
 }
 

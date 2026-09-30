@@ -3,8 +3,8 @@
 //!
 //! The peers are decision 110's slow and hostile ones, with honest ones beside them that no
 //! deadline may end: a peer that makes its exchanges at once, one whose octets arrive in small
-//! pieces over a few seconds, and one that uploads content at twice decision 110's minimum body
-//! rate or more.
+//! pieces over a few seconds, one that uploads content at twice decision 110's minimum body rate
+//! or more, and one that reads long responses at twice its minimum send rate or more.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -44,6 +44,19 @@ pub const Peer = enum {
     /// Sends a whole request head, then its body at twice the plan's minimum rate for longer than
     /// the plan's cap on a body, which it shortens so the cap passes first.
     long_body,
+    /// colibri's client, reading long responses at two to four times decision 110's minimum send
+    /// rate.
+    slow_reader,
+    /// Makes a request whose long answer it never reads.
+    reads_nothing,
+    /// Makes a request and reads its long answer at a small fraction of the minimum send rate.
+    reads_slowly,
+    /// h2 alone: makes a request with a stream window of 0, which it opens an octet each gap. In
+    /// h11 it reads nothing.
+    opens_window_slowly,
+    /// h2 alone: makes a request with the largest stream window, and never opens the connection's
+    /// window, which the long answer uses up. In h11 it reads nothing.
+    opens_no_connection_window,
 };
 
 pub const Plan = struct {
@@ -62,6 +75,9 @@ pub const Plan = struct {
     piece_len: u32,
     /// The content each request of an uploading peer carries.
     upload_len: [limits.exchanges_max]u32,
+    /// How a peer that reads slowly reads: a piece of `read_len` octets every `read_gap_ms`.
+    read_gap_ms: u64,
+    read_len: u32,
     /// The rate a slow body arrives at, in octets a second.
     body_rate: u32,
     /// How long the application takes to answer each request, from the instant its body ended.
@@ -71,7 +87,20 @@ pub const Plan = struct {
 
     /// Whether colibri's client plays the peer.
     pub fn honest(plan: *const Plan) bool {
-        return plan.peer == .honest or plan.peer == .slow_honest or plan.peer == .upload;
+        return switch (plan.peer) {
+            .honest, .slow_honest, .upload, .slow_reader => true,
+            else => false,
+        };
+    }
+
+    /// Whether the peer reads what the server sends a piece at a time, and whether it reads
+    /// nothing.
+    pub fn reads_paced(plan: *const Plan) bool {
+        return plan.peer == .slow_reader or plan.peer == .reads_slowly;
+    }
+
+    pub fn reads_none(plan: *const Plan) bool {
+        return plan.peer == .reads_nothing;
     }
 
     /// Whether the peer's octets arrive a piece at a time.
@@ -90,8 +119,10 @@ const short_limits_one_in: u64 = 4;
 pub fn draw(random: *Random) Plan {
     const protocol = protocols[random.below(protocols.len)];
     var peer = peers[random.below(peers.len)];
-    // A PING is an h2 frame, so an h11 pinger is a silent peer.
+    // A PING is an h2 frame, so an h11 pinger is a silent peer, and h11 has no window, so an h11
+    // peer that would open one slowly reads nothing.
     if (peer == .pinger and protocol == .h11) peer = .silent;
+    if (protocol == .h11 and (peer == .opens_window_slowly or peer == .opens_no_connection_window)) peer = .reads_nothing;
     var plan: Plan = .{
         .protocol = protocol,
         .peer = peer,
@@ -101,21 +132,25 @@ pub fn draw(random: *Random) Plan {
         .gap_ms = 0,
         .piece_len = 0,
         .upload_len = @splat(0),
+        .read_gap_ms = 0,
+        .read_len = 0,
         .body_rate = 0,
         .answer_delay_ms = @splat(0),
         .content_len = @splat(0),
     };
     draw_pace(&plan, random);
+    draw_read_pace(&plan, random);
     for (0..limits.exchanges_max) |index| {
         plan.answer_delay_ms[index] = random.below(limits.answer_delay_ms_max + 1);
         plan.content_len[index] = @intCast(random.below(limits.content_len_max + 1));
         if (peer == .upload) plan.upload_len[index] = @intCast(random.between(1, limits.upload_len_max));
+        if (reads_long(peer)) plan.content_len[index] = @intCast(random.between(limits.read_content_len_min, limits.read_content_len_max));
     }
     assert(plan.exchanges_len <= limits.exchanges_max);
     return plan;
 }
 
-/// Decision 110's defaults, or in one plan of `short_limits_one_in` shorter ones, as a server
+/// Decision 110's defaults, or in one plan of `short_limits_one_in` stricter ones, as a server
 /// short of connections sets.
 fn draw_deadlines(random: *Random) server.Deadlines {
     if (random.below(short_limits_one_in) != 0) return .{};
@@ -124,24 +159,31 @@ fn draw_deadlines(random: *Random) server.Deadlines {
 
 fn draw_short_deadlines(random: *Random) server.Deadlines {
     const defaults = server.constants;
+    const body_rate: u32 = @intCast(random.between(defaults.body_rate_min, limits.short_rate_max));
     return .{
         .first_request_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.first_request_timeout_ns),
         .idle_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.idle_timeout_ns),
         .head_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.head_timeout_ns),
-        .body_rate_min = @intCast(random.between(limits.short_body_rate_min, defaults.body_rate_min)),
+        .body_rate_min = body_rate,
         .rate_grace_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.rate_grace_ns),
-        .rate_window_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.rate_window_ns),
+        .rate_window_ns = shorter_ns(random, window_ms_min(body_rate), defaults.rate_window_ns),
         .body_ns = shorter_ns(random, limits.short_body_ms_min, defaults.body_timeout_ns),
     };
 }
 
-/// The shortened limits a long body runs under: the lowest minimum rate a plan draws, and a cap
+/// The limits a long body runs under: a server that allows slow bodies and caps them, with a cap
 /// its body outlasts.
 fn long_body_deadlines(random: *Random) server.Deadlines {
     var deadlines = draw_short_deadlines(random);
-    deadlines.body_rate_min = limits.short_body_rate_min;
+    deadlines.body_rate_min = limits.long_body_rate_min;
     deadlines.body_ns = random.between(limits.long_body_cap_ms_min, limits.long_body_cap_ms_max) * limits.ns_per_ms;
     return deadlines;
+}
+
+/// The shortest window a plan draws for a minimum rate: one whose quota is `window_quota_min`.
+fn window_ms_min(rate: u32) u64 {
+    const quota_ms = (limits.window_quota_min * limits.ms_per_s + rate - 1) / rate;
+    return @max(limits.short_rate_ms_min, quota_ms);
 }
 
 /// A limit of whole milliseconds, from `min_ms` to the default.
@@ -152,8 +194,8 @@ fn shorter_ns(random: *Random, min_ms: u64, default_ns: u64) u64 {
 
 fn exchanges_of(peer: Peer, random: *Random) u8 {
     return switch (peer) {
-        .honest, .slow_honest, .upload => @intCast(random.between(1, limits.exchanges_max)),
-        .slow_second_head, .idle_pinger => 1,
+        .honest, .slow_honest, .upload, .slow_reader => @intCast(random.between(1, limits.exchanges_max)),
+        .slow_second_head, .idle_pinger, .reads_nothing, .reads_slowly, .opens_window_slowly, .opens_no_connection_window => 1,
         .silent, .slow_head, .pinger, .slow_body, .long_body => 0,
     };
 }
@@ -162,18 +204,19 @@ fn exchanges_of(peer: Peer, random: *Random) u8 {
 /// the minimum body rate, and a hostile one's are large, or carry a body under that rate.
 fn draw_pace(plan: *Plan, random: *Random) void {
     switch (plan.peer) {
-        .honest, .silent => {},
+        .honest, .silent, .slow_reader, .reads_nothing, .reads_slowly, .opens_no_connection_window => {},
         .slow_honest => {
             plan.gap_ms = random.between(limits.honest_gap_ms_min, limits.honest_gap_ms_max);
             plan.piece_len = @intCast(random.between(limits.honest_piece_len_min, limits.honest_piece_len_max));
         },
         .upload => {
             plan.gap_ms = random.between(limits.upload_gap_ms_min, limits.upload_gap_ms_max);
-            const rate = random.between(limits.upload_rate_min, limits.upload_rate_max);
+            const rate_min = plan.deadlines.body_rate_min.?;
+            const rate = random.between(limits.upload_rate_factor_min * rate_min, limits.upload_rate_factor_max * rate_min);
             // Rounded up, so the pace is the rate or more.
             plan.piece_len = @intCast((rate * plan.gap_ms + limits.ms_per_s - 1) / limits.ms_per_s);
         },
-        .slow_head, .slow_second_head, .pinger, .idle_pinger => {
+        .slow_head, .slow_second_head, .pinger, .idle_pinger, .opens_window_slowly => {
             plan.gap_ms = random.between(limits.hostile_gap_ms_min, limits.hostile_gap_ms_max);
             plan.piece_len = @intCast(random.between(1, limits.hostile_piece_len_max));
         },
@@ -191,6 +234,34 @@ fn draw_pace(plan: *Plan, random: *Random) void {
     }
 }
 
+/// Whether the peer's answers are long, so its reading decides how fast the server sends.
+fn reads_long(peer: Peer) bool {
+    return switch (peer) {
+        .slow_reader, .reads_nothing, .reads_slowly, .opens_window_slowly, .opens_no_connection_window => true,
+        else => false,
+    };
+}
+
+/// The pace a slow reader reads at: an honest one at two to four times the minimum send rate, a
+/// hostile one at a small fraction of it.
+fn draw_read_pace(plan: *Plan, random: *Random) void {
+    switch (plan.peer) {
+        .slow_reader => {
+            plan.read_gap_ms = random.between(limits.read_gap_ms_min, limits.read_gap_ms_max);
+            const rate = random.between(limits.read_rate_min, limits.read_rate_max);
+            // Rounded up, so the pace is the rate or more.
+            plan.read_len = @intCast((rate * plan.read_gap_ms + limits.ms_per_s - 1) / limits.ms_per_s);
+        },
+        .reads_slowly => {
+            plan.read_gap_ms = random.between(limits.hostile_gap_ms_min, limits.hostile_gap_ms_max);
+            const rate = random.between(limits.slow_read_rate_min, limits.slow_read_rate_max);
+            // Rounded down, so the pace is the rate or less.
+            plan.read_len = @intCast(@max(1, rate * plan.read_gap_ms / limits.ms_per_s));
+        },
+        else => {},
+    }
+}
+
 /// The instant a hostile peer's body stops, in milliseconds.
 pub fn body_end_ms(plan: *const Plan) u64 {
     return if (plan.peer == .long_body) limits.long_body_ms else limits.slow_body_ms;
@@ -203,12 +274,43 @@ test "a plan's pace fits its peer, and an h11 peer never pings" {
         var random = Random.init(seed);
         const plan = draw(&random);
         if (plan.protocol == .h11) try testing.expect(plan.peer != .pinger);
-        if (plan.peer == .slow_honest) try testing.expect(plan.gap_ms <= limits.honest_gap_ms_max);
-        if (plan.peer == .slow_head) try testing.expect(plan.gap_ms >= limits.hostile_gap_ms_min);
-        const hostile_exchange = plan.peer == .slow_second_head or plan.peer == .idle_pinger;
+        const hostile_exchange = switch (plan.peer) {
+            .slow_second_head, .idle_pinger, .reads_nothing, .reads_slowly, .opens_window_slowly, .opens_no_connection_window => true,
+            else => false,
+        };
         try testing.expectEqual(plan.honest(), plan.exchanges_len > 0 and !hostile_exchange);
-        // An upload arrives at twice the minimum body rate or more, and a slow body under it.
-        if (plan.peer == .upload) try testing.expect(plan.piece_len * limits.ms_per_s >= limits.upload_rate_min * plan.gap_ms);
-        if (plan.peer == .slow_body) try testing.expect(plan.piece_len * limits.ms_per_s <= limits.slow_body_rate_max * plan.gap_ms);
+        try testing.expect(plan.deadlines.body_quota().? >= limits.window_quota_min or plan.peer == .long_body);
+        try expect_write_pace(&plan);
+        try expect_read_pace(&plan);
     }
+}
+
+/// An upload arrives at twice the minimum body rate or more, and a slow body under it.
+fn expect_write_pace(plan: *const Plan) !void {
+    if (plan.peer == .slow_honest) try testing.expect(plan.gap_ms <= limits.honest_gap_ms_max);
+    if (plan.peer == .slow_head) try testing.expect(plan.gap_ms >= limits.hostile_gap_ms_min);
+    const upload_rate_min = limits.upload_rate_factor_min * plan.deadlines.body_rate_min.?;
+    if (plan.peer == .upload) try testing.expect(plan.piece_len * limits.ms_per_s >= upload_rate_min * plan.gap_ms);
+    if (plan.peer == .slow_body) try testing.expect(plan.piece_len * limits.ms_per_s <= limits.slow_body_rate_max * plan.gap_ms);
+}
+
+/// An honest slow reader reads at twice the minimum send rate or more, a hostile one at a small
+/// fraction of it, and each reads a long answer.
+fn expect_read_pace(plan: *const Plan) !void {
+    if (plan.peer == .slow_reader) try testing.expect(plan.read_len * limits.ms_per_s >= limits.read_rate_min * plan.read_gap_ms);
+    if (plan.peer == .reads_slowly) try testing.expect(plan.read_len * limits.ms_per_s <= limits.slow_read_rate_max * plan.read_gap_ms);
+    if (reads_long(plan.peer)) try testing.expect(plan.content_len[0] >= limits.read_content_len_min);
+}
+
+comptime {
+    // A slow hostile reader's first window falls short under any limits a plan draws: over the
+    // longest grace period and a piece more, it reads less than the quota the lowest minimum rate,
+    // the default, leaves over the shortest window once its own reading within that window counts.
+    const grace_ms_max = server.constants.rate_grace_ns / limits.ns_per_ms;
+    const read_ms = grace_ms_max + limits.hostile_gap_ms_max;
+    const left = (server.constants.body_rate_min - limits.slow_read_rate_max) * window_ms_min(limits.short_rate_max);
+    assert(limits.slow_read_rate_max * read_ms < left);
+    // A body's cap stays past the longest honest upload, at twice the lowest minimum rate.
+    const upload_ms_max = limits.upload_len_max * limits.ms_per_s / (limits.upload_rate_factor_min * server.constants.body_rate_min);
+    assert(limits.short_body_ms_min > upload_ms_max);
 }

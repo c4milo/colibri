@@ -201,13 +201,16 @@ pub const Hostile = struct {
                 try hostile.add(start_ms, h11_upload_head);
                 return hostile.add_body(plan, null);
             },
+            // A peer that reads slowly or not at all makes its request and sends nothing more.
+            .reads_nothing, .reads_slowly => return hostile.add(start_ms, h11_request),
             .slow_second_head => {
                 try hostile.add(start_ms, h11_request);
                 slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
             },
             .slow_head => {},
-            // `draw` makes an h11 pinger silent, and colibri's client plays an honest peer.
-            .honest, .slow_honest, .upload, .pinger => unreachable,
+            // `draw` makes an h11 pinger silent and an h11 peer that would open a window read
+            // nothing, and colibri's client plays an honest peer.
+            .honest, .slow_honest, .upload, .slow_reader, .pinger, .opens_window_slowly, .opens_no_connection_window => unreachable,
         }
         try hostile.add_slowly(slow_start_ms, plan, h11_slow_head);
     }
@@ -217,7 +220,10 @@ pub const Hostile = struct {
         var opening: [preface_len_max]u8 = undefined;
         var writer = Writer.init(&opening);
         try writer.write_bytes(constants.client_preface);
-        try h2.frame.write_settings(&writer, &.{});
+        try h2.frame.write_settings(&writer, settings_of(plan));
+        // A peer that reads nothing acknowledges the server's SETTINGS without reading them: the
+        // server writes them before it reads a frame (RFC 9113 §3.4).
+        if (plan.peer == .reads_nothing) try h2.frame.write_settings_ack(&writer);
         hostile.encoder.init(constants.header_table_size_initial, .never);
         var slow_start_ms = start_ms + block_after_opening_ms;
         // A peer that makes one exchange sends its request whole, in its opening, and a slow body's
@@ -230,7 +236,9 @@ pub const Hostile = struct {
             .pinger, .idle_pinger => try hostile.add_pings(plan),
             .slow_head, .slow_second_head => try hostile.add_slow_block(slow_start_ms, plan),
             .slow_body, .long_body => try hostile.add_body(plan, whole_stream_id),
-            .honest, .slow_honest, .upload, .silent => unreachable,
+            .opens_window_slowly => try hostile.add_window_updates(plan),
+            .reads_nothing, .reads_slowly, .opens_no_connection_window => {},
+            .honest, .slow_honest, .upload, .slow_reader, .silent => unreachable,
         }
     }
 
@@ -272,6 +280,21 @@ pub const Hostile = struct {
                 try h2.frame.write_continuation(&writer, slow_stream_id, fragment, last);
             }
             try hostile.add(first_ms + index * plan.gap_ms, writer.written());
+        }
+    }
+
+    /// A WINDOW_UPDATE of one octet on the stream of its request every gap, from one gap after
+    /// the start until the horizon.
+    fn add_window_updates(hostile: *Hostile, plan: *const Plan) Error!void {
+        var frame_storage: [constants.frame_header_len + constants.window_update_len]u8 = undefined;
+        var at_ms = start_ms + plan.gap_ms;
+        // Bounded: `pieces_max` holds a piece for each of the run's shortest gaps.
+        for (0..limits.pieces_max) |_| {
+            if (at_ms >= limits.horizon_ms) return;
+            var writer = Writer.init(&frame_storage);
+            try h2.frame.write_window_update(&writer, whole_stream_id, window_step);
+            try hostile.add(at_ms, writer.written());
+            at_ms += plan.gap_ms;
         }
     }
 
@@ -338,6 +361,19 @@ pub const Hostile = struct {
     }
 };
 
+/// The SETTINGS a peer opens with: a stream window of 0 for one that opens it slowly, the largest
+/// for one that leaves the connection's window alone, and the defaults for the rest.
+fn settings_of(plan: *const Plan) []const h2.frame.Setting {
+    return switch (plan.peer) {
+        .opens_window_slowly => &.{.{ .id = constants.setting_initial_window_size, .value = 0 }},
+        .opens_no_connection_window => &.{.{ .id = constants.setting_initial_window_size, .value = constants.window_max }},
+        else => &.{},
+    };
+}
+
+/// The octets each WINDOW_UPDATE of a peer that opens its window slowly adds.
+const window_step: u32 = 1;
+
 /// Where a frame header's type and flags lie, after its length (RFC 9113 §4.1).
 const frame_type_offset: usize = constants.frame_length_len;
 const frame_flags_offset: usize = frame_type_offset + @sizeOf(u8);
@@ -351,10 +387,10 @@ const goaway_code_end: usize = 8;
 const status_radix: u8 = 10;
 
 /// The longest field block and frame a hostile peer writes, and its opening: the preface, then
-/// its SETTINGS frame and a whole request.
+/// its SETTINGS frame, an acknowledgment of the server's, and a whole request.
 const block_len_max: usize = 128;
 const frame_len_max: usize = constants.frame_header_len + block_len_max;
-const opening_frames: usize = 2;
+const opening_frames: usize = 3;
 const preface_len_max: usize = constants.client_preface_len + opening_frames * frame_len_max;
 
 comptime {

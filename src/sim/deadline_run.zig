@@ -1,9 +1,12 @@
 //! One run of the deadline check (`deadline_check.zig`, decision 110): a server over one
-//! connection, the application that answers its requests, and the peer of the seed's plan, in
-//! simulated time. At each instant the run moves octets both ways until nothing moves, then goes
-//! to the next instant something is due: a piece of the peer's, an answer of the application's, or
-//! a deadline of the server's. A run ends when the server says to close the connection, or at the
-//! horizon with it still open.
+//! connection, the application that answers its requests (`deadline_app.zig`), and the peer of
+//! the seed's plan, in simulated time. At each instant the run moves octets both ways until nothing
+//! moves, then goes to the next instant something is due: a piece the peer writes or reads, an
+//! answer of the application's, or a deadline of the server's. A run ends when the server says to
+//! close the connection, or at the horizon with it still open.
+//!
+//! The socket between them holds `socket_len` octets the peer has not read, so the server's
+//! `send` takes only what the peer's reading has made room for.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -12,15 +15,15 @@ const client = @import("client");
 const server = @import("server");
 const plan_module = @import("deadline_plan.zig");
 const peer_module = @import("deadline_peer.zig");
+const app_module = @import("deadline_app.zig");
 
 const Random = sim.Random;
 const limits = sim.constants.deadline;
 const Plan = plan_module.Plan;
 const Hostile = peer_module.Hostile;
 
-pub const Error = client.RequestError || client.StartError || server.StartError || peer_module.Error || error{
-    /// The server failed the connection on octets an honest peer sent, or the application could
-    /// not answer.
+pub const Error = client.RequestError || client.StartError || server.StartError || peer_module.Error || app_module.Error || error{
+    /// The server failed the connection on octets an honest peer sent.
     ExchangeRefused,
     /// The run visited `instants_max` instants, or an instant did not settle.
     RunStalled,
@@ -34,20 +37,12 @@ pub const End = enum {
     held,
 };
 
-/// A request the application read, when its body ended, and when the application answered it.
-pub const Answer = struct {
-    id: server.Id,
-    read_ms: u64,
-    body_end_ms: ?u64,
-    answered_ms: ?u64,
-};
-
 /// What a run did, which the check verifies and writes into the seed's trace.
 pub const Record = struct {
     end: End,
     end_ms: u64,
-    answers: [limits.exchanges_max]Answer,
-    answers_len: u8,
+    /// The requests the application answered, and the deadline that cancelled one.
+    app: app_module.Application,
     /// Exchanges an honest peer ended with a whole response.
     exchanges_done: u8,
     /// Whether a hostile h11 peer read a 408, and in h2 the status of the last response, the code
@@ -57,10 +52,8 @@ pub const Record = struct {
     reset_code: ?u32,
     reset_at_ms: ?u64,
     goaway_code: ?u32,
-    /// The deadline that ended the connection, if one did, and the one that ended a request, as
-    /// the application read it in `cancelled` (decision 110).
+    /// The deadline that ended the connection, if one did (decision 110).
     timed_out: ?server.Deadline,
-    cancelled: ?server.Deadline,
 };
 
 /// One direction's octets: written at the back, delivered to the reader, consumed from the front.
@@ -84,6 +77,13 @@ const Stream = struct {
         return stream.octets[stream.consumed..stream.delivered];
     }
 
+    /// The room the socket has for more: `socket_len` less what the reader has not read.
+    fn socket_room(stream: *Stream) []u8 {
+        const unread = stream.written - stream.delivered;
+        assert(unread <= limits.socket_len);
+        return stream.free()[0..@min(stream.free().len, limits.socket_len - unread)];
+    }
+
     /// Delivers up to `len` octets written and not yet delivered, and returns whether any moved.
     fn deliver(stream: *Stream, len: usize) bool {
         const moved = @min(len, stream.written - stream.delivered);
@@ -101,15 +101,16 @@ pub const Storage = struct {
     to_server: Stream,
     to_client: Stream,
     exchanges: [limits.exchanges_max]client.HttpExchange,
-    bodies: [limits.exchanges_max][limits.content_len_max]u8,
-    content: [limits.content_len_max]u8,
+    bodies: [limits.exchanges_max][limits.read_content_len_max]u8,
+    content: [limits.read_content_len_max]u8,
     /// The content an uploading peer's requests carry.
     upload: [limits.upload_len_max]u8,
     /// The exchanges colibri's client was given: all at once, or for an upload one at a time.
     exchanges_requested: u8,
     record: Record,
-    /// When a paced honest peer delivers its next piece.
+    /// When a paced honest peer delivers its next piece, and when a slow reader reads its next.
     next_piece_ms: u64,
+    next_read_ms: u64,
     tls_random: Random,
 };
 
@@ -143,8 +144,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.record = .{
         .end = .held,
         .end_ms = 0,
-        .answers = undefined,
-        .answers_len = 0,
+        .app = undefined,
         .exchanges_done = 0,
         .saw_timeout_response = false,
         .response_status = null,
@@ -152,9 +152,10 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .reset_at_ms = null,
         .goaway_code = null,
         .timed_out = null,
-        .cancelled = null,
     };
+    storage.record.app.init();
     storage.next_piece_ms = 0;
+    storage.next_read_ms = 0;
     storage.exchanges_requested = 0;
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     for (&storage.upload, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
@@ -202,8 +203,9 @@ fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
     for (0..limits.passes_per_instant_max) |_| {
         var moved = try peer_write(storage, plan, now_ms);
         moved = try server_read(storage, plan, now_ms) or moved;
-        moved = try answer(storage, plan, now_ms) or moved;
+        moved = try storage.record.app.answer(&storage.server_connection, plan, &storage.content, now_ms) or moved;
         moved = server_send(storage, plan, now_ms) or moved;
+        storage.record.app.note_drained(&storage.server_connection, plan, now_ms);
         moved = try peer_read(storage, plan, now_ms) or moved;
         if (!moved) return;
     }
@@ -247,94 +249,42 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;
-        note_event(storage, reported, now_ms);
+        storage.record.app.note_event(reported, now_ms);
     }
     return error.RunStalled;
-}
-
-/// The application notes each request it must answer, when its body ends, and the deadline that
-/// cancelled one.
-fn note_event(storage: *Storage, reported: server.Event, now_ms: u64) void {
-    switch (reported) {
-        .request => |request| note_request(storage, request.id, now_ms, request.end),
-        .body => |body| if (body.end) note_body_end(storage, body.id, now_ms),
-        .trailers => |trailers| note_body_end(storage, trailers.id, now_ms),
-        .cancelled => |cancelled| if (cancelled.reason == .deadline) {
-            storage.record.cancelled = cancelled.reason.deadline;
-        },
-        .done => {},
-    }
 }
 
 /// The events one run gives the server at most: each exchange's request, end and `done`.
 const events_per_exchange: usize = 3;
 const events_max: usize = limits.exchanges_max * events_per_exchange + 1;
 
-/// The status each answer carries: 200 (OK), RFC 9110 §15.3.1.
-const answer_status: u16 = 200;
-
-fn note_request(storage: *Storage, id: server.Id, now_ms: u64, ended: bool) void {
-    const record = &storage.record;
-    // The application answers as many requests as a peer makes whole.
-    if (record.answers_len == limits.exchanges_max) return;
-    record.answers[record.answers_len] = .{
-        .id = id,
-        .read_ms = now_ms,
-        .body_end_ms = if (ended) now_ms else null,
-        .answered_ms = null,
-    };
-    record.answers_len += 1;
-}
-
-fn note_body_end(storage: *Storage, id: server.Id, now_ms: u64) void {
-    const record = &storage.record;
-    for (record.answers[0..record.answers_len]) |*pending| {
-        if (pending.id == id) pending.body_end_ms = now_ms;
-    }
-}
-
-/// The application answers each request whose body has ended and whose delay has passed since,
-/// with the content the plan names.
-fn answer(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
-    var moved = false;
-    const record = &storage.record;
-    for (record.answers[0..record.answers_len], 0..) |*pending, index| {
-        if (pending.answered_ms != null) continue;
-        const body_end_ms = pending.body_end_ms orelse continue;
-        if (now_ms < body_end_ms + plan.answer_delay_ms[index]) continue;
-        try respond(storage, pending.id, storage.content[0..plan.content_len[index]]);
-        pending.answered_ms = now_ms;
-        moved = true;
-    }
-    return moved;
-}
-
-/// Writes a whole response to request `id`, carrying `content`.
-fn respond(storage: *Storage, id: server.Id, content: []const u8) Error!void {
-    storage.server_connection.respond(id, .{ .status = answer_status, .end = content.len == 0 }) catch return error.ExchangeRefused;
-    if (content.len == 0) return;
-    const taken = storage.server_connection.write_body(id, .{ .octets = content, .end = true }) catch return error.ExchangeRefused;
-    // The server's output holds a whole response of the longest content.
-    if (taken != content.len) return error.ExchangeRefused;
-}
-
+/// The server writes into the socket as much as its room takes.
 fn server_send(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
     const stream = &storage.to_client;
-    const written = storage.server_connection.send(stream.free(), ns_of(plan, now_ms));
+    const written = storage.server_connection.send(stream.socket_room(), ns_of(plan, now_ms));
     stream.written += written;
-    _ = stream.deliver(written);
     return written > 0;
+}
+
+/// The peer reads from the socket: at once, a piece every gap when it reads slowly, or nothing.
+fn read_socket(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
+    const stream = &storage.to_client;
+    if (plan.reads_none()) return false;
+    if (!plan.reads_paced()) return stream.deliver(stream.written);
+    if (now_ms < storage.next_read_ms or stream.written == stream.delivered) return false;
+    storage.next_read_ms = now_ms + plan.read_gap_ms;
+    return stream.deliver(plan.read_len);
 }
 
 /// The peer reads what the server sent: colibri's client reads its responses, and a hostile peer
 /// reads the frames it must acknowledge. An upload's next exchange starts when one finishes.
 fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     const stream = &storage.to_client;
+    var moved = read_socket(storage, plan, now_ms);
     if (!plan.honest()) {
         if (plan.protocol == .h2) storage.hostile.read_h2(stream.octets[0..stream.delivered], now_ms);
-        return false;
+        return moved;
     }
-    var moved = false;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
         const received = storage.client_connection.receive(stream.held(), ns_of(plan, now_ms));
@@ -348,8 +298,8 @@ fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     return moved;
 }
 
-/// The next instant something is due: a piece of the peer's, an answer, or a deadline of the
-/// server's, or null for none.
+/// The next instant something is due: a piece the peer writes or reads, an answer, or a deadline
+/// of the server's, or null for none.
 fn next_instant(storage: *Storage, plan: *const Plan) ?u64 {
     var soonest: ?u64 = null;
     // The run's instants are whole milliseconds, and so is every deadline that starts at one.
@@ -363,12 +313,9 @@ fn next_instant(storage: *Storage, plan: *const Plan) ?u64 {
     }
     const to_server = &storage.to_server;
     if (plan.paced() and to_server.written > to_server.delivered) soonest = earlier(soonest, storage.next_piece_ms);
-    const record = &storage.record;
-    for (record.answers[0..record.answers_len], 0..) |pending, index| {
-        if (pending.answered_ms != null) continue;
-        if (pending.body_end_ms) |body_end_ms| soonest = earlier(soonest, body_end_ms + plan.answer_delay_ms[index]);
-    }
-    return soonest;
+    const to_client = &storage.to_client;
+    if (plan.reads_paced() and to_client.written > to_client.delivered) soonest = earlier(soonest, storage.next_read_ms);
+    return storage.record.app.next_ms(plan, soonest);
 }
 
 fn earlier(current: ?u64, candidate: u64) u64 {
