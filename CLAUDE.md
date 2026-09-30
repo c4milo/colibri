@@ -325,7 +325,9 @@ section when a step adds or renames a command.
   the AES instructions each is `SUITE=aesgcm AES=hw` with the builder's statement `CH_NATIVE_AES`,
   which adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256; on any other it is `AES=soft` with
   ChaCha20 alone, because chapulin refuses AES-GCM over software AES (decision 97, chapulin's
-  INV-26). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
+  INV-26). On a little-endian target with SSE2 or NEON, which every x86-64 and arm64 CPU has, each
+  is also `CHACHA=vector`, and `CHACHA=portable` on any other (decision 97 as amended on
+  2026-09-29). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
   endpoint runs it inside its loop (decisions 46 and 82), and `TRUST=webpki` is the one client
   trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
   `src/testing/`'s h11 and h2 endpoints and TLS checks reach chapulin through `tls`; its QUIC

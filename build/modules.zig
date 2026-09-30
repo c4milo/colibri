@@ -393,10 +393,11 @@ pub fn create(
     });
 }
 
-/// chapulin's `AES`, `SUITE` and `KEYLOG` values the library's objects choose between, spelled as
-/// its build spells them.
+/// chapulin's `AES`, `SUITE`, `CHACHA` and `KEYLOG` values the library's objects choose between,
+/// spelled as its build spells them.
 const Aes = enum { soft, hw };
 const Suite = enum { chacha, aesgcm };
+const Chacha = enum { portable, vector };
 const Keylog = enum { on, off };
 
 /// Decision 97's TCP object: `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on`,
@@ -420,6 +421,7 @@ fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylo
         .SUITE = if (native) Suite.aesgcm else Suite.chacha,
         .AES = if (native) Aes.hw else Aes.soft,
         .CH_NATIVE_AES = native,
+        .CHACHA = chacha_of(target),
         .TX_RECORD = "16384",
         .KEYLOG = keylog,
     });
@@ -440,6 +442,20 @@ fn aes_native(target: std.Build.ResolvedTarget) bool {
     };
 }
 
+/// Decision 97 as amended on 2026-09-29: `CHACHA=vector`, which computes ChaCha20 four blocks at a
+/// time in 128-bit vectors, on a little-endian target with SSE2 on x86 or NEON on Arm, which every
+/// x86-64 and arm64 CPU has. chapulin refuses the vector path for any other target, and for a
+/// big-endian one (its `chacha20_vector.h`), so those keep `CHACHA=portable`.
+fn chacha_of(target: std.Build.ResolvedTarget) Chacha {
+    const cpu = target.result.cpu;
+    const vector = switch (cpu.arch) {
+        .x86, .x86_64 => std.Target.x86.featureSetHas(cpu.features, .sse2),
+        .aarch64 => std.Target.aarch64.featureSetHas(cpu.features, .neon),
+        else => false,
+    };
+    return if (vector) .vector else .portable;
+}
+
 /// Decision 97's QUIC object: `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki SUITE=aesgcm`,
 /// compiled from the pinned package with `RAND=session` (decision 94 as amended), with the AES
 /// choice of the TCP object. `SUITE=aesgcm` adds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256,
@@ -456,6 +472,7 @@ fn chapulin_quic_object(b: *std.Build, target: std.Build.ResolvedTarget, keylog:
         .SUITE = if (native) Suite.aesgcm else Suite.chacha,
         .AES = if (native) Aes.hw else Aes.soft,
         .CH_NATIVE_AES = native,
+        .CHACHA = chacha_of(target),
         .KEYLOG = keylog,
     });
 }
