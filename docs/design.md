@@ -6252,6 +6252,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     refusing one stream past the limit too late, and a caller's RST_STREAM put back in the queue of
     `stream_replies_max` slots, which stops on the queue's assertion as before decision 113.
 
+  **The deadline model, 2026-09-30** ([#86](https://github.com/c4milo/colibri/issues/86)). The
+  simulator and h2spec found three rules that broke decision 110's rule 2, a deadline runs only
+  while colibri waits on the peer, and no model had deadlines to find them.
+  `spec/tla/server_deadlines` models one h2 server connection, an honest client and an
+  application. It states rule 2 as four invariants and checks them in the states where colibri has
+  no step of its own left to take, since its own steps take no time.
+  - `zig build tla -- spec/tla/server_deadlines/*.cfg`, in about a minute: colibri's rules hold the
+    idle, SETTINGS and send invariants over 6,380,329 states. Each rule this step replaced breaks
+    one of them: the idle deadline starting once the response is written, the SETTINGS deadline
+    running while a body waits, and the floor applied whatever the peer's window.
+  - Two findings, each kept as a configuration TLC must find violated until it is ruled on:
+    - `body_update_held`: a body's deadline runs while the client's window is spent and the
+      WINDOW_UPDATE that reopens it waits in colibri's output
+      ([#89](https://github.com/c4milo/colibri/issues/89)).
+    - `floor_late_update`: the amended floor stalls a client that sends a WINDOW_UPDATE only for
+      more credit than its window minus the floor
+      ([#90](https://github.com/c4milo/colibri/issues/90)).
+  - Checking the deadline check's runs against the model is the rest of
+    [#86](https://github.com/c4milo/colibri/issues/86).
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
