@@ -4188,6 +4188,36 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   *Medium.*
 
+  **13a, 2026-09-30.** `bench/run.sh` builds the test-only h2 server in ReleaseSafe, pins it and
+  h2load to cores of their own, and counts the server's instructions, cycles, CPU time and system
+  calls per request and per connection with `perf stat`. `bench/report.py` gives each input's
+  median and spread over five rounds after a warm-up it discards, and the ratio of the change to
+  the base, losses first; a loss past the noise fails the run. `.github/workflows/bench.yml` runs
+  both in two jobs on the `ubuntu-24.04-arm` runner: a Neoverse-N2 with 4 cores, Linux
+  6.17.0-1022-azure and perf 6.17.13.
+
+  What each check printed:
+  - The floor. In five jobs of a tree against itself, no ratio of instructions per unit moved from
+    1 by more than 0.13%, and the owner set the floor at 0.5%. `docs/performance.md` lists the
+    runs.
+  - The mutant: 150 iterations of a four-instruction loop in the server's `write_head`, 600
+    instructions per response head by the disassembly, on a branch deleted after
+    [run 36732471944](https://github.com/c4milo/colibri/actions/runs/36732471944). In both jobs
+    h2-many lost at 1.0155 and h2-tls-many at 1.0071 and 1.0069, and each job failed. User
+    instructions per request on h2-many rose by 604.1 in each job. h2-one and h2-tls-one stayed
+    within the noise, as a cost of 0.2% and 0.001% of theirs should: **CAUGHT**.
+  - `python3 bench/report.py --test`, which `tools/ci.sh` runs: 12 tests, and 17 mutations of the
+    report, each **CAUGHT**. A server that never listens stops the run at the readiness probe,
+    and a probe that trusts h2load's exit status lets it through: **CAUGHT**.
+  - The first runs found three defects, each fixed on main: the probe (9ee28cb), perf 6.17's
+    task-clock unit (9ee28cb and 55de1f4), and compiler_rt's `memset` in the timed programs
+    (4267c63). [Run 36727035651](https://github.com/c4milo/colibri/actions/runs/36727035651)
+    judged the last in both jobs: h2-one ran 0.355 of its instructions, h2-many 0.847,
+    h2-tls-many 0.924 and h2-tls-one 0.989.
+  - With it, [run 36727047216](https://github.com/c4milo/colibri/actions/runs/36727047216)
+    counted 39,040 instructions per request on h2-many, 86,084 on h2-tls-many, about 304,600 per
+    connection on h2-one and 55.57 million on h2-tls-one.
+
   **13b, 2026-09-30.** `bench/memory.zig` measures each struct a caller holds for one connection
   with `@sizeOf`, and `zig build bench-memory` prints the table for the objects the build targets,
   under a heading that names chapulin's `AES` value. x86-64 and arm64 build `AES=runtime` (decision

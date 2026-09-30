@@ -94,8 +94,20 @@ With chapulin's objects built `AES=runtime`:
 
 ## Pitfalls this tree has paid for
 
-None recorded yet. The first performance change that pays one adds it here, as symptom, cause and
-rule.
+- **compiler_rt's `memset`.** Symptom: on the judge, a cleartext h2 connection cost 857,000
+  instructions against 46,100 for a request on an open one, about 2.8 for each octet of
+  `server.Connection`. Cause: on Linux every `memset` in a Zig 0.16 program is compiler_rt's,
+  which writes one octet at a time, and each connection's structs are filled through it. Rule: the
+  programs colibri times export their own (`src/testing/memset.zig`), which brought the
+  connection to 305,000 instructions. A program that links colibri should export one too, as
+  pepegrillo's guide says.
+- **h2load's exit status.** Symptom: one job of the first `bench.yml` run measured a server that
+  had not started, and 0 of 20,000 requests succeeded. Cause: h2load exits 0 even when every
+  request fails, so a readiness check on its status passes at once. Rule: read the count h2load
+  reports, as `bench/run.sh` does.
+- **perf's task-clock unit.** Symptom: CPU time a million times too large. Cause: perf 6.17
+  writes task-clock in nanoseconds with no unit, where earlier versions wrote milliseconds as
+  `msec`. Rule: read the unit perf writes beside each value.
 
 ## Commands
 
