@@ -57,16 +57,21 @@ rule or none at all.
 
 ## Compression
 
-These three are in `compression/`, copied unmodified on 2026-09-25 from the same address. RFC 9112
-§7.2 defines the `deflate` and `gzip` transfer codings through RFC 9110 §8.4.1, and each coding
-names one of these formats. h11 decodes both through stdx's decoders (decision 90), as the owner
-ruled in https://github.com/c4milo/colibri/issues/60.
+These six are in `compression/`, copied unmodified from the same address: the first three on
+2026-09-25 and the other three on 2026-09-30. RFC 9112 §7.2 defines the `deflate` and `gzip`
+transfer codings through RFC 9110 §8.4.1, and each coding names one of these formats. h11 decodes
+both through stdx's decoders (decision 90), as the owner ruled in
+https://github.com/c4milo/colibri/issues/60. The client decodes the `zstd` and `br` content codings
+through stdx's decoders too (decision 101 as amended, https://github.com/c4milo/colibri/issues/80).
 
 | RFC | Title | What colibri uses it for |
 |---|---|---|
 | [1951](compression/rfc1951.txt) | DEFLATE Compressed Data Format Specification version 1.3 | The compressed stream inside both codings |
 | [1950](compression/rfc1950.txt) | ZLIB Compressed Data Format Specification version 3.3 | The wrapper of the `deflate` coding, with its Adler-32 check |
 | [1952](compression/rfc1952.txt) | GZIP file format specification version 4.3 | The wrapper of the `gzip` coding, with its CRC-32 check |
+| [7932](compression/rfc7932.txt) | Brotli Compressed Data Format | The `br` content coding (§13) and its window (§9.1) |
+| [8878](compression/rfc8878.txt) | Zstandard Compression and the 'application/zstd' Media Type | The `zstd` content coding (§7.2) |
+| [9659](compression/rfc9659.txt) | Window Sizing for Zstandard Content Encoding | The `zstd` coding's window of 8 MB (§3); updates RFC 8878 |
 
 ## qlog
 
