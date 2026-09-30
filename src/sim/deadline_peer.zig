@@ -83,6 +83,9 @@ pub const Hostile = struct {
     response_status: ?u16,
     reset_code: ?u32,
     reset_at_ms: ?u64,
+    /// The RST_STREAM frames with NO_ERROR the server sent, and with REFUSED_STREAM (h2).
+    resets_no_error: u32,
+    resets_refused: u32,
     encoder: h2.hpack.Encoder,
     /// Reads the server's field blocks, all of them, so its table follows the server's encoder.
     decoder: h2.hpack.Decoder,
@@ -99,6 +102,8 @@ pub const Hostile = struct {
         hostile.response_status = null;
         hostile.reset_code = null;
         hostile.reset_at_ms = null;
+        hostile.resets_no_error = 0;
+        hostile.resets_refused = 0;
         hostile.decoder.init(constants.header_table_size_initial);
         switch (plan.protocol) {
             .h11 => try hostile.script_h11(plan),
@@ -144,11 +149,17 @@ pub const Hostile = struct {
             hostile.goaway_code = std.mem.readInt(u32, payload[goaway_code_start..goaway_code_end], .big);
         }
         const reset = frame_type == constants.frame_type_rst_stream and payload.len == constants.rst_stream_len;
-        if (reset and hostile.reset_code == null) {
-            hostile.reset_code = std.mem.readInt(u32, payload[0..constants.rst_stream_len], .big);
+        if (reset) hostile.on_reset(std.mem.readInt(u32, payload[0..constants.rst_stream_len], .big), now_ms);
+        if (frame_type == constants.frame_type_headers) hostile.on_headers(flags, payload);
+    }
+
+    fn on_reset(hostile: *Hostile, code: u32, now_ms: u64) void {
+        if (hostile.reset_code == null) {
+            hostile.reset_code = code;
             hostile.reset_at_ms = now_ms;
         }
-        if (frame_type == constants.frame_type_headers) hostile.on_headers(flags, payload);
+        if (code == constants.error_no_error) hostile.resets_no_error += 1;
+        if (code == constants.error_refused_stream) hostile.resets_refused += 1;
     }
 
     /// Decodes a field block the server sent whole, and notes its status.
@@ -208,9 +219,10 @@ pub const Hostile = struct {
                 slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
             },
             .slow_head => {},
-            // `draw` makes an h11 pinger silent and an h11 peer that would open a window read
-            // nothing, and colibri's client plays an honest peer.
-            .honest, .slow_honest, .upload, .slow_reader, .pinger, .opens_window_slowly, .opens_no_connection_window => unreachable,
+            // `draw` makes an h11 pinger silent, an h11 peer that would open a window read
+            // nothing and one that would open many streams send a slow body, and colibri's client
+            // plays an honest peer.
+            .honest, .slow_honest, .upload, .slow_reader, .pinger, .opens_window_slowly, .opens_no_connection_window, .many_streams => unreachable,
         }
         try hostile.add_slowly(slow_start_ms, plan, h11_slow_head);
     }
@@ -237,6 +249,7 @@ pub const Hostile = struct {
             .slow_head, .slow_second_head => try hostile.add_slow_block(slow_start_ms, plan),
             .slow_body, .long_body => try hostile.add_body(plan, whole_stream_id),
             .opens_window_slowly => try hostile.add_window_updates(plan),
+            .many_streams => try hostile.add_uploads(),
             .reads_nothing, .reads_slowly, .opens_no_connection_window => {},
             .honest, .slow_honest, .upload, .slow_reader, .silent => unreachable,
         }
@@ -280,6 +293,18 @@ pub const Hostile = struct {
                 try h2.frame.write_continuation(&writer, slow_stream_id, fragment, last);
             }
             try hostile.add(first_ms + index * plan.gap_ms, writer.written());
+        }
+    }
+
+    /// `many_streams_len` requests at the start, each on a stream of its own and each leaving its
+    /// stream open for a body that never comes.
+    fn add_uploads(hostile: *Hostile) Error!void {
+        var frame_storage: [frame_len_max]u8 = undefined;
+        for (0..limits.many_streams_len) |index| {
+            var writer = Writer.init(&frame_storage);
+            const stream_id: u32 = @intCast(whole_stream_id + stream_id_step * index);
+            try hostile.write_request(&writer, stream_id, "POST", "/upload", false);
+            try hostile.add(start_ms, writer.written());
         }
     }
 
@@ -373,6 +398,9 @@ fn settings_of(plan: *const Plan) []const h2.frame.Setting {
 
 /// The octets each WINDOW_UPDATE of a peer that opens its window slowly adds.
 const window_step: u32 = 1;
+
+/// A client's streams take odd identifiers, one after another (RFC 9113 §5.1.1).
+const stream_id_step: u32 = 2;
 
 /// Where a frame header's type and flags lie, after its length (RFC 9113 §4.1).
 const frame_type_offset: usize = constants.frame_length_len;

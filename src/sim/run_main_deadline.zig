@@ -26,7 +26,7 @@ pub fn check(seeds: u64) !void {
         return failure;
     };
     const format = "deadline: seeds={d} exchanges={d} first_request={d} idle={d} head={d} body_rate={d} body={d}" ++
-        " send_rate={d} settings={d} drain={d} streams_cut={d} held={d} trace_octets={d} crc32=0x{x:0>8}\n";
+        " send_rate={d} settings={d} drain={d} streams_cut={d} streams_refused={d} held={d} trace_octets={d} crc32=0x{x:0>8}\n";
     std.debug.print(format, .{
         census.seeds,
         census.exchanges,
@@ -39,6 +39,7 @@ pub fn check(seeds: u64) !void {
         census.settings,
         census.drain,
         census.streams_cut,
+        census.streams_refused,
         census.held,
         census.trace_octets,
         census.crc32.final(),

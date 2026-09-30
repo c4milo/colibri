@@ -117,6 +117,9 @@ pub const long_body_rate_min: u32 = 256;
 pub const long_body_rate: u32 = long_body_rate_factor * long_body_rate_min;
 const long_body_rate_factor: u32 = 2;
 
+/// The streams a peer that opens many at once opens: past the concurrent streams a server allows.
+pub const many_streams_len: u32 = 110;
+
 /// The octets a hostile peer's script holds: its opening, and a slow or long body with a DATA
 /// frame's header on each piece.
 pub const script_len_max: u32 = 65_536;

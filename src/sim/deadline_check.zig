@@ -15,7 +15,8 @@
 //!      its stream, with RST_STREAM and NO_ERROR, after which the connection is idle. A peer that
 //!      reads too little reads nothing more, and its connection closes when its linger passes; in
 //!      h2 a stream whose window is opened too slowly gets RST_STREAM with CANCEL, and a peer that
-//!      never opens the connection's window a GOAWAY with ENHANCE_YOUR_CALM.
+//!      never opens the connection's window a GOAWAY with ENHANCE_YOUR_CALM. A peer that opens
+//!      many streams has those past the server's limit refused, and the rest cut for their bodies.
 //!
 //! The census counts the runs each deadline ended and the runs the server held open until the
 //! horizon, and its test pins the CRC-32 of the traces of seeds `[0, check_seeds_default)`, in
@@ -40,7 +41,7 @@ pub const check_name = "deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0x82436c8b;
+pub const census_crc32_expected: u32 = 0xa02e1727;
 
 pub const Violation = deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -80,7 +81,9 @@ pub const Census = struct {
     send_rate: u64 = 0,
     settings: u64 = 0,
     drain: u64 = 0,
-    /// The h2 streams a body deadline ended, the connection going on.
+    /// The h2 streams the server refused, past its concurrent streams.
+    streams_refused: u64 = 0,
+    /// The runs in which a deadline ended a request the application held, the connection going on.
     streams_cut: u64 = 0,
     held: u64 = 0,
     trace_octets: u64 = 0,
@@ -117,6 +120,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
         if (result.record.app.cancelled != null) census.streams_cut += 1;
+        census.streams_refused += result.record.resets_refused;
         const passed = result.record.deadline_passed() orelse {
             census.held += 1;
             continue;
@@ -198,7 +202,27 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
             .cut = .{ .deadline = .send_rate, .at_ms = send_cut_ms(plan), .status = answer_status, .reset_code = h2.constants.error_cancel },
         },
         .opens_no_connection_window => .{ .deadline = .send_rate, .end_ms = send_cut_ms(plan), .head = false },
+        // Every stream's body is cut at the end of its first window, which brings nothing, and the
+        // connection is idle from then.
+        .many_streams => .{
+            .deadline = .idle,
+            .end_ms = ms_of(plan.deadlines.rate_grace_ns) + ms_of(plan.deadlines.rate_window_ns) + ms_of(plan.deadlines.idle_ns.?),
+            .head = false,
+        },
     };
+}
+
+/// The streams the server accepts at once, decision 110's default, which the run leaves in its
+/// `server.Config`. It refuses those past it with REFUSED_STREAM (RFC 9113 §5.1.2).
+const streams_limit: u32 = server.constants.h2_streams_max;
+
+/// A peer that opens many streams has those past the server's limit refused, and each of the
+/// rest ends with a 408 and RST_STREAM with NO_ERROR.
+fn streams_as_expected(plan: *const Plan, record: *const Record) bool {
+    if (plan.peer != .many_streams) return true;
+    const accepted = @min(limits.many_streams_len, streams_limit);
+    return record.resets_no_error == accepted and record.resets_refused == limits.many_streams_len - accepted and
+        record.response_status == timeout_status and record.app.cancelled == .body_rate;
 }
 
 /// Where the server cuts a peer that reads too little: the end of the first window after its
@@ -270,7 +294,7 @@ fn ended_as_expected(plan: *const Plan, record: *const Record, expected: Expecte
     if (expected.cut) |cut| return cut_as_expected(plan, record, cut);
     return switch (plan.protocol) {
         .h11 => record.saw_timeout_response == expected.head,
-        .h2 => record.goaway_code == goaway_of(plan, expected),
+        .h2 => record.goaway_code == goaway_of(plan, expected) and streams_as_expected(plan, record),
     };
 }
 
@@ -320,9 +344,10 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
         });
     }
     try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d}", .{ record.end, record.end_ms, record.deadline_passed(), record.exchanges_done });
-    try line(storage, " timeout_response={} status={?d} reset={?d} reset_at_ms={?d} cancelled={?t} goaway={?d}\n", .{
+    try line(storage, " timeout_response={} status={?d} reset={?d} reset_at_ms={?d} cancelled={?t} goaway={?d}", .{
         record.saw_timeout_response, record.response_status, record.reset_code, record.reset_at_ms, record.app.cancelled, record.goaway_code,
     });
+    try line(storage, " resets={d}/{d}\n", .{ record.resets_no_error, record.resets_refused });
 }
 
 fn line(storage: *Storage, comptime format: []const u8, arguments: anytype) Violation!void {

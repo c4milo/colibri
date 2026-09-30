@@ -6240,6 +6240,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     failure a limit; and the simulator recording no close reason, or reading a limit as a
     deadline.
 
+  **The peer that opens 110 streams, 2026-09-30.** It joins the deadline check now that decision
+  113 lets a caller reset every stream it holds between two writes. The peer opens 110 streams at
+  once, each a request whose body never comes. The server refuses the 10 past its 100 with
+  REFUSED_STREAM. At the end of the first window it cuts the other 100 in one call, each with a
+  408 and RST_STREAM with NO_ERROR, and the connection closes at the idle deadline.
+  - `zig build sim -- --deadline-check`, in Debug and in ReleaseSafe: every seed passed, with
+    `streams_refused=60` over six runs of the peer and the census CRC-32 `0xa02e1727`.
+  - `zig build test`: 131 of 131 steps and 2493 of 2493 tests passed.
+  - 3 mutations, each **CAUGHT** by the deadline check: the server leaving h2's limit at 128, h2
+    refusing one stream past the limit too late, and a caller's RST_STREAM put back in the queue of
+    `stream_replies_max` slots, which stops on the queue's assertion as before decision 113.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

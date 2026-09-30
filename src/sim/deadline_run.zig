@@ -52,6 +52,9 @@ pub const Record = struct {
     reset_code: ?u32,
     reset_at_ms: ?u64,
     goaway_code: ?u32,
+    /// The RST_STREAM frames with NO_ERROR, and with REFUSED_STREAM, a hostile h2 peer read.
+    resets_no_error: u32,
+    resets_refused: u32,
     /// Why the server closed the connection on its own, if it did (decision 110).
     close_reason: ?server.CloseReason,
 
@@ -161,6 +164,8 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .reset_code = null,
         .reset_at_ms = null,
         .goaway_code = null,
+        .resets_no_error = 0,
+        .resets_refused = 0,
         .close_reason = null,
     };
     storage.record.app.init();
@@ -346,6 +351,8 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
             record.reset_code = storage.hostile.reset_code;
             record.reset_at_ms = storage.hostile.reset_at_ms;
             record.goaway_code = storage.hostile.goaway_code;
+            record.resets_no_error = storage.hostile.resets_no_error;
+            record.resets_refused = storage.hostile.resets_refused;
         },
     }
 }

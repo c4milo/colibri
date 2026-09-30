@@ -57,6 +57,9 @@ pub const Peer = enum {
     /// h2 alone: makes a request with the largest stream window, and never opens the connection's
     /// window, which the long answer uses up. In h11 it reads nothing.
     opens_no_connection_window,
+    /// h2 alone: opens `many_streams_len` streams at once, each a request whose body never comes.
+    /// In h11, which has no streams, it sends a slow body.
+    many_streams,
 };
 
 pub const Plan = struct {
@@ -123,6 +126,7 @@ pub fn draw(random: *Random) Plan {
     // peer that would open one slowly reads nothing.
     if (peer == .pinger and protocol == .h11) peer = .silent;
     if (protocol == .h11 and (peer == .opens_window_slowly or peer == .opens_no_connection_window)) peer = .reads_nothing;
+    if (protocol == .h11 and peer == .many_streams) peer = .slow_body;
     var plan: Plan = .{
         .protocol = protocol,
         .peer = peer,
@@ -198,7 +202,7 @@ fn exchanges_of(peer: Peer, random: *Random) u8 {
     return switch (peer) {
         .honest, .slow_honest, .upload, .slow_reader => @intCast(random.between(1, limits.exchanges_max)),
         .slow_second_head, .idle_pinger, .reads_nothing, .reads_slowly, .opens_window_slowly, .opens_no_connection_window => 1,
-        .silent, .slow_head, .pinger, .slow_body, .long_body => 0,
+        .silent, .slow_head, .pinger, .slow_body, .long_body, .many_streams => 0,
     };
 }
 
@@ -206,7 +210,7 @@ fn exchanges_of(peer: Peer, random: *Random) u8 {
 /// the minimum body rate, and a hostile one's are large, or carry a body under that rate.
 fn draw_pace(plan: *Plan, random: *Random) void {
     switch (plan.peer) {
-        .honest, .silent, .slow_reader, .reads_nothing, .reads_slowly, .opens_no_connection_window => {},
+        .honest, .silent, .slow_reader, .reads_nothing, .reads_slowly, .opens_no_connection_window, .many_streams => {},
         .slow_honest => {
             plan.gap_ms = random.between(limits.honest_gap_ms_min, limits.honest_gap_ms_max);
             plan.piece_len = @intCast(random.between(limits.honest_piece_len_min, limits.honest_piece_len_max));
