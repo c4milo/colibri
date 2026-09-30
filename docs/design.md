@@ -5148,6 +5148,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   What each check printed, on macOS arm64:
   - `tools/ci.sh`: every section passed, with 2493 of 2493 tests in Debug and in ReleaseSafe.
 
+  **16e at chapulin `900ce67`, 2026-09-30.** The pin moved from chapulin `044a49c` to `900ce67`,
+  which carries the AES-GCM record path of [chapulin#184](https://github.com/c4milo/chapulin/issues/184).
+  chapulin's `docs/performance.md` times one 16 KiB AES-256-GCM seal on an Apple M1 Pro at 5.4,
+  5.7 and 5.6 µs, under macOS with Apple clang 21 and a Linux VM with clang 18 and gcc 13, where
+  it took 26.8, 27.6 and 36.3 µs at `044a49c`. chapulin calls these the filter's figures, and
+  colibri has none of its own. The pin also refuses a ClientHello too long to stage with nothing
+  sent, and records internal_error when the transport refuses a send. Its vector Poly1305 runs
+  only under `WIDEMUL=native`, which colibri does not build
+  ([#84](https://github.com/c4milo/colibri/issues/84)).
+
+  What each check printed, on macOS arm64:
+  - `tools/ci.sh`: every section passed, with 2503 of 2503 tests in Debug and in ReleaseSafe.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Seven parts. The owner ruled on 2026-09-27
