@@ -43,6 +43,8 @@ pub fn add(
     server_keylog.addImport("gzip", graph.stdx.module("gzip"));
     server_keylog.addImport("zlib", graph.stdx.module("zlib"));
     module.addImport("server", server_keylog);
+    // Decision 97 as amended: the endpoint asks its CPU once, through stdx's `platform`.
+    module.addImport("platform", graph.stdx.module("platform"));
     module.link_libc = true;
     return module;
 }

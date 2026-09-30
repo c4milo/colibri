@@ -221,7 +221,9 @@ tree. Design §11 holds the method and the numbers.
 - Changing a named limit.
 - Adding a dependency. The library has two: chapulin, which it links for TLS and packet
   protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports and whose JSON
-  module qlog imports (decisions 90, 91 and 102). It has no allocator at all (decision 35). Five more are ruled for the
+  module qlog imports (decisions 90, 91 and 102). stdx's `platform`, which probes the CPU, is the
+  programs': the library imports it nowhere, and the package exports it (decision 97 as amended).
+  It has no allocator at all (decision 35). Five more are ruled for the
   tooling and the tests, and the library imports none of them: pepegrillo, the tooling `tools/`
   builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and `examples/` run on
   (decisions 58, 83 and 96); TLC, the TLA+ model checker `zig build tla` runs through pepegrillo (decision 67);
@@ -351,7 +353,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   `ch_assert_fail`, passes each session's `start` the `std.Random` it draws from, and passes each
   configuration its CPU's `aes_instructions`, which it asks once, at start. Each image of
   `src/testing/` defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s octets
-  (`src/testing/entropy.zig`) and the CPU's answer (`src/testing/cpu.zig`), and a QUIC image
+  (`src/testing/entropy.zig`) and the CPU's answer, which `src/testing/cpu.zig` asks stdx's
+  `platform` once, and a QUIC image
   defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests pass the build target's
   answer, and run both answers where it has the instructions. `zig build test-tls test-tls-keylog
   -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES instructions, so under

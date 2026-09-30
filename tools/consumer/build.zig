@@ -21,6 +21,8 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("tls", colibri.module("tls"));
     // Decision 101: colibri's package exports stdx's codecs.
     exe.root_module.addImport("gzip", colibri.module("gzip"));
+    // Decision 97 as amended: stdx's `platform`, which answers the TLS values' `aes_instructions`.
+    exe.root_module.addImport("platform", colibri.module("platform"));
 
     const run = b.addRunArtifact(exe);
     b.step("run", "Run the consumer").dependOn(&run.step);

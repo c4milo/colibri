@@ -5109,6 +5109,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     chapulin's `AesInstructions` for an object without it. The answer's condition is now decided
     at compile time, and a test pins the choice.
 
+  **16e with stdx `fa53aa4`, 2026-09-30.** The stdx pin moved from `342cb71` to `fa53aa4`, which
+  carries stdx's `platform` module ([stdx#15](https://github.com/c4milo/stdx/issues/15)). The test
+  programs and `tools/consumer` ask the CPU once through `platform.probe()` and pass `present` only
+  when `aes_clmul` is `yes`, and colibri's package exports `platform` (decision 97 as amended on
+  2026-09-30). The tests keep the build target's answer.
+
+  What each check printed, on macOS arm64:
+  - `tools/ci.sh`: every section passed, with 2493 of 2493 tests in Debug and in ReleaseSafe.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Seven parts. The owner ruled on 2026-09-27

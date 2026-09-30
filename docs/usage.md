@@ -42,6 +42,11 @@ The library is fifteen modules, each exported by name:
 | `server` | Responses to h11 and h2 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC follows (design §8 step 17b). |
 | `client` | Requests over h11 and h2 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC and the choice between the transports follow (design §8 step 17d). |
 
+The package also exports modules of stdx, the library colibri pins for them: its codecs, `codec`,
+`gzip`, `zlib`, `zstd` and `brotli` ([decision 101](decisions.md)), and `platform`, which a
+program calls once, at start, to answer each TLS configuration's `aes_instructions`
+([decision 97](decisions.md)).
+
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
 
@@ -257,17 +262,18 @@ configuration names the most anchors and ALPN protocols it takes, `anchors_max` 
 
 Every configuration also takes `aes_instructions`, which has no default: whether the CPU the
 program runs on has the AES instructions and the carry-less multiply. colibri probes nothing. A
-program asks its CPU once, at start, and passes the answer to each configuration. Under `absent` a
-session runs no AES instruction and holds TLS_CHACHA20_POLY1305_SHA256 alone. stdx's `platform`
-module will answer it (https://github.com/c4milo/stdx/issues/15); until then this program answers
-for the target it was built for.
+program asks its CPU once, at start, through stdx's `platform` module, which colibri's package
+exports as `platform`, and passes the answer to each configuration. `probe()` answers `yes`, `no`
+or `not_known`, and only `yes` is `present`. Under `absent` a session runs no AES instruction and
+holds TLS_CHACHA20_POLY1305_SHA256 alone.
 
 ```zig
+const cpu = platform.probe();
 const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
 try tls_config.init(.{
     .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
     .alpn = &.{ "h2", "http/1.1" },
-    .aes_instructions = aes_instructions(),
+    .aes_instructions = if (cpu.aes_clmul == .yes) .present else .absent,
 });
 try tls_client.start(&tls_config, entropy, now_seconds, null);
 const hello = try tls_client.handshake(&.{}, &output);

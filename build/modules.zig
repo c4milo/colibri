@@ -271,6 +271,9 @@ pub fn add(
     testing.addImport("tls", tls);
     // Design §8 step 17a: the h11 and h2 server of §9 runs each connection on `server`.
     testing.addImport("server", server);
+    // Decision 97 as amended: each program asks its CPU once, at start, through stdx's `platform`
+    // (src/testing/cpu.zig), and passes the answer to every TLS configuration.
+    testing.addImport("platform", stdx.module("platform"));
     // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's.
     testing.link_libc = true;
 
@@ -284,6 +287,7 @@ pub fn add(
     testing_client.addImport("client", client);
     // The client session's tests run the client against §9's server, which runs on `server`.
     testing_client.addImport("server", server);
+    testing_client.addImport("platform", stdx.module("platform"));
     // `socket`, `connect`, `send` and `recv` are libc's, as they are for the server above.
     testing_client.link_libc = true;
 
@@ -297,6 +301,7 @@ pub fn add(
     testing_tls.addImport("h2", h2);
     testing_tls.addImport("tls_provider", tls_provider);
     testing_tls.addImport("tls", tls);
+    testing_tls.addImport("platform", stdx.module("platform"));
     testing_tls.link_libc = true;
 
     // The other half of step 5's check, and a fourth root for the same reason as the third: one
@@ -306,6 +311,7 @@ pub fn add(
     testing_tls_server.addImport("h2", h2);
     testing_tls_server.addImport("tls_provider", tls_provider);
     testing_tls_server.addImport("tls", tls);
+    testing_tls_server.addImport("platform", stdx.module("platform"));
     testing_tls_server.link_libc = true;
 
     // Design §9's QIF tools, a root of their own for their `main`. They serve `qpack`, and keep
@@ -328,6 +334,7 @@ pub fn add(
     // `ch_keylog` reads the hook through the QUIC object's module.
     testing_quic.addImport("tls", tls_keylog);
     testing_quic.addImport("chapulin", chapulin_quic_keylog.module("chapulin"));
+    testing_quic.addImport("platform", stdx.module("platform"));
     testing_quic.link_libc = true;
 
     return .{
