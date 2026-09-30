@@ -30,6 +30,8 @@
 //!     sim --deadline-check [seeds]
 //!     sim --deadline-trace-check [seeds] colibri's endpoints in the deadline model's terms (#86)
 //!     sim --deadline-trace-write <directory> each seed's trace as TLA+, for tools/deadline_trace.sh
+//!     sim --h2-stall-seed <hex>        one seed's h2 exchange over a small transport (#85)
+//!     sim --h2-stall-check [seeds]
 //!
 //! The h11 commands are in `run_main_h11.zig`, and the QPACK and h3 ones in `run_main_h3.zig`,
 //! split off for length.
@@ -45,6 +47,7 @@ const run_main_h3 = @import("run_main_h3.zig");
 const run_main_deadline = @import("run_main_deadline.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
 const run_main_deadline_trace = @import("run_main_deadline_trace.zig");
+const run_main_h2_stall = @import("run_main_h2_stall.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
 const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
@@ -77,7 +80,8 @@ const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --h11-connection-seed <hex> | --h11-connection-check [seeds]" ++
     " | --h11-coding-seed <hex> | --h11-coding-check [seeds] | --content-coding-seed <hex> | --content-coding-check [seeds]" ++
     " | --deadline-seed <hex> | --deadline-check [seeds]" ++
-    " | --deadline-trace-check [seeds] | --deadline-trace-write <directory>\n";
+    " | --deadline-trace-check [seeds] | --deadline-trace-write <directory>" ++
+    " | --h2-stall-seed <hex> | --h2-stall-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -110,6 +114,8 @@ pub const Command = union(enum) {
     deadline_check: u64,
     deadline_trace_check: u64,
     deadline_trace_write: []const u8,
+    h2_stall_seed: u64,
+    h2_stall_check: u64,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -165,6 +171,8 @@ pub fn main(init: std.process.Init) !void {
         .deadline_check => |seeds| try run_main_deadline.check(seeds),
         .deadline_trace_check => |seeds| try run_main_deadline_trace.check(seeds),
         .deadline_trace_write => |directory| try deadline_trace_write(init.io, directory),
+        .h2_stall_seed => |seed| try run_main_h2_stall.seed(seed),
+        .h2_stall_check => |seeds| try run_main_h2_stall.check(seeds),
     }
 }
 
@@ -233,6 +241,13 @@ fn parse_deadline(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--deadline-check")) return .{ .deadline_check = if (value == null) constants.deadline.check_seeds_default else try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--deadline-trace-check")) return .{ .deadline_trace_check = if (value == null) constants.deadline_trace.written_seeds else try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--deadline-trace-write")) return .{ .deadline_trace_write = value orelse return error.Usage };
+    return parse_h2_stall(flag, value);
+}
+
+/// The commands of the h2 stall check, https://github.com/c4milo/colibri/issues/85.
+fn parse_h2_stall(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
+    if (std.mem.eql(u8, flag, "--h2-stall-seed")) return .{ .h2_stall_seed = try parse_seed(value) };
+    if (std.mem.eql(u8, flag, "--h2-stall-check")) return .{ .h2_stall_check = if (value == null) constants.h2_stall.check_seeds_default else try parse_seeds(value) };
     return error.Usage;
 }
 

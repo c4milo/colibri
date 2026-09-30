@@ -405,10 +405,10 @@ pub const h3_trace_units_max: u32 = h3_trace_units_per_request_max * h3_trace_re
 /// before it (RFC 9114 §7.2.8).
 pub const h3_trace_control_frames_per_unit_max: u32 = 2;
 
-/// Six checks' limits in their own files: design §8 steps 15c and 20b's, the deadline trace run's,
-/// and decisions 104, 105 and 101's.
+/// Seven checks' limits, each in a file of its own whose header names its check.
 pub const h11_coding = @import("constants_h11.zig");
 pub const h2_trace = @import("constants_h2_trace.zig");
+pub const h2_stall = @import("constants_h2_stall.zig");
 pub const client_trace = @import("constants_client_trace.zig");
 pub const content_coding = @import("constants_content_coding.zig");
 pub const deadline = @import("constants_deadline.zig");

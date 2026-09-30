@@ -1065,6 +1065,31 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `settings` in 432411 and `two_streams` in 572165, as before, `resets` in 1384220 and
     `resets_finish` in 176219. The seven configurations expected to be violated are.
 
+  **The stall check, 2026-09-30** ([#85](https://github.com/c4milo/colibri/issues/85)).
+  - `src/sim/h2_stall_check.zig` runs a colibri client and a colibri server over a transport that
+    holds 1 to 256 KiB each way. Each endpoint is driven as a caller drives h2 (decision 39): it
+    reads while `receive` takes frames, writes what it owes when `receive` takes none, and reads on
+    only if that fits. It writes what its connection owes before its own frames, as
+    `client.Connection` does, or after them, as `server.Connection`'s `respond` and `write_body`
+    do. A round in which nothing moves ends a run, and one whose messages did not all arrive is a
+    stall.
+  - Random seeds send bodies of up to 128 KiB on up to 48 streams, and seldom fill a reply queue.
+    While an endpoint cannot write, its peer can send it at most the connection window, 65,535
+    octets, which gathers two thresholds' worth of stream credit. Only streams whose credit already
+    sits just below the threshold owe more. Aligned seeds make that happen: 40 to 48 streams each
+    send one octet short of the threshold first, so the next octet on each owes a WINDOW_UPDATE.
+  - What `zig build sim -Drelease -- --h2-stall-check 8192` printed, on macOS arm64 in 538
+    seconds: 30.9 GB of bodies and 4 stalls. All four are aligned seeds over a transport of 1 KiB
+    (two) or 4 KiB (two), with both endpoints writing their own frames first and both reply
+    queues full. None of the 6074 runs in which an endpoint writes what it owes first stalled.
+    Random seeds filled a queue three times, and each of those runs finished.
+  - The test runs seeds `[0, 16)`, which finish, and pins seed `0x12c`, which stalls. A stall in
+    a run whose endpoints both write what they owe first is a violation, `StalledOwedFirst`.
+  - 4 mutations of h2, 4 **CAUGHT**. With no stream WINDOW_UPDATE written, no connection
+    WINDOW_UPDATE written, or a reading that does not stop for a full queue, both tests fail. A
+    queue of 64 fails the check's build, because its aligned seeds open more streams than the
+    queue holds.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
