@@ -6369,6 +6369,45 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   small buffers (7,310,332 states), and `colibri_one_at_a_time`, with larger buffers (1,377,905
   states). The five earlier rules are each violated, as before.
 
+  **The deadline model against colibri's runs, 2026-09-30**
+  ([#86](https://github.com/c4milo/colibri/issues/86)). The model proves decision 110's rules
+  only if colibri does what the model says. The simulator's deadline trace run acts out a seed's
+  plan with colibri's h2 client and a `server.Connection` in cleartext. The client opens up to
+  three streams, pipelined or one at a time, and the application answers each request with a body
+  it offers a step at a time. Each action is one step of one side: the client writes or reads a
+  frame, colibri reads one or hands one out, or the application answers or offers content. After
+  each action the run offers `write_body` the rest of each response until colibri takes no more,
+  since one call writes one DATA frame. It then logs the model's variables, read from the two
+  endpoints and the octets between them, and whether colibri's SETTINGS, body and send clocks
+  run. TLC checks that each seed's log is a behavior of the model, that each clock runs as the
+  model's rules say, and that the model's colibri has no content left to take. A log that stops
+  early is still a behavior, so the run also requires each seed to end with every exchange
+  finished and nothing in flight or owed. No run lasts long enough for a deadline to pass, so the
+  check covers when each clock runs, not when one expires.
+  - The first run found the model adding a WINDOW_UPDATE's increment on a stream colibri had
+    closed. colibri's h2 discards it, which RFC 9113 §6.9 says is no error, and notes no small
+    increment from it. The model now does the same at both endpoints.
+  - TLC evaluated the operator bound to the `Trace` constant again at each reference, so its cost
+    per state grew with the log's length. The trace module reads the log through `Logged`, a
+    definition TLC evaluates once. On macOS arm64, seed 0's 311 states took 5.6 s, not 90 s.
+  - `tools/deadline_trace.sh`: 32 of 32 traces are behaviors of the model, in under a minute.
+  - `zig build tla -- spec/tla/server_deadlines/*.cfg`: the nine configurations give their
+    verdicts as before, `colibri` over 7,525,308 states and `colibri_one_at_a_time` over 1,413,735.
+  - `zig build test`: 131 of 131 steps and 2505 of 2505 tests passed.
+  - 9 mutations of colibri, each **CAUGHT** by `tools/deadline_trace.sh`. Five break a clock rule,
+    and TLC found the rest of the traces behaviors: the SETTINGS clock never pausing (23 of 32), a
+    body's rate running while a WINDOW_UPDATE is held (13), the floor applied before a small
+    increment (22), the idle clock starting before the output empties (1), and a held stream's
+    send meter running while the output holds octets (17).
+  - Four more stop or slow colibri:
+    - `write_body` taking nothing while the output holds octets: 1 of 32. Without the check that
+      no content is left, **NOT CAUGHT**: 32 of 32.
+    - The server writing no reply it owes: the run fails on seed 0, unfinished. Without the check
+      that each seed finishes, **NOT CAUGHT**: 32 of 32.
+    - h2 writing no SETTINGS acknowledgment: the run fails, unfinished.
+    - `sendable` writing nothing when the room is short of a whole frame: the run fails, with more
+      frames in flight than `frames_max`.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

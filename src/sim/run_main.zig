@@ -28,6 +28,8 @@
 //!     sim --content-coding-check [seeds] (step 17e)
 //!     sim --deadline-seed <hex>        one seed's peer against a server's deadlines (step 20b)
 //!     sim --deadline-check [seeds]
+//!     sim --deadline-trace-check [seeds] colibri's endpoints in the deadline model's terms (#86)
+//!     sim --deadline-trace-write <directory> each seed's trace as TLA+, for tools/deadline_trace.sh
 //!
 //! The h11 commands are in `run_main_h11.zig`, and the QPACK and h3 ones in `run_main_h3.zig`,
 //! split off for length.
@@ -42,6 +44,7 @@ const run_main_content_coding = @import("run_main_content_coding.zig");
 const run_main_h3 = @import("run_main_h3.zig");
 const run_main_deadline = @import("run_main_deadline.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
+const run_main_deadline_trace = @import("run_main_deadline_trace.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
 const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
@@ -73,7 +76,8 @@ const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --h11-split-seed <hex> | --h11-split-check [seeds]" ++
     " | --h11-connection-seed <hex> | --h11-connection-check [seeds]" ++
     " | --h11-coding-seed <hex> | --h11-coding-check [seeds] | --content-coding-seed <hex> | --content-coding-check [seeds]" ++
-    " | --deadline-seed <hex> | --deadline-check [seeds]\n";
+    " | --deadline-seed <hex> | --deadline-check [seeds]" ++
+    " | --deadline-trace-check [seeds] | --deadline-trace-write <directory>\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -104,6 +108,8 @@ pub const Command = union(enum) {
     content_coding_check: u64,
     deadline_seed: u64,
     deadline_check: u64,
+    deadline_trace_check: u64,
+    deadline_trace_write: []const u8,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -157,6 +163,8 @@ pub fn main(init: std.process.Init) !void {
         .content_coding_check => |seeds| try run_main_content_coding.check(seeds),
         .deadline_seed => |seed| try run_main_deadline.seed(seed),
         .deadline_check => |seeds| try run_main_deadline.check(seeds),
+        .deadline_trace_check => |seeds| try run_main_deadline_trace.check(seeds),
+        .deadline_trace_write => |directory| try deadline_trace_write(init.io, directory),
     }
 }
 
@@ -207,15 +215,24 @@ fn parse_h11(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     return parse_h2_trace(flag, value);
 }
 
-/// The commands of the h2 trace run, https://github.com/c4milo/colibri/issues/75.
+/// The commands of the h2 trace run, https://github.com/c4milo/colibri/issues/75, and of the client
+/// trace run, decision 105.
 fn parse_h2_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--h2-trace-check")) return .{ .h2_trace_check = try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--h2-trace-write")) return .{ .h2_trace_write = value orelse return error.Usage };
     if (std.mem.eql(u8, flag, "--client-trace-seed")) return .{ .client_trace_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--client-trace-check")) return .{ .client_trace_check = try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--client-trace-write")) return .{ .client_trace_write = value orelse return error.Usage };
+    return parse_deadline(flag, value);
+}
+
+/// The commands of the deadline check, decision 110, and of its trace run,
+/// https://github.com/c4milo/colibri/issues/86.
+fn parse_deadline(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--deadline-seed")) return .{ .deadline_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--deadline-check")) return .{ .deadline_check = if (value == null) constants.deadline.check_seeds_default else try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--deadline-trace-check")) return .{ .deadline_trace_check = if (value == null) constants.deadline_trace.written_seeds else try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--deadline-trace-write")) return .{ .deadline_trace_write = value orelse return error.Usage };
     return error.Usage;
 }
 
@@ -436,6 +453,17 @@ fn client_trace_write(io: std.Io, directory: []const u8) !void {
         try write_file(io, directory, files.name, ".cfg", files.config);
     }
     std.debug.print("client-trace: wrote {d} seeds to {s}\n", .{ seeds.len, directory });
+}
+
+/// Writes seeds `[0, written_seeds)` of the deadline trace run into `directory`, as
+/// `h2_trace_write` does for the h2 run (https://github.com/c4milo/colibri/issues/86).
+fn deadline_trace_write(io: std.Io, directory: []const u8) !void {
+    for (0..constants.deadline_trace.written_seeds) |seed| {
+        const files = try run_main_deadline_trace.files_of(seed);
+        try write_file(io, directory, files.name, ".tla", files.module);
+        try write_file(io, directory, files.name, ".cfg", files.config);
+    }
+    std.debug.print("deadline-trace: wrote {d} seeds to {s}\n", .{ constants.deadline_trace.written_seeds, directory });
 }
 
 var client_trace_seeds: [constants.client_trace.written_seeds + constants.client_trace.idle_seeds_written_max]u64 = undefined;

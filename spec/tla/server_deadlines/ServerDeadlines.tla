@@ -124,8 +124,9 @@ Frame(type, stream, len, end, value) ==
 
 Octets(f) == IF f.type = "PREFACE" THEN PrefaceLen ELSE HeaderLen + f.len
 
-RECURSIVE Used(_)
-Used(frames) == IF frames = <<>> THEN 0 ELSE Octets(Head(frames)) + Used(Tail(frames))
+Used(frames) ==
+    LET sum[i \in 0..Len(frames)] == IF i = 0 THEN 0 ELSE sum[i - 1] + Octets(frames[i])
+    IN sum[Len(frames)]
 
 (* A queue of replies with the WINDOW_UPDATE frames owed on s dropped      *)
 (* (connection_reply.zig's drop_window_updates).                           *)
@@ -217,9 +218,12 @@ Init ==
 -----------------------------------------------------------------------------
 (* What colibri knows and does.                                            *)
 
-(* A stream colibri's h2 counts as active: the request began and the two   *)
-(* sides have not both ended (§5.1).                                       *)
-Active(s) == reqRead[s] # "none" /\ ~(reqRead[s] = "ended" /\ resp[s] = "ended")
+(* A stream colibri's h2 has closed: both sides ended it (§5.1).          *)
+Closed(s) == reqRead[s] = "ended" /\ resp[s] = "ended"
+
+(* A stream colibri's h2 counts as active: the request began and the       *)
+(* stream has not closed.                                                  *)
+Active(s) == reqRead[s] # "none" /\ ~Closed(s)
 
 (* connection_deadline.zig's wait_h2: idle once a request has arrived and  *)
 (* no stream is active.                                                    *)
@@ -332,16 +336,22 @@ ArriveData(f) ==
        /\ UNCHANGED <<acksOwed, firstRequestRead, settingsAcked, sendWindow, sendConnection,
                       smallIncrement>>
 
+(* WINDOW_UPDATE: the increment opens the window it names. colibri         *)
+(* discards one on a stream it has closed (stream_receive.zig's            *)
+(* in_closed_by_end_stream), and notes no small increment from it.         *)
 ArriveUpdate(f) ==
-    /\ IF f.stream = Connection
-       THEN /\ sendConnection' = sendConnection + f.value
-            /\ UNCHANGED sendWindow
-       ELSE /\ sendWindow' = [sendWindow EXCEPT ![f.stream] = @ + f.value]
-            /\ UNCHANGED sendConnection
-    \* RFC 9113 §10.5: a small increment makes the floor apply from then on.
-    /\ smallIncrement' = (smallIncrement \/ f.value < Floor)
-    /\ UNCHANGED <<reqRead, released, releasedConnection, acksOwed, connectionOwed, streamOwed,
-                   firstRequestRead, settingsAcked>>
+    LET ignored == f.stream # Connection /\ Closed(f.stream)
+    IN /\ sendConnection' = IF f.stream = Connection THEN sendConnection + f.value
+                            ELSE sendConnection
+       \* RFC 9113 §6.9: a WINDOW_UPDATE on a closed stream is no error. §5.1: nothing but
+       \* PRIORITY goes out on a closed stream, so the increment opens nothing.
+       /\ sendWindow' = IF f.stream = Connection \/ ignored THEN sendWindow
+                        ELSE [sendWindow EXCEPT ![f.stream] = @ + f.value]
+       \* RFC 9113 §10.5: tiny increments can make a sender write many DATA frames. Decision
+       \* 110 answers with the floor, which applies once an increment below Floor arrives.
+       /\ smallIncrement' = (smallIncrement \/ (f.value < Floor /\ ~ignored))
+       /\ UNCHANGED <<reqRead, released, releasedConnection, acksOwed, connectionOwed,
+                      streamOwed, firstRequestRead, settingsAcked>>
 
 Arrive ==
     /\ toServer # <<>>
@@ -472,20 +482,23 @@ ReadData(f) ==
         kept == IF f.end THEN DropStream(cliStreamOwed, s) ELSE cliStreamOwed
     IN /\ cliReleased' = [cliReleased EXCEPT ![s] = IF streamOwes \/ f.end THEN 0 ELSE @ + f.len]
        /\ cliReleasedConnection' = IF connectionOwes THEN 0 ELSE cliReleasedConnection + f.len
-       /\ cliConnectionOwed' = IF connectionOwes THEN cliConnectionOwed + cliReleasedConnection + f.len
+       /\ cliConnectionOwed' = IF connectionOwes
+                               THEN cliConnectionOwed + cliReleasedConnection + f.len
                                ELSE cliConnectionOwed
        /\ cliStreamOwed' = IF streamOwes THEN Append(kept, <<s, cliReleased[s] + f.len>>) ELSE kept
        /\ cliResp' = [cliResp EXCEPT ![s] = IF f.end THEN "ended" ELSE @]
        /\ UNCHANGED <<cliWindow, cliConnection, cliAcksOwed>>
 
+(* The client, colibri's h2 too, discards a WINDOW_UPDATE on a stream it   *)
+(* has closed.                                                             *)
 ReadUpdate(f) ==
-    /\ IF f.stream = Connection
-       THEN /\ cliConnection' = cliConnection + f.value
-            /\ UNCHANGED cliWindow
-       ELSE /\ cliWindow' = [cliWindow EXCEPT ![f.stream] = @ + f.value]
-            /\ UNCHANGED cliConnection
-    /\ UNCHANGED <<cliResp, cliReleased, cliReleasedConnection, cliAcksOwed, cliConnectionOwed,
-                   cliStreamOwed>>
+    LET ignored == f.stream # Connection
+                   /\ cliReq[f.stream] = "ended" /\ cliResp[f.stream] = "ended"
+    IN /\ cliConnection' = IF f.stream = Connection THEN cliConnection + f.value ELSE cliConnection
+       /\ cliWindow' = IF f.stream = Connection \/ ignored THEN cliWindow
+                       ELSE [cliWindow EXCEPT ![f.stream] = @ + f.value]
+       /\ UNCHANGED <<cliResp, cliReleased, cliReleasedConnection, cliAcksOwed,
+                      cliConnectionOwed, cliStreamOwed>>
 
 (* It reads the oldest frame toward it.                                    *)
 Read ==

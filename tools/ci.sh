@@ -188,6 +188,10 @@ if command -v java >/dev/null 2>&1; then
   # Decision 105: the client trace run's logs against the model of the client's exchanges.
   section "client traces against the TLA+ model" tools/client_trace.sh
   tla_lines="${tla_lines}"$'\n'"$(grep -E "^client_trace.sh: " "${scratch}/last.log")"
+  # https://github.com/c4milo/colibri/issues/86: the deadline trace run's logs against the model of
+  # decision 110's deadlines.
+  section "deadline traces against the TLA+ model" tools/deadline_trace.sh
+  tla_lines="${tla_lines}"$'\n'"$(grep -E "^deadline_trace.sh: " "${scratch}/last.log")"
 else
   tla_lines="No Java runtime on PATH, so this run checked no TLA+ model."
 fi
@@ -274,8 +278,9 @@ fi
   echo "## TLA+ models"
   echo
   echo "Each configuration of spec/tla/ states whether TLC must find its properties holding or"
-  echo "violated (docs/decisions.md entry 67). The last line counts the seeds of the simulator's h3"
-  echo "trace run whose logs TLC found to be behaviors of spec/tla/h3_connection (entry 87)."
+  echo "violated (docs/decisions.md entry 67). The last four lines count, for each of the"
+  echo "simulator's trace runs, the seeds whose logs TLC found to be behaviors of its model: h3"
+  echo "(entry 87), h2 (entry 104), the client (entry 105) and the deadlines (issue 86)."
   echo
   echo "${tla_lines}" | fenced
   echo
