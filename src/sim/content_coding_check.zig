@@ -182,6 +182,8 @@ fn decode(storage: *Storage, coding: Coding, coded: []const u8) Violation![]cons
             zlib.init(&storage.zlib_decoder, .none());
             break :blk zlib.decode_all(&storage.zlib_decoder, coded, &storage.decoded) catch return error.ExchangeDiffers;
         },
+        // The plan draws the codings both modules code: the server encodes no other.
+        .zstd, .br => unreachable,
     };
     return storage.decoded[0..whole.written];
 }

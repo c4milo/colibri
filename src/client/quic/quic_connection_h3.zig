@@ -108,7 +108,7 @@ fn build_section(connection: *QuicConnection, slot: *Slot, indexing: *[constants
         count += 1;
     }
     var offer: [coding.offer_len_max]u8 = undefined;
-    if (coding.offer(connection.config.codings, connection.config.decoders, slot, &offer)) |value| {
+    if (coding.offer(connection.config.codings, .of(connection.config), slot, &offer)) |value| {
         section.append("accept-encoding", value) catch return null;
         indexing[count] = .no_insert;
         count += 1;
@@ -234,7 +234,7 @@ fn on_response(connection: *QuicConnection, head: h3.connection.Response) void {
         return;
     }
     const section = connection.h3.field_section();
-    response.record_head(slot, connection.config.codings, head.response.status.code, section, first_regular(section)) catch |failure| {
+    response.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
         refuse(connection, slot, response.outcome_of(failure));
     };
 }

@@ -15,6 +15,7 @@ const std = @import("std");
 const quic = @import("quic");
 const h11 = @import("h11");
 const http = @import("http");
+const coding_pool = @import("coding_pool.zig");
 
 pub const constants = @import("constants.zig");
 pub const event = @import("event.zig");
@@ -56,12 +57,22 @@ pub const Coding = http.content_coding.Coding;
 pub const DecoderPool = h11.coding.Pool;
 pub const DefaultDecoderPool = h11.coding.DefaultPool;
 pub const Decoders = h11.coding.Storage;
+/// The pools of `zstd` and `br` decoders (decision 101 as amended), which the caller places and
+/// resets as it does `DecoderPool`. Each decoder of a `ZstdDecoderPool(count)` holds an 8 MB window
+/// (RFC 9659 §3), and each of a `BrotliDecoderPool(count)` a 16 MiB one (RFC 7932 §9.1);
+/// docs/usage.md gives their sizes. A configuration holds each as `ZstdDecoders` or
+/// `BrotliDecoders`, from `storage()`.
+pub const ZstdDecoderPool = coding_pool.ZstdDecoderPool;
+pub const ZstdDecoders = coding_pool.ZstdDecoders;
+pub const BrotliDecoderPool = coding_pool.BrotliDecoderPool;
+pub const BrotliDecoders = coding_pool.BrotliDecoders;
 
 test {
     std.testing.refAllDecls(@This());
     _ = @import("slots.zig");
     _ = @import("response.zig");
     _ = @import("coding.zig");
+    _ = @import("coding_pool.zig");
     _ = @import("owed.zig");
     _ = @import("channel/channel_choice.zig");
     _ = @import("channel/channel_test.zig");

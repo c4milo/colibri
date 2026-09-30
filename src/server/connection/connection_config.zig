@@ -32,7 +32,7 @@ pub const Config = struct {
     h3_alternative: ?alt_svc.Alternative = null,
     /// The content codings the server applies to a response the caller marks `codable`, in its
     /// order of preference, and the pool their encoders come from, which connections may share
-    /// (decision 101). Both or neither.
+    /// (decision 101). Both or neither, and only `gzip` and `deflate`, which the server encodes.
     codings: []const http.content_coding.Coding = &.{},
     encoders: ?coding_pool.Encoders = null,
     /// The limits of decision 110's deadlines. A connection copies them when it starts, and

@@ -5,6 +5,8 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
+const http = @import("http");
+const coding_pool = @import("coding_pool.zig");
 const constants = @import("constants.zig");
 const event = @import("event.zig");
 
@@ -42,10 +44,17 @@ pub const Slot = struct {
     /// A dropping slot whose exchange ended before its response did, and whose `finished` event
     /// is owed once the response is read.
     report_after_drop: bool = false,
-    /// The decoder the exchange holds from its request's Accept-Encoding until its response ends,
-    /// the pool it came from, and the coded octets it was given (decision 101).
+    /// The decoders the exchange holds from its request's Accept-Encoding until its response's
+    /// head names a coding, and the one it keeps until the response ends: `gzip` and `deflate`'s,
+    /// with the pool it came from, then `zstd`'s and `br`'s; and the coded octets it was given
+    /// (decision 101 as amended).
     decoding: h11.coding.Decoding = .{},
     decoders: ?h11.coding.Storage = null,
+    zstd: coding_pool.Held(coding_pool.Zstd) = .{},
+    br: coding_pool.Held(coding_pool.Brotli) = .{},
+    /// The codings the request's Accept-Encoding offered, the only ones its response is decoded
+    /// from (decision 101). `gzip` and `deflate` share one decoder, so holding it says neither.
+    offered: std.EnumSet(http.content_coding.Coding) = .initEmpty(),
     coded_len: usize = 0,
 
     /// Whether no more of the exchange's content is to be written: all of it went out, or the
@@ -197,9 +206,11 @@ pub fn release(slot: *Slot) void {
     slot.* = .{};
 }
 
-/// Gives back the decoder the slot holds, reserved or decoding: its response ended, or nothing
+/// Gives back every decoder the slot holds, reserved or decoding: its response ended, or nothing
 /// more of it is read.
 pub fn give_back(slot: *Slot) void {
+    slot.zstd.release();
+    slot.br.release();
     const storage = slot.decoders orelse return;
     h11.coding.release(&slot.decoding, storage);
     slot.decoders = null;

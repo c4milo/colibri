@@ -220,8 +220,9 @@ tree. Design §11 holds the method and the numbers.
 
 - Changing a named limit.
 - Adding a dependency. The library has two: chapulin, which it links for TLS and packet
-  protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports and whose JSON
-  module qlog imports (decisions 90, 91 and 102). stdx's `platform` probes the CPU: a program
+  protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports, whose zstd and
+  brotli decoders the client imports, and whose JSON module qlog imports (decisions 90, 91, 101
+  and 102). stdx's `platform` probes the CPU: a program
   calls `probe()` and depends on stdx itself to do it, and `tls` imports the module for its `Cpu`
   type alone and never probes. The package does not export it (decision 97 as amended).
   It has no allocator at all (decision 35). Five more are ruled for the

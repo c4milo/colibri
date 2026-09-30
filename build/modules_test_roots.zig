@@ -34,6 +34,15 @@ pub fn add_testdata(
     return testdata;
 }
 
+/// The client's root: `test_root`'s, which also codes content with stdx's encoders, for the tests
+/// of the client's decoding (decision 101). The packaged client encodes nothing.
+pub fn client_test_root(b: *std.Build, packaged: *std.Build.Module, testdata: *std.Build.Module, stdx: *std.Build.Dependency) *std.Build.Module {
+    const module = test_root(b, packaged, testdata);
+    module.addImport("gzip", stdx.module("gzip"));
+    module.addImport("zlib", stdx.module("zlib"));
+    return module;
+}
+
 /// `packaged` again, with `testdata` beside its imports. It copies the imports `packaged` holds
 /// when it is called, so build.zig calls it where it makes the tests, after the graph is built.
 pub fn test_root(b: *std.Build, packaged: *std.Build.Module, testdata: *std.Build.Module) *std.Build.Module {

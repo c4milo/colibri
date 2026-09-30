@@ -64,8 +64,10 @@ pub const Plan = struct {
     }
 };
 
-/// The codings colibri codes.
-const coding_count = @typeInfo(Coding).@"enum".fields.len;
+/// The codings both modules code: the server encodes `gzip` and `deflate` alone (decision 101 as
+/// amended on 2026-09-30).
+const coded_both = [_]Coding{ .gzip, .deflate };
+const coding_count = coded_both.len;
 
 pub const ok: u16 = 200;
 pub const no_content: u16 = 204;

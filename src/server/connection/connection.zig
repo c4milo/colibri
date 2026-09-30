@@ -41,6 +41,7 @@ const connection_tls = @import("connection_tls.zig");
 const connection_errors = @import("connection_errors.zig");
 const connection_coding = @import("connection_coding.zig");
 const connection_config = @import("connection_config.zig");
+const coding_pool = @import("../coding/coding_pool.zig");
 const connection_continue = @import("connection_continue.zig");
 const connection_deadline = @import("connection_deadline.zig");
 const connection_bodies = @import("connection_bodies.zig");
@@ -150,6 +151,7 @@ pub const Connection = struct {
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3.
         assert(config.cleartext != .h3);
         assert((config.codings.len == 0) == (config.encoders == null));
+        for (config.codings) |coding| assert(coding_pool.encodes(coding));
         assert(config.data_frame_len_min <= h2.constants.max_frame_size_initial);
         assert(config.h2_streams_max > 0 and config.h2_streams_max <= h2.constants.concurrent_streams_max);
         try config.deadlines.validate();

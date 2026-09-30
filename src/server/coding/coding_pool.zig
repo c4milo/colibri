@@ -21,6 +21,12 @@ pub const Features = codec.Features;
 pub const Flush = codec.Flush;
 pub const Progress = codec.Progress;
 
+/// Whether the server encodes `coding`: `gzip` and `deflate`, until stdx writes the encoders of
+/// `zstd` and `br` (decision 101 as amended on 2026-09-30). A configuration names no other.
+pub fn encodes(coding: Coding) bool {
+    return coding == .gzip or coding == .deflate;
+}
+
 /// A slot's place in the pool.
 pub const Index = u16;
 /// The index that names no slot: the end of the free list.
@@ -145,6 +151,8 @@ pub fn EncoderPool(comptime count: usize, comptime level: u4) type {
                     slot.encoder = .{ .deflate = undefined };
                     slot.encoder.deflate.init(pool.features);
                 },
+                // A connection's configuration names only codings the server encodes.
+                .zstd, .br => unreachable,
             }
             return index;
         }
@@ -155,6 +163,7 @@ pub fn EncoderPool(comptime count: usize, comptime level: u4) type {
             return switch (slot.coding) {
                 .gzip => slot.encoder.gzip.encode(input, output, flush),
                 .deflate => slot.encoder.deflate.encode(input, output, flush),
+                .zstd, .br => unreachable,
             };
         }
 

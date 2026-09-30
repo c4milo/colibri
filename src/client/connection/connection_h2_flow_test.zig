@@ -38,18 +38,6 @@ fn peer_reset() ?h2.connection.StreamReset {
     return null;
 }
 
-/// Writes the peer's SETTINGS frame setting `id` to `value`. Test-only.
-fn peer_setting(id: u16, value: u32) !void {
-    var payload: [h2.constants.setting_len]u8 = undefined;
-    var writer = h2.core.Writer.init(&payload);
-    try writer.write_int(u16, id);
-    try writer.write_int(u32, value);
-    var frame = h2.core.Writer.init(support.to_client[support.to_client_len..]);
-    try h2.frame.write_header(&frame, .{ .length = @intCast(writer.written().len), .type = h2.constants.frame_type_settings, .flags = 0, .stream_id = 0 });
-    try frame.write_bytes(writer.written());
-    support.to_client_len += frame.written().len;
-}
-
 test "RFC 9113 §8.1: a response that ends before the upload does closes the stream with CANCEL" {
     try start();
     @memset(&upload, 'x');
@@ -86,7 +74,7 @@ test "RFC 9113 §5.1.2: an exchange past the server's stream limit waits for a s
     try start();
     // The prefaces go first: the server's own SETTINGS names its limit, and this one lowers it.
     try support.pump_h2();
-    try peer_setting(h2.constants.setting_max_concurrent_streams, 1);
+    try support.peer_setting(h2.constants.setting_max_concurrent_streams, 1);
     try support.client_receive();
     var first = get(&bodies[0]);
     var second = get(&bodies[1]);

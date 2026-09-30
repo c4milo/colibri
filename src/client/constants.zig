@@ -111,6 +111,11 @@ const connection_events_max: usize = 4;
 /// Nanoseconds in a second, which an Alt-Svc freshness lifetime counts (RFC 7838 §3.1).
 pub const nanoseconds_per_second: u64 = 1_000 * quic.constants.nanoseconds_per_millisecond;
 
+/// The largest window a `br` decoder takes, as the bits RFC 7932 §9.1 names WBITS: 24, a window of
+/// 16 MiB less 16 octets, the largest §9.1 allows, as the owner ruled on 2026-09-30 (decision 101
+/// as amended). A `br` decoder holds this much.
+pub const brotli_window_bits_max: u5 = 24;
+
 comptime {
     // A frame waiting for its last octets never stops the next record from opening.
     assert(plaintext_in_len >= frame_len_max + tls_provider.constants.record_ciphertext_len_max);

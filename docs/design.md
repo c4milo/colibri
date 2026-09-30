@@ -5206,10 +5206,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
-  [#70](https://github.com/c4milo/colibri/issues/70). Seven parts. The owner ruled on 2026-09-27
+  [#70](https://github.com/c4milo/colibri/issues/70). Eight parts. The owner ruled on 2026-09-27
   that 17c and 17d go before 17b, because cocuyo waits for the client and 17c does not depend on
-  step 17b, and on 2026-09-28 that 17g goes after 17b. The order is 17a, 17c, 17d, 17b, 17g, 17e,
-  17f:
+  step 17b, and on 2026-09-28 that 17g goes after 17b. 17h came on 2026-09-30, after 17e. The
+  order is 17a, 17c, 17d, 17b, 17g, 17e, 17h, 17f:
   - **17a**, the server over TCP. It takes octets tagged by connection, runs the handshake
     through `tls.record.Server`, and serves h11 or h2 as ALPN chose. One set of calls covers
     both: a request is an event with an id, and a response is written by that id, its status,
@@ -5597,6 +5597,41 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     answers, `/` and the 1 MiB `/large`, and h2o 2.2.5's gzip `/text.txt`, octet for octet, on one
     connection and on 64, in cleartext and over TLS.
   - Mutations: 93, each CAUGHT: 62 of the server's rules and 31 of the client's.
+
+  **17h, the client decodes `zstd` and `br`, 2026-09-30.**
+  - `http.content_coding.Coding` gains `zstd` and `br`, and `from_name` reads both in any case.
+    The server encodes `gzip` and `deflate` alone, and each server configuration asserts that it
+    names no other coding.
+  - `client.ZstdDecoderPool(count)` and `client.BrotliDecoderPool(count)` hold stdx's decoders.
+    The caller places each pool, resets it with the CPU features its decoders run on, and gives a
+    configuration its `storage()` as `zstd_decoders` or `br_decoders`. A `zstd` decoder is
+    8,683,024 octets and a `br` one 19,483,040. A configuration names each coding once at most,
+    each with its pool, and gives no pool for a coding it does not name.
+  - Each request offers, in the configuration's order, each coding whose pool has a decoder free,
+    and takes that decoder. A head that waits, for room or for the server's stream limit, offers
+    again with the decoders it took. The response's head keeps the decoder of the coding it names
+    and gives back the others. The slot records the codings its offer named, and the client
+    decodes a response only in one of them.
+  - A `zstd` decoder starts again after each frame (RFC 8878 §3.1), and a frame whose window
+    passes 8 MB fails its response (RFC 9659 §3). A `br` stream ends with its last meta-block (RFC
+    7932 §9.2), so an octet after it fails the response. Content that ends inside a frame or a
+    stream fails it too.
+  - The client module imports stdx's `zstd` and `brotli`, and no longer `gzip` and `zlib`, which
+    only its tests import.
+  - Each exchange's slot grows by 88 octets, for the handles of its `zstd` and `br` decoders and
+    the codings its offer named: 1,408 per connection, which `docs/performance.md`'s table shows.
+  - The tests decode the fixtures in `src/client/coding_fixtures/`, which zstd 1.5.7 and brotli
+    1.2.0 wrote, in pieces of 1 octet, of 7 and whole, over h11, h2 and h3.
+  - Before the mutations ran, four tests went in for rules that others masked. An exchange's end
+    gives every decoder back, which would cover a head that kept them, so one test counts each
+    pool between the head and the content. The others: a head that waits for the server's stream
+    limit offers again, a `br` stream cut short ends malformed, and `coding.codings_valid` refuses
+    a configuration that names a coding twice or gives a pool for a coding it does not name.
+  - Mutations: 37, and 36 CAUGHT. Two first failed to compile, since each removed the only use of
+    a name, and ran again with the name kept. The one NOT CAUGHT removes the head's shortcut for a
+    slot that holds no decoder, and is equivalent: such a slot offered no coding, so its head
+    finds none to decode.
+  - `zig build test` passed: 2528 of 2528 tests.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:

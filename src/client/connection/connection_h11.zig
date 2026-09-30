@@ -72,7 +72,7 @@ fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
     connection.note_alt_svc(&connection.session.h11.section, 0);
     if (slot.stage == .sent) {
         const section = &connection.session.h11.section;
-        response.record_head(slot, connection.config.codings, status, section, 0) catch |failure| {
+        response.record_head(slot, status, section, 0) catch |failure| {
             start_dropping(slot, response.outcome_of(failure));
         };
     }
@@ -229,7 +229,7 @@ fn request_fields(
         lines[count] = .{ .name = "Content-Length", .value = length };
         count += 1;
     }
-    if (coding.offer(connection.config.codings, connection.config.decoders, slot, offer)) |value| {
+    if (coding.offer(connection.config.codings, .of(connection.config), slot, offer)) |value| {
         lines[count] = .{ .name = "Accept-Encoding", .value = value };
         count += 1;
     }

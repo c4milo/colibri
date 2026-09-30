@@ -47,7 +47,7 @@ pub const Config = struct {
     idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
     /// The content codings the server applies to a response the caller marks `codable`, in its
     /// order of preference, and the pool their encoders come from, which connections may share
-    /// (decision 101). Both or neither.
+    /// (decision 101). Both or neither, and only `gzip` and `deflate`, which the server encodes.
     codings: []const http.content_coding.Coding = &.{},
     encoders: ?coding_pool.Encoders = null,
     /// The version the server switches a client to when the client lists it (RFC 9368 §2.3,
@@ -134,6 +134,7 @@ pub const QuicConnection = struct {
     pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, how: Start, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
         assert(receive_pool.capacity > 0 and how.original_destination.len > 0);
         assert((config.codings.len == 0) == (config.encoders == null));
+        for (config.codings) |coding| assert(coding_pool.encodes(coding));
         connection.config = config;
         connection.requests.init();
         connection.owed = .{};

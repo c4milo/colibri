@@ -29,8 +29,8 @@ const separator = ", ";
 
 /// Records a final response's status and the values of the fields the caller named, from the
 /// regular field lines of `section`, which start at index `first`, and what its Content-Encoding
-/// says of its content, given the `codings` the client offered.
-pub fn record_head(slot: *Slot, codings: []const coding.Coding, status: u16, section: *const FieldSection, first: u32) Error!void {
+/// says of its content, given the decoders the slot took for the codings its request offered.
+pub fn record_head(slot: *Slot, status: u16, section: *const FieldSection, first: u32) Error!void {
     const exchange = slot.exchange;
     assert(exchange.status == 0 and exchange.values_len == 0);
     assert(first <= section.len());
@@ -38,7 +38,7 @@ pub fn record_head(slot: *Slot, codings: []const coding.Coding, status: u16, sec
     for (exchange.wanted) |*wanted| {
         wanted.value = try join(exchange, wanted.name, section, first);
     }
-    coding.begin(slot, codings, status, section, first);
+    coding.begin(slot, status, section, first);
 }
 
 /// The value of every field line of `section` named `name`, joined into the exchange's `values`,
@@ -70,7 +70,7 @@ fn append(exchange: *HttpExchange, octets: []const u8) Error!void {
 
 /// Copies octets of the response's content after those already in `body`, or decodes them there.
 pub fn append_body(slot: *Slot, octets: []const u8) Error!void {
-    if (slot.decoding.active()) return coding.decode(slot, octets);
+    if (coding.active(slot)) return coding.decode(slot, octets);
     const exchange = slot.exchange;
     const room = exchange.body.len - exchange.body_len;
     if (octets.len > room) return error.NoSpaceLeft;
@@ -99,7 +99,7 @@ test "RFC 9110 §5.3: the field lines of a wanted name are joined in order, and 
     var values: [64]u8 = undefined;
     var exchange: HttpExchange = .{ .method = "GET", .path = "/", .wanted = &wanted, .values = &values };
     var slot: Slot = .{ .stage = .sent, .exchange = &exchange };
-    try record_head(&slot, &.{}, 200, &test_section, 1);
+    try record_head(&slot, 200, &test_section, 1);
     try testing.expectEqual(200, exchange.status);
     try testing.expectEqualStrings("max-age=60, no-transform", wanted[0].value.?);
     try testing.expectEqual(null, wanted[1].value);
@@ -114,7 +114,7 @@ test "a value or content past the caller's memory is refused whole" {
     var body: [4]u8 = undefined;
     var exchange: HttpExchange = .{ .method = "GET", .path = "/", .wanted = &wanted, .values = &values, .body = &body };
     var slot: Slot = .{ .stage = .sent, .exchange = &exchange };
-    try testing.expectError(error.NoSpaceLeft, record_head(&slot, &.{}, 200, &test_section, 0));
+    try testing.expectError(error.NoSpaceLeft, record_head(&slot, 200, &test_section, 0));
     try append_body(&slot, "abc");
     try testing.expectError(error.NoSpaceLeft, append_body(&slot, "de"));
     try testing.expectEqual(3, exchange.body_len);

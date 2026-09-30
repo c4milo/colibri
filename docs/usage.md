@@ -339,5 +339,12 @@ Every connection is a struct your program places, and its size is fixed at compi
 The buffers your program reads into and writes from come on top, and QUIC's calls also take
 scratch storage your program places; `udp_peer.zig` shows both.
 
+A client that decodes `zstd` or `br` places a pool of decoders for each. Measured the same way on
+2026-09-30, each decoder of a `client.ZstdDecoderPool(count)` is 8,683,024 octets, most of them RFC
+9659 §3's 8 MB window, and each of a `client.BrotliDecoderPool(count)` is 19,483,040, most of them
+RFC 7932 §9.1's 16 MiB window. An exchange takes a decoder of each coding it offers as its request
+goes out, and keeps only the one its response uses once the response's head arrives
+([decision 101](decisions.md)).
+
 The named limits in each module's `constants.zig` set these sizes, and
 [`docs/decisions.md`](decisions.md) records why each limit has its value.

@@ -213,9 +213,9 @@ pub fn add(
     // Design §8 step 17d: h3 over QUIC, behind the same calls.
     client.addImport("quic", quic);
     client.addImport("h3", h3);
-    // Decision 101: the client's tests code content with stdx's encoders.
-    client.addImport("gzip", stdx.module("gzip"));
-    client.addImport("zlib", stdx.module("zlib"));
+    // Decision 101 as amended: the client decodes `zstd` and `br` with stdx's decoders.
+    client.addImport("zstd", stdx.module("zstd"));
+    client.addImport("brotli", stdx.module("brotli"));
 
     const sim = create(b, "src/sim/sim.zig", target, optimize);
     sim.addImport("core", core);

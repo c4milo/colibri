@@ -11,6 +11,7 @@ const tls = @import("tls");
 const testdata = @import("testdata");
 const connection_module = @import("connection.zig");
 const event = @import("../event.zig");
+const coding_support = @import("../coding_test_support.zig");
 
 pub const Connection = connection_module.Connection;
 pub const Config = connection_module.Config;
@@ -79,7 +80,7 @@ pub fn start_cleartext(protocol: connection_module.Protocol) !void {
 pub const Pool = h11.coding.Pool(pool_decoders);
 pub var pool: Pool align(@alignOf(Pool)) = .{};
 pub const codings = [_]http.content_coding.Coding{ .gzip, .deflate };
-const pool_decoders: usize = 2;
+pub const pool_decoders: usize = 2;
 
 /// As `start_cleartext`, with the client offering `codings` and decoding with `pool`, every
 /// decoder free.
@@ -92,6 +93,26 @@ pub fn start_offering(protocol: connection_module.Protocol, offered: []const htt
     const storage = pool.storage();
     storage.reset(.none());
     try start_configured(.{ .authority = authority, .cleartext = protocol, .codings = offered, .decoders = storage });
+}
+
+/// As `start_offering`, with the `zstd` and `br` pools of `coding_test_support.zig` beside the
+/// `gzip` one, each given when `offered` names a coding it serves, and every decoder free.
+pub fn start_offering_all(protocol: connection_module.Protocol, offered: []const http.content_coding.Coding) !void {
+    const storage = pool.storage();
+    storage.reset(.none());
+    coding_support.reset_pools();
+    try start_configured(.{
+        .authority = authority,
+        .cleartext = protocol,
+        .codings = offered,
+        .decoders = if (names(offered, .gzip) or names(offered, .deflate)) storage else null,
+        .zstd_decoders = if (names(offered, .zstd)) coding_support.zstd_pool.storage() else null,
+        .br_decoders = if (names(offered, .br)) coding_support.br_pool.storage() else null,
+    });
+}
+
+fn names(offered: []const http.content_coding.Coding, coding: http.content_coding.Coding) bool {
+    return std.mem.indexOfScalar(http.content_coding.Coding, offered, coding) != null;
 }
 
 fn start_configured(value: Config) !void {
@@ -176,6 +197,18 @@ pub fn peer_h2_read() !void {
 /// Writes what the h2 peer owes on its own, such as its SETTINGS and acknowledgments.
 pub fn peer_h2_owe() void {
     to_client_len += peer_h2.write_pending(to_client[to_client_len..], now_ns);
+}
+
+/// Writes the peer's SETTINGS frame setting `id` to `value`. Test-only.
+pub fn peer_setting(id: u16, value: u32) !void {
+    var payload: [h2.constants.setting_len]u8 = undefined;
+    var writer = h2.core.Writer.init(&payload);
+    try writer.write_int(u16, id);
+    try writer.write_int(u32, value);
+    var frame = h2.core.Writer.init(to_client[to_client_len..]);
+    try h2.frame.write_header(&frame, .{ .length = @intCast(writer.written().len), .type = h2.constants.frame_type_settings, .flags = 0, .stream_id = 0 });
+    try frame.write_bytes(writer.written());
+    to_client_len += frame.written().len;
 }
 
 /// Rounds `pump_h2` moves octets both ways: enough for a preface, its acknowledgment, a request

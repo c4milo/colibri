@@ -7,17 +7,24 @@ const assert = std.debug.assert;
 const core = @import("core");
 const field = @import("field.zig");
 
-/// The content codings colibri codes, with stdx (decision 101): `gzip` (RFC 9110 §8.4.1.3) and
-/// `deflate`, which is the zlib format (§8.4.1.2).
+/// The content codings colibri codes, with stdx (decision 101): `gzip` (RFC 9110 §8.4.1.3),
+/// `deflate`, which is the zlib format (§8.4.1.2), `zstd` (RFC 8878 §7.2) and `br` (RFC 7932 §13).
+/// The server encodes `gzip` and `deflate` alone, and the client decodes all four (decision 101 as
+/// amended on 2026-09-30).
 pub const Coding = enum {
     gzip,
     deflate,
+    zstd,
+    br,
 
-    /// The coding's name in a field value, as RFC 9110 §16.6.1 registers it.
+    /// The coding's name in a field value, as the HTTP Content Coding Registry holds it (RFC 9110
+    /// §16.6.1, RFC 8878 §7.2, RFC 7932 §13).
     pub fn name(coding: Coding) []const u8 {
         return switch (coding) {
             .gzip => "gzip",
             .deflate => "deflate",
+            .zstd => "zstd",
+            .br => "br",
         };
     }
 };
@@ -28,6 +35,8 @@ pub const Coding = enum {
 pub fn from_name(token: []const u8) ?Coding {
     if (std.ascii.eqlIgnoreCase(token, "gzip") or std.ascii.eqlIgnoreCase(token, "x-gzip")) return .gzip;
     if (std.ascii.eqlIgnoreCase(token, "deflate")) return .deflate;
+    if (std.ascii.eqlIgnoreCase(token, "zstd")) return .zstd;
+    if (std.ascii.eqlIgnoreCase(token, "br")) return .br;
     return null;
 }
 
@@ -188,7 +197,11 @@ test "RFC 9110 §8.4.1: coding names are case-insensitive, and x-gzip is gzip" {
     try testing.expectEqual(Coding.gzip, from_name("GZip").?);
     try testing.expectEqual(Coding.gzip, from_name("x-gzip").?);
     try testing.expectEqual(Coding.deflate, from_name("Deflate").?);
-    try testing.expectEqual(null, from_name("br"));
+    // RFC 8878 §7.2 and RFC 7932 §13 register `zstd` and `br`, which colibri decodes too.
+    try testing.expectEqual(Coding.zstd, from_name("ZStd").?);
+    try testing.expectEqual(Coding.br, from_name("BR").?);
+    for (std.enums.values(Coding)) |coding| try testing.expectEqual(coding, from_name(coding.name()).?);
+    try testing.expectEqual(null, from_name("compress"));
     try testing.expectEqual(null, from_name("identity"));
 }
 

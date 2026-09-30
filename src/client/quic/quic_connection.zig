@@ -26,6 +26,8 @@ const tls = @import("tls");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const slots_module = @import("../slots.zig");
+const coding = @import("../coding.zig");
+const coding_pool = @import("../coding_pool.zig");
 const owed_module = @import("../owed.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_h3 = @import("quic_connection_h3.zig");
@@ -57,10 +59,14 @@ pub const Config = struct {
     /// The idle timeout the client advertises (RFC 9000 §10.1), in milliseconds.
     idle_timeout_ms: u64 = constants.quic_idle_timeout_ms_default,
     /// The content codings the client offers in each request's Accept-Encoding, in its order of
-    /// preference, and the pool of decoders it removes them with, which connections may share
-    /// (decision 101). Both or neither.
+    /// preference, and the pools of decoders it removes them with, which connections may share
+    /// (decision 101 as amended): `decoders` for `gzip` and `deflate`, `zstd_decoders` and
+    /// `br_decoders`. Each coding is named once at most and has its pool, and each pool given serves
+    /// a coding named.
     codings: []const http.content_coding.Coding = &.{},
     decoders: ?h11.coding.Storage = null,
+    zstd_decoders: ?coding_pool.ZstdDecoders = null,
+    br_decoders: ?coding_pool.BrotliDecoders = null,
 };
 
 /// The unpredictable values one connection starts from, which the caller draws (invariant 5).
@@ -130,7 +136,7 @@ pub const QuicConnection = struct {
     pub fn init(connection: *QuicConnection, config: *const Config, receive_pool: ReceiveStorage, start: Start, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
         assert(config.authority.len > 0);
         assert(receive_pool.capacity > 0 and receive_pool.blocks.len > 0);
-        assert((config.codings.len == 0) == (config.decoders == null));
+        assert(coding.codings_valid(config.codings, .of(config)));
         connection.config = config;
         connection.start_values = start;
         connection.slots.init();

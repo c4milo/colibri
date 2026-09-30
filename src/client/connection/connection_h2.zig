@@ -92,7 +92,7 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
     }
     const section = connection.session.h2.field_section();
     connection.note_alt_svc(section, first_regular(section));
-    response.record_head(slot, connection.config.codings, head.response.status.code, section, first_regular(section)) catch |failure| {
+    response.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
         return refuse(connection, slot, response.outcome_of(failure));
     };
     if (!head.end_stream) return false;
@@ -286,7 +286,7 @@ fn request_fields(
         indexing[count] = .without_indexing;
         count += 1;
     }
-    if (coding.offer(connection.config.codings, connection.config.decoders, slot, offer)) |value| {
+    if (coding.offer(connection.config.codings, .of(connection.config), slot, offer)) |value| {
         lines[count] = .{ .name = "accept-encoding", .value = value };
         indexing[count] = .without_indexing;
         count += 1;

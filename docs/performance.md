@@ -79,9 +79,9 @@ With chapulin's objects built `AES=runtime`:
 | --- | ---: | --- |
 | `server.Connection` | 306280 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `server.QuicConnection` | 717520 | one h3 connection, without its receive pool |
-| `client.Connection` | 287656 | one TCP connection: h11 or h2, in cleartext or over TLS |
-| `client.QuicConnection` | 701504 | one h3 connection, without its receive pool |
-| `client.Channel` | 990024 | one server's connections, QUIC first and TCP after, without receive pools |
+| `client.Connection` | 289064 | one TCP connection: h11 or h2, in cleartext or over TLS |
+| `client.QuicConnection` | 702912 | one h3 connection, without its receive pool |
+| `client.Channel` | 992904 | one server's connections, QUIC first and TCP after, without receive pools |
 | `client.DefaultReceivePool` | 1505288 | the receive pool a QUIC connection's caller passes, at its default capacity |
 | `h11.connection.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163248 | the h2 state inside a TCP connection |

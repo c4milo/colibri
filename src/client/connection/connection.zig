@@ -24,6 +24,8 @@ const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const slots_module = @import("../slots.zig");
+const coding = @import("../coding.zig");
+const coding_pool = @import("../coding_pool.zig");
 const owed_module = @import("../owed.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
@@ -52,10 +54,14 @@ pub const Config = struct {
     /// (RFC 9112 §3.2).
     authority: []const u8,
     /// The content codings the client offers in each request's Accept-Encoding, in its order of
-    /// preference, and the pool of decoders it removes them with, which connections may share
-    /// (decision 101). Both or neither.
+    /// preference, and the pools of decoders it removes them with, which connections may share
+    /// (decision 101 as amended): `decoders` for `gzip` and `deflate`, `zstd_decoders` and
+    /// `br_decoders`. Each coding is named once at most and has its pool, and each pool given serves
+    /// a coding named.
     codings: []const http.content_coding.Coding = &.{},
     decoders: ?h11.coding.Storage = null,
+    zstd_decoders: ?coding_pool.ZstdDecoders = null,
+    br_decoders: ?coding_pool.BrotliDecoders = null,
 };
 
 pub const StartError = error{
@@ -125,7 +131,7 @@ pub const Connection = struct {
     /// draw the handshake makes comes from `random`, `now_seconds` is the instant a Web PKI chain
     /// is judged at, and `resumption` offers a ticket an earlier connection took.
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
-        assert((config.codings.len == 0) == (config.decoders == null));
+        assert(coding.codings_valid(config.codings, .of(config)));
         assert(config.authority.len > 0);
         assert(config.cleartext != .h3);
         connection.config = config;
@@ -451,6 +457,7 @@ pub const Connection = struct {
 test {
     _ = @import("connection_request_test.zig");
     _ = @import("connection_coding_test.zig");
+    _ = @import("connection_coding_zstd_br_test.zig");
     _ = @import("connection_h2_test.zig");
     _ = @import("connection_h2_flow_test.zig");
     _ = @import("connection_h11_test.zig");

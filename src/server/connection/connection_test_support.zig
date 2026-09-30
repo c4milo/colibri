@@ -108,6 +108,8 @@ pub fn decode(coding: http.content_coding.Coding, coded: []const u8) ![]const u8
             zlib.init(&zlib_decoder, .none());
             break :blk try zlib.decode_all(&zlib_decoder, coded, &decoded);
         },
+        // The server encodes `gzip` and `deflate` alone (decision 101 as amended).
+        .zstd, .br => unreachable,
     };
     return decoded[0..whole.written];
 }
