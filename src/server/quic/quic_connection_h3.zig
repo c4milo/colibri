@@ -168,7 +168,7 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
     connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
     record.over = true;
     quic_coding.give_back(connection, record);
-    return .{ .cancelled = .{ .id = stream_id } };
+    return .{ .cancelled = .{ .id = stream_id, .reason = .peer_reset } };
 }
 
 /// RFC 9114 §4.1.2: h3 refused a malformed request and reset its stream.
@@ -176,7 +176,7 @@ fn on_refused(connection: *QuicConnection, stream_id: u64) ?event.Event {
     const record = live(connection, stream_id) orelse return null;
     record.over = true;
     quic_coding.give_back(connection, record);
-    return .{ .cancelled = .{ .id = stream_id } };
+    return .{ .cancelled = .{ .id = stream_id, .reason = .refused } };
 }
 
 /// The record of a request the caller still hears of, or null.

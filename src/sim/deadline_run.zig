@@ -51,13 +51,16 @@ pub const Record = struct {
     /// Exchanges an honest peer ended with a whole response.
     exchanges_done: u8,
     /// Whether a hostile h11 peer read a 408, and in h2 the status of the last response, the code
-    /// of the last RST_STREAM and the code of the GOAWAY a hostile peer read.
+    /// of the first RST_STREAM and its instant, and the code of the GOAWAY a hostile peer read.
     saw_timeout_response: bool,
     response_status: ?u16,
     reset_code: ?u32,
+    reset_at_ms: ?u64,
     goaway_code: ?u32,
-    /// The deadline that ended the connection, if one did (decision 110).
+    /// The deadline that ended the connection, if one did, and the one that ended a request, as
+    /// the application read it in `cancelled` (decision 110).
     timed_out: ?server.Deadline,
+    cancelled: ?server.Deadline,
 };
 
 /// One direction's octets: written at the back, delivered to the reader, consumed from the front.
@@ -146,8 +149,10 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .saw_timeout_response = false,
         .response_status = null,
         .reset_code = null,
+        .reset_at_ms = null,
         .goaway_code = null,
         .timed_out = null,
+        .cancelled = null,
     };
     storage.next_piece_ms = 0;
     storage.exchanges_requested = 0;
@@ -242,14 +247,23 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;
-        switch (reported) {
-            .request => |request| note_request(storage, request.id, now_ms, request.end),
-            .body => |body| if (body.end) note_body_end(storage, body.id, now_ms),
-            .trailers => |trailers| note_body_end(storage, trailers.id, now_ms),
-            .cancelled, .done => {},
-        }
+        note_event(storage, reported, now_ms);
     }
     return error.RunStalled;
+}
+
+/// The application notes each request it must answer, when its body ends, and the deadline that
+/// cancelled one.
+fn note_event(storage: *Storage, reported: server.Event, now_ms: u64) void {
+    switch (reported) {
+        .request => |request| note_request(storage, request.id, now_ms, request.end),
+        .body => |body| if (body.end) note_body_end(storage, body.id, now_ms),
+        .trailers => |trailers| note_body_end(storage, trailers.id, now_ms),
+        .cancelled => |cancelled| if (cancelled.reason == .deadline) {
+            storage.record.cancelled = cancelled.reason.deadline;
+        },
+        .done => {},
+    }
 }
 
 /// The events one run gives the server at most: each exchange's request, end and `done`.
@@ -317,7 +331,7 @@ fn server_send(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
 fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     const stream = &storage.to_client;
     if (!plan.honest()) {
-        if (plan.protocol == .h2) storage.hostile.read_h2(stream.octets[0..stream.delivered]);
+        if (plan.protocol == .h2) storage.hostile.read_h2(stream.octets[0..stream.delivered], now_ms);
         return false;
     }
     var moved = false;
@@ -373,6 +387,7 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
         .h2 => {
             record.response_status = storage.hostile.response_status;
             record.reset_code = storage.hostile.reset_code;
+            record.reset_at_ms = storage.hostile.reset_at_ms;
             record.goaway_code = storage.hostile.goaway_code;
         },
     }

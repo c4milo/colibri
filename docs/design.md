@@ -5980,6 +5980,56 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the reason phrase, and idle running before a first request, which the first-request deadline
     always ends first.
 
+  **The body deadlines, 2026-09-29.** The second part of 20b, after the deadline check's new peers.
+  - From the end of a request's head, or from the 100 (Continue) the request is owed, its body
+    must bring `body_rate_min` octets a second over each window of `rate_window_ns`, the first
+    window taking `rate_grace_ns` more, and must end within `body_timeout_ns`. `server.rate.Meter`
+    keeps the windows: one that brings its quota ends where the next starts, so a peer cannot bank
+    octets from one window for the next.
+  - Only a body's own octets count: in h11 what h11 reads of the body, its framing included, and
+    in h2 the data of its DATA frames, without their padding.
+  - In h11 a body that falls short ends the connection, with a 408 unless its response began. In
+    h2 it ends its stream, with a 408 and RST_STREAM with NO_ERROR, or with CANCEL once the
+    response began, and the caller reads `cancelled`, whose new `reason` names the deadline. h2
+    also meters the bodies together, from the first body that waits until none does, and ends
+    the connection with ENHANCE_YOUR_CALM when they fall short.
+  - The cost: each h2 stream's body keeps the rate on its own. A client that uploads on several
+    streams over a slow link, and starves one of them, loses that one. The check's honest uploads
+    go one at a time.
+  - The check gains an honest upload at two to four times the rate, a slow body under it, and a
+    long body that keeps twice a shortened rate past a shortened cap. Each run starts at a drawn
+    instant, and one plan in four shortens the server's limits.
+
+  What each check printed, on macOS arm64 with Zig 0.16.0:
+  - `zig build test`: 128 of 128 steps and 2428 of 2428 tests passed.
+  - The deadline check over 256 seeds: 145 exchanges; 67 connections ended at the first-request
+    deadline, 137 at idle, 26 at head, 14 for a body's rate and 12 for its cap; 28 h2 streams cut,
+    and none held open. Debug and ReleaseSafe print the same census.
+  - 41 mutations, each **CAUGHT** by `zig build test-server`. Two were **NOT CAUGHT** at first,
+    the deadlines running on after h11 closes and a stopped meter counting, and a test now
+    catches each.
+    - The waits: a body's wait never starting, starting before its 100 (Continue), or starting
+      again at each call; h11 or h2 counting no body octets; a body's end, its trailers, the
+      peer's reset or the caller's cancel leaving its deadlines running; and the count of bodies
+      that wait left as it was.
+    - The bodies together: their meter running with no body, starting again with each body,
+      never falling short, or left out of `deadline_ns`, and ending the connection with NO_ERROR.
+    - The cap: never passing, passing a nanosecond late, or left out of `deadline_ns`.
+    - The rate: never falling short, or its meter left out of `deadline_ns`; a window at its
+      quota taken for short, in `check_ns` or in `short`; the next window keeping the last one's
+      octets; two ended windows not short; the meter starting without its grace period; the quota
+      rounding down; and `validate` accepting a rate or a grace period of 0.
+    - The actions: h2 writing no 408 before a response, or resetting with CANCEL after one; an h2
+      stream's deadline owing no `cancelled`, naming the cap for every body deadline, or ending
+      the connection; and an h11 body deadline writing no 408.
+    - The reasons: an h2 or h3 peer's reset read as a refusal, a refusal read as the peer's
+      reset, and a STOP_SENDING read as a refusal.
+  - The deadline check caught 21 of the 41 by itself. None of its peers sends trailers, cancels,
+    holds two bodies at once or waits for a 100, and it leaves the limits valid and reads no
+    reason but a deadline's.
+  - The check's own commit reports three mutations, each **CAUGHT**: `init` ignoring
+    `Config.deadlines`, the clock starting at 0, and h2 never crediting its connection window.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

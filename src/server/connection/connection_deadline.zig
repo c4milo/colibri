@@ -5,8 +5,8 @@
 //!
 //! Only request octets move a deadline. A head's first octet ends the idle wait and starts the
 //! head deadline, and a whole head ends both. Nothing else the peer sends, such as an h2 PING or
-//! SETTINGS frame, starts or ends one. No deadline runs while a request is open, because the
-//! connection then waits on the application.
+//! SETTINGS frame, starts or ends one. While a request is open only its body's deadlines run
+//! (`connection_bodies.zig`), because the connection otherwise waits on the application.
 const std = @import("std");
 const assert = std.debug.assert;
 const h11 = @import("h11");
@@ -14,6 +14,7 @@ const h2 = @import("h2");
 const http = @import("http");
 const deadline = @import("../deadline.zig");
 const connection_module = @import("connection.zig");
+const connection_bodies = @import("connection_bodies.zig");
 
 const Connection = connection_module.Connection;
 const Deadline = deadline.Deadline;
@@ -99,6 +100,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     } else if (clock.idle_since_ns == null) {
         clock.idle_since_ns = now_ns;
     }
+    connection_bodies.observe(connection, now_ns);
 }
 
 /// The soonest instant a deadline passes, or null when none runs.
@@ -110,12 +112,19 @@ pub fn soonest(connection: *const Connection) ?u64 {
     if (!clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
     if (clock.head_since_ns) |since| at = earlier(at, since, limits.head_ns);
     if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
-    return at;
+    return connection_bodies.soonest(connection, at);
 }
 
+/// Whether the deadlines run: the connection reads on, and its protocol has not closed.
 fn running(connection: *const Connection) bool {
     // `end` stops the connection, so a deadline that fired runs no more.
-    return !connection.stopped and connection.phase != .closed;
+    if (connection.stopped or connection.phase == .closed) return false;
+    return switch (connection.session) {
+        // RFC 9112 §9.3: h11 closes after a response whose request it did not read whole.
+        .h11 => |*session| session.phase != .closed,
+        .h2 => |*session| !session.has_failed(),
+        .none => true,
+    };
 }
 
 fn earlier(current: ?u64, since: u64, limit: ?u64) ?u64 {
@@ -132,38 +141,41 @@ fn due(connection: *const Connection, now_ns: u64) ?Deadline {
     if (!running(connection)) return null;
     const clock = &connection.clock;
     const limits = &connection.deadlines;
-    if (!clock.first_request_read and passed(clock.opened_ns, limits.first_request_ns, now_ns)) {
+    if (!clock.first_request_read and is_past(clock.opened_ns, limits.first_request_ns, now_ns)) {
         return .first_request;
     }
     if (clock.head_since_ns) |since| {
-        if (passed(since, limits.head_ns, now_ns)) return .head;
+        if (is_past(since, limits.head_ns, now_ns)) return .head;
     }
     if (clock.idle_since_ns) |since| {
-        if (passed(since, limits.idle_ns, now_ns)) return .idle;
+        if (is_past(since, limits.idle_ns, now_ns)) return .idle;
     }
     return null;
 }
 
-fn passed(since: u64, limit: ?u64, now_ns: u64) bool {
+fn is_past(since: u64, limit: ?u64, now_ns: u64) bool {
     const span = limit orelse return false;
     // Decision 110: a deadline passes at its instant, not a nanosecond later.
     return now_ns >= since + span;
 }
 
-/// Ends the connection when a deadline has passed at `now_ns`, and returns whether one had.
+/// Ends the connection when a deadline has passed at `now_ns`, and returns whether one had. An h2
+/// body's deadline ends its stream alone.
 pub fn fire(connection: *Connection, now_ns: u64) bool {
-    const passed_deadline = due(connection, now_ns) orelse return false;
-    connection.clock.timed_out = passed_deadline;
-    end(connection);
+    if (!running(connection)) return false;
+    const passed = due(connection, now_ns) orelse connection_bodies.fire(connection, now_ns) orelse return false;
+    connection.clock.timed_out = passed;
+    end(connection, passed);
     assert(!running(connection));
     return true;
 }
 
-/// What a deadline does (decision 110): a head that began gets a 408 in h11 and a GOAWAY with
-/// ENHANCE_YOUR_CALM in h2; with none begun, h11 closes without a response and h2 sends a GOAWAY
-/// with NO_ERROR first. Nothing more is read either way.
-fn end(connection: *Connection) void {
+/// What a deadline does (decision 110): a head that began, or a body that did not arrive in time,
+/// gets a 408 in h11, and in h2 a GOAWAY with ENHANCE_YOUR_CALM; with neither, h11 closes without
+/// a response and h2 sends a GOAWAY with NO_ERROR first. Nothing more is read either way.
+fn end(connection: *Connection, passed: Deadline) void {
     const wait = wait_of(connection);
+    const body = passed == .body_rate or passed == .body;
     connection.stopped = true;
     if (wait == .handshake) {
         // The TLS handshake had not completed: the connection closes with nothing more written.
@@ -173,17 +185,19 @@ fn end(connection: *Connection) void {
     switch (connection.session) {
         .h11 => |*session| {
             // RFC 9110 §15.5.9: 408 says the server did not receive a complete request in the time
-            // it was prepared to wait. RFC 9112 §9.5: an idle connection closes without one, since
-            // a 408 there could be read as the answer to a request the client sent meanwhile.
-            if (wait == .head) {
+            // it was prepared to wait; h11 writes none after a response began. RFC 9112 §9.5: an
+            // idle connection closes without one, since a 408 there could be read as the answer to
+            // a request the client sent meanwhile.
+            if (wait == .head or body) {
                 const failure = session.fail(error.RequestTimeout, request_timeout);
                 assert(failure == error.ConnectionFailed);
             }
         },
         .h2 => |*session| {
-            // RFC 9113 §10.5: a field block held open past its deadline is excess use of the
-            // connection, and RFC 9113 §9.1: a server that closes an idle connection sends GOAWAY.
-            if (wait == .head) {
+            // RFC 9113 §10.5: a field block held open past its deadline, or bodies that together
+            // arrive under the minimum rate, are excess use of the connection. RFC 9113 §9.1: a
+            // server that closes an idle connection sends GOAWAY.
+            if (wait == .head or body) {
                 const failure = session.fail(h2.constants.error_enhance_your_calm);
                 assert(failure == error.ConnectionFailed);
             } else {

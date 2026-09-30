@@ -79,7 +79,9 @@ test "decision 103: a request the caller or the peer cancelled is never done" {
     try expect_nothing();
     var writer = h2.core.Writer.init(h2_support.frames[0..]);
     try h2.frame.write_rst_stream(&writer, 3, h2.constants.error_cancel);
-    try testing.expectEqual(3, (try support.receive_copy(writer.written())).event.?.cancelled.id);
+    const cancelled = (try support.receive_copy(writer.written())).event.?.cancelled;
+    try testing.expectEqual(3, cancelled.id);
+    try testing.expect(cancelled.reason == .peer_reset);
     try expect_nothing();
 }
 

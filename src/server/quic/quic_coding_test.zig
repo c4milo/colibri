@@ -100,6 +100,7 @@ test "decision 101: a coded h3 response the caller cancels, or the client stops,
     try support.stop_fetch(second);
     try support.pump(support.rounds_default);
     try testing.expectEqual(second.id, support.nth(.cancelled, 0).?.id);
+    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .peer_reset);
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());
 }
 

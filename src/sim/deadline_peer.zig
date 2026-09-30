@@ -78,10 +78,11 @@ pub const Hostile = struct {
     acks_owed: u32,
     /// The error code of the GOAWAY the server sent, if one arrived (h2).
     goaway_code: ?u32,
-    /// The status of the last response the server sent, and the error code of the last RST_STREAM
-    /// it sent (h2).
+    /// The status of the last response the server sent, and the error code of the first RST_STREAM
+    /// it sent and the instant it arrived (h2). Later ones answer frames on the stream it reset.
     response_status: ?u16,
     reset_code: ?u32,
+    reset_at_ms: ?u64,
     encoder: h2.hpack.Encoder,
     /// Reads the server's field blocks, all of them, so its table follows the server's encoder.
     decoder: h2.hpack.Decoder,
@@ -97,6 +98,7 @@ pub const Hostile = struct {
         hostile.goaway_code = null;
         hostile.response_status = null;
         hostile.reset_code = null;
+        hostile.reset_at_ms = null;
         hostile.decoder.init(constants.header_table_size_initial);
         switch (plan.protocol) {
             .h11 => try hostile.script_h11(plan),
@@ -119,9 +121,10 @@ pub const Hostile = struct {
         return hostile.script[piece.start..][0..piece.len];
     }
 
-    /// Reads the server's whole frames from `received`, noting each SETTINGS frame it owes an
-    /// acknowledgment and the GOAWAY that ends the connection (h2).
-    pub fn read_h2(hostile: *Hostile, received: []const u8) void {
+    /// Reads the server's whole frames from `received` at `now_ms`, noting each SETTINGS frame it
+    /// owes an acknowledgment, the responses and resets of its streams, and the GOAWAY that ends
+    /// the connection (h2).
+    pub fn read_h2(hostile: *Hostile, received: []const u8, now_ms: u64) void {
         // Bounded: each pass reads one whole frame of `received`, or stops.
         for (0..received.len + 1) |_| {
             const left = received[hostile.parsed..];
@@ -129,19 +132,21 @@ pub const Hostile = struct {
             const length = std.mem.readInt(u24, left[0..constants.frame_length_len], .big);
             const whole = constants.frame_header_len + length;
             if (left.len < whole) return;
-            hostile.on_frame(left[frame_type_offset], left[frame_flags_offset], left[constants.frame_header_len..whole]);
+            hostile.on_frame(left[frame_type_offset], left[frame_flags_offset], left[constants.frame_header_len..whole], now_ms);
             hostile.parsed += whole;
         }
     }
 
-    fn on_frame(hostile: *Hostile, frame_type: u8, flags: u8, payload: []const u8) void {
+    fn on_frame(hostile: *Hostile, frame_type: u8, flags: u8, payload: []const u8, now_ms: u64) void {
         const settings = frame_type == constants.frame_type_settings and flags & constants.flag_ack == 0;
         if (settings) hostile.acks_owed += 1;
         if (frame_type == constants.frame_type_goaway and payload.len >= goaway_code_end) {
             hostile.goaway_code = std.mem.readInt(u32, payload[goaway_code_start..goaway_code_end], .big);
         }
-        if (frame_type == constants.frame_type_rst_stream and payload.len == constants.rst_stream_len) {
+        const reset = frame_type == constants.frame_type_rst_stream and payload.len == constants.rst_stream_len;
+        if (reset and hostile.reset_code == null) {
             hostile.reset_code = std.mem.readInt(u32, payload[0..constants.rst_stream_len], .big);
+            hostile.reset_at_ms = now_ms;
         }
         if (frame_type == constants.frame_type_headers) hostile.on_headers(flags, payload);
     }
@@ -192,7 +197,7 @@ pub const Hostile = struct {
             .silent => return,
             // h11 has no PING, so an idle pinger makes its exchange and sends nothing more.
             .idle_pinger => return hostile.add(start_ms, h11_request),
-            .slow_body => {
+            .slow_body, .long_body => {
                 try hostile.add(start_ms, h11_upload_head);
                 return hostile.add_body(plan, null);
             },
@@ -218,13 +223,13 @@ pub const Hostile = struct {
         // A peer that makes one exchange sends its request whole, in its opening, and a slow body's
         // head leaves its stream open.
         if (plan.exchanges_len > 0) try hostile.write_request(&writer, whole_stream_id, "GET", "/", true);
-        if (plan.peer == .slow_body) try hostile.write_request(&writer, whole_stream_id, "POST", "/upload", false);
+        if (plan.peer == .slow_body or plan.peer == .long_body) try hostile.write_request(&writer, whole_stream_id, "POST", "/upload", false);
         if (plan.peer == .slow_second_head) slow_start_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms;
         try hostile.add(start_ms, writer.written());
         switch (plan.peer) {
             .pinger, .idle_pinger => try hostile.add_pings(plan),
             .slow_head, .slow_second_head => try hostile.add_slow_block(slow_start_ms, plan),
-            .slow_body => try hostile.add_body(plan, whole_stream_id),
+            .slow_body, .long_body => try hostile.add_body(plan, whole_stream_id),
             .honest, .slow_honest, .upload, .silent => unreachable,
         }
     }
@@ -284,8 +289,8 @@ pub const Hostile = struct {
         }
     }
 
-    /// A body of `piece_len` octets every gap, from one gap after the start until `slow_body_ms`:
-    /// raw octets in h11, and a DATA frame on `stream_id` for each piece in h2.
+    /// A body of `piece_len` octets every gap, from one gap after the start until the plan's body
+    /// stops: raw octets in h11, and a DATA frame on `stream_id` for each piece in h2.
     fn add_body(hostile: *Hostile, plan: *const Plan, stream_id: ?u32) Error!void {
         assert(plan.piece_len <= body_piece_len_max);
         const piece = body_filler[0..plan.piece_len];
@@ -293,7 +298,7 @@ pub const Hostile = struct {
         var at_ms = start_ms + plan.gap_ms;
         // Bounded: `pieces_max` holds a piece for each of the run's shortest gaps.
         for (0..limits.pieces_max) |_| {
-            if (at_ms >= limits.slow_body_ms) return;
+            if (at_ms >= plan_module.body_end_ms(plan)) return;
             const id = stream_id orelse {
                 try hostile.add(at_ms, piece);
                 at_ms += plan.gap_ms;

@@ -50,6 +50,13 @@ pub const base_ms_max: u64 = 1_000_000;
 /// server short of connections does, in milliseconds. An honest peer's head takes less to arrive.
 pub const short_limit_ms_min: u64 = 5_000;
 
+/// The shortest grace period and window, the lowest minimum body rate and the shortest body cap a
+/// plan gives the server when it shortens decision 110's defaults. The cap stays past the longest
+/// honest upload, `upload_len_max` octets at `upload_rate_min`.
+pub const short_rate_ms_min: u64 = 2_000;
+pub const short_body_rate_min: u32 = 256;
+pub const short_body_ms_min: u64 = 60_000;
+
 /// The octets of content an uploading peer's request carries at most.
 pub const upload_len_max: u32 = 49_152;
 
@@ -67,8 +74,20 @@ pub const slow_body_rate_min: u32 = 16;
 pub const slow_body_rate_max: u32 = 960;
 pub const slow_body_ms: u64 = 60_000;
 
-/// The octets a hostile peer's script holds: its opening, and a slow body with a DATA frame's
-/// header on each piece.
+/// A long body keeps twice the lowest minimum rate a plan draws, a piece every gap, for
+/// `long_body_ms`: past its cap, which its plan draws from `long_body_cap_ms_min` to
+/// `long_body_cap_ms_max`. Its gaps are short, so every window, the shortest included, holds
+/// pieces.
+pub const long_body_gap_ms_min: u64 = 250;
+pub const long_body_gap_ms_max: u64 = 500;
+pub const long_body_ms: u64 = 100_000;
+pub const long_body_cap_ms_min: u64 = 60_000;
+pub const long_body_cap_ms_max: u64 = 90_000;
+pub const long_body_rate: u32 = long_body_rate_factor * short_body_rate_min;
+const long_body_rate_factor: u32 = 2;
+
+/// The octets a hostile peer's script holds: its opening, and a slow or long body with a DATA
+/// frame's header on each piece.
 pub const script_len_max: u32 = 65_536;
 
 /// The CONTINUATION frames a hostile h2 peer cuts its field block into, after its HEADERS frame.
@@ -89,7 +108,7 @@ pub const passes_per_instant_max: u32 = 64;
 
 /// Octets of a check's trace line, and of a trace: its first line, a line for each answer, and
 /// the line of its end.
-pub const line_len_max: u32 = 160;
+pub const line_len_max: u32 = 256;
 pub const trace_len_max: u32 = line_len_max * (exchanges_max + trace_lines_besides_answers);
 const trace_lines_besides_answers: u32 = 2;
 
@@ -101,4 +120,11 @@ comptime {
     assert(upload_gap_ms_min <= upload_gap_ms_max and upload_rate_min <= upload_rate_max);
     assert(slow_body_rate_min <= slow_body_rate_max and slow_body_rate_max * slow_body_ms / ms_per_s < script_len_max);
     assert(exchanges_max * (upload_len_max + content_len_max) < stream_len_max);
+    assert(short_body_ms_min > upload_len_max * ms_per_s / upload_rate_min);
+    assert(short_rate_ms_min <= short_limit_ms_min and short_body_rate_min > 0);
+    assert(long_body_cap_ms_max < long_body_ms and long_body_gap_ms_max * 4 <= short_rate_ms_min);
+    assert(long_body_rate * long_body_ms / ms_per_s + long_body_ms / long_body_gap_ms_min * data_frame_header_len < script_len_max);
 }
+
+/// The header of an h2 DATA frame, which each piece of a body carries in h2 (RFC 9113 §4.1).
+const data_frame_header_len: u64 = 9;

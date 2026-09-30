@@ -107,7 +107,8 @@ pub const Owed = struct {
         owed.len -= 1;
         return switch (ending.kind) {
             .done => .{ .done = .{ .id = ending.id } },
-            .cancelled => .{ .cancelled = .{ .id = ending.id } },
+            // RFC 9000 §3.5: the peer's STOP_SENDING reset the response's stream.
+            .cancelled => .{ .cancelled = .{ .id = ending.id, .reason = .peer_reset } },
         };
     }
 

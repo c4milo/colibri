@@ -5,71 +5,25 @@ const std = @import("std");
 const h2 = @import("h2");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
+const deadline_support = @import("connection_deadline_test_support.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
 const server_constants = support.server_constants;
+const receive_at = deadline_support.receive_at;
+const send_at = deadline_support.send_at;
+const answer_at = deadline_support.answer_at;
+const goaway_code = deadline_support.goaway_code;
+const ping_frame = deadline_support.ping_frame;
+const early_ns = deadline_support.early_ns;
+const no_content = deadline_support.no_content;
 
 const first_request_ns = server_constants.first_request_timeout_ns;
 const idle_ns = server_constants.idle_timeout_ns;
 const head_ns = server_constants.head_timeout_ns;
 
-/// An instant well inside every deadline, at which a test's peer sends its first octets.
-const early_ns: u64 = 1_000_000;
-
-/// The request a test's h11 peer sends whole, and the status each answer carries: 204 (No
-/// Content), RFC 9110 §15.3.5.
+/// The request a test's h11 peer sends whole.
 const whole_request = "GET / HTTP/1.1\r\nHost: h\r\n\r\n";
-const no_content: u16 = 204;
-
-/// Reads `octets` at `now_ns`.
-fn receive_at(octets: []const u8, now_ns: u64) !support.Received {
-    @memcpy(support.input[0..octets.len], octets);
-    return connection.receive(support.input[0..octets.len], now_ns);
-}
-
-/// What the connection sends at `now_ns`.
-fn send_at(now_ns: u64) []const u8 {
-    const written = connection.send(&support.output, now_ns);
-    return support.output[0..written];
-}
-
-/// Answers the request `receive_at` read with a 204, sends the answer at `now_ns`, and reads the
-/// request's `done` event (decision 103).
-fn answer_at(received: support.Received, now_ns: u64) !void {
-    const id = received.event.?.request.id;
-    try connection.respond(id, .{ .status = no_content, .end = true });
-    _ = send_at(now_ns);
-    const done = try connection.receive(&.{}, now_ns);
-    try testing.expectEqual(id, done.event.?.done.id);
-}
-
-/// The error code of the GOAWAY frame in `sent`, which a test requires to be there.
-fn goaway_code(sent: []const u8) !u32 {
-    var offset: usize = 0;
-    // Bounded: each pass skips one whole frame.
-    for (0..sent.len) |_| {
-        if (offset + h2.constants.frame_header_len > sent.len) break;
-        const frame = sent[offset..];
-        const payload = frame[h2.constants.frame_header_len..];
-        if (frame[h2_support.type_index] == h2.constants.frame_type_goaway) {
-            return std.mem.readInt(u32, payload[goaway_code_start..][0..@sizeOf(u32)], .big);
-        }
-        offset += h2_support.frame_len(frame);
-    }
-    return error.TestUnexpectedResult;
-}
-
-/// Where a GOAWAY's error code lies, after its last stream identifier (RFC 9113 §6.8).
-const goaway_code_start: usize = 4;
-
-/// A PING frame that asks for an acknowledgment (RFC 9113 §6.7).
-fn ping_frame() ![h2.constants.frame_header_len + h2.constants.ping_len]u8 {
-    var frame: [h2.constants.frame_header_len + h2.constants.ping_len]u8 = undefined;
-    var writer = h2.core.Writer.init(&frame);
-    try h2.frame.write_ping(&writer, @splat(0), false);
-    return frame;
-}
 
 test "decision 110: a connection that sends nothing ends at the first-request deadline, with nothing sent" {
     try support.start_cleartext(.h11);

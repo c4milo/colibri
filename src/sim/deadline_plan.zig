@@ -41,6 +41,9 @@ pub const Peer = enum {
     idle_pinger,
     /// Sends a whole request head, then its body at under decision 110's minimum rate.
     slow_body,
+    /// Sends a whole request head, then its body at twice the plan's minimum rate for longer than
+    /// the plan's cap on a body, which it shortens so the cap passes first.
+    long_body,
 };
 
 pub const Plan = struct {
@@ -93,7 +96,7 @@ pub fn draw(random: *Random) Plan {
         .protocol = protocol,
         .peer = peer,
         .base_ms = random.below(limits.base_ms_max),
-        .deadlines = draw_deadlines(random),
+        .deadlines = if (peer == .long_body) long_body_deadlines(random) else draw_deadlines(random),
         .exchanges_len = exchanges_of(peer, random),
         .gap_ms = 0,
         .piece_len = 0,
@@ -116,15 +119,34 @@ pub fn draw(random: *Random) Plan {
 /// short of connections sets.
 fn draw_deadlines(random: *Random) server.Deadlines {
     if (random.below(short_limits_one_in) != 0) return .{};
+    return draw_short_deadlines(random);
+}
+
+fn draw_short_deadlines(random: *Random) server.Deadlines {
+    const defaults = server.constants;
     return .{
-        .first_request_ns = short_limit_ns(random, server.constants.first_request_timeout_ns),
-        .idle_ns = short_limit_ns(random, server.constants.idle_timeout_ns),
-        .head_ns = short_limit_ns(random, server.constants.head_timeout_ns),
+        .first_request_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.first_request_timeout_ns),
+        .idle_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.idle_timeout_ns),
+        .head_ns = shorter_ns(random, limits.short_limit_ms_min, defaults.head_timeout_ns),
+        .body_rate_min = @intCast(random.between(limits.short_body_rate_min, defaults.body_rate_min)),
+        .rate_grace_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.rate_grace_ns),
+        .rate_window_ns = shorter_ns(random, limits.short_rate_ms_min, defaults.rate_window_ns),
+        .body_ns = shorter_ns(random, limits.short_body_ms_min, defaults.body_timeout_ns),
     };
 }
 
-fn short_limit_ns(random: *Random, default_ns: u64) u64 {
-    const limit_ms = random.between(limits.short_limit_ms_min, default_ns / limits.ns_per_ms);
+/// The shortened limits a long body runs under: the lowest minimum rate a plan draws, and a cap
+/// its body outlasts.
+fn long_body_deadlines(random: *Random) server.Deadlines {
+    var deadlines = draw_short_deadlines(random);
+    deadlines.body_rate_min = limits.short_body_rate_min;
+    deadlines.body_ns = random.between(limits.long_body_cap_ms_min, limits.long_body_cap_ms_max) * limits.ns_per_ms;
+    return deadlines;
+}
+
+/// A limit of whole milliseconds, from `min_ms` to the default.
+fn shorter_ns(random: *Random, min_ms: u64, default_ns: u64) u64 {
+    const limit_ms = random.between(min_ms, default_ns / limits.ns_per_ms);
     return limit_ms * limits.ns_per_ms;
 }
 
@@ -132,7 +154,7 @@ fn exchanges_of(peer: Peer, random: *Random) u8 {
     return switch (peer) {
         .honest, .slow_honest, .upload => @intCast(random.between(1, limits.exchanges_max)),
         .slow_second_head, .idle_pinger => 1,
-        .silent, .slow_head, .pinger, .slow_body => 0,
+        .silent, .slow_head, .pinger, .slow_body, .long_body => 0,
     };
 }
 
@@ -161,7 +183,17 @@ fn draw_pace(plan: *Plan, random: *Random) void {
             // Rounded down, so the pace is the rate or less.
             plan.piece_len = @intCast(@max(1, plan.body_rate * plan.gap_ms / limits.ms_per_s));
         },
+        .long_body => {
+            plan.gap_ms = random.between(limits.long_body_gap_ms_min, limits.long_body_gap_ms_max);
+            plan.body_rate = limits.long_body_rate;
+            plan.piece_len = @intCast(plan.body_rate * plan.gap_ms / limits.ms_per_s);
+        },
     }
+}
+
+/// The instant a hostile peer's body stops, in milliseconds.
+pub fn body_end_ms(plan: *const Plan) u64 {
+    return if (plan.peer == .long_body) limits.long_body_ms else limits.slow_body_ms;
 }
 
 const testing = std.testing;

@@ -50,6 +50,7 @@ pub const Request = event.Request;
 pub const Body = event.Body;
 pub const Trailers = event.Trailers;
 pub const Cancelled = event.Cancelled;
+pub const CancelReason = event.CancelReason;
 pub const Done = event.Done;
 pub const Response = event.Response;
 pub const Content = event.Content;
@@ -66,6 +67,7 @@ test {
     _ = @import("reason.zig");
     _ = @import("expect.zig");
     _ = @import("done.zig");
+    _ = @import("rate.zig");
     _ = @import("quic/quic_response.zig");
     _ = @import("quic/quic_request.zig");
     _ = @import("quic/quic_connection_test.zig");

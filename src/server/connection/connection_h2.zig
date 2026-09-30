@@ -66,7 +66,8 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
         .data => |data| .{ .body = .{ .id = data.stream_id, .octets = data.payload, .end = data.end_stream } },
         .trailers => |trailers| .{ .trailers = .{ .id = trailers.stream_id, .fields = event.Fields.of(session.field_section()) } },
         // RFC 9113 §6.4: the peer ended the stream; §5.4.2: colibri did, on a stream error.
-        .stream_reset, .stream_refused => |reset| .{ .cancelled = .{ .id = reset.stream_id } },
+        .stream_reset => |reset| .{ .cancelled = .{ .id = reset.stream_id, .reason = .peer_reset } },
+        .stream_refused => |refused| .{ .cancelled = .{ .id = refused.stream_id, .reason = .refused } },
         // RFC 9113 §8.1: a server receives no response; h2 refuses one before it is an event. RFC
         // 7838 §4: a server ignores ALTSVC, and h2 reports none to one.
         .settings_acknowledged, .settings_applied, .ping_acknowledged, .goaway, .response, .alt_svc => null,

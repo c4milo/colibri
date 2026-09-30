@@ -130,9 +130,22 @@ pub const first_request_timeout_ns: u64 = 10 * nanoseconds_per_second;
 pub const idle_timeout_ns: u64 = 30 * nanoseconds_per_second;
 pub const head_timeout_ns: u64 = 10 * nanoseconds_per_second;
 
+/// Decision 110's body deadlines. From the end of a request's head, its body must bring
+/// `body_rate_min` octets a second over each window of `rate_window_ns`, the first window taking
+/// `rate_grace_ns` more, and must end within `body_timeout_ns`. In h2 each stream's body does, and
+/// the bodies together do as well.
+pub const body_rate_min: u32 = 1_024;
+pub const rate_grace_ns: u64 = 10 * nanoseconds_per_second;
+pub const rate_window_ns: u64 = 10 * nanoseconds_per_second;
+pub const body_timeout_ns: u64 = 300 * nanoseconds_per_second;
+
 /// The longest deadline a caller may set: a day. A deadline starts at an instant the caller
 /// passed, and this keeps the start plus the limit inside a `u64`.
 pub const timeout_ns_max: u64 = 86_400 * nanoseconds_per_second;
+
+/// The request bodies one connection waits for at once: one in h11, and one for each stream an h2
+/// peer may open.
+pub const bodies_max: usize = h2.constants.concurrent_streams_max;
 
 comptime {
     assert(encoder_ring_len > 0 and encoders_default > 0);
@@ -154,4 +167,6 @@ comptime {
     // Every chunk the output holds leaves room for the last one.
     assert(output_len > chunk_framing_len_max + last_chunk_len);
     assert(done_owed_max > 0);
+    assert(bodies_max > 0 and body_rate_min > 0);
+    assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
 }

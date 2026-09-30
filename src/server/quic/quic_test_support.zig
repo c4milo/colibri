@@ -80,7 +80,7 @@ const client_body_len: usize = 16_384;
 var client_h3_started: bool = false;
 
 /// What the server reported, kept past the call that reported it: its kind, its request, and a
-/// request's path or a body event's length and end.
+/// request's path, a body event's length and end, or why a request was cancelled.
 pub const Seen = struct {
     kind: std.meta.Tag(Event),
     id: u64,
@@ -88,6 +88,7 @@ pub const Seen = struct {
     path_len: usize = 0,
     len: usize = 0,
     end: bool = false,
+    reason: ?event.CancelReason = null,
 
     pub fn path_of(entry: *const Seen) []const u8 {
         return entry.path[0..entry.path_len];
@@ -326,7 +327,10 @@ fn keep(reported: Event) void {
             entry.end = body.end;
         },
         .trailers => |trailers| entry.id = trailers.id,
-        .cancelled => |cancelled| entry.id = cancelled.id,
+        .cancelled => |cancelled| {
+            entry.id = cancelled.id;
+            entry.reason = cancelled.reason;
+        },
         .done => |done| entry.id = done.id,
     }
     seen_len += 1;

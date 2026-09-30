@@ -5,6 +5,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
+const deadline = @import("deadline.zig");
 
 /// A request's id: the h2 stream it arrived on, or for h11 its place on the connection, counting
 /// from 1. A response names the request it answers by it.
@@ -117,11 +118,22 @@ pub const Trailers = struct {
     fields: Fields,
 };
 
-/// A request ended before its response did: the peer reset its h2 stream, or colibri refused it
-/// (RFC 9113 §6.4, §5.4.2). The id may be one no `request` event named, when the refusal came
-/// before the head was read whole.
+/// A request ended before its response did: the peer reset its stream, colibri refused it (RFC
+/// 9113 §6.4, §5.4.2; RFC 9114 §4.1.1, §4.1.2), or one of decision 110's deadlines passed on its
+/// h2 stream. The id may be one no `request` event named, when the refusal came before the head
+/// was read whole.
 pub const Cancelled = struct {
     id: Id,
+    reason: CancelReason,
+};
+
+pub const CancelReason = union(enum) {
+    /// The peer reset the request's stream.
+    peer_reset,
+    /// colibri refused the request, which the peer sent malformed.
+    refused,
+    /// The deadline passed, and colibri reset the stream (decision 110).
+    deadline: deadline.Deadline,
 };
 
 /// The response to a request is whole, and the server reads none of the caller's octets for it

@@ -50,6 +50,7 @@ test "RFC 9000 §3.5: a client's STOP_SENDING cancels the request while its stre
     try support.stop_fetch(fetch);
     try support.pump(support.rounds_default);
     try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
+    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .peer_reset);
     try testing.expect(connection.transport.streams.lookup(.{ .value = fetch.id }) == .live);
     try testing.expectEqual(null, support.nth(.done, 0));
 }
@@ -60,7 +61,18 @@ test "RFC 9114 §4.1.1: a client's reset of its request cancels it, and the serv
     try support.reset_fetch(fetch);
     try support.pump(support.rounds_default);
     try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
+    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .peer_reset);
     try testing.expect(response_reset(fetch.id));
+}
+
+test "RFC 9114 §4.1.2: a request whose content falls short of its content-length is cancelled as refused" {
+    try support.start();
+    try support.connect();
+    const declared = [_]support.Field{.{ .name = "content-length", .value = "5" }};
+    const fetch = try support.request_with_fields("POST", "/upload", &declared);
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(fetch.id, support.nth(.cancelled, 0).?.id);
+    try testing.expect(support.nth(.cancelled, 0).?.reason.? == .refused);
 }
 
 test "RFC 9110 §6.5: a request's trailer section ends it, and no end of its content follows" {

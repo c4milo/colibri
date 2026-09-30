@@ -5,12 +5,13 @@
 //!      application takes to answer;
 //!   3. every run must end at the deadline decision 110 names, at its instant under the plan's
 //!      limits: an honest peer or an idle pinger at the idle deadline after its last response, a
-//!      silent peer or a pinger at the first-request deadline, and a slow head at the
-//!      first-request or the head deadline. A PING moves no deadline. The server has no deadline
-//!      for a body yet, so a slow body holds it open until the horizon;
+//!      silent peer or a pinger at the first-request deadline, a slow head at the first-request
+//!      or the head deadline, and a slow body at the end of its first window short of the quota,
+//!      or at its cap. A PING moves no deadline;
 //!   4. and as decision 110 says: a head that began gets a 408 in h11 and a GOAWAY with
 //!      ENHANCE_YOUR_CALM in h2, and with none begun h11 sends nothing and h2 a GOAWAY with
-//!      NO_ERROR.
+//!      NO_ERROR. A slow body gets a 408: in h11 on a connection that then closes, and in h2 on
+//!      its stream, with RST_STREAM and NO_ERROR, after which the connection is idle.
 //!
 //! The census counts the runs each deadline ended and the runs the server held open until the
 //! horizon, and its test pins the CRC-32 of the traces of seeds `[0, check_seeds_default)`, in
@@ -35,7 +36,7 @@ pub const check_name = "deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0xe2af1a07;
+pub const census_crc32_expected: u32 = 0xe24eddd9;
 
 pub const Violation = deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -70,6 +71,10 @@ pub const Census = struct {
     first_request: u64 = 0,
     idle: u64 = 0,
     head: u64 = 0,
+    body_rate: u64 = 0,
+    body: u64 = 0,
+    /// The h2 streams a body deadline ended, the connection going on.
+    streams_cut: u64 = 0,
     held: u64 = 0,
     trace_octets: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
@@ -104,6 +109,7 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.exchanges += result.record.exchanges_done;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
+        if (result.record.cancelled != null) census.streams_cut += 1;
         const timed_out = result.record.timed_out orelse {
             census.held += 1;
             continue;
@@ -112,6 +118,8 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
             .first_request => census.first_request += 1,
             .idle => census.idle += 1,
             .head => census.head += 1,
+            .body_rate => census.body_rate += 1,
+            .body => census.body += 1,
         }
     }
 }
@@ -131,12 +139,19 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     if (!plan.honest() and !ended_as_expected(plan, record, expected)) return error.EndedWrong;
 }
 
-/// How decision 110 says a run ends: by which deadline, at which instant, and whether a request
-/// head had begun, which decides the response.
+/// How decision 110 says a run ends: by which deadline, at which instant, whether a request head
+/// had begun, which decides the response, and where a slow body was cut.
 const Expected = struct {
     deadline: server.Deadline,
     end_ms: u64,
     head: bool,
+    cut: ?Cut = null,
+};
+
+/// The deadline that cut a slow body, and its instant.
+const Cut = struct {
+    deadline: server.Deadline,
+    at_ms: u64,
 };
 
 /// How decision 110 says the run ends under the plan's limits, or null for a run the server holds
@@ -157,8 +172,48 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
             .end_ms = plan.answer_delay_ms[0] + limits.second_head_after_ms + head_ms,
             .head = true,
         },
-        .slow_body => null,
+        .slow_body, .long_body => slow_body(plan),
     };
+}
+
+/// A slow or long body ends where `body_cut` says: in h11 with the connection, and in h2 with its stream,
+/// after which the connection is idle.
+fn slow_body(plan: *const Plan) Expected {
+    const cut = body_cut(plan);
+    return switch (plan.protocol) {
+        .h11 => .{ .deadline = cut.deadline, .end_ms = cut.at_ms, .head = false, .cut = cut },
+        .h2 => .{ .deadline = .idle, .end_ms = cut.at_ms + ms_of(plan.deadlines.idle_ns.?), .head = false, .cut = cut },
+    };
+}
+
+/// Where the server cuts a slow body under the plan's limits, worked out from the peer's pieces:
+/// the end of the first window that brings less than the quota, or the cap, whichever comes first.
+/// The body's wait starts when its head arrives, at the start of the run, and a piece counts in the
+/// window it arrives in; a window ends at its instant, and the cap passes first at one instant.
+fn body_cut(plan: *const Plan) Cut {
+    const deadlines = &plan.deadlines;
+    const window_ms = ms_of(deadlines.rate_window_ns);
+    const cap_ms = ms_of(deadlines.body_ns.?);
+    const quota = deadlines.body_quota().?;
+    var start_ms: u64 = 0;
+    var end_ms = ms_of(deadlines.rate_grace_ns) + window_ms;
+    // Bounded: each pass moves a window on, and the cap ends them.
+    for (0..cap_ms / window_ms + 1) |_| {
+        if (end_ms >= cap_ms) break;
+        if (body_octets(plan, start_ms, end_ms) < quota) return .{ .deadline = .body_rate, .at_ms = end_ms };
+        start_ms = end_ms;
+        end_ms += window_ms;
+    }
+    return .{ .deadline = .body, .at_ms = cap_ms };
+}
+
+/// The octets of the body's pieces that arrive from `start_ms` to before `end_ms`: one piece a gap
+/// after the start and each gap after, until the body stops.
+fn body_octets(plan: *const Plan, start_ms: u64, end_ms: u64) u64 {
+    const first = @max(1, (start_ms + plan.gap_ms - 1) / plan.gap_ms);
+    const last = @min((end_ms - 1) / plan.gap_ms, (deadline_plan.body_end_ms(plan) - 1) / plan.gap_ms);
+    if (last < first) return 0;
+    return (last - first + 1) * plan.piece_len;
 }
 
 /// A slow first head ends at the first-request deadline or at its own, whichever passes first. At
@@ -172,11 +227,27 @@ fn slow_first_head(plan: *const Plan, first_request_ms: u64, head_ms: u64) Expec
 /// What a hostile peer read at the end: a 408 in h11 when a head had begun, and a GOAWAY in h2
 /// with ENHANCE_YOUR_CALM when one had and NO_ERROR when none had.
 fn ended_as_expected(plan: *const Plan, record: *const Record, expected: Expected) bool {
+    if (expected.cut) |cut| return cut_as_expected(plan, record, cut);
     return switch (plan.protocol) {
         .h11 => record.saw_timeout_response == expected.head,
         .h2 => record.goaway_code == if (expected.head) h2.constants.error_enhance_your_calm else h2.constants.error_no_error,
     };
 }
+
+/// A cut body reads a 408: in h11 before the connection closes, and in h2 on its stream, followed
+/// by RST_STREAM with NO_ERROR at the cut's instant, the caller reading `cancelled` for it, and a
+/// GOAWAY with NO_ERROR once the connection is idle.
+fn cut_as_expected(plan: *const Plan, record: *const Record, cut: Cut) bool {
+    return switch (plan.protocol) {
+        .h11 => record.saw_timeout_response,
+        .h2 => record.response_status == timeout_status and
+            record.reset_code == h2.constants.error_no_error and record.reset_at_ms == cut.at_ms and
+            record.cancelled == cut.deadline and record.goaway_code == h2.constants.error_no_error,
+    };
+}
+
+/// RFC 9110 §15.5.9: 408 (Request Timeout).
+const timeout_status: u16 = 408;
 
 fn last_answer_ms(record: *const Record) u64 {
     var last: u64 = 0;
@@ -195,6 +266,9 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     storage.trace_len = 0;
     try line(storage, "{s} seed=0x{x} protocol={t} peer={t} base_ms={d}", .{ check_name, seed, plan.protocol, plan.peer, plan.base_ms });
     try line(storage, " limits_ms={d}/{d}/{d}", .{ ms_of(deadlines.first_request_ns.?), ms_of(deadlines.idle_ns.?), ms_of(deadlines.head_ns.?) });
+    try line(storage, " body={d}/{d}/{d}/{d}", .{
+        deadlines.body_rate_min.?, ms_of(deadlines.rate_grace_ns), ms_of(deadlines.rate_window_ns), ms_of(deadlines.body_ns.?),
+    });
     try line(storage, " exchanges={d} gap_ms={d} piece_len={d}\n", .{ plan.exchanges_len, plan.gap_ms, plan.piece_len });
     for (record.answers[0..record.answers_len], 0..) |answered, index| {
         try line(storage, "answer={d} read_ms={d} body_end_ms={?d} answered_ms={?d}\n", .{
@@ -202,8 +276,8 @@ fn write_trace(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
         });
     }
     try line(storage, "end={t} at_ms={d} deadline={?t} exchanges_done={d}", .{ record.end, record.end_ms, record.timed_out, record.exchanges_done });
-    try line(storage, " timeout_response={} status={?d} reset={?d} goaway={?d}\n", .{
-        record.saw_timeout_response, record.response_status, record.reset_code, record.goaway_code,
+    try line(storage, " timeout_response={} status={?d} reset={?d} reset_at_ms={?d} cancelled={?t} goaway={?d}\n", .{
+        record.saw_timeout_response, record.response_status, record.reset_code, record.reset_at_ms, record.cancelled, record.goaway_code,
     });
 }
 

@@ -5,7 +5,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("constants.zig");
 
-/// Which deadline ended a connection.
+/// Which deadline ended a connection, or an h2 stream.
 pub const Deadline = enum {
     /// No whole request head arrived in time after the connection opened, the TLS handshake
     /// included.
@@ -14,32 +14,78 @@ pub const Deadline = enum {
     idle,
     /// A request head began and did not end in time.
     head,
+    /// A request body arrived under the minimum rate: in h11 the body, and in h2 a stream's body
+    /// or the bodies of the connection's streams together.
+    body_rate,
+    /// A request body did not end within the cap on it.
+    body,
 };
 
-/// Each deadline's limit in nanoseconds, or null to turn it off.
+/// Each deadline's limit, or null to turn it off.
 pub const Deadlines = struct {
     first_request_ns: ?u64 = constants.first_request_timeout_ns,
     idle_ns: ?u64 = constants.idle_timeout_ns,
     head_ns: ?u64 = constants.head_timeout_ns,
+    /// The octets a second a request body brings at least, over each window.
+    body_rate_min: ?u32 = constants.body_rate_min,
+    /// The first window of a rate takes this more, and each window lasts this long.
+    rate_grace_ns: u64 = constants.rate_grace_ns,
+    rate_window_ns: u64 = constants.rate_window_ns,
+    /// The longest a request body takes to arrive, from the end of its head.
+    body_ns: ?u64 = constants.body_timeout_ns,
 
-    /// Refuses a limit of 0, which null says better, and one past `timeout_ns_max`.
+    /// Refuses a limit of 0, which null says better, and a span past `timeout_ns_max`.
     pub fn validate(deadlines: Deadlines) error{DeadlineInvalid}!void {
-        inline for (std.meta.fields(Deadlines)) |field| {
-            if (@field(deadlines, field.name)) |limit| {
-                // RFC 9112 §9.5 leaves a server's timeout to the server, and decision 110 bounds it:
-                // null turns a deadline off, and a limit stays within a day.
-                if (limit == 0 or limit > constants.timeout_ns_max) return error.DeadlineInvalid;
-            }
+        const spans = [_]?u64{
+            deadlines.first_request_ns, deadlines.idle_ns,        deadlines.head_ns,
+            deadlines.rate_grace_ns,    deadlines.rate_window_ns, deadlines.body_ns,
+        };
+        for (spans) |span| {
+            const limit = span orelse continue;
+            // RFC 9112 §9.5 leaves a server's timeout to the server, and decision 110 bounds it:
+            // null turns a deadline off, and a limit stays within a day.
+            if (limit == 0 or limit > constants.timeout_ns_max) return error.DeadlineInvalid;
         }
+        // RFC 9112 §9.5 leaves a server's timeouts to the server, and decision 110 bounds its rates
+        // too: a rate of 0 would check nothing, which null says.
+        if (deadlines.body_rate_min == 0) return error.DeadlineInvalid;
+    }
+
+    /// The octets a window must bring for the body rate, at least 1, or null with no rate.
+    pub fn body_quota(deadlines: *const Deadlines) ?u64 {
+        const rate = deadlines.body_rate_min orelse return null;
+        return quota(rate, deadlines.rate_window_ns);
     }
 };
+
+/// The octets `rate` octets a second bring over `window_ns`, rounded up so a window always owes
+/// one at least.
+pub fn quota(rate: u32, window_ns: u64) u64 {
+    assert(rate > 0 and window_ns > 0);
+    const product = @as(u128, rate) * window_ns;
+    const octets: u64 = @intCast((product + constants.nanoseconds_per_second - 1) / constants.nanoseconds_per_second);
+    assert(octets > 0);
+    return octets;
+}
 
 const testing = std.testing;
 
 test "decision 110: the defaults are valid, 0 and a limit past a day are refused, and null is off" {
     try (Deadlines{}).validate();
-    try (Deadlines{ .first_request_ns = null, .idle_ns = null, .head_ns = null }).validate();
+    try (Deadlines{ .first_request_ns = null, .idle_ns = null, .head_ns = null, .body_rate_min = null, .body_ns = null }).validate();
     try (Deadlines{ .idle_ns = constants.timeout_ns_max }).validate();
     try testing.expectError(error.DeadlineInvalid, (Deadlines{ .head_ns = 0 }).validate());
     try testing.expectError(error.DeadlineInvalid, (Deadlines{ .first_request_ns = constants.timeout_ns_max + 1 }).validate());
+    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .body_rate_min = 0 }).validate());
+    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .rate_grace_ns = 0 }).validate());
+    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .rate_window_ns = constants.timeout_ns_max + 1 }).validate());
+    try testing.expectError(error.DeadlineInvalid, (Deadlines{ .body_ns = 0 }).validate());
+}
+
+test "decision 110: a window owes the rate times its length, rounded up" {
+    try testing.expectEqual(10_240, (Deadlines{}).body_quota().?);
+    try testing.expectEqual(null, (Deadlines{ .body_rate_min = null }).body_quota());
+    // Half an octet rounds up to one.
+    try testing.expectEqual(1, quota(1, constants.nanoseconds_per_second / 2));
+    try testing.expectEqual(3, quota(2, constants.nanoseconds_per_second + 1));
 }

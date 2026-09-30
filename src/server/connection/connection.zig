@@ -35,8 +35,9 @@ const connection_coding = @import("connection_coding.zig");
 const connection_config = @import("connection_config.zig");
 const connection_continue = @import("connection_continue.zig");
 const connection_deadline = @import("connection_deadline.zig");
+const connection_bodies = @import("connection_bodies.zig");
+const connection_events = @import("connection_events.zig");
 const deadline = @import("../deadline.zig");
-const expect = @import("../expect.zig");
 const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
 
@@ -124,6 +125,7 @@ pub const Connection = struct {
     /// This connection's limits and where its deadlines stand (decision 110).
     deadlines: Deadlines,
     clock: connection_deadline.Clock,
+    bodies: connection_bodies.Bodies,
 
     /// Prepares a connection the listener accepted at `now_ns`, with nothing read or written. Over
     /// TLS, every draw the handshake makes comes from `random`, and `now_seconds` is the clock its
@@ -135,6 +137,7 @@ pub const Connection = struct {
         try config.deadlines.validate();
         connection.deadlines = config.deadlines;
         connection.clock = .init(now_ns);
+        connection.bodies.init();
         connection.config = config;
         connection.plain_in_len = 0;
         connection.plain_in_read = 0;
@@ -199,6 +202,8 @@ pub const Connection = struct {
         // Decision 103: a response made whole since the last call is reported before anything
         // more is read, so no request arrives while one is owed.
         if (connection.done_owed.take()) |id| return .{ .consumed = 0, .event = .{ .done = .{ .id = id } } };
+        // Decision 110: a request an h2 body deadline ended is reported the same way.
+        if (connection_bodies.take_cancelled(connection)) |cancelled| return .{ .consumed = 0, .event = .{ .cancelled = cancelled } };
         const received = try switch (connection.phase) {
             .closed => Received{ .consumed = 0, .event = null },
             .handshake => connection_tls.handshake(connection, input, now_ns),
@@ -207,16 +212,7 @@ pub const Connection = struct {
             else
                 connection_tls.read(connection, input, now_ns),
         };
-        const reported = received.event orelse return received;
-        if (reported == .request and expect.expects_continue(reported.request)) connection.continue_owed = reported.request.id;
-        switch (reported) {
-            .request => |request| {
-                connection_coding.on_request(connection, request);
-                connection_deadline.on_request(connection);
-            },
-            .cancelled => |cancelled| connection_coding.forget(connection, cancelled.id),
-            .body, .trailers, .done => {},
-        }
+        if (received.event) |reported| connection_events.note(connection, reported);
         return received;
     }
 
@@ -226,7 +222,14 @@ pub const Connection = struct {
         if (connection.stopped) return .{ .consumed = 0, .event = null };
         return switch (connection.session) {
             .h2 => connection_h2.receive(connection, plaintext, now_ns),
-            .h11 => connection_h11.receive(connection, plaintext),
+            .h11 => |*session| {
+                const reading_body = session.phase == .body;
+                const received = try connection_h11.receive(connection, plaintext);
+                // Decision 110: the octets h11 reads of a body, its framing included, are the
+                // body's.
+                if (reading_body) connection_bodies.count(connection, connection.current_id, received.consumed);
+                return received;
+            },
             // `receive` reads the protocol only once the connection is open.
             .none => unreachable,
         };
@@ -266,6 +269,7 @@ pub const Connection = struct {
     pub fn cancel(connection: *Connection, id: Id) void {
         if (connection.phase != .open) return;
         connection_coding.forget(connection, id);
+        connection_bodies.remove(connection, id);
         switch (connection.session) {
             .h2 => connection_h2.cancel(connection, id),
             .h11 => connection_h11.cancel(connection, id),
@@ -478,4 +482,5 @@ test {
     _ = @import("connection_coding_h11_test.zig");
     _ = @import("connection_coding_h2_test.zig");
     _ = @import("connection_deadline_test.zig");
+    _ = @import("connection_bodies_test.zig");
 }
