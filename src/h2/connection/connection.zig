@@ -334,6 +334,16 @@ pub const Connection = struct {
         assert(connection.preface_done() or connection.tls_failed);
     }
 
+    /// Lowers the streams the peer may have open at once to `max`, which colibri's SETTINGS
+    /// advertise as SETTINGS_MAX_CONCURRENT_STREAMS (RFC 9113 §6.5.2) and which it enforces from
+    /// the first stream (§5.1.2). A server's call, before the preface is written.
+    pub fn limit_peer_streams(connection: *Connection, max: u32) void {
+        assert(connection.role == .server and !connection.settings_written);
+        assert(max > 0 and max <= constants.concurrent_streams_max);
+        connection.local.max_concurrent_streams = max;
+        connection.streams.peer_active_max = max;
+    }
+
     /// Queues a RST_STREAM for `stream_id` (RFC 9113 §6.4): see `connection_send.zig`.
     pub fn reset_stream(connection: *Connection, stream_id: u32, error_code: u32) SendError!void {
         return connection_send.reset(connection, stream_id, error_code);

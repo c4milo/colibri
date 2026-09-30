@@ -304,3 +304,46 @@ test "RFC 9110 §10.1.1: an h2 request expecting 100-continue gets a 100 HEADERS
     var lines = decoder.block(sent[constants.frame_header_len..frame_len(sent)]);
     try testing.expectEqualStrings("100", (try lines.next()).?.value);
 }
+
+test "decision 110: the server advertises 100 concurrent streams, refuses the next, and a configuration lowers it" {
+    try support.start_cleartext(.h2);
+    _ = try support.receive_copy(h2_support.client_preface);
+    const sent = support.drain();
+    // RFC 9113 §6.5.2: SETTINGS_MAX_CONCURRENT_STREAMS carries the limit.
+    try testing.expect(lists_streams_max(sent, support.server_constants.h2_streams_max));
+    try expect_refused_after(support.server_constants.h2_streams_max);
+    support.config = .{ .cleartext = .h2, .h2_streams_max = lowered_streams_max };
+    try connection.init(&support.config, support.stream.random(), 0, 0);
+    _ = try support.receive_copy(h2_support.client_preface);
+    try testing.expect(lists_streams_max(support.drain(), lowered_streams_max));
+    try expect_refused_after(lowered_streams_max);
+}
+
+/// The streams a configuration lowers the limit to.
+const lowered_streams_max: u32 = 2;
+
+/// Opens `limit` streams, each a request whose body is still to come, and requires the next to be
+/// refused with REFUSED_STREAM (RFC 9113 §5.1.2).
+fn expect_refused_after(limit: u32) !void {
+    for (0..limit) |index| {
+        const stream_id: u32 = @intCast(constants.stream_id_client_first + constants.stream_id_step * index);
+        try testing.expectEqual(stream_id, (try support.receive_copy(try h2_support.request_frame(stream_id, "/", false))).event.?.request.id);
+    }
+    const refused_id = constants.stream_id_client_first + constants.stream_id_step * limit;
+    const cancelled = (try support.receive_copy(try h2_support.request_frame(refused_id, "/", false))).event.?.cancelled;
+    try testing.expectEqual(refused_id, cancelled.id);
+    try testing.expect(cancelled.reason == .refused);
+}
+
+/// Whether the server's SETTINGS frame at the front of `sent` lists SETTINGS_MAX_CONCURRENT_STREAMS
+/// as `limit`: each entry is an identifier of two octets and a value of four (RFC 9113 §6.5.1).
+fn lists_streams_max(sent: []const u8, limit: u32) bool {
+    const length = std.mem.readInt(u24, sent[0..constants.frame_length_len], .big);
+    const entries = sent[constants.frame_header_len..][0..length];
+    for (0..length / constants.setting_len) |index| {
+        const entry = entries[index * constants.setting_len ..][0..constants.setting_len];
+        if (std.mem.readInt(u16, entry[0..@sizeOf(u16)], .big) != constants.setting_max_concurrent_streams) continue;
+        return std.mem.readInt(u32, entry[@sizeOf(u16)..][0..@sizeOf(u32)], .big) == limit;
+    }
+    return false;
+}

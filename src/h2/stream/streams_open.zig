@@ -15,7 +15,7 @@
 //!      (§5.1.1);
 //!   4. the identifier is not above a GOAWAY colibri sent, or `error.AfterGoaway` (§6.8), and the
 //!      watermark stays where it was;
-//!   5. `peer_active` is below `concurrent_streams_max`, or `error.Refused` (§5.1.2, §8.7), which
+//!   5. `peer_active` is below `peer_active_max`, or `error.Refused` (§5.1.2, §8.7), which
 //!      moves the watermark to the identifier, because the peer used it (§5.1.1);
 //!   6. the pool has a free slot after the drop, asserted: the pool holds `concurrent_streams_max`
 //!      records and a server opens none of its own, so a full pool below step 5's limit holds a
@@ -107,7 +107,7 @@ pub fn open_peer(streams: *Streams, id: u32, initial_send_window: u32) OpenPeerE
     // RFC 9113 §6.8: once the GOAWAY is sent, its sender ignores frames on streams the receiver
     // initiated above the last stream identifier.
     if (goaway.is_above_goaway_sent(streams, id)) return error.AfterGoaway;
-    if (streams.peer_active == constants.concurrent_streams_max) {
+    if (streams.peer_active >= streams.peer_active_max) {
         slot.forget_reset(streams, id);
         // RFC 9113 §5.1.2: a HEADERS that exceeds the advertised concurrent stream limit is a
         // stream error of PROTOCOL_ERROR or REFUSED_STREAM, and RFC 9113 §8.7 makes REFUSED_STREAM

@@ -6128,6 +6128,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     its deadline, and a tick waiting Rotor's longest. The default deadlines are multiples of that
     wait, 10 s, so the second is caught only because another connection opens halfway.
 
+  **100 concurrent h2 streams, 2026-09-30.** The last piece of 20b's second part. The server
+  advertises a SETTINGS_MAX_CONCURRENT_STREAMS of `h2_streams_max`, 100, down from h2's 128, and
+  refuses a stream past it with REFUSED_STREAM (RFC 9113 §5.1.2); `server.Config` lowers it. h2's
+  `Connection.limit_peer_streams` sets what it advertises and enforces, before its preface.
+  - `zig build test`: 128 of 128 steps and 2463 of 2463 tests passed. `tools/h2spec.sh 18443
+    --tls`: 144 of 146 cases in each mode.
+  - 5 mutations, each **CAUGHT** by `zig build test-h2` and `zig build test-server`: h2 refusing
+    at its table's size rather than the limit, the limit not advertised or not enforced, the
+    server setting no limit, and one stream past the limit allowed.
+  - A peer that opens 110 streams at once joins the deadline check once h2's queue of replies can
+    hold a reset for each stream a deadline cuts in one call: 32 fit today.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

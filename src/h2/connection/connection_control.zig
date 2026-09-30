@@ -248,3 +248,38 @@ test "http2/6.9.1/2: WINDOW_UPDATE on stream 0 adds to the connection window and
     try testing.expectEqual(error.ConnectionFailed, test_connection.receive(large, 0));
     try testing.expectEqual(constants.error_flow_control_error, test_connection.failure.?);
 }
+
+/// Whether the SETTINGS frame at the front of `octets` lists `id` with `value`: each entry is an
+/// identifier of two octets and a value of four (RFC 9113 §6.5.1). Test-only.
+fn lists_setting(octets: []const u8, id: u16, value: u32) bool {
+    const length = std.mem.readInt(u24, octets[0..constants.frame_length_len], .big);
+    const entries = octets[constants.frame_header_len..][0..length];
+    for (0..length / constants.setting_len) |index| {
+        const entry = entries[index * constants.setting_len ..][0..constants.setting_len];
+        if (std.mem.readInt(u16, entry[0..@sizeOf(u16)], .big) != id) continue;
+        return std.mem.readInt(u32, entry[@sizeOf(u16)..][0..@sizeOf(u32)], .big) == value;
+    }
+    return false;
+}
+
+/// The streams the test's server lets a client have open at once. Test-only.
+const lowered_streams_max: u32 = 2;
+
+test "decision 110: a server that lowers the streams a client may open says so, and refuses the stream past it" {
+    const limit = lowered_streams_max;
+    test_connection.init(.server);
+    test_connection.limit_peer_streams(limit);
+    const preface = support.test_output[0..test_connection.write_pending(&support.test_output, 0)];
+    // RFC 9113 §6.5.2: SETTINGS_MAX_CONCURRENT_STREAMS carries the limit.
+    try testing.expect(lists_setting(preface, constants.setting_max_concurrent_streams, limit));
+    try testing.expectEqual(null, try feed(constants.client_preface));
+    _ = try feed(support.empty_settings);
+    for (0..limit) |index| {
+        _ = try support.feed_request(@intCast(constants.stream_id_client_first + constants.stream_id_step * index), "/", false);
+    }
+    // RFC 9113 §5.1.2: the stream past the limit is refused with REFUSED_STREAM.
+    const past_id = constants.stream_id_client_first + constants.stream_id_step * limit;
+    const refused = (try support.feed_request(past_id, "/", false)).?.stream_refused;
+    try testing.expectEqual(past_id, refused.stream_id);
+    try testing.expectEqual(constants.error_refused_stream, refused.error_code);
+}

@@ -152,6 +152,11 @@ pub const data_frame_len_min: u32 = 1_024;
 /// have before the connection closes.
 pub const drain_timeout_ns: u64 = 30 * nanoseconds_per_second;
 
+/// The h2 streams a client may have open at once, which the server advertises (decision 110):
+/// each is a request the application works on. h2's stream table holds more, and a configuration
+/// may lower it.
+pub const h2_streams_max: u32 = 100;
+
 /// The longest deadline a caller may set: a day. A deadline starts at an instant the caller
 /// passed, and this keeps the start plus the limit inside a `u64`.
 pub const timeout_ns_max: u64 = 86_400 * nanoseconds_per_second;
@@ -182,5 +187,6 @@ comptime {
     assert(done_owed_max > 0);
     assert(bodies_max > 0 and body_rate_min > 0 and send_rate_min > 0);
     assert(data_frame_len_min <= h2.constants.max_frame_size_initial and close_linger_ns > 0);
+    assert(h2_streams_max > 0 and h2_streams_max <= h2.constants.concurrent_streams_max);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
 }

@@ -41,4 +41,7 @@ pub const Config = struct {
     /// The shortest DATA frame h2 sends when a window, not the content, decides its length
     /// (decision 110).
     data_frame_len_min: u32 = constants.data_frame_len_min,
+    /// The h2 streams a client may have open at once, from 1 to h2's `concurrent_streams_max`
+    /// (decision 110).
+    h2_streams_max: u32 = constants.h2_streams_max,
 };

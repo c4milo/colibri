@@ -145,6 +145,7 @@ pub const Connection = struct {
         assert(config.cleartext != .h3);
         assert((config.codings.len == 0) == (config.encoders == null));
         assert(config.data_frame_len_min <= h2.constants.max_frame_size_initial);
+        assert(config.h2_streams_max > 0 and config.h2_streams_max <= h2.constants.concurrent_streams_max);
         try config.deadlines.validate();
         connection.deadlines = config.deadlines;
         connection.clock = .init(now_ns);
@@ -187,6 +188,7 @@ pub const Connection = struct {
                 connection.session = .{ .h2 = undefined };
                 connection.session.h2.init(.server);
                 connection.session.h2.data_frame_len_min = connection.config.data_frame_len_min;
+                connection.session.h2.limit_peer_streams(connection.config.h2_streams_max);
             },
             .h11 => {
                 connection.session = .{ .h11 = undefined };
@@ -444,7 +446,6 @@ pub const Connection = struct {
         // RFC 9113 §5.4.1 and RFC 9112 §9.6: a connection that failed or closed sends no response.
         if (connection.phase == .closed or connection.stopped) return error.ConnectionClosed;
     }
-
 };
 
 test {

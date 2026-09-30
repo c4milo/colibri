@@ -131,8 +131,10 @@ pub const Streams = struct {
     /// The identifier `open_local` opens next: `stream_id_client_first` or `stream_id_server_first`
     /// at `init`, then `stream_id_step` more after each open. Past `stream_id_max`, none is left.
     next_local_id: u32,
-    /// Streams the peer opened that are open or half-closed (RFC 9113 §5.1.2).
+    /// Streams the peer opened that are open or half-closed (RFC 9113 §5.1.2), and the most it may
+    /// have, which colibri advertises as SETTINGS_MAX_CONCURRENT_STREAMS.
     peer_active: u32,
+    peer_active_max: u32,
     /// Streams colibri opened that are open or half-closed (RFC 9113 §5.1.2).
     local_active: u32,
     /// The highest identifier `open_peer` opened, or 0 before the first. A GOAWAY colibri sends
@@ -155,6 +157,7 @@ pub const Streams = struct {
         // RFC 9113 §5.1.1: a client opens odd identifiers and a server even ones.
         streams.next_local_id = open.first_stream_id(role);
         streams.peer_active = 0;
+        streams.peer_active_max = constants.concurrent_streams_max;
         streams.local_active = 0;
         streams.highest_peer_opened_id = 0;
         streams.highest_forgotten_reset_id = @splat(null);
