@@ -19,6 +19,13 @@
 //! owed (RFC 9113 §6.5.3), and those frames are read then. It closes the transport once
 //! `should_close` says so, after `send` has written everything. The caller owns the struct and
 //! colibri allocates nothing (decision 35).
+//!
+//! Decision 110's deadlines bound how long a peer holds the connection: `deadline_ns` names the
+//! soonest instant one passes, and the caller wakes then and calls `on_instant`. `receive` and
+//! `send` end the connection first when their instant is past a deadline. A deadline counts only
+//! what colibri has seen, so the caller hands `receive` every octet its socket holds and calls
+//! `send` whenever its socket takes octets, before it calls `on_instant`. `timed_out` names the
+//! deadline that ended the connection, and `set_deadlines` changes one connection's limits.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -38,6 +45,7 @@ const connection_deadline = @import("connection_deadline.zig");
 const connection_bodies = @import("connection_bodies.zig");
 const connection_sends = @import("connection_sends.zig");
 const connection_events = @import("connection_events.zig");
+const connection_close = @import("connection_close.zig");
 const deadline = @import("../deadline.zig");
 const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
@@ -346,17 +354,9 @@ pub const Connection = struct {
 
     /// Whether the caller closes the transport now: the connection has finished and `send` has
     /// written everything, over TLS the `close_notify` too (RFC 9846 §6.1), or the alert of a
-    /// failure.
+    /// failure, or its linger has passed (`connection_close.zig`).
     pub fn should_close(connection: *const Connection) bool {
-        // Decision 110: once its linger has passed, a connection closes with octets still owed.
-        if (connection.clock.lingered) return true;
-        if (connection.output_len > 0) return false;
-        return switch (connection.phase) {
-            .handshake => false,
-            .closed => true,
-            .open => connection.finished() and
-                (connection.config.tls == null or connection.close_sent or connection.failure_sent()),
-        };
+        return connection_close.should_close(connection);
     }
 
     /// The transport closed: the peer closed it, the caller closed it once `should_close` said so,
@@ -392,22 +392,7 @@ pub const Connection = struct {
     /// Whether the connection has nothing more to say but what `output` holds: it failed or was
     /// stopped, its protocol closed, or it was asked to end and no request is open.
     pub fn finished(connection: *const Connection) bool {
-        if (connection.phase != .open) return connection.phase == .closed;
-        // What the protocol owes, such as h11's error response or h2's GOAWAY, goes out first.
-        if (connection.protocol_pending()) return false;
-        if (connection.stopped) return true;
-        const idle = switch (connection.session) {
-            .h2 => connection_h2.idle(connection),
-            .h11 => connection_h11.idle(connection),
-            // An open connection has a protocol.
-            .none => unreachable,
-        };
-        if (idle and (connection.shutting_down or connection.peer_closed)) return true;
-        return switch (connection.session) {
-            .h2 => connection.session.h2.has_failed() and !connection.session.h2.has_pending(),
-            .h11 => connection.session.h11.should_close(),
-            .none => unreachable,
-        };
+        return connection_close.finished(connection);
     }
 
     /// Writes what the protocol owes on its own, such as its preface, the acknowledgments and a
@@ -460,25 +445,6 @@ pub const Connection = struct {
         if (connection.phase == .closed or connection.stopped) return error.ConnectionClosed;
     }
 
-    /// Whether the protocol owes octets `write_owed` has not written yet.
-    fn protocol_pending(connection: *const Connection) bool {
-        return switch (connection.session) {
-            .h2 => connection.session.h2.has_pending(),
-            .h11 => connection.session.h11.has_pending(),
-            .none => false,
-        };
-    }
-
-    /// Whether the record layer failed and `send` has written the alert the provider owed.
-    fn failure_sent(connection: *const Connection) bool {
-        return switch (connection.session) {
-            // RFC 9846 §5.2 and §6.2: the connection ends with the alert, so it closes once the
-            // alert is out.
-            .h2 => connection.session.h2.tls_failed and !connection.session.h2.handshake_owed,
-            .h11 => connection.session.h11.tls_failed and !connection.session.h11.handshake_owed,
-            .none => false,
-        };
-    }
 };
 
 test {
