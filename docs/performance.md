@@ -30,6 +30,35 @@ with the request's or frame's size beside every speed.
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a
 baseline's binary is sampled by function names to split its time, and its source is not read.
 
+## Memory per connection
+
+Each struct a caller holds for one connection, in bytes, from the code being built (design §8 step
+13b, §11.2). `zig build bench-memory` prints the table for the objects the build targets, and
+`zig build test` fails when the table here differs from it. The sizes depend on chapulin's `AES`
+value: x86-64 and arm64 build `AES=runtime` (decision 97 as amended), so one table serves both. A
+target built otherwise prints another heading, and its test fails until this section holds its
+table. The QUIC connections hold no receive pool: their caller passes one, whose default the table
+lists.
+
+With chapulin's objects built `AES=runtime`:
+
+| Struct | Bytes | What it holds |
+| --- | ---: | --- |
+| `server.Connection` | 306272 | one TCP connection: h11 or h2, in cleartext or over TLS |
+| `server.QuicConnection` | 717520 | one h3 connection, without its receive pool |
+| `client.Connection` | 287656 | one TCP connection: h11 or h2, in cleartext or over TLS |
+| `client.QuicConnection` | 701504 | one h3 connection, without its receive pool |
+| `client.Channel` | 990024 | one server's connections, QUIC first and TCP after, without receive pools |
+| `client.DefaultReceivePool` | 1505288 | the receive pool a QUIC connection's caller passes, at its default capacity |
+| `h11.connection.Connection` | 35040 | the h11 state inside a TCP connection |
+| `h2.Connection` | 163248 | the h2 state inside a TCP connection |
+| `h3.Connection` | 145512 | the h3 state inside a QUIC connection |
+| `quic.Connection` | 141624 | the QUIC state inside an h3 connection |
+| `tls.record.Client` | 40544 | a TLS client session over TCP |
+| `tls.record.Server` | 39904 | a TLS server session over TCP |
+| `tls.quic.Client` | 90000 | a TLS client session inside QUIC |
+| `tls.quic.Server` | 89424 | a TLS server session inside QUIC |
+
 ## Pitfalls this tree has paid for
 
 None recorded yet. The first performance change that pays one adds it here, as symptom, cause and

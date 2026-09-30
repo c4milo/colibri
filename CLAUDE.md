@@ -240,9 +240,9 @@ section when a step adds or renames a command.
   offered, because assertions stay on in production.
 - Guide: `zig build guide` installs pepegrillo's `docs/performance/`, the performance method,
   from the commit `build.zig.zon` pins to `zig-out/docs/performance/` (`build/guide.zig`).
-- Lint: `zig build lint` — cognitive complexity over `src`, `tools`, `build/` and `build.zig`,
-  then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG, outside `src/testing`),
-  testing-clock (no clock in `src/testing`, decision 63), unbounded-loop,
+- Lint: `zig build lint` — cognitive complexity over `src`, `tools`, `bench`, `build/` and
+  `build.zig`, then the `tools/lint` rules: heap, io, determinism (no clock, no PRNG, outside
+  `src/testing`), testing-clock (no clock in `src/testing`, decision 63), unbounded-loop,
   relative-import, module-graph, magic-numbers, markdown GFM, file length, rfc-citation
   (a validation branch with no RFC section comment), peer-index (invariant 3) and
   static-alignment (a global states `align(@alignOf(T))`, which Zig 0.16's x86_64 backend needs
@@ -317,7 +317,9 @@ section when a step adds or renames a command.
   only the missing ones, and with `GARDEN_PUSH=1` it pushes what it built; the CI job uses
   `ghcr.io/c4milo/colibri-http-garden` (decision 88 as amended).
 - Bench: `bench/run.sh` on Linux only, with the machine written down beside the numbers. macOS
-  produces no published number (decision 32).
+  produces no published number (decision 32). `zig build bench-memory` prints the static memory
+  per connection for the objects the build targets (design §8 step 13b), and `zig build test`
+  fails when `docs/performance.md`'s table for those objects differs from it.
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
   the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
   `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
@@ -428,7 +430,7 @@ section when a step adds or renames a command.
   proved definitions give; `zig build lean -- write` rewrites them. `spec/lean/lean-toolchain` pins the Lean release, which elan installs.
   `tools/ci.sh` runs it where lake is installed (decision 77), and the workflow installs that
   release for it (decision 47 as amended).
-- Format: `zig fmt --check build.zig build examples src tools`.
+- Format: `zig fmt --check build.zig bench build examples src tools`.
 - Examples: `zig build examples` builds and runs every program in `examples/`, and `zig build
   example-<name>` runs one (decision 96). Each checks what arrived octet for octet.
   `tools/doc_snippets.sh` requires every Zig block in README.md, docs/usage.md and

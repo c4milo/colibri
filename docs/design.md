@@ -4188,6 +4188,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   *Medium.*
 
+  **13b, 2026-09-30.** `bench/memory.zig` measures each struct a caller holds for one connection
+  with `@sizeOf`, and `zig build bench-memory` prints the table for the objects the build targets,
+  under a heading that names chapulin's `AES` value. x86-64 and arm64 build `AES=runtime` (decision
+  97 as amended), so `docs/performance.md` holds one table, and `zig build test` checks it.
+
+  What each check printed, on macOS arm64:
+  - `zig build test-bench`, and `zig build test-bench -Dcpu=generic`: 1 of 1 test each.
+    `zig build bench-memory` for `x86_64-macos`, run under Rosetta with `-Dcpu=znver3` and with
+    `-Dcpu=x86_64`, printed the same table.
+  - 2 mutations, each **CAUGHT**: a number changed in the table, and 8 bytes added to
+    `h11.connection.Connection`.
+  - The largest structs: `server.Connection` holds 306,272 bytes and `server.QuicConnection`
+    717,520, the latter without the receive pool its caller passes, whose default holds 1,505,288.
+
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.

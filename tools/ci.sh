@@ -106,7 +106,7 @@ throughput() {
 : >"${scratch}/verdicts"
 : >"${scratch}/failures"
 
-section "Format" zig fmt --check build.zig build examples src tools
+section "Format" zig fmt --check build.zig bench build examples src tools
 section "Lint and tests" zig build test --summary all
 tests_line="$(grep -E "Build Summary" "${scratch}/last.log" | tail -1)"
 # Decision 47 as amended: the tests in ReleaseSafe too, the mode colibri ships in.

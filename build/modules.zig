@@ -435,7 +435,7 @@ fn chapulin_record_object(b: *std.Build, target: std.Build.ResolvedTarget, keylo
 /// carries `SUITE=aesgcm`. chapulin refuses `SUITE=aesgcm` with `AES=soft`, whose S-box is indexed
 /// with the key (its `ct.h`, INV-26), so a software object carries `SUITE=chacha`,
 /// TLS_CHACHA20_POLY1305_SHA256 alone.
-fn aes_of(target: std.Build.ResolvedTarget) Aes {
+pub fn aes_of(target: std.Build.ResolvedTarget) Aes {
     return switch (target.result.cpu.arch) {
         .x86_64, .aarch64 => .runtime,
         else => if (aes_native(target)) .hw else .soft,

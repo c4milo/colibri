@@ -32,13 +32,14 @@ const lint = @import("build/lint.zig");
 const vectors = @import("build/vectors.zig");
 const examples = @import("build/examples.zig");
 const guide = @import("build/guide.zig");
+const bench = @import("build/bench.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
-const source_directories = [_][]const u8{ "build", "examples", "src", "tools" };
+const source_directories = [_][]const u8{ "bench", "build", "examples", "src", "tools" };
 
 /// Every directory the tools/lint rules read: the sources above plus the documents, which the
 /// markdown rule covers.
-const lint_rule_directories = [_][]const u8{ "build", "examples", "src", "tools", "docs" };
+const lint_rule_directories = [_][]const u8{ "bench", "build", "examples", "src", "tools", "docs" };
 
 /// Every tool built on pepegrillo whose own tests `zig build test` runs; build/generated.zig and build/vectors.zig hook in the tests of the generator and vectors tools. A build that does not run the checkers' own
 /// tests lets a rule lose its own test without the build reporting it.
@@ -178,6 +179,8 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
+    // Design §8 step 13: the benchmarks, whose memory table `zig build test` checks.
+    bench.add(b, graph, test_step, target, optimize);
     add_http_server_step(b, graph.testing);
     add_http_client_step(b, graph.testing_client);
     add_tls_handshake_step(b, graph.testing_tls);
