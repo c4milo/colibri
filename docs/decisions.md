@@ -2653,6 +2653,32 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     builder's statement that the target's widening multiply runs in constant time. It waits for a
     ruling of its own.
 
+    **Amended by the owner on 2026-09-29, for design §8 step 16e.** On x86-64 and arm64 each
+    object is built `AES=runtime` (chapulin's entry 81), with `SUITE=aesgcm` and the builder's
+    statement `CH_NATIVE_AES`. It holds the AES instructions and a fallback, and each session runs
+    the one its caller's answer names. Any other architecture keeps the build target's choice.
+    - `values.Client` and `values.Server` require `aes_instructions`: whether the CPU has the AES
+      instructions and the carry-less multiply. There is no default. With `absent` a session runs
+      ChaCha20 alone, and chapulin refuses a suite order that names AES-GCM.
+    - colibri probes nothing, as it reads no clock (non-negotiables 1 and 5). A program asks its
+      CPU once, at start, through stdx's `platform` module
+      ([stdx#15](https://github.com/c4milo/stdx/issues/15)), which the owner exempts from stdx's
+      syscall rule, and passes the answer down to each configuration. Until that module exists,
+      colibri's tests and programs pass the build target's answer, since each runs where it was
+      built.
+    - `CH_NATIVE_AES` now states that the instructions run in constant time on every x86-64 and
+      arm64 part that has them, where it stated that for the build target alone.
+    - The multiply's timing takes the same shape once chapulin offers an answer for each session
+      ([chapulin#186](https://github.com/c4milo/chapulin/issues/186)). Until then colibri keeps
+      the decomposed multiply.
+
+    The alternatives refused:
+    - A default from the build target, which a caller that probes overrides.
+    - The build target's choice on x86-64 and arm64 too.
+    - A probe inside colibri, exempt from non-negotiable 1.
+    - For the multiply, `WIDEMUL=native` on every x86-64 and arm64 build, which neither
+      architecture promises without Arm's DIT or Intel's DOITM.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.

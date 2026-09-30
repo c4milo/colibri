@@ -4428,7 +4428,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     still gets 501.
 
 - **Step 16 — chapulin in the library.** [Decision 94](decisions.md) has colibri link chapulin as
-  its TLS stack and its packet protection. Four parts, in order:
+  its TLS stack and its packet protection. Five parts, in order:
   - **16a**, the package. chapulin is pinned by commit and hash in `build.zig.zon` once it offers
     a Zig build that compiles each configuration colibri uses with `RAND=extern`, and colibri's
     build checks each object's build record against the headers it compiled. The pin moves past
@@ -4443,6 +4443,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     SPKI pins, ALPN, and session tickets offered and handed back, as the owner ruled below.
   - **16d**, the checks. Every check that linked chapulin through `src/testing/` runs against the
     library's adapter, and the `-Dchapulin-*` options leave CLAUDE.md's commands.
+  - **16e**, the caller's CPU answer. On x86-64 and arm64 both objects are built `AES=runtime`,
+    and `values.Client` and `values.Server` require the caller's `aes_instructions`
+    ([decision 97](decisions.md) as amended on 2026-09-29). The multiply's answer follows once
+    chapulin offers it ([chapulin#186](https://github.com/c4milo/chapulin/issues/186)), which
+    [#84](https://github.com/c4milo/colibri/issues/84) tracks, and colibri's programs take both
+    from stdx's `platform` module once it exists
+    ([stdx#15](https://github.com/c4milo/stdx/issues/15)).
+    **Check:** the `tls` tests under both answers where the build target has the instructions,
+    and under `absent` on a CPU model without them; a suite order that names AES-GCM refused
+    under `absent`; every check of `tools/ci.sh`; and mutations.
 
   **16c, ruled by the owner on 2026-09-26.** What a user sets is plain values, and chapulin's
   `ch_cfg` (its `cfg.h`, `webpki_cfg.h` and `srv_cfg.h`) is what they become. Each rule below is
