@@ -45,6 +45,8 @@ readonly one_clients=16
 # The requests before each measurement that are never counted: the server's first connections
 # touch memory the operating system has not mapped yet.
 readonly warm_requests=2000
+# The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
+readonly ready_tries=100
 readonly inputs=(h2-many h2-tls-many h2-one h2-tls-one)
 
 scratch="$(mktemp -d)"
@@ -82,22 +84,40 @@ case "\$1" in
 esac
 EOF
 
-start_server() {  # start_server <server> <input>
+# h2load exits 0 even when every request fails, so each use of it here reads the count it reports.
+# The output is read whole, because a reader that stops at the first match ends h2load early.
+succeeded() {  # succeeded <requests> <h2load arguments...>: whether all of them succeeded
+  local requests="$1" output
+  shift
+  output="$(h2load "$@" 2>/dev/null)" || true
+  [[ "$output" == *", ${requests} succeeded, 0 failed,"* ]]
+}
+
+fail() {  # fail <message> <server log>
+  echo "run.sh: $1; the server's log ends:" >&2
+  tail -20 "$2" >&2
+  exit 1
+}
+
+start_server() {  # start_server <server> <input> <log>
   local options=(--port "$port")
   case "$2" in h2-tls-*) options+=(--tls "$identity") ;; esac
   # The process started here is the server itself, which taskset executes in place of itself, so
   # that stop_server ends the server and no later measurement reaches an earlier one.
   if [ "$mode" = judge ]; then
-    taskset -c "$server_core" "$1" "${options[@]}" >"$scratch/server.log" 2>&1 &
+    taskset -c "$server_core" "$1" "${options[@]}" >"$3" 2>&1 &
   else
-    "$1" "${options[@]}" >"$scratch/server.log" 2>&1 &
+    "$1" "${options[@]}" >"$3" 2>&1 &
   fi
   server_pid=$!
-  for _ in $(seq 1 100); do
-    h2load -n 1 -c 1 "$(url "$2")" >/dev/null 2>&1 && break
+  local ready=""
+  for _ in $(seq 1 "$ready_tries"); do
+    if succeeded 1 -n 1 -c 1 "$(url "$2")"; then ready=yes; break; fi
     sleep 0.1
   done
-  h2load -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$2")" >/dev/null
+  [ -n "$ready" ] || fail "the server for $2 answered no request in $ready_tries tries" "$3"
+  succeeded "$warm_requests" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$2")" ||
+    fail "the warm-up for $2 did not succeed in full" "$3"
 }
 
 stop_server() {
@@ -119,7 +139,8 @@ cpu_nanoseconds() {  # cpu_nanoseconds <pid>
 
 measure() {  # measure <variant> <server> <input> <round>
   local name="$1-$3-$4"
-  start_server "$2" "$3"
+  # Each measurement keeps its server's log, which report.py prints when the load failed.
+  start_server "$2" "$3" "$scratch/$name.server"
   if [ "$mode" = judge ]; then
     sudo -n "${PERF:-perf}" stat -x, -o "$scratch/$name.perf" \
       -e instructions:u,instructions:k,cycles:u,cycles:k,task-clock,raw_syscalls:sys_enter \

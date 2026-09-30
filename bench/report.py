@@ -31,6 +31,11 @@ JUDGE_EVENTS = ("instructions:u", "instructions:k", "cycles:u", "cycles:k", "tas
 H2LOAD_TLS = re.compile(r"^(TLS Protocol|Cipher|Server Temp Key): (.+)$", re.M)
 TLS_NAMES = ("TLS Protocol", "Cipher", "Server Temp Key")
 H2LOAD_REQUESTS = re.compile(r"requests: (\d+) total, (\d+) started, (\d+) done, (\d+) succeeded, (\d+) failed, (\d+) errored, (\d+) timeout")
+# The nanoseconds in one unit of task-clock, by the unit perf stat writes beside it: perf 6.17
+# writes nanoseconds and no unit, and earlier versions milliseconds as "msec".
+TASK_CLOCK_NANOSECONDS = {"": 1.0, "ns": 1.0, "nsec": 1.0, "usec": 1e3, "msec": 1e6}
+# The lines of a server's log the report prints when a load against it failed.
+SERVER_LOG_LINES = 20
 
 
 def read_counts(path):
@@ -40,10 +45,14 @@ def read_counts(path):
         if not line.strip() or line.startswith("#"):
             continue
         fields = line.strip().split(",")
-        value, event = fields[0], fields[2]
+        value, unit, event = fields[0], fields[1], fields[2]
         if value.startswith("<"):
             sys.exit(f"report.py: {path}: perf did not count {event}: {value}")
         counts[event] = float(value)
+        if event == "task-clock":
+            if unit not in TASK_CLOCK_NANOSECONDS:
+                sys.exit(f"report.py: {path}: task-clock in an unknown unit: {unit!r}")
+            counts[event] *= TASK_CLOCK_NANOSECONDS[unit]
     return counts
 
 
@@ -55,9 +64,25 @@ def read_requests(path):
         sys.exit(f"report.py: {path}: no h2load report")
     for total, _, _, ok, failed, errored, timeout in runs:
         if int(ok) != int(total) or int(failed) or int(errored) or int(timeout):
-            sys.exit(f"report.py: {path}: h2load: {ok} of {total} succeeded")
+            print_server_log(path)
+            sys.exit(f"report.py: {path}: h2load: {ok} of {total} succeeded, {failed} failed, "
+                     f"{errored} errored, {timeout} timed out")
         succeeded += int(ok)
     return succeeded
+
+
+def print_server_log(h2load_path):
+    """Prints the end of the log bench/run.sh kept beside a measurement's h2load reports."""
+    server_log = h2load_path.removesuffix(".h2load") + ".server"
+    if os.path.exists(server_log):
+        lines = open(server_log, errors="replace").read().splitlines()[-SERVER_LOG_LINES:]
+        print(f"report.py: {server_log} ends:", *lines, sep="\n", file=sys.stderr)
+
+
+def number(value):
+    """A value as the report prints it: one decimal from 100 up, and three below, so that a count
+    of a few system calls per request keeps its digits."""
+    return f"{value:,.1f}" if abs(value) >= 100 else f"{value:,.3f}"
 
 
 def read_tls(path):
@@ -125,20 +150,20 @@ def main():
         for variant in variants:
             runs = samples[(variant, input_name)]
             summary[variant] = {metric: summarize([run[metric] for run in runs]) for metric in runs[0]}
-            cells = " | ".join(f"{summary[variant][m][0]:,.1f} ({summary[variant][m][1] * 100:.1f}%)" for m in summary[variant])
+            cells = " | ".join(f"{number(summary[variant][m][0])} ({summary[variant][m][1] * 100:.2f}%)" for m in summary[variant])
             rows.append(f"| {input_name} | {unit} | {variant} | {len(runs)} | {cells} |")
         if len(variants) == 2:
             (base, base_spread), (change, change_spread) = summary["base"][primary], summary["change"][primary]
             ratio = change / base
             noise = max(base_spread, change_spread, floor)
             verdict = "loses" if ratio > 1 + noise else "wins" if ratio < 1 - noise else "within the noise"
-            verdicts.append((verdict, f"| {input_name} | {ratio:.4f} | {noise * 100:.1f}% | {verdict} |"))
+            verdicts.append((verdict, f"| {input_name} | {ratio:.4f} | {noise * 100:.2f}% | {verdict} |"))
 
     metrics = list(samples[(variants[0], inputs[0])][0])
     lines = ["## bench/run.sh", ""]
     lines += [f"- {key}: {value}" for key, value in machine.items()]
     lines += [f"- tls, {variant}: {'; '.join(sorted(tls[variant]))}" for variant in variants if variant in tls]
-    lines += [f"- floor: {floor * 100:.1f}%", ""]
+    lines += [f"- floor: {floor * 100:.2f}%", ""]
     if verdicts:
         lines += [f"The change against the base, by {primary} per unit; losses first:", "",
                   "| Input | Change / base | Noise | Verdict |", "| --- | ---: | ---: | --- |"]
@@ -194,6 +219,8 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
                         perf.write(f"{instructions / 3e6:.3f},msec,task-clock,1,100.00,,\n")
                         perf.write(f"{units * 4},,raw_syscalls:sys_enter,1,100.00,,\n")
                 failed = 1 if failed_request and changed and round_number == 3 else 0
+                with open(name + ".server", "w") as server_log:
+                    server_log.write("http-server: listening\n" + ("http-server: assertion failed\n" if failed else ""))
                 per_run = units if input_name.endswith("-many") else 16
                 cipher = change_cipher if variant == "change" else "TLS_AES_256_GCM_SHA384"
                 with open(name + ".h2load", "w") as h2load:
@@ -221,37 +248,40 @@ class Verdicts(unittest.TestCase):
     def test_a_tree_against_itself_is_within_the_noise(self):
         status, output = self.report(1.0)
         self.assertEqual(status, 0, output)
-        self.assertIn("| h2-many | 1.0000 | 5.0% | within the noise |", output)
+        self.assertIn("| h2-many | 1.0000 | 5.00% | within the noise |", output)
+        # Four system calls per unit, printed with the digits a small count needs.
+        self.assertIn(" | 4.000 (0.00%) | ", output)
 
     def test_a_cost_past_the_floor_loses_and_fails_the_run(self):
         status, output = self.report(1.10)
         self.assertNotEqual(status, 0, output)
-        self.assertIn("| h2-many | 1.1000 | 5.0% | loses |", output)
+        self.assertIn("| h2-many | 1.1000 | 5.00% | loses |", output)
 
     def test_a_saving_past_the_floor_wins(self):
         status, output = self.report(0.90)
         self.assertEqual(status, 0, output)
-        self.assertIn("| h2-tls-one | 0.9000 | 5.0% | wins |", output)
+        self.assertIn("| h2-tls-one | 0.9000 | 5.00% | wins |", output)
 
     def test_a_cost_inside_the_floor_is_within_the_noise(self):
         status, output = self.report(1.04)
         self.assertEqual(status, 0, output)
-        self.assertIn("| h2-tls-one | 1.0400 | 5.0% | within the noise |", output)
+        self.assertIn("| h2-tls-one | 1.0400 | 5.00% | within the noise |", output)
 
     def test_a_cost_in_the_kernel_loses(self):
         status, output = self.report(1.5, kernel_only=True)
         self.assertNotEqual(status, 0, output)
-        self.assertIn("| h2-many | 1.1500 | 5.0% | loses |", output)
+        self.assertIn("| h2-many | 1.1500 | 5.00% | loses |", output)
 
     def test_a_loss_is_listed_first(self):
         status, output = self.report(1.10, changed_inputs=("h2-tls-one",))
         self.assertNotEqual(status, 0, output)
-        self.assertIn("| --- | ---: | ---: | --- |\n| h2-tls-one | 1.1000 | 5.0% | loses |\n", output)
+        self.assertIn("| --- | ---: | ---: | --- |\n| h2-tls-one | 1.1000 | 5.00% | loses |\n", output)
 
     def test_a_failed_request_refuses_the_run(self):
         status, output = self.report(1.0, failed_request=True)
         self.assertNotEqual(status, 0, output)
-        self.assertIn("h2load: 19999 of 20000 succeeded", output)
+        self.assertIn("h2load: 19999 of 20000 succeeded, 1 failed", output)
+        self.assertIn("http-server: assertion failed", output)
 
     def test_a_report_names_the_cipher_suite_each_build_ran(self):
         status, output = self.report(1.0, change_cipher="TLS_CHACHA20_POLY1305_SHA256")
@@ -259,11 +289,24 @@ class Verdicts(unittest.TestCase):
         self.assertIn("- tls, base: TLSv1.3, TLS_AES_256_GCM_SHA384, X25519 253 bits\n", output)
         self.assertIn("- tls, change: TLSv1.3, TLS_CHACHA20_POLY1305_SHA256, X25519 253 bits\n", output)
 
+    def test_perf_writes_task_clock_in_either_unit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "run.perf")
+            for line in ("235127125,,task-clock,235127125,100.00,0.997,CPUs utilized",
+                         "235.127125,msec,task-clock,235127125,100.00,0.997,CPUs utilized"):
+                with open(path, "w") as perf:
+                    perf.write(line + "\n")
+                self.assertAlmostEqual(read_counts(path)["task-clock"], 235127125.0, places=3)
+            with open(path, "w") as perf:
+                perf.write("235,furlongs,task-clock,235,100.00,,\n")
+            with self.assertRaises(SystemExit):
+                read_counts(path)
+
     def test_a_filter_run_compares_cpu_time(self):
         status, output = self.report(1.10, mode="filter")
         self.assertNotEqual(status, 0, output)
         self.assertIn("by cpu_nanoseconds per unit", output)
-        self.assertIn("| h2-many | 1.1000 | 5.0% | loses |", output)
+        self.assertIn("| h2-many | 1.1000 | 5.00% | loses |", output)
 
 
 if __name__ == "__main__":
