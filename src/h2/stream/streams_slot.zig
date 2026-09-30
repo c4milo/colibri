@@ -6,7 +6,8 @@
 //! decides a frame on a closed stream by how that stream closed. An open into a full pool drops
 //! the oldest close, by `closed_at`, and only a stream colibri reset is remembered after the drop:
 //! §5.1 discards the frames that follow a RST_STREAM colibri sent, and an identifier with nothing
-//! remembered is `Lookup.forgotten`, which the connection refuses.
+//! remembered is `Lookup.forgotten`, which the connection refuses. A record that owes a RST_STREAM
+//! not yet written is never dropped, because the frame would be lost with it (`streams_reset.zig`).
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -42,9 +43,9 @@ pub fn ensure_free_slot(streams: *Streams) bool {
     return drop_oldest_closed(streams);
 }
 
-/// Drops the record with the lowest `closed_at` among the closed streams the pool holds, and, when
-/// colibri reset that stream, records the reset for `lookup`. False when the pool holds no closed
-/// stream.
+/// Drops the record with the lowest `closed_at` among the closed streams the pool holds that owe no
+/// RST_STREAM, and, when colibri reset that stream, records the reset for `lookup`. False when the
+/// pool holds no such stream.
 fn drop_oldest_closed(streams: *Streams) bool {
     var oldest: ?*Stream = null;
     var records = streams.pool.iterator();
@@ -52,6 +53,8 @@ fn drop_oldest_closed(streams: *Streams) bool {
         if (record.state != .closed) continue;
         assert(record.closed != null);
         assert(record.closed_at < streams.sequence);
+        // Decision 113: the record holds the RST_STREAM the caller asked for until it is written.
+        if (record.reset_owed != null) continue;
         if (oldest == null or record.closed_at < oldest.?.closed_at) oldest = record;
     }
     const dropped = oldest orelse return false;

@@ -173,7 +173,8 @@ fn rises(seen: ?u32, reached: ?u32) bool {
 
 /// The octets the connection may owe at once: its own SETTINGS frame, the acknowledgments its
 /// queues hold, the connection window update, every stream reply and the GOAWAY
-/// (`connection_reply.zig`).
+/// (`connection_reply.zig`). The subject asks for no reset, so no stream's record owes a
+/// RST_STREAM (decision 113).
 const output_len_needed: u32 = h2_constants.frame_header_len +
     h2_constants.settings_count * h2_constants.setting_len +
     h2_constants.settings_ack_pending_max * h2_constants.frame_header_len +

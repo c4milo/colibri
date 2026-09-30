@@ -4,8 +4,7 @@
 //! closed here or by the implicit close of RFC 9113 §5.1.1, and nothing records it (invariant 13).
 //! This file adds the h2 rules: which endpoint opens which stream (§5.1, §5.1.1), the concurrency
 //! limit (§5.1.2), the two GOAWAY limits (§6.8, invariant 16) and the send-window adjustment a
-//! settings change makes (§6.9.2,
-//! invariant 15). The connection that calls it is decision 39's.
+//! settings change makes (§6.9.2, invariant 15). The connection that calls it is decision 39's.
 //!
 //! §5.1 opens a stream on a HEADERS a client sends or a server receives, and a server's own stream
 //! starts with a PUSH_PROMISE, which decision 17 refuses. So a server holds only the streams its
@@ -17,14 +16,15 @@
 //! identifier finds, and `transition` applies a verdict of `.state`. A stream that closes keeps
 //! its record, because §5.1 decides a frame on a closed stream by how that stream closed, and the
 //! record's `closed` tells the state machine which way it was. The record stays until an open
-//! needs its slot, and the record that closed first is dropped first. `sequence` counts the
-//! closes, so the order needs no clock (non-negotiable 3).
+//! needs its slot, and the record that closed first is dropped first, unless it owes a RST_STREAM
+//! the caller asked for (`streams_reset.zig`, decision 113). `sequence` counts the closes, so the
+//! order needs no clock (non-negotiable 3).
 //!
 //! A refused stream, a promised stream and a dropped record of a stream colibri reset are streams
 //! colibri reset and holds no record for. Each raises `highest_forgotten_reset_id` of its parity,
 //! and `lookup` discards frames on every closed identifier at or below it. A record dropped after
-//! any other close raises nothing, and its identifier is forgotten. The kept records hold that value low, so most closed
-//! streams colibri did not reset keep their STREAM_CLOSED error.
+//! any other close raises nothing, and its identifier is forgotten. The kept records hold that
+//! value low, so most closed streams colibri did not reset keep their STREAM_CLOSED error.
 //!
 //! `peer_active` and `local_active` count the streams each endpoint opened that are open or
 //! half-closed (§5.1.2), asserted after every change. One function checks a peer's value, once,
@@ -41,6 +41,7 @@ const window = @import("../window.zig");
 const open = @import("streams_open.zig");
 const goaway = @import("streams_goaway.zig");
 const window_adjust = @import("streams_window.zig");
+const resets = @import("streams_reset.zig");
 
 /// The record of one stream, and the pool's entry. Every field but `id` has a default because the
 /// pool writes a fresh entry whole (invariant 5). `open_peer` and `open_local` set the state, the
@@ -73,6 +74,8 @@ pub const Stream = struct {
     /// Whether colibri has sent its final field section on the stream: a client's request, or a
     /// server's final response (RFC 9113 §8.1). Only a trailer section may follow it.
     final_sent: bool = false,
+    /// The error code of the RST_STREAM the caller asked for, until it is written, or null.
+    reset_owed: ?u32 = null,
 };
 
 /// The field sections that have arrived on one stream, in the order RFC 9113 §8.1 allows. A
@@ -149,6 +152,8 @@ pub const Streams = struct {
     goaway_received_last_id: ?u32,
     /// A counter advanced by one on every close, which orders closes.
     sequence: u64,
+    /// The records whose `reset_owed` is set (`streams_reset.zig`).
+    resets_owed: u32,
 
     /// Empties the table for an endpoint in `role`.
     pub fn init(streams: *Streams, role: Role) void {
@@ -164,6 +169,7 @@ pub const Streams = struct {
         streams.goaway_sent_last_id = null;
         streams.goaway_received_last_id = null;
         streams.sequence = 0;
+        streams.resets_owed = 0;
         assert(streams.len() == 0);
         assert(!open.initiated_by_peer(streams, streams.next_local_id));
     }
@@ -265,6 +271,21 @@ pub const Streams = struct {
     /// The last stream identifier colibri puts in its next GOAWAY. See `streams_goaway.zig`.
     pub fn last_peer_stream_id(streams: *const Streams) u32 {
         return goaway.last_peer_stream_id(streams);
+    }
+
+    /// Owes the RST_STREAM the caller asked for, which closed `record`. See `streams_reset.zig`.
+    pub fn owe_reset(streams: *Streams, record: *Stream, error_code: u32) void {
+        resets.owe(streams, record, error_code);
+    }
+
+    /// `record`'s owed RST_STREAM is written. See `streams_reset.zig`.
+    pub fn reset_written(streams: *Streams, record: *Stream) void {
+        resets.written(streams, record);
+    }
+
+    /// Whether an open waits for the owed RST_STREAM frames to be written. See `streams_reset.zig`.
+    pub fn open_waits_for_write(streams: *const Streams) bool {
+        return resets.open_waits_for_write(streams);
     }
 
     /// Closes `record`, whose state is now closed, by `closed`.

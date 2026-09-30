@@ -157,15 +157,16 @@ pub fn write_data(
     return .{ .consumed = room, .written = writer.written().len, .short_by = next.short_by };
 }
 
-/// Ends one stream with a RST_STREAM the caller asked for (RFC 9113 §6.4). The frame is queued
-/// with the connection's other replies, and `write_pending` writes it.
+/// Ends one stream with a RST_STREAM the caller asked for (RFC 9113 §6.4). The stream's record owes
+/// the frame and `write_pending` writes it, so the call needs no room in the reply queue: a caller
+/// may reset every stream it holds between two writes (decision 113, `streams_reset.zig`).
 pub fn reset(target: *Connection, stream_id: u32, error_code: u32) Error!void {
     const record = try sendable(target, stream_id, .rst_stream, false);
     const verdict = stream.on_send(record.state, record.closed, .rst_stream, false, target.role, record.peer_initiated);
     target.streams.transition(record, verdict, .send, .rst_stream, false);
     // RFC 9113 §5.1: the RST_STREAM closes the stream, so no WINDOW_UPDATE may go out after it.
     target.replies.drop_window_updates(stream_id);
-    target.replies.push_stream_reply(.{ .stream_id = stream_id, .kind = .rst_stream, .value = error_code });
+    target.streams.owe_reset(record, error_code);
 }
 
 /// Ends the connection gracefully: the GOAWAY of RFC 9113 §6.8 naming the last stream colibri
@@ -457,4 +458,5 @@ test {
     _ = @import("connection_send_trailers_test.zig");
     _ = @import("connection_send_room_test.zig");
     _ = @import("connection_send_window.zig");
+    _ = @import("connection_send_reset_test.zig");
 }

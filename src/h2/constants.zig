@@ -262,7 +262,9 @@ pub const ping_ack_pending_max: u32 = 4;
 pub const send_block_len_max: u32 = 2 * frame_size_max;
 
 /// Most replies about single streams, a RST_STREAM (§6.4) or a WINDOW_UPDATE (§6.9), that colibri
-/// holds unwritten. One past it, the connection stops reading until the caller writes them.
+/// holds unwritten for the frames it read. One past it, the connection stops reading until the
+/// caller writes them. A RST_STREAM the caller asks for takes no slot: the stream's record owes it
+/// (decision 113).
 pub const stream_replies_max: u32 = 32;
 
 /// Most RST_STREAM frames colibri sends in one `rst_stream_rate_period_ns`, after which invalid

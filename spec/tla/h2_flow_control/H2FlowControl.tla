@@ -20,8 +20,21 @@
 (*     dropped, since no more DATA comes (DropOnEnd). Without that, a      *)
 (*     WINDOW_UPDATE went out on a stream already closed, which §5.1       *)
 (*     forbids: this model found it, and the configuration                 *)
-(*     update_after_end keeps the path. colibri drops the credit on a      *)
-(*     RST_STREAM too, which this model does not send;                     *)
+(*     update_after_end keeps the path;                                    *)
+(*   - a receiver reads a frame only while its queue of replies about      *)
+(*     single streams has a free slot (QueueMax, stream_replies_max), and  *)
+(*     one frame owes at most one of them, so the queue never passes its   *)
+(*     limit (QueueBounded);                                               *)
+(*   - the caller of Resetter, one of the two endpoints, may reset any     *)
+(*     active stream (§6.4), which closes it at once. The stream's record  *)
+(*     owes the RST_STREAM, written after the queued replies (decision     *)
+(*     113), and the credit owed on the stream is dropped (DropOnReset).   *)
+(*     The receiver of the RST_STREAM closes the stream and drops its      *)
+(*     credit too. DATA on a stream the receiver reset is discarded, and   *)
+(*     still counts toward the connection window, which §5.1 requires      *)
+(*     (ChargeAfterReset). Resets queued with the replies with no room     *)
+(*     checked, as colibri queued them before decision 113, overflow the   *)
+(*     queue: the configuration reset_in_queue keeps that path;            *)
 (*   - colibri never changes the initial window it advertises. Changer, a  *)
 (*     peer that is not colibri, may: it adjusts what it advertised when   *)
 (*     it sends the SETTINGS, and takes what the sender sent before        *)
@@ -34,7 +47,7 @@ EXTENDS Integers, Sequences, FiniteSets
 
 CONSTANTS
     Client, Server,     \* the two endpoints
-    Nobody,             \* no endpoint, as a value of Changer
+    Nobody,             \* no endpoint, as a value of Changer or Resetter
     Streams,            \* the client's streams, as positive numbers
     Body,               \* DATA units each side sends on each stream
     InitialWindow,      \* the initial window, of the connection and of every stream
@@ -45,7 +58,13 @@ CONSTANTS
     NewInits,           \* the values it may change it to
     ChangesMax,         \* how many times it may
     HonourNegative,     \* whether a sender waits while a window is not positive (§6.9.2)
-    DropOnEnd           \* whether a receiver drops the stream credit it owes once the peer ends
+    DropOnEnd,          \* whether a receiver drops the stream credit it owes once the peer ends
+    QueueMax,           \* the replies about single streams a receiver's queue holds
+    Resetter,           \* the endpoint whose caller resets streams (§6.4), or Nobody
+    ResetOnRecord,      \* whether a reset is owed by the stream's record, not queued (decision 113)
+    DropOnReset,        \* whether a reset drops the stream credit owed on that stream
+    ChargeAfterReset    \* whether DATA on a stream the receiver reset counts toward the connection
+                        \* window (§5.1)
 
 Endpoints == {Client, Server}
 Peer(e) == IF e = Client THEN Server ELSE Client
@@ -57,6 +76,9 @@ ASSUME /\ Streams \subseteq Nat \ {Connection}
        /\ Changer \in Endpoints \cup {Nobody}
        /\ NewInits \subseteq 0..Max
        /\ HonourNegative \in BOOLEAN /\ DropOnEnd \in BOOLEAN
+       /\ QueueMax \in Nat \ {0}
+       /\ Resetter \in Endpoints \cup {Nobody}
+       /\ {ResetOnRecord, DropOnReset, ChargeAfterReset} \subseteq BOOLEAN
 
 States == {"idle", "open", "half_closed_local", "half_closed_remote", "closed"}
 Active == {"open", "half_closed_local", "half_closed_remote"}
@@ -81,14 +103,18 @@ VARIABLES
     toward,         \* toward[e]: the frames in flight toward e, in order
     acksOwed,       \* acksOwed[e]: SETTINGS acknowledgments e owes
     connectionOwed, \* connectionOwed[e]: the connection increment e owes, 0 for none
-    streamOwed,     \* streamOwed[e]: the stream increments e owes, oldest first, as <<s, n>>
+    streamOwed,     \* streamOwed[e]: the stream replies e owes, oldest first, as <<s, n>>: an
+                    \* increment n, or 0 for a RST_STREAM queued when ResetOnRecord is FALSE
+    resetOwed,      \* resetOwed[e]: the streams whose records owe a RST_STREAM e's caller asked for
+    resetSent,      \* resetSent[e][s]: e's caller reset s
     forbiddenSent,  \* a frame went out that its stream's state forbids (§5.1)
     flowError       \* a sender sent on a window that was not positive (§6.9.2), a receiver
                     \* got more than it advertised, or a window passed Max (§6.9.1)
 
 vars == <<state, headersSent, left, sendWindow, connectionSend, receiveWindow, released,
           connectionReceive, connectionReleased, peerInit, localInit, unacknowledged, changesLeft,
-          toward, acksOwed, connectionOwed, streamOwed, forbiddenSent, flowError>>
+          toward, acksOwed, connectionOwed, streamOwed, resetOwed, resetSent, forbiddenSent,
+          flowError>>
 
 TypeOK ==
     /\ state \in [Endpoints -> [Streams -> States]]
@@ -98,6 +124,8 @@ TypeOK ==
     /\ connectionSend \in [Endpoints -> -Max..Max]
     \* Changer's may go further below zero while it takes what §6.9.3 lets it.
     /\ receiveWindow \in [Endpoints -> [Streams -> (-2 * Max)..Max]]
+    /\ resetOwed \in [Endpoints -> SUBSET Streams]
+    /\ resetSent \in [Endpoints -> [Streams -> BOOLEAN]]
     /\ forbiddenSent \in BOOLEAN /\ flowError \in BOOLEAN
 
 Init ==
@@ -118,11 +146,17 @@ Init ==
     /\ acksOwed = [e \in Endpoints |-> 0]
     /\ connectionOwed = [e \in Endpoints |-> 0]
     /\ streamOwed = [e \in Endpoints |-> <<>>]
+    /\ resetOwed = [e \in Endpoints |-> {}]
+    /\ resetSent = [e \in Endpoints |-> [s \in Streams |-> FALSE]]
     /\ forbiddenSent = FALSE
     /\ flowError = FALSE
 
 Room(e) == Len(toward[Peer(e)]) < ChannelMax
 Put(e, frame) == toward' = [toward EXCEPT ![Peer(e)] = Append(@, frame)]
+
+(* The replies e owes with the credit it owes on s dropped. A queued       *)
+(* RST_STREAM on s stays (connection_reply.zig's drop_window_updates).     *)
+DropCredit(owed, s) == SelectSeq(owed, LAMBDA reply : reply[1] # s \/ reply[2] = 0)
 
 (* The state a frame carrying END_STREAM leaves behind, sent or received   *)
 (* (§5.1).                                                                 *)
@@ -143,7 +177,7 @@ Open(s) ==
        /\ receiveWindow' = [receiveWindow EXCEPT ![e][s] = localInit[e]]
        /\ UNCHANGED <<left, connectionSend, released, connectionReceive, connectionReleased,
                       peerInit, localInit, unacknowledged, changesLeft, acksOwed,
-                      connectionOwed, streamOwed, forbiddenSent, flowError>>
+                      connectionOwed, streamOwed, resetOwed, resetSent, forbiddenSent, flowError>>
 
 (* The server answers a stream the request opened with its response's      *)
 (* HEADERS, which may end its side at once.                                *)
@@ -159,7 +193,7 @@ Respond(s) ==
        /\ UNCHANGED <<left, sendWindow, connectionSend, receiveWindow, released,
                       connectionReceive, connectionReleased, peerInit, localInit,
                       unacknowledged, changesLeft, acksOwed, connectionOwed, streamOwed,
-                      forbiddenSent, flowError>>
+                      resetOwed, resetSent, forbiddenSent, flowError>>
 
 (* One DATA unit, which only open and half-closed (remote) streams carry   *)
 (* (§5.1), within both windows (§6.9.1). The last one carries END_STREAM.  *)
@@ -184,33 +218,62 @@ SendData(e, s) ==
        /\ flowError' = (flowError \/ sendWindow[e][s] <= 0 \/ connectionSend[e] <= 0)
        /\ UNCHANGED <<headersSent, receiveWindow, released, connectionReceive,
                       connectionReleased, peerInit, localInit, unacknowledged, changesLeft,
-                      acksOwed, connectionOwed, streamOwed, forbiddenSent>>
+                      acksOwed, connectionOwed, streamOwed, resetOwed, resetSent, forbiddenSent>>
 
-(* Writes the oldest thing e owes, in connection_reply.zig's order. A      *)
-(* stream's WINDOW_UPDATE on a closed stream is a frame §5.1 forbids:      *)
-(* "An endpoint MUST NOT send frames other than PRIORITY on a closed       *)
-(* stream."                                                                *)
+(* Writes the oldest thing e owes, in connection_reply.zig's order, then a *)
+(* RST_STREAM a record owes, in any order, since slot order is not         *)
+(* modeled. A stream's WINDOW_UPDATE on a closed stream is a frame §5.1    *)
+(* forbids: "An endpoint MUST NOT send frames other than PRIORITY on a     *)
+(* closed stream." A RST_STREAM is the frame that closed it.               *)
 Flush(e) ==
     /\ Room(e)
     /\ \/ /\ acksOwed[e] > 0
           /\ Put(e, Frame("SETTINGS_ACK", Connection, FALSE, 0))
           /\ acksOwed' = [acksOwed EXCEPT ![e] = @ - 1]
-          /\ UNCHANGED <<connectionOwed, streamOwed, forbiddenSent>>
+          /\ UNCHANGED <<connectionOwed, streamOwed, resetOwed, forbiddenSent>>
        \/ /\ acksOwed[e] = 0
           /\ connectionOwed[e] > 0
           /\ Put(e, Frame("WINDOW_UPDATE", Connection, FALSE, connectionOwed[e]))
           /\ connectionOwed' = [connectionOwed EXCEPT ![e] = 0]
-          /\ UNCHANGED <<acksOwed, streamOwed, forbiddenSent>>
+          /\ UNCHANGED <<acksOwed, streamOwed, resetOwed, forbiddenSent>>
        \/ /\ acksOwed[e] = 0 /\ connectionOwed[e] = 0
           /\ streamOwed[e] # <<>>
           /\ LET owed == Head(streamOwed[e])
-             IN /\ Put(e, Frame("WINDOW_UPDATE", owed[1], FALSE, owed[2]))
-                /\ forbiddenSent' = (forbiddenSent \/ state[e][owed[1]] = "closed")
+             IN IF owed[2] = 0
+                THEN /\ Put(e, Frame("RST_STREAM", owed[1], FALSE, 0))
+                     /\ UNCHANGED forbiddenSent
+                ELSE /\ Put(e, Frame("WINDOW_UPDATE", owed[1], FALSE, owed[2]))
+                     /\ forbiddenSent' = (forbiddenSent \/ state[e][owed[1]] = "closed")
           /\ streamOwed' = [streamOwed EXCEPT ![e] = Tail(@)]
-          /\ UNCHANGED <<acksOwed, connectionOwed>>
+          /\ UNCHANGED <<acksOwed, connectionOwed, resetOwed>>
+       \/ /\ acksOwed[e] = 0 /\ connectionOwed[e] = 0 /\ streamOwed[e] = <<>>
+          /\ \E s \in resetOwed[e] :
+                /\ Put(e, Frame("RST_STREAM", s, FALSE, 0))
+                /\ resetOwed' = [resetOwed EXCEPT ![e] = @ \ {s}]
+          /\ UNCHANGED <<acksOwed, connectionOwed, streamOwed, forbiddenSent>>
     /\ UNCHANGED <<state, headersSent, left, sendWindow, connectionSend, receiveWindow, released,
                    connectionReceive, connectionReleased, peerInit, localInit, unacknowledged,
-                   changesLeft, flowError>>
+                   changesLeft, resetSent, flowError>>
+
+(* Resetter's caller resets stream s (§6.4), which only an active stream   *)
+(* allows, and the stream closes at once. The record owes the RST_STREAM   *)
+(* (decision 113), or, with ResetOnRecord FALSE, it is queued with the     *)
+(* replies with no room checked. The credit e owes on s is dropped, since  *)
+(* no DATA on s is read any more (§5.1).                                   *)
+Reset(e, s) ==
+    LET kept == IF DropOnReset THEN DropCredit(streamOwed[e], s) ELSE streamOwed[e]
+    IN /\ e = Resetter
+       /\ state[e][s] \in Active
+       /\ state' = [state EXCEPT ![e][s] = "closed"]
+       /\ resetSent' = [resetSent EXCEPT ![e][s] = TRUE]
+       /\ IF ResetOnRecord
+          THEN /\ streamOwed' = [streamOwed EXCEPT ![e] = kept]
+               /\ resetOwed' = [resetOwed EXCEPT ![e] = @ \cup {s}]
+          ELSE /\ streamOwed' = [streamOwed EXCEPT ![e] = Append(kept, <<s, 0>>)]
+               /\ UNCHANGED resetOwed
+       /\ UNCHANGED <<headersSent, left, sendWindow, connectionSend, receiveWindow, released,
+                      connectionReceive, connectionReleased, peerInit, localInit, unacknowledged,
+                      changesLeft, toward, acksOwed, connectionOwed, forbiddenSent, flowError>>
 
 (* Changer advertises another initial window. It moves what it advertised  *)
 (* on every active stream by the difference at once, and takes what the    *)
@@ -228,13 +291,23 @@ ChangeSettings(e, value) ==
     /\ changesLeft' = changesLeft - 1
     /\ UNCHANGED <<state, headersSent, left, sendWindow, connectionSend, released,
                    connectionReceive, connectionReleased, peerInit, acksOwed, connectionOwed,
-                   streamOwed, forbiddenSent, flowError>>
+                   streamOwed, resetOwed, resetSent, forbiddenSent, flowError>>
 
 (* Whether the credit gathered, with one more DATA unit, now owes a        *)
 (* WINDOW_UPDATE (window.Receiver.release). The unit is charged to the     *)
 (* window, then everything gathered goes back into it at once, so the      *)
 (* window moves by what was gathered before.                               *)
 Gathered(count) == count + 1 >= Threshold
+
+(* The connection window takes one DATA unit and its credit goes back at   *)
+(* once (window.Receiver), whatever the stream does with the frame.        *)
+ChargeConnection(e) ==
+    /\ connectionReceive' = [connectionReceive EXCEPT ![e] =
+            IF Gathered(connectionReleased[e]) THEN @ + connectionReleased[e] ELSE @ - 1]
+    /\ connectionReleased' = [connectionReleased EXCEPT ![e] =
+            IF Gathered(@) THEN 0 ELSE @ + 1]
+    /\ connectionOwed' = [connectionOwed EXCEPT ![e] =
+            IF Gathered(connectionReleased[e]) THEN @ + connectionReleased[e] + 1 ELSE @]
 
 (* Reads one DATA unit on s: both windows count it, the credit goes back   *)
 (* at once, and a stream that ends changes state after the counting, as    *)
@@ -247,17 +320,10 @@ ReceiveData(e, frame) ==
         owedHere == IF streamGathered /\ ~(DropOnEnd /\ frame.end)
                     THEN Append(streamOwed[e], <<s, released[e][s] + 1>>)
                     ELSE streamOwed[e]
-        stillOwed == IF DropOnEnd /\ frame.end
-                     THEN SelectSeq(owedHere, LAMBDA owed : owed[1] # s)
-                     ELSE owedHere
+        stillOwed == IF DropOnEnd /\ frame.end THEN DropCredit(owedHere, s) ELSE owedHere
     IN /\ flowError' = (flowError \/ connectionReceive[e] < 1
                                    \/ (receiveWindow[e][s] < 1 /\ ~tolerated))
-       /\ connectionReceive' = [connectionReceive EXCEPT ![e] =
-            IF Gathered(connectionReleased[e]) THEN @ + connectionReleased[e] ELSE @ - 1]
-       /\ connectionReleased' = [connectionReleased EXCEPT ![e] =
-            IF Gathered(@) THEN 0 ELSE @ + 1]
-       /\ connectionOwed' = [connectionOwed EXCEPT ![e] =
-            IF Gathered(connectionReleased[e]) THEN @ + connectionReleased[e] + 1 ELSE @]
+       /\ ChargeConnection(e)
        /\ receiveWindow' = [receiveWindow EXCEPT ![e][s] =
             IF streamGathered THEN @ + released[e][s] ELSE @ - 1]
        /\ released' = [released EXCEPT ![e][s] = IF streamGathered THEN 0 ELSE @ + 1]
@@ -265,6 +331,29 @@ ReceiveData(e, frame) ==
        /\ state' = IF frame.end THEN [state EXCEPT ![e][s] = AfterReceivedEnd(@)] ELSE state
        /\ UNCHANGED <<headersSent, left, sendWindow, connectionSend, peerInit, localInit,
                       unacknowledged, acksOwed>>
+
+(* Reads one DATA unit on a stream e reset. §5.1 has e discard it, and     *)
+(* "the content of DATA frames counts toward the connection flow-control   *)
+(* window"; the stream's window is not charged (connection_data.zig).      *)
+ReceiveDataAfterReset(e) ==
+    /\ flowError' = (flowError \/ connectionReceive[e] < 1)
+    /\ IF ChargeAfterReset THEN ChargeConnection(e)
+       ELSE UNCHANGED <<connectionReceive, connectionReleased, connectionOwed>>
+    /\ UNCHANGED <<state, headersSent, left, sendWindow, connectionSend, receiveWindow, released,
+                   peerInit, localInit, unacknowledged, acksOwed, streamOwed>>
+
+(* Reads a RST_STREAM. An active stream closes at once and the credit e    *)
+(* owes on it is dropped (connection_stream.zig's on_rst_stream); a closed *)
+(* stream ignores it (§5.1).                                               *)
+ReceiveReset(e, frame) ==
+    LET s == frame.stream
+    IN /\ IF state[e][s] \in Active
+          THEN /\ state' = [state EXCEPT ![e][s] = "closed"]
+               /\ streamOwed' = [streamOwed EXCEPT ![e] = DropCredit(@, s)]
+          ELSE UNCHANGED <<state, streamOwed>>
+       /\ UNCHANGED <<headersSent, left, sendWindow, connectionSend, receiveWindow, released,
+                      connectionReceive, connectionReleased, peerInit, localInit,
+                      unacknowledged, acksOwed, connectionOwed, flowError>>
 
 (* Reads HEADERS: a request opens the server's stream, and its windows     *)
 (* start at the initial values the server knows (§6.9.2).                  *)
@@ -309,12 +398,18 @@ ReceiveSettings(e, frame) ==
        /\ peerInit' = [peerInit EXCEPT ![e] = frame.value]
        /\ acksOwed' = [acksOwed EXCEPT ![e] = @ + 1]
 
+(* e reads the oldest frame toward it, while its queue of replies about    *)
+(* single streams has a free slot (connection_receive.zig's is_full).      *)
 Receive(e) ==
     /\ toward[e] # <<>>
+    /\ Len(streamOwed[e]) < QueueMax
     /\ LET frame == Head(toward[e])
        IN /\ toward' = [toward EXCEPT ![e] = Tail(@)]
-          /\ CASE frame.type = "DATA" -> ReceiveData(e, frame)
+          /\ CASE frame.type = "DATA" ->
+                    IF resetSent[e][frame.stream] THEN ReceiveDataAfterReset(e)
+                    ELSE ReceiveData(e, frame)
                [] frame.type = "HEADERS" -> ReceiveHeaders(e, frame)
+               [] frame.type = "RST_STREAM" -> ReceiveReset(e, frame)
                [] frame.type = "WINDOW_UPDATE" ->
                     /\ ReceiveUpdate(e, frame)
                     /\ UNCHANGED <<state, headersSent, left, receiveWindow, released,
@@ -331,14 +426,14 @@ Receive(e) ==
                                    receiveWindow, released, connectionReceive, connectionReleased,
                                    peerInit, localInit, acksOwed, connectionOwed, streamOwed,
                                    flowError>>
-    /\ UNCHANGED <<changesLeft, forbiddenSent>>
+    /\ UNCHANGED <<changesLeft, resetOwed, resetSent, forbiddenSent>>
 
 Next ==
     \/ \E s \in Streams : Open(s) \/ Respond(s)
     \/ \E e \in Endpoints :
         \/ Receive(e)
         \/ Flush(e)
-        \/ \E s \in Streams : SendData(e, s)
+        \/ \E s \in Streams : SendData(e, s) \/ Reset(e, s)
         \/ \E value \in NewInits : ChangeSettings(e, value)
 
 Fairness ==
@@ -355,12 +450,17 @@ Spec == Init /\ [][Next]_vars /\ Fairness
 NoForbiddenFrame == ~forbiddenSent
 NoFlowError == ~flowError
 
+(* Safety: the replies a receiver's queue holds never pass its limit, so   *)
+(* colibri never asserts a push into a full queue (decision 113).          *)
+QueueBounded == \A e \in Endpoints : Len(streamOwed[e]) <= QueueMax
+
 (* Liveness: every exchange finishes. A sender that flow control holds is  *)
 (* released once the receiver takes the data, and every stream closes at   *)
-(* both ends with nothing left in flight or owed.                          *)
+(* both ends with nothing left in flight or owed: every RST_STREAM a       *)
+(* record owed has gone out.                                               *)
 Finished ==
     /\ \A e \in Endpoints, s \in Streams : state[e][s] = "closed"
-    /\ \A e \in Endpoints : toward[e] = <<>>
+    /\ \A e \in Endpoints : toward[e] = <<>> /\ resetOwed[e] = {}
 Finishes == <>Finished
 
 (* Found violated by a configuration of its own: a SETTINGS change drives  *)

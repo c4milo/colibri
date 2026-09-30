@@ -2,11 +2,15 @@
 //! SETTINGS acknowledgment (RFC 9113 §6.5.3), a PING acknowledgment (§6.7), a WINDOW_UPDATE for
 //! the connection (§6.9), a RST_STREAM or a WINDOW_UPDATE for one stream, and the GOAWAY that ends
 //! the connection (§6.8). `write` puts as many as the caller's buffer holds into it, in that
-//! order, and keeps the rest for the next call.
+//! order, and keeps the rest for the next call. Before the GOAWAY it writes the RST_STREAM frames
+//! the caller asked for, which the stream table's records owe rather than a queue here
+//! (`stream/streams_reset.zig`, decision 113).
 //!
 //! Every queue is bounded by a named limit, so a peer that never reads cannot make colibri hold
 //! more. A full queue does not drop a reply and does not end the connection: the connection stops
-//! reading frames until the caller writes what is pending, which `is_full` reports.
+//! reading frames until the caller writes what is pending, which `is_full` reports. Only a frame
+//! the connection reads pushes a reply here, and one frame owes at most one reply about one
+//! stream, so a queue with a free slot has room for what the next frame owes.
 //!
 //! A frame is written whole or not at all, because every writer in `frame` commits nothing when
 //! the buffer is short. The GOAWAY goes last: RFC 9113 §6.8 makes it the last frame of the
@@ -16,7 +20,9 @@ const assert = std.debug.assert;
 const core = @import("core");
 const constants = @import("../constants.zig");
 const frame = @import("../frame/frame.zig");
+const streams_table = @import("../stream/streams.zig");
 
+const Streams = streams_table.Streams;
 const Writer = core.Writer;
 
 /// What a reply about one stream says: RFC 9113 §6.4 ends the stream, §6.9 gives it more window.
@@ -101,7 +107,8 @@ pub const Replies = struct {
         replies.connection_increment += increment;
     }
 
-    /// Owes the peer a RST_STREAM or a WINDOW_UPDATE about one stream.
+    /// Owes the peer a RST_STREAM or a WINDOW_UPDATE about one stream, for a frame the connection
+    /// read. A RST_STREAM the caller asks for is owed by the stream's record instead.
     pub fn push_stream_reply(replies: *Replies, reply: StreamReply) void {
         assert(replies.stream_reply_count < constants.stream_replies_max);
         assert(reply.stream_id != constants.connection_stream_id);
@@ -136,18 +143,29 @@ pub const Replies = struct {
         replies.goaway = goaway;
     }
 
-    /// Writes as many queued frames as `output` holds, oldest queue first, and returns the octets
-    /// written. A frame that does not fit is kept for the next call.
-    pub fn write(replies: *Replies, output: []u8) usize {
+    /// Writes as many queued frames as `output` holds, oldest queue first, then the RST_STREAM
+    /// frames the records of `streams` owe, then the GOAWAY, and returns the octets written. A
+    /// frame that does not fit is kept for the next call.
+    pub fn write(replies: *Replies, streams: *Streams, output: []u8) usize {
         var writer = Writer.init(output);
         write_settings_acks(replies, &writer);
         write_ping_acks(replies, &writer);
         write_connection_increment(replies, &writer);
         write_stream_replies(replies, &writer);
+        write_owed_resets(streams, &writer);
         write_goaway(replies, &writer);
         return writer.written().len;
     }
 };
+
+comptime {
+    // The GOAWAY is written last and is at least as long as every frame before it, so a buffer too
+    // short for one of them is too short for the GOAWAY, which never passes a frame still owed.
+    const goaway_frame_len = constants.frame_header_len + constants.goaway_len_min;
+    assert(goaway_frame_len >= constants.frame_header_len + constants.ping_len);
+    assert(goaway_frame_len >= constants.frame_header_len + constants.window_update_len);
+    assert(goaway_frame_len >= constants.frame_header_len + constants.rst_stream_len);
+}
 
 fn write_settings_acks(replies: *Replies, writer: *Writer) void {
     while (replies.settings_acks > 0) {
@@ -196,6 +214,21 @@ fn shift_stream_replies(replies: *Replies) void {
     replies.stream_reply_count -= 1;
 }
 
+/// Writes the RST_STREAM frames the caller asked for, which the stream table's records owe, in slot
+/// order. A record owes its frame until the frame is written whole (`stream/streams_reset.zig`).
+fn write_owed_resets(streams: *Streams, writer: *Writer) void {
+    if (streams.resets_owed == 0) return;
+    var records = streams.iterator();
+    while (records.next()) |record| {
+        const error_code = record.reset_owed orelse continue;
+        assert(record.id <= constants.stream_id_max);
+        // RFC 9113 §6.4: a RST_STREAM carries the error code that ends the stream.
+        frame.write_rst_stream(writer, @intCast(record.id), error_code) catch return;
+        streams.reset_written(record);
+    }
+    assert(streams.resets_owed == 0);
+}
+
 fn write_goaway(replies: *Replies, writer: *Writer) void {
     const goaway = replies.goaway orelse return;
     // RFC 9113 §6.8: the GOAWAY names the highest stream the sender acted on and why it stops.
@@ -211,11 +244,21 @@ threadlocal var test_replies: Replies align(@alignOf(Replies)) = undefined;
 /// Where the tests write frames. Test-only.
 threadlocal var test_output: [constants.frame_size_max]u8 = @splat(0);
 
+/// A stream table with no stream in it, so no record owes a RST_STREAM: these tests run on the
+/// queues alone. Test-only.
+threadlocal var test_streams: Streams align(@alignOf(Streams)) = undefined;
+
+/// Writes what the queues hold into `output`. Test-only.
+fn write_queues(output: []u8) usize {
+    test_streams.init(.server);
+    return test_replies.write(&test_streams, output);
+}
+
 test "an empty queue writes nothing, and init empties every queue" {
     test_replies.init();
     try testing.expect(test_replies.is_empty());
     try testing.expect(!test_replies.is_full());
-    try testing.expectEqual(0, test_replies.write(&test_output));
+    try testing.expectEqual(0, write_queues(&test_output));
     test_replies.push_settings_ack();
     test_replies.push_ping_ack("12345678".*);
     test_replies.add_connection_increment(7);
@@ -233,7 +276,7 @@ test "the queues write in order: SETTINGS ACK, PING ACK, the connection window, 
     test_replies.add_connection_increment(100);
     test_replies.push_ping_ack("deadbeef".*);
     test_replies.push_settings_ack();
-    const written = test_replies.write(&test_output);
+    const written = write_queues(&test_output);
     const expected = "\x00\x00\x00\x04\x01\x00\x00\x00\x00" ++
         "\x00\x00\x08\x06\x01\x00\x00\x00\x00deadbeef" ++
         "\x00\x00\x04\x08\x00\x00\x00\x00\x00\x00\x00\x00\x64" ++
@@ -250,14 +293,14 @@ test "a short buffer writes what fits and keeps the rest, frame by frame" {
     test_replies.push_ping_ack("01234567".*);
     // Two SETTINGS acknowledgments fit in the room given; the PING acknowledgment needs seventeen octets and one is left, so it stays queued.
     const room = 2 * constants.frame_header_len + 1;
-    try testing.expectEqual(2 * constants.frame_header_len, test_replies.write(test_output[0..room]));
+    try testing.expectEqual(2 * constants.frame_header_len, write_queues(test_output[0..room]));
     try testing.expectEqual(0, test_replies.settings_acks);
     try testing.expectEqual(1, test_replies.ping_ack_count);
     // A buffer one octet short of the whole frame writes nothing at all.
     const short = constants.frame_header_len + constants.ping_len - 1;
-    try testing.expectEqual(0, test_replies.write(test_output[0..short]));
+    try testing.expectEqual(0, write_queues(test_output[0..short]));
     try testing.expectEqual(1, test_replies.ping_ack_count);
-    const whole = test_replies.write(&test_output);
+    const whole = write_queues(&test_output);
     try testing.expectEqual(constants.frame_header_len + constants.ping_len, whole);
     try testing.expect(test_replies.is_empty());
 }
@@ -270,7 +313,7 @@ test "PING acknowledgments keep the order the peer sent them in, and the queue i
         test_replies.push_ping_ack(data);
     }
     try testing.expect(test_replies.is_full());
-    const written = test_replies.write(&test_output);
+    const written = write_queues(&test_output);
     try testing.expectEqual(constants.ping_ack_pending_max * (constants.frame_header_len + constants.ping_len), written);
     for (0..constants.ping_ack_pending_max) |index| {
         const payload = test_output[constants.frame_header_len + index * (constants.frame_header_len + constants.ping_len) ..];
@@ -285,7 +328,7 @@ test "stream replies keep their order, and the connection increment coalesces in
     test_replies.push_stream_reply(.{ .stream_id = 1, .kind = .window_update, .value = 3 });
     test_replies.add_connection_increment(10);
     test_replies.add_connection_increment(5);
-    const written = test_replies.write(&test_output);
+    const written = write_queues(&test_output);
     const expected = "\x00\x00\x04\x08\x00\x00\x00\x00\x00\x00\x00\x00\x0f" ++
         "\x00\x00\x04\x03\x00\x00\x00\x00\x05\x00\x00\x00\x05" ++
         "\x00\x00\x04\x08\x00\x00\x00\x00\x01\x00\x00\x00\x03";
@@ -298,7 +341,7 @@ test "the first GOAWAY stands, and it is written after the replies the peer aske
     test_replies.set_goaway(.{ .last_stream_id = 9, .error_code = constants.error_internal_error });
     try testing.expectEqual(7, test_replies.goaway.?.last_stream_id);
     try testing.expectEqual(constants.error_no_error, test_replies.goaway.?.error_code);
-    const written = test_replies.write(&test_output);
+    const written = write_queues(&test_output);
     try testing.expectEqual(constants.frame_header_len + constants.goaway_len_min, written);
     try testing.expectEqual(null, test_replies.goaway);
 }

@@ -19,7 +19,8 @@
 //!      moves the watermark to the identifier, because the peer used it (§5.1.1);
 //!   6. the pool has a free slot after the drop, asserted: the pool holds `concurrent_streams_max`
 //!      records and a server opens none of its own, so a full pool below step 5's limit holds a
-//!      closed record to drop.
+//!      closed record, and the connection reads no HEADERS frame while every closed record owes
+//!      a RST_STREAM not yet written (`streams_reset.zig`), so one of them may be dropped.
 //!
 //! `open_local` checks in this order:
 //!   1. the contract, asserted: colibri is the client;
@@ -27,7 +28,8 @@
 //!   3. an identifier is left, or `error.IdentifiersExhausted` (§5.1.1);
 //!   4. `local_active` is below the peer's SETTINGS_MAX_CONCURRENT_STREAMS, or
 //!      `error.PeerLimitReached` (§5.1.2);
-//!   5. the pool has a free slot after the drop, or `error.Full`.
+//!   5. the pool has a free slot after the drop, or `error.Full`, which is also the answer while
+//!      every closed record owes a RST_STREAM not yet written (`streams_reset.zig`).
 //!
 //! `streams_slot.zig` holds the slot operations those steps use: the drop of the oldest closed
 //! record, and the two markers an identifier without a record is read by.
@@ -46,6 +48,7 @@ const window = @import("../window.zig");
 const table = @import("streams.zig");
 const goaway = @import("streams_goaway.zig");
 const slot = @import("streams_slot.zig");
+const resets = @import("streams_reset.zig");
 
 const Stream = table.Stream;
 const Streams = table.Streams;
@@ -77,7 +80,8 @@ pub const OpenLocalError = error{
     /// colibri has opened its largest identifier (RFC 9113 §5.1.1). A new stream needs a new
     /// connection.
     IdentifiersExhausted,
-    /// Every slot holds an open or half-closed stream. One may open once one of them closes.
+    /// Every slot holds an open or half-closed stream, or a closed one whose RST_STREAM colibri owes
+    /// and has not written. One may open once one of them closes, or once `write_pending` writes.
     Full,
 };
 
@@ -192,13 +196,15 @@ pub fn initiated_by_peer(streams: *const Streams, id: u64) bool {
 }
 
 /// Each active count is within the pool's capacity and belongs to the one endpoint that opens
-/// streams in this role, and together they count at most the records the pool holds.
+/// streams in this role, and together they count at most the records the pool holds. The records
+/// that owe a RST_STREAM are among the rest, the closed ones.
 pub fn assert_counts(streams: *const Streams) void {
     assert(streams.peer_active <= constants.concurrent_streams_max);
     assert(streams.local_active <= constants.concurrent_streams_max);
     assert(streams.peer_active + streams.local_active <= streams.pool.len());
     assert(streams.role == .server or streams.peer_active == 0);
     assert(streams.role == .client or streams.local_active == 0);
+    resets.assert_counts(streams);
 }
 
 /// Gives a fresh record the state open, its initiator and both windows.

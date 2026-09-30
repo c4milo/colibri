@@ -205,8 +205,9 @@ exchange. `event.ended_stream()` names the stream an event ended, whichever of t
 response, DATA or trailers ended it. A client opens a stream with `write_request`, a server
 answers with `write_response`, and both send content with `write_data`, which writes as much as
 the flow-control windows allow. `write_trailers` ends either side's message with a trailer
-section, after its final header section (RFC 9113 §8.1). `reset_stream` ends one stream, and
-`shutdown` begins a graceful close.
+section, after its final header section (RFC 9113 §8.1). `reset_stream` ends one stream, and the
+next `write_pending` writes its RST_STREAM: it needs no room, however many streams the caller
+resets between two writes (decision 113). `shutdown` begins a graceful close.
 
 ## TLS
 

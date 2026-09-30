@@ -6,7 +6,8 @@
 //!   2. at a server, the 24 octets of the client connection preface (RFC 9113 §3.4);
 //!   3. a whole frame header, and a Length at or below what colibri advertised, or a connection
 //!      error of FRAME_SIZE_ERROR (§4.2), which is decided before the payload is waited for;
-//!   4. the whole payload is in the slice, or nothing is consumed;
+//!   4. the whole payload is in the slice, or nothing is consumed, and at a server a HEADERS frame,
+//!      which may open a stream, consumes nothing while an open would find no slot (decision 113);
 //!   5. the first frame the peer sends is a SETTINGS frame that is not an acknowledgment (§3.4);
 //!   6. a field block in progress takes only a CONTINUATION frame on its own stream, or a
 //!      connection error of PROTOCOL_ERROR (§4.3, invariant 14);
@@ -44,8 +45,12 @@ pub fn receive(target: *Connection, input: []const u8, now_ns: u64) Error!Receiv
     // it is an error before the rest of the frame arrives, which colibri never waits for.
     if (header.length > target.local.max_frame_size) return target.fail(constants.error_frame_size_error);
     if (reader.remaining_len() < header.length) return nothing();
+    if (waits_for_slot(target, header)) return nothing();
     const payload = reader.take(header.length) catch unreachable;
+    const replies_before = target.replies.stream_reply_count;
     const event = try dispatch(target, header, payload, now_ns);
+    // One frame owes at most one reply about one stream, which the slot `is_full` left holds.
+    assert(target.replies.stream_reply_count <= replies_before + 1);
     return .{ .consumed = constants.frame_header_len + header.length, .event = event };
 }
 
@@ -53,6 +58,14 @@ pub fn receive(target: *Connection, input: []const u8, now_ns: u64) Error!Receiv
 /// write the replies first.
 fn nothing() Received {
     return .{ .consumed = 0, .event = null };
+}
+
+/// Whether the frame waits for the caller to write what is owed: a HEADERS frame at a server may
+/// open a stream, and no record gives up its slot while it owes a RST_STREAM not yet written
+/// (decision 113). A client opens no stream on a frame it reads (decision 17).
+fn waits_for_slot(target: *const Connection, header: frame.Header) bool {
+    if (target.role != .server or header.type != constants.frame_type_headers) return false;
+    return target.streams.open_waits_for_write();
 }
 
 /// The octets of the client connection preface this call consumed, at a server that has not read

@@ -126,6 +126,32 @@ test "RFC 9113 §6.4: cancel resets the stream with CANCEL" {
     try testing.expectError(error.RequestUnknown, connection.respond(1, .{ .status = ok, .end = true }));
 }
 
+test "RFC 9113 §6.4: cancel resets more streams between two sends than h2's reply queue holds" {
+    try start();
+    const streams = h2.constants.stream_replies_max + 1;
+    for (0..streams) |index| _ = try support.receive_copy(try request_frame(client_stream(index), "/", false));
+    for (0..streams) |index| connection.cancel(client_stream(index));
+    var sent = support.drain();
+    // Each stream's RST_STREAM carries CANCEL, and goes out once (decision 113).
+    for (0..streams) |index| {
+        try testing.expectEqual(constants.frame_type_rst_stream, sent[type_index]);
+        try testing.expectEqual(client_stream(index), std.mem.readInt(u32, sent[stream_id_index..][0..stream_id_len], .big));
+        const code = sent[constants.frame_header_len..][0..error_code_len];
+        try testing.expectEqual(constants.error_cancel, std.mem.readInt(u32, code, .big));
+        sent = sent[frame_len(sent)..];
+    }
+    try testing.expectEqual(0, sent.len);
+}
+
+/// The identifier of the `index`th stream a client opens, counting from 0 (RFC 9113 §5.1.1).
+fn client_stream(index: usize) u32 {
+    return constants.stream_id_client_first + constants.stream_id_step * @as(u32, @intCast(index));
+}
+
+/// Where a frame header holds its stream identifier, and its octets (RFC 9113 §4.1).
+const stream_id_index: usize = flags_index + 1;
+const stream_id_len: usize = 4;
+
 test "RFC 9113 §6.4: a stream the peer resets arrives as its cancellation" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", false));

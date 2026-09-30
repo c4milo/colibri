@@ -337,3 +337,22 @@ test "§5.1: once the peer ends a stream, or either side resets it, its owed WIN
     try owe_stream_credit();
     try testing.expectEqual(1, try updates_on(write_queued(), 1));
 }
+
+test "a DATA frame that owes credit and then breaks its content-length takes one slot, the queue's last" {
+    try start_server();
+    _ = try feed_request(1, "/", false);
+    _ = try feed_post(3, "5");
+    // Every second full frame owes stream 1 a WINDOW_UPDATE, until one slot is left.
+    var payload: [constants.frame_size_max]u8 = @splat('x');
+    for (0..2 * (constants.stream_replies_max - 1)) |_| _ = try feed_data(1, &payload, false);
+    try testing.expectEqual(constants.stream_replies_max - 1, test_connection.replies.stream_reply_count);
+    // Stream 3's second frame owes a WINDOW_UPDATE, then ends past its content-length (§8.1.1). The
+    // reset drops the credit before it queues the RST_STREAM, so the frame owes one reply.
+    _ = try feed_data(3, &payload, false);
+    const refused = (try feed_data(3, &payload, true)).?;
+    try testing.expectEqual(constants.error_protocol_error, refused.stream_refused.error_code);
+    try testing.expect(test_connection.replies.is_full());
+    const queued = write_queued();
+    try testing.expectEqual(0, try updates_on(queued, 3));
+    try testing.expectEqual(constants.stream_replies_max - 1, try updates_on(queued, 1));
+}

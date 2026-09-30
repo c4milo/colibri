@@ -453,7 +453,8 @@ octet, so it refuses no line those limits admit) · `field_block_buffer_len` (on
 plus one frame, decision 40) · `send_block_len_max` (two frames' worth of field block colibri
 sends, cut into a HEADERS frame and the CONTINUATION frames it needs) · `settings_ack_pending_max`
 · `ping_ack_pending_max` · `stream_replies_max` (the reply queues of decision 39: a full queue
-stops the reading, and no reply is ever dropped).
+stops the reading, and no reply is ever dropped; a RST_STREAM the caller asks for takes no slot,
+because the stream's record owes it, decision 113).
 
 **wire** (`wire`): `varint_value_max` (2^62 − 1, RFC 9000 §16) · `integer_value_max` (2^62 − 1, the
 62 bits RFC 9204 §4.1.1 requires) · `integer_len_max` (10 octets, the length those 62 bits need
@@ -1022,6 +1023,47 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - an interim response that ends the stream: 61 of 64 pass;
     - frames above a GOAWAY colibri sent not ignored: 60 of 64 pass;
     - the client opens a stream after a GOAWAY it read: 52 of 64 pass.
+
+  **The caller's resets, 2026-09-30** ([decision 113](decisions.md)).
+  - `reset_stream` pushed its RST_STREAM into the reply queue with no room check, and the push
+    asserted a free slot among `stream_replies_max`. Before the fix, six tests stopped on that
+    assertion. At a server: 128 resets between two writes, 128 before an open, and 127 before an
+    open that must drop the one record it may. Then one reset after the peer's DATA filled the
+    queue with WINDOW_UPDATE frames, 128 resets at a client, and 33 cancels through
+    `server.Connection.cancel`.
+  - The reading could not overflow the queue. A DATA frame that owes a WINDOW_UPDATE and then
+    breaks its content-length drops that frame before its RST_STREAM is queued, so it takes one
+    slot. A test pins the case with one slot left, and `receive` now asserts after each frame that
+    it owes at most one reply about one stream. No other frame pushes two.
+  - `spec/tla/h2_flow_control` models the resets of one endpoint's caller, `Resetter`, and the
+    reading's stop for a full queue, `QueueMax`. `resets` checks safety with a one-slot queue,
+    `QueueBounded` among it, and `resets_finish` checks that every exchange finishes. With one slot
+    and two frames in flight each way, both endpoints can stop reading while both channels are
+    full, with resets or without ([#85](https://github.com/c4milo/colibri/issues/85)), so `resets`
+    checks no liveness. Three configurations turn a rule off: `reset_in_queue` queues the resets
+    with no room checked, `reset_keeps_update` keeps the credit owed on a reset stream, and
+    `reset_uncharged` leaves DATA after a reset out of the connection window.
+  - 18 mutations of colibri, 17 **CAUGHT** and 1 **NOT CAUGHT**:
+    - **CAUGHT**: the reset owes nothing; an open drops a record that owes a reset; a HEADERS
+      frame never waits for a slot; every frame waits, or a client's HEADERS waits too; an open
+      waits with no reset owed, with a free slot, at the peer limit, or while a closed record
+      owes nothing; a written reset keeps its mark, or its count; `owe_reset` counts nothing; the
+      owed resets go before the queued replies; `has_pending` leaves them out; either reset keeps
+      the stream's credit; a reset the reading decides queues its RST_STREAM before it drops the
+      credit.
+    - **NOT CAUGHT**: the write walks the records when none owes a reset. The walk then writes
+      nothing, so no test can tell.
+
+  What each check printed on macOS arm64:
+  - `zig build test`: `128/128 steps succeeded; 2492/2492 tests passed`.
+  - `tools/h2spec.sh 28443 --tls`: 144 passed and the 2 cases decision 41 names, in cleartext and
+    over TLS.
+  - `tools/h2_trace.sh`: `64 of 64 traces are behaviors of the model`. `tools/client_trace.sh`:
+    `67 of 67 traces are behaviors of the model`. `zig build sim -- --h2-trace-check`: the census
+    above, unchanged.
+  - `zig build tla -- spec/tla/h2_flow_control/*.cfg`: `colibri` holds in 6463 distinct states,
+    `settings` in 432411 and `two_streams` in 572165, as before, `resets` in 1384220 and
+    `resets_finish` in 176219. The seven configurations expected to be violated are.
 
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged

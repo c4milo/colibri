@@ -7,8 +7,10 @@
 //! caller loops over `receive` until it returns 0, writes what is pending, and reads more octets.
 //!
 //! `write_pending` writes, in order: the client connection preface at a client (RFC 9113 §3.4),
-//! colibri's own SETTINGS frame, then the replies `connection_reply.zig` holds. This file writes
-//! nothing else: the response a server sends is the caller's, through the send path.
+//! colibri's own SETTINGS frame, then the replies `connection_reply.zig` holds, among them the
+//! RST_STREAM frames the caller asked for, which the stream table's records owe (decision 113).
+//! This file writes nothing else: the response a server sends is the caller's, through the send
+//! path.
 //!
 //! A frame the peer sends that breaks the protocol ends the connection: `receive` returns
 //! `error.ConnectionFailed`, a GOAWAY carrying the code is queued, and `failure` holds that code
@@ -361,7 +363,9 @@ pub const Connection = struct {
         connection.streams.peer_active_max = max;
     }
 
-    /// Queues a RST_STREAM for `stream_id` (RFC 9113 §6.4): see `connection_send.zig`.
+    /// Owes the peer a RST_STREAM for `stream_id` (RFC 9113 §6.4), which `write_pending` writes:
+    /// see `connection_send.zig`. It needs no room, so a caller may reset every stream it holds
+    /// between two writes.
     pub fn reset_stream(connection: *Connection, stream_id: u32, error_code: u32) SendError!void {
         return connection_send.reset(connection, stream_id, error_code);
     }
@@ -379,13 +383,14 @@ pub const Connection = struct {
         var writer = Writer.init(output);
         connection.write_preface(&writer, now_ns);
         const preface_len = writer.written().len;
-        return preface_len + connection.replies.write(output[preface_len..]);
+        return preface_len + connection.replies.write(&connection.streams, output[preface_len..]);
     }
 
     /// Whether anything is waiting to be written. Nothing is once the record layer failed.
     pub fn has_pending(connection: *const Connection) bool {
         if (connection.tls_failed) return false;
-        return !connection.preface_done() or !connection.replies.is_empty();
+        return !connection.preface_done() or !connection.replies.is_empty() or
+            connection.streams.resets_owed > 0;
     }
 
     /// Whether colibri's SETTINGS_ENABLE_PUSH of 0 has been acknowledged, after which RFC 9113
