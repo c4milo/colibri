@@ -42,6 +42,7 @@ pub const h11_exchange_check = @import("h11_exchange_check.zig");
 pub const h11_coding_plan = @import("h11_coding_plan.zig");
 pub const h11_coding_check = @import("h11_coding_check.zig");
 pub const content_coding_check = @import("content_coding_check.zig");
+pub const deadline_check = @import("deadline_check.zig");
 const run_main = @import("run_main.zig");
 
 comptime {
@@ -80,6 +81,8 @@ test {
     _ = h11_coding_check;
     _ = content_coding_check;
     _ = @import("content_coding_plan.zig");
+    _ = deadline_check;
+    _ = @import("deadline_plan.zig");
     _ = h3_trace_tla;
     _ = client_trace_plan;
     _ = client_trace_ledger;

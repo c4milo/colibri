@@ -26,6 +26,8 @@
 //!     sim --h11-coding-check [seeds]   (step 15c)
 //!     sim --content-coding-seed <hex>  one seed's content codings, client to server
 //!     sim --content-coding-check [seeds] (step 17e)
+//!     sim --deadline-seed <hex>        one seed's peer against a server's deadlines (step 20b)
+//!     sim --deadline-check [seeds]
 //!
 //! The h11 commands are in `run_main_h11.zig`, and the QPACK and h3 ones in `run_main_h3.zig`,
 //! split off for length.
@@ -38,6 +40,7 @@ const chunk_check = @import("chunk_check.zig");
 const run_main_h11 = @import("run_main_h11.zig");
 const run_main_content_coding = @import("run_main_content_coding.zig");
 const run_main_h3 = @import("run_main_h3.zig");
+const run_main_deadline = @import("run_main_deadline.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
 const connection_check = @import("connection_check.zig");
@@ -69,7 +72,8 @@ const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --client-trace-seed <hex> | --client-trace-check [seeds] | --client-trace-write <directory>" ++
     " | --h11-split-seed <hex> | --h11-split-check [seeds]" ++
     " | --h11-connection-seed <hex> | --h11-connection-check [seeds]" ++
-    " | --h11-coding-seed <hex> | --h11-coding-check [seeds] | --content-coding-seed <hex> | --content-coding-check [seeds]\n";
+    " | --h11-coding-seed <hex> | --h11-coding-check [seeds] | --content-coding-seed <hex> | --content-coding-check [seeds]" ++
+    " | --deadline-seed <hex> | --deadline-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -98,6 +102,8 @@ pub const Command = union(enum) {
     h11_coding_check: u64,
     content_coding_seed: u64,
     content_coding_check: u64,
+    deadline_seed: u64,
+    deadline_check: u64,
 };
 
 /// The storage each check writes into, placed outside any stack frame.
@@ -149,6 +155,8 @@ pub fn main(init: std.process.Init) !void {
         .h11_coding_check => |seeds| try run_main_h11.coding_check(seeds),
         .content_coding_seed => |seed| try run_main_content_coding.seed(seed),
         .content_coding_check => |seeds| try run_main_content_coding.check(seeds),
+        .deadline_seed => |seed| try run_main_deadline.seed(seed),
+        .deadline_check => |seeds| try run_main_deadline.check(seeds),
     }
 }
 
@@ -206,6 +214,8 @@ fn parse_h2_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--client-trace-seed")) return .{ .client_trace_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--client-trace-check")) return .{ .client_trace_check = try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--client-trace-write")) return .{ .client_trace_write = value orelse return error.Usage };
+    if (std.mem.eql(u8, flag, "--deadline-seed")) return .{ .deadline_seed = try parse_seed(value) };
+    if (std.mem.eql(u8, flag, "--deadline-check")) return .{ .deadline_check = if (value == null) constants.deadline.check_seeds_default else try parse_seeds(value) };
     return error.Usage;
 }
 
@@ -317,6 +327,11 @@ test "the connection check takes the same two forms" {
 test "the content-coding check runs the seeds its census test pins when given no count" {
     const default: Command = .{ .content_coding_check = constants.content_coding.check_seeds_default };
     try testing.expectEqual(default, try parse(&.{"--content-coding-check"}));
+}
+
+test "the deadline check runs the seeds its census test pins when given no count" {
+    const default: Command = .{ .deadline_check = constants.deadline.check_seeds_default };
+    try testing.expectEqual(default, try parse(&.{"--deadline-check"}));
 }
 
 test "anything else is a usage error" {
