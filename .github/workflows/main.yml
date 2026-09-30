@@ -105,7 +105,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/peers.tar
-          key: peers-${{ runner.os }}-${{ hashFiles('tools/h2_interop/Dockerfile', 'tools/h2_interop/h2o.conf') }}
+          key: peers-${{ runner.os }}-${{ hashFiles('tools/h2_interop/Dockerfile', 'tools/h2_interop/h2o.conf', 'tools/h2_interop/h2o_tls.conf', 'tools/h2_interop/Caddyfile', 'tools/h2_interop/Caddyfile_tls') }}
       - name: Load the image
         if: steps.peers.outputs.cache-hit == 'true'
         run: docker load -i "${HOME}/peers.tar"

@@ -1,0 +1,16 @@
+# Caddy in cleartext for tools/h2_interop.sh and tools/h11_interop.sh: HTTP/1.1, and h2 with prior
+# knowledge (RFC 9113 §3.3). Decision 101 as amended: Caddy codes the text file in zstd for a client
+# that accepts it, for colibri's client to decode.
+{
+	admin off
+	auto_https off
+	servers {
+		protocols h1 h2c
+	}
+}
+
+:8080 {
+	root * /www
+	encode zstd gzip
+	file_server
+}

@@ -1,0 +1,17 @@
+# Caddy over TLS for tools/h2_interop.sh and tools/h11_interop.sh: the identity
+# tools/h2_interop/tls_identity.go minted, which the run mounts at /identity. ALPN selects h2 or
+# HTTP/1.1 (RFC 7301 §3.2). Decision 101 as amended: Caddy codes the text file in zstd.
+{
+	admin off
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://:8080 {
+	tls /identity/colibri.chain.pem /identity/colibri.key.pem
+	root * /www
+	encode zstd gzip
+	file_server
+}

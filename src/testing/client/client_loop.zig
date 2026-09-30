@@ -83,10 +83,16 @@ var bodies: [constants.client_connections_max]client_session.Bodies align(@align
 /// What every connection of the run borrows, and the root the TLS mode trusts, which `main` loads
 /// when `--tls` names one.
 var client_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
-/// The decoders every connection of a `--coded` run shares, and the codings it offers, gzip first
-/// (decision 101).
+/// The decoders every connection of a `--coded` run shares, a pool for each coding (decision 101 as
+/// amended), and the codings it offers. `br` goes first, with no weight: h2o 2.2.5 codes no coding
+/// the request names with a weight, and a peer that reads weights still takes the one it has.
 var decoders: client.DefaultDecoderPool align(@alignOf(client.DefaultDecoderPool)) = .{};
-const offered_codings = [_]client.Coding{ .gzip, .deflate };
+var zstd_decoders: client.ZstdDecoderPool(coded_decoders) align(@alignOf(client.ZstdDecoderPool(coded_decoders))) = undefined;
+var br_decoders: client.BrotliDecoderPool(coded_decoders) align(@alignOf(client.BrotliDecoderPool(coded_decoders))) = undefined;
+const offered_codings = [_]client.Coding{ .br, .zstd, .gzip, .deflate };
+/// The `zstd` and `br` decoders a run holds, each 8 MB or 16 MiB: two coded responses of each at
+/// once. An exchange past them offers the codings left.
+const coded_decoders: usize = 2;
 var tls_anchors: client_tls.Anchors align(@alignOf(client_tls.Anchors)) = undefined;
 
 /// Opens every connection of `run`, serves them until each is closed, and returns how many
@@ -298,9 +304,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
     client_config = .{ .authority = run.authority, .cleartext = protocol_of(run.protocol) };
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
-        decoders.storage().reset(h11.coding.Features.detect());
+        const features = h11.coding.Features.detect();
+        decoders.storage().reset(features);
+        zstd_decoders.storage().reset(features);
+        br_decoders.storage().reset(features);
         client_config.codings = &offered_codings;
         client_config.decoders = decoders.storage();
+        client_config.zstd_decoders = zstd_decoders.storage();
+        client_config.br_decoders = br_decoders.storage();
     }
     if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
     if (run.channel) {

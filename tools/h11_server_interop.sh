@@ -20,7 +20,7 @@ readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly server="${repository_root}/zig-out/bin/http-server"
 readonly peer_directory="${repository_root}/tools/h2_interop"
 # The image tools/h2_interop.sh builds, tagged by a checksum of what it is built from.
-readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" | shasum -a 256 | cut -c1-16)"
+readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" "${peer_directory}/Caddyfile" "${peer_directory}/Caddyfile_tls" | shasum -a 256 | cut -c1-16)"
 readonly port=18581
 # The UDP port the server advertises h3 on (design §8 step 17b). No h3 server listens there: the
 # check reads the advertisement alone.

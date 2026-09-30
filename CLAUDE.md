@@ -279,7 +279,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   h3spec offers AES suites alone, and runs the server with `no-ecn`, because h3spec's client does
   not parse an ACK frame that carries ECN counts. `tools/h3load.sh [requests] [port]` runs `h2load --h3`
   from an image `tools/h3load/Dockerfile` builds from pinned tags; it needs Docker.
-  `tools/h2_interop.sh [--tls] [go] [nghttpd] [h2o]` runs the test-only h2 client
+  `tools/h2_interop.sh [--tls] [go] [nghttpd] [h2o] [caddy]` runs the test-only h2 client
   (`zig build http-client`) against other implementations' servers in cleartext, and with `--tls`
   over TLS too, through the client's `--tls <anchor-prefix> --seconds <unix-seconds>` mode; it
   needs `go`, `docker` and `python3`. `tools/h2_server_interop.sh [--tls] [curl] [nghttp]
@@ -290,13 +290,14 @@ Everything below exists. Change this section when a step adds or renames a comma
   and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`. The
   server takes `--h3-port <port>`, the UDP port each TLS connection advertises h3 on, and nghttp
   must read one ALTSVC frame naming it over TLS and none in cleartext (design §8 step 17b).
-  `tools/h11_interop.sh [--tls] [go] [h2o]` and `tools/h11_server_interop.sh [--tls] [curl]
-  [go]` run the same peers over h11: the client against Go's and h2o's servers, and curl and Go's
-  client against the server, where curl also offers no ALPN over TLS and must read an Alt-Svc
-  line naming h3 over TLS and none in cleartext. Both endpoints also take `--coded` (decision
+  `tools/h11_interop.sh [--tls] [go] [h2o] [caddy]` and `tools/h11_server_interop.sh [--tls] [curl]
+  [go]` run the same peers over h11: the client against Go's, h2o's and Caddy's servers, and curl
+  and Go's client against the server, where curl also offers no ALPN over TLS and must read an
+  Alt-Svc line naming h3 over TLS and none in cleartext. Both endpoints also take `--coded` (decision
   101): the server codes its answers in gzip or deflate, and each server script requires curl
-  with `--compressed` and Go's client to read gzip; the client offers both and decodes, and each
-  client script runs it against Go's server with `-gzip` and h2o's `compress`. With `--tls` all
+  with `--compressed` and Go's client to read gzip; the client offers br, zstd, gzip and deflate
+  and decodes each, and each client script runs it against Go's server with `-gzip`, h2o's
+  `compress`, which answers in br, and Caddy's `encode`, which answers in zstd. With `--tls` all
   four also send colibri a record that does not authenticate once the handshake is complete, from
   `tools/h2_interop/forged_record.go` as a client and as a server, and require Go to read
   colibri's `bad_record_mac` (RFC 9846 §5.2). None is part of

@@ -4,15 +4,15 @@
 # the plan says. Cleartext, with prior knowledge (RFC 9113 §3.3), and with --tls also over TLS
 # 1.3 (§3.2), through chapulin's record-mode client.
 #
-# The peers are Go's net/http, run with `go run`, and Debian's nghttpd and h2o, run in a
+# The peers are Go's net/http, run with `go run`, and Debian's nghttpd, h2o and Caddy, run in a
 # container built from tools/h2_interop/Dockerfile. None is installed by this repository: the run
 # needs `go`, `docker` and `python3` on the path, and it names the versions it met. Over TLS each
 # peer serves the identity tools/h2_interop/tls_identity.go mints, and the client pins its root.
 # With --tls a client that pins another root must send the alert it refuses Go's server with, and
 # one that reads a record that does not authenticate after the handshake must answer bad_record_mac.
 #
-# Usage: tools/h2_interop.sh [--tls] [go] [nghttpd] [h2o]
-#        (no peer runs all three)
+# Usage: tools/h2_interop.sh [--tls] [go] [nghttpd] [h2o] [caddy]
+#        (no peer runs all four)
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,10 +20,11 @@ readonly client="${repository_root}/zig-out/bin/http-client"
 readonly peer_directory="${repository_root}/tools/h2_interop"
 # The image is tagged with a checksum of what it is built from, so a run builds it only when one
 # of those files changed, and CI can keep it between runs under the same name.
-readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" | shasum -a 256 | cut -c1-16)"
+readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" "${peer_directory}/Caddyfile" "${peer_directory}/Caddyfile_tls" | shasum -a 256 | cut -c1-16)"
 readonly go_port=18461
 readonly nghttpd_port=18462
 readonly h2o_port=18463
+readonly caddy_port=18464
 # Octets of request content: past the 65,535-octet window a stream starts with several times
 # over (RFC 9113 §6.9.2), so it finishes only if the client reads the peer's WINDOW_UPDATE frames.
 readonly content_len=300000
@@ -205,10 +206,28 @@ plan_go_coded() {
   expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response error_code=0 coding=gzip"
 }
 
-# Decision 101: h2o codes a text file in gzip for a client that accepts it.
+# Decision 101 as amended: h2o codes a text file in br, the first coding the client offers.
 plan_h2o_coded() {
   run_client "${h2o_port}" --coded --get /text.txt
-  expect /text.txt "received=${text_len} received_crc32=${text_crc32} outcome=response error_code=0 coding=gzip"
+  expect /text.txt "received=${text_len} received_crc32=${text_crc32} outcome=response error_code=0 coding=br"
+}
+
+# Decision 101 as amended: Caddy codes a text file in zstd, the coding the client weighs highest of
+# those Caddy has.
+plan_caddy_coded() {
+  run_client "${caddy_port}" --coded --get /text.txt
+  expect /text.txt "received=${text_len} received_crc32=${text_crc32} outcome=response error_code=0 coding=zstd"
+}
+
+run_caddy() {
+  echo "h2_interop.sh: Caddy $(docker run --rm "${image}" caddy version)"
+  start_container caddy "${caddy_port}" caddy run --config /etc/caddy/colibri.Caddyfile --adapter caddyfile
+  plan_caddy_coded
+  if [ -n "${tls}" ]; then
+    start_container caddy "${caddy_port}" caddy run --config /etc/caddy/colibri_tls.Caddyfile --adapter caddyfile
+    over_tls plan_caddy_coded
+  fi
+  stop_peer
 }
 
 start_container() {
@@ -269,7 +288,7 @@ if [ "${1:-}" = "--tls" ]; then
   shift
 fi
 peers=("$@")
-[ "${#peers[@]}" -gt 0 ] || peers=(go nghttpd h2o)
+[ "${#peers[@]}" -gt 0 ] || peers=(go nghttpd h2o caddy)
 
 command -v python3 >/dev/null 2>&1 || fail "python3 is not installed"
 echo "h2_interop.sh: building the test-only client"
@@ -289,7 +308,7 @@ fi
 [ -x "${client}" ] || fail "the client was not built at ${client}"
 readonly content_crc32="$(pattern_crc32 "${content_len}")"
 readonly large_crc32="$(pattern_crc32 "${large_len}")"
-# The text file h2o codes (tools/h2_interop/Dockerfile): "colibri\n" 8,192 times.
+# The text file h2o and Caddy code (tools/h2_interop/Dockerfile): "colibri\n" 8,192 times.
 readonly text_len=65536
 readonly text_crc32="$(python3 -c "import zlib; print('0x%08x' % zlib.crc32(b'colibri\\n' * 8192))")"
 
@@ -299,7 +318,7 @@ for peer in "${peers[@]}"; do
       command -v go >/dev/null 2>&1 || fail "go is not installed"
       run_go
       ;;
-    nghttpd | h2o)
+    nghttpd | h2o | caddy)
       command -v docker >/dev/null 2>&1 || fail "docker is not installed"
       docker image inspect "${image}" >/dev/null 2>&1 ||
         docker build -q -t "${image}" "${peer_directory}" >/dev/null

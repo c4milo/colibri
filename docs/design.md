@@ -5633,6 +5633,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     finds none to decode.
   - `zig build test` passed: 2528 of 2528 tests.
 
+  **17h check,** run on macOS 26.6.2 arm64 on 2026-09-30, the peers in Docker where the scripts
+  run them:
+  - `tools/h2_interop.sh --tls` and `tools/h11_interop.sh --tls`, with the test client's `--coded`
+    offering `br, zstd;q=0.9, gzip;q=0.8, deflate;q=0.7`: the client decoded h2o 2.2.5's `br` and
+    Caddy 2.6.2's `zstd` of the 65,536-octet `/text.txt` octet for octet, in cleartext and over
+    TLS, and Go 1.27.1's `gzip` answers as before. A run of 64 connections, which share two
+    decoders of each coding, ended every exchange with a response read whole.
+  - h2o 2.2.5 codes nothing for a token that carries a weight: `br;q=0.9` gets an uncoded answer,
+    and `br` a coded one. So the test client offers `br` first, with no weight.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
