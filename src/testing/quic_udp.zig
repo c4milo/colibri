@@ -7,6 +7,7 @@ const std = @import("std");
 pub const udp = @import("udp.zig");
 pub const hooks = @import("tls/hooks.zig");
 pub const keylog = @import("quic/keylog.zig");
+pub const memset = @import("memset.zig");
 pub const quic_session = @import("quic/quic_session.zig");
 pub const hq = @import("quic/hq/hq.zig");
 pub const hq_file = @import("quic/hq/hq_file.zig");
@@ -24,9 +25,11 @@ pub const udp_run_client = @import("quic/udp/udp_run_client.zig");
 comptime {
     // chapulin's objects import `ch_assert_fail` and `ch_keylog`, which these two
     // files export. Zig analyses a file only when something references it, so these keep the
-    // exports in a build with no tests.
+    // exports in a build with no tests. `memset.zig` exports the `memset` of the program
+    // `tools/h3load.sh` loads.
     _ = hooks;
     _ = keylog;
+    _ = memset;
 }
 
 pub const main = udp_run.main;
@@ -36,6 +39,7 @@ test {
     _ = udp;
     _ = hooks;
     _ = keylog;
+    _ = memset;
     _ = quic_session;
     _ = hq;
     _ = hq_server;

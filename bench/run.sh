@@ -155,6 +155,20 @@ measure() {  # measure <variant> <server> <input> <round>
   echo "$1,$3,$4,$scratch/$name.perf,$scratch/$name.h2load" >>"$scratch/records.csv"
 }
 
+# Whose memset a server links: its own, which src/testing/memset.zig exports on Linux under Zig
+# 0.16, or compiler_rt's, which writes one octet at a time. nm's output is read whole, as h2load's is.
+memset_of() {  # memset_of <server>
+  local symbols
+  symbols="$(nm "$1" 2>/dev/null)" || true
+  if [ -z "$symbols" ]; then
+    echo unknown
+  elif [[ "$symbols" == *" memset.memset"* ]]; then
+    echo "its own, src/testing/memset.zig"
+  else
+    echo "compiler_rt's"
+  fi
+}
+
 machine() {
   echo "mode=$mode"
   echo "cpu=$(lscpu 2>/dev/null | sed -n 's/^Model name: *//p' | head -1)"
@@ -164,6 +178,8 @@ machine() {
   echo "change=${BENCH_SERVER:-$(git -C "$repository_root" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
   [ -n "$base" ] && echo "base=${BENCH_BASE_SERVER:-$(git -C "$base" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
   echo "zig=$(zig version 2>/dev/null || echo none)"
+  echo "memset, change=$(memset_of "$change_server")"
+  [ -n "$base" ] && echo "memset, base=$(memset_of "$base_server")"
   echo "h2load=$(h2load --version 2>/dev/null | head -1)"
   [ "$mode" = judge ] && echo "perf=$(sudo -n "${PERF:-perf}" --version)"
   echo "rounds=$rounds"

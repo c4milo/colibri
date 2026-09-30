@@ -22,6 +22,10 @@ Performance section states the rules, and design §11 holds the method's numbers
   gives each input's median and spread, and the ratio of the change to the base with the losses
   first. The run fails when an input loses past the noise: the larger of the two spreads and the
   floor.
+- The programs the judge and `tools/h3load.sh` time, `http-server` and `quic-udp`, export their own
+  `memset` on Linux under Zig 0.16 (`src/testing/memset.zig`), as pepegrillo's guide tells a
+  program to: compiler_rt's writes one octet at a time, for Zig's fills and chapulin's C code
+  alike. The report names the `memset` each build links.
 - The report writes the machine beside the numbers, as decision 33 requires: the CPU, the kernel,
   the core count, the path, the socket buffer sizes, the certificate type, and the cipher suite
   each build ran.
