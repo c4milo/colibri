@@ -11,8 +11,10 @@
 # requirements in a virtual environment there, and colibri is registered in that clone's
 # implementations_quic.json. The clone carries two patches, quic_interop/count_handshakes.patch
 # (decision 99) and quic_interop/rebind_challenges.patch (decision 106). Test cases the endpoint
-# does not build exit 127 and show as unsupported. Every qlog file colibri's endpoint wrote must
-# pass tools/qlog_check.py (design §8 step 18c). It is not part of `zig build test`, and it takes
+# does not build exit 127 and show as unsupported. A failed case fails the run unless
+# quic_interop/known_failures.py lists it as one a peer fails on its own side, which the run
+# reports instead (decision 112). Every qlog file colibri's endpoint wrote must pass
+# tools/qlog_check.py (design §8 step 18c). It is not part of `zig build test`, and it takes
 # minutes.
 set -euo pipefail
 
@@ -70,13 +72,19 @@ PY
 
 cd "$runner"
 status=0
+# The runner's exit status counts every failed case, so each run's result file is judged instead:
+# a case known_failures.py lists is reported and does not fail the run (decision 112). A run that
+# stopped before it wrote the file fails the judgment.
 echo "interop: colibri as the server"
 venv/bin/python "$repository_root/tools/quic_interop/run_runner.py" -s colibri -c "colibri,$peers" -t "$tests" -l "$scratch/logs-server" \
-  -m >"$scratch/server.md" || status=1
+  -m -j "$scratch/server.json" >"$scratch/server.md" || true
 echo "interop: colibri as the client"
 venv/bin/python "$repository_root/tools/quic_interop/run_runner.py" -s "$peers" -c colibri -t "$tests" -l "$scratch/logs-client" \
-  -m >"$scratch/client.md" || status=1
+  -m -j "$scratch/client.json" >"$scratch/client.md" || true
 cat "$scratch/server.md" "$scratch/client.md"
+for side in server client; do
+  python3 "$repository_root/tools/quic_interop/known_failures.py" "$scratch/$side.json" || status=1
+done
 # Design §8 step 18c: the runner keeps each test case's logs, and colibri's side of each holds the
 # qlog files of its connections (main schema §12.1). A connection the runner stopped mid-way ends
 # its file early, so the check asks for well-formed records and not for each connection's close.

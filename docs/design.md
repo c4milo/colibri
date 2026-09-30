@@ -5856,6 +5856,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `v2` included, and every case but `v2` against quic-go's, which does not offer it.
     - quinn's client passed every case but `v2`. Its ClientHello carries no version_information,
       so the server keeps it in version 1 (RFC 9368 §2.3), where the runner expects version 2.
+      `tools/interop.sh` now reports that case without failing the run (decision 112).
     - With colibri as the client, every case passed. quic-go's and quinn's servers do not offer
       `v2`.
   - 23 mutations, each **CAUGHT**: a server with no version to switch to switching; a client that
