@@ -35,8 +35,8 @@ pub const levels = [_]Level{ .initial, .handshake, .application };
 pub const ServerChoice = struct {
     tickets: bool = false,
     suites: []const u16 = &.{},
-    /// The server's answer on the AES instructions.
-    aes_instructions: values.AesInstructions = identity.aes_instructions,
+    /// The server's probe of its CPU.
+    cpu: values.Cpu = identity.cpu,
 };
 
 pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
@@ -46,7 +46,7 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
         .cookie_key = &identity.cookie_key,
         .ticket_key = if (choice.tickets) &identity.ticket_key else null,
         .alpn = &protocols,
-        .aes_instructions = choice.aes_instructions,
+        .cpu = choice.cpu,
         .cipher_suites = choice.suites,
     });
 }
@@ -54,7 +54,7 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
 pub const web_pki: values.Client = .{
     .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = "localhost" } },
     .alpn = &protocols,
-    .aes_instructions = identity.aes_instructions,
+    .cpu = identity.cpu,
 };
 
 /// Starts both sessions and gives each its transport parameters, which starts chapulin's.

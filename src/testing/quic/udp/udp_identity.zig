@@ -179,13 +179,13 @@ fn configure_client(asked: udp_arguments.Client) !void {
     const suites = client_suites(asked);
     if (asked.pin) {
         try read_key(prefix, ".pin", &pin_storage[0]);
-        try client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn, .aes_instructions = cpu.aes_instructions(), .cipher_suites = suites });
+        try client_config.init(.{ .trust = .{ .pins = .{ .pins = &pin_storage, .server_name = asked.hostname } }, .alpn = alpn, .cpu = cpu.probe(), .cipher_suites = suites });
     } else {
         const anchors = [_]tls.Anchor{.{
             .subject = try check_file.read_part(prefix, ".name", &name_storage),
             .spki = try check_file.read_part(prefix, ".spki", &spki_storage),
         }};
-        try client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn, .aes_instructions = cpu.aes_instructions(), .cipher_suites = suites });
+        try client_config.init(.{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } }, .alpn = alpn, .cpu = cpu.probe(), .cipher_suites = suites });
     }
     // RFC 9368 §2.5: the client starts in version 1 and lists version 2, unless asked to start in 2.
     if (asked.v2) client_config.values.quic_version = .v2;
@@ -201,7 +201,7 @@ fn configure_server(asked: udp_arguments.Server) !void {
         .ticket_key = &ticket_key_storage,
         // The `h3` mode serves h3 alone, which is all `server` speaks over QUIC.
         .alpn = if (asked.h3) &client_alpn_h3 else &server_alpn,
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     });
     try server_config.check(entropy.random());
 }

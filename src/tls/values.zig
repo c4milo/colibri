@@ -7,6 +7,7 @@
 //! The clock, a ticket to offer and the source of randomness belong to each connection, so they
 //! are not here: a session's `start` takes them.
 const std = @import("std");
+const platform = @import("platform");
 const constants = @import("constants.zig");
 
 /// The source a session's randomness comes from, which the caller passes to each session's `start`
@@ -17,13 +18,14 @@ const constants = @import("constants.zig");
 /// answers on the thread that drives the session.
 pub const Random = std.Random;
 
-/// Whether the CPU the program runs on has the AES instructions and the carry-less multiply: aes
-/// and pclmul on x86-64, and aes on arm64, whose AES extension holds the 64-bit PMULL. A program
-/// asks its CPU once, at start, and passes the answer to every configuration; colibri probes
-/// nothing (decision 97 as amended on 2026-09-29). With `absent` a session runs no AES instruction
-/// and holds TLS_CHACHA20_POLY1305_SHA256 alone. An object built for an architecture other than
-/// x86-64 and arm64 fixes the choice when it is built, and there the answer changes nothing.
-pub const AesInstructions = enum { present, absent };
+/// What the program's one probe of its CPU answered: stdx's `platform.Cpu`, which
+/// `platform.probe()` returns. A program probes once, at start, and passes the result to every
+/// configuration; colibri reads it and probes nothing (decision 97 as amended on 2026-09-30).
+/// `aes_clmul` says whether the CPU has the AES instructions and the carry-less multiply, and only
+/// `yes` lets a session run them. Under `no` and `not_known` a session runs no AES instruction and
+/// holds TLS_CHACHA20_POLY1305_SHA256 alone. An object built for an architecture other than x86-64
+/// and arm64 fixes the choice when it is built, and there the answer changes nothing.
+pub const Cpu = platform.Cpu;
 
 /// A root a client trusts: its subject Name and its SubjectPublicKeyInfo, each the whole DER TLV.
 pub const Anchor = struct {
@@ -56,8 +58,8 @@ pub const Client = struct {
     trust: Trust,
     /// Protocols to offer, most preferred first (RFC 7301 §3.1).
     alpn: []const []const u8,
-    /// Whether the CPU has the AES instructions, which the caller answers; there is no default.
-    aes_instructions: AesInstructions,
+    /// The program's probe of its CPU; there is no default.
+    cpu: Cpu,
     /// Refuse a handshake whose key exchange is not X25519MLKEM768.
     require_pq: bool = false,
     /// Suites to offer, most preferred first, as RFC 9846 Appendix B.4 codepoints; empty for
@@ -123,8 +125,8 @@ pub const Server = struct {
     ticket_key: ?*const [constants.server_key_len]u8 = null,
     /// Protocols this server selects from, in its order (RFC 7301 §3.2).
     alpn: []const []const u8,
-    /// Whether the CPU has the AES instructions, which the caller answers; there is no default.
-    aes_instructions: AesInstructions,
+    /// The program's probe of its CPU; there is no default.
+    cpu: Cpu,
     /// Refuse a ClientHello with no server_name (RFC 9846 §9.2).
     require_server_name: bool = false,
     /// Suites in this server's order, as RFC 9846 Appendix B.4 codepoints; empty for chapulin's.

@@ -20,8 +20,12 @@ pub const public_key: *const [constants.p256_public_key_len]u8 = testdata.public
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The CPU answer the tests pass: the build target's, since a test runs where it was built.
-pub const aes_instructions: values.AesInstructions = if (testdata.aes_instructions_present) .present else .absent;
+/// The probe the tests pass: the build target's, since a test runs where it was built.
+pub const cpu: values.Cpu = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known };
+/// Probes whose `aes_clmul` lets a session run the AES instructions, and those that do not.
+pub const cpu_with_aes: values.Cpu = .{ .aes_clmul = .yes, .dit = .not_known };
+pub const cpu_without_aes: values.Cpu = .{ .aes_clmul = .no, .dit = .not_known };
+pub const cpu_unknown: values.Cpu = .{ .aes_clmul = .not_known, .dit = .not_known };
 /// The first and the last instant the identity is valid at, which chapulin counts inside.
 pub const not_before_seconds = testdata.not_before_seconds;
 pub const not_after_seconds = testdata.not_after_seconds;
@@ -76,19 +80,19 @@ pub const Wire = struct {
 pub const aes_gcm = @hasField(chapulin.c.ch_srv_cfg, "cipher_suites");
 pub const takes_answer = @hasField(chapulin.c.ch_cfg, "aes_instructions");
 
-/// Whether a session whose caller answers `answer` holds AES-GCM: an object with AES-GCM, under
-/// `present` when the object takes the answer.
-pub fn holds_aes_gcm(answer: values.AesInstructions) bool {
-    return aes_gcm and (!takes_answer or answer == .present);
+/// Whether a session given the probe `probed` holds AES-GCM: an object with AES-GCM, where
+/// `aes_clmul` is `yes` when the object takes the answer.
+pub fn holds_aes_gcm(probed: values.Cpu) bool {
+    return aes_gcm and (!takes_answer or probed.aes_clmul == .yes);
 }
 
-/// The answers a test may run a session under. `present` needs the instructions, which the build
-/// target has or does not, so a target without them runs `absent` alone.
-pub const answers: []const values.AesInstructions = if (takes_answer and aes_instructions == .present) &.{ .present, .absent } else &.{aes_instructions};
+/// The probes a test may run a session under. `yes` needs the instructions, which the build target
+/// has or does not, so a target without them runs the others alone.
+pub const cpus: []const values.Cpu = if (takes_answer and cpu.aes_clmul == .yes) &.{ cpu_with_aes, cpu_without_aes, cpu_unknown } else &.{ cpu_without_aes, cpu_unknown };
 
 /// The suites a session under the tests' answer holds: the three colibri admits with AES-GCM, and
 /// ChaCha20 alone without it.
-pub const suites_held: []const u16 = if (holds_aes_gcm(aes_instructions)) &tls_provider.constants.cipher_suites_admitted else &.{chacha};
+pub const suites_held: []const u16 = if (holds_aes_gcm(cpu)) &tls_provider.constants.cipher_suites_admitted else &.{chacha};
 pub const chacha = tls_provider.constants.cipher_suite_chacha20_poly1305_sha256;
 
 /// A server order naming `suite` alone, or none in an object that holds one suite and no order.
@@ -98,13 +102,13 @@ pub fn order_of(suite: *const [1]u16) []const u16 {
 
 /// The suite chapulin's own order runs when neither side names one: AES-256-GCM first when both
 /// sessions hold AES-GCM (chapulin's decision 80), and ChaCha20 when either holds it alone.
-pub fn default_suite_of(client_answer: values.AesInstructions, server_answer: values.AesInstructions) u16 {
-    if (holds_aes_gcm(client_answer) and holds_aes_gcm(server_answer)) return tls_provider.constants.cipher_suite_aes_256_gcm_sha384;
+pub fn default_suite_of(client_cpu: values.Cpu, server_cpu: values.Cpu) u16 {
+    if (holds_aes_gcm(client_cpu) and holds_aes_gcm(server_cpu)) return tls_provider.constants.cipher_suite_aes_256_gcm_sha384;
     return chacha;
 }
 
 /// The suite chapulin's own order runs under the tests' answer on both sides.
-pub const default_suite: u16 = default_suite_of(aes_instructions, aes_instructions);
+pub const default_suite: u16 = default_suite_of(cpu, cpu);
 
 /// `web_pki` with a client order naming `suite` alone, or none in an object with no order.
 pub fn offering(suite: *const [1]u16) values.Client {
@@ -118,8 +122,8 @@ pub const ServerChoice = struct {
     tickets: bool = false,
     /// The suites the server selects from, in its order; empty for chapulin's.
     suites: []const u16 = &.{},
-    /// The server's answer on the AES instructions.
-    aes_instructions: values.AesInstructions = aes_instructions,
+    /// The server's probe of its CPU.
+    cpu: values.Cpu = cpu,
 };
 
 pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
@@ -129,7 +133,7 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
         .cookie_key = &cookie_key,
         .ticket_key = if (choice.tickets) &ticket_key else null,
         .alpn = &protocols,
-        .aes_instructions = choice.aes_instructions,
+        .cpu = choice.cpu,
         .cipher_suites = choice.suites,
     });
 }
@@ -137,7 +141,7 @@ pub fn configure(client_values: values.Client, choice: ServerChoice) !void {
 pub const web_pki: values.Client = .{
     .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "localhost" } },
     .alpn = &protocols,
-    .aes_instructions = aes_instructions,
+    .cpu = cpu,
 };
 
 /// The source each session of the tests draws from: the stream the tests share.

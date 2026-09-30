@@ -42,10 +42,17 @@ The library is fifteen modules, each exported by name:
 | `server` | Responses to h11 and h2 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC follows (design §8 step 17b). |
 | `client` | Requests over h11 and h2 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC and the choice between the transports follow (design §8 step 17d). |
 
-The package also exports modules of stdx, the library colibri pins for them: its codecs, `codec`,
-`gzip`, `zlib`, `zstd` and `brotli` ([decision 101](decisions.md)), and `platform`, which a
-program calls once, at start, to answer each TLS configuration's `aes_instructions`
-([decision 97](decisions.md)).
+The package also exports stdx's codecs, `codec`, `gzip`, `zlib`, `zstd` and `brotli`, from the stdx
+colibri pins ([decision 101](decisions.md)).
+
+A program that uses TLS probes its CPU through stdx's `platform` module
+([decision 97](decisions.md)). Depend on stdx at the commit colibri's `build.zig.zon` pins, and
+give it the options colibri gives it, so both reach one `platform` module and one `platform.Cpu`:
+
+```zig
+const stdx = b.dependency("stdx", .{ .target = target, .release = true });
+exe.root_module.addImport("platform", stdx.module("platform"));
+```
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
@@ -260,12 +267,11 @@ program sends them, then closes the connection. An output of
 configuration names the most anchors and ALPN protocols it takes, `anchors_max` and
 `protocols_max`.
 
-Every configuration also takes `aes_instructions`, which has no default: whether the CPU the
-program runs on has the AES instructions and the carry-less multiply. colibri probes nothing. A
-program asks its CPU once, at start, through stdx's `platform` module, which colibri's package
-exports as `platform`, and passes the answer to each configuration. `probe()` answers `yes`, `no`
-or `not_known`, and only `yes` is `present`. Under `absent` a session runs no AES instruction and
-holds TLS_CHACHA20_POLY1305_SHA256 alone.
+Every configuration also takes `cpu`, which has no default: the `platform.Cpu` that
+`platform.probe()` returned. colibri probes nothing. A program probes its CPU once, at start, and
+passes the result to each configuration. Only an `aes_clmul` of `yes` lets a session run the AES
+instructions. Under `no` or `not_known` a session runs none and holds TLS_CHACHA20_POLY1305_SHA256
+alone.
 
 ```zig
 const cpu = platform.probe();
@@ -273,7 +279,7 @@ const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequ
 try tls_config.init(.{
     .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },
     .alpn = &.{ "h2", "http/1.1" },
-    .aes_instructions = if (cpu.aes_clmul == .yes) .present else .absent,
+    .cpu = cpu,
 });
 try tls_client.start(&tls_config, entropy, now_seconds, null);
 const hello = try tls_client.handshake(&.{}, &output);

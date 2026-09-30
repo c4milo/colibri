@@ -50,7 +50,7 @@ pub fn load(prefix: []const u8, storage: *Storage, protocols: []const []const u8
         .ecdsa_p256 = .{ .chain = &storage.chain, .public_key = &storage.public_key, .private_key = &storage.private_key },
         .cookie_key = &storage.cookie_key,
         .alpn = protocols,
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     };
 }
 

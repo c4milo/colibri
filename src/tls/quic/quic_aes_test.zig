@@ -1,7 +1,8 @@
 //! Decision 97 as amended for design §8 step 16e, in QUIC: an `AES=runtime` object runs the AES
-//! instructions or ChaCha20 alone, as each session's caller answers. QUIC's Initial packets use a
-//! key anyone can derive (RFC 9001 §5.2), so chapulin protects them in software under `absent`, and
-//! the handshake completes under every answer. Split out of `quic_test.zig` for length.
+//! instructions or ChaCha20 alone, as the probe each session's caller passes says. QUIC's Initial
+//! packets use a key anyone can derive (RFC 9001 §5.2), so chapulin protects them in software when
+//! the probe does not say yes, and the handshake completes under every probe. Split out of
+//! `quic_test.zig` for length.
 const std = @import("std");
 const values = @import("../values.zig");
 const identity = @import("../record/record_test_support.zig");
@@ -15,23 +16,23 @@ const server = &support.server;
 const payload = "a payload colibri frames, 32 oct";
 
 /// The suite a session ran, where one that holds ChaCha20 alone may record none.
-fn suite_ran(session: anytype, answer: values.AesInstructions) !u16 {
+fn suite_ran(session: anytype, probed: values.Cpu) !u16 {
     if (session.suite()) |recorded| return @intFromEnum(recorded);
-    try testing.expect(!identity.holds_aes_gcm(answer));
+    try testing.expect(!identity.holds_aes_gcm(probed));
     return identity.chacha;
 }
 
-test "decision 97: each pair of answers completes a QUIC handshake and runs the suite both hold" {
-    // Bounded by the answers a test may run under, at most two on each side.
-    for (identity.answers) |client_answer| {
-        for (identity.answers) |server_answer| {
+test "decision 97: each pair of probes completes a QUIC handshake and runs the suite both hold" {
+    // Bounded by the probes a test may run under, at most three on each side.
+    for (identity.cpus) |client_cpu| {
+        for (identity.cpus) |server_cpu| {
             var offered = support.web_pki;
-            offered.aes_instructions = client_answer;
-            try support.configure(offered, .{ .aes_instructions = server_answer });
+            offered.cpu = client_cpu;
+            try support.configure(offered, .{ .cpu = server_cpu });
             try support.handshake_both(null);
-            const expected = identity.default_suite_of(client_answer, server_answer);
-            try testing.expectEqual(expected, try suite_ran(&client.session, client_answer));
-            try testing.expectEqual(expected, try suite_ran(&server.session, server_answer));
+            const expected = identity.default_suite_of(client_cpu, server_cpu);
+            try testing.expectEqual(expected, try suite_ran(&client.session, client_cpu));
+            try testing.expectEqual(expected, try suite_ran(&server.session, server_cpu));
             // RFC 9001 §5.3: a 1-RTT packet crosses in the suite both hold.
             var header_storage: [support.packet.len]u8 = undefined;
             const header = try support.short_header(1, false, &header_storage);

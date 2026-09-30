@@ -16,7 +16,7 @@ pub const record = @import("record/record.zig");
 pub const quic = @import("quic/quic.zig");
 
 pub const Random = values.Random;
-pub const AesInstructions = values.AesInstructions;
+pub const Cpu = values.Cpu;
 pub const Anchor = values.Anchor;
 pub const Pin = values.Pin;
 pub const Trust = values.Trust;

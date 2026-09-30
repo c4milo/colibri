@@ -107,13 +107,13 @@ fn configure(asked: Arguments) !void {
         .ecdsa_p256 = .{ .chain = &chain, .public_key = &public_storage, .private_key = &private_storage },
         .cookie_key = &cookie_storage,
         .alpn = &.{alpn},
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     });
     server_config.check(entropy.random()) catch fail("chapulin refused the server's identity", .{});
     try client_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
         .alpn = &.{alpn},
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     });
 }
 

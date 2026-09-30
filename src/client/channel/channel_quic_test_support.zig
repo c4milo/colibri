@@ -60,7 +60,7 @@ pub fn start(server_protocols: []const []const u8, values: channel_module.Values
     try tcp_tls.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = support.authority } },
         .alpn = &support.protocols_both,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     });
     tcp_config = .{ .authority = support.authority, .tls = &tcp_tls };
     config = .{ .tcp = &tcp_config, .quic = &quic_support.config, .quic_first = quic_first, .fallback_delay_ns = fallback_delay_ns };

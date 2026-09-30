@@ -221,8 +221,9 @@ tree. Design §11 holds the method and the numbers.
 - Changing a named limit.
 - Adding a dependency. The library has two: chapulin, which it links for TLS and packet
   protection (decision 94), and stdx, whose gzip and deflate decoders h11 imports and whose JSON
-  module qlog imports (decisions 90, 91 and 102). stdx's `platform`, which probes the CPU, is the
-  programs': the library imports it nowhere, and the package exports it (decision 97 as amended).
+  module qlog imports (decisions 90, 91 and 102). stdx's `platform` probes the CPU: a program
+  calls `probe()` and depends on stdx itself to do it, and `tls` imports the module for its `Cpu`
+  type alone and never probes. The package does not export it (decision 97 as amended).
   It has no allocator at all (decision 35). Five more are ruled for the
   tooling and the tests, and the library imports none of them: pepegrillo, the tooling `tools/`
   builds on (decision 36); Rotor, the loop `src/testing/`'s endpoints and `examples/` run on
@@ -334,9 +335,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
   object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. On x86-64 and arm64 each is
   `SUITE=aesgcm AES=runtime` with the builder's statement `CH_NATIVE_AES`: it holds the AES
-  instructions and a fallback, and each session runs the one its caller's `aes_instructions` names,
-  which has no default (decision 97 as amended for design §8 step 16e). Under `present` a session
-  holds RFC 9846 §9.1's mandatory TLS_AES_128_GCM_SHA256, and under `absent` ChaCha20 alone. On any
+  instructions and a fallback, and each session runs the one its caller's `cpu` names: the
+  `platform.Cpu` the program's one probe returned, which has no default (decision 97 as amended for
+  design §8 step 16e). When its `aes_clmul` is `yes` a session holds RFC 9846 §9.1's mandatory
+  TLS_AES_128_GCM_SHA256, and when it is `no` or `not_known` ChaCha20 alone. On any
   other target the build target decides: `SUITE=aesgcm AES=hw` where its features include the AES
   instructions, and `AES=soft` with ChaCha20 alone elsewhere, because chapulin refuses AES-GCM over
   software AES (chapulin's INV-26). On a little-endian target with SSE2 or NEON, which every x86-64 and arm64 CPU has, each
@@ -351,14 +353,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   the object's own defines as its `c`. Because the module carries the object, nothing else may add
   it: a second copy fails the link. A program that links `tls` defines chapulin's one hook,
   `ch_assert_fail`, passes each session's `start` the `std.Random` it draws from, and passes each
-  configuration its CPU's `aes_instructions`, which it asks once, at start. Each image of
-  `src/testing/` defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s octets
-  (`src/testing/entropy.zig`) and the CPU's answer, which `src/testing/cpu.zig` asks stdx's
-  `platform` once, and a QUIC image
-  defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests pass the build target's
-  answer, and run both answers where it has the instructions. `zig build test-tls test-tls-keylog
-  -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES instructions, so under
-  `absent` alone: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
+  configuration its CPU's probe, which it takes once, at start. Each image of `src/testing/`
+  defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s octets
+  (`src/testing/entropy.zig`) and the probe `src/testing/cpu.zig` takes from stdx's `platform`
+  once, and a QUIC image defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests pass
+  a probe of the build target, and run every answer where it has the instructions. `zig build
+  test-tls test-tls-keylog -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES
+  instructions, so with no `yes` among them: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
   --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
 - TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
   a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,

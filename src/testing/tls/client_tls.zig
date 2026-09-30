@@ -30,7 +30,7 @@ pub fn load(storage: *Anchors, prefix: []const u8, hostname: []const u8, protoco
     try storage.config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &storage.anchors, .server_name = hostname } },
         .alpn = protocols,
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     });
     return &storage.config;
 }
@@ -41,7 +41,7 @@ pub fn load_quic(config: *tls.quic.ClientConfig, storage: *const Anchors, hostna
     try config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &storage.anchors, .server_name = hostname } },
         .alpn = &alpn.alpn_h3,
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     });
     return config;
 }

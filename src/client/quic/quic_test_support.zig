@@ -141,14 +141,14 @@ pub fn prepare(client_protocols: []const []const u8, server_protocols: []const [
     try client_tls.init(.{
         .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = support.authority } },
         .alpn = client_protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     });
     try server_tls.init(.{
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .ticket_key = if (tickets) &support.ticket_key else null,
         .alpn = server_protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     });
     config = .{ .tls = &client_tls, .authority = support.authority };
     now_ns = start_ns;

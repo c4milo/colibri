@@ -224,7 +224,7 @@ test "RFC 9846 §7.5: both sides export the same keying material" {
 test "RFC 9846 §6: a chain no anchor signed, or one outside its validity, fails with an alert" {
     // The leaf's own key is no anchor of the chain.
     const impostor = [_]values.Anchor{.{ .subject = support.root_name, .spki = support.public_key }};
-    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .aes_instructions = support.aes_instructions }, .{});
+    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
     try testing.expectError(error.HandshakeFailed, support.handshake_both(null));
     try testing.expect(client.alert() != null);
     // A second before the identity's notBefore and a second after its notAfter, the leaf "has
@@ -256,7 +256,7 @@ test "a pin of the server's key authenticates it with no anchor, clock or name" 
     hash.update(&spki_prefix);
     hash.update(support.public_key);
     hash.final(&pin);
-    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .aes_instructions = support.aes_instructions }, .{});
+    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
     try support.handshake_both(null);
     // No server_name was sent.
     try testing.expectEqual(null, server.sni());
@@ -266,12 +266,12 @@ test "a pin of the server's key authenticates it with no anchor, clock or name" 
         .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     });
     try support.handshake_both(null);
     // Another key's pin fails the handshake.
     pin[0] ^= 1;
-    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .aes_instructions = support.aes_instructions }, .{});
+    try support.configure(.{ .trust = .{ .pins = .{ .pins = &.{pin} } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
     try testing.expectError(error.HandshakeFailed, support.handshake_both(null));
 }
 
@@ -342,26 +342,26 @@ test "a list longer than the one it is copied into is refused when it is convert
     // The limits a caller bounds its lists by: at the limit a list converts, and past it it does not.
     const anchors_max = record.ClientConfig.anchors_max;
     const most_anchors = [_]values.Anchor{support.anchors[0]} ** anchors_max;
-    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &most_anchors, .server_name = "a" } }, .alpn = &support.protocols, .aes_instructions = support.aes_instructions });
+    try config.init(.{ .trust = .{ .web_pki = .{ .anchors = &most_anchors, .server_name = "a" } }, .alpn = &support.protocols, .cpu = support.cpu });
     // A session starts from it, so chapulin takes that many too.
     try client.start(config, support.random(), support.now_seconds, null);
     client.close();
     const many_anchors = [_]values.Anchor{support.anchors[0]} ** (anchors_max + 1);
-    try testing.expectError(error.TooManyAnchors, config.init(.{ .trust = .{ .web_pki = .{ .anchors = &many_anchors, .server_name = "a" } }, .alpn = &support.protocols, .aes_instructions = support.aes_instructions }));
+    try testing.expectError(error.TooManyAnchors, config.init(.{ .trust = .{ .web_pki = .{ .anchors = &many_anchors, .server_name = "a" } }, .alpn = &support.protocols, .cpu = support.cpu }));
     // chapulin refuses a protocol named twice, so each name differs.
     const most_protocols = comptime distinct_protocols(record.ClientConfig.protocols_max);
-    try config.init(.{ .trust = support.web_pki.trust, .alpn = &most_protocols, .aes_instructions = support.aes_instructions });
+    try config.init(.{ .trust = support.web_pki.trust, .alpn = &most_protocols, .cpu = support.cpu });
     try client.start(config, support.random(), support.now_seconds, null);
     client.close();
     const many_protocols = [_][]const u8{"h2"} ** (record.ClientConfig.protocols_max + 1);
-    try testing.expectError(error.TooManyProtocols, config.init(.{ .trust = support.web_pki.trust, .alpn = &many_protocols, .aes_instructions = support.aes_instructions }));
+    try testing.expectError(error.TooManyProtocols, config.init(.{ .trust = support.web_pki.trust, .alpn = &many_protocols, .cpu = support.cpu }));
     const server_config = &support.server_config;
     const server_most = comptime distinct_protocols(record.ServerConfig.protocols_max);
     try server_config.init(.{
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &server_most,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     });
     try server.start(server_config, support.random(), support.now_seconds);
     server.close();
@@ -370,14 +370,14 @@ test "a list longer than the one it is copied into is refused when it is convert
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &server_protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     }));
     const long_chain = [_][]const u8{support.leaf} ** 17;
     try testing.expectError(error.TooManyCertificates, server_config.init(.{
         .ecdsa_p256 = .{ .chain = &long_chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     }));
     const many_suites = [_]u16{support.chacha} ** 4;
     // An object without AES-GCM has no order to set at all (decision 97).
@@ -386,7 +386,7 @@ test "a list longer than the one it is copied into is refused when it is convert
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
         .cipher_suites = &many_suites,
     }));
     var many_offered = support.web_pki;
@@ -397,7 +397,7 @@ test "a list longer than the one it is copied into is refused when it is convert
 test "a rule of chapulin's is chapulin's to report, when a session starts or a server is checked" {
     // chapulin's `webpki_cfg.h` takes at most `CH_SPKI_PIN_MAX` pins.
     const many_pins = [_]values.Pin{@splat(1)} ** 5;
-    try support.client_config.init(.{ .trust = .{ .pins = .{ .pins = &many_pins } }, .alpn = &support.protocols, .aes_instructions = support.aes_instructions });
+    try support.client_config.init(.{ .trust = .{ .pins = .{ .pins = &many_pins } }, .alpn = &support.protocols, .cpu = support.cpu });
     try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, null));
     // chapulin's `webpki_cfg.h` refuses a client order that names a suite twice.
     if (support.aes_gcm) {
@@ -408,16 +408,16 @@ test "a rule of chapulin's is chapulin's to report, when a session starts or a s
         try testing.expectError(error.Refused, client.start(&support.client_config, support.random(), support.now_seconds, null));
     }
     // A server with no identity has no key to check, and none to serve from.
-    try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols, .aes_instructions = support.aes_instructions });
+    try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols, .cpu = support.cpu });
     try testing.expectError(error.IdentityRefused, support.server_config.check(support.random()));
     try testing.expectError(error.Refused, server.start(&support.server_config, support.random(), support.now_seconds));
     // No protocol offered is no ALPN extension, which a client that speaks h11 alone may send.
-    try support.client_config.init(.{ .trust = support.web_pki.trust, .alpn = &.{}, .aes_instructions = support.aes_instructions });
+    try support.client_config.init(.{ .trust = support.web_pki.trust, .alpn = &.{}, .cpu = support.cpu });
     try support.server_config.init(.{
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     });
     try support.handshake_both(null);
     try testing.expectEqual(null, client.provider().vtable.negotiated_alpn(client.provider().context));
@@ -431,7 +431,7 @@ test "a server's identity passes chapulin's check, and a key that does not match
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = &wrong_key },
         .cookie_key = &support.cookie_key,
         .alpn = &support.protocols,
-        .aes_instructions = support.aes_instructions,
+        .cpu = support.cpu,
     });
     try testing.expectError(error.IdentityRefused, support.server_config.check(support.random()));
 }

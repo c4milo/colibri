@@ -25,6 +25,10 @@ tar -czf "${scratch}/colibri.tar.gz" -C "${scratch}/colibri" build.zig build.zig
 cp -R "${repository_root}/tools/consumer" "${scratch}/consumer"
 cd "${scratch}/consumer"
 zig fetch --save=colibri "${scratch}/colibri.tar.gz" >/dev/null
+# Decision 97 as amended on 2026-09-30: a program depends on stdx itself for `platform`, at the
+# commit colibri pins, so it shares colibri's stdx.
+stdx_url="$(grep -o 'git+https://github.com/c4milo/stdx#[0-9a-f]*' "${repository_root}/build.zig.zon")"
+zig fetch --save=stdx "${stdx_url}" >/dev/null
 zig build run 2>&1 | tee "${scratch}/run.log"
 grep -q "^consumer: h11, h2, tls and gzip link and run as a dependency$" "${scratch}/run.log"
 if zig build without-assert >"${scratch}/without-assert.log" 2>&1; then

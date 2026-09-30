@@ -175,12 +175,15 @@ pub fn add(
     tls.addImport("crypto", crypto);
     tls.addImport("chapulin_tcp", chapulin_tcp.module("chapulin"));
     tls.addImport("chapulin_quic", chapulin_quic_object(b, target, .off).module("chapulin"));
+    // Decision 97 as amended: the values take stdx's `platform.Cpu`, and `tls` never probes.
+    tls.addImport("platform", stdx.module("platform"));
     const chapulin_quic_keylog = chapulin_quic_object(b, target, .on);
     const tls_keylog = create(b, "src/tls/tls.zig", target, optimize);
     tls_keylog.addImport("tls_provider", tls_provider);
     tls_keylog.addImport("crypto", crypto);
     tls_keylog.addImport("chapulin_tcp", chapulin_record_object(b, target, .on).module("chapulin"));
     tls_keylog.addImport("chapulin_quic", chapulin_quic_keylog.module("chapulin"));
+    tls_keylog.addImport("platform", stdx.module("platform"));
 
     // Decision 100: `server` answers requests over h11 and h2 behind one set of calls, and drives
     // `tls` itself. With `client`, it is the one module above the protocol modules.
@@ -271,8 +274,7 @@ pub fn add(
     testing.addImport("tls", tls);
     // Design §8 step 17a: the h11 and h2 server of §9 runs each connection on `server`.
     testing.addImport("server", server);
-    // Decision 97 as amended: each program asks its CPU once, at start, through stdx's `platform`
-    // (src/testing/cpu.zig), and passes the answer to every TLS configuration.
+    // Decision 97 as amended: each program probes its CPU once, in src/testing/cpu.zig.
     testing.addImport("platform", stdx.module("platform"));
     // The endpoints call `send` and `recv` with MSG_DONTWAIT, which is libc's.
     testing.link_libc = true;

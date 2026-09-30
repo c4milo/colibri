@@ -437,7 +437,7 @@ test "a TLS connection's session is wiped when its slot is freed" {
         .ecdsa_p256 = .{ .chain = &test_chain, .public_key = &test_public_key, .private_key = &test_private_key },
         .cookie_key = &test_cookie,
         .alpn = &alpn.alpn_both,
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     });
     const worker = &workers[0];
     const slot: usize = 0;

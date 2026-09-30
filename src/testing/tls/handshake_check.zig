@@ -122,7 +122,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = asked.hostname } },
         .alpn = &.{&tls_provider.constants.alpn_h2},
-        .aes_instructions = cpu.aes_instructions(),
+        .cpu = cpu.probe(),
     }) catch |failure| {
         std.debug.print("tls-handshake: the configuration was refused: {t}\n", .{failure});
         std.process.exit(exit_failed);

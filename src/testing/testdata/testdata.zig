@@ -35,9 +35,9 @@ pub const not_after_seconds: u64 = 4_922_899_200;
 pub const now_seconds: u64 = 1_790_553_600;
 
 /// Whether the build target has the AES instructions and the carry-less multiply: aes and pclmul
-/// on x86-64, and aes on arm64, whose AES extension holds the 64-bit PMULL. The TLS tests answer
-/// colibri's `aes_instructions` with it (decision 97 as amended on 2026-09-29), because a test runs
-/// on the machine it was built for. A program asks the CPU it runs on instead.
+/// on x86-64, and aes on arm64, whose AES extension holds the 64-bit PMULL. The TLS tests give
+/// colibri's values it as the probe's `aes_clmul` (decision 97 as amended on 2026-09-30), because a
+/// test runs on the machine it was built for. A program probes the CPU it runs on instead.
 pub const aes_instructions_present: bool = switch (builtin.cpu.arch) {
     .x86_64 => std.Target.x86.featureSetHasAll(builtin.cpu.features, .{ .aes, .pclmul }),
     .aarch64 => std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes),

@@ -70,7 +70,7 @@ test "RFC 9846 §6.2: a server that refuses its first message sends the alert in
 test "RFC 9846 §6.2: a client that refuses the server's chain sends the alert sealed" {
     // The leaf's own key is no anchor of the chain.
     const impostor = [_]values.Anchor{.{ .subject = support.root_name, .spki = support.public_key }};
-    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .aes_instructions = support.aes_instructions }, .{});
+    try support.configure(.{ .trust = .{ .web_pki = .{ .anchors = &impostor, .server_name = "localhost" } }, .alpn = &support.protocols, .cpu = support.cpu }, .{});
     try start_and_hello();
     try server_flight();
     try testing.expectError(error.HandshakeFailed, client.handshake(to_client.held(), to_server.free()));

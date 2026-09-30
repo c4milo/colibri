@@ -176,7 +176,7 @@ fn suite_ran(session: anytype) !u16 {
     if (session.suite()) |recorded| return @intFromEnum(recorded);
     // RFC 9846 §4.2.3: a client that offered more than one suite takes the one the ServerHello
     // names, so only a session that holds ChaCha20 alone records none.
-    try testing.expect(!identity.holds_aes_gcm(identity.aes_instructions));
+    try testing.expect(!identity.holds_aes_gcm(identity.cpu));
     return identity.chacha;
 }
 

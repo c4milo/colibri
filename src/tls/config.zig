@@ -53,7 +53,7 @@ pub fn ClientConfig(comptime chapulin: type) type {
             config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq };
             // Decided when the object is built, so an object that takes no answer never names
             // chapulin's `AesInstructions`, which exists in an `AES=runtime` object alone.
-            if (comptime takes_answer(chapulin.Client)) config.values.aes_instructions = answer_of(chapulin, client.aes_instructions);
+            if (comptime takes_answer(chapulin.Client)) config.values.aes_instructions = answer_of(chapulin, client.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, client.cipher_suites);
             } else if (client.cipher_suites.len > 0) {
@@ -115,7 +115,7 @@ pub fn ServerConfig(comptime chapulin: type) type {
             };
             // Decided when the object is built, so an object that takes no answer never names
             // chapulin's `AesInstructions`, which exists in an `AES=runtime` object alone.
-            if (comptime takes_answer(chapulin.Server)) config.values.aes_instructions = answer_of(chapulin, server.aes_instructions);
+            if (comptime takes_answer(chapulin.Server)) config.values.aes_instructions = answer_of(chapulin, server.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, server.cipher_suites);
             } else if (server.cipher_suites.len > 0) {
@@ -156,12 +156,13 @@ fn takes_answer(comptime Values: type) bool {
     return @TypeOf(@as(Values, undefined).aes_instructions) != void;
 }
 
-/// The caller's answer on the AES instructions in the object's own type. chapulin refuses a session
-/// whose answer is unset, and colibri's values have no unset answer.
-fn answer_of(comptime chapulin: type, answer: values.AesInstructions) chapulin.AesInstructions {
-    return switch (answer) {
-        .present => .present,
-        .absent => .absent,
+/// The probe's answer on the AES instructions in the object's own type: present for `yes` alone,
+/// since `no` and `not_known` give no ground to run them. chapulin refuses a session whose answer
+/// is unset, and colibri's values have no unset answer.
+fn answer_of(comptime chapulin: type, cpu: values.Cpu) chapulin.AesInstructions {
+    return switch (cpu.aes_clmul) {
+        .yes => .present,
+        .no, .not_known => .absent,
     };
 }
 

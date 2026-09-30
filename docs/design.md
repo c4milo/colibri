@@ -5143,7 +5143,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   carries stdx's `platform` module ([stdx#15](https://github.com/c4milo/stdx/issues/15)). The test
   programs and `tools/consumer` ask the CPU once through `platform.probe()` and pass `present` only
   when `aes_clmul` is `yes`, and colibri's package exports `platform` (decision 97 as amended on
-  2026-09-30). The tests keep the build target's answer.
+  2026-09-30). The tests keep the build target's answer. The next record undoes the export.
 
   What each check printed, on macOS arm64:
   - `tools/ci.sh`: every section passed, with 2493 of 2493 tests in Debug and in ReleaseSafe.
@@ -5160,6 +5160,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What each check printed, on macOS arm64:
   - `tools/ci.sh`: every section passed, with 2503 of 2503 tests in Debug and in ReleaseSafe.
+
+  **16e, the probe as input, 2026-09-30.** `values.Client` and `values.Server` take `cpu`, the
+  `platform.Cpu` the program's probe returned, in place of `aes_instructions`, and colibri's
+  package no longer exports `platform` (decision 97 as amended again on 2026-09-30).
+  - `tls` imports stdx's `platform` for the `Cpu` type alone. A session runs the AES instructions
+    only when `aes_clmul` is `yes`.
+  - The tests pass a probe of the build target, and run every answer, `yes`, `no` and `not_known`,
+    where the target has the instructions. Under `no` and `not_known` alike a session runs
+    ChaCha20 alone, and a suite order that names AES-GCM is refused.
+  - `tools/consumer` depends on stdx itself, at the commit colibri pins and with the options
+    colibri gives it, and compiles against the `platform.Cpu` that `tls` names.
+
+  What each check printed, on macOS arm64:
+  - 6 mutations, each **CAUGHT**: `yes` running no AES instruction, `no` or `not_known` running
+    them, and the client's or the server's probe not handed on; and, by `tools/h3spec.sh`, the test
+    programs' probe saying `no`, since h3spec's client offers AES-GCM alone.
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for

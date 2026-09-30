@@ -188,7 +188,7 @@ fn start_client(version: crypto.suite.Version) !crypto.Suite {
     try test_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = "example.com" } },
         .alpn = &.{"hq-interop"},
-        .aes_instructions = identity.aes_instructions,
+        .cpu = identity.cpu,
     });
     test_config.values.quic_version = @enumFromInt(@intFromEnum(version));
     try test_session.start(&test_config, identity.random(), identity.now_seconds, null);
