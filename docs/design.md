@@ -6105,6 +6105,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     again at each call, never passing, or left out of `deadline_ns`; a drain ending as the other
     deadlines do, with a second GOAWAY; and `validate` accepting a drain of 0.
 
+  **The floor, as amended, 2026-09-29.** h2spec failed six flow-control cases once the floor was
+  in: each sets a window of one octet and waits for a DATA frame of one octet. The owner amended
+  decision 110: the floor applies only while the peer's SETTINGS_INITIAL_WINDOW_SIZE is at least
+  the floor.
+  - `tools/h2spec.sh 18443 --tls`: 144 of 146 cases in cleartext and over TLS, the two decision
+    41 skips.
+  - 2 mutations, each **CAUGHT** by `zig build test-h2` or `zig build test-server`: the floor
+    ignoring the peer's initial window, and a peer whose initial window is the floor counting as
+    small.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

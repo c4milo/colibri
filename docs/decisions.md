@@ -3237,6 +3237,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      timeout, which a slower upload still outlasts; dropping the deadline, which RFC 9113 §6.5.3
      leaves to the server; and keeping 10 s as ruled.
 
+     Amended again by the owner on 2026-09-29: the floor on a DATA frame applies only while the
+     peer's SETTINGS_INITIAL_WINDOW_SIZE is at least the floor. h2spec's flow-control cases set a
+     window of one octet and wait for a DATA frame of one octet, which the floor never sent, and a
+     client whose windows stay under the floor would stall the same way and be cut. A peer that
+     asks for small windows gets frames that fit them, and the send-rate deadline bounds one that
+     opens its window a few octets at a time. Refused: dropping the floor, keeping it and skipping
+     the six cases, and turning it off for h2spec alone.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

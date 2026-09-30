@@ -2,9 +2,11 @@
 //! the stream's, one frame and the caller's buffer allow, and which of them held it short of the
 //! payload. Split off `connection_send.zig` for length.
 //!
-//! A window below `Connection.data_frame_len_min` sends nothing unless it holds the whole payload
-//! (decision 110). A peer that opens its window a few octets at a time then gets no frame for each
-//! few octets, which RFC 9113 §10.5 names as a way to make a sender write many frames.
+//! A window below `Connection.data_frame_len_min` sends nothing unless it holds the whole payload,
+//! while the peer's SETTINGS_INITIAL_WINDOW_SIZE is at least the floor (decision 110 as amended).
+//! A peer that opens a window of its usual size a few octets at a time then gets no frame for each
+//! few octets, which RFC 9113 §10.5 names as a way to make a sender write many frames; a peer
+//! that asks for small windows gets frames that fit them.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -42,8 +44,10 @@ pub fn sendable(target: *const Connection, record: *const Stream, room_len: usiz
     const window: usize = @min(stream_window, connection_window);
     if (window < next.len) {
         // RFC 9113 §10.5: tiny window increments can make a sender write many frames, so a window
-        // below the floor sends nothing (decision 110).
-        const floored = if (window < target.data_frame_len_min) 0 else window;
+        // below the floor sends nothing, unless the peer asked for windows that small (decision
+        // 110 as amended).
+        const floor = if (target.peer.initial_window_size < target.data_frame_len_min) 0 else target.data_frame_len_min;
+        const floored = if (window < floor) 0 else window;
         const held_by: ShortBy = if (connection_window < stream_window) .connection_window else .stream_window;
         next = .{ .len = floored, .short_by = held_by };
     }
@@ -108,6 +112,15 @@ test "RFC 9113 §6.9.1: the connection's window, the frame size and the room eac
     const room = try connection_send.write_data(test_connection, test_output[0 .. constants.frame_header_len + floor_len], 1, test_body[0..body_len], false);
     try testing.expectEqual(floor_len, room.consumed);
     try testing.expectEqual(.room, room.short_by);
+}
+
+test "decision 110 as amended: a peer that asks for windows under the floor gets frames that fit them" {
+    _ = try start(1);
+    test_connection.peer.initial_window_size = floor_len - 1;
+    try testing.expectEqual(1, (try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], true)).consumed);
+    // At the floor, the floor holds a frame short of it again.
+    test_connection.peer.initial_window_size = floor_len;
+    try testing.expectEqual(0, (try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], true)).consumed);
 }
 
 test "decision 110: with no floor, a window of one octet sends one" {

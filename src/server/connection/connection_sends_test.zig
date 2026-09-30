@@ -107,7 +107,8 @@ test "decision 110: with no send rate and no linger, a connection waits on its p
 }
 
 /// An h2 connection whose client asked for streams with a window of `stream_window` octets, and
-/// a request on stream 1 whose answer began and whose content waits on a window.
+/// a request on stream 1 whose answer began and whose content, once the window is spent, waits on
+/// it.
 fn answer_blocked(stream_window: u32) !void {
     try h2_support.start();
     var frame: [h2.constants.frame_header_len + h2.constants.setting_len]u8 = undefined;
@@ -116,11 +117,13 @@ fn answer_blocked(stream_window: u32) !void {
     _ = try receive_at(writer.written(), early_ns);
     _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
-    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = &content, .end = true }));
+    const written = connection.write_body(1, .{ .octets = &content, .end = true }) catch 0;
+    try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = content[written..], .end = true }));
 }
 
 test "RFC 9113 §10.5: a stream whose window stays under the floor is reset with CANCEL when its window ends" {
-    try answer_blocked(0);
+    // The client's windows start at the floor, so the floor holds the frames it opens less for.
+    try answer_blocked(floor_len);
     _ = send_at(early_ns);
     try testing.expectEqual(first_end_ns, connection.deadline_ns().?);
     // The client opens the window by less than the floor, so no frame goes out.
