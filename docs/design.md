@@ -1090,6 +1090,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     queue of 64 fails the check's build, because its aligned seeds open more streams than the
     queue holds.
 
+  **The prefaces in the connection model, 2026-09-30**
+  ([#79](https://github.com/c4milo/colibri/issues/79)). `e3126a9` fixed a server that answered a
+  request read with the client's preface before writing its own SETTINGS, which RFC 9113 §3.4
+  requires to be the first frame a server sends. The model had no prefaces, so it could not see
+  that.
+  - `spec/tla/h2_connection` now starts each endpoint with its preface: the client's 24 octets and
+    its SETTINGS, carried as one frame, and the server's SETTINGS. Each endpoint reads its peer's
+    first, and any other frame first is a connection error (§3.4). `PrefaceFirst` is colibri's
+    rule: an endpoint writes its preface before any other frame, and before it reads one.
+    `NothingBeforePreface` says no frame goes ahead of its sender's preface.
+  - Two configurations turn the rule off, and each must be violated. In `preface_first` the
+    server's response goes ahead of its SETTINGS, and in `preface_read` the client reads that
+    response first, a connection error.
+  - The h2 trace run logs a state before either preface, and shows each preface in flight as the
+    model's frame.
+  - `zig build tla -- spec/tla/h2_connection/*.cfg`: the three scopes hold, `messages` in 821,759
+    distinct states, `resets` in 3,970 and `goaway` in 2,193,274. The eight configurations that
+    turn a rule off are violated.
+  - `tools/h2_trace.sh`: 64 of 64 traces are behaviors of the model. `zig build sim --
+    --h2-trace-check`: the census above, unchanged.
+  - `zig build test`: 131 of 131 steps and 2513 of 2513 tests passed.
+  - 6 mutations, each **CAUGHT**. In the model: the server, or the client, sending before its
+    preface; no `NothingBeforePreface`; and no error for a frame read before the peer's preface.
+    In the trace run, no preface shown in flight. In h2, the SETTINGS written before the client's
+    24 octets. The fourth was **NOT CAUGHT** while the model dropped a frame read before the
+    preface. It now reads it as colibri would without the check.
+  - A trace through `server.Connection` and `client.Connection`, where e3126a9's defect was, is
+    the rest of #79.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

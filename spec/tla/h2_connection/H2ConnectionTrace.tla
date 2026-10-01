@@ -39,6 +39,8 @@ Matches(i) ==
     /\ toServer = t.toServer /\ toClient = t.toClient
     /\ goawaySent = t.goawaySent /\ goawayCount = t.goawayCount /\ goawayRead = t.goawayRead
     /\ malformed = t.malformed /\ broken = t.broken /\ lateOpen = t.lateOpen
+    /\ clientPreface = t.clientPreface /\ serverPreface = t.serverPreface
+    /\ clientReadPreface = t.clientReadPreface /\ serverReadPreface = t.serverReadPreface
 
 TraceInit == Init /\ Matches(1) /\ index = 1 /\ since = 0
 
@@ -67,6 +69,8 @@ Toward(i) ==
     LET t == Trace[i] IN
     /\ goawayCount <= t.goawayCount
     /\ (malformed => t.malformed) /\ (broken => t.broken) /\ (lateOpen => t.lateOpen)
+    /\ (clientPreface => t.clientPreface) /\ (serverPreface => t.serverPreface)
+    /\ (clientReadPreface => t.clientReadPreface) /\ (serverReadPreface => t.serverReadPreface)
     /\ \A s \in Streams :
         /\ StateRank(clientState[s]) <= StateRank(t.clientState[s])
         /\ StateRank(serverState[s]) <= StateRank(t.serverState[s])

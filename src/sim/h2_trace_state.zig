@@ -24,8 +24,9 @@ pub const ResponsePhase = h2_trace_pair.ResponsePhase;
 pub const StreamState = enum { idle, open, half_closed_local, half_closed_remote, closed };
 /// How a closed stream closed, as the model names it.
 pub const Closing = enum { none, end_stream, rst_sent, rst_received };
-/// The frames the model carries.
-pub const Kind = enum { head, interim, data, trailers, rst, goaway };
+/// The frames the model carries: the client's preface, its 24 octets and its SETTINGS, is one, and
+/// the server's, its SETTINGS, another (RFC 9113 §3.4).
+pub const Kind = enum { head, interim, data, trailers, rst, goaway, preface, settings };
 
 pub const Frame = struct {
     /// The model's stream index, 1 up, or 0 for GOAWAY.
@@ -58,6 +59,11 @@ pub const State = struct {
     malformed: bool = false,
     broken: bool = false,
     late_open: bool = false,
+    /// Whether each endpoint wrote its preface, and read its peer's (RFC 9113 §3.4).
+    client_preface: bool = false,
+    server_preface: bool = false,
+    client_read_preface: bool = false,
+    server_read_preface: bool = false,
 };
 
 pub const Error = error{
@@ -99,8 +105,8 @@ pub fn compute(pair: *Pair, plan: *const h2_trace_plan.Plan) Error!State {
     @memcpy(state.response_data[0..n], seen.response_data[0..n]);
     @memcpy(state.request_read[0..n], seen.request_read[0..n]);
     @memcpy(state.response_read[0..n], seen.response_read[0..n]);
-    state.to_server_len = try frames_of(&pair.to_server, &state.to_server);
-    state.to_client_len = try frames_of(&pair.to_client, &state.to_client);
+    state.to_server_len = try frames_of(&pair.to_server, .preface, &state.to_server);
+    state.to_client_len = try frames_of(&pair.to_client, .settings, &state.to_client);
     const no_goaway: u32 = plan.streams + 1;
     state.goaway_sent = if (pair.server.streams.goaway_sent_last_id) |last| last_index(last) else no_goaway;
     state.goaway_read = if (pair.client.streams.goaway_received_last_id) |last| last_index(last) else no_goaway;
@@ -108,6 +114,12 @@ pub fn compute(pair: *Pair, plan: *const h2_trace_plan.Plan) Error!State {
     state.malformed = seen.malformed;
     state.broken = pair.client.has_failed() or pair.server.has_failed();
     state.late_open = seen.late_open;
+    state.client_preface = pair.client.preface_done();
+    state.server_preface = pair.server.preface_done();
+    // RFC 9113 §3.4: the first frame each endpoint reads is its peer's SETTINGS, which ends the
+    // peer's preface.
+    state.client_read_preface = pair.client.first_frame_read;
+    state.server_read_preface = pair.server.first_frame_read;
     return state;
 }
 
@@ -150,8 +162,9 @@ fn last_index(last_stream_id: u32) u32 {
     return @intCast(h2_trace_pair.index_of(last_stream_id) + 1);
 }
 
-/// The model's frames a queue holds, in order, written into `frames`; returns how many.
-fn frames_of(queue: *const Queue, frames: *[limits.frames_max]Frame) Error!u32 {
+/// The model's frames a queue holds, in order, written into `frames`; returns how many. While any
+/// of its writer's preface is still in it, the first is that preface, as `preface` names it.
+fn frames_of(queue: *const Queue, preface: Kind, frames: *[limits.frames_max]Frame) Error!u32 {
     const octets = queue.held()[queue.preface_left..];
     // Bounded: a frame is a header of `header_len` octets at least.
     const frames_bound = octets.len / header_len + 1;
@@ -165,6 +178,10 @@ fn frames_of(queue: *const Queue, frames: *[limits.frames_max]Frame) Error!u32 {
     assert(counting.offset == octets.len);
     var head_index = queue.heads_written - heads_in_flight;
     var len: u32 = 0;
+    if (queue.preface_left > 0) {
+        frames[0] = .{ .stream = 0, .kind = preface, .end = false, .last = 0 };
+        len = 1;
+    }
     var reading: FrameIterator = .{ .octets = octets };
     for (0..frames_bound) |_| {
         const frame = reading.next() orelse break;

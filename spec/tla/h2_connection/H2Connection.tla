@@ -28,9 +28,16 @@
 (* the message malformed (§8.1.1). Two colibri endpoints never send one,   *)
 (* and never provoke a connection error, which is what Safe says.          *)
 (*                                                                         *)
+(* Each endpoint starts with its connection preface (§3.4): the client's  *)
+(* 24 octets and its SETTINGS, which the model carries as one frame, and   *)
+(* the server's SETTINGS. Each reads the peer's first, and anything else   *)
+(* first is a connection error, so no frame of either goes before its      *)
+(* preface (NothingBeforePreface).                                         *)
+(*                                                                         *)
 (* The model leaves out what other models and checks cover: flow control  *)
 (* (spec/tla/h2_flow_control), whose windows never hold back the DATA      *)
-(* here, SETTINGS and PING, which change no stream, and field compression. *)
+(* here, the SETTINGS frames after the prefaces and PING, which change no  *)
+(* stream, and field compression.                                          *)
 (*                                                                         *)
 (* H2ConnectionTrace checks colibri against this model                    *)
 (* (tools/h2_trace.sh). The simulator's h2 trace run draws write calls the *)
@@ -52,6 +59,10 @@
 (*                     a stream above its last identifier (§6.8).          *)
 (*   NoStreamAfterGoaway a client opens no stream after it read a GOAWAY   *)
 (*                     (§6.8).                                             *)
+(*   PrefaceFirst      an endpoint writes its preface before any other     *)
+(*                     frame, and before it reads one (§3.4). colibri's    *)
+(*                     server broke this rule until e3126a9                *)
+(*                     (https://github.com/c4milo/colibri/issues/79).      *)
 (*                                                                         *)
 (* colibri's GOAWAY never rises (§6.8): it names the highest stream the    *)
 (* server opened, and the server opens none above a GOAWAY it sent, so no  *)
@@ -67,12 +78,12 @@ CONSTANTS
     MaxGoaways,     \* GOAWAY frames the server sends at most
     Resets,         \* whether the endpoints may reset streams
     SendInState, DataAfterHead, OneFinalHead, DiscardAfterReset, IgnoreAboveGoaway,
-    NoStreamAfterGoaway
+    NoStreamAfterGoaway, PrefaceFirst
 
 ASSUME N \in Nat \ {0} /\ Content \in Nat /\ Interims \in Nat /\ MaxGoaways \in Nat
 ASSUME Resets \in BOOLEAN
 ASSUME \A rule \in {SendInState, DataAfterHead, OneFinalHead, DiscardAfterReset,
-                    IgnoreAboveGoaway, NoStreamAfterGoaway} : rule \in BOOLEAN
+                    IgnoreAboveGoaway, NoStreamAfterGoaway, PrefaceFirst} : rule \in BOOLEAN
 
 Streams == 1..N
 \* No GOAWAY: above every stream, so no stream is above it.
@@ -85,11 +96,14 @@ RequestPhases == {"none", "head", "ended"}
 \* A response's progress: nothing, interim heads, the final head, or ended by END_STREAM.
 ResponsePhases == {"none", "interim", "final", "ended"}
 \* The frames a stream carries: a request's head or a response's final head, an interim head, DATA,
-\* a trailer section, and RST_STREAM. GOAWAY names the connection, stream 0.
-Kinds == {"head", "interim", "data", "trailers", "rst", "goaway"}
+\* a trailer section, and RST_STREAM. GOAWAY and the prefaces name the connection, stream 0: the
+\* client's preface is its 24 octets and its SETTINGS, and the server's is its SETTINGS.
+Kinds == {"head", "interim", "data", "trailers", "rst", "goaway", "preface", "settings"}
 
 Frame(i, kind, end) == [stream |-> i, kind |-> kind, end |-> end, last |-> 0]
 Goaway(last) == [stream |-> 0, kind |-> "goaway", end |-> FALSE, last |-> last]
+Preface == [stream |-> 0, kind |-> "preface", end |-> FALSE, last |-> 0]
+Settings == [stream |-> 0, kind |-> "settings", end |-> FALSE, last |-> 0]
 
 Min(a, b) == IF a < b THEN a ELSE b
 
@@ -109,11 +123,16 @@ VARIABLES
     goawaySent, goawayCount, goawayRead,
     \* A receiver read a message out of §8.1's order, or found a connection error, and the client
     \* opened a stream after it read a GOAWAY.
-    malformed, broken, lateOpen
+    malformed, broken, lateOpen,
+    \* Whether each endpoint wrote its preface, and read its peer's (§3.4).
+    clientPreface, serverPreface, clientReadPreface, serverReadPreface
+
+prefaces == <<clientPreface, serverPreface, clientReadPreface, serverReadPreface>>
 
 vars == <<clientState, clientClosed, serverState, serverClosed, request, requestData,
           response, responseInterims, responseData, requestRead, responseRead,
-          toServer, toClient, goawaySent, goawayCount, goawayRead, malformed, broken, lateOpen>>
+          toServer, toClient, goawaySent, goawayCount, goawayRead, malformed, broken, lateOpen,
+          prefaces>>
 
 TypeOK ==
     /\ clientState \in [Streams -> States] /\ serverState \in [Streams -> States]
@@ -124,6 +143,7 @@ TypeOK ==
     /\ responseInterims \in [Streams -> 0..Interims]
     /\ goawaySent \in 0..NoGoaway /\ goawayCount \in 0..MaxGoaways /\ goawayRead \in 0..NoGoaway
     /\ malformed \in BOOLEAN /\ broken \in BOOLEAN /\ lateOpen \in BOOLEAN
+    /\ {clientPreface, serverPreface, clientReadPreface, serverReadPreface} \subseteq BOOLEAN
 
 Init ==
     /\ clientState = [i \in Streams |-> "idle"] /\ serverState = [i \in Streams |-> "idle"]
@@ -135,6 +155,40 @@ Init ==
     /\ toServer = <<>> /\ toClient = <<>>
     /\ goawaySent = NoGoaway /\ goawayCount = 0 /\ goawayRead = NoGoaway
     /\ malformed = FALSE /\ broken = FALSE /\ lateOpen = FALSE
+    /\ clientPreface = FALSE /\ serverPreface = FALSE
+    /\ clientReadPreface = FALSE /\ serverReadPreface = FALSE
+
+-----------------------------------------------------------------------------
+(* The prefaces (§3.4). With PrefaceFirst, an endpoint writes its preface  *)
+(* before any other frame and before it reads one, as colibri's h2 writes  *)
+(* it first in write_pending and `server.Connection` writes it before it   *)
+(* reads (e3126a9).                                                        *)
+
+ClientPreface ==
+    /\ ~clientPreface
+    /\ clientPreface' = TRUE
+    /\ toServer' = Append(toServer, Preface)
+    /\ UNCHANGED <<clientState, clientClosed, serverState, serverClosed, request, requestData,
+                   response, responseInterims, responseData, requestRead, responseRead, toClient,
+                   goawaySent, goawayCount, goawayRead, malformed, broken, lateOpen,
+                   serverPreface, clientReadPreface, serverReadPreface>>
+
+ServerPreface ==
+    /\ ~serverPreface
+    /\ serverPreface' = TRUE
+    /\ toClient' = Append(toClient, Settings)
+    /\ UNCHANGED <<clientState, clientClosed, serverState, serverClosed, request, requestData,
+                   response, responseInterims, responseData, requestRead, responseRead, toServer,
+                   goawaySent, goawayCount, goawayRead, malformed, broken, lateOpen,
+                   clientPreface, clientReadPreface, serverReadPreface>>
+
+ClientReady == PrefaceFirst => clientPreface
+ServerReady == PrefaceFirst => serverPreface
+
+(* §3.4: a frame other than the peer's preface, read before that preface, *)
+(* is a connection error. `read` says whether the reader has read the      *)
+(* peer's preface, and `preface` names its kind.                           *)
+BeforePreface(read, f, preface) == ~read /\ f.kind # preface
 
 -----------------------------------------------------------------------------
 (* Sending (§5.1): a HEADERS or DATA frame leaves open or half-closed      *)
@@ -156,6 +210,7 @@ ClosingAfterSend(state, closing, end) ==
 (* The client opens stream i, the lowest it has not opened (§5.1.1), with *)
 (* its request's head, which ends the request when end.                    *)
 Open(i, end) ==
+    /\ ClientReady
     /\ clientState[i] = "idle"
     /\ \A j \in Streams : j < i => clientState[j] # "idle"
     /\ NoStreamAfterGoaway => goawayRead = NoGoaway
@@ -165,10 +220,11 @@ Open(i, end) ==
     /\ lateOpen' = (lateOpen \/ goawayRead # NoGoaway)
     /\ UNCHANGED <<clientClosed, serverState, serverClosed, requestData, response,
                    responseInterims, responseData, requestRead, responseRead, toClient,
-                   goawaySent, goawayCount, goawayRead, malformed, broken>>
+                   goawaySent, goawayCount, goawayRead, malformed, broken, prefaces>>
 
 (* The client sends DATA or its trailer section on stream i.              *)
 ClientSend(i, kind, end) ==
+    /\ ClientReady
     /\ kind \in {"data", "trailers"}
     /\ request[i] # "none"
     /\ SendInState => Sendable(clientState[i]) /\ request[i] = "head"
@@ -181,11 +237,12 @@ ClientSend(i, kind, end) ==
     /\ toServer' = Append(toServer, Frame(i, kind, end))
     /\ UNCHANGED <<serverState, serverClosed, response, responseInterims, responseData,
                    requestRead, responseRead, toClient, goawaySent, goawayCount, goawayRead,
-                   malformed, broken, lateOpen>>
+                   malformed, broken, lateOpen, prefaces>>
 
 (* The server sends a head, DATA or its trailer section on stream i, a    *)
 (* stream whose request it read.                                           *)
 ServerSend(i, kind, end) ==
+    /\ ServerReady
     /\ kind \in {"interim", "head", "data", "trailers"}
     /\ serverState[i] # "idle"
     /\ SendInState => Sendable(serverState[i]) /\ response[i] # "ended"
@@ -205,28 +262,31 @@ ServerSend(i, kind, end) ==
     /\ responseData' = [responseData EXCEPT ![i] = IF kind = "data" THEN @ + 1 ELSE @]
     /\ toClient' = Append(toClient, Frame(i, kind, end))
     /\ UNCHANGED <<clientState, clientClosed, request, requestData, requestRead, responseRead,
-                   toServer, goawaySent, goawayCount, goawayRead, malformed, broken, lateOpen>>
+                   toServer, goawaySent, goawayCount, goawayRead, malformed, broken, lateOpen,
+                   prefaces>>
 
 Resettable(state) == state \in {"open", "half_closed_local", "half_closed_remote"}
 
 (* An endpoint resets stream i (§6.4), which closes it at once.            *)
 ClientReset(i) ==
+    /\ ClientReady
     /\ Resets /\ Resettable(clientState[i])
     /\ clientState' = [clientState EXCEPT ![i] = "closed"]
     /\ clientClosed' = [clientClosed EXCEPT ![i] = "rst_sent"]
     /\ toServer' = Append(toServer, Frame(i, "rst", FALSE))
     /\ UNCHANGED <<serverState, serverClosed, request, requestData, response, responseInterims,
                    responseData, requestRead, responseRead, toClient, goawaySent, goawayCount,
-                   goawayRead, malformed, broken, lateOpen>>
+                   goawayRead, malformed, broken, lateOpen, prefaces>>
 
 ServerReset(i) ==
+    /\ ServerReady
     /\ Resets /\ Resettable(serverState[i])
     /\ serverState' = [serverState EXCEPT ![i] = "closed"]
     /\ serverClosed' = [serverClosed EXCEPT ![i] = "rst_sent"]
     /\ toClient' = Append(toClient, Frame(i, "rst", FALSE))
     /\ UNCHANGED <<clientState, clientClosed, request, requestData, response, responseInterims,
                    responseData, requestRead, responseRead, toServer, goawaySent, goawayCount,
-                   goawayRead, malformed, broken, lateOpen>>
+                   goawayRead, malformed, broken, lateOpen, prefaces>>
 
 (* The highest stream the server opened, or 0 for none: what colibri's    *)
 (* GOAWAY names (RFC 9113 §8.7).                                           *)
@@ -237,6 +297,7 @@ HighestOpened ==
 (* The server sends a GOAWAY naming the highest stream it opened, and no  *)
 (* more than its previous one.                                             *)
 ServerGoaway ==
+    /\ ServerReady
     /\ goawayCount < MaxGoaways
     /\ LET last == Min(HighestOpened, goawaySent)
        IN /\ goawaySent' = last
@@ -244,7 +305,7 @@ ServerGoaway ==
     /\ goawayCount' = goawayCount + 1
     /\ UNCHANGED <<clientState, clientClosed, serverState, serverClosed, request, requestData,
                    response, responseInterims, responseData, requestRead, responseRead, toServer,
-                   goawayRead, malformed, broken, lateOpen>>
+                   goawayRead, malformed, broken, lateOpen, prefaces>>
 
 -----------------------------------------------------------------------------
 (* Receiving (§5.1): the state after a HEADERS or DATA frame the receiver  *)
@@ -310,14 +371,24 @@ ServerTakes(f) ==
         /\ requestRead' = [requestRead EXCEPT ![i] = NextRequestRead(@, f.kind, f.end)]
         /\ malformed' = (malformed \/ RequestOutOfOrder(requestRead[i], f.kind))
 
-(* The server reads the oldest frame the client sent.                      *)
+(* The server reads the oldest frame the client sent, the client's preface *)
+(* first: anything else first is a connection error (§3.4).               *)
 ServerReceive ==
+    /\ ServerReady
     /\ toServer # <<>>
     /\ LET f == Head(toServer)
            i == f.stream
            above == i > goawaySent /\ serverState[i] = "idle"
        IN /\ toServer' = Tail(toServer)
-          /\ CASE above /\ IgnoreAboveGoaway ->
+          /\ serverReadPreface' = (serverReadPreface \/ f.kind = "preface")
+          /\ CASE f.kind = "preface" ->
+                    \* §3.4: the preface opens the connection, once.
+                    /\ broken' = (broken \/ serverReadPreface)
+                    /\ UNCHANGED <<serverState, serverClosed, requestRead, malformed, toClient>>
+               [] BeforePreface(serverReadPreface, f, "preface") ->
+                    /\ broken' = TRUE
+                    /\ UNCHANGED <<serverState, serverClosed, requestRead, malformed, toClient>>
+               [] above /\ IgnoreAboveGoaway ->
                     \* §6.8: a stream above the GOAWAY's last identifier is ignored.
                     UNCHANGED <<serverState, serverClosed, requestRead, malformed, broken, toClient>>
                [] serverState[i] = "idle" ->
@@ -340,7 +411,8 @@ ServerReceive ==
                       [] OTHER ->
                             broken' = TRUE /\ UNCHANGED <<serverState, serverClosed, requestRead, malformed, toClient>>
     /\ UNCHANGED <<clientState, clientClosed, request, requestData, response, responseInterims,
-                   responseData, responseRead, goawaySent, goawayCount, goawayRead, lateOpen>>
+                   responseData, responseRead, goawaySent, goawayCount, goawayRead, lateOpen,
+                   clientPreface, serverPreface, clientReadPreface>>
 
 ClientTakes(f) ==
     LET i == f.stream IN
@@ -354,12 +426,22 @@ ClientTakes(f) ==
         /\ responseRead' = [responseRead EXCEPT ![i] = NextResponseRead(@, f.kind, f.end)]
         /\ malformed' = (malformed \/ ResponseOutOfOrder(responseRead[i], f.kind))
 
-(* The client reads the oldest frame the server sent.                      *)
+(* The client reads the oldest frame the server sent, the server's         *)
+(* SETTINGS first: anything else first is a connection error (§3.4).      *)
 ClientReceive ==
+    /\ ClientReady
     /\ toClient # <<>>
     /\ LET f == Head(toClient) IN
        /\ toClient' = Tail(toClient)
-       /\ IF f.kind = "goaway" THEN
+       /\ clientReadPreface' = (clientReadPreface \/ f.kind = "settings")
+       /\ IF f.kind = "settings" THEN
+             \* §3.4: the server's SETTINGS opens what it sends, once.
+             /\ broken' = (broken \/ clientReadPreface)
+             /\ UNCHANGED <<clientState, clientClosed, responseRead, malformed, toServer, goawayRead>>
+          ELSE IF BeforePreface(clientReadPreface, f, "settings") THEN
+             /\ broken' = TRUE
+             /\ UNCHANGED <<clientState, clientClosed, responseRead, malformed, toServer, goawayRead>>
+          ELSE IF f.kind = "goaway" THEN
              \* §6.8: a GOAWAY that names more than the one before is a connection error.
              /\ goawayRead' = Min(goawayRead, f.last)
              /\ broken' = (broken \/ f.last > goawayRead)
@@ -382,11 +464,14 @@ ClientReceive ==
                        [] OTHER ->
                              broken' = TRUE /\ UNCHANGED <<clientState, clientClosed, responseRead, malformed, toServer>>
     /\ UNCHANGED <<serverState, serverClosed, request, requestData, response, responseInterims,
-                   responseData, requestRead, goawaySent, goawayCount, lateOpen>>
+                   responseData, requestRead, goawaySent, goawayCount, lateOpen,
+                   clientPreface, serverPreface, serverReadPreface>>
 
 -----------------------------------------------------------------------------
 
 Next ==
+    \/ ClientPreface
+    \/ ServerPreface
     \/ \E i \in Streams, end \in BOOLEAN : Open(i, end)
     \/ \E i \in Streams, kind \in {"data", "trailers"}, end \in BOOLEAN : ClientSend(i, kind, end)
     \/ \E i \in Streams, kind \in {"interim", "head", "data", "trailers"}, end \in BOOLEAN :
@@ -399,14 +484,27 @@ Next ==
 Spec == Init /\ [][Next]_vars
 
 -----------------------------------------------------------------------------
+(* No frame goes before its sender's preface: while an endpoint has not    *)
+(* read its peer's preface, the oldest frame on its way to it is that       *)
+(* preface (§3.4).                                                         *)
+NothingBeforePreface ==
+    /\ toServer # <<>> /\ ~serverReadPreface => Head(toServer).kind = "preface"
+    /\ toClient # <<>> /\ ~clientReadPreface => Head(toClient).kind = "settings"
+
+(* No endpoint reads a frame that makes a connection error, such as one    *)
+(* before its peer's preface (§3.4).                                       *)
+NoConnectionError == ~broken
+
 (* Safe: two colibri endpoints never provoke a connection error or read a *)
 (* malformed message, a server processes no stream above a GOAWAY it sent, *)
-(* and a client opens no stream after it read one.                         *)
+(* a client opens no stream after it read one, and no frame goes before    *)
+(* its sender's preface.                                                   *)
 
 Safe ==
     /\ ~broken
     /\ ~malformed
     /\ ~lateOpen
     /\ \A i \in Streams : serverState[i] # "idle" => i <= goawaySent
+    /\ NothingBeforePreface
 
 =============================================================================

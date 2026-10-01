@@ -33,7 +33,9 @@ pub const Queue = struct {
     /// reader has taken. The ones in flight are the last ones written.
     heads: [limits.headers_max]HeadKind = undefined,
     heads_written: usize = 0,
-    /// Octets of the client connection preface (RFC 9113 §3.4) still at the queue's front.
+    /// Octets of the writer's connection preface still at the queue's front (RFC 9113 §3.4): the
+    /// client's 24 octets and its SETTINGS frame, or the server's SETTINGS frame, which the model
+    /// carries as one frame.
     preface_left: usize = 0,
 
     pub fn held(queue: *const Queue) []const u8 {
@@ -99,7 +101,7 @@ pub const Pair = struct {
     seen: Seen,
     now_ns: u64,
 
-    /// Both endpoints with their prefaces written and nothing read.
+    /// Both endpoints with nothing written or read.
     pub fn init(pair: *Pair, now_ns: u64) void {
         pair.client.init(.client);
         pair.server.init(.server);
@@ -107,11 +109,16 @@ pub const Pair = struct {
         pair.to_client = .{};
         pair.seen = .{};
         pair.now_ns = now_ns;
+    }
+
+    /// Each endpoint writes its preface, which h2 asks of its caller before any other call.
+    pub fn start(pair: *Pair) void {
         pair.flush(.client);
         pair.flush(.server);
-        // RFC 9113 §3.4: the client's preface opens with 24 octets that are no frame.
-        pair.to_server.preface_left = h2.constants.client_preface.len;
-        assert(pair.to_server.len > pair.to_server.preface_left);
+        // RFC 9113 §3.4: the client's preface is 24 octets that are no frame and its SETTINGS
+        // frame, and the server's is its SETTINGS frame.
+        pair.to_server.preface_left = h2.constants.client_preface_len + settings_len(pair.to_server.held()[h2.constants.client_preface_len..]);
+        pair.to_client.preface_left = settings_len(pair.to_client.held());
     }
 
     /// Whether the connection at `side` failed.
@@ -317,6 +324,15 @@ pub const Pair = struct {
         };
     }
 };
+
+/// The octets of the SETTINGS frame that `octets` starts with (RFC 9113 §4.1, §6.5).
+fn settings_len(octets: []const u8) usize {
+    var reader = h2.core.Reader.init(octets);
+    const header = h2.frame.read_header(&reader) catch unreachable;
+    const len = h2.constants.frame_header_len + header.length;
+    assert(header.type == h2.constants.frame_type_settings and len <= octets.len);
+    return len;
+}
 
 /// RFC 9113 §5.1.1: the client's streams are the odd identifiers, the model's stream i being 2i - 1.
 pub fn id_of(stream: u32) u32 {

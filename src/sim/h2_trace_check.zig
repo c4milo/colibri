@@ -102,6 +102,8 @@ fn run_once(storage: *Storage, seed: u64) Violation!Result {
     storage.pair.init(now_ns);
     storage.states_len = 0;
     try record(storage);
+    storage.pair.start();
+    try record(storage);
     for (0..storage.plan.actions) |_| {
         storage.pair.act(storage.plan.next_action(&random), &storage.plan);
         try record(storage);

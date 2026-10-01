@@ -45,6 +45,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, steps_max: u64) Error!vo
     try print(writer, "    MaxGoaways = {d}\n    Resets = {s}\n", .{ plan.goaways, boolean(plan.resets) });
     try writer.write_bytes("    SendInState = TRUE\n    DataAfterHead = TRUE\n    OneFinalHead = TRUE\n");
     try writer.write_bytes("    DiscardAfterReset = TRUE\n    IgnoreAboveGoaway = TRUE\n    NoStreamAfterGoaway = TRUE\n");
+    try writer.write_bytes("    PrefaceFirst = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{steps_max});
 }
@@ -70,7 +71,9 @@ fn write_state(writer: *Writer, streams: u32, state: *const State) Error!void {
     try write_frames(writer, "toServer", state.to_server[0..state.to_server_len]);
     try write_frames(writer, "toClient", state.to_client[0..state.to_client_len]);
     try print(writer, "goawaySent |-> {d}, goawayCount |-> {d}, goawayRead |-> {d}, ", .{ state.goaway_sent, state.goaway_count, state.goaway_read });
-    try print(writer, "malformed |-> {s}, broken |-> {s}, lateOpen |-> {s}]", .{ boolean(state.malformed), boolean(state.broken), boolean(state.late_open) });
+    try print(writer, "malformed |-> {s}, broken |-> {s}, lateOpen |-> {s}, ", .{ boolean(state.malformed), boolean(state.broken), boolean(state.late_open) });
+    try print(writer, "clientPreface |-> {s}, serverPreface |-> {s}, ", .{ boolean(state.client_preface), boolean(state.server_preface) });
+    try print(writer, "clientReadPreface |-> {s}, serverReadPreface |-> {s}]", .{ boolean(state.client_read_preface), boolean(state.server_read_preface) });
 }
 
 fn write_numbers(writer: *Writer, field: []const u8, values: []const u32) Error!void {
