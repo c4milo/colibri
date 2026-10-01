@@ -32,6 +32,8 @@
 //!     sim --deadline-trace-write <directory> each seed's trace as TLA+, for tools/deadline_trace.sh
 //!     sim --h2-stall-seed <hex>        one seed's h2 exchange over a small transport (#85)
 //!     sim --h2-stall-check [seeds]
+//!     sim --tcp-trace-check [seeds]    a client and a server connection in the h2 model's terms (#79)
+//!     sim --tcp-trace-write <directory> each seed's trace as TLA+, for tools/tcp_trace.sh
 //!
 //! `run_main.zig` runs the command `parse` returns.
 const std = @import("std");
@@ -58,7 +60,8 @@ pub const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --h11-coding-seed <hex> | --h11-coding-check [seeds] | --content-coding-seed <hex> | --content-coding-check [seeds]" ++
     " | --deadline-seed <hex> | --deadline-check [seeds]" ++
     " | --deadline-trace-check [seeds] | --deadline-trace-write <directory>" ++
-    " | --h2-stall-seed <hex> | --h2-stall-check [seeds]\n";
+    " | --h2-stall-seed <hex> | --h2-stall-check [seeds]" ++
+    " | --tcp-trace-check [seeds] | --tcp-trace-write <directory>\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -93,6 +96,8 @@ pub const Command = union(enum) {
     deadline_trace_write: []const u8,
     h2_stall_seed: u64,
     h2_stall_check: u64,
+    tcp_trace_check: u64,
+    tcp_trace_write: []const u8,
 };
 
 /// The command `arguments`, the program name left out, asks for.
@@ -167,6 +172,13 @@ fn parse_deadline(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
 fn parse_h2_stall(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--h2-stall-seed")) return .{ .h2_stall_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--h2-stall-check")) return .{ .h2_stall_check = if (value == null) constants.h2_stall.check_seeds_default else try parse_seeds(value) };
+    return parse_tcp_trace(flag, value);
+}
+
+/// The commands of the TCP trace run, https://github.com/c4milo/colibri/issues/79.
+fn parse_tcp_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
+    if (std.mem.eql(u8, flag, "--tcp-trace-check")) return .{ .tcp_trace_check = if (value == null) constants.tcp_trace.written_seeds else try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--tcp-trace-write")) return .{ .tcp_trace_write = value orelse return error.Usage };
     return error.Usage;
 }
 

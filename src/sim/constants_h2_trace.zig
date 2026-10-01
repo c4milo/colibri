@@ -25,9 +25,10 @@ pub const queue_len_max: u32 = 16384;
 
 /// Frames of the model's kinds one direction holds in flight at most. In each direction a stream
 /// carries at most its interim heads, one head, its DATA, one trailers section and one RST_STREAM,
-/// and GOAWAY frames add theirs.
+/// GOAWAY frames add theirs, and the writer's preface is one more (RFC 9113 §3.4).
 pub const frames_per_stream_max: u32 = interims_max + 1 + content_max + 1 + 1;
-pub const frames_max: u32 = streams_max * frames_per_stream_max + goaways_max;
+pub const preface_frames: u32 = 1;
+pub const frames_max: u32 = streams_max * frames_per_stream_max + goaways_max + preface_frames;
 
 /// HEADERS frames one direction carries over a run at most: every stream's head, its interim heads
 /// and its trailers.

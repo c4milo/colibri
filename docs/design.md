@@ -1119,6 +1119,42 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - A trace through `server.Connection` and `client.Connection`, where e3126a9's defect was, is
     the rest of #79.
 
+  **The TCP trace, 2026-09-30** ([#79](https://github.com/c4milo/colibri/issues/79)). The h2
+  trace drives `h2.Connection` directly and writes each preface first, as h2's contract asks, so
+  it could not see e3126a9's defect, which was in `server.Connection`.
+  - `src/sim/tcp_trace_check.zig` has a `client.Connection` and a `server.Connection` act out a
+    seed's plan over h2 in cleartext. Each side writes into its own output until its caller calls
+    `send`, and a delivery gives the reader every octet in flight at once, as one read from a
+    socket does.
+  - The client's first flight carries its preface, its SETTINGS and one to three requests, and
+    the server reads it in one delivery. The server's caller answers some requests the moment the
+    server reports them, inside that delivery, which is where e3126a9's server wrote a response
+    ahead of its SETTINGS.
+  - After each action the run computes `spec/tla/h2_connection`'s state from both connections, in
+    the h2 trace's `State`, and TLC checks each seed's log as it checks the h2 trace's. A
+    connection error, a malformed message, a stream opened after a GOAWAY or a replay that
+    differs fails the run without TLC.
+  - A cancel or a shutdown decides a RST_STREAM or a GOAWAY that h2 writes at the caller's next
+    `send`. The model sends either in the step that decides it, so the run has the connection
+    write it at once with `write_owed`.
+  - The client sends its own GOAWAY when it closes after the server's (RFC 9113 §6.8). It names
+    stream 0, because colibri's server opens no stream (decision 17), so the log leaves it out as
+    it leaves out SETTINGS and PING.
+  - `zig build sim -- --tcp-trace-check 64`: `seeds=64 states=508 requests=123 responses=76
+    refused=5 shut_down=26`. `tools/tcp_trace.sh`: 64 of 64 traces are behaviors of the model.
+  - 6 mutations, each **CAUGHT**. Three undo e3126a9 a layer at a time. With the server reading
+    before it writes its SETTINGS, h2's assertion that nothing goes out before the preface halts
+    the run. With that assertion gone too, the client reads the response first and fails the
+    connection: `ConnectionFailed` on seed 0. With the client's §3.4 check gone as well, TLC finds
+    22 of the 64 traces to be behaviors of the model. Before the server's caller answered on the
+    event, the deadline check alone caught the first two, and nothing caught the third.
+  - The other three: the client and h2 opening a stream after a GOAWAY, `OpenedAfterGoaway` on
+    seed 0x1b; the client reading a 103 as its final head, the client's assertion in
+    `record_head`; and h2 refusing every response head that ends its stream, `Malformed` on seed
+    0.
+  - TLS, where cocuyo found the defect with the request in the flight of the client's Finished, is
+    the rest of #79.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

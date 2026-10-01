@@ -366,8 +366,9 @@ pub const h3_check_sends_per_step_max: u32 = 64;
 pub const h3_check_drop_max: u64 = 100;
 pub const h3_check_duplicate_max: u64 = 100;
 
-/// Eight checks' limits, each in a file of its own whose header names its check.
+/// Nine checks' limits, each in a file of its own whose header names its check.
 pub const h11_coding = @import("constants_h11.zig");
+pub const tcp_trace = @import("constants_tcp_trace.zig");
 pub const h3_trace = @import("constants_h3_trace.zig");
 pub const h2_trace = @import("constants_h2_trace.zig");
 pub const h2_stall = @import("constants_h2_stall.zig");

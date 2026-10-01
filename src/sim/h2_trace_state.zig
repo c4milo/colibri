@@ -19,6 +19,7 @@ const Pair = h2_trace_pair.Pair;
 const Queue = h2_trace_pair.Queue;
 pub const RequestPhase = h2_trace_pair.RequestPhase;
 pub const ResponsePhase = h2_trace_pair.ResponsePhase;
+pub const HeadKind = h2_trace_pair.HeadKind;
 
 /// The model's stream states (RFC 9113 §5.1, Figure 2, less the reserved ones push would use).
 pub const StreamState = enum { idle, open, half_closed_local, half_closed_remote, closed };
@@ -124,7 +125,7 @@ pub fn compute(pair: *Pair, plan: *const h2_trace_plan.Plan) Error!State {
 }
 
 /// A stream's state and how it closed, from the connection's table.
-fn stream_of(connection: *h2.Connection, id: u32) struct { StreamState, Closing } {
+pub fn stream_of(connection: *h2.Connection, id: u32) struct { StreamState, Closing } {
     return switch (connection.streams.lookup(id)) {
         .live => |record| .{ state_of(record.state), closing_of(record.closed) },
         .idle => .{ .idle, .none },
@@ -157,7 +158,7 @@ fn closing_of(closed: ?h2.stream.Closed) Closing {
 }
 
 /// The model's index of the stream a GOAWAY names: 0 for none opened, else the stream's index.
-fn last_index(last_stream_id: u32) u32 {
+pub fn last_index(last_stream_id: u32) u32 {
     if (last_stream_id == 0) return 0;
     return @intCast(h2_trace_pair.index_of(last_stream_id) + 1);
 }
@@ -166,28 +167,43 @@ fn last_index(last_stream_id: u32) u32 {
 /// of its writer's preface is still in it, the first is that preface, as `preface` names it.
 fn frames_of(queue: *const Queue, preface: Kind, frames: *[limits.frames_max]Frame) Error!u32 {
     const octets = queue.held()[queue.preface_left..];
-    // Bounded: a frame is a header of `header_len` octets at least.
-    const frames_bound = octets.len / header_len + 1;
-    // The HEADERS frames in flight are the last ones written, so count them first.
-    var heads_in_flight: usize = 0;
-    var counting: FrameIterator = .{ .octets = octets };
-    for (0..frames_bound) |_| {
-        const frame = counting.next() orelse break;
-        if (frame[type_offset] == type_headers) heads_in_flight += 1;
-    }
-    assert(counting.offset == octets.len);
-    var head_index = queue.heads_written - heads_in_flight;
     var len: u32 = 0;
     if (queue.preface_left > 0) {
         frames[0] = .{ .stream = 0, .kind = preface, .end = false, .last = 0 };
         len = 1;
     }
+    // The HEADERS frames in flight are the last ones written.
+    const heads = queue.heads[0..queue.heads_written];
+    const in_flight = heads[heads.len - headers_in(octets) ..];
+    return len + try frames_in(octets, in_flight, frames[len..]);
+}
+
+/// The HEADERS frames among the whole frames of `octets`.
+pub fn headers_in(octets: []const u8) usize {
+    var count: usize = 0;
+    var counting: FrameIterator = .{ .octets = octets };
+    // Bounded: a frame is a header of `header_len` octets at least.
+    for (0..octets.len / header_len + 1) |_| {
+        const frame = counting.next() orelse break;
+        if (frame[type_offset] == type_headers) count += 1;
+    }
+    assert(counting.offset == octets.len);
+    return count;
+}
+
+/// The model's frames among the whole frames of `octets`, in order, written into `frames`; returns
+/// how many. The HEADERS frames among them are of the kinds `heads` names in order, or every one a
+/// head when `heads` is null.
+pub fn frames_in(octets: []const u8, heads: ?[]const HeadKind, frames: []Frame) Error!u32 {
+    var head_index: usize = 0;
+    var len: u32 = 0;
     var reading: FrameIterator = .{ .octets = octets };
-    for (0..frames_bound) |_| {
+    // Bounded: a frame is a header of `header_len` octets at least.
+    for (0..octets.len / header_len + 1) |_| {
         const frame = reading.next() orelse break;
         const kind: Kind = switch (frame[type_offset]) {
             type_data => .data,
-            type_headers => head_kind(queue, &head_index),
+            type_headers => head_kind(heads, &head_index),
             type_rst_stream => .rst,
             type_goaway => .goaway,
             // SETTINGS, PING, WINDOW_UPDATE and PRIORITY change no stream the model holds.
@@ -200,10 +216,11 @@ fn frames_of(queue: *const Queue, preface: Kind, frames: *[limits.frames_max]Fra
     return len;
 }
 
-/// The kind the run wrote the next HEADERS frame in flight as.
-fn head_kind(queue: *const Queue, head_index: *usize) Kind {
+/// The kind of the next HEADERS frame: the one `heads` names, or a head.
+fn head_kind(heads: ?[]const HeadKind, head_index: *usize) Kind {
+    const kinds = heads orelse return .head;
     defer head_index.* += 1;
-    return switch (queue.heads[head_index.*]) {
+    return switch (kinds[head_index.*]) {
         .head => .head,
         .interim => .interim,
         .trailers => .trailers,

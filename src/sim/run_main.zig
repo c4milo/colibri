@@ -20,6 +20,7 @@ const run_main_h2_trace = @import("run_main_h2_trace.zig");
 const run_main_deadline_trace = @import("run_main_deadline_trace.zig");
 const run_main_h2_stall = @import("run_main_h2_stall.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
+const run_main_tcp_trace = @import("run_main_tcp_trace.zig");
 const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
 const h2_input_check = @import("h2_input_check.zig");
@@ -88,6 +89,8 @@ pub fn main(init: std.process.Init) !void {
         .deadline_trace_write => |directory| try deadline_trace_write(init.io, directory),
         .h2_stall_seed => |seed| try run_main_h2_stall.seed(seed),
         .h2_stall_check => |seeds| try run_main_h2_stall.check(seeds),
+        .tcp_trace_check => |seeds| try run_main_tcp_trace.check(seeds),
+        .tcp_trace_write => |directory| try tcp_trace_write(init.io, directory),
     }
 }
 
@@ -273,6 +276,17 @@ fn deadline_trace_write(io: std.Io, directory: []const u8) !void {
         try write_file(io, directory, files.name, ".cfg", files.config);
     }
     std.debug.print("deadline-trace: wrote {d} seeds to {s}\n", .{ constants.deadline_trace.written_seeds, directory });
+}
+
+/// Writes seeds `[0, tcp_trace.written_seeds)` of the TCP trace run into `directory`: a TLA+ module
+/// and a TLC configuration each, for `tools/tcp_trace.sh`.
+fn tcp_trace_write(io: std.Io, directory: []const u8) !void {
+    for (0..constants.tcp_trace.written_seeds) |seed| {
+        const files = try run_main_tcp_trace.files_of(seed);
+        try write_file(io, directory, files.name, ".tla", files.module);
+        try write_file(io, directory, files.name, ".cfg", files.config);
+    }
+    std.debug.print("tcp-trace: wrote {d} seeds to {s}\n", .{ constants.tcp_trace.written_seeds, directory });
 }
 
 var client_trace_seeds: [constants.client_trace.written_seeds + constants.client_trace.idle_seeds_written_max]u64 = undefined;

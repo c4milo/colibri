@@ -44,6 +44,7 @@ pub const h11_coding_check = @import("h11_coding_check.zig");
 pub const content_coding_check = @import("content_coding_check.zig");
 pub const deadline_check = @import("deadline_check.zig");
 pub const deadline_trace_check = @import("deadline_trace_check.zig");
+pub const tcp_trace_check = @import("tcp_trace_check.zig");
 pub const h2_stall_check = @import("h2_stall_check.zig");
 const run_main = @import("run_main.zig");
 
@@ -87,6 +88,8 @@ test {
     _ = @import("deadline_plan.zig");
     _ = deadline_trace_check;
     _ = @import("deadline_trace_plan.zig");
+    _ = tcp_trace_check;
+    _ = @import("tcp_trace_plan.zig");
     _ = h2_stall_check;
     _ = @import("h2_stall_plan.zig");
     _ = h3_trace_tla;
