@@ -34,8 +34,8 @@ jobs:
       group: checks
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: stable
           cache: false
@@ -43,7 +43,7 @@ jobs:
       # depends on, so a changed input misses the cache and the step below it does the work.
       - name: Restore the tools
         id: tools
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/zig
@@ -86,7 +86,7 @@ jobs:
       # are the same octets. A cache entry cannot be overwritten, so each commit saves its own and
       # a run restores the newest one.
       - name: Restore the Zig caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/zig
@@ -96,13 +96,13 @@ jobs:
           restore-keys: |
             zig-${{ runner.os }}-${{ env.ZIG_VERSION }}-${{ hashFiles('build.zig.zon') }}-
       - name: Restore the Go build cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/go-build
           key: go-${{ runner.os }}-${{ hashFiles('tools/h2_interop/go_server.go') }}
       - name: Restore the image of the nghttpd and h2o peers
         id: peers
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/peers.tar
           key: peers-${{ runner.os }}-${{ hashFiles('tools/h2_interop/Dockerfile', 'tools/h2_interop/h2o.conf', 'tools/h2_interop/h2o_tls.conf', 'tools/h2_interop/Caddyfile', 'tools/h2_interop/Caddyfile_tls') }}
@@ -129,7 +129,7 @@ jobs:
         run: cat ci-report.md >>"${GITHUB_STEP_SUMMARY}"
       - name: Keep the report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ci-report-${{ github.sha }}
           path: ci-report.md
@@ -160,7 +160,7 @@ jobs:
       group: arm64-${{ matrix.runner }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # shasum, because macOS has no sha256sum.
       - name: Install Zig
         run: |
@@ -171,7 +171,7 @@ jobs:
           echo "${HOME}/zig" >>"${GITHUB_PATH}"
       # The same caches as the checks job's, under keys that name the system and the architecture.
       - name: Restore the Zig caches
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/zig
@@ -210,7 +210,7 @@ jobs:
       GARDEN_REGISTRY: ghcr.io/${{ github.repository_owner }}/colibri-http-garden
       GARDEN_PUSH: "1"
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.12.19"
@@ -247,7 +247,7 @@ jobs:
           } >>"${GITHUB_STEP_SUMMARY}"
       - name: Keep the report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: http-garden-${{ github.sha }}
           path: |
@@ -272,7 +272,7 @@ jobs:
       group: quic-interop-runner
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # tools/interop.sh fetches colibri's packages with the host's Zig before it builds the
       # endpoint's image. Zig 0.16.0 writes a zip package, such as stdx's silesia.zip, to tmp/ in
       # its global cache without creating that directory, so on a fresh Linux machine the fetch
@@ -318,7 +318,7 @@ jobs:
       # The logs exist only when a case failed: tools/interop.sh copies them to INTEROP_LOGS then.
       - name: Keep the report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quic-interop-runner-${{ github.sha }}
           path: |
