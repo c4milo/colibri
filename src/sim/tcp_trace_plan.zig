@@ -1,12 +1,13 @@
 //! What one seed of the TCP trace run does (https://github.com/c4milo/colibri/issues/79): the
-//! constants of `spec/tla/h2_connection` the seed runs under, the requests its client makes, and
-//! the actions it draws once the client's first flight has gone.
+//! constants of `spec/tla/h2_connection` the seed runs under, whether it runs over TLS, the
+//! requests its client makes, and the actions it draws once the client's first flight has gone.
 //!
 //! The first flight carries the client's preface, its SETTINGS and the requests the plan makes
-//! before the first send, and the server reads it in one delivery. A request the plan answers at
-//! once gets its final head the moment the server reports it, inside that delivery: the case
-//! e3126a9 fixed, where the server answered a request read with the preface before it wrote its
-//! own SETTINGS.
+//! before the first send, and the server reads it in one delivery. Over TLS the handshake runs
+//! first, and the flight goes out with the client's Finished. A request the plan answers at once
+//! gets its final head the moment the server reports it, inside that delivery: the case e3126a9
+//! fixed, where the server answered a request read with the preface before it wrote its own
+//! SETTINGS. cocuyo found it over TLS.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -88,6 +89,8 @@ pub const Plan = struct {
     interims: u32,
     goaways: u32,
     resets: bool,
+    /// Whether the connection runs over TLS, with h2 chosen by ALPN (RFC 9113 §3.2).
+    tls: bool,
     /// Whether each request carries content, which goes out as one DATA frame.
     request_content: [limits.streams_max]bool,
     /// Whether the server's caller answers each request the moment the server reports it, with a
@@ -104,6 +107,7 @@ pub const Plan = struct {
         plan.interims = @intCast(random.below(limits.interims_max + 1));
         plan.goaways = @intCast(random.below(limits.goaways_max + 1));
         plan.resets = random.below(limits.no_resets_one_in) != 0;
+        plan.tls = random.below(limits.tls_one_in) == 0;
         for (&plan.request_content, &plan.answer_at_once) |*carries, *at_once| {
             carries.* = plan.content > 0 and random.below(request_content_one_in) == 0;
             at_once.* = random.below(answer_at_once_one_in) == 0;

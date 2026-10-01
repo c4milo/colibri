@@ -2,11 +2,15 @@
 //! (https://github.com/c4milo/colibri/issues/79), in the h2 trace's `State`.
 //!
 //! Each stream's state comes from each connection's h2 stream table, as in the h2 trace. What each
-//! side wrote is parsed out of every octet it handed out and what its output still holds, after its
-//! preface; the server's HEADERS frames are of the kinds its caller's calls wrote. What each side
-//! read comes from the events the server reported and the exchanges the client filled. The frames
-//! in flight are the ones the writer wrote and the reader has not consumed: what the reader left of
-//! what was handed out, then the writer's output.
+//! side wrote is parsed out of the protocol's octets it handed out and those its output still
+//! holds, after its preface; the server's HEADERS frames are of the kinds its caller's calls wrote.
+//! What each side read comes from the events the server reported and the exchanges the client
+//! filled. The frames in flight are the ones the writer wrote and the reader has not read: what the
+//! reader left of what was handed out, then the writer's output.
+//!
+//! Over TLS the protocol's octets are the plaintext of the records (`tcp_trace_direction.zig`), and
+//! the reader has read what the records it opened held, less what it holds unread. Until a side's
+//! handshake completes it has no h2 connection, and the model's state for it is the initial one.
 //!
 //! The client sends a GOAWAY of its own when it closes after the server's (RFC 9113 §6.8). It names
 //! the last stream the server opened, and colibri's server opens none (decision 17), so it changes
@@ -20,6 +24,7 @@ const h2_trace_state = @import("h2_trace_state.zig");
 const h2_trace_pair = @import("h2_trace_pair.zig");
 const world_module = @import("tcp_trace_world.zig");
 const plan_module = @import("tcp_trace_plan.zig");
+const direction_module = @import("tcp_trace_direction.zig");
 
 const limits = sim.constants.h2_trace;
 pub const State = h2_trace_state.State;
@@ -28,10 +33,14 @@ const Kind = h2_trace_state.Kind;
 const HeadKind = h2_trace_state.HeadKind;
 const ResponsePhase = h2_trace_state.ResponsePhase;
 const World = world_module.World;
-const Direction = world_module.Direction;
+const Direction = direction_module.Direction;
 const Plan = plan_module.Plan;
 
-pub const Error = h2_trace_state.Error;
+pub const Error = h2_trace_state.Error || error{
+    /// A send wrote the protocol's octets after it sealed some, or a reader stopped inside one
+    /// send's records, so the run cannot place the reader in the plaintext.
+    PlaintextUnplaced,
+};
 
 /// The frames of one side's writes, at most: the model's kinds over a whole run.
 const Frames = [limits.frames_max]Frame;
@@ -45,11 +54,12 @@ const Written = struct {
     preface_len: usize,
 
     fn of(direction: *const Direction, output: []const u8, magic_len: usize) Written {
-        // A send hands out the whole output, so what a side wrote first is in one of the two.
-        const start = if (direction.handed > 0) direction.handed_out() else output;
+        // A send takes the whole output, so what a side wrote first is in one of the two.
+        const handed = direction.handed_plaintext();
+        const start = if (handed.len > 0) handed else output;
         const preface_len = preface_len_of(start, magic_len);
-        assert(direction.handed == 0 or direction.handed >= preface_len);
-        return .{ .handed = direction.handed_out(), .output = output, .preface_len = preface_len };
+        assert(handed.len == 0 or handed.len >= preface_len);
+        return .{ .handed = handed, .output = output, .preface_len = preface_len };
     }
 
     /// The two parts with the first `skip` octets left out.
@@ -69,37 +79,77 @@ const Parts = struct {
 pub fn compute(world: *World, plan: *const Plan) Error!State {
     var state: State = .{};
     const n: usize = plan.streams;
-    const client_h2 = &world.client.session.h2;
-    const server_h2 = &world.server.session.h2;
-    for (0..n) |index| {
-        const id = h2_trace_pair.id_of(@intCast(index + 1));
-        state.client_state[index], state.client_closed[index] = h2_trace_state.stream_of(client_h2, id);
-        state.server_state[index], state.server_closed[index] = h2_trace_state.stream_of(server_h2, id);
-    }
-    const from_client = Written.of(&world.to_server, world.client.output[0..world.client.output_len], h2.constants.client_preface_len);
-    const from_server = Written.of(&world.to_client, world.server.output[0..world.server.output_len], 0);
+    const client_h2 = world_module.h2_of(&world.client.session);
+    const server_h2 = world_module.h2_of(&world.server.session);
+    note_streams(client_h2, server_h2, n, &state);
+    const from_client = Written.of(&world.to_server, pending(&world.client), h2.constants.client_preface_len);
+    const from_server = Written.of(&world.to_client, pending(&world.server), 0);
     try note_client_writes(from_client, &state);
     try note_server_writes(from_server, world.to_client.heads[0..world.to_client.heads_written], &state);
     @memcpy(state.request_read[0..n], world.request_read[0..n]);
     for (world.exchanges[0..world.requested], 0..) |*exchange, index| {
         state.response_read[index] = response_read_of(exchange.outcome, exchange.status, exchange.interims);
     }
-    state.to_server_len = drop_goaways(&state.to_server, try in_flight(from_client, world.to_server.consumed, .preface, null, &state.to_server));
+    // The client drops the plaintext it read at once, so all it holds is unread. The server holds
+    // what its last event pointed into, `plain_in_read` octets, until its next call.
+    const server_read = try read_of(&world.to_server, world.tls, world.server.plain_in_len - world.server.plain_in_read);
+    const client_read = try read_of(&world.to_client, world.tls, world.client.plain_in_len);
+    state.to_server_len = drop_goaways(&state.to_server, try in_flight(from_client, server_read, .preface, null, &state.to_server));
     const heads = world.to_client.heads[0..world.to_client.heads_written];
-    state.to_client_len = try in_flight(from_server, world.to_client.consumed, .settings, heads, &state.to_client);
+    state.to_client_len = try in_flight(from_server, client_read, .settings, heads, &state.to_client);
     const no_goaway: u32 = plan.streams + 1;
-    state.goaway_sent = if (server_h2.streams.goaway_sent_last_id) |last| h2_trace_state.last_index(last) else no_goaway;
-    state.goaway_read = if (client_h2.streams.goaway_received_last_id) |last| h2_trace_state.last_index(last) else no_goaway;
+    state.goaway_sent = if (server_h2) |connection| last_of(connection.streams.goaway_sent_last_id, no_goaway) else no_goaway;
+    state.goaway_read = if (client_h2) |connection| last_of(connection.streams.goaway_received_last_id, no_goaway) else no_goaway;
     state.malformed = world.malformed;
-    state.broken = world.broken or client_h2.has_failed() or server_h2.has_failed();
+    state.broken = world.broken or has_failed(client_h2) or has_failed(server_h2);
     state.late_open = if (world.open_at_goaway) |open| world.client_streams_open() > open else false;
-    state.client_preface = client_h2.preface_done();
-    state.server_preface = server_h2.preface_done();
-    // RFC 9113 §3.4: the first frame each endpoint reads is its peer's SETTINGS, which ends the
-    // peer's preface.
-    state.client_read_preface = client_h2.first_frame_read;
-    state.server_read_preface = server_h2.first_frame_read;
+    note_prefaces(client_h2, server_h2, &state);
     return state;
+}
+
+/// Each stream's state at each endpoint, idle at one with no h2 connection yet.
+fn note_streams(client_h2: ?*h2.Connection, server_h2: ?*h2.Connection, n: usize, state: *State) void {
+    for (0..n) |index| {
+        const id = h2_trace_pair.id_of(@intCast(index + 1));
+        if (client_h2) |connection| state.client_state[index], state.client_closed[index] = h2_trace_state.stream_of(connection, id);
+        if (server_h2) |connection| state.server_state[index], state.server_closed[index] = h2_trace_state.stream_of(connection, id);
+    }
+}
+
+/// Whether each endpoint wrote its preface and read its peer's.
+fn note_prefaces(client_h2: ?*h2.Connection, server_h2: ?*h2.Connection, state: *State) void {
+    if (client_h2) |connection| {
+        state.client_preface = connection.preface_done();
+        // RFC 9113 §3.4: the first frame each endpoint reads is its peer's SETTINGS, which ends
+        // the peer's preface.
+        state.client_read_preface = connection.first_frame_read;
+    }
+    if (server_h2) |connection| {
+        state.server_preface = connection.preface_done();
+        state.server_read_preface = connection.first_frame_read;
+    }
+}
+
+fn has_failed(connection: ?*h2.Connection) bool {
+    return if (connection) |h2_connection| h2_connection.has_failed() else false;
+}
+
+fn last_of(last_id: ?u32, no_goaway: u32) u32 {
+    return if (last_id) |last| h2_trace_state.last_index(last) else no_goaway;
+}
+
+/// The protocol's octets a connection wrote that its caller has not handed out: what `output`
+/// holds after the records of the handshake.
+fn pending(connection: anytype) []const u8 {
+    return connection.output[connection.records_len..connection.output_len];
+}
+
+/// The protocol's octets the reader of `direction` has read: what it opened, less the `unread`
+/// octets it holds.
+fn read_of(direction: *const Direction, tls: bool, unread: usize) Error!usize {
+    const opened = direction.opened_plaintext(tls) orelse return error.PlaintextUnplaced;
+    assert(unread <= opened);
+    return opened - unread;
 }
 
 /// The octets of the preface `start` begins with: `magic_len` octets and a whole SETTINGS frame

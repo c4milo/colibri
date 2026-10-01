@@ -1,6 +1,8 @@
 //! The identity the client trace run's servers present and the anchor its client trusts
-//! (decision 105): the test identity of `src/testing/testdata/`. Every handshake of the run judges
-//! the chain at `now_seconds`, so no run reads a clock (non-negotiable 3).
+//! (decision 105), which the TCP trace run's server and client use too
+//! (https://github.com/c4milo/colibri/issues/79): the test identity of `src/testing/testdata/`.
+//! Every handshake of either run judges the chain at `now_seconds`, so no run reads a clock
+//! (non-negotiable 3).
 const tls = @import("tls");
 const testdata = @import("testdata");
 

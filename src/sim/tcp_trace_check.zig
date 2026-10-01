@@ -1,13 +1,16 @@
 //! The TCP trace run (https://github.com/c4milo/colibri/issues/79): a `client.Connection` and a
-//! `server.Connection` act out a seed's `tcp_trace_plan.zig` over h2 in cleartext, and after each
-//! action the run computes `spec/tla/h2_connection`'s state from both (`tcp_trace_state.zig`). It
-//! keeps each state that differs from the last one kept, which `h2_trace_tla.zig` writes for TLC.
+//! `server.Connection` act out a seed's `tcp_trace_plan.zig` over h2, in cleartext or over TLS, and
+//! after each action the run computes `spec/tla/h2_connection`'s state from both
+//! (`tcp_trace_state.zig`). It keeps each state that differs from the last one kept, which
+//! `h2_trace_tla.zig` writes for TLC.
 //!
 //! The run starts with the client's first flight: the requests the plan makes, one send that hands
 //! out the client's preface, its SETTINGS and those requests at once, and one delivery that gives
-//! the server all of them. Then it draws the plan's actions, and drains: each side sends and the
-//! other reads, until a round changes nothing. A connection error, a stream error, or a stream
-//! opened after a GOAWAY fails the run without TLC, since two colibri endpoints cause none.
+//! the server all of them. Over TLS the handshake runs first, the ClientHello one way and the
+//! server's flight the other, so the first flight goes out with the client's Finished. Then the run
+//! draws the plan's actions, and drains: each side sends and the other reads, until a round changes
+//! nothing. A connection error, a stream error, or a stream opened after a GOAWAY fails the run
+//! without TLC, since two colibri endpoints cause none.
 //!
 //! Each seed runs twice and must go through the same states, which is invariant 5.
 const std = @import("std");
@@ -55,13 +58,15 @@ pub const Storage = struct {
 };
 
 /// One seed's counts: the states it went through, the requests the client made, the responses it
-/// read whole, the calls a connection refused, and whether the server's caller shut it down.
+/// read whole, the calls a connection refused, whether the server's caller shut it down, and
+/// whether it ran over TLS.
 pub const Result = struct {
     states: u64 = 0,
     requests: u64 = 0,
     responses: u64 = 0,
     refused: u64 = 0,
     shut_down: u64 = 0,
+    tls: u64 = 0,
 };
 
 pub const Census = struct {
@@ -71,6 +76,7 @@ pub const Census = struct {
     responses: u64 = 0,
     refused: u64 = 0,
     shut_down: u64 = 0,
+    tls: u64 = 0,
 
     fn count(census: *Census, result: Result) void {
         census.seeds += 1;
@@ -79,6 +85,7 @@ pub const Census = struct {
         census.responses += result.responses;
         census.refused += result.refused;
         census.shut_down += result.shut_down;
+        census.tls += result.tls;
     }
 };
 
@@ -98,12 +105,16 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
 fn run_once(storage: *Storage, seed: u64) Violation!Result {
     var random = Random.init(seed);
     storage.plan.draw(&random);
-    storage.world.init(seed) catch return error.StartRefused;
+    storage.world.init(seed, storage.plan.tls) catch return error.StartRefused;
     storage.states_len = 0;
     try record(storage);
     // The client's first flight: its preface, its SETTINGS and the plan's first requests, which
-    // the server reads in one delivery.
+    // the server reads in one delivery. Over TLS the client completes its handshake first, so its
+    // Finished goes out with them (RFC 9846 §2).
     for (0..storage.plan.first_flight) |_| try act(storage, .request);
+    if (storage.plan.tls) {
+        for ([_]Action{ .client_send, .deliver_to_server, .server_send, .deliver_to_client }) |action| try act(storage, action);
+    }
     try act(storage, .client_send);
     try act(storage, .deliver_to_server);
     for (0..storage.plan.actions) |_| try act(storage, storage.plan.next_action(&random));
@@ -143,6 +154,7 @@ fn result_of(storage: *const Storage) Result {
         .requests = world.requested,
         .refused = world.refused,
         .shut_down = @intFromBool(world.shut_down),
+        .tls = @intFromBool(world.tls),
     };
     for (world.exchanges[0..world.requested]) |*exchange| result.responses += @intFromBool(exchange.outcome == .response);
     return result;
@@ -170,6 +182,7 @@ test "TCP trace run: a client's first flight and every exchange after it, with n
         std.debug.print("tcp-trace: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
-    // The runs read responses whole, and some shut the server down.
+    // The runs read responses whole, some shut the server down, and some run over TLS.
     try testing.expect(census.requests > 0 and census.responses > 0 and census.shut_down > 0);
+    try testing.expect(census.tls > 0 and census.tls < census.seeds);
 }

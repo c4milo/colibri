@@ -33,8 +33,8 @@ pub fn check(seeds: u64) !void {
         std.debug.print("tcp-trace: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
-    std.debug.print("tcp-trace: seeds={d} states={d} requests={d} responses={d} refused={d} shut_down={d}\n", .{
-        census.seeds, census.states, census.requests, census.responses, census.refused, census.shut_down,
+    std.debug.print("tcp-trace: seeds={d} tls={d} states={d} requests={d} responses={d} refused={d} shut_down={d}\n", .{
+        census.seeds, census.tls, census.states, census.requests, census.responses, census.refused, census.shut_down,
     });
 }
 

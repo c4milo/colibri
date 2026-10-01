@@ -21,13 +21,16 @@ pub const interims_max: u32 = 1;
 pub const goaways_max: u32 = 1;
 /// One seed in this many lets neither endpoint reset a stream: the model's `Resets` is FALSE.
 pub const no_resets_one_in: u64 = 4;
+/// One seed in this many runs over TLS, where the client's first flight goes out with its Finished.
+pub const tls_one_in: u64 = 2;
 
 /// Actions one run draws after the client's first flight, at least and at most.
 pub const actions_min: u32 = 16;
 pub const actions_max: u32 = 96;
 
 /// Octets one direction carries over a run at most: the preface, SETTINGS and their
-/// acknowledgments, the WINDOW_UPDATE frames, and every message's frames, far below this.
+/// acknowledgments, the WINDOW_UPDATE frames and every message's frames, and over TLS the
+/// handshake's flights and each record's header and tag, far below this.
 pub const stream_len_max: u32 = 16384;
 
 /// HEADERS frames the server writes over a run at most: each response's interim heads, its final
@@ -44,11 +47,18 @@ pub const drain_rounds_max: u32 = h2_trace.frames_max + 1;
 /// The actions that move one direction's octets: a send and a delivery.
 pub const actions_per_direction: u32 = 2;
 pub const actions_per_round: u32 = actions_per_direction + actions_per_direction;
+/// The actions of a TLS handshake before the client's first flight: the ClientHello's send and
+/// delivery, then the server's flight's.
+pub const handshake_actions: u32 = actions_per_round;
 
-/// The model's states one run keeps, each differing from the one before: the first, one after
-/// each request of the first flight, its send and its delivery, one after each action, and one
-/// after each action of the drain.
-pub const states_max: u32 = 1 + streams_max + actions_per_direction + actions_max + actions_per_round * drain_rounds_max;
+/// Actions one run takes at most: the first flight's requests, the handshake's actions, the first
+/// flight's send and delivery, the actions drawn, and the drain's.
+pub const run_actions_max: u32 = streams_max + handshake_actions + actions_per_direction + actions_max + actions_per_round * drain_rounds_max;
+/// The model's states one run keeps, each differing from the one before: the first, and at most
+/// one after each action.
+pub const states_max: u32 = 1 + run_actions_max;
+/// Sends one side makes over a run: one action each at most.
+pub const sends_max: u32 = run_actions_max;
 
 /// Octets of the TLA+ module one seed's trace is written as: 1 MiB.
 pub const module_len_max: u32 = 1_048_576;

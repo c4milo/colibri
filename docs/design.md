@@ -1155,6 +1155,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - TLS, where cocuyo found the defect with the request in the flight of the client's Finished, is
     the rest of #79.
 
+  **The TCP trace over TLS, 2026-09-30** ([#79](https://github.com/c4milo/colibri/issues/79)).
+  cocuyo found e3126a9's defect over TLS, where the client's first flight goes out with its
+  Finished, and the server reads the request in the call that completes its handshake.
+  - One seed in two runs over TLS, with the test identity of `src/testing/testdata/` judged at
+    its fixed instant and h2 chosen by ALPN. The handshake runs before the first flight: the
+    ClientHello one way, the server's flight the other. The first flight then goes out with the
+    client's Finished, and the server reads both in one delivery.
+  - A side's records carry the protocol's octets sealed, so the run calls `send` twice. The first
+    call has no room, so it writes what the connection owes and seals nothing. The run copies the
+    plaintext the connection then holds, and the second call seals it.
+    `src/sim/tcp_trace_direction.zig` notes where each send ended, in octets handed out and in
+    plaintext. A reader that consumed the records of whole sends has read their plaintext, less
+    what it holds unread. A reader stopped inside one send's records fails the run, since the
+    run cannot place it.
+  - Until a side's handshake completes it has no h2 connection, and the model's state for it is
+    the initial one.
+  - `zig build sim -- --tcp-trace-check 64`: `seeds=64 tls=38 states=564 requests=129
+    responses=83 refused=3 shut_down=25`. `tools/tcp_trace.sh`: 64 of 64 traces are behaviors of
+    the model.
+  - With every seed over TLS, the three mutations that undo e3126a9 are each **CAUGHT**: by h2's
+    assertion, by `ConnectionFailed` on seed 0x4, and by TLC, which finds 25 of the 64 traces to
+    be behaviors.
+  - The six mutations above, again over the mixed seeds, each **CAUGHT**: h2's assertion;
+    `ConnectionFailed` on seed 0x4; TLC with 24 of 64; `OpenedAfterGoaway` on seed 0x18; the
+    client's assertion in `record_head`; and `Malformed` on seed 0.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

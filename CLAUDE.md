@@ -442,8 +442,8 @@ Everything below exists. Change this section when a step adds or renames a comma
   `spec/tla/server_deadlines`, whose logs also say when three of colibri's clocks run
   (https://github.com/c4milo/colibri/issues/86), and `tools/tcp_trace.sh` for the TCP trace run,
   with `--tcp-trace-write` and `spec/tla/h2_connection`, through `server.Connection` and
-  `client.Connection` (https://github.com/c4milo/colibri/issues/79). Each needs Java, and
-  `tools/ci.sh` runs all five beside `zig build tla`.
+  `client.Connection` in cleartext and over TLS (https://github.com/c4milo/colibri/issues/79).
+  Each needs Java, and `tools/ci.sh` runs all five beside `zig build tla`.
 - Proofs: `zig build lean` builds the Lean proofs in `spec/lean/` with lake, through pepegrillo's
   `lean` tool, and checks that the vector files the Zig tests read (such as
   `src/qpack/insert_count_vectors.txt` and the files beside `src/wire/varint.zig`) are what the

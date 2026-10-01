@@ -90,6 +90,7 @@ test {
     _ = @import("deadline_trace_plan.zig");
     _ = tcp_trace_check;
     _ = @import("tcp_trace_plan.zig");
+    _ = @import("tcp_trace_direction.zig");
     _ = h2_stall_check;
     _ = @import("h2_stall_plan.zig");
     _ = h3_trace_tla;
