@@ -5204,6 +5204,20 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     them, and the client's or the server's probe not handed on; and, by `tools/h3spec.sh`, the test
     programs' probe saying `no`, since h3spec's client offers AES-GCM alone.
 
+  **16e at chapulin `c798fb8`, 2026-09-30.** The pin moved from chapulin `900ce67` to `c798fb8`,
+  as the owner approved. No API changed. chapulin's `docs/performance.md` times one 16 KiB record
+  on an Apple M1 Pro, under macOS with Apple clang 21 and a Linux VM with clang 18 and gcc 13:
+  - An AES-256-GCM seal takes 3.6, 4.0 and 4.1 µs, where it took 5.4, 5.7 and 5.6 at `900ce67`.
+    Counter mode and GHASH run in one loop over each pass of eight blocks (`gcm_hw.c`).
+  - A ChaCha20-Poly1305 seal under `CHACHA=vector` takes 42.6, 37.3 and 55.4 µs, where it took
+    47.5, 42.1 and 61.4. On NEON the ChaCha20 runs eight blocks a pass, two groups of four.
+  - colibri has no figures of its own. Under `WIDEMUL=native` the ChaCha20-Poly1305 seal takes
+    11.8 µs, which waits on [chapulin#186](https://github.com/c4milo/chapulin/issues/186) and
+    [#84](https://github.com/c4milo/colibri/issues/84).
+
+  What each check printed, on macOS arm64:
+  - `tools/ci.sh`: every section passed, with 2528 of 2528 tests in Debug and in ReleaseSafe.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Eight parts. The owner ruled on 2026-09-27
