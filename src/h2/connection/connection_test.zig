@@ -1,5 +1,6 @@
 //! The tests of `connection.zig`, split out because a hand-written source file stays at or under
-//! 500 lines with its tests included (CLAUDE.md): the preface each role writes, and `fail`.
+//! 500 lines with its tests included (CLAUDE.md): the preface each role writes, the replies
+//! written after it, and `fail`.
 const std = @import("std");
 const constants = @import("../constants.zig");
 const support = @import("connection_test_support.zig");
@@ -35,6 +36,19 @@ test "a buffer too short for the preface writes nothing and keeps it pending" {
     const rest = test_connection.write_pending(test_output, 0);
     try testing.expectEqual(constants.frame_header_len + 6 * constants.setting_len, rest);
     try testing.expect(!test_connection.has_pending());
+}
+
+test "RFC 9113 §3.4: no reply goes out ahead of the preface" {
+    test_connection.init(.server);
+    // A connection error before the preface is out queues a GOAWAY (RFC 9113 §5.4.1).
+    try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.error_protocol_error));
+    try testing.expectEqual(0, test_connection.write_replies(test_output));
+    const written = test_connection.write_pending(test_output, 0);
+    // The server's SETTINGS carries five settings, and the GOAWAY follows it.
+    const settings_len = constants.frame_header_len + 5 * constants.setting_len;
+    try testing.expectEqual(constants.frame_type_settings, test_output[3]);
+    try testing.expectEqual(constants.frame_type_goaway, test_output[settings_len + 3]);
+    try testing.expect(written > settings_len);
 }
 
 test "fail queues one GOAWAY, records it against the streams and stands on the first code" {

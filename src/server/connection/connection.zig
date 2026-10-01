@@ -423,10 +423,16 @@ pub const Connection = struct {
             // An open connection has a protocol.
             .none => unreachable,
         };
+        connection.take_owed(written, update_owed);
+        return written > 0;
+    }
+
+    /// Adds `written` octets the protocol owed to the output. When a WINDOW_UPDATE was owed, it is
+    /// among them.
+    pub fn take_owed(connection: *Connection, written: usize, update_owed: bool) void {
         connection.output_len += written;
         // Decision 110 as amended: a WINDOW_UPDATE written now is out once these octets are.
         if (update_owed and written > 0) connection.update_held_len = connection.output_len;
-        return written > 0;
     }
 
     /// Ends the connection on a failure: nothing more is read, and what it owes goes out.

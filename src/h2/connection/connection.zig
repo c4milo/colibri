@@ -387,7 +387,17 @@ pub const Connection = struct {
         var writer = Writer.init(output);
         connection.write_preface(&writer, now_ns);
         const preface_len = writer.written().len;
-        return preface_len + connection.replies.write(&connection.streams, output[preface_len..]);
+        return preface_len + connection.write_replies(output[preface_len..]);
+    }
+
+    /// Writes the frames colibri has queued into `output` once its preface is out, and returns the
+    /// octets written. A caller writes them before a frame of its own, so a full queue, which
+    /// stops the reading, empties whenever the caller writes (decision 39 as amended).
+    pub fn write_replies(connection: *Connection, output: []u8) usize {
+        // RFC 9113 §3.4: no frame goes ahead of the preface. RFC 9846 §6: after the record layer
+        // failed, no frame goes out.
+        if (!connection.preface_done() or connection.tls_failed) return 0;
+        return connection.replies.write(&connection.streams, output);
     }
 
     /// Whether anything is waiting to be written. Nothing is once the record layer failed.

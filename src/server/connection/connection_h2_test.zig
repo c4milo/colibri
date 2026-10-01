@@ -333,6 +333,56 @@ test "RFC 9110 §10.1.1: an h2 request expecting 100-continue gets a 100 HEADERS
     try testing.expectEqualStrings("100", (try lines.next()).?.value);
 }
 
+/// A PING frame, whose acknowledgment the server owes once it reads it (RFC 9113 §6.7).
+const ping = "\x00\x00\x08\x06\x00\x00\x00\x00\x00" ++ "\x00" ** constants.ping_len;
+const expect_continue = [_]support.Field{.{ .name = "expect", .value = "100-continue" }};
+const response_trailers = [_]support.Field{.{ .name = "grpc-status", .value = "0" }};
+
+/// Has the server read a PING, then a `method` request on `stream_id`, in one call. The call
+/// returns the request's event while the PING's acknowledgment is still owed. Test-only.
+fn read_ping_then_request(stream_id: u32, method: []const u8, fields: []const support.Field, end: bool) !void {
+    const request = try h2_support.request_frame_with(stream_id, method, "/", fields, end);
+    var flight: [ping.len + request_len_max]u8 = undefined;
+    @memcpy(flight[0..ping.len], ping);
+    @memcpy(flight[ping.len..][0..request.len], request);
+    const received = try support.receive_copy(flight[0 .. ping.len + request.len]);
+    try testing.expectEqual(stream_id, received.event.?.request.id);
+}
+
+/// Checks that `sent` starts with the PING's acknowledgment, then a frame of `frame_type`.
+fn expect_ack_then(sent: []const u8, frame_type: u8) !void {
+    try testing.expectEqual(constants.frame_type_ping, sent[type_index]);
+    try testing.expectEqual(constants.flag_ack, sent[flags_index]);
+    try testing.expectEqual(frame_type, sent[frame_len(sent)..][type_index]);
+}
+
+test "decision 39 as amended: a response's head goes out after the replies h2 owes" {
+    try start();
+    try read_ping_then_request(1, "GET", &.{}, true);
+    try connection.respond(1, .{ .status = ok, .end = true });
+    try expect_ack_then(support.drain(), constants.frame_type_headers);
+}
+
+test "decision 39 as amended: DATA and a trailer section go out after the replies h2 owes" {
+    try start();
+    _ = try support.receive_copy(try request_frame(1, "/", true));
+    try connection.respond(1, .{ .status = ok, .end = false });
+    _ = support.drain();
+    try read_ping_then_request(3, "GET", &.{}, true);
+    try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = false }));
+    try expect_ack_then(support.drain(), constants.frame_type_data);
+    try read_ping_then_request(5, "GET", &.{}, true);
+    try connection.write_trailers(1, &response_trailers);
+    try expect_ack_then(support.drain(), constants.frame_type_headers);
+}
+
+test "decision 39 as amended: a 100 (Continue) goes out after the replies h2 owes" {
+    try start();
+    // RFC 9110 §10.1.1: a request that expects 100-continue is owed a 100 before its content.
+    try read_ping_then_request(1, "PUT", &expect_continue, false);
+    try expect_ack_then(support.drain(), constants.frame_type_headers);
+}
+
 test "decision 110: the server advertises 100 concurrent streams, refuses the next, and a configuration lowers it" {
     try support.start_cleartext(.h2);
     _ = try support.receive_copy(h2_support.client_preface);

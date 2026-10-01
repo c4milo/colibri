@@ -75,10 +75,21 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
     };
 }
 
+/// Writes what h2 owes ahead of a frame of the caller's, as `client.Connection` does. A full
+/// reply queue stops the reading, and two endpoints that each write their own frames first can
+/// fill the transport both ways so that neither queue ever empties (decision 39 as amended,
+/// https://github.com/c4milo/colibri/issues/85).
+fn write_owed_first(connection: *Connection) void {
+    const session = &connection.session.h2;
+    const update_owed = session.owes_window_update();
+    connection.take_owed(session.write_replies(connection.room()), update_owed);
+}
+
 pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
     const stream_id = try stream_of(id);
     var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
     const converted = try convert(fields, &lines);
+    write_owed_first(connection);
     // RFC 9113 §8.1: only the final response ends the stream, so an interim one carries no
     // END_STREAM whatever the caller asked.
     const interim = status >= http.constants.status_code_min and status < @intFromEnum(http.status.Code.ok);
@@ -105,6 +116,7 @@ fn advertise(connection: *Connection, stream_id: u32) SendError!void {
 
 pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
     const stream_id = try stream_of(id);
+    write_owed_first(connection);
     const sent = connection.session.h2.write_data(connection.room(), stream_id, octets, end) catch |failure| {
         return send_error(connection, failure);
     };
@@ -121,6 +133,7 @@ pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) Se
     const stream_id = try stream_of(id);
     var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
     const converted = try convert(fields, &lines);
+    write_owed_first(connection);
     const written = connection.session.h2.write_trailers(connection.room(), stream_id, converted) catch |failure| {
         return send_error(connection, failure);
     };
@@ -176,6 +189,7 @@ fn send_error(connection: *const Connection, failure: h2.connection.SendError) S
 /// Writes the 100 (Continue) request `id` is owed (RFC 9110 §10.1.1), an interim response.
 pub fn write_continue(connection: *Connection, id: Id) SendError!usize {
     const stream_id = try stream_of(id);
+    write_owed_first(connection);
     return connection.session.h2.write_response(connection.room(), stream_id, continue_status, &.{}, false) catch |failure| {
         return send_error(connection, failure);
     };

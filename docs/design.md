@@ -1090,6 +1090,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     queue of 64 fails the check's build, because its aligned seeds open more streams than the
     queue holds.
 
+  **The server writes what h2 owes first, 2026-10-01**
+  ([#85](https://github.com/c4milo/colibri/issues/85)). The owner ruled on the stall above in
+  decision 39 as amended: the transport holds at least 16 KiB each way, and `server.Connection`
+  writes what h2 owes before its own frames, as `client.Connection` already did.
+  - h2's `write_replies` writes the queued replies once the preface is out, and `write_pending`
+    writes the preface and then calls it, so no reply goes ahead of the preface (RFC 9113 §3.4).
+  - `server.Connection` calls it before a response's head, DATA, a trailer section and a 100
+    (Continue). A WINDOW_UPDATE written there holds a body's rate deadline, as one written in
+    `send` does (decision 110 as amended).
+  - Three tests have the server read a PING and a request in one call, which returns the request
+    while the PING's acknowledgment is owed. The acknowledgment must go out before each frame. A
+    fourth, in h2, has a connection fail before its preface is out: `write_replies` writes
+    nothing, and `write_pending` writes the SETTINGS before the GOAWAY.
+  - `zig build test`: 131 of 131 steps and 2536 of 2536 tests passed.
+  - 6 mutations, each **CAUGHT**. Each of the four calls removed fails its test. `write_replies`
+    without its preface check fails h2's test. `take_owed` without its note of a WINDOW_UPDATE
+    fails decision 110's test of the send deadline.
+
   **The prefaces in the connection model, 2026-09-30**
   ([#79](https://github.com/c4milo/colibri/issues/79)). `e3126a9` fixed a server that answered a
   request read with the client's preface before writing its own SETTINGS, which RFC 9113 §3.4
