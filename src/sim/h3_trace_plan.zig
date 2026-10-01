@@ -3,7 +3,7 @@
 //!
 //! The model's client opens request streams in order, each a HEADERS frame and `content` DATA
 //! frames, writes at most one insert with each, and may cancel any of them. Its server answers
-//! each request once it has read all of it, and sends up to `h3_trace_goaways_max` GOAWAY frames.
+//! each request once it has read all of it, and sends up to `h3_trace.goaways_max` GOAWAY frames.
 //! QPACK runs from the client to the server alone: the client's decoder allows no dynamic table,
 //! so no response inserts. The plan draws the steps at which each of those happens, and the
 //! server decoder's settings.
@@ -31,7 +31,7 @@ const capacity_one_in: u64 = 4;
 /// repeat.
 const line_draws: u64 = 4;
 const new_line_draws: u64 = 2;
-/// How many spans of `h3_trace_act_steps` the first request's step is drawn from.
+/// How many spans of `h3_trace.act_steps` the first request's step is drawn from.
 const first_open_spans: u64 = 2;
 
 pub const Plan = struct {
@@ -40,48 +40,48 @@ pub const Plan = struct {
     /// DATA frames each request carries after its HEADERS frame: the model's `Content`.
     content: u32,
     /// Each request's regular line.
-    lines: [constants.h3_trace_requests_max]Line,
+    lines: [constants.h3_trace.requests_max]Line,
     /// The step from which the client opens request r. The steps rise with r, because the model's
     /// client opens its streams in order.
-    open_at: [constants.h3_trace_requests_max]u64,
+    open_at: [constants.h3_trace.requests_max]u64,
     /// The step from which the client cancels request r if it has not ended, or null.
-    cancel_at: [constants.h3_trace_requests_max]?u64,
+    cancel_at: [constants.h3_trace.requests_max]?u64,
     /// The steps from which the server sends each GOAWAY, in order.
-    goaway_at: [constants.h3_trace_goaways_max]u64,
+    goaway_at: [constants.h3_trace.goaways_max]u64,
     goaways: u32,
     /// The server decoder's settings (RFC 9204 §5): the model's `BlockedStreams`, and a capacity
-    /// of 0 or `h3_trace_capacity`.
+    /// of 0 or `h3_trace.capacity`.
     server_decoder: h3.qpack.decoder.Settings,
     client_grease: u64,
     server_grease: u64,
 
     pub fn draw(plan: *Plan, random: *Random) void {
-        plan.requests = @intCast(random.between(1, constants.h3_trace_requests_max));
-        plan.content = @intCast(random.below(constants.h3_trace_content_max + 1));
+        plan.requests = @intCast(random.between(1, constants.h3_trace.requests_max));
+        plan.content = @intCast(random.below(constants.h3_trace.content_max + 1));
         plan.server_decoder = .{
-            .max_table_capacity = if (random.below(capacity_one_in) == 0) 0 else constants.h3_trace_capacity,
-            .blocked_streams = random.below(constants.h3_trace_blocked_max + 1),
+            .max_table_capacity = if (random.below(capacity_one_in) == 0) 0 else constants.h3_trace.capacity,
+            .blocked_streams = random.below(constants.h3_trace.blocked_max + 1),
         };
         plan.client_grease = random.next();
         plan.server_grease = random.next();
         // The first request may open before the server's SETTINGS arrive, when no insert is
         // possible, or well after, when one is (RFC 9204 §3.2.3).
-        var at: u64 = random.below(constants.h3_trace_act_steps * first_open_spans);
+        var at: u64 = random.below(constants.h3_trace.act_steps * first_open_spans);
         for (0..plan.requests) |r| {
-            at += random.below(constants.h3_trace_act_steps);
+            at += random.below(constants.h3_trace.act_steps);
             plan.open_at[r] = at;
             plan.lines[r] = plan.draw_line(random, r);
-            const cancels = random.below(constants.h3_trace_cancel_one_in) == 0;
-            plan.cancel_at[r] = if (cancels) at + random.below(constants.h3_trace_act_steps) else null;
+            const cancels = random.below(constants.h3_trace.cancel_one_in) == 0;
+            plan.cancel_at[r] = if (cancels) at + random.below(constants.h3_trace.act_steps) else null;
         }
-        plan.goaways = @intCast(random.below(constants.h3_trace_goaways_max + 1));
+        plan.goaways = @intCast(random.below(constants.h3_trace.goaways_max + 1));
         // A GOAWAY comes no sooner than the first request could, so most requests are answered.
-        var goaway_at: u64 = constants.h3_trace_act_steps;
+        var goaway_at: u64 = constants.h3_trace.act_steps;
         for (plan.goaway_at[0..plan.goaways]) |*held| {
-            goaway_at += random.below(constants.h3_trace_act_steps);
+            goaway_at += random.below(constants.h3_trace.act_steps);
             held.* = goaway_at;
         }
-        assert(plan.requests > 0 and plan.requests <= constants.h3_trace_requests_max);
+        assert(plan.requests > 0 and plan.requests <= constants.h3_trace.requests_max);
     }
 
     /// A line may repeat only one an earlier request made new. Half the lines are new, so the

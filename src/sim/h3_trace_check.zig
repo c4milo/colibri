@@ -32,7 +32,7 @@ pub const Violation = h3_trace_endpoint.Error || error{
     StepsExhausted,
     /// The seed's second run sent different datagrams from its first (invariant 5).
     ReplayDiverged,
-    /// The run went through more of the model's states than `h3_trace_states_max`.
+    /// The run went through more of the model's states than `h3_trace.states_max`.
     TraceFull,
 };
 
@@ -43,7 +43,7 @@ pub const Storage = struct {
     endpoints: [Side.count]h3_trace_endpoint.Endpoint,
     tracker: h3_trace_tracker.Tracker,
     /// The model's states the last run went through, each one differing from the one before.
-    states: [constants.h3_trace_states_max]h3_trace_state.State,
+    states: [constants.h3_trace.states_max]h3_trace_state.State,
     states_len: usize,
 
     /// The last run's trace.
@@ -103,8 +103,8 @@ fn run_once(storage: *Storage, seed: u64) Violation!Result {
     var random = Random.init(seed);
     storage.plan.draw(&random);
     storage.network.init(seed, .{
-        .drop = @intCast(random.below(constants.h3_trace_drop_max + 1)),
-        .duplicate = @intCast(random.below(constants.h3_trace_duplicate_max + 1)),
+        .drop = @intCast(random.below(constants.h3_trace.drop_max + 1)),
+        .duplicate = @intCast(random.below(constants.h3_trace.duplicate_max + 1)),
     });
     for (std.enums.values(Side)) |side| {
         const role: quic.connection.Role = if (side == .client) .client else .server;
@@ -115,7 +115,7 @@ fn run_once(storage: *Storage, seed: u64) Violation!Result {
     var run: Run = .{ .storage = storage, .now_ns = start_ns, .digest = .init() };
     try run.record();
     // Bounded by a named limit.
-    for (0..constants.h3_trace_steps_max) |_| {
+    for (0..constants.h3_trace.steps_max) |_| {
         try run.step();
         if (run.endpoint(.client).finished() and settled(storage)) return run.finish();
     }

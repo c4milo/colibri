@@ -366,47 +366,9 @@ pub const h3_check_sends_per_step_max: u32 = 64;
 pub const h3_check_drop_max: u64 = 100;
 pub const h3_check_duplicate_max: u64 = 100;
 
-/// The h3 trace run (https://github.com/c4milo/colibri/issues/58), inside the scope of
-/// `spec/tla/h3_connection`: the requests one seed opens, the DATA frames each carries, the GOAWAY
-/// frames the server sends, and the server decoder's blocked-stream limit and table capacity. The
-/// client opens, cancels and the server shuts down within `h3_trace_act_steps` steps, and one
-/// request in `h3_trace_cancel_one_in` is cancelled. Each DATA frame carries
-/// `h3_trace_data_len` octets.
-pub const h3_trace_requests_max: u32 = 3;
-pub const h3_trace_content_max: u32 = 2;
-pub const h3_trace_goaways_max: u32 = 2;
-pub const h3_trace_blocked_max: u64 = 2;
-pub const h3_trace_capacity: u64 = 256;
-pub const h3_trace_act_steps: u64 = 16;
-pub const h3_trace_cancel_one_in: u64 = 3;
-pub const h3_trace_data_len: u32 = 4;
-/// The frames the trace run keeps for one message, the steps one run may take, and the highest
-/// drop and duplicate rates a seed draws, out of `schedule_denominator`.
-pub const h3_trace_prefix_len_max: u32 = 2048;
-pub const h3_trace_steps_max: u32 = 10_000;
-pub const h3_trace_drop_max: u64 = 50;
-pub const h3_trace_duplicate_max: u64 = 50;
-/// The model's states one trace run keeps, each one differing from the last, and the octets of
-/// the TLA+ module one seed's trace is written as.
-pub const h3_trace_states_max: u32 = 1024;
-pub const h3_trace_module_len_max: u32 = 1 << 20;
-/// The seeds `sim --h3-trace-write` writes for TLC, and the model's steps TLC may take between two
-/// logged states.
-pub const h3_trace_written_seeds: u64 = 64;
-pub const h3_trace_steps_between_max: u64 = 24;
-/// The units the trace run logs from one of h3's own streams, at most. A request causes at most
-/// one insert, and at most three decoder instructions: a Section Acknowledgment, a Stream
-/// Cancellation and an Insert Count Increment. Four per request leaves one to spare. The last
-/// term adds the control stream's SETTINGS and one more to spare.
-pub const h3_trace_units_per_request_max: u32 = 4;
-pub const h3_trace_units_max: u32 = h3_trace_units_per_request_max * h3_trace_requests_max +
-    h3_trace_goaways_max + 2;
-/// The frames the control stream may carry for each unit logged: the unit and a reserved frame
-/// before it (RFC 9114 §7.2.8).
-pub const h3_trace_control_frames_per_unit_max: u32 = 2;
-
-/// Seven checks' limits, each in a file of its own whose header names its check.
+/// Eight checks' limits, each in a file of its own whose header names its check.
 pub const h11_coding = @import("constants_h11.zig");
+pub const h3_trace = @import("constants_h3_trace.zig");
 pub const h2_trace = @import("constants_h2_trace.zig");
 pub const h2_stall = @import("constants_h2_stall.zig");
 pub const client_trace = @import("constants_client_trace.zig");

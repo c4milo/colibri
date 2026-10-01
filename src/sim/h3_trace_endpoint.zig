@@ -42,7 +42,7 @@ pub const Read = struct {
 
 /// The frames one stream carries from this endpoint, kept whole.
 const Kept = struct {
-    octets: [constants.h3_trace_prefix_len_max]u8 = undefined,
+    octets: [constants.h3_trace.prefix_len_max]u8 = undefined,
     len: usize = 0,
 };
 
@@ -68,19 +68,19 @@ pub const Endpoint = struct {
     started: bool,
     /// At a client, the requests opened and how each ended.
     opened: u32,
-    outcome: [constants.h3_trace_requests_max]Outcome,
+    outcome: [constants.h3_trace.requests_max]Outcome,
     /// At a client, where each request's HEADERS frame ends on its stream, the Required Insert
     /// Count its section got (RFC 9204 §4.5.1.1), and whether the client read the server's
     /// answer: the response's end, or the rejection.
-    headers_end: [constants.h3_trace_requests_max]u64,
-    required: [constants.h3_trace_requests_max]u64,
-    answer_read: [constants.h3_trace_requests_max]bool,
+    headers_end: [constants.h3_trace.requests_max]u64,
+    required: [constants.h3_trace.requests_max]u64,
+    answer_read: [constants.h3_trace.requests_max]bool,
     /// At a server, what it read of each request and the GOAWAY frames it sent.
-    read: [constants.h3_trace_requests_max]Read,
+    read: [constants.h3_trace.requests_max]Read,
     goaways_sent: u32,
-    kept: [constants.h3_trace_requests_max]Kept,
+    kept: [constants.h3_trace.requests_max]Kept,
     section: FieldSection,
-    body: [constants.h3_trace_prefix_len_max]u8,
+    body: [constants.h3_trace.prefix_len_max]u8,
     /// The instant of the step in progress, which each h3 call takes (decision 102 as amended).
     now_ns: u64,
 
@@ -120,7 +120,7 @@ pub const Endpoint = struct {
         } else try endpoint.send_goaways(at);
         // Bounded: every event reads at least one frame the peer sent, and a step's datagrams
         // carry at most this many.
-        for (0..constants.h3_trace_steps_max) |_| {
+        for (0..constants.h3_trace.steps_max) |_| {
             const event = try endpoint.h3.receive(&endpoint.transport.connection, &endpoint.body, now_ns) orelse return;
             if (endpoint.is_client()) try endpoint.on_client_event(event) else try endpoint.on_server_event(event);
         }
@@ -237,9 +237,9 @@ pub const Endpoint = struct {
         }
     }
 
-    /// Writes `count` DATA frames on `id`, each carrying `h3_trace_data_len` octets.
+    /// Writes `count` DATA frames on `id`, each carrying `h3_trace.data_len` octets.
     fn write_content(endpoint: *Endpoint, id: u64, count: u32, writer: *Writer) Error!void {
-        const payload: [constants.h3_trace_data_len]u8 = @splat(content_octet);
+        const payload: [constants.h3_trace.data_len]u8 = @splat(content_octet);
         for (0..count) |_| {
             try endpoint.h3.write_data_header(id, payload.len, writer, endpoint.now_ns);
             try writer.write_bytes(&payload);
@@ -302,7 +302,7 @@ fn parameters() quic.transport_parameters.Parameters {
     held.initial_max_stream_data_bidi_local = stream_window;
     held.initial_max_stream_data_bidi_remote = stream_window;
     held.initial_max_stream_data_uni = stream_window;
-    held.initial_max_streams_bidi = constants.h3_trace_requests_max;
+    held.initial_max_streams_bidi = constants.h3_trace.requests_max;
     held.initial_max_streams_uni = h3.constants.uni_streams_max;
     held.max_idle_timeout_ms = idle_timeout_ms;
     return held;

@@ -40,7 +40,7 @@ pub const Instruction = struct {
 };
 
 /// Units one stream may carry in a trace run: every request's instructions and a few more.
-const units_max: usize = constants.h3_trace_units_max;
+const units_max: usize = constants.h3_trace.units_max;
 
 pub fn Log(comptime Unit: type) type {
     return struct {
@@ -61,10 +61,10 @@ pub const Tracker = struct {
     decoder: Log(Instruction) = .{},
     /// Per request: the frames the client's QUIC framed at least once, whether the client reset
     /// its side, whether that reset arrived at the server, and the server's consumed frames.
-    request_sent: [constants.h3_trace_requests_max]u64 = @splat(0),
-    reset_sent: [constants.h3_trace_requests_max]bool = @splat(false),
-    reset_arrived: [constants.h3_trace_requests_max]bool = @splat(false),
-    consumed: [constants.h3_trace_requests_max]u64 = @splat(0),
+    request_sent: [constants.h3_trace.requests_max]u64 = @splat(0),
+    reset_sent: [constants.h3_trace.requests_max]bool = @splat(false),
+    reset_arrived: [constants.h3_trace.requests_max]bool = @splat(false),
+    consumed: [constants.h3_trace.requests_max]u64 = @splat(0),
 
     /// Parses what each side wrote in the step that just ended, and notes what its request
     /// streams went through. Called after the endpoints act and before they send.
@@ -116,12 +116,12 @@ pub fn frames_below(client: *const Endpoint, r: usize, offset: u64) u64 {
     return 1 + @min(data_frames, client.plan.content);
 }
 
-/// The octets of one DATA frame the trace run writes: its header and `h3_trace_data_len` octets.
+/// The octets of one DATA frame the trace run writes: its header and `h3_trace.data_len` octets.
 pub fn data_frame_len() u64 {
     var octets: [h3.constants.frame_header_len_max]u8 = undefined;
     var writer = Writer.init(&octets);
-    h3.frame_write.write_header(&writer, h3.constants.frame_data, constants.h3_trace_data_len) catch unreachable;
-    return writer.written().len + constants.h3_trace_data_len;
+    h3.frame_write.write_header(&writer, h3.constants.frame_data, constants.h3_trace.data_len) catch unreachable;
+    return writer.written().len + constants.h3_trace.data_len;
 }
 
 /// The octets of `buffer` after what `parsed_end` already covers.
@@ -161,7 +161,7 @@ fn parse_control(log: *Log(ControlFrame), buffer: anytype) void {
     const base = log.parsed_end;
     skip_stream_type(&reader, base);
     // Bounded: a stream carries no more units than the log holds, and reserved frames among them.
-    for (0..constants.h3_trace_control_frames_per_unit_max * units_max) |_| {
+    for (0..constants.h3_trace.control_frames_per_unit_max * units_max) |_| {
         if (reader.remaining_len() == 0) break;
         const frame_type = (wire.varint.decode(&reader) catch unreachable).value;
         const length = (wire.varint.decode(&reader) catch unreachable).value;

@@ -22,7 +22,7 @@ const h3_trace_tracker = @import("h3_trace_tracker.zig");
 const Endpoint = h3_trace_endpoint.Endpoint;
 const Tracker = h3_trace_tracker.Tracker;
 const constants = sim.constants;
-const request_count = constants.h3_trace_requests_max;
+const request_count = constants.h3_trace.requests_max;
 const request_stream_step = h3_trace_endpoint.request_stream_step;
 
 pub const Outcome = h3_trace_endpoint.Outcome;
@@ -43,7 +43,7 @@ pub const ControlFrame = struct {
 };
 
 /// The most instructions in flight at once, and the most control frames.
-const in_flight_max: usize = constants.h3_trace_units_max;
+const in_flight_max: usize = constants.h3_trace.units_max;
 
 /// The model's constants for one plan (spec/tla/h3_connection/H3Connection.tla).
 pub const Scope = struct {
@@ -268,7 +268,7 @@ fn phase_of(state: *const State, scope: Scope, server: *const Endpoint, r: usize
     }
     if (read.answered) return .answered;
     if (!read.head) return .head;
-    const data_frames = read.content_len / constants.h3_trace_data_len;
+    const data_frames = read.content_len / constants.h3_trace.data_len;
     return if (data_frames == scope.content) .done else .content;
 }
 
@@ -280,7 +280,7 @@ fn consumed_of(state: *const State, tracker: *const Tracker, scope: Scope, serve
     }
     const read = &server.read[r];
     if (!read.head) return 0;
-    return 1 + @min(read.content_len / constants.h3_trace_data_len, scope.content);
+    return 1 + @min(read.content_len / constants.h3_trace.data_len, scope.content);
 }
 
 fn to_client_of(state: *const State, client: *const Endpoint, server: *const Endpoint, r: usize) ToClient {
