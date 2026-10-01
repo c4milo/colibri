@@ -40,6 +40,11 @@ pub const output_len: usize = @max(h2.constants.send_block_len_max + frame_len_m
 /// acknowledgment. Each takes a frame header at least, so the plaintext a call holds bounds them.
 pub const frames_per_receive_max: usize = plaintext_in_len / h2.constants.frame_header_len + 1;
 
+/// The most DATA frames one `write_body` call writes over h2. h2 cuts a frame at the peer's
+/// SETTINGS_MAX_FRAME_SIZE, which is 16,384 octets at least (RFC 9113 §4.2), so every frame but
+/// the last carries that much, and all of them fit the output.
+pub const data_frames_per_write_max: usize = output_len / h2.constants.max_frame_size_min + 1;
+
 /// The most records one `send` seals. chapulin seals what the output holds in one call, and a
 /// provider that seals one record a call needs one pass per record the output holds.
 pub const seals_per_send_max: usize = output_len / tls_provider.constants.record_header_len + 1;

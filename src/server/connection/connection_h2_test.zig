@@ -65,6 +65,43 @@ test "RFC 9113 §3.4: the server's SETTINGS goes first, before a response to a r
 /// The most octets `request_frame` writes for the paths these tests use.
 const request_len_max: usize = 256;
 
+test "RFC 9113 §6.1: content that ends with no octet left goes out as an empty DATA frame with END_STREAM" {
+    try start();
+    _ = try support.receive_copy(try request_frame(1, "/", true));
+    try connection.respond(1, .{ .status = ok, .end = false });
+    _ = support.drain();
+    try testing.expectEqual(0, try connection.write_body(1, .{ .octets = "", .end = true }));
+    const sent = support.drain();
+    try testing.expectEqual(constants.frame_header_len, sent.len);
+    try testing.expectEqual(constants.frame_type_data, sent[type_index]);
+    try testing.expectEqual(constants.flag_end_stream, sent[flags_index]);
+}
+
+/// Content of `long_body_frames` of the peer's largest frames and one octet more (RFC 9113 §4.2).
+const long_body_frames: usize = 2;
+const long_body: [long_body_frames * constants.max_frame_size_initial + 1]u8 = @splat('x');
+
+test "one write_body call takes what the room and the windows allow, cut at the peer's frame size" {
+    try start();
+    _ = try support.receive_copy(try request_frame(1, "/", true));
+    try connection.respond(1, .{ .status = ok, .end = false });
+    _ = support.drain();
+    // https://github.com/c4milo/colibri/issues/91: one call writes every frame the content needs.
+    try testing.expectEqual(long_body.len, try connection.write_body(1, .{ .octets = &long_body, .end = true }));
+    const sent = support.drain();
+    const whole_frame_len = constants.frame_header_len + constants.max_frame_size_initial;
+    const whole_frames_len = long_body_frames * whole_frame_len;
+    try testing.expectEqual(whole_frames_len + constants.frame_header_len + 1, sent.len);
+    for (0..long_body_frames) |index| {
+        const frame = sent[index * whole_frame_len ..];
+        try testing.expectEqual(constants.frame_type_data, frame[type_index]);
+        try testing.expectEqual(whole_frame_len, frame_len(frame));
+        try testing.expectEqual(0, frame[flags_index]);
+    }
+    // h2 sets END_STREAM on the frame that carries the last octet (RFC 9113 §8.1).
+    try testing.expectEqual(constants.flag_end_stream, sent[whole_frames_len..][flags_index]);
+}
+
 test "RFC 9113 §8.1: a response is a HEADERS frame, then DATA whose last frame ends the stream" {
     try start();
     _ = try support.receive_copy(try request_frame(1, "/", true));

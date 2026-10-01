@@ -258,8 +258,9 @@ test "decision 110: a stream whose window lets a write through is held no more" 
     try answer_blocked(0);
     _ = send_at(early_ns);
     _ = try receive_at(&(try window_update(1, answer_len)), early_ns + 1);
-    // One frame goes out, and the caller writes no more for a while.
-    try testing.expect(try connection.write_body(1, .{ .octets = &content, .end = true }) > 0);
+    // One frame's octets go out, and the caller writes no more for a while.
+    const frame_octets = content[0..h2.constants.max_frame_size_initial];
+    try testing.expectEqual(frame_octets.len, try connection.write_body(1, .{ .octets = frame_octets, .end = false }));
     _ = send_at(early_ns + 1);
     connection.on_instant(first_end_ns + window_ns);
     try testing.expect(try nothing_owed(first_end_ns + window_ns));

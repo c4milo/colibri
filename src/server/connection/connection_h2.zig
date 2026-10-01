@@ -114,19 +114,32 @@ fn advertise(connection: *Connection, stream_id: u32) SendError!void {
     connection.advert.sent = true;
 }
 
+/// Writes as much of `octets` as the room and h2's windows allow, in as many DATA frames as the
+/// peer's largest frame cuts it into (https://github.com/c4milo/colibri/issues/91).
 pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
     const stream_id = try stream_of(id);
     write_owed_first(connection);
-    const sent = connection.session.h2.write_data(connection.room(), stream_id, octets, end) catch |failure| {
-        return send_error(connection, failure);
-    };
-    connection.output_len += sent.written;
-    connection_sends.on_write(connection, id, octets.len, sent);
+    var consumed: usize = 0;
+    var written: usize = 0;
+    for (0..constants.data_frames_per_write_max) |_| {
+        const sent = connection.session.h2.write_data(connection.room(), stream_id, octets[consumed..], end) catch |failure| {
+            // A frame cut at the frame size leaves the stream open, so only the first call fails.
+            assert(written == 0);
+            return send_error(connection, failure);
+        };
+        connection.output_len += sent.written;
+        connection_sends.on_write(connection, id, octets.len - consumed, sent);
+        consumed += sent.consumed;
+        written += sent.written;
+        // RFC 9113 §4.2: the frame stopped at the peer's SETTINGS_MAX_FRAME_SIZE, and the windows
+        // and the room may take another.
+        if (sent.short_by != .frame_size) break;
+    }
     // RFC 9113 §6.9: no window, or no room for a frame, and nothing moved.
-    if (sent.written == 0) return error.Blocked;
+    if (written == 0) return error.Blocked;
     // h2 sets END_STREAM on the frame that carries the last octet, and only then.
-    if (end and sent.consumed == octets.len) connection.done_owed.push(id);
-    return sent.consumed;
+    if (end and consumed == octets.len) connection.done_owed.push(id);
+    return consumed;
 }
 
 pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) SendError!void {

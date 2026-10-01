@@ -103,13 +103,15 @@ test "decision 101: two coded streams go past the connection's window, and on as
     try support.start_coding(.h2);
     try h2_support.start_preface();
     const content = support.incompressible[0..stream_content_len];
+    var sent_len: usize = 0;
     for ([_]u32{ 1, 3 }) |stream_id| {
         _ = try support.receive_copy(try h2_support.request_frame_with(stream_id, "GET", "/", &accepts_gzip, true));
         try connection.respond(stream_id, .{ .status = ok, .end = false, .codable = true });
         try testing.expectEqual(content.len, try connection.write_body(stream_id, .{ .octets = content, .end = true }));
+        // One call writes every frame the room takes, so the next head waits for a send.
+        send_more(&sent_len);
     }
     try testing.expectEqual(0, support.pool.free_count());
-    var sent_len: usize = 0;
     // RFC 9113 §6.9.1: the connection's window of 65,535 octets stops the second stream partway.
     send_more(&sent_len);
     send_more(&sent_len);
@@ -153,6 +155,8 @@ test "decision 101: a stream the peer resets gives its encoder back, and its oct
     try testing.expectEqual(1, received.event.?.cancelled.id);
     try testing.expectEqual(encoders_all, support.pool.free_count());
     try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .octets = "x", .end = true }));
+    // The frames stream 1 wrote fill the output, so the next head waits for a send.
+    _ = support.drain();
     // A stream the caller cancels gives its encoder back too (RFC 9113 §6.4).
     _ = try support.receive_copy(try h2_support.request_frame_with(3, "GET", "/", &accepts_gzip, true));
     try connection.respond(3, .{ .status = ok, .end = false, .codable = true });

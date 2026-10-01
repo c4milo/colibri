@@ -6741,6 +6741,30 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     body of 7 units rather than 4, long enough for a second round of the window after the floor
     turns on.
 
+  **One `write_body` call writes every frame it can, 2026-10-01**
+  ([#91](https://github.com/c4milo/colibri/issues/91)). The deadline trace above found that
+  `server.Connection.write_body` wrote one DATA frame per call over h2, though its comment says it
+  writes as much as the room and h2's windows allow. h11's call fills the room, and h3's takes
+  every octet.
+  - Over h2 it now calls `write_data` again while the last frame stopped at the peer's
+    SETTINGS_MAX_FRAME_SIZE (RFC 9113 §4.2), and stops at the windows, the room or the content's
+    end. `data_frames_per_write_max` bounds the calls: every frame but the last carries 16,384
+    octets at least, and all of them fit the output.
+  - A test offers content of two whole frames and an octet, and one call takes it as three
+    frames, the last with END_STREAM. Another writes an empty last piece, which goes out as an
+    empty DATA frame with END_STREAM.
+  - Three tests assumed one frame per call. Two coded responses now fill the output in one call,
+    so each test sends before the next stream's head, as a caller must when `respond` returns
+    `NoSpaceLeft`. A send-deadline test now offers one frame's octets, as its comment says.
+  - The deadline check's census digest changed: in 2 of its 256 seeds the server's output drains
+    226 ms and 69 ms later, and the idle deadline that ends each moves with it. The octets sent
+    and every other count stay the same, and the Debug and ReleaseSafe builds print the same
+    census, so `census_crc32_expected` is now `0x9369abbc`.
+  - `zig build test`: 131 of 131 steps and 2538 of 2538 tests passed.
+  - 4 mutations, each **CAUGHT**: one frame per call again; each frame offering the content from
+    its start; a bound of one frame; and an empty last piece reported as `Blocked`, which was
+    **NOT CAUGHT** until the empty-piece test above.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
