@@ -4257,6 +4257,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The largest structs: `server.Connection` holds 306,272 bytes and `server.QuicConnection`
     717,520, the latter without the receive pool its caller passes, whose default holds 1,505,288.
 
+  **13c, 2026-10-01.** `bench/run.sh --competitors` measures nginx 1.24.0 and h2o 2.2.5, from the
+  runner's Ubuntu 24.04 packages and built with OpenSSL 3.0.13, in turns with colibri's server over
+  the four inputs. Each answers the same eight octets from memory, with one worker on the server's
+  core, and each presents the same P-256 identity and runs TLS_AES_256_GCM_SHA384 over X25519.
+  `docs/performance.md` says how each is set up.
+
+  [Run 36851113101](https://github.com/c4milo/colibri/actions/runs/36851113101), on cf7bcd2,
+  printed these medians per request or per connection. Its two jobs agree within 0.6% on every
+  instructions figure and within 5% on every cycles figure; this is the first job:
+
+  | Input | Instructions: colibri | h2o | nginx | Cycles: colibri | h2o | nginx |
+  | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+  | h2-many | 39,040 | 34,340 | 46,184 | 11,169 | 15,569 | 28,606 |
+  | h2-tls-many | 85,507 | 37,699 | 41,522 | 29,934 | 20,683 | 21,680 |
+  | h2-one | 304,215 | 143,544 | 141,706 | 171,778 | 104,541 | 98,323 |
+  | h2-tls-one | 55,569,416 | 2,353,014 | 2,589,572 | 22,410,663 | 1,461,011 | 1,381,869 |
+
+  Against decision 31's expectations:
+  - Many requests on one connection: colibri makes 0.04 system calls per request, where h2o makes
+    1.2 and nginx 2.1. It takes the fewest cycles of the three, 0.72 of h2o's and 0.39 of nginx's,
+    and fewer instructions than nginx, 0.85 of its count, but more than h2o, 1.14.
+  - A cleartext connection, where decision 31 expects colibri to win: colibri loses. It costs 2.1
+    times the instructions of either competitor and 1.6 to 1.7 times the cycles, and 5 to 9 times
+    their user instructions.
+  - TLS, where decision 31 expects colibri to match, because every competitor calls the same
+    asymmetric crypto: colibri loses. A handshake costs 21 to 24 times the instructions of either
+    competitor and 15 to 16 times the cycles. A request over TLS costs 2.1 to 2.3 times the
+    instructions and 1.4 times the cycles. Both are chapulin's work (decision 94), not OpenSSL's.
+  - The first competitors run,
+    [36813252981](https://github.com/c4milo/colibri/actions/runs/36813252981), failed before it
+    measured: h2o, started by the runner's own user, refused the `user` line a container needs.
+    cf7bcd2 keeps that line for root alone.
+
 - **Step 14 — stdx's decoders, taken as a package.** The decoder of the `gzip` and `deflate`
   codings is stdx's ([decision 90](decisions.md)), and its own design names the check that proves
   it: https://github.com/c4milo/stdx/issues/1, with zlib and Wuffs as oracles and baselines.
