@@ -52,7 +52,16 @@
 (*     end the connection while the client takes nothing it sends: the     *)
 (*     channel toward the client stays full (decision 110). It ends the    *)
 (*     stall of https://github.com/c4milo/colibri/issues/85, which the     *)
-(*     configuration queue_stall keeps.                                    *)
+(*     configuration queue_stall keeps;                                    *)
+(*   - an endpoint in OwedFirst writes what it owes before a frame of its  *)
+(*     own, so its HEADERS and DATA wait while it owes anything (decision  *)
+(*     39 as amended). colibri's client and server both do. With           *)
+(*     OwedFirst empty the order is free, as in queue_stall;               *)
+(*   - with Weighted, the channel counts units, not frames: a DATA frame   *)
+(*     takes its units and one more for its header, any other frame one,   *)
+(*     and a DATA frame is cut to the room left (sendable). A reply then   *)
+(*     costs far less room than a DATA frame, as its 13 octets do beside   *)
+(*     16,384. Without Weighted every frame takes one of ChannelMax slots. *)
 (*                                                                         *)
 (* Numbers are small stand-ins: Max for 2^31-1 (§6.9.1), InitialWindow for *)
 (* the 65,535-octet initial window, Threshold for window_update_threshold, *)
@@ -86,8 +95,10 @@ CONSTANTS
     FloorOnlyAbove,     \* whether the floor applies only while the peer's initial window is
                         \* at least Floor (decision 110 as amended)
     FloorAfterSmall,    \* whether it applies only once the peer sent an increment below Floor
-    ServerTimeout       \* whether the server's send deadline ends a connection whose client takes
+    ServerTimeout,      \* whether the server's send deadline ends a connection whose client takes
                         \* nothing (decision 110)
+    OwedFirst,          \* the endpoints that write what they owe before a frame of their own
+    Weighted            \* whether the channel counts DATA units rather than frames
 
 Endpoints == {Client, Server}
 Peer(e) == IF e = Client THEN Server ELSE Client
@@ -104,6 +115,9 @@ ASSUME /\ Streams \subseteq Nat \ {Connection}
        /\ {ResetOnRecord, DropOnReset, ChargeAfterReset} \subseteq BOOLEAN
        /\ {FrameMax, Chunk} \subseteq Nat \ {0} /\ Floor \in Nat /\ Floor <= FrameMax
        /\ {FloorOnlyAbove, FloorAfterSmall, ServerTimeout} \subseteq BOOLEAN
+       /\ OwedFirst \subseteq Endpoints /\ Weighted \in BOOLEAN
+       \* A weighted channel cuts a frame to the windows, so it sends none on a window not positive.
+       /\ Weighted => HonourNegative
 
 States == {"idle", "open", "half_closed_local", "half_closed_remote", "closed"}
 Active == {"open", "half_closed_local", "half_closed_remote"}
@@ -185,8 +199,32 @@ Init ==
     /\ smallIncrement = [e \in Endpoints |-> FALSE]
     /\ ended = FALSE
 
-Room(e) == Len(toward[Peer(e)]) < ChannelMax
+(* The room a frame takes in the channel: with Weighted, a DATA frame's    *)
+(* units and one for its header, and one for any other frame.              *)
+Weight(frame) == IF Weighted /\ frame.type = "DATA" THEN frame.value + 1 ELSE 1
+
+(* The room the frames in flight toward e take.                            *)
+Used(e) ==
+    LET flight == toward[e]
+        total[i \in 0..Len(flight)] == IF i = 0 THEN 0 ELSE total[i - 1] + Weight(flight[i])
+    IN total[Len(flight)]
+
+(* Whether the channel from e has room for a frame that is not DATA, and   *)
+(* the DATA units it has room for after a frame header.                    *)
+Room(e) == Used(Peer(e)) < ChannelMax
+DataRoom(e) == ChannelMax - Used(Peer(e)) - 1
 Put(e, frame) == toward' = [toward EXCEPT ![Peer(e)] = Append(@, frame)]
+
+(* Whether e owes a frame it has not written: a SETTINGS acknowledgment,   *)
+(* an increment, or a RST_STREAM a record owes.                            *)
+Owes(e) ==
+    \/ acksOwed[e] > 0 \/ connectionOwed[e] > 0
+    \/ streamOwed[e] # <<>> \/ resetOwed[e] # {}
+
+(* Whether e may write a frame of its own, HEADERS or DATA: an endpoint in *)
+(* OwedFirst writes what it owes first (h2's write_replies, decision 39 as *)
+(* amended).                                                               *)
+OwnFrameAllowed(e) == e \notin OwedFirst \/ ~Owes(e)
 
 (* The replies e owes with the credit it owes on s dropped. A queued       *)
 (* RST_STREAM on s stays (connection_reply.zig's drop_window_updates).     *)
@@ -203,7 +241,7 @@ Open(s) ==
     LET e == Client
         end == left[e][s] = 0
     IN /\ state[e][s] = "idle"
-       /\ Room(e)
+       /\ Room(e) /\ OwnFrameAllowed(e)
        /\ Put(e, Frame("HEADERS", s, end, 0))
        /\ state' = [state EXCEPT ![e][s] = IF end THEN "half_closed_local" ELSE "open"]
        /\ headersSent' = [headersSent EXCEPT ![e][s] = TRUE]
@@ -221,7 +259,7 @@ Respond(s) ==
         end == left[e][s] = 0
     IN /\ state[e][s] \in {"open", "half_closed_remote"}
        /\ ~headersSent[e][s]
-       /\ Room(e)
+       /\ Room(e) /\ OwnFrameAllowed(e)
        /\ Put(e, Frame("HEADERS", s, end, 0))
        /\ headersSent' = [headersSent EXCEPT ![e][s] = TRUE]
        /\ state' = IF end THEN [state EXCEPT ![e][s] = AfterSentEnd(@)] ELSE state
@@ -241,13 +279,15 @@ FloorApplies(e) ==
 (* connection_send_window.zig's sendable: the caller offers Chunk units, or *)
 (* what is left if less, and the frame carries the offer when both windows  *)
 (* take it, else what they take, but nothing while that is below the floor. *)
+(* With Weighted, the frame is cut to the room left.                       *)
 DataLen(e, s) ==
     LET window == Min(sendWindow[e][s], connectionSend[e])
         offer == Min(Chunk, left[e][s])
         taken == IF window >= offer THEN offer
                  ELSE IF FloorApplies(e) /\ window < Floor THEN 0
                  ELSE window
-    IN Min(taken, FrameMax)
+        framed == Min(taken, FrameMax)
+    IN IF Weighted THEN Min(framed, DataRoom(e)) ELSE framed
 
 (* One DATA frame, which only open and half-closed (remote) streams carry  *)
 (* (§5.1), within both windows (§6.9.1). The last one carries END_STREAM.  *)
@@ -262,7 +302,7 @@ SendData(e, s) ==
        /\ headersSent[e][s]
        /\ left[e][s] > 0
        /\ windowsAllow
-       /\ Room(e)
+       /\ Room(e) /\ OwnFrameAllowed(e)
        /\ Put(e, Frame("DATA", s, end, n))
        /\ left' = [left EXCEPT ![e][s] = @ - n]
        /\ sendWindow' = [sendWindow EXCEPT ![e][s] = @ - n]
@@ -539,6 +579,10 @@ NoFlowError == ~flowError
 (* Safety: the replies a receiver's queue holds never pass its limit, so   *)
 (* colibri never asserts a push into a full queue (decision 113).          *)
 QueueBounded == \A e \in Endpoints : Len(streamOwed[e]) <= QueueMax
+
+(* Safety: the frames in flight toward an endpoint never take more room    *)
+(* than the channel has, which a DATA frame cut to the room keeps.         *)
+ChannelBounded == \A e \in Endpoints : Used(e) <= ChannelMax
 
 (* Liveness: every exchange finishes, or the server ends the connection.   *)
 (* A sender that flow control holds is released once the receiver takes    *)

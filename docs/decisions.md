@@ -784,8 +784,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     owes, and a transport of 4 KiB or less each way.
     - Each connection module writes what h2 owes before its own frames. `client.Connection` does
       so in `send`. `server.Connection` does so before each frame its caller asks for: a
-      response's head, DATA, a trailer section and a 100 (Continue). No run of the stall check in
-      which one endpoint did so stalled.
+      response's head, DATA, a trailer section and a 100 (Continue). The flow-control model shows
+      why: once a reply takes less room than a DATA frame, two endpoints that write what they owe
+      first finish over a channel of 2 to 4 units, where a free order stalls, and one endpoint
+      alone doing so still stalls over 2 and 3.
     - The transport holds at least 16 KiB each way, which every socket's buffers exceed.
     - Decision 110's send-rate deadline, on by default, ends a server stalled this way, because
       its output holds octets the peer does not take.

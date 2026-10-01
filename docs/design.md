@@ -1108,6 +1108,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     without its preface check fails h2's test. `take_owed` without its note of a WINDOW_UPDATE
     fails decision 110's test of the send deadline.
 
+  **The write order in the flow-control model, 2026-10-01**
+  ([#85](https://github.com/c4milo/colibri/issues/85)). The stall check found no stall when an
+  endpoint writes what it owes first. `spec/tla/h2_flow_control` now checks that order.
+  - `OwedFirst` names the endpoints that write what they owe before a frame of their own: their
+    HEADERS and DATA wait while they owe anything. Every earlier configuration leaves it empty,
+    which keeps the order free, and explores the states it did before.
+  - With every frame one of `ChannelMax` slots, the order changes nothing. Over channels of 2 to
+    6 frames and queues of 1 or 2, both orders stall or both finish. A reply then takes as much
+    room as a DATA frame, and with both endpoints writing what they owe first, their replies fill
+    a channel of two frames (`queue_stall_owed_first_slots`, violated).
+  - `Weighted` makes the channel count DATA units. A reply takes one unit, a DATA frame its units
+    and one for its header, and a DATA frame is cut to the room left, as `sendable` cuts it. Over
+    2, 3 and 4 units the free order stalls (`queue_stall_weighted`, violated), and both endpoints
+    writing what they owe first finish (`queue_stall_owed_first`, 68,777 states). With the client
+    alone doing so, as colibri did before the server's change above, it stalls over 2 and 3 units
+    (`queue_stall_client_first`, violated) and finishes over 4. Over 5 units every order
+    finishes.
+  - `ChannelBounded` says the frames in flight never take more room than the channel has.
+  - `zig build tla -- spec/tla/h2_flow_control/*.cfg`: the 23 configurations give their verdicts,
+    the earlier ones over the states they explored before.
+  - 5 mutations of the model, 4 **CAUGHT** by `queue_stall_owed_first`: no order, an order that
+    waits for no stream reply, every frame one unit, and a DATA frame not cut to the room. The
+    fifth, an order that waits for no connection increment, is **NOT CAUGHT**, and no
+    configuration can catch it: only the queue of stream replies stops the reading, so a
+    connection increment written late never stalls.
+
   **The prefaces in the connection model, 2026-09-30**
   ([#79](https://github.com/c4milo/colibri/issues/79)). `e3126a9` fixed a server that answered a
   request read with the client's preface before writing its own SETTINGS, which RFC 9113 §3.4
