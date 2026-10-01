@@ -50,8 +50,12 @@ goaway_type = 0x07
 def probe(port, octets, nudge_after_s=None):
     """Sends `octets`, reads until the server closes, and returns when it closed and what it sent.
     With `nudge_after_s`, another connection opens and sends an octet that long after the start."""
-    connection = socket.create_connection(("127.0.0.1", port))
+    # The stopwatch starts before the connection does. The server is idle when each peer connects,
+    # so it times the connection from when its loop wakes for it, after the handshake. The time
+    # measured here can only be longer than the server's, and a close before the deadline still
+    # fails. Started after create_connection returned, it read 9.99 s once, at a load average of 32.
     started = time.monotonic()
+    connection = socket.create_connection(("127.0.0.1", port))
     if octets:
         connection.sendall(octets)
     nudge = None
