@@ -108,10 +108,13 @@ fail() {  # fail <message> <server log>
 }
 
 # Writes a competitor's configuration from bench/competitors/ into the scratch directory. @SSL@
-# goes first, because what it writes for h2o names @CHAIN@ and @KEY@ in turn.
+# goes first, because what it writes for h2o names @CHAIN@ and @KEY@ in turn. h2o's `user: root`
+# line stays only when root runs this script, as its configuration says why.
 render() {  # render <competitor> <ssl>
+  local drop_user_line=(-e "/^user: root\$/d")
+  if [ "$(id -u)" -eq 0 ]; then drop_user_line=(); fi
   sed -e "s|@SSL@|$2|g" -e "s|@PORT@|$port|g" -e "s|@SCRATCH@|$scratch|g" \
-    -e "s|@CHAIN@|$identity.chain.pem|g" -e "s|@KEY@|$identity.key.pem|g" -e "s|@USER@|$(id -un)|g" \
+    -e "s|@CHAIN@|$identity.chain.pem|g" -e "s|@KEY@|$identity.key.pem|g" "${drop_user_line[@]}" \
     "$repository_root/bench/competitors/$1.conf" >"$scratch/$1.conf"
 }
 
