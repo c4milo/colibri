@@ -63,6 +63,21 @@ with the request's or frame's size beside every speed.
 The servers and clients `bench/` and `tools/` run against are peers and numbers, never designs: a
 baseline's binary is sampled by function names to split its time, and its source is not read.
 
+`bench/run.sh --competitors` measures nginx and h2o in turns with colibri's h2 server, over the
+same four inputs (design §8 step 13c), and `bench.yml` does so when its `competitors` input is set.
+Each one is set up so that the three do the same work:
+
+- Each comes from the runner's Ubuntu 24.04 packages, and the report names the version each
+  binary gives and the OpenSSL it was built with.
+- Each answers every request as colibri's test-only server does, from memory: status 200,
+  `text/plain; charset=utf-8` and the eight octets `colibri\n`. nginx answers with `return`, and
+  h2o 2.2 through its mruby handler. `bench/competitors/` holds both configurations.
+- Each runs one worker on the core the judge pins servers to, and presents the same P-256
+  identity. h2load offers TLS_AES_256_GCM_SHA384 alone, so that all three run one cipher.
+- Each keeps its own TLS ticket behavior, and each issues tickets, which h2load never uses.
+- The report gives the change's ratio to each competitor, losses first, and a competitor's numbers
+  never fail the run. Decision 31 reports where colibri wins, matches and loses.
+
 ## Memory per connection
 
 Each struct a caller holds for one connection, in bytes, from the code being built (design §8 step
@@ -112,7 +127,7 @@ With chapulin's objects built `AES=runtime`:
 ## Commands
 
 ```bash
-bench/run.sh [--filter] [--base <tree>] [--rounds <n>] [report.md]
+bench/run.sh [--filter] [--base <tree>] [--competitors] [--rounds <n>] [report.md]
 zig build bench-memory
 tools/h3load.sh [requests] [port]
 tools/interop.sh [peers] [tests]

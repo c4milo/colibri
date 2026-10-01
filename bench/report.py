@@ -27,6 +27,10 @@ JUDGE_FLOOR = 0.005
 # The floor of a filter run: a laptop's CPU time moves by several percent from run to run, so it
 # keeps decision 33's "anything under about 5% is noise". BENCH_FLOOR sets either for one run.
 FILTER_FLOOR = 0.05
+# The variants that are builds of colibri; any other variant of a run is a competitor's server.
+COLIBRI_VARIANTS = ("base", "change")
+# The order the report lists comparisons in: losses first.
+READING_ORDER = {"loses": 0, "within the noise": 1, "wins": 2}
 # The rounds before this one are the warm-up, which the report discards.
 FIRST_COUNTED_ROUND = 1
 # The events a judge run counts, by the names perf stat writes.
@@ -120,6 +124,17 @@ def summarize(values):
     return median, spread
 
 
+def compare(summary, variant, against, primary, floor):
+    """The ratio of `variant`'s primary metric to `against`'s, the noise, the larger of the two
+    spreads and the floor, and the reading: "loses" when `variant` costs more past the noise,
+    "wins" when it costs less, and "within the noise" otherwise."""
+    (other, other_spread), (value, value_spread) = summary[against][primary], summary[variant][primary]
+    ratio = value / other
+    noise = max(other_spread, value_spread, floor)
+    reading = "loses" if ratio > 1 + noise else "wins" if ratio < 1 - noise else "within the noise"
+    return ratio, noise, reading
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("scratch")
@@ -146,8 +161,10 @@ def main():
             tls.setdefault(variant, set()).add(read_tls(h2load_path) or "h2load named no TLS parameters")
 
     inputs = sorted({key[1] for key in samples})
-    variants = [v for v in ("base", "change") if any((v, i) in samples for i in inputs)]
-    rows, verdicts = [], []
+    found = {key[0] for key in samples}
+    variants = [v for v in COLIBRI_VARIANTS if v in found] + sorted(found - set(COLIBRI_VARIANTS))
+    competitors = [v for v in variants if v not in COLIBRI_VARIANTS]
+    rows, verdicts, standings = [], [], []
     for input_name in inputs:
         unit = "request" if input_name.endswith("-many") else "connection"
         summary = {}
@@ -156,12 +173,12 @@ def main():
             summary[variant] = {metric: summarize([run[metric] for run in runs]) for metric in runs[0]}
             cells = " | ".join(f"{number(summary[variant][m][0])} ({summary[variant][m][1] * 100:.2f}%)" for m in summary[variant])
             rows.append(f"| {input_name} | {unit} | {variant} | {len(runs)} | {cells} |")
-        if len(variants) == 2:
-            (base, base_spread), (change, change_spread) = summary["base"][primary], summary["change"][primary]
-            ratio = change / base
-            noise = max(base_spread, change_spread, floor)
-            verdict = "loses" if ratio > 1 + noise else "wins" if ratio < 1 - noise else "within the noise"
+        if "base" in summary and "change" in summary:
+            ratio, noise, verdict = compare(summary, "change", "base", primary, floor)
             verdicts.append((verdict, f"| {input_name} | {ratio:.4f} | {noise * 100:.2f}% | {verdict} |"))
+        for competitor in competitors:
+            ratio, noise, reading = compare(summary, "change", competitor, primary, floor)
+            standings.append((reading, f"| {input_name} | {competitor} | {ratio:.4f} | {noise * 100:.2f}% | {reading} |"))
 
     metrics = list(samples[(variants[0], inputs[0])][0])
     lines = ["## bench/run.sh", ""]
@@ -171,8 +188,12 @@ def main():
     if verdicts:
         lines += [f"The change against the base, by {primary} per unit; losses first:", "",
                   "| Input | Change / base | Noise | Verdict |", "| --- | ---: | ---: | --- |"]
-        order = {"loses": 0, "within the noise": 1, "wins": 2}
-        lines += [row for _, row in sorted(verdicts, key=lambda v: order[v[0]])] + [""]
+        lines += [row for _, row in sorted(verdicts, key=lambda v: READING_ORDER[v[0]])] + [""]
+    if standings:
+        lines += [f"The change against each competitor, by {primary} per unit; losses first. Decision 31 reports",
+                  "where colibri wins, matches and loses, and a competitor's numbers never fail the run:", "",
+                  "| Input | Competitor | Change / competitor | Noise | colibri |", "| --- | --- | ---: | ---: | --- |"]
+        lines += [row for _, row in sorted(standings, key=lambda v: READING_ORDER[v[0]])] + [""]
     lines += ["Each metric's median over the counted rounds, with its spread:", "",
               "| Input | Unit | Variant | Rounds | " + " | ".join(metrics) + " |",
               "| --- | --- | --- | ---: | " + " | ".join("---:" for _ in metrics) + " |"]
@@ -200,21 +221,25 @@ TEST_ROUND_FACTORS = (1.5, 1.004, 0.997, 1.002, 0.999, 1.001)
 
 
 def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), failed_request=False, mode="judge", kernel_only=False,
-                   change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec"):
+                   change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec", competitors=None, with_base=True):
     """Writes the files a run of bench/run.sh leaves, with the change costing `change_factor` times
     the base on each input in `changed_inputs`: in the server's user and kernel instructions both,
     or with `kernel_only` in the kernel's alone, as a change that adds system calls costs. The base
     runs TLS_AES_256_GCM_SHA384 on its TLS input, and the change runs `change_cipher`. The server
-    runs TEST_NANOSECONDS_PER_UNIT a unit, which perf writes in `task_clock_unit`."""
+    runs TEST_NANOSECONDS_PER_UNIT a unit, which perf writes in `task_clock_unit`. Each competitor
+    in `competitors` costs its factor times the base, and with `with_base` false no base runs."""
+    factors = dict(competitors or {})
+    if with_base:
+        factors["base"] = 1.0
     with open(os.path.join(directory, "machine.txt"), "w") as machine:
         machine.write(f"mode={mode}\nrounds={len(TEST_ROUND_FACTORS) - 1}\n")
     records = []
     for round_number, round_factor in enumerate(TEST_ROUND_FACTORS):
         for input_name, units in TEST_UNITS.items():
-            for variant in ("base", "change"):
+            for variant in ["change"] + sorted(factors):
                 name = os.path.join(directory, f"{variant}-{input_name}-{round_number}")
                 changed = variant == "change" and input_name in changed_inputs
-                base_instructions = TEST_INSTRUCTIONS_PER_UNIT[input_name] * units * round_factor
+                base_instructions = TEST_INSTRUCTIONS_PER_UNIT[input_name] * units * round_factor * factors.get(variant, 1.0)
                 user = base_instructions * 0.7 * (change_factor if changed and not kernel_only else 1.0)
                 nanoseconds = TEST_NANOSECONDS_PER_UNIT * units * round_factor
                 kernel = base_instructions * 0.3 * (change_factor if changed else 1.0)
@@ -335,6 +360,15 @@ class Verdicts(unittest.TestCase):
         status, output = self.report(1.0, floor=None, mode="filter")
         self.assertEqual(status, 0, output)
         self.assertIn("- floor: 5.00%\n", output)
+
+    def test_competitors_are_reported_and_never_fail_the_run(self):
+        # nginx costs half what colibri does and h2o twice, with no base built.
+        status, output = self.report(1.0, competitors={"nginx": 0.5, "h2o": 2.0}, with_base=False)
+        self.assertEqual(status, 0, output)
+        self.assertNotIn("The change against the base", output)
+        self.assertIn("| --- | --- | ---: | ---: | --- |\n| h2-many | nginx | 2.0000 | 5.00% | loses |\n", output)
+        self.assertIn("| h2-many | h2o | 0.5000 | 5.00% | wins |", output)
+        self.assertIn("| h2-tls-one | connection | nginx | 5 | ", output)
 
     def test_a_filter_run_compares_cpu_time(self):
         status, output = self.report(1.10, mode="filter")

@@ -4,27 +4,32 @@
 # server under h2load, with the server's instructions, cycles and system calls counted per request
 # and per connection by perf stat. With --base, a second tree is built and measured in turns with
 # this one, and the report gives each input's ratio of the change to the base; the run fails when
-# an input loses past the floor.
+# an input loses past the floor. With --competitors, nginx and h2o answer the same requests from
+# memory, set up by bench/competitors/, in turns with colibri's server, and the report gives
+# colibri's ratio to each without failing the run (design §8 step 13c).
 #
-#   bench/run.sh [--filter] [--base <tree>] [--rounds <n>] [report.md]
+#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--rounds <n>] [report.md]
 #
 # The judge runs on Linux with perf and taskset, as .github/workflows/bench.yml runs it on the
 # ubuntu-24.04-arm runner. --filter runs without either and reads the server's CPU time from each
 # thread's /proc schedstat: its numbers order candidates on a laptop and are never published
 # (docs/performance.md).
-# It needs Zig, h2load, python3, and Go for the TLS identity unless BENCH_IDENTITY names one.
+# It needs Zig, h2load, python3, and Go for the TLS identity unless BENCH_IDENTITY names one, and
+# nginx and h2o on the PATH with --competitors.
 # BENCH_SERVER and BENCH_BASE_SERVER name servers built already, for a machine with no Zig.
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mode=judge
 base=""
+competitors=""
 rounds=5
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
   case "$1" in
     --filter) mode=filter; shift ;;
     --base) base="$(cd "$2" && pwd)"; shift 2 ;;
+    --competitors) competitors=yes; shift ;;
     --rounds) rounds="$2"; shift 2 ;;
     *) report="$1"; shift ;;
   esac
@@ -48,6 +53,9 @@ readonly warm_requests=2000
 # The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
 readonly ready_tries=100
 readonly inputs=(h2-many h2-tls-many h2-one h2-tls-one)
+# The one TLS 1.3 suite h2load offers, so that every server runs the same cipher: colibri's server
+# chooses by its own order, which puts this suite first, and nginx and h2o follow the client's.
+readonly tls_suite=TLS_AES_256_GCM_SHA384
 
 scratch="$(mktemp -d)"
 server_pid=""
@@ -75,12 +83,12 @@ cat >"$scratch/load.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 case "\$1" in
-  h2-tls-*) target=https://127.0.0.1:${port}/ ;;
-  *) target=http://127.0.0.1:${port}/ ;;
+  h2-tls-*) target=https://127.0.0.1:${port}/; options=(--tls13-ciphers=${tls_suite}) ;;
+  *) target=http://127.0.0.1:${port}/; options=() ;;
 esac
 case "\$1" in
-  *-many) h2load -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
-  *-one) for _ in \$(seq 1 ${one_runs}); do h2load -n ${one_clients} -c ${one_clients} "\$target"; done ;;
+  *-many) h2load "\${options[@]}" -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
+  *-one) for _ in \$(seq 1 ${one_runs}); do h2load "\${options[@]}" -n ${one_clients} -c ${one_clients} "\$target"; done ;;
 esac
 EOF
 
@@ -99,25 +107,61 @@ fail() {  # fail <message> <server log>
   exit 1
 }
 
-start_server() {  # start_server <server> <input> <log>
-  local options=(--port "$port")
-  case "$2" in h2-tls-*) options+=(--tls "$identity") ;; esac
+# Writes a competitor's configuration from bench/competitors/ into the scratch directory. @SSL@
+# goes first, because what it writes for h2o names @CHAIN@ and @KEY@ in turn.
+render() {  # render <competitor> <ssl>
+  sed -e "s|@SSL@|$2|g" -e "s|@PORT@|$port|g" -e "s|@SCRATCH@|$scratch|g" \
+    -e "s|@CHAIN@|$identity.chain.pem|g" -e "s|@KEY@|$identity.key.pem|g" -e "s|@USER@|$(id -un)|g" \
+    "$repository_root/bench/competitors/$1.conf" >"$scratch/$1.conf"
+}
+
+# The command that serves <input> as <variant>, into the array `command`: colibri's server built
+# from the change or from the base, or a competitor configured for cleartext or for TLS.
+server_command() {  # server_command <variant> <input>
+  local tls=""
+  case "$2" in h2-tls-*) tls=yes ;; esac
+  case "$1" in
+    nginx)
+      if [ -n "$tls" ]; then render nginx "ssl "; else render nginx ""; fi
+      command=(nginx -p "$scratch" -e "$scratch/nginx.error.log" -c "$scratch/nginx.conf")
+      ;;
+    h2o)
+      if [ -n "$tls" ]; then
+        render h2o ", ssl: {certificate-file: @CHAIN@, key-file: @KEY@}"
+      else
+        render h2o ""
+      fi
+      command=(h2o -c "$scratch/h2o.conf")
+      ;;
+    *)
+      if [ "$1" = base ]; then command=("$base_server"); else command=("$change_server"); fi
+      command+=(--port "$port")
+      if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
+      ;;
+  esac
+}
+
+start_server() {  # start_server <variant> <input> <log>
+  server_command "$1" "$2"
   # The process started here is the server itself, which taskset executes in place of itself, so
   # that stop_server ends the server and no later measurement reaches an earlier one.
   if [ "$mode" = judge ]; then
-    taskset -c "$server_core" "$1" "${options[@]}" >"$3" 2>&1 &
+    taskset -c "$server_core" "${command[@]}" >"$3" 2>&1 &
   else
-    "$1" "${options[@]}" >"$3" 2>&1 &
+    "${command[@]}" >"$3" 2>&1 &
   fi
   server_pid=$!
+  # Over TLS, h2load offers tls_suite alone, as load.sh makes it do.
+  local offer=()
+  case "$2" in h2-tls-*) offer=(--tls13-ciphers="$tls_suite") ;; esac
   local ready=""
   for _ in $(seq 1 "$ready_tries"); do
-    if succeeded 1 -n 1 -c 1 "$(url "$2")"; then ready=yes; break; fi
+    if succeeded 1 "${offer[@]}" -n 1 -c 1 "$(url "$2")"; then ready=yes; break; fi
     sleep 0.1
   done
-  [ -n "$ready" ] || fail "the server for $2 answered no request in $ready_tries tries" "$3"
-  succeeded "$warm_requests" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$2")" ||
-    fail "the warm-up for $2 did not succeed in full" "$3"
+  [ -n "$ready" ] || fail "$1 answered no request for $2 in $ready_tries tries" "$3"
+  succeeded "$warm_requests" "${offer[@]}" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$2")" ||
+    fail "the warm-up of $1 for $2 did not succeed in full" "$3"
 }
 
 stop_server() {
@@ -137,22 +181,22 @@ cpu_nanoseconds() {  # cpu_nanoseconds <pid>
   cat "/proc/$1/task/"*/schedstat | awk '{ total += $1 } END { printf "%.0f\n", total }'
 }
 
-measure() {  # measure <variant> <server> <input> <round>
-  local name="$1-$3-$4"
+measure() {  # measure <variant> <input> <round>
+  local name="$1-$2-$3"
   # Each measurement keeps its server's log, which report.py prints when the load failed.
-  start_server "$2" "$3" "$scratch/$name.server"
+  start_server "$1" "$2" "$scratch/$name.server"
   if [ "$mode" = judge ]; then
     sudo -n "${PERF:-perf}" stat -x, -o "$scratch/$name.perf" \
       -e instructions:u,instructions:k,cycles:u,cycles:k,task-clock,raw_syscalls:sys_enter \
-      -p "$server_pid" -- taskset -c "$load_cores" bash "$scratch/load.sh" "$3" >"$scratch/$name.h2load"
+      -p "$server_pid" -- taskset -c "$load_cores" bash "$scratch/load.sh" "$2" >"$scratch/$name.h2load"
   else
     local before
     before="$(cpu_nanoseconds "$server_pid")"
-    bash "$scratch/load.sh" "$3" >"$scratch/$name.h2load"
+    bash "$scratch/load.sh" "$2" >"$scratch/$name.h2load"
     echo "$(($(cpu_nanoseconds "$server_pid") - before)),,cpu_nanoseconds" >"$scratch/$name.perf"
   fi
   stop_server
-  echo "$1,$3,$4,$scratch/$name.perf,$scratch/$name.h2load" >>"$scratch/records.csv"
+  echo "$1,$2,$3,$scratch/$name.perf,$scratch/$name.h2load" >>"$scratch/records.csv"
 }
 
 # Whose memset a server links: its own, which src/testing/memset.zig exports on Linux under Zig
@@ -181,6 +225,10 @@ machine() {
   echo "memset, change=$(memset_of "$change_server")"
   [ -n "$base" ] && echo "memset, base=$(memset_of "$base_server")"
   echo "h2load=$(h2load --version 2>/dev/null | head -1)"
+  if [ -n "$competitors" ]; then
+    echo "nginx=$(nginx -v 2>&1 | sed 's/^nginx version: //'), $(nginx -V 2>&1 | sed -n 's/^built with //p')"
+    echo "h2o=$(h2o --version 2>/dev/null | sed -n 's/^h2o version //p'), $(h2o --version 2>/dev/null | sed -n 's/^OpenSSL: //p')"
+  fi
   [ "$mode" = judge ] && echo "perf=$(sudo -n "${PERF:-perf}" --version)"
   echo "rounds=$rounds"
   # Decision 33: the path, the socket buffer sizes and the certificate type go beside the numbers.
@@ -211,20 +259,18 @@ if [ -z "$identity" ]; then
 fi
 machine >"$scratch/machine.txt"
 
-# Round 0 is the warm-up, which the report discards. Each round after it takes the two variants
-# in turns, and alternates which goes first.
+variants=(change)
+if [ -n "$base_server" ]; then variants+=(base); fi
+if [ -n "$competitors" ]; then variants+=(nginx h2o); fi
+
+# Round 0 is the warm-up, which the report discards. Each round after it measures the variants in
+# turns, starting one place later in the list each round, so that each goes first as often.
 for round in $(seq 0 "$rounds"); do
   for input in "${inputs[@]}"; do
     echo "run.sh: round $round, $input" >&2
-    if [ -z "$base_server" ]; then
-      measure change "$change_server" "$input" "$round"
-    elif ((round % 2)); then
-      measure base "$base_server" "$input" "$round"
-      measure change "$change_server" "$input" "$round"
-    else
-      measure change "$change_server" "$input" "$round"
-      measure base "$base_server" "$input" "$round"
-    fi
+    for ((place = 0; place < ${#variants[@]}; place++)); do
+      measure "${variants[(round + place) % ${#variants[@]}]}" "$input" "$round"
+    done
   done
 done
 

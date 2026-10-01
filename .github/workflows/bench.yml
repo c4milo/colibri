@@ -2,8 +2,10 @@
 # ubuntu-24.04-arm runner, a Neoverse N2, started by a person and never by a push (decision 47 as
 # amended). With `base`, each job builds that commit beside the change and measures the two in
 # turns, so that a ratio compares two builds on one machine. The two jobs run on two runners, and
-# a change stays only when it wins past the noise in both. The work is bench/run.sh, which a
-# person on Linux with perf runs for the same answer; this file only installs what it needs.
+# a change stays only when it wins past the noise in both. With `competitors`, nginx and h2o from
+# Ubuntu's packages answer the same requests in the same job (design §8 step 13c). The work is
+# bench/run.sh, which a person on Linux with perf runs for the same answer; this file only installs
+# what it needs.
 name: bench
 on:
   workflow_dispatch:
@@ -16,6 +18,10 @@ on:
         description: "The rounds each build is counted in, after the warm-up round"
         type: string
         default: "5"
+      competitors:
+        description: "Measure nginx and h2o too, in turns with colibri's server"
+        type: boolean
+        default: false
 permissions:
   contents: read
 env:
@@ -34,6 +40,7 @@ jobs:
       RUNNER_LABEL: ubuntu-24.04-arm
       BASE: ${{ inputs.base }}
       ROUNDS: ${{ inputs.rounds }}
+      COMPETITORS: ${{ inputs.competitors }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -59,6 +66,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nghttp2-client linux-tools-common "linux-tools-$(uname -r)"
           echo "PERF=/usr/lib/linux-tools/$(uname -r)/perf" >>"${GITHUB_ENV}"
+      # Each package starts its own service, which run.sh never measures and which would hold a
+      # core, so the step stops both. bench/run.sh starts each from bench/competitors/.
+      - name: Install nginx and h2o
+        if: env.COMPETITORS == 'true'
+        run: |
+          sudo apt-get install -y --no-install-recommends nginx h2o
+          sudo systemctl stop nginx h2o || true
       # The arm64 job's caches in main.yml, under its keys: this job restores them and saves none.
       - name: Restore the Zig caches
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -82,6 +96,7 @@ jobs:
         run: |
           arguments=(--rounds "${ROUNDS}")
           if [ -n "${BASE}" ]; then arguments+=(--base base); fi
+          if [ "${COMPETITORS}" = true ]; then arguments+=(--competitors); fi
           bench/run.sh "${arguments[@]}" bench-report.md
       - name: Publish the report
         if: always()
