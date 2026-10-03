@@ -9,15 +9,14 @@
 # It needs a Go toolchain. chapulin comes from the package build.zig.zon pins (design §8 step
 # 16a). It is not part of `zig build test`.
 #
-#   tools/tls_handshake.sh [port]
+#   tools/tls_handshake.sh
 #
 # The server mints its own CA and a leaf signed by it, writes the CA's Subject Name and
-# SubjectPublicKeyInfo, and serves the chain. colibri pins that one root.
+# SubjectPublicKeyInfo, and serves the chain. colibri pins that one root. The server binds port 0,
+# and the run reads the port the kernel chose from its log, so two runs on one machine do not
+# collide (https://github.com/c4milo/colibri/issues/94).
 set -euo pipefail
 
-# Below Linux's ephemeral range (32768-60999), from which earlier sections' connections draw
-# their source ports, so none of them holds it.
-readonly port="${1:-18491}"
 readonly hostname="localhost"
 
 scratch="$(mktemp -d)"
@@ -32,20 +31,12 @@ echo "tls_handshake: building the peer and the check"
 go build -o "$scratch/tls_server" tools/h2_interop/tls_server.go
 zig build
 
-"$scratch/tls_server" "$port" "$scratch/ca" > "$scratch/server.log" 2>&1 &
+"$scratch/tls_server" 0 "$scratch/ca" > "$scratch/server.log" 2>&1 &
 server_pid=$!
 
-# The peer prints "ready" once both anchor files are written and the listener is open, so the
+# The peer prints its port once both anchor files are written and the listener is open, so the
 # client never races either.
-for _ in $(seq 1 100); do
-  grep -q ready "$scratch/server.log" 2>/dev/null && break
-  sleep 0.1
-done
-if ! grep -q ready "$scratch/server.log" 2>/dev/null; then
-  echo "tls_handshake: the peer did not start" >&2
-  cat "$scratch/server.log" >&2
-  exit 1
-fi
+port="$(tools/listening_port.sh "$scratch/server.log")"
 
 # The clock is the caller's: no source file under src/ may read one (CLAUDE.md non-negotiable 3),
 # and a webpki chain is valid only at a time.

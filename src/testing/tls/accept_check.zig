@@ -216,8 +216,13 @@ fn accept_one(port: u16) !std.c.fd_t {
     };
     if (std.c.bind(listener, @ptrCast(&address), @sizeOf(std.c.sockaddr.in)) < 0) return error.BindFailed;
     if (std.c.listen(listener, 1) < 0) return error.ListenFailed;
-    // The peer waits for this line before it connects, so the run never races the listener.
-    std.debug.print("tls-accept: ready\n", .{});
+    // With a port of 0 the kernel chose one (https://github.com/c4milo/colibri/issues/94).
+    var bound: std.c.sockaddr.in = undefined;
+    var bound_len: std.c.socklen_t = @sizeOf(std.c.sockaddr.in);
+    if (std.c.getsockname(listener, @ptrCast(&bound), &bound_len) < 0) return error.NameFailed;
+    // The peer reads the port from this line and connects once it is out, so the run never races
+    // the listener.
+    std.debug.print("tls-accept: listening on port {d}\n", .{std.mem.bigToNative(u16, bound.port)});
     const accepted = std.c.accept(listener, null, null);
     if (accepted < 0) return error.AcceptFailed;
     return accepted;

@@ -21,7 +21,10 @@ readonly server="${repository_root}/zig-out/bin/http-server"
 readonly peer_directory="${repository_root}/tools/h2_interop"
 # The same image tools/h2_interop.sh builds, tagged by a checksum of what it is built from.
 readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" "${peer_directory}/Caddyfile" "${peer_directory}/Caddyfile_tls" | shasum -a 256 | cut -c1-16)"
-readonly port=18481
+readonly listening_port="${repository_root}/tools/listening_port.sh"
+# The port the server now running listens on, which the kernel chose
+# (https://github.com/c4milo/colibri/issues/94).
+port=""
 # The UDP port the server advertises h3 on (design §8 step 17b). No h3 server listens there: the
 # check reads the advertisement alone.
 readonly h3_port=8443
@@ -66,13 +69,10 @@ fi
 # start_server [--tls <identity-prefix>]: starts colibri's server in the mode the arguments name.
 start_server() {
   stop_server
-  "${server}" --port "${port}" "$@" >"${scratch}/server.log" 2>&1 &
+  "${server}" --port 0 "$@" >"${scratch}/server.log" 2>&1 &
   server_pid=$!
-  for _ in $(seq "${listen_wait_seconds}"); do
-    nc -z 127.0.0.1 "${port}" 2>/dev/null && return 0
-    sleep 1
-  done
-  fail "the server did not listen on port ${port} within ${listen_wait_seconds} seconds"
+  # The server prints its port once every worker's listener is bound.
+  port="$("${listening_port}" "${scratch}/server.log" "${listen_wait_seconds}")"
 }
 
 in_container() {

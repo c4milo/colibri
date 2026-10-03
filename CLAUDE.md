@@ -271,7 +271,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   Every check is also a test inside its module, so `zig build test` runs them, silently. The QUIC
   checks have no command line of their own: `zig build test-sim-run-quic` runs them, in a module
   with no HTTP module in its graph (decision 5), and each one's census is pinned in its test.
-- Conformance: `tools/h2spec.sh [port] [--tls]`, `tools/h3spec.sh [port]`, `tools/interop.sh` —
+- Conformance: `tools/h2spec.sh [--tls]`, `tools/h3spec.sh`, `tools/interop.sh` —
   each starts the test-only endpoint of design §9 and runs the pinned suite version. With `--tls`,
   `tools/h2spec.sh` also runs `h2spec -t -k` against the h2 server's `--tls` mode, which needs Go
   to mint the identity. `tools/h3spec.sh` fetches
@@ -311,6 +311,14 @@ Everything below exists. Change this section when a step adds or renames a comma
   QUIC Interop Runner have jobs the workflow starts by hand and every Monday. The `arm64` job runs
   `zig build test` on each push on Linux and macOS arm64, where a person on either machine runs
   the same command.
+- Ports: no check `tools/ci.sh` runs binds a fixed port, so two runs on one machine do not collide
+  (https://github.com/c4milo/colibri/issues/94). Each peer a script starts binds port 0 and prints
+  `listening on port <port>` once its socket is bound. `tools/listening_port.sh <log> [seconds]`
+  waits for that line and prints the port, and `tools/listening_port_check.sh` checks the helper.
+  A container peer gets the host port Docker chooses and a name the run alone has; its script
+  waits for the peer's own socket inside the container and then for the host port. A new check
+  does the same. `tools/h3load.sh` and `bench/run.sh`, which `tools/ci.sh` does not run, keep a
+  fixed port.
 - HTTP Garden: `tools/http_garden.sh [origin...]` builds the Garden, pinned by commit, patched
   once (decision 88 as amended) and cached, with colibri's server added as an origin in its
   `--echo` mode (`tools/http_garden/`), and feeds every stream of `tools/http_garden/driver.py` to
@@ -365,13 +373,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   test-tls test-tls-keylog -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES
   instructions, so with no `yes` among them: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
   --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.
-- TLS checks: `tools/tls_handshake.sh [port]` runs one handshake with colibri as the client against
-  a Go server, and `tools/tls_accept.sh [port]` one with colibri as the server against a Go client,
+- TLS checks: `tools/tls_handshake.sh` runs one handshake with colibri as the client against
+  a Go server, and `tools/tls_accept.sh` one with colibri as the server against a Go client,
   which also moves a record each way and ends on the client's `close_notify`. Each then runs a
   handshake colibri refuses, a name the certificate does not carry and a client that offers TLS 1.2
   alone, and requires the Go peer to read colibri's alert (RFC 9846 §6.2). Both need a Go
   toolchain, and `tools/ci.sh` runs them.
-- Deadline check: `tools/deadlines.sh [port]` runs the test-only server in h11 and h2 on its
+- Deadline check: `tools/deadlines.sh` runs the test-only server in h11 and h2 on its
   loop's clock and requires four peers to be cut at decision 110's default deadlines, each within
   a second after its instant: half a head and a silent peer at 10 s, a body too slow at 20 s, and
   an h2 preface alone at 10 s. It needs `python3`, and `tools/ci.sh` runs it.
@@ -390,21 +398,21 @@ Everything below exists. Change this section when a step adds or renames a comma
   its client's ALPN asks for, and a client with `h3` fetches over h3. A server with `h3` serves h3
   alone through the `server` module's `Endpoint` (design §8 step 17b), holds `quic_connections_max`
   connections and writes no qlog; `tools/h3spec.sh`, `tools/h3load.sh` and the runner's `http3` run
-  it. An address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh
-  [port]` runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
+  it. An address is IPv4 or IPv6; a server bound to `::` takes both on Linux. `tools/quic_udp.sh`
+  runs a client against a server on 127.0.0.1 over both protocols and against the `h3` mode,
   checks each file arrives octet for octet, that a missing one is refused, that a client with
   `chacha20` runs TLS_CHACHA20_POLY1305_SHA256, and that a second connection resumes the first one's
   session. It also checks each connection's qlog files with `tools/qlog_check.py`, which requires
   each record to be a JSON text with the members its event requires. `tools/qlog_to_qvis.py
   <file.sqlog> [output]` rewrites one into the qlog 0.3 form qvis reads (decision 102 as amended).
-  `tools/quic_aioquic.sh [port]` runs the same endpoint against aioquic's, pinned and installed once
+  `tools/quic_aioquic.sh` runs the same endpoint against aioquic's, pinned and installed once
   into a cached virtual environment, over both protocols in both directions, the `h3` mode serving
   h3, and checks that a handshake colibri's server refuses ends with its CONNECTION_CLOSE; it also
   needs `python3`. `tools/ci.sh` runs both.
 - Channel check: `zig build http-client -- --channel --tls <anchor-prefix> --seconds <unix-seconds>
   [--fallback-ms <milliseconds>] --get <path>...` hands the plan to one `client.Channel`, which
   opens QUIC first and TCP once QUIC fails or the fallback delay passes (design §8 step 17d).
-  `tools/channel_interop.sh [port]` runs it against aioquic's h3 server, against quic-go's from the
+  `tools/channel_interop.sh` runs it against aioquic's h3 server, against quic-go's from the
   QUIC Interop Runner's image, pinned by digest, and against Go's h2 server over TLS, which has no
   UDP and which the client falls back to. It needs `python3`, `docker` and `go`, and
   `tools/ci.sh` runs it.

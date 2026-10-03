@@ -21,10 +21,7 @@ readonly peer_directory="${repository_root}/tools/h2_interop"
 # The image is tagged with a checksum of what it is built from, so a run builds it only when one
 # of those files changed, and CI can keep it between runs under the same name.
 readonly image="colibri-h2-interop:$(cat "${peer_directory}/Dockerfile" "${peer_directory}/h2o.conf" "${peer_directory}/h2o_tls.conf" "${peer_directory}/Caddyfile" "${peer_directory}/Caddyfile_tls" | shasum -a 256 | cut -c1-16)"
-readonly go_port=18461
-readonly nghttpd_port=18462
-readonly h2o_port=18463
-readonly caddy_port=18464
+readonly listening_port="${repository_root}/tools/listening_port.sh"
 # Octets of request content: past the 65,535-octet window a stream starts with several times
 # over (RFC 9113 §6.9.2), so it finishes only if the client reads the peer's WINDOW_UPDATE frames.
 readonly content_len=300000
@@ -46,6 +43,7 @@ pattern_crc32() {
   python3 -c "import sys, zlib; print('0x%08x' % zlib.crc32(bytes(i % 251 for i in range(int(sys.argv[1])))))" "$1"
 }
 
+# wait_for_port <port>: waits until the host accepts a connection on the port.
 wait_for_port() {
   for _ in $(seq "${listen_wait_seconds}"); do
     nc -z 127.0.0.1 "$1" 2>/dev/null && return 0
@@ -57,7 +55,7 @@ wait_for_port() {
 # wait_for_container: waits until the peer in ${container} listens on its port 8080. Docker accepts
 # a connection on the published host port before the peer has bound its own, and closes it at once,
 # so `wait_for_port` alone lets the client connect too early. The run reads the container's own TCP
-# sockets instead, as tools/channel_interop.sh reads quic-go's UDP ones: 8080 is 1F90 in /proc's
+# sockets too, as tools/channel_interop.sh reads quic-go's UDP ones: 8080 is 1F90 in /proc's
 # hexadecimal, and 0A is the listening state.
 wait_for_container() {
   for _ in $(seq "${listen_wait_seconds}"); do
@@ -70,6 +68,9 @@ wait_for_container() {
 
 background_pid=""
 container=""
+# The port the peer now running listens on, which the kernel or Docker chose
+# (https://github.com/c4milo/colibri/issues/94).
+peer_port=""
 readonly scratch="$(mktemp -d)"
 # The identity every TLS peer serves. The containers mount its directory at /identity.
 readonly identity_directory="${scratch}/tls"
@@ -78,7 +79,6 @@ readonly identity="${identity_directory}/colibri"
 # over TLS. The client reads no clock (CLAUDE.md non-negotiable 3), so the run passes one.
 mode_arguments=()
 stop_peer() {
-  # A killed server holds its port until it exits, and the next one binds the same port.
   [ -z "${background_pid}" ] || {
     kill "${background_pid}" 2>/dev/null || true
     wait "${background_pid}" 2>/dev/null || true
@@ -88,19 +88,18 @@ stop_peer() {
 }
 trap 'stop_peer; rm -rf "${scratch}"' EXIT
 
-# run_client <port> <client arguments...>: runs the plan, on one connection and then on as many
-# as the client holds at once, and leaves the single-connection report in ${report}.
+# run_client <client arguments...>: runs the plan against the peer now running, on one connection
+# and then on as many as the client holds at once, and leaves the single-connection report in
+# ${report}.
 report=""
 run_client() {
-  local port="$1"
-  shift
-  report="$("${client}" --port "${port}" ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1)" ||
+  report="$("${client}" --port "${peer_port}" ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1)" ||
     { echo "${report}"; fail "the client exited non-zero"; }
   echo "${report}"
   # Every exchange ran over h2, whichever way the connection chose it.
   ! grep -qE " protocol=(h11|none) " <<<"${report}" || fail "an exchange ran over h11, or never connected"
   local many
-  many="$("${client}" --port "${port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1 | tail -1)" ||
+  many="$("${client}" --port "${peer_port}" --connections 64 ${mode_arguments[@]+"${mode_arguments[@]}"} "$@" 2>&1 | tail -1)" ||
     fail "64 connections: ${many}"
   echo "${many}"
   [ "${many}" = "http-client: connections=64 succeeded=64 failed=0" ] || fail "64 connections did not all succeed"
@@ -147,10 +146,10 @@ refuse_untrusted() {
   local other="${identity_directory}/other"
   (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${other}")
   stop_peer
-  "${scratch}/go_server" "${go_port}" "${identity}" 2>"${scratch}/refused.log" &
+  "${scratch}/go_server" 0 "${identity}" >"${scratch}/go.log" 2>"${scratch}/refused.log" &
   background_pid=$!
-  wait_for_port "${go_port}"
-  if "${client}" --port "${go_port}" --tls "${other}" --seconds "$(date +%s)" --get / >/dev/null 2>&1; then
+  peer_port="$("${listening_port}" "${scratch}/go.log")"
+  if "${client}" --port "${peer_port}" --tls "${other}" --seconds "$(date +%s)" --get / >/dev/null 2>&1; then
     fail "the client completed a handshake with a chain its anchor did not sign"
   fi
   for _ in $(seq 1 50); do
@@ -169,17 +168,13 @@ refuse_untrusted() {
 forge_record() {
   stop_peer
   (cd "${peer_directory}" && go build -o "${scratch}/forged_record" forged_record.go)
-  "${scratch}/forged_record" server "${go_port}" "${identity}" h2 >"${scratch}/forged.log" 2>&1 &
+  "${scratch}/forged_record" server 0 "${identity}" h2 >"${scratch}/forged.log" 2>&1 &
   background_pid=$!
   # The Go server takes one connection, so the run waits for its line: a probe of the port would
   # be that connection.
-  for _ in $(seq 1 100); do
-    grep -qx ready "${scratch}/forged.log" && break
-    sleep 0.1
-  done
-  grep -qx ready "${scratch}/forged.log" || fail "forged_record.go did not listen on port ${go_port}"
+  peer_port="$("${listening_port}" "${scratch}/forged.log")"
   local outcome=0
-  report="$("${client}" --port "${go_port}" --tls "${identity}" --seconds "$(date +%s)" --get / 2>&1)" || outcome=$?
+  report="$("${client}" --port "${peer_port}" --tls "${identity}" --seconds "$(date +%s)" --get / 2>&1)" || outcome=$?
   [ "${outcome}" -ne 0 ] || fail "the client completed an exchange over a forged record"
   [ "$(tail -1 <<<"${report}")" = "http-client: connections=1 succeeded=0 failed=1" ] ||
     { echo "${report}"; fail "the client did not count the forged record's connection as failed"; }
@@ -196,13 +191,13 @@ start_go() {
   stop_peer
   local coded=()
   if [ "${1:-}" = -gzip ]; then coded=(-gzip); shift; fi
-  "${scratch}/go_server" ${coded[@]+"${coded[@]}"} "${go_port}" "$@" &
+  "${scratch}/go_server" ${coded[@]+"${coded[@]}"} 0 "$@" >"${scratch}/go.log" &
   background_pid=$!
-  wait_for_port "${go_port}"
+  peer_port="$("${listening_port}" "${scratch}/go.log")"
 }
 
 plan_go() {
-  run_client "${go_port}" --get / --get /large --post /echo "${content_len}" \
+  run_client --get / --get /large --post /echo "${content_len}" \
     --get /interim --get /trailers --get /missing
   expect / "status=200 interim=0"
   expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
@@ -217,7 +212,7 @@ plan_go() {
 # Decision 101: the client offers gzip and deflate, Go's server with -gzip codes each answer in
 # gzip, and the client decodes it octet for octet and names the coding it removed.
 plan_go_coded() {
-  run_client "${go_port}" --coded --get / --get /large
+  run_client --coded --get / --get /large
   expect / "status=200 interim=0 sent=0 sent_crc32=0x00000000 received=8"
   expect / "coding=gzip"
   expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response error_code=0 coding=gzip"
@@ -225,46 +220,51 @@ plan_go_coded() {
 
 # Decision 101 as amended: h2o codes a text file in br, the first coding the client offers.
 plan_h2o_coded() {
-  run_client "${h2o_port}" --coded --get /text.txt
+  run_client --coded --get /text.txt
   expect /text.txt "received=${text_len} received_crc32=${text_crc32} outcome=response error_code=0 coding=br"
 }
 
 # Decision 101 as amended: Caddy codes a text file in zstd, the coding the client weighs highest of
 # those Caddy has.
 plan_caddy_coded() {
-  run_client "${caddy_port}" --coded --get /text.txt
+  run_client --coded --get /text.txt
   expect /text.txt "received=${text_len} received_crc32=${text_crc32} outcome=response error_code=0 coding=zstd"
 }
 
 run_caddy() {
   echo "h2_interop.sh: Caddy $(docker run --rm "${image}" caddy version)"
-  start_container caddy "${caddy_port}" caddy run --config /etc/caddy/colibri.Caddyfile --adapter caddyfile
+  start_container caddy caddy run --config /etc/caddy/colibri.Caddyfile --adapter caddyfile
   plan_caddy_coded
   if [ -n "${tls}" ]; then
-    start_container caddy "${caddy_port}" caddy run --config /etc/caddy/colibri_tls.Caddyfile --adapter caddyfile
+    start_container caddy caddy run --config /etc/caddy/colibri_tls.Caddyfile --adapter caddyfile
     over_tls plan_caddy_coded
   fi
   stop_peer
 }
 
+# start_container <peer> <command...>: runs the peer in a container, on a host port Docker
+# chooses, and under a name this run alone has, so two runs keep their own peers.
 start_container() {
   stop_peer
-  container="colibri-h2-interop-peer-$1"
-  docker rm -f "${container}" >/dev/null 2>&1 || true
-  docker run -d --rm --name "${container}" -p "127.0.0.1:$2:8080" \
-    -v "${identity_directory}:/identity:ro" "${image}" "${@:3}" >/dev/null
-  wait_for_port "$2"
+  container="colibri-h2-interop-peer-$1-$$"
+  docker run -d --rm --name "${container}" -p "127.0.0.1::8080" \
+    -v "${identity_directory}:/identity:ro" "${image}" "${@:2}" >/dev/null
   wait_for_container
+  peer_port="$(docker port "${container}" 8080/tcp | head -1)"
+  peer_port="${peer_port##*:}"
+  [ -n "${peer_port}" ] || fail "Docker published no port for ${container}"
+  # The host side of the published port may start to accept a moment after the container runs.
+  wait_for_port "${peer_port}"
 }
 
 run_nghttpd() {
   echo "h2_interop.sh: $(docker run --rm "${image}" nghttpd --version)"
   # This peer binds its port late, which only `wait_for_container` waits for.
-  start_container nghttpd "${nghttpd_port}" \
+  start_container nghttpd \
     sh -c "sleep ${late_bind_seconds}; exec nghttpd --no-tls -d /www 8080"
   plan_nghttpd
   if [ -n "${tls}" ]; then
-    start_container nghttpd "${nghttpd_port}" nghttpd -d /www 8080 \
+    start_container nghttpd nghttpd -d /www 8080 \
       /identity/colibri.key.pem /identity/colibri.chain.pem
     over_tls plan_nghttpd
   fi
@@ -272,7 +272,7 @@ run_nghttpd() {
 }
 
 plan_nghttpd() {
-  run_client "${nghttpd_port}" --get / --get /large --post /index.html "${content_len}" --get /missing
+  run_client --get / --get /large --post /index.html "${content_len}" --get /missing
   expect / "status=200 interim=0 sent=0"
   expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
   # nghttpd answers a POST with the file, after it has read the content whole.
@@ -282,11 +282,11 @@ plan_nghttpd() {
 
 run_h2o() {
   echo "h2_interop.sh: $(docker run --rm "${image}" h2o --version | head -1)"
-  start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri.conf
+  start_container h2o h2o -c /etc/h2o/colibri.conf
   plan_h2o
   plan_h2o_coded
   if [ -n "${tls}" ]; then
-    start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri_tls.conf
+    start_container h2o h2o -c /etc/h2o/colibri_tls.conf
     over_tls plan_h2o
     over_tls plan_h2o_coded
   fi
@@ -294,7 +294,7 @@ run_h2o() {
 }
 
 plan_h2o() {
-  run_client "${h2o_port}" --get / --get /large --post /index.html "${content_len}" --get /missing
+  run_client --get / --get /large --post /index.html "${content_len}" --get /missing
   expect / "status=200 interim=0 sent=0"
   expect /large "received=${large_len} received_crc32=${large_crc32} outcome=response"
   # h2o's file handler refuses the method, and still reads the content whole (RFC 9110 §15.5.6).

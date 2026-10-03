@@ -8,14 +8,17 @@
 # h2spec is not installed by this repository. On macOS: brew install h2spec. Elsewhere, take the
 # release named by h2spec_version from https://github.com/summerwind/h2spec.
 #
-# Usage: tools/h2spec.sh [port] [--tls]
+# The server binds port 0 and the run reads the port the kernel chose from its log, so two runs
+# on one machine do not collide (https://github.com/c4milo/colibri/issues/94).
+#
+# Usage: tools/h2spec.sh [--tls]
 set -euo pipefail
 
 readonly h2spec_version="2.6.0"
-readonly port="${1:-18443}"
-readonly tls="${2:-}"
+readonly tls="${1:-}"
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly server="${repository_root}/zig-out/bin/http-server"
+readonly listening_port="${repository_root}/tools/listening_port.sh"
 
 # The cases colibri does not pass, and why. Each one tests a rule RFC 7540 §5.3.1 stated and
 # RFC 9113 dropped with the rest of the priority scheme: §5.3.2 deprecates the signalling and §6.3
@@ -48,7 +51,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[ -z "${tls}" ] || [ "${tls}" = "--tls" ] || fail "usage: tools/h2spec.sh [port] [--tls]"
+{ [ -z "${tls}" ] || [ "${tls}" = "--tls" ]; } && [ "$#" -le 1 ] || fail "usage: tools/h2spec.sh [--tls]"
 echo "h2spec.sh: building the test-only server"
 (cd "${repository_root}" && zig build install)
 [ -x "${server}" ] || fail "the server was not built at ${server}"
@@ -64,11 +67,12 @@ run_suite() {
     shift
   done
   shift
-  "${server}" --port "${port}" "${server_arguments[@]}" &
+  "${server}" --port 0 ${server_arguments[@]+"${server_arguments[@]}"} 2>"${scratch}/${label}.server.log" &
   server_pid=$!
-  # Wait one second for the listener to start accepting connections before the first case connects.
-  sleep 1
-  kill -0 "${server_pid}" 2>/dev/null || fail "the ${label} server exited before the suite started"
+  # The server prints its port once every worker's listener is bound.
+  local port
+  port="$("${listening_port}" "${scratch}/${label}.server.log")" ||
+    fail "the ${label} server did not listen"
 
   local report="${scratch}/${label}.txt"
   echo "h2spec.sh: running h2spec ${h2spec_version} against 127.0.0.1:${port} (${label})"

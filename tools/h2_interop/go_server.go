@@ -18,7 +18,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -87,12 +89,20 @@ func main() {
 		// RFC 9113 §3.2: h2 over TLS, selected by ALPN, which this server offers alone.
 		protocols.SetHTTP2(true)
 	}
+	listener, err := net.Listen("tcp", server.Addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// A script reads the port from this line and connects once it is out. With a port of 0 the
+	// kernel chose it (https://github.com/c4milo/colibri/issues/94).
+	fmt.Printf("go_server: listening on port %d\n", listener.Addr().(*net.TCPAddr).Port)
+	os.Stdout.Sync()
 	if len(arguments) == 1 {
-		log.Fatal(server.ListenAndServe())
+		log.Fatal(server.Serve(listener))
 	}
 	server.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS13}
 	prefix := arguments[1]
-	log.Fatal(server.ListenAndServeTLS(prefix+".chain.pem", prefix+".key.pem"))
+	log.Fatal(server.ServeTLS(listener, prefix+".chain.pem", prefix+".key.pem"))
 }
 
 // Codes each answer in gzip when its request's Accept-Encoding names gzip, which net/http leaves

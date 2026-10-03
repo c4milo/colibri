@@ -93,7 +93,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("ready")
+	// The check reads the port from this line and connects once it is out. With a port of 0 the
+	// kernel chose it (https://github.com/c4milo/colibri/issues/94).
+	fmt.Printf("tls_server: listening on port %d\n", listener.Addr().(*net.TCPAddr).Port)
 	os.Stdout.Sync()
 	log.Fatal(server.ServeTLS(listener, "", ""))
 }

@@ -35,6 +35,10 @@ const hostname = "localhost"
 // How long it waits for colibri's answer before it reports none.
 const answerWait = 10 * time.Second
 
+// How long the server waits for the client to connect. A script that started no client, or one
+// that connected elsewhere, then fails here and does not wait for ever.
+const acceptWait = 30 * time.Second
+
 func main() {
 	if len(os.Args) != 5 || (os.Args[1] != "client" && os.Args[1] != "server") {
 		log.Fatal("usage: forged_record client|server <port> <identity-prefix> <alpn>")
@@ -103,8 +107,13 @@ func accept(port, prefix string, config *tls.Config) (net.Conn, *tls.Conn) {
 		log.Fatal(err)
 	}
 	defer listener.Close()
-	fmt.Println("ready")
+	// The script reads the port from this line and connects once it is out. With a port of 0 the
+	// kernel chose it (https://github.com/c4milo/colibri/issues/94).
+	fmt.Printf("forged_record: listening on port %d\n", listener.Addr().(*net.TCPAddr).Port)
 	os.Stdout.Sync()
+	if err := listener.(*net.TCPListener).SetDeadline(time.Now().Add(acceptWait)); err != nil {
+		log.Fatal(err)
+	}
 	raw, err := listener.Accept()
 	if err != nil {
 		log.Fatal(err)

@@ -11,15 +11,14 @@
 # It needs a Go toolchain. chapulin comes from the package build.zig.zon pins (design §8 step
 # 16a). It is not part of `zig build test`.
 #
-#   tools/tls_accept.sh [port]
+#   tools/tls_accept.sh
 #
 # The run mints its own CA and a leaf signed by it, hands colibri the leaf, the root and the
-# signing key, and has the client pin that one root.
+# signing key, and has the client pin that one root. The server binds port 0, and the run reads
+# the port the kernel chose from its log, so two runs on one machine do not collide
+# (https://github.com/c4milo/colibri/issues/94).
 set -euo pipefail
 
-# Below Linux's ephemeral range (32768-60999), from which earlier sections' connections draw
-# their source ports, so none of them holds it.
-readonly port="${1:-18492}"
 readonly hostname="localhost"
 
 scratch="$(mktemp -d)"
@@ -38,20 +37,12 @@ go build -o "$scratch/tls_client" tools/h2_interop/tls_client.go
 # chapulin's ecdsa_p256 slot takes. All raw DER or raw octets, never PEM.
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 
-# Starts colibri's server, which serves one connection, logging to $1. It prints "ready" once the
-# listener is open, so the client never races it.
+# Starts colibri's server, which serves one connection, logging to $1. It prints its port once
+# the listener is open, so the client never races it.
 start_server() {
-  ./zig-out/bin/tls-accept "$port" "$scratch/identity" > "$1" 2>&1 &
+  ./zig-out/bin/tls-accept 0 "$scratch/identity" > "$1" 2>&1 &
   server_pid=$!
-  for _ in $(seq 1 100); do
-    grep -q ready "$1" 2>/dev/null && break
-    sleep 0.1
-  done
-  if ! grep -q ready "$1" 2>/dev/null; then
-    echo "tls_accept: colibri's server did not start" >&2
-    cat "$1" >&2
-    exit 1
-  fi
+  port="$(tools/listening_port.sh "$1")"
 }
 
 start_server "$scratch/server.log"

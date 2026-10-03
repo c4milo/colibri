@@ -110,8 +110,11 @@ async def run_server(host, port, prefix, www, scratch):
     configuration = QuicConfiguration(is_client=False, alpn_protocols=[ALPN], secrets_log_file=keylog())
     configuration.load_cert_chain(chain, key)
     Server.www = www
-    await serve(host, port, configuration=configuration, create_protocol=Server)
-    print(f"hq_peer: listening on port {port}", flush=True)
+    server = await serve(host, port, configuration=configuration, create_protocol=Server)
+    # With a port of 0 the kernel chose one (https://github.com/c4milo/colibri/issues/94). serve()
+    # returns the protocol alone, and the pinned aioquic keeps its transport in `_transport`.
+    bound = server._transport.get_extra_info("sockname")[1]
+    print(f"hq_peer: listening on port {bound}", flush=True)
     await asyncio.Future()
 
 

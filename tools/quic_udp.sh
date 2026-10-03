@@ -11,13 +11,16 @@
 # It needs a Go toolchain, for the identity, and python3. chapulin comes from the package build.zig.zon pins
 # (design §8 step 16a). It is not part of `zig build test`.
 #
-#   tools/quic_udp.sh [port]
+#   tools/quic_udp.sh
 #
+# Each server binds port 0, and the run reads the port the kernel chose from its log, so two runs
+# on one machine do not collide (https://github.com/c4milo/colibri/issues/94).
 # SSLKEYLOGFILE, when set, receives both endpoints' traffic secrets.
 set -euo pipefail
 
-readonly port="${1:-44555}"
 readonly hostname="localhost"
+# The port the server now running listens on.
+port=""
 
 scratch="$(mktemp -d)"
 server_pid=""
@@ -42,18 +45,10 @@ head -c 3000000 /dev/urandom >"$scratch/www/large"
 # Starts a server with the options given, and waits for it to listen. With `once` it exits when
 # its first connection ends.
 start_server() {
-  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" "$@" \
+  ./zig-out/bin/quic-udp server 127.0.0.1 0 "$scratch/identity" "$scratch/www" "$@" \
     >"$scratch/server.log" 2>&1 &
   server_pid=$!
-  for _ in $(seq 1 100); do
-    grep -q listening "$scratch/server.log" 2>/dev/null && break
-    sleep 0.1
-  done
-  if ! grep -q listening "$scratch/server.log"; then
-    echo "quic_udp: the server did not start" >&2
-    cat "$scratch/server.log" >&2
-    exit 1
-  fi
+  port="$(tools/listening_port.sh "$scratch/server.log")"
 }
 
 client() {

@@ -6832,6 +6832,30 @@ only place in the tree permitted to touch a socket
 
 The HPACK and frame vectors need none of these; they are in-process unit tests.
 
+Each server among them takes the port its caller names. With port 0 it takes the one the kernel
+chooses, and it prints `listening on port <port>` once its socket is bound. The check scripts
+start every peer that way and read the port from that line, so no check binds a fixed port, and
+two runs on one machine do not collide ([decision 114](decisions.md),
+[#94](https://github.com/c4milo/colibri/issues/94)).
+
+**Checked on macOS 26.6.2 arm64 on 2026-10-03:**
+- The fourteen network checks ran at once in two worktrees: the port helper's check, h2spec, the
+  four interop scripts, the deadline check, the two TLS checks, the QUIC loopback, h3spec, the
+  two UDP scripts and the channel check. Every check passed in both worktrees, in each of two
+  rounds.
+- The first run of that kind failed one check in one worktree: the port helper read a log its
+  peer's shell had not created yet, and exited with no message. It now waits for the log, and
+  `tools/listening_port_check.sh` checks it.
+- Docker Desktop's host port refused the first connection in 17 of 30 container starts, for up
+  to 0.15 s. So a container's script waits for the host port after the peer's own socket.
+- Mutations: 12, each CAUGHT:
+  - every worker of the test server binding port 0, with its assertion and without;
+  - a peer printing a port it did not bind: the test server, `tls-accept`, the three Go peers
+    and the two Python peers;
+  - the helper reading no port, and reading a log that does not exist yet;
+  - no wait for the host port, in 3 runs of 3.
+- `zig build test` passed: 2539 of 2539 tests.
+
 ## 10. Determinism and the simulator
 
 The simulator replaces the caller — the bytes, the instants, the TLS provider and the crypto suite

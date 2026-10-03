@@ -11,13 +11,16 @@
 # build.zig.zon pins (design §8 step 16a). aioquic is pinned and installed once into a cached
 # virtual environment. It is not part of `zig build test`.
 #
-#   tools/quic_aioquic.sh [port]
+#   tools/quic_aioquic.sh
 #
+# Each server binds port 0, and the run reads the port the kernel chose from its log, so two runs
+# on one machine do not collide (https://github.com/c4milo/colibri/issues/94).
 # SSLKEYLOGFILE, when set, receives both endpoints' traffic secrets.
 set -euo pipefail
 
-readonly port="${1:-44655}"
 readonly hostname="localhost"
+# The port the server now running listens on.
+port=""
 readonly aioquic_version="1.3.0"
 readonly venv="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/aioquic-${aioquic_version}"
 
@@ -47,16 +50,9 @@ head -c 100000 /dev/urandom >"$scratch/www/medium"
 head -c 3000000 /dev/urandom >"$scratch/www/large"
 readonly files=(small medium large)
 
-# Waits for a server's log to say it listens, and fails the run when it does not.
+# Waits for a server's log to name the port it listens on, and takes it as the run's port.
 await_listening() {
-  local log="$1"
-  for _ in $(seq 1 100); do
-    grep -q listening "$log" 2>/dev/null && return
-    sleep 0.1
-  done
-  echo "quic_aioquic: the server did not start:" >&2
-  cat "$log" >&2
-  exit 1
+  port="$(tools/listening_port.sh "$1")"
 }
 
 compare() {
@@ -74,7 +70,7 @@ compare() {
 against_aioquic_server() {
   local into="$1" direction="$2"
   shift 2
-  "${active_peer[@]}" server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" >"$scratch/aioquic.log" 2>&1 &
+  "${active_peer[@]}" server 127.0.0.1 0 "$scratch/identity" "$scratch/www" >"$scratch/aioquic.log" 2>&1 &
   server_pid=$!
   await_listening "$scratch/aioquic.log"
   if ! ./zig-out/bin/quic-udp client 127.0.0.1 "$port" "$scratch/identity" "$hostname" "$(date +%s)" \
@@ -93,7 +89,7 @@ against_aioquic_server() {
 against_colibri_server() {
   local into="$1" direction="$2"
   shift 2
-  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" once "$@" \
+  ./zig-out/bin/quic-udp server 127.0.0.1 0 "$scratch/identity" "$scratch/www" once "$@" \
     >"$scratch/colibri.log" 2>&1 &
   server_pid=$!
   await_listening "$scratch/colibri.log"
@@ -125,7 +121,7 @@ against_colibri_server() {
 # server serves the next connection (https://github.com/c4milo/colibri/issues/59). The arguments
 # are the server's options.
 refused_handshake() {
-  ./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" "$@" \
+  ./zig-out/bin/quic-udp server 127.0.0.1 0 "$scratch/identity" "$scratch/www" "$@" \
     >"$scratch/refused.log" 2>&1 &
   server_pid=$!
   await_listening "$scratch/refused.log"

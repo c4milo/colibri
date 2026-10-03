@@ -17,7 +17,10 @@ set -uo pipefail
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly report="${1:-${repository_root}/ci-report.md}"
 readonly scratch="$(mktemp -d)"
-readonly h2load_port=18470
+# The port the throughput run's server listens on, which the kernel chooses: no check binds a
+# fixed port, so two runs on one machine do not collide
+# (https://github.com/c4milo/colibri/issues/94).
+h2load_port=""
 readonly h2load_runs=5
 readonly h2load_requests=200000
 readonly h2load_clients=32
@@ -87,9 +90,9 @@ h2load_once() {
 
 throughput() {
   zig build install -Drelease || return 1
-  zig-out/bin/http-server --port "${h2load_port}" 2>"${scratch}/http-server.log" &
+  zig-out/bin/http-server --port 0 2>"${scratch}/http-server.log" &
   server_pid=$!
-  sleep 1
+  h2load_port="$(tools/listening_port.sh "${scratch}/http-server.log")" || return 1
   # Decision 83: the server runs on Rotor, whose backend on Linux is io_uring or, where the kernel
   # refuses it, epoll. The report names which one this number came from.
   local backend
@@ -131,7 +134,8 @@ section "Simulator checks, Debug and ReleaseSafe" simulator_checks
 # chapulin comes from the package build.zig.zon pins (design §8 step 16a), so every run makes the
 # TLS and QUIC handshakes: h2spec and the interop in both directions over TLS as well as
 # cleartext, step 5's two handshakes against Go, and step 9e's QUIC checks.
-section "h2spec, cleartext and TLS" tools/h2spec.sh 18443 --tls
+section "The port helper every network check waits with" tools/listening_port_check.sh
+section "h2spec, cleartext and TLS" tools/h2spec.sh --tls
 h2spec_lines="$(grep -E "^h2spec.sh: [a-z]+: [0-9]+ passed" "${scratch}/last.log")"
 # Design §8 step 12: h3spec against design §9's h3 server (decision 47 as amended). h3spec.sh
 # prints the suite's count line twice, inside the suite's report and on its own, and uniq keeps

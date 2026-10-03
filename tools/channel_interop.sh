@@ -9,15 +9,16 @@
 # an h3 server of this run's files. The run needs python3, docker and go, and it is not part of
 # `zig build test`.
 #
-# Usage: tools/channel_interop.sh [port]
-#        (aioquic listens on <port>, quic-go on <port>+1, and Go's h2 server on <port>+2)
+# Each server binds port 0, or a host port Docker chooses, and the run reads the port from what
+# the server or Docker prints, so two runs on one machine do not collide
+# (https://github.com/c4milo/colibri/issues/94).
+#
+# Usage: tools/channel_interop.sh
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly client="${repository_root}/zig-out/bin/http-client"
-readonly aioquic_port="${1:-18494}"
-readonly quic_go_port="$((aioquic_port + 1))"
-readonly go_port="$((aioquic_port + 2))"
+readonly listening_port="${repository_root}/tools/listening_port.sh"
 readonly aioquic_version="1.3.0"
 readonly venv="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/aioquic-${aioquic_version}"
 # The image the QUIC Interop Runner runs for quic-go, an index for linux/amd64 and linux/arm64.
@@ -44,7 +45,6 @@ readonly identity="${scratch}/identity"
 server_pid=""
 container=""
 stop_peer() {
-  # A killed server holds its port until it exits.
   [ -z "${server_pid}" ] || {
     kill "${server_pid}" 2>/dev/null || true
     wait "${server_pid}" 2>/dev/null || true
@@ -119,9 +119,10 @@ plan_h3() {
 run_aioquic() {
   echo "channel_interop.sh: aioquic ${aioquic_version}"
   HQ_PEER_SCRATCH="${scratch}" "${venv}/bin/python" "${repository_root}/tools/quic_interop/h3_peer.py" \
-    server 127.0.0.1 "${aioquic_port}" "${identity}" "${scratch}/www" >"${scratch}/aioquic.log" 2>&1 &
+    server 127.0.0.1 0 "${identity}" "${scratch}/www" >"${scratch}/aioquic.log" 2>&1 &
   server_pid=$!
-  wait_until aioquic grep -q listening "${scratch}/aioquic.log"
+  local aioquic_port
+  aioquic_port="$("${listening_port}" "${scratch}/aioquic.log")"
   plan_h3 "${aioquic_port}"
   stop_peer
 }
@@ -133,14 +134,18 @@ run_quic_go() {
   cp "${identity}.chain.pem" "${scratch}/certs/cert.pem"
   cp "${identity}.key.pem" "${scratch}/certs/priv.key"
   chmod 777 "${scratch}/logs"
-  container="colibri-origin-quic-go"
-  docker rm -f "${container}" >/dev/null 2>&1 || true
+  # A name this run alone has, and a host port Docker chooses, so two runs keep their own peers.
+  container="colibri-origin-quic-go-$$"
   docker run -d --name "${container}" -e TESTCASE=http3 -v "${scratch}/certs:/certs:ro" \
-    -v "${scratch}/www:/www:ro" -v "${scratch}/logs:/logs" -p "127.0.0.1:${quic_go_port}:443/udp" \
+    -v "${scratch}/www:/www:ro" -v "${scratch}/logs:/logs" -p "127.0.0.1::443/udp" \
     --entrypoint /quic-go/server "${quic_go_image}" >/dev/null
   # The server prints nothing once it listens, so the run reads the container's UDP sockets for
   # port 443, 01BB in /proc's hexadecimal.
   wait_until quic-go docker exec "${container}" grep -q ":01BB " /proc/net/udp /proc/net/udp6
+  local quic_go_port
+  quic_go_port="$(docker port "${container}" 443/udp | head -1)"
+  quic_go_port="${quic_go_port##*:}"
+  [ -n "${quic_go_port}" ] || fail "Docker published no port for ${container}"
   plan_h3 "${quic_go_port}"
   stop_peer
 }
@@ -159,9 +164,10 @@ quic_go_version() {
 run_fallback() {
   echo "channel_interop.sh: $(go version), no UDP"
   (cd "${repository_root}/tools/h2_interop" && go build -o "${scratch}/go_server" go_server.go)
-  "${scratch}/go_server" "${go_port}" "${identity}" >"${scratch}/go.log" 2>&1 &
+  "${scratch}/go_server" 0 "${identity}" >"${scratch}/go.log" 2>&1 &
   server_pid=$!
-  wait_until "Go's server" nc -z 127.0.0.1 "${go_port}"
+  local go_port
+  go_port="$("${listening_port}" "${scratch}/go.log")"
   run_client h2 "${go_port}" --get / --get /large --post /echo "${content_len}"
   expect "GET /" "status=200 interim=0 sent=0 sent_crc32=0x00000000 received=8"
   expect "GET /large" "received=${large_len} received_crc32=$(pattern_crc32 "${large_len}") outcome=response"
@@ -172,7 +178,7 @@ run_fallback() {
   stop_peer
 }
 
-for tool in python3 docker go nc; do
+for tool in python3 docker go; do
   command -v "${tool}" >/dev/null 2>&1 || fail "${tool} is not installed"
 done
 echo "channel_interop.sh: building the test-only client"

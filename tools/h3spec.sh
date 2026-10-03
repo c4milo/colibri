@@ -17,10 +17,12 @@
 # on the first. colibri's ACK frames are what RFC 9000 permits, and quic-go, ngtcp2 and aioquic
 # read them, so the check turns ECN off rather than change colibri.
 #
-#   tools/h3spec.sh [port]
+# The server binds port 0, and the run reads the port the kernel chose from its log, so two runs
+# on one machine do not collide (https://github.com/c4milo/colibri/issues/94).
+#
+#   tools/h3spec.sh
 set -euo pipefail
 
-readonly port="${1:-44833}"
 readonly h3spec_version="v0.1.13"
 readonly cache="${XDG_CACHE_HOME:-$HOME/.cache}/colibri/h3spec-${h3spec_version}"
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -66,14 +68,10 @@ echo "h3spec.sh: building the endpoint"
 zig build
 go run tools/h2_interop/tls_identity.go "$scratch/identity"
 mkdir -p "$scratch/www"
-./zig-out/bin/quic-udp server 127.0.0.1 "$port" "$scratch/identity" "$scratch/www" h3 errors no-ecn \
+./zig-out/bin/quic-udp server 127.0.0.1 0 "$scratch/identity" "$scratch/www" h3 errors no-ecn \
   >"$scratch/server.log" 2>&1 &
 server_pid=$!
-for _ in $(seq 1 100); do
-  grep -q listening "$scratch/server.log" 2>/dev/null && break
-  sleep 0.1
-done
-grep -q listening "$scratch/server.log" || fail "the server did not start: $(cat "$scratch/server.log")"
+port="$(tools/listening_port.sh "$scratch/server.log")" || fail "the server did not start"
 
 echo "h3spec.sh: running h3spec ${h3spec_version} against 127.0.0.1:${port}"
 status=0

@@ -11,37 +11,41 @@
 # Each must end within a second after its instant and not before it. It needs python3, and it is
 # not part of `zig build test`.
 #
-#   tools/deadlines.sh [port]
+#   tools/deadlines.sh
 #
-# The h11 server listens on the port, and the h2 server on the one after it.
+# The h11 server and the h2 server each bind port 0, and the run reads the ports the kernel chose
+# from their logs, so two runs on one machine do not collide
+# (https://github.com/c4milo/colibri/issues/94).
 set -euo pipefail
 
-readonly port="${1:-18474}"
-
+readonly scratch="$(mktemp -d)"
 pids=()
 cleanup() {
   for pid in "${pids[@]}"; do
     kill "$pid" 2>/dev/null || true
   done
+  rm -rf "$scratch"
 }
 trap cleanup EXIT
 
 echo "deadlines.sh: building the server"
 zig build install
 readonly server="zig-out/bin/http-server"
-"$server" --port "$port" --h11 >/dev/null 2>&1 &
+"$server" --port 0 --h11 >"$scratch/h11.log" 2>&1 &
 pids+=("$!")
-"$server" --port "$((port + 1))" >/dev/null 2>&1 &
+"$server" --port 0 >"$scratch/h2.log" 2>&1 &
 pids+=("$!")
-sleep 1
+# Each server prints its port once every worker's listener is bound.
+h11_port="$(tools/listening_port.sh "$scratch/h11.log")"
+h2_port="$(tools/listening_port.sh "$scratch/h2.log")"
 
-python3 - "$port" <<'PYTHON'
+python3 - "$h11_port" "$h2_port" <<'PYTHON'
 import socket
 import sys
 import time
 
 h11_port = int(sys.argv[1])
-h2_port = h11_port + 1
+h2_port = int(sys.argv[2])
 # The client's connection preface and an empty SETTINGS frame (RFC 9113 §3.4).
 preface = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" + b"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
 goaway_type = 0x07
