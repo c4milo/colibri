@@ -134,33 +134,54 @@ var tls_shared: ?*const tls.record.ServerConfig = null;
 var tls_config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
 var tls_identity: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
 
-/// Runs one worker per core until the process is stopped, every one listening on `port`.
+/// Runs one worker per core until the process is stopped, every one listening on one port:
+/// `port`, or the port the kernel chose when `port` is 0.
 pub fn listen_and_serve(port: u16) !void {
     const cores = std.Thread.getCpuCount() catch 1;
     // One worker in the TLS mode: see the header.
     const count = if (tls_shared != null) 1 else @max(1, @min(cores, constants.workers_max));
+    const bound = try bind_listeners(port, count);
+    // A script reads the port from this line, and connects once it is out: every listener is bound.
+    std.debug.print("http-server: listening on port {d}, rotor backend {t}\n", .{ bound, rotor.backend() });
     var threads: [constants.workers_max]?std.Thread = @splat(null);
     for (1..count) |index| {
-        threads[index] = std.Thread.spawn(.{}, run_worker, .{ index, port }) catch null;
+        threads[index] = std.Thread.spawn(.{}, run_worker, .{index}) catch null;
+        // A listener with no worker would keep the connections the kernel hands it.
+        if (threads[index] == null) rotor.sync.close_now(workers[index].listener);
     }
     // The main thread is a worker too, so a one-core host spawns nothing.
-    try run_worker(0, port);
+    try run_worker(0);
     for (threads[1..count]) |thread| {
         if (thread) |handle| handle.join();
     }
 }
 
-/// Serves connections on `workers[index]` until the process is stopped.
-fn run_worker(index: usize, port: u16) !void {
+/// Binds the listener of each of the first `count` workers, before any worker runs, and returns
+/// the port they share. With a `port` of 0 the first takes the port the kernel chooses, and the
+/// others bind that one (https://github.com/c4milo/colibri/issues/94).
+fn bind_listeners(port: u16, count: usize) !u16 {
+    assert(count >= 1 and count <= constants.workers_max);
+    var bound = port;
+    for (workers[0..count], 0..) |*worker, index| {
+        const address = rotor.Address.ipv4(listen_address, bound);
+        worker.listener = try rotor.sync.listen(&address, .{ .backlog = constants.kernel_backlog, .reuse_port = true });
+        const local = try rotor.sync.local_address(worker.listener);
+        // SO_REUSEPORT: each worker's listener has the port of the first.
+        assert(index == 0 or local.port == bound);
+        bound = local.port;
+    }
+    assert(bound != 0);
+    return bound;
+}
+
+/// Serves connections on `workers[index]`, whose listener is bound, until the process is stopped.
+fn run_worker(index: usize) !void {
     const worker = &workers[index];
     worker.index = index;
     // Rotor's rule: the loop belongs to the thread that starts it.
     try worker.loop.init(&worker.loop_memory, loop_options);
     defer worker.loop.deinit();
-    const address = rotor.Address.ipv4(listen_address, port);
-    worker.listener = try rotor.sync.listen(&address, .{ .backlog = constants.kernel_backlog, .reuse_port = true });
     defer rotor.sync.close_now(worker.listener);
-    if (index == 0) std.debug.print("http-server: listening on port {d}, rotor backend {t}\n", .{ port, rotor.backend() });
     for (&worker.connections) |*connection| connection.live = false;
     worker.accepting = false;
     // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
@@ -431,6 +452,16 @@ const test_chain = [_][]const u8{&test_der};
 const test_private_key: [tls.constants.p256_private_key_len]u8 = @splat(1);
 const test_public_key: [tls.constants.p256_public_key_len]u8 = @splat(1);
 const test_cookie: [tls.constants.server_key_len]u8 = @splat(1);
+
+test "with port 0, every worker's listener has the port the kernel chose for the first" {
+    const count = 3;
+    const bound = try bind_listeners(0, count);
+    defer for (workers[0..count]) |*worker| rotor.sync.close_now(worker.listener);
+    try testing.expect(bound != 0);
+    for (workers[0..count]) |*worker| {
+        try testing.expectEqual(bound, (try rotor.sync.local_address(worker.listener)).port);
+    }
+}
 
 test "a TLS connection's session is wiped when its slot is freed" {
     try tls_config.init(.{

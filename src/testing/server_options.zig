@@ -4,7 +4,8 @@
 //!     http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--coded]
 //!         [--tls <identity-prefix>] [--h3-port <port>]
 //!
-//! `--h11`, `--echo` and `--coded` take no value. `--coded` codes each response in gzip or
+//! A `--port` of 0 takes the port the kernel chooses, which the server's `listening on port` line
+//! names (https://github.com/c4milo/colibri/issues/94). `--h11`, `--echo` and `--coded` take no value. `--coded` codes each response in gzip or
 //! deflate when its request accepts one (decision 101). `--h11` makes a cleartext connection speak h11, or a TLS
 //! server offer `http/1.1` alone. `--echo` answers every h11 request with what h11 read of it
 //! (`h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
