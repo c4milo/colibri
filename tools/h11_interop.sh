@@ -30,6 +30,9 @@ readonly content_len=300000
 readonly large_len=1048576
 # Seconds to wait for a peer to listen before the run gives it up.
 readonly listen_wait_seconds=30
+# Seconds one peer of each run waits before it binds its port, so a run that took the published
+# host port for the peer's own would connect too early, every time (`wait_for_container`).
+readonly late_bind_seconds=2
 
 fail() {
   echo "h11_interop.sh: $*" >&2
@@ -47,6 +50,20 @@ wait_for_port() {
     sleep 1
   done
   fail "nothing listened on port $1 within ${listen_wait_seconds} seconds"
+}
+
+# wait_for_container: waits until the peer in ${container} listens on its port 8080. Docker accepts
+# a connection on the published host port before the peer has bound its own, and closes it at once,
+# so `wait_for_port` alone lets the client connect too early. The run reads the container's own TCP
+# sockets instead, as tools/channel_interop.sh reads quic-go's UDP ones: 8080 is 1F90 in /proc's
+# hexadecimal, and 0A is the listening state.
+wait_for_container() {
+  for _ in $(seq "${listen_wait_seconds}"); do
+    docker exec "${container}" grep -Eq ':1F90 [0-9A-F]+:0000 0A ' /proc/net/tcp /proc/net/tcp6 \
+      2>/dev/null && return 0
+    sleep 1
+  done
+  fail "${container} did not listen on port 8080 within ${listen_wait_seconds} seconds"
 }
 
 background_pid=""
@@ -211,11 +228,14 @@ start_container() {
   docker run -d --rm --name "${container}" -p "127.0.0.1:$2:8080" \
     -v "${identity_directory}:/identity:ro" "${image}" "${@:3}" >/dev/null
   wait_for_port "$2"
+  wait_for_container
 }
 
 run_h2o() {
   echo "h11_interop.sh: $(docker run --rm "${image}" h2o --version | head -1)"
-  start_container h2o "${h2o_port}" h2o -c /etc/h2o/colibri.conf
+  # This peer binds its port late, which only `wait_for_container` waits for.
+  start_container h2o "${h2o_port}" \
+    sh -c "sleep ${late_bind_seconds}; exec h2o -c /etc/h2o/colibri.conf"
   mode_arguments=(--h11)
   plan_h2o
   plan_h2o_coded
