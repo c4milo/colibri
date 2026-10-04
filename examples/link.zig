@@ -58,47 +58,42 @@ const LoopMemory = struct {
     bytes: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
 };
 
-pub const Link = struct {
+/// Both sides' loops and the registry they share. `Link` holds one, and so does the
+/// `DatagramLink` of `link_datagram.zig`.
+pub const Loops = struct {
     registry_memory: [rotor.Registry.memory_bytes(side_count)]u8 align(rotor.memory_alignment),
     registry: rotor.Registry,
     loop_memory: [side_count]LoopMemory,
     loops: [side_count]rotor.Loop,
-    queues: [side_count][queue_len_max]u8,
-    queue_lens: [side_count]usize,
 
-    /// Starts both loops. `link` lives outside the stack: it holds both queues.
-    pub fn init(link: *Link) Error!void {
-        link.registry.init(&link.registry_memory, side_count);
+    /// Starts both loops, and ticks each once, so that `now_ns` holds an instant its loop read
+    /// before a connection starts: a connection's deadlines count from the instant it is given.
+    pub fn init(loops: *Loops) Error!void {
+        loops.registry.init(&loops.registry_memory, side_count);
         for (0..side_count) |index| {
             var options = loop_options;
             options.id = @intCast(index);
-            options.registry = &link.registry;
-            try link.loops[index].init(&link.loop_memory[index].bytes, options);
+            options.registry = &loops.registry;
+            try loops.loops[index].init(&loops.loop_memory[index].bytes, options);
         }
-        link.queue_lens = @splat(0);
+        for (std.enums.values(Side)) |side| try loops.tick(side, 0);
     }
 
-    pub fn deinit(link: *Link) void {
-        for (&link.loops) |*loop| loop.deinit();
+    pub fn deinit(loops: *Loops) void {
+        for (&loops.loops) |*loop| loop.deinit();
     }
 
-    /// Copies `octets` into the other side's queue and posts it a message saying they arrived.
-    pub fn send(link: *Link, from: Side, octets: []const u8) Error!void {
-        if (octets.len == 0) return;
-        const to = from.other();
-        const queue_len = &link.queue_lens[@intFromEnum(to)];
-        if (queue_len.* + octets.len > queue_len_max) return error.QueueFull;
-        @memcpy(link.queues[@intFromEnum(to)][queue_len.*..][0..octets.len], octets);
-        queue_len.* += octets.len;
-        const loop = &link.loops[@intFromEnum(from)];
-        const post = rotor.Operation.post(post_user_data, @intFromEnum(to), .{ .payload = octets.len, .tag = tag_octets });
+    /// Posts the other side's loop a message saying `len` octets arrived for it, and ticks the
+    /// sender's loop until the post's final event arrives.
+    pub fn notify(loops: *Loops, from: Side, len: usize) Error!void {
+        const loop = &loops.loops[@intFromEnum(from)];
+        const to: rotor.LoopId = @intFromEnum(from.other());
+        const post = rotor.Operation.post(post_user_data, to, .{
+            .payload = len,
+            .tag = tag_octets,
+        });
         const taken = loop.submit(&.{post}, &.{});
         assert(taken == 1);
-        try await_post(loop);
-    }
-
-    /// Ticks the sender's loop until its post's final event arrives.
-    fn await_post(loop: *rotor.Loop) Error!void {
         var events: [tick_events_max]rotor.Event = undefined;
         for (0..post_ticks_max) |_| {
             const count = try loop.tick(&events, 0);
@@ -111,14 +106,52 @@ pub const Link = struct {
         return error.PostRefused;
     }
 
-    /// Ticks `side`'s loop once, and returns every octet waiting for it. The side hands them to
-    /// colibri, then calls `consume` with how many colibri took.
-    pub fn receive(link: *Link, side: Side) Error![]const u8 {
+    /// Ticks `side`'s loop once, which delivers the messages posted to it. With `wait_ns` of 0 the
+    /// tick does not wait: both loops run on this thread, so a message posted to this one is
+    /// already in its mailbox. A longer wait is how a side sleeps until its next deadline.
+    pub fn tick(loops: *Loops, side: Side, wait_ns: u64) Error!void {
         var events: [tick_events_max]rotor.Event = undefined;
-        // Both loops run on this thread, so a message posted to this one is already in its
-        // mailbox, and a tick that does not wait delivers it.
-        const count = try link.loops[@intFromEnum(side)].tick(&events, 0);
+        const count = try loops.loops[@intFromEnum(side)].tick(&events, wait_ns);
         for (events[0..count]) |event| assert(event.flags.message and event.result == tag_octets);
+    }
+
+    /// The instant `side`'s loop read at its last tick, which is what colibri is given.
+    pub fn now_ns(loops: *const Loops, side: Side) u64 {
+        return loops.loops[@intFromEnum(side)].now_ns();
+    }
+};
+
+pub const Link = struct {
+    loops: Loops,
+    queues: [side_count][queue_len_max]u8,
+    queue_lens: [side_count]usize,
+
+    /// Starts both loops. `link` lives outside the stack: it holds both queues.
+    pub fn init(link: *Link) Error!void {
+        try link.loops.init();
+        link.queue_lens = @splat(0);
+    }
+
+    pub fn deinit(link: *Link) void {
+        link.loops.deinit();
+    }
+
+    /// Copies `octets` into the other side's queue and posts it a message saying they arrived.
+    pub fn send(link: *Link, from: Side, octets: []const u8) Error!void {
+        if (octets.len == 0) return;
+        const to = from.other();
+        const queue_len = &link.queue_lens[@intFromEnum(to)];
+        if (queue_len.* + octets.len > queue_len_max) return error.QueueFull;
+        @memcpy(link.queues[@intFromEnum(to)][queue_len.*..][0..octets.len], octets);
+        queue_len.* += octets.len;
+        try link.loops.notify(from, octets.len);
+    }
+
+    /// Ticks `side`'s loop once, and returns every octet waiting for it. The side hands them to
+    /// colibri, then calls `consume` with how many colibri took. The octets are the side's to
+    /// change: over TLS, colibri opens each record in place.
+    pub fn receive(link: *Link, side: Side) Error![]u8 {
+        try link.loops.tick(side, 0);
         return link.queues[@intFromEnum(side)][0..link.queue_lens[@intFromEnum(side)]];
     }
 
@@ -133,6 +166,6 @@ pub const Link = struct {
 
     /// The instant `side`'s loop read at its last tick, which is what colibri is given.
     pub fn now_ns(link: *const Link, side: Side) u64 {
-        return link.loops[@intFromEnum(side)].now_ns();
+        return link.loops.now_ns(side);
     }
 };

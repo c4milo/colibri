@@ -96,11 +96,11 @@ pub fn build(b: *std.Build) void {
     graph.testing.addImport("rotor", rotor_dependency.module("rotor"));
     graph.testing_client.addImport("rotor", rotor_dependency.module("rotor"));
     // Decision 96: the programs of examples/ run over an in-memory link on rotor's loop.
-    examples.add(b, graph, rotor_dependency.module("rotor"), target, optimize);
     // The owner's ruling of 2026-09-28: the test identity, which `tls_keylog`, `sim_run` and the
     // roots the tests of `tls`, `server` and `client` compile from import, and no packaged
     // module does. It is made here, in colibri's own build alone.
     const testdata = modules_test_roots.add_testdata(b, graph, target, optimize);
+    examples.add(b, graph, rotor_dependency.module("rotor"), testdata, target, optimize);
 
     const install_step = b.getInstallStep();
     const test_step = b.step("test", "Run the lint, then every module's unit tests");
