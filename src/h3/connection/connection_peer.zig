@@ -61,7 +61,7 @@ pub const Peer = struct {
 /// type of each that waits for one.
 pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
     const peer = &connection.peer;
-    const initiator = connection.initiator().peer();
+    const initiator = connection_module.initiator(connection).peer();
     // RFC 9114 §6.1: "Clients MUST treat receipt of a server-initiated bidirectional stream as a
     // connection error of type H3_STREAM_CREATION_ERROR". Streams open in order, so the first
     // tells.

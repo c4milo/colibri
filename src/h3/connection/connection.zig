@@ -300,15 +300,23 @@ pub const Connection = struct {
         assert(constants.is_reserved(code));
         return code;
     }
-
-    /// The QUIC role that matches colibri's.
-    pub fn initiator(connection: *const Connection) quic.stream.Initiator {
-        return switch (connection.options.role) {
-            .client => .client,
-            .server => .server,
-        };
-    }
 };
+
+/// The QUIC role that matches colibri's.
+pub fn initiator(connection: *const Connection) quic.stream.Initiator {
+    return switch (connection.options.role) {
+        .client => .client,
+        .server => .server,
+    };
+}
+
+test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
+    try core.public_names.expect(Connection, &.{
+        "init",             "start",          "provider",       "receive",           "field_section",
+        "write_request",    "write_response", "write_trailers", "write_data_header", "cancel",
+        "oldest_head_wait", "stop_reading",   "shutdown",       "fail",              "no_error_code",
+    });
+}
 
 test {
     _ = connection_local;
