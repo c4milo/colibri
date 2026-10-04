@@ -235,33 +235,6 @@ pub const Connection = struct {
         };
     }
 
-    /// Takes a decoder when the body of the head just read carries `gzip` or `deflate`
-    /// (decision 91). With no pool, a server does not decode the coding and a client did not offer
-    /// it.
-    pub fn begin_decoding(connection: *Connection, body: message.Body) (coding.Error || error{CodingUndecoded})!void {
-        if (body.coding == .none) return;
-        // RFC 9112 §6.1: a server answers a coding it does not decode 501, and RFC 9112 §7.4: a
-        // client that sent no TE accepts chunked alone.
-        const storage = connection.decoders orelse return error.CodingUndecoded;
-        try coding.start(&connection.decoding, storage, body.coding);
-    }
-
-    /// Reads body octets from `input`, decoding them into `decoded` when the body carries a
-    /// compression coding (decision 98).
-    pub fn read_body(connection: *Connection, role: message.Role, input: []const u8, decoded: []u8) (connection_body.ReadError || coding.Error)!connection_body.Read {
-        if (!connection.decoding.active()) {
-            return connection_body.read(&connection.reader, role, input, &connection.trailers);
-        }
-        // Decision 98: a caller that placed a decoder pool passes room for what it decodes.
-        assert(decoded.len > 0);
-        return connection_body.read_coded(&connection.reader, &connection.decoding, connection.decoders.?, role, input, &connection.trailers, decoded);
-    }
-
-    /// Gives back the decoder of a body that will not be read to its end.
-    pub fn release_decoding(connection: *Connection) void {
-        coding.release(&connection.decoding, connection.decoders);
-    }
-
     /// Writes a request head (a client's call). See `connection_client.zig`.
     pub fn write_request(connection: *Connection, output: []u8, method: []const u8, target: []const u8, fields: []const http.Field) SendError!usize {
         assert(connection.role == .client);
@@ -333,7 +306,7 @@ pub const Connection = struct {
         // Decision 91: a coded body that runs until the close is whole only if its stream ended.
         const stream_whole = !connection.decoding.active() or connection.decoding.stream_ended;
         const ended = close_delimited and secure_close and stream_whole;
-        connection.release_decoding();
+        release_decoding(connection);
         const mid_message = !ended and (connection.phase == .body or connection.scanner.scanned > 0);
         const unanswered = if (ended) connection.outstanding_len - 1 else connection.outstanding_len;
         connection.phase = .closed;
@@ -347,13 +320,40 @@ pub const Connection = struct {
         connection.failure = failure;
         connection.phase = .closed;
         connection.writer = .{};
-        connection.release_decoding();
+        release_decoding(connection);
         if (connection.role == .server and !connection.answered) connection.reply_status = status;
         // RFC 9112 §2.2 and §9.6: a peer that breaks the message framing leaves no next message to
         // read, so the connection closes.
         return error.ConnectionFailed;
     }
 };
+
+/// Takes a decoder when the body of the head just read carries `gzip` or `deflate`
+/// (decision 91). With no pool, a server does not decode the coding and a client did not offer
+/// it.
+pub fn begin_decoding(connection: *Connection, body: message.Body) (coding.Error || error{CodingUndecoded})!void {
+    if (body.coding == .none) return;
+    // RFC 9112 §6.1: a server answers a coding it does not decode 501, and RFC 9112 §7.4: a
+    // client that sent no TE accepts chunked alone.
+    const storage = connection.decoders orelse return error.CodingUndecoded;
+    try coding.start(&connection.decoding, storage, body.coding);
+}
+
+/// Reads body octets from `input`, decoding them into `decoded` when the body carries a
+/// compression coding (decision 98).
+pub fn read_body(connection: *Connection, role: message.Role, input: []const u8, decoded: []u8) (connection_body.ReadError || coding.Error)!connection_body.Read {
+    if (!connection.decoding.active()) {
+        return connection_body.read(&connection.reader, role, input, &connection.trailers);
+    }
+    // Decision 98: a caller that placed a decoder pool passes room for what it decodes.
+    assert(decoded.len > 0);
+    return connection_body.read_coded(&connection.reader, &connection.decoding, connection.decoders.?, role, input, &connection.trailers, decoded);
+}
+
+/// Gives back the decoder of a body that will not be read to its end.
+pub fn release_decoding(connection: *Connection) void {
+    coding.release(&connection.decoding, connection.decoders);
+}
 
 /// Whether a Connection field line of `section` carries the "close" option (RFC 9110 §7.6.1).
 pub fn section_asks_close(section: *const http.FieldSection) bool {
@@ -400,4 +400,12 @@ pub fn is_idempotent(method: []const u8) bool {
         .get, .head, .options, .trace, .put, .delete => true,
         .post, .connect => false,
     };
+}
+
+test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
+    try @import("core").public_names.expect(Connection, &.{
+        "init",         "attach_tls",       "receive",   "write_request", "write_response",
+        "write_body",   "count_body",       "write_end", "has_pending",   "write_pending",
+        "should_close", "transport_closed", "fail",
+    });
 }

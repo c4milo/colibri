@@ -58,7 +58,7 @@ fn read_request(target: *Connection, input: []const u8) connection.Error!Receive
     target.reader = connection_body.Reader.start(request.body.length);
     target.phase = if (target.reader.open()) .body else .waiting;
     // Decision 91: a body carrying gzip or deflate takes a decoder before its first octet.
-    target.begin_decoding(request.body) catch |failure| return target.fail(failure, status_of(failure));
+    connection.begin_decoding(target, request.body) catch |failure| return target.fail(failure, status_of(failure));
     return .{ .consumed = request.head_len, .event = .{ .request = .{
         .line = request.line,
         .form = request.form,
@@ -67,7 +67,7 @@ fn read_request(target: *Connection, input: []const u8) connection.Error!Receive
 }
 
 fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
-    const read = target.read_body(.request, input, decoded) catch |failure| {
+    const read = connection.read_body(target, .request, input, decoded) catch |failure| {
         return target.fail(failure, status_of(failure));
     };
     // decision 92: the next request waits for this one's final response.
@@ -164,7 +164,7 @@ pub fn finish_response(target: *Connection) void {
     if (target.phase == .body) target.close_after = true;
     if (target.close_after) {
         target.phase = .closed;
-        target.release_decoding();
+        connection.release_decoding(target);
         return;
     }
     assert(target.phase == .waiting);

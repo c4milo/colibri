@@ -119,7 +119,7 @@ fn read_response(target: *Connection, input: []const u8) connection.Error!Receiv
     if (response.line.status.is_interim()) return .{ .consumed = response.head_len, .event = .{ .interim = response.line } };
     // RFC 9112 §7.4: with no TE sent, chunked is the only acceptable coding, and a client sends TE
     // only when it has decoders; with them, a coded body takes one (decision 91).
-    target.begin_decoding(response.body) catch |failure| return target.fail(failure, null);
+    connection.begin_decoding(target, response.body) catch |failure| return target.fail(failure, null);
     // RFC 9112 §9.3: a response with the close option, or an HTTP/1.0 one, is the last.
     if (response.line.version.minor == 0 or connection.section_asks_close(&target.section)) target.close_after = true;
     target.reader = connection_body.Reader.start(response.body.length);
@@ -147,7 +147,7 @@ fn read_unrequested(target: *Connection, input: []const u8) connection.Error!Rec
 }
 
 fn read_body(target: *Connection, input: []const u8, decoded: []u8) connection.Error!Received {
-    const read = target.read_body(.response, input, decoded) catch |failure| {
+    const read = connection.read_body(target, .response, input, decoded) catch |failure| {
         return target.fail(failure, null);
     };
     if (read.ended) complete_response(target);
