@@ -39,8 +39,8 @@ The library is fifteen modules, each exported by name:
 | `h11` | HTTP/1.1 (RFC 9112) |
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
-| `server` | Responses to h11 and h2 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC follows (design §8 step 17b). |
-| `client` | Requests over h11 and h2 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). h3 over QUIC and the choice between the transports follow (design §8 step 17d). |
+| `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). A `Connection` serves h11 or h2 over one TCP connection, and an `Endpoint` holds the QUIC connections that serve h3 behind one UDP socket you own ([decision 103](decisions.md)). |
+| `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `Channel` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
 The package also exports stdx's codecs, `codec`, `gzip`, `zlib`, `zstd` and `brotli`, from the stdx
 colibri pins ([decision 101](decisions.md)).
