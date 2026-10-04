@@ -846,7 +846,7 @@ through four calls:
 Streams are yours: a `StreamProvider` your program passes to `send` hands colibri the octets of
 each stream as the flow-control windows allow.
 
-An `h3.connection.Connection` runs HTTP/3 over one QUIC connection. After each datagram, call its
+An `h3.Connection` runs HTTP/3 over one QUIC connection. After each datagram, call its
 `receive` until it returns null; each call returns at most one event. `provider` wraps your stream
 provider so that h3 serves its control and QPACK streams itself. `write_request`,
 `write_response`, `write_trailers` and `write_data_header` write frames into your buffer, and you
@@ -876,7 +876,7 @@ Every connection is a struct your program places, and its size is fixed at compi
 | `h11.coding.DefaultPool` | 691,472, 16 decoders the connections given it share |
 | `h2.Connection` | 162,192 |
 | `quic.Connection` | 141,232 |
-| `h3.connection.Connection` | 145,496, beside the QUIC connection it runs over |
+| `h3.Connection` | 145,496, beside the QUIC connection it runs over |
 
 The buffers your program reads into and writes from come on top, and QUIC's calls also take
 scratch storage your program places; `udp_peer.zig` shows both.
