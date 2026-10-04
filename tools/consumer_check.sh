@@ -2,9 +2,9 @@
 #
 # Builds and runs tools/consumer/, a project that depends on colibri as a package, the way README.md
 # tells a project to: colibri's working tree is packed as a tarball, `zig fetch --save` adds it to
-# a scratch copy of the consumer, and `zig build run` builds and runs it. It shows that the twelve
-# modules are exported under their names (decision 86), that the `.release` option exists, and
-# that a dependent fetches none of colibri's tooling. It then builds a program that links `tls`
+# a scratch copy of the consumer, and `zig build run` builds and runs it. It shows that the library
+# modules are exported under their names (decision 86), `server` and `client` among them, that the
+# `.release` option exists, and that a dependent fetches none of colibri's tooling. It then builds a program that links `tls`
 # and defines no `ch_assert_fail`, chapulin's one hook, which must fail to link and name it (design
 # §8 step 16). No program defines `ch_rand_bytes`: each session draws from the source its `start`
 # takes (decision 94 as amended).
@@ -30,7 +30,7 @@ zig fetch --save=colibri "${scratch}/colibri.tar.gz" >/dev/null
 stdx_url="$(grep -o 'git+https://github.com/c4milo/stdx#[0-9a-f]*' "${repository_root}/build.zig.zon")"
 zig fetch --save=stdx "${stdx_url}" >/dev/null
 zig build run 2>&1 | tee "${scratch}/run.log"
-grep -q "^consumer: h11, h2, tls and gzip link and run as a dependency$" "${scratch}/run.log"
+grep -q "^consumer: h11, h2, tls, gzip, server and client link and run as a dependency$" "${scratch}/run.log"
 if zig build without-assert >"${scratch}/without-assert.log" 2>&1; then
   echo "consumer_check.sh: a program with no ch_assert_fail linked" >&2
   exit 1

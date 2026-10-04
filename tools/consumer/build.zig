@@ -14,11 +14,16 @@ pub fn build(b: *std.Build) void {
             .optimize = .ReleaseSafe,
         }),
     });
+    // Decision 100: `server` and `client` put one set of calls over every version, and `tls` holds
+    // the values their handshakes take. The protocol modules follow, for a program that drives one
+    // version by itself.
     const colibri = b.dependency("colibri", .{ .target = target, .release = true });
+    exe.root_module.addImport("server", colibri.module("server"));
+    exe.root_module.addImport("client", colibri.module("client"));
+    exe.root_module.addImport("tls", colibri.module("tls"));
     exe.root_module.addImport("h11", colibri.module("h11"));
     exe.root_module.addImport("http", colibri.module("http"));
     exe.root_module.addImport("h2", colibri.module("h2"));
-    exe.root_module.addImport("tls", colibri.module("tls"));
     // Decision 101: colibri's package exports stdx's codecs.
     exe.root_module.addImport("gzip", colibri.module("gzip"));
     // Decision 97 as amended on 2026-09-30: the program probes its CPU through stdx's `platform`, from

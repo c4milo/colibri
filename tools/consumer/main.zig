@@ -1,11 +1,14 @@
-//! The program the consumer project builds: it reaches h11, h2, tls and stdx's gzip through the
-//! modules colibri exports, writes a request, reads a response, starts a TLS handshake and codes
-//! content, which shows the modules link and run for a project that depends on colibri.
+//! The program the consumer project builds: it reaches h11, h2, tls, server, client and stdx's
+//! gzip through the modules colibri exports, writes a request, reads a response, starts a TLS
+//! handshake, codes content and moves a request through the server and the client, which shows the
+//! modules link and run for a project that depends on colibri.
 const std = @import("std");
 const h11 = @import("h11");
 const h2 = @import("h2");
 const tls = @import("tls");
 const gzip = @import("gzip");
+const server_module = @import("server");
+const client_module = @import("client");
 const platform = @import("platform");
 
 var client: h11.connection.Connection align(@alignOf(h11.connection.Connection)) = undefined;
@@ -16,6 +19,17 @@ var output: [4096]u8 = undefined;
 var gzip_encoder: gzip.Encoder(.{ .level = 6 }) align(@alignOf(gzip.Encoder(.{ .level = 6 }))) = undefined;
 var gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
 var coded: [256]u8 = undefined;
+// The server's and the client's connections hold hundreds of kilobytes, so they live outside the
+// stack, as every connection does.
+var served: server_module.Connection align(@alignOf(server_module.Connection)) = undefined;
+var asked: client_module.Connection align(@alignOf(client_module.Connection)) = undefined;
+var exchange: client_module.HttpExchange align(@alignOf(client_module.HttpExchange)) = .{ .method = "GET", .path = "/" };
+var wire: [4096]u8 = undefined;
+
+/// Rounds of moving octets between the client and the server before the exchange must have ended.
+const exchange_rounds_max = 8;
+/// Events one side reads in one round, at most.
+const events_per_round_max = 16;
 
 /// chapulin's one hook, which a program that links colibri's `tls` defines: its failed assertions
 /// are the program's to report.
@@ -85,5 +99,42 @@ pub fn main() !void {
     gzip.init(&gzip_decoder, .target());
     const decoded = try gzip.decode_all(&gzip_decoder, coded[0..coded_len], &output);
     if (!std.mem.eql(u8, output[0..decoded.written], "colibri")) return error.CodingWrong;
-    std.debug.print("consumer: h11, h2, tls and gzip link and run as a dependency\n", .{});
+
+    // The `server` and `client` modules (decision 100), in cleartext h2: the client's request and
+    // the server's 204 move between the two in memory, at one instant.
+    const server_config: server_module.Config = .{ .cleartext = .h2 };
+    const client_config: client_module.Config = .{ .cleartext = .h2, .authority = "example.test" };
+    try served.init(&server_config, entropy, 0, 0);
+    try asked.init(&client_config, entropy, 0, null);
+    _ = try asked.request(&exchange);
+    for (0..exchange_rounds_max) |_| {
+        try serve(asked.send(&wire, 0));
+        hear(served.send(&wire, 0));
+    }
+    if (exchange.outcome != .response or exchange.status != 204) return error.ExchangeWrong;
+    std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
+}
+
+/// The server reads the first `len` octets of `wire` and answers each request with 204.
+fn serve(len: usize) !void {
+    var consumed: usize = 0;
+    for (0..events_per_round_max) |_| {
+        const received = try served.receive(wire[consumed..len], 0);
+        consumed += received.consumed;
+        const event = received.event orelse {
+            if (received.consumed == 0) return;
+            continue;
+        };
+        if (event == .request) try served.respond(event.request.id, .{ .status = 204, .end = true });
+    }
+}
+
+/// The client reads the first `len` octets of `wire`, and its exchange holds what they say.
+fn hear(len: usize) void {
+    var consumed: usize = 0;
+    for (0..events_per_round_max) |_| {
+        const received = asked.receive(wire[consumed..len], 0);
+        consumed += received.consumed;
+        if (received.event == null and received.consumed == 0) return;
+    }
 }
