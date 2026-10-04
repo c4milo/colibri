@@ -160,7 +160,7 @@ fn count_reset(target: *Connection, now_ns: u64) Error!void {
         target.rst_stream_sent = 0;
     }
     if (target.rst_stream_sent == constants.rst_stream_rate_max) {
-        return target.fail_limit(.resets_sent);
+        return connection.fail_limit(target, .resets_sent);
     }
     target.rst_stream_sent += 1;
 }
@@ -176,7 +176,7 @@ fn count_peer_reset(target: *Connection, now_ns: u64) Error!void {
     // RFC 9113 §10.5: an endpoint tracks the use of the features that cost it work, sets limits on
     // them, and treats excess as ENHANCE_YOUR_CALM.
     if (target.peer_resets == constants.peer_reset_rate_max) {
-        return target.fail_limit(.peer_resets);
+        return connection.fail_limit(target, .peer_resets);
     }
     target.peer_resets += 1;
 }

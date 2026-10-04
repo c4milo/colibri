@@ -412,12 +412,6 @@ pub const Connection = struct {
         return connection.replies.owes_window_update();
     }
 
-    /// Whether colibri's SETTINGS_ENABLE_PUSH of 0 has been acknowledged, after which RFC 9113
-    /// §6.5.2 makes a PUSH_PROMISE a connection error. a client sends the value in its preface and never changes it, so the acknowledgment is the only thing to wait for (decision 17); a server omits the setting (§6.5.2) and never reaches this call, because `on_push_promise` refuses a PUSH_PROMISE on its role first.
-    pub fn push_refused(connection: *const Connection) bool {
-        return connection.settings_written and connection.pending.len() == 0;
-    }
-
     /// Whether the peer broke the protocol and the connection is closing (RFC 9113 §5.4.1), or
     /// its record layer failed (RFC 9846 §6).
     pub fn has_failed(connection: *const Connection) bool {
@@ -428,13 +422,6 @@ pub const Connection = struct {
     /// next call to `receive`.
     pub fn field_section(connection: *const Connection) *const http.FieldSection {
         return &connection.block.section;
-    }
-
-    /// Ends the connection with ENHANCE_YOUR_CALM for `limit` (RFC 9113 §10.5), and notes which
-    /// limit it was. The first failure stands.
-    pub fn fail_limit(connection: *Connection, limit: Limit) Error {
-        if (connection.failure == null) connection.failure_limit = limit;
-        return connection.fail(constants.error_enhance_your_calm);
     }
 
     /// Ends the connection with `code`: queues the GOAWAY of RFC 9113 §6.8, drops a field block in
@@ -484,6 +471,28 @@ pub const Connection = struct {
         connection.pending.push(connection.local, now_ns) catch unreachable;
     }
 };
+
+/// Whether colibri's SETTINGS_ENABLE_PUSH of 0 has been acknowledged, after which RFC 9113
+/// §6.5.2 makes a PUSH_PROMISE a connection error. a client sends the value in its preface and never changes it, so the acknowledgment is the only thing to wait for (decision 17); a server omits the setting (§6.5.2) and never reaches this call, because `on_push_promise` refuses a PUSH_PROMISE on its role first.
+pub fn push_refused(connection: *const Connection) bool {
+    return connection.settings_written and connection.pending.len() == 0;
+}
+
+/// Ends the connection with ENHANCE_YOUR_CALM for `limit` (RFC 9113 §10.5), and notes which
+/// limit it was. The first failure stands.
+pub fn fail_limit(connection: *Connection, limit: Limit) Error {
+    if (connection.failure == null) connection.failure_limit = limit;
+    return connection.fail(constants.error_enhance_your_calm);
+}
+
+test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
+    try core.public_names.expect(Connection, &.{
+        "init",       "receive",        "write_response", "attach_tls",           "write_request",
+        "write_data", "write_trailers", "write_alt_svc",  "limit_peer_streams",   "reset_stream",
+        "shutdown",   "write_pending",  "write_replies",  "has_pending",          "owes_window_update",
+        "has_failed", "field_section",  "fail",           "settings_deadline_ns", "preface_done",
+    });
+}
 
 test {
     _ = @import("connection_test.zig");
