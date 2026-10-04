@@ -36,6 +36,31 @@ pub fn expect(comptime T: type, expected: []const []const u8) !void {
     return error.TestExpectedEqual;
 }
 
+/// References every name `Root` exports, and each public declaration of each namespace it
+/// declares, so a name the root exports and no file declares fails the build. `modules` names the
+/// modules the root re-exports, which check their own. Returns how many names it referenced.
+pub fn reference(comptime Root: type, comptime modules: []const []const u8) usize {
+    var count: usize = 0;
+    inline for (@typeInfo(Root).@"struct".decls) |declaration| {
+        const skipped = comptime for (modules) |name| {
+            if (std.mem.eql(u8, name, declaration.name)) break true;
+        } else false;
+        if (!skipped) count += reference_one(Root, declaration.name);
+    }
+    return count;
+}
+
+fn reference_one(comptime Namespace: type, comptime name: []const u8) usize {
+    const value = @field(Namespace, name);
+    _ = &value;
+    var count: usize = 1;
+    if (@TypeOf(value) != type or @typeInfo(value) != .@"struct") return count;
+    // A namespace holds declarations and no field.
+    if (@typeInfo(value).@"struct".fields.len != 0) return count;
+    inline for (@typeInfo(value).@"struct".decls) |declaration| count += reference_one(value, declaration.name);
+    return count;
+}
+
 fn contains(list: []const []const u8, name: []const u8) bool {
     for (list) |held| {
         if (std.mem.eql(u8, held, name)) return true;
@@ -68,4 +93,23 @@ test "decision 115: a type's public declarations are its names, in order, and no
     try std.testing.expect(!matches(Sample, &.{"first"}));
     try std.testing.expect(!matches(Sample, &.{ "first", "second", "hidden" }));
     try std.testing.expect(!matches(Sample, &.{ "second", "first" }));
+}
+
+const SampleRoot = struct {
+    pub const module = struct {
+        pub const unseen: u8 = 0;
+    };
+    pub const limit: u8 = 1;
+    pub const namespace = struct {
+        pub const first: u8 = 2;
+        pub const inner = struct {
+            pub const second: u8 = 3;
+        };
+    };
+};
+
+test "decision 115: reference visits each name of a root and of its namespaces, and no module's" {
+    // `limit`, `namespace`, `first`, `inner` and `second`.
+    const visited: usize = 5;
+    try std.testing.expectEqual(visited, reference(SampleRoot, &.{"module"}));
 }

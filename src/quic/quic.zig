@@ -345,24 +345,6 @@ test "decision 115: the root exports the names code outside the module uses" {
 test {
     // Every file's tests run, whether or not the root exports a name of it.
     std.testing.refAllDecls(files);
-    // Every name the root exports resolves, in each namespace it declares. The modules it
-    // re-exports check their own.
-    const modules = [_][]const u8{ "core", "wire", "crypto", "tls_provider", "qlog" };
-    inline for (@typeInfo(@This()).@"struct".decls) |declaration| {
-        const module = comptime for (modules) |name| {
-            if (std.mem.eql(u8, name, declaration.name)) break true;
-        } else false;
-        if (!module) reference(@This(), declaration.name);
-    }
-}
-
-/// References `Namespace`'s declaration `name`, and when that is a namespace too, each public
-/// declaration of it. Test-only.
-fn reference(comptime Namespace: type, comptime name: []const u8) void {
-    const value = @field(Namespace, name);
-    _ = &value;
-    if (@TypeOf(value) != type or @typeInfo(value) != .@"struct") return;
-    // A namespace holds declarations and no field.
-    if (@typeInfo(value).@"struct".fields.len != 0) return;
-    inline for (@typeInfo(value).@"struct".decls) |declaration| reference(value, declaration.name);
+    // Every name the root exports resolves, in each namespace it declares.
+    _ = core.public_names.reference(@This(), &.{ "core", "wire", "crypto", "tls_provider", "qlog" });
 }
