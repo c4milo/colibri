@@ -36,10 +36,12 @@ comptime {
 /// removed (RFC 9000 §17.2, §17.3.1).
 const packet_number_len_mask: u8 = 0x03;
 
-/// The QUIC version every session here starts in: version 1, the one colibri's `quic` speaks
-/// (RFC 9000 §15). Each packet call names its own version, which chapulin derives the keys, salt
-/// and Retry key of (RFC 9001 §5.2, §5.8; RFC 9369 §3.3). Version 2 is
-/// https://github.com/c4milo/colibri/issues/54.
+/// The QUIC version a client's session starts in when neither its configuration nor the ticket it
+/// offers names one (decision 111): version 1 (RFC 9000 §15). It is the oldest version colibri's
+/// `quic` speaks, which RFC 9368 §2.5 suggests as a client's original version. A server's session
+/// starts in the version of its client's first Initial packet (RFC 9368 §2). `quic` speaks
+/// version 2 too (RFC 9369; decision 108). Each packet call names its own version, which chapulin
+/// derives the keys, salt and Retry key of (RFC 9001 §5.2, §5.8; RFC 9369 §3.3).
 pub const version: chapulin.quic.Version = .v1;
 
 /// chapulin's name for `named`, which the comptime block above holds to the same value.
