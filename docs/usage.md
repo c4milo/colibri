@@ -35,7 +35,7 @@ The library is fifteen modules, each exported by name:
 | `qlog` | A qlog log in the caller's buffer, which `quic` and `h3` fill when the caller asks ([decision 102](decisions.md)) |
 | `hpack` | HPACK (RFC 7541) |
 | `qpack` | QPACK (RFC 9204) |
-| `quic` | QUIC version 1 (RFC 9000, 9001, 9002). It imports no HTTP module. |
+| `quic` | QUIC versions 1 and 2 (RFC 9000, 9001, 9002, 9369). It imports no HTTP module. |
 | `h11` | HTTP/1.1 (RFC 9112) |
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |

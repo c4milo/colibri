@@ -19,7 +19,7 @@ The name is Spanish for hummingbird.
 
 | | |
 | --- | --- |
-| Protocols | h11 ([RFC 9112](https://www.rfc-editor.org/rfc/rfc9112)), h2 ([RFC 9113](https://www.rfc-editor.org/rfc/rfc9113)) with HPACK ([RFC 7541](https://www.rfc-editor.org/rfc/rfc7541)), h3 ([RFC 9114](https://www.rfc-editor.org/rfc/rfc9114)) with QPACK ([RFC 9204](https://www.rfc-editor.org/rfc/rfc9204)), and QUIC version 1 ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [9001](https://www.rfc-editor.org/rfc/rfc9001), [9002](https://www.rfc-editor.org/rfc/rfc9002)) |
+| Protocols | h11 ([RFC 9112](https://www.rfc-editor.org/rfc/rfc9112)), h2 ([RFC 9113](https://www.rfc-editor.org/rfc/rfc9113)) with HPACK ([RFC 7541](https://www.rfc-editor.org/rfc/rfc7541)), h3 ([RFC 9114](https://www.rfc-editor.org/rfc/rfc9114)) with QPACK ([RFC 9204](https://www.rfc-editor.org/rfc/rfc9204)), and QUIC versions 1 and 2 ([RFC 9000](https://www.rfc-editor.org/rfc/rfc9000), [9001](https://www.rfc-editor.org/rfc/rfc9001), [9002](https://www.rfc-editor.org/rfc/rfc9002), [9369](https://www.rfc-editor.org/rfc/rfc9369)) |
 | Roles | Client and server, for every protocol |
 | Memory | No allocator anywhere in `src/`, tests included. Your program owns every struct and buffer, and each size is a comptime constant. |
 | I/O | None. colibri parses octets you already read and writes into buffers you own. A call that would block returns what it needs instead. |
@@ -178,9 +178,7 @@ colibri does not build these, and [`docs/decisions.md`](docs/decisions.md) says 
 - extended CONNECT;
 - 0-RTT;
 - connection migration;
-- HTTP datagrams and multipath QUIC;
-- QUIC version 2, which is open as
-  [#54](https://github.com/c4milo/colibri/issues/54).
+- HTTP datagrams and multipath QUIC.
 
 ## Contributing and security
 
