@@ -88,6 +88,8 @@ pub const Options = struct {
     source_directories: []const []const u8,
     /// Every directory the tools/lint rules read.
     rule_directories: []const []const u8,
+    /// Every file the tools/lint rules read beside those directories.
+    rule_files: []const []const u8,
     /// The complexity tool, built on pepegrillo.
     complexity: *std.Build.Step.Compile,
     /// The tools/lint driver, built on pepegrillo.
@@ -105,6 +107,9 @@ pub fn add(b: *std.Build, options: Options) *std.Build.Step {
     const tree_run = add_rules_run(b, options.rules);
     for (options.rule_directories) |directory| {
         tree_run.addDirectoryArg(b.path(directory));
+    }
+    for (options.rule_files) |file| {
+        tree_run.addFileArg(b.path(file));
     }
     tree_run.step.dependOn(&complexity_run.step);
 

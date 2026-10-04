@@ -251,7 +251,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   static-alignment (a global states `align(@alignOf(T))`, which Zig 0.16's x86_64 backend needs
   to place it right) and global-state (no library `var` that every thread shares; a fixture
   several test files share lives in a `*_test_support.zig` file). Every rule
-  `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it.
+  `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it. The
+  rules read `bench/`, `build/`, `examples/`, `src/`, `tools/` and `docs/`, and the Markdown
+  files at the repository root, which `lint_rule_files` in `build.zig` names. A new one joins
+  that list.
 - Test: `zig build test` — depends on `lint`, then every module's unit tests and `golden-check`.
   `zig build test-<module>` runs one target's tests with nothing else in the graph, which is what
   a mutation is measured against.

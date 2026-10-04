@@ -41,6 +41,11 @@ const source_directories = [_][]const u8{ "bench", "build", "examples", "src", "
 /// markdown rule covers.
 const lint_rule_directories = [_][]const u8{ "bench", "build", "examples", "src", "tools", "docs" };
 
+/// Every file the tools/lint rules read beside those directories: the Markdown files at the
+/// repository root, which the markdown rule covers. No directory above holds them, so a new one
+/// joins this list.
+const lint_rule_files = [_][]const u8{ "CLAUDE.md", "CONTRIBUTING.md", "README.md", "SECURITY.md" };
+
 /// Every tool built on pepegrillo whose own tests `zig build test` runs; build/generated.zig and build/vectors.zig hook in the tests of the generator and vectors tools. A build that does not run the checkers' own
 /// tests lets a rule lose its own test without the build reporting it.
 const tool_test_roots = [_][]const u8{
@@ -102,6 +107,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(lint.add(b, .{
         .source_directories = &source_directories,
         .rule_directories = &lint_rule_directories,
+        .rule_files = &lint_rule_files,
         .complexity = b.addExecutable(.{
             .name = "cognitive_complexity",
             .root_module = tool_module(b, pepegrillo, "tools/cognitive_complexity.zig"),
