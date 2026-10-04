@@ -3546,6 +3546,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        function only the module's own files call. `quic.Connection` keeps `init` and
        `addressed_by` as methods, and its six others became functions of `connection.zig`. The
        root's tests list its 40 names and resolve every name under them.
+     - Amended again on 2026-10-04, when the owner asked how to avoid a refactor of this size.
+       The lists come first from now on: a step names a type's public functions and its root's
+       exports before it writes them, starts with their tests, and shows each call in an example.
+       CLAUDE.md holds the rules, under "The public API is written first". The roots of the
+       twelve other library modules still export whole files, and each comes under the rules in
+       the step that next changes its API.
+     - The root is the module's API file. Zig has file-private and `pub` and nothing between, so
+       a package's root file is where the Zig community draws the line: `zig init` calls it "the
+       root source file when making a package". `std.zig` exports whole files, which works there
+       because std keeps a type in one file, 1,867 lines for `http/Client.zig`, and its
+       internals stay file-private. colibri's files stop at 500 lines, so its roots list names,
+       as `std.crypto`'s does.
 
      The alternatives refused:
      - Leave the calls public and say in each comment who makes it. A reader of the type still
@@ -3554,6 +3566,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        sites would change in five modules and the guide, for the same reachable names.
      - For `quic`, dropping only the 18 unused files. The other files would stay exported whole,
        with each function their neighbours call.
+     - A file beside the root for the API, such as `server_api.zig`, which the owner asked
+       about. The build needs the root, so the API would be written in two files that must agree.
      - Stop at the two TCP connections. `server.QuicConnection` showed a program the ten calls
        its endpoint makes.
      - One file for each type, which needs no `pub` between files. Each type passes 500 lines

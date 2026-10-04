@@ -89,6 +89,45 @@ When a mutation shows a rule no test guards, commit the mutant: `src/golden/muta
 the corpus mutations, and each one names the verdict it must produce. The framework for this
 exists — never propose a second one.
 
+## The public API is written first
+
+A module's public API is what a program that depends on colibri calls and names. Nothing else is
+reachable from outside the module (decision 115). A function that is public by accident becomes
+one a dependent calls, and removing it later breaks that dependent, so decide the API before the
+code that serves it.
+
+- **The list comes before the code.** A step that adds a module, or a type a program holds,
+  names the type's public functions and the root's exports in its entry in design §8. Its first
+  commit holds the tests that list them, with `core.public_names.expect`, beside the type and
+  beside the root. The test fails until each name exists, and fails again when one is added.
+- **The example comes with the call.** A step that adds a call a program makes shows it in
+  `examples/` and in docs/usage.md. The example is where a type with no name, a call a program
+  cannot reach and a rule the caller must know show up, so write it before the step is done.
+- **The root is the module's API file, and it exports names, never files.** Zig has no
+  visibility between file-private and `pub`, so `src/<module>/<module>.zig` is the one place a
+  name becomes public. A `pub` in any other file means only that another file of the module may
+  call it. A line such as `pub const frames = @import("frames.zig");` exports every `pub` of that
+  file, the ones its neighbours call too, so a root holds no such line beside `constants`, and
+  `error_code` in `quic`.
+- **Every root reads in one order.** The modules it re-exports, `constants`, an alias for each
+  type a program names, each function a program calls under the namespace of its file, the test
+  that lists the names, and last the test block that references each file so its tests run.
+- **A struct's `pub fn`s are a program's calls.** Zig makes a function `pub` so that another
+  file can call it, and a type that passes 500 lines is split over files. A function the type's
+  other files call is therefore a free function that takes the type's pointer, in a file the
+  root does not export, such as `connection_internal.zig`. Never make a method `pub` to call it
+  from another file.
+- **A check calls what a program calls.** The simulator, the corpus and `src/testing/` use the
+  public API. A check that must read what a program does not reads a field, or the root exports
+  that one name with a comment that says which check calls it.
+- **A new public name is a design change.** It goes on its list in the commit that adds it, and
+  the step's entry in design §8 says which program needs it. Never add one to make a test or
+  another file compile.
+
+`server`, `client` and `quic` follow these rules. The root of every other library module still
+exports whole files: a step that changes such a module's API brings its root under the rules
+first, in a commit of its own.
+
 ## Conventions
 
 - Zig 0.16. One library, no binary, plus test-only entry points named in design §9.
@@ -124,14 +163,6 @@ exists — never propose a second one.
   that.
 - One name per thing, and it is the name in the code. Never invent prose shorthand for something
   a field or constant already names.
-- A type's `pub fn`s are the calls a program makes (decision 115). A call that only the module's
-  other files make is a free function in a file the root does not export, such as
-  `connection_internal.zig`. The roots of `server` and `client` export `constants` and an alias
-  for each type a program names, and no other file. The root of `quic` exports each name code
-  outside the module uses, under its file's namespace, and no file but `constants` and
-  `error_code`. A test beside each type, and beside each of the three roots, lists the names:
-  add one there when a caller outside the module needs it, never to call it from another file
-  of the module.
 - Every GitHub issue reference carries its full URL
   (`https://github.com/c4milo/colibri/issues/1`), never the bare hash-and-number form. Markdown
   may keep the short form as the link label; Zig and shell comments spell the URL out.
@@ -240,6 +271,7 @@ tree. Design §11 holds the method and the numbers.
   `qpackers/qifs`, the QPACK vectors `tools/qpack_vectors.zig` decodes (decision 75); and the Lean
   toolchain, which `zig build lean` runs through pepegrillo (decision 77).
 - Weakening an assertion or an invariant to make a test pass.
+- Removing or renaming a name on a public list (decision 115). A dependent builds against it.
 - Adding an edge to the module graph, and always before adding one into `quic`.
 - Implementing anything docs/decisions.md §"What colibri does not build" says no to.
 
