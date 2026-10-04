@@ -875,7 +875,7 @@ Every connection is a struct your program places, and its size is fixed at compi
 | `h11.connection.Connection` | 35,040 |
 | `h11.coding.DefaultPool` | 691,472, 16 decoders the connections given it share |
 | `h2.connection.Connection` | 162,192 |
-| `quic.connection.Connection` | 141,232 |
+| `quic.Connection` | 141,232 |
 | `h3.connection.Connection` | 145,496, beside the QUIC connection it runs over |
 
 The buffers your program reads into and writes from come on top, and QUIC's calls also take
