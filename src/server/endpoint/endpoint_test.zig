@@ -6,6 +6,7 @@ const std = @import("std");
 const quic = @import("quic");
 const tls = @import("tls");
 const support = @import("../quic/quic_test_support.zig");
+const internal = @import("../quic/quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const constants = @import("../constants.zig");
 const endpoint_module = @import("endpoint.zig");
@@ -153,7 +154,7 @@ test "decision 103: a connection that is over is handed back once, and its slot 
     try served.respond(fetch.id, .{ .status = ok, .end = true });
     // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass.
     try support.pump(support.rounds_default * 8);
-    try testing.expect(served.ended());
+    try testing.expect(internal.ended(served));
     try testing.expectEqual(served, endpoint.ended().?);
     try testing.expectEqual(null, endpoint.ended());
     try testing.expectEqual(null, endpoint.deadline_ns());
@@ -163,10 +164,10 @@ test "the Unix seconds a connection's tickets carry count on from the endpoint's
     try support.start_endpoint(null);
     const later_ns = support.now_ns + elapsed_seconds * constants.nanoseconds_per_second;
     endpoint.init(&support.endpoint_config, tcp_support.stream.random(), start_seconds, support.now_ns);
-    try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.seconds_at(later_ns));
+    try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.held.seconds_at(later_ns));
     // An endpoint started at 0 issues no ticket, however late.
     endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
-    try testing.expectEqual(0, endpoint.seconds_at(later_ns));
+    try testing.expectEqual(0, endpoint.held.seconds_at(later_ns));
 }
 const start_seconds: u64 = 1_790_000_000;
 const elapsed_seconds: u64 = 2;

@@ -16,6 +16,7 @@ const event = @import("../event.zig");
 const reason = @import("../reason.zig");
 const alt_svc = @import("../alt_svc.zig");
 const connection_module = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 
 const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
@@ -47,7 +48,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8) Error!Received {
     var consumed: usize = 0;
     // Bounded: a pass that reports nothing takes an octet at least, or ends the loop.
     for (0..plaintext.len + 1) |_| {
-        const received = session.receive(plaintext[consumed..], connection.config.decoded) catch return connection.fail();
+        const received = session.receive(plaintext[consumed..], connection.config.decoded) catch return internal.fail(connection);
         consumed += received.consumed;
         if (received.event) |h11_event| return .{ .consumed = consumed, .event = report(connection, h11_event) };
         if (received.consumed == 0) break;
@@ -134,7 +135,7 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
     // A response that ends with its head keeps room for the last chunk a caller's own
     // Transfer-Encoding would need, so the end never fails after the head went out.
     const reserve: usize = if (end and !interim) constants.last_chunk_len else 0;
-    const room = connection.room();
+    const room = internal.room(connection);
     if (room.len <= reserve) return error.NoSpaceLeft;
     const written = session.write_response(room[0 .. room.len - reserve], status, reason.of(status), framed) catch |failure| {
         return send_error(connection, failure);
@@ -142,7 +143,7 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
     connection.output_len += written;
     // An interim response leaves no body open, and neither does one without content.
     if (!end or !session.writer.open()) return;
-    connection.output_len += session.write_end(connection.room(), &.{}) catch |failure| return send_error(connection, failure);
+    connection.output_len += session.write_end(internal.room(connection), &.{}) catch |failure| return send_error(connection, failure);
 }
 
 /// The caller's fields and the lines the server adds: the framing field the response needs when
@@ -204,7 +205,7 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
     const chunked = session.writer.kind == .chunked;
     const framing_len: usize = if (chunked) constants.chunk_framing_len_max else 0;
     const reserve: usize = if (end and chunked) constants.last_chunk_len else 0;
-    const room = connection.room();
+    const room = internal.room(connection);
     // RFC 9112 §7.1: a chunk is its size line, its data and a CRLF, so room for less holds none.
     if (room.len <= framing_len + reserve) return error.Blocked;
     const taken = @min(octets.len, room.len - framing_len - reserve);
@@ -212,7 +213,7 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
     if (taken > 0) written = session.write_body(room, octets[0..taken]) catch |failure| return send_error(connection, failure);
     connection.output_len += written;
     if (end and taken == octets.len) {
-        connection.output_len += session.write_end(connection.room(), &.{}) catch |failure| return send_error(connection, failure);
+        connection.output_len += session.write_end(internal.room(connection), &.{}) catch |failure| return send_error(connection, failure);
     }
     return taken;
 }
@@ -222,7 +223,7 @@ pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) Se
     defer note_done(connection, id);
     // RFC 9110 §6.5: a trailer section follows the content, after a final response. h11 refuses
     // one anywhere else with `NoBody`.
-    connection.output_len += connection.session.h11.write_end(connection.room(), fields) catch |failure| return send_error(connection, failure);
+    connection.output_len += connection.session.h11.write_end(internal.room(connection), fields) catch |failure| return send_error(connection, failure);
 }
 
 /// h11 cannot end one request and keep the connection (RFC 9112 §9.6), so a cancel ends both.
@@ -281,7 +282,7 @@ fn send_error(connection: *const Connection, failure: h11.connection.SendError) 
 
 /// Writes the 100 (Continue) the current request is owed (RFC 9110 §10.1.1), an interim response.
 pub fn write_continue(connection: *Connection) SendError!usize {
-    return connection.session.h11.write_response(connection.room(), continue_status, reason.of(continue_status), &.{}) catch |failure| {
+    return connection.session.h11.write_response(internal.room(connection), continue_status, reason.of(continue_status), &.{}) catch |failure| {
         return send_error(connection, failure);
     };
 }

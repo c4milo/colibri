@@ -8,6 +8,7 @@ const quic = @import("quic");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
+const internal = @import("../quic/quic_connection_internal.zig");
 const endpoint_stateless = @import("endpoint_stateless.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
@@ -90,7 +91,7 @@ pub const Connections = struct {
     pub fn receive(held: *Connections, datagram: []u8, ecn: Ecn, from: PeerAddress, now_ns: u64) ?*QuicConnection {
         if (endpoint_stateless.destination_of(datagram)) |dcid| {
             if (held.connection_for(dcid)) |connection| {
-                connection.take(datagram, ecn, from, now_ns);
+                internal.take(connection, datagram, ecn, from, now_ns);
                 return connection;
             }
         }
@@ -101,7 +102,7 @@ pub const Connections = struct {
         // size of 1200 bytes."
         if (datagram.len < quic.constants.datagram_len_min) return null;
         const connection = held.accept(long, from, now_ns) orelse return null;
-        connection.take(datagram, ecn, from, now_ns);
+        internal.take(connection, datagram, ecn, from, now_ns);
         return connection;
     }
 
@@ -114,7 +115,7 @@ pub const Connections = struct {
             const index = held.cursor;
             held.cursor = (held.cursor + 1) % held.connections.len;
             if (!held.live[index]) continue;
-            if (held.connections[index].send(output, now_ns)) |sent| return sent;
+            if (internal.send(&held.connections[index], output, now_ns)) |sent| return sent;
         }
         return null;
     }
@@ -124,7 +125,7 @@ pub const Connections = struct {
         var soonest: ?u64 = null;
         for (held.connections, held.live) |*connection, live| {
             if (!live) continue;
-            const at_ns = connection.deadline_ns() orelse continue;
+            const at_ns = internal.deadline_ns(connection) orelse continue;
             soonest = @min(soonest orelse at_ns, at_ns);
         }
         return soonest;
@@ -133,7 +134,7 @@ pub const Connections = struct {
     /// Fires whichever deadlines `now_ns` has reached.
     pub fn on_instant(held: *Connections, now_ns: u64) void {
         for (held.connections, held.live) |*connection, live| {
-            if (live) connection.on_instant(now_ns);
+            if (live) internal.on_instant(connection, now_ns);
         }
     }
 
@@ -141,10 +142,10 @@ pub const Connections = struct {
     /// memory stays as it is until a later `receive` starts another in its slot.
     pub fn ended(held: *Connections) ?*QuicConnection {
         for (held.connections, held.live) |*connection, *live| {
-            if (!live.* or !connection.ended()) continue;
+            if (!live.* or !internal.ended(connection)) continue;
             live.* = false;
             // The connection's secrets are wiped, and nothing more is read or written.
-            connection.transport_closed();
+            internal.transport_closed(connection);
             held.close_log(connection);
             return connection;
         }
@@ -153,7 +154,7 @@ pub const Connections = struct {
 
     fn connection_for(held: *Connections, dcid: []const u8) ?*QuicConnection {
         for (held.connections, held.live) |*connection, live| {
-            if (live and connection.addressed_by(dcid)) return connection;
+            if (live and internal.addressed_by(connection, dcid)) return connection;
         }
         return null;
     }
@@ -225,11 +226,11 @@ pub const Connections = struct {
         // RFC 9000 §7.2: the server chooses its own connection ID, unpredictable (§5.1).
         held.random.bytes(&how.local_id);
         const connection = &held.connections[index];
-        connection.start(held.config.quic, held.pools[index], how, held.random, held.seconds_at(now_ns), now_ns) catch return null;
+        internal.start(connection, held.config.quic, held.pools[index], how, held.random, held.seconds_at(now_ns), now_ns) catch return null;
         // Decision 102 as amended: a log only for a connection that started, so each log the
         // provider gives comes back through `close`.
         if (held.config.logs) |logs| {
-            if (logs.open(original_destination, now_ns)) |log| connection.attach_log(log, now_ns);
+            if (logs.open(original_destination, now_ns)) |log| internal.attach_log(connection, log, now_ns);
         }
         held.live[index] = true;
         return connection;

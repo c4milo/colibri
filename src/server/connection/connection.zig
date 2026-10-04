@@ -48,6 +48,7 @@ const connection_bodies = @import("connection_bodies.zig");
 const connection_sends = @import("connection_sends.zig");
 const connection_events = @import("connection_events.zig");
 const connection_close = @import("connection_close.zig");
+const internal = @import("connection_internal.zig");
 const deadline = @import("../deadline.zig");
 const close_reason_module = @import("../close_reason.zig");
 const done = @import("../done.zig");
@@ -186,29 +187,9 @@ pub const Connection = struct {
             // RFC 9846 §9.2: chapulin refuses values it cannot serve a handshake from.
             connection.tls_server.start(tls_config, random, now_seconds) catch return error.TlsRefused;
         } else {
-            connection.open_session(config.cleartext);
+            internal.open_session(connection, config.cleartext);
         }
         assert(connection.output_len == 0 and connection.plain_in_len == 0);
-    }
-
-    /// Makes the protocol's connection, which then serves this one.
-    pub fn open_session(connection: *Connection, chosen: Protocol) void {
-        switch (chosen) {
-            .h2 => {
-                connection.session = .{ .h2 = undefined };
-                connection.session.h2.init(.server);
-                connection.session.h2.data_frame_len_min = connection.config.data_frame_len_min;
-                connection.session.h2.limit_peer_streams(connection.config.h2_streams_max);
-            },
-            .h11 => {
-                connection.session = .{ .h11 = undefined };
-                connection.session.h11.init(.server, .{ .decoders = connection.config.decoders });
-            },
-            // RFC 9114 §3.1: h3 runs over QUIC alone, which `QuicConnection` serves.
-            .h3 => unreachable,
-        }
-        connection.phase = .open;
-        assert(connection.protocol().? == chosen);
     }
 
     /// Reads at most one event from `input`, the octets the transport read. Over TLS it runs the
@@ -233,31 +214,12 @@ pub const Connection = struct {
             .closed => Received{ .consumed = 0, .event = null },
             .handshake => connection_tls.handshake(connection, input, now_ns),
             .open => if (connection.config.tls == null)
-                connection.read_protocol(input, now_ns)
+                internal.read_protocol(connection, input, now_ns)
             else
                 connection_tls.read(connection, input, now_ns),
         };
         if (received.event) |reported| connection_events.note(connection, reported);
         return received;
-    }
-
-    /// Reads at most one event from the protocol's octets, and the octets before it that mean
-    /// nothing to the caller.
-    pub fn read_protocol(connection: *Connection, plaintext: []const u8, now_ns: u64) Error!Received {
-        if (connection.stopped) return .{ .consumed = 0, .event = null };
-        return switch (connection.session) {
-            .h2 => connection_h2.receive(connection, plaintext, now_ns),
-            .h11 => |*session| {
-                const reading_body = session.phase == .body;
-                const received = try connection_h11.receive(connection, plaintext);
-                // Decision 110: the octets h11 reads of a body, its framing included, are the
-                // body's.
-                if (reading_body) connection_bodies.count(connection, connection.current_id, received.consumed);
-                return received;
-            },
-            // `receive` reads the protocol only once the connection is open.
-            .none => unreachable,
-        };
     }
 
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
@@ -330,12 +292,12 @@ pub const Connection = struct {
         // What the protocol owes goes out whether or not this call finds any, the 100 first, and
         // then what the coded responses' rings hold.
         _ = connection_continue.write(connection);
-        _ = connection.write_owed(now_ns);
+        _ = internal.write_owed(connection, now_ns);
         connection_coding.drain(connection);
         if (connection.config.tls != null) return connection_tls.send(connection, output, now_ns);
         const written = @min(output.len, connection.output_len);
         @memcpy(output[0..written], connection.output[0..written]);
-        connection.take_output(written);
+        internal.take_output(connection, written);
         return written;
     }
 
@@ -405,72 +367,23 @@ pub const Connection = struct {
         return connection.tls_server.sni();
     }
 
-    /// Whether the connection has nothing more to say but what `output` holds: it failed or was
-    /// stopped, its protocol closed, or it was asked to end and no request is open.
-    pub fn finished(connection: *const Connection) bool {
-        return connection_close.finished(connection);
-    }
-
-    /// Writes what the protocol owes on its own, such as its preface, the acknowledgments and a
-    /// GOAWAY, after what `output` holds. Returns whether it wrote anything.
-    pub fn write_owed(connection: *Connection, now_ns: u64) bool {
-        if (connection.phase != .open) return false;
-        const free = connection.room();
-        const update_owed = connection.session == .h2 and connection.session.h2.owes_window_update();
-        const written = switch (connection.session) {
-            .h2 => connection.session.h2.write_pending(free, now_ns),
-            .h11 => connection.session.h11.write_pending(free) catch 0,
-            // An open connection has a protocol.
-            .none => unreachable,
-        };
-        connection.take_owed(written, update_owed);
-        return written > 0;
-    }
-
-    /// Adds `written` octets the protocol owed to the output. When a WINDOW_UPDATE was owed, it is
-    /// among them.
-    pub fn take_owed(connection: *Connection, written: usize, update_owed: bool) void {
-        connection.output_len += written;
-        // Decision 110 as amended: a WINDOW_UPDATE written now is out once these octets are.
-        if (update_owed and written > 0) connection.update_held_len = connection.output_len;
-    }
-
-    /// Ends the connection on a failure: nothing more is read, and what it owes goes out.
-    pub fn fail(connection: *Connection) Error {
-        connection.stopped = true;
-        // RFC 9113 §5.4.1, RFC 9112 §9.6 and RFC 9846 §6: after a connection error nothing more is
-        // read, and the connection closes once what it owes is out.
-        return error.ConnectionFailed;
-    }
-
-    /// Drops the first `written` octets of `output`, which `send` has taken.
-    pub fn take_output(connection: *Connection, written: usize) void {
-        assert(written <= connection.output_len);
-        std.mem.copyForwards(u8, &connection.output, connection.output[written..connection.output_len]);
-        connection.output_len -= written;
-        connection.records_len -= @min(connection.records_len, written);
-        connection.update_held_len -= @min(connection.update_held_len, written);
-    }
-
-    /// Drops the protocol's octets the last event pointed into.
-    pub fn drop_read_plaintext(connection: *Connection) void {
-        const read = connection.plain_in_read;
-        assert(read <= connection.plain_in_len);
-        std.mem.copyForwards(u8, &connection.plain_in, connection.plain_in[read..connection.plain_in_len]);
-        connection.plain_in_len -= read;
-        connection.plain_in_read = 0;
-    }
-
-    /// The room left in `output`.
-    pub fn room(connection: *Connection) []u8 {
-        return connection.output[connection.output_len..];
-    }
-
     fn check_writable(connection: *const Connection) SendError!void {
         // RFC 9113 §5.4.1 and RFC 9112 §9.6: a connection that failed or closed sends no response.
         if (connection.phase == .closed or connection.stopped) return error.ConnectionClosed;
     }
 };
+
+test "design §8 step 17f: the connection's public functions are the calls a program makes" {
+    // What the connection's own files call on it lives in `connection_internal.zig`, which the
+    // module does not export. A function added here is one every program can call.
+    const public_names = @import("core").public_names;
+    try public_names.expect(Connection, &.{
+        "init",          "receive",      "respond",      "write_body",       "write_trailers",
+        "cancel",        "shutdown",     "send",         "deadline_ns",      "on_instant",
+        "set_deadlines", "close_reason", "should_close", "transport_closed", "protocol",
+        "server_name",
+    });
+}
 
 test {
     _ = @import("connection_h11_test.zig");

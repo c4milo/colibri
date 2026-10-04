@@ -124,7 +124,7 @@ fn flush(socket: *udp.Endpoint, now_ns: u64) void {
 }
 
 /// Where a datagram goes, asking Rotor to set the codepoint colibri named (decision 68).
-fn outbound(sent: server.quic_connection.Sent) udp.Outbound {
+fn outbound(sent: server.Sent) udp.Outbound {
     const ecn = udp_peer.sent_ecn(sent.ecn);
     return .{
         .peer = udp_peer.udp_address(sent.to),

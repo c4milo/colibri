@@ -9,6 +9,7 @@ const h3 = @import("h3");
 const tls = @import("tls");
 const support = @import("../connection/connection_test_support.zig");
 const quic_connection = @import("quic_connection.zig");
+const internal = @import("quic_connection_internal.zig");
 const endpoint_module = @import("../endpoint/endpoint.zig");
 const event = @import("../event.zig");
 
@@ -292,7 +293,7 @@ pub fn pump(rounds: usize) !void {
         try client_to_server();
         collect();
         try server_to_client();
-        if (through_endpoint) endpoint.on_instant(now_ns) else connection.on_instant(now_ns);
+        if (through_endpoint) endpoint.on_instant(now_ns) else internal.on_instant(&connection, now_ns);
         _ = quic.connection_timer.on_instant(&client, client_session.suite(), &client_scratch.recovery, now_ns) catch {};
         collect();
     }
@@ -359,7 +360,7 @@ fn client_to_server() !void {
             continue;
         }
         if (!server_started) try start_server(crossing[0..held.len]);
-        connection.take(crossing[0..held.len], .not_ect, client_address(), now_ns);
+        internal.take(&connection, crossing[0..held.len], .not_ect, client_address(), now_ns);
     }
 }
 
@@ -368,7 +369,7 @@ fn client_to_server() !void {
 fn start_server(first: []const u8) !void {
     const parsed = try quic.packet.header.read(first, id_len);
     const long = parsed.long;
-    try connection.start(&config, server_receive, .{
+    try internal.start(&connection, &config, server_receive, .{
         .local_id = server_id,
         .original_destination = long.dcid,
         .peer_source = long.scid,
@@ -384,7 +385,7 @@ pub fn client_address() quic.peer_address.PeerAddress {
 
 fn server_to_client() !void {
     for (0..datagrams_per_round_max) |_| {
-        const sent = (if (through_endpoint) endpoint.send(&datagram, now_ns) else connection.send(&datagram, now_ns)) orelse return;
+        const sent = (if (through_endpoint) endpoint.send(&datagram, now_ns) else internal.send(&connection, &datagram, now_ns)) orelse return;
         @memcpy(crossing[0..sent.octets.len], sent.octets);
         _ = quic.connection_datagram.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.octets.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
         try client_read();

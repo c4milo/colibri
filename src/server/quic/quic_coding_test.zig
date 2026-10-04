@@ -5,6 +5,7 @@
 const std = @import("std");
 const quic = @import("quic");
 const support = @import("quic_test_support.zig");
+const internal = @import("quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const server_constants = @import("../constants.zig");
 
@@ -132,7 +133,7 @@ test "decision 101: a closed transport gives back the encoders of the coded resp
     try connection.respond(fetch.id, .{ .status = ok, .end = false, .codable = true });
     _ = try connection.write_body(fetch.id, .{ .octets = "hello", .end = false });
     try testing.expectEqual(encoders_all - 1, tcp_support.pool.free_count());
-    connection.transport_closed();
+    internal.transport_closed(connection);
     try testing.expectEqual(encoders_all, tcp_support.pool.free_count());
 }
 

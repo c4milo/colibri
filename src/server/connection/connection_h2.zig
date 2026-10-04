@@ -9,6 +9,7 @@ const h2 = @import("h2");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_module = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
@@ -29,15 +30,15 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) Erro
     const session = &connection.session.h2;
     // RFC 9113 §3.4: the server's SETTINGS "MUST be the first frame the server sends", so it goes
     // into the output before any frame is read that could bring a request the caller answers.
-    if (!session.preface_done() and !connection.write_owed(now_ns)) return .{ .consumed = 0, .event = null };
+    if (!session.preface_done() and !internal.write_owed(connection, now_ns)) return .{ .consumed = 0, .event = null };
     var consumed: usize = 0;
     for (0..constants.frames_per_receive_max) |_| {
-        const received = session.receive(plaintext[consumed..], now_ns) catch return connection.fail();
+        const received = session.receive(plaintext[consumed..], now_ns) catch return internal.fail(connection);
         consumed += received.consumed;
         if (received.consumed == 0) {
             // RFC 9113 §3.4, §6.5.3: h2 reads nothing more until what it owes is written, such as
             // the server's SETTINGS and the acknowledgment of the peer's.
-            if (!session.has_pending() or !connection.write_owed(now_ns)) return .{ .consumed = consumed, .event = null };
+            if (!session.has_pending() or !internal.write_owed(connection, now_ns)) return .{ .consumed = consumed, .event = null };
             continue;
         }
         const reported = report(session, received.event orelse continue) orelse continue;
@@ -82,7 +83,7 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
 fn write_owed_first(connection: *Connection) void {
     const session = &connection.session.h2;
     const update_owed = session.owes_window_update();
-    connection.take_owed(session.write_replies(connection.room()), update_owed);
+    internal.take_owed(connection, session.write_replies(internal.room(connection)), update_owed);
 }
 
 pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
@@ -94,7 +95,7 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
     // END_STREAM whatever the caller asked.
     const interim = status >= http.constants.status_code_min and status < @intFromEnum(http.status.Code.ok);
     if (!interim) try advertise(connection, stream_id);
-    const written = connection.session.h2.write_response(connection.room(), stream_id, status, converted, end and !interim) catch |failure| {
+    const written = connection.session.h2.write_response(internal.room(connection), stream_id, status, converted, end and !interim) catch |failure| {
         return send_error(connection, failure);
     };
     connection.output_len += written;
@@ -107,7 +108,7 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
 fn advertise(connection: *Connection, stream_id: u32) SendError!void {
     if (connection.advert.sent) return;
     const value = connection.advert.value() orelse return;
-    const written = connection.session.h2.write_alt_svc(connection.room(), stream_id, value) catch |failure| {
+    const written = connection.session.h2.write_alt_svc(internal.room(connection), stream_id, value) catch |failure| {
         return send_error(connection, failure);
     };
     connection.output_len += written;
@@ -122,7 +123,7 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
     var consumed: usize = 0;
     var written: usize = 0;
     for (0..constants.data_frames_per_write_max) |_| {
-        const sent = connection.session.h2.write_data(connection.room(), stream_id, octets[consumed..], end) catch |failure| {
+        const sent = connection.session.h2.write_data(internal.room(connection), stream_id, octets[consumed..], end) catch |failure| {
             // A frame cut at the frame size leaves the stream open, so only the first call fails.
             assert(written == 0);
             return send_error(connection, failure);
@@ -147,7 +148,7 @@ pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) Se
     var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
     const converted = try convert(fields, &lines);
     write_owed_first(connection);
-    const written = connection.session.h2.write_trailers(connection.room(), stream_id, converted) catch |failure| {
+    const written = connection.session.h2.write_trailers(internal.room(connection), stream_id, converted) catch |failure| {
         return send_error(connection, failure);
     };
     connection.output_len += written;
@@ -203,7 +204,7 @@ fn send_error(connection: *const Connection, failure: h2.connection.SendError) S
 pub fn write_continue(connection: *Connection, id: Id) SendError!usize {
     const stream_id = try stream_of(id);
     write_owed_first(connection);
-    return connection.session.h2.write_response(connection.room(), stream_id, continue_status, &.{}, false) catch |failure| {
+    return connection.session.h2.write_response(internal.room(connection), stream_id, continue_status, &.{}, false) catch |failure| {
         return send_error(connection, failure);
     };
 }

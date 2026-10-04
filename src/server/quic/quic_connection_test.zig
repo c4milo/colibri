@@ -5,6 +5,7 @@ const std = @import("std");
 const h3 = @import("h3");
 const quic = @import("quic");
 const support = @import("quic_test_support.zig");
+const internal = @import("quic_connection_internal.zig");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 
@@ -215,6 +216,6 @@ test "RFC 9000 §10.2.2: a client's close stops the connection, which is no fail
     try testing.expectError(error.ConnectionClosed, connection.respond(fetch.id, .{ .status = ok, .end = true }));
     // RFC 9000 §10.2: the draining state lasts three PTOs, which these rounds pass.
     try support.pump(support.rounds_default * 8);
-    try testing.expect(connection.ended());
+    try testing.expect(internal.ended(connection));
     try testing.expect(!support.server_failed);
 }

@@ -14,6 +14,7 @@ const h2 = @import("h2");
 const http = @import("http");
 const deadline = @import("../deadline.zig");
 const connection_module = @import("connection.zig");
+const connection_close = @import("connection_close.zig");
 const connection_bodies = @import("connection_bodies.zig");
 const connection_sends = @import("connection_sends.zig");
 
@@ -125,7 +126,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     if (connection.shutting_down and clock.drain_since_ns == null) clock.drain_since_ns = now_ns;
     // Decision 110: every close is bounded, from the instant the connection ended with octets
     // still to send.
-    const ended = connection.stopped or connection.phase == .closed or connection.finished();
+    const ended = connection.stopped or connection.phase == .closed or connection_close.finished(connection);
     if (clock.linger_since_ns == null and ended and connection.output_len > 0) clock.linger_since_ns = now_ns;
 }
 

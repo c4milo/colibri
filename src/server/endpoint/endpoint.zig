@@ -81,10 +81,13 @@ pub fn EndpointOf(comptime connections_max: usize, comptime receive_capacity: us
         pub fn ended(endpoint: *Self) ?*QuicConnection {
             return endpoint.held.ended();
         }
-
-        /// The Unix seconds a connection starting at `now_ns` issues its tickets at.
-        pub fn seconds_at(endpoint: *const Self, now_ns: u64) u64 {
-            return endpoint.held.seconds_at(now_ns);
-        }
     };
+}
+
+test "design §8 step 17f: the endpoint's public functions are the calls a program makes" {
+    const public_names = @import("core").public_names;
+    try public_names.expect(Endpoint, &.{
+        "init",  "receive", "send", "deadline_ns", "on_instant",
+        "ended",
+    });
 }

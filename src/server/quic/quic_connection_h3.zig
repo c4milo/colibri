@@ -11,6 +11,7 @@ const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const quic_request = @import("quic_request.zig");
 const quic_connection = @import("quic_connection.zig");
+const internal = @import("quic_connection_internal.zig");
 const quic_coding = @import("quic_coding.zig");
 const coding_rules = @import("../coding/coding_rules.zig");
 const coding_fields = @import("../coding/coding_fields.zig");
@@ -90,7 +91,7 @@ pub fn read_event(connection: *QuicConnection, now_ns: u64) quic_connection.Erro
     // Bounded: every event reads at least one octet the pool holds, or ends a stream.
     for (0..constants.quic_events_per_read_max) |_| {
         const read = connection.h3.receive(&connection.transport, &connection.body, now_ns) catch {
-            connection.fail();
+            internal.fail(connection);
             connection.failure_owed = false;
             // RFC 9114 §8: h3 failed the connection, and QUIC owes the CONNECTION_CLOSE.
             return error.ConnectionFailed;
@@ -268,7 +269,7 @@ pub fn cancel(connection: *QuicConnection, id: Id) void {
 /// one (RFC 9114 §5.2).
 pub fn shut_down(connection: *QuicConnection, now_ns: u64) void {
     if (connection.stopped or !connection.started) return;
-    connection.h3.shutdown(&connection.transport, now_ns) catch return connection.fail();
+    connection.h3.shutdown(&connection.transport, now_ns) catch return internal.fail(connection);
     finish_if_drained(connection);
 }
 
@@ -335,7 +336,7 @@ fn head_error(connection: *QuicConnection, failure: h3.connection.SendError, emp
         // RFC 9114 §4.1.2, §4.2: a field line h3 refuses to send, such as an uppercase name.
         error.MessageInvalid => error.FieldLineInvalid,
         error.ConnectionFailed => blk: {
-            connection.fail();
+            internal.fail(connection);
             break :blk error.ConnectionClosed;
         },
         // A server opens no request stream, and h3 started before any request arrived.

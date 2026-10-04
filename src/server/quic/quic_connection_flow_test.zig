@@ -4,6 +4,7 @@
 const std = @import("std");
 const quic = @import("quic");
 const support = @import("quic_test_support.zig");
+const internal = @import("quic_connection_internal.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -40,7 +41,7 @@ test "RFC 9000 §3.1: a response the peer acknowledged is done while the request
     // A connection not shut down stays open once its requests are done.
     try support.pump(support.rounds_default);
     try testing.expect(support.client.termination.state == .active);
-    try testing.expect(!connection.ended());
+    try testing.expect(!internal.ended(connection));
 }
 
 test "RFC 9000 §3.5: a client's STOP_SENDING cancels the request while its stream stays open" {

@@ -197,7 +197,7 @@ fn run_worker(index: usize) !void {
         .h3_alternative = h3_alternative,
     };
     if (coded_mode) {
-        worker.encoders.reset(server.coding_pool.Features.detect());
+        worker.encoders.reset(server.Features.detect());
         worker.config.codings = &served_codings;
         worker.config.encoders = worker.encoders.encoders();
     }

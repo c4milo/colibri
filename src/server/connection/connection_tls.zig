@@ -14,6 +14,8 @@ const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_module = @import("connection.zig");
+const connection_close = @import("connection_close.zig");
+const internal = @import("connection_internal.zig");
 
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
@@ -28,14 +30,14 @@ const RecordError = h2.connection_tls.RecordError || h11.connection_tls.RecordEr
 pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Received {
     assert(connection.phase == .handshake);
     // chapulin writes a flight whole or fails the handshake, so it runs only with room for one.
-    if (connection.room().len < constants.flight_len_max) return .{ .consumed = 0, .event = null };
-    const progress = connection.tls_server.handshake(input, connection.room()) catch {
+    if (internal.room(connection).len < constants.flight_len_max) return .{ .consumed = 0, .event = null };
+    const progress = connection.tls_server.handshake(input, internal.room(connection)) catch {
         // RFC 9846 §6.2: what the refused handshake wrote ends with the alert that says why, and
         // the connection closes once `send` has written it.
         connection.output_len += connection.tls_server.failure_written();
         connection.records_len = connection.output_len;
         connection.phase = .closed;
-        return connection.fail();
+        return internal.fail(connection);
     };
     connection.output_len += progress.written;
     connection.records_len = connection.output_len;
@@ -50,7 +52,7 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Receiv
 pub fn attach(connection: *Connection, provider: tls_provider.Provider) Error!void {
     // RFC 7301 §3.2: the protocol ALPN selected is definitive for the connection, and a selection
     // of none is h11 (decision 88).
-    connection.open_session(protocol_of(provider.vtable.negotiated_alpn(provider.context)));
+    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context)));
     // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet moves.
     const attached = switch (connection.session) {
         .h2 => |*session| session.attach_tls(provider),
@@ -59,7 +61,7 @@ pub fn attach(connection: *Connection, provider: tls_provider.Provider) Error!vo
     };
     attached catch {
         connection.phase = .closed;
-        return connection.fail();
+        return internal.fail(connection);
     };
 }
 
@@ -72,9 +74,9 @@ pub fn protocol_of(selected: ?[]const u8) Protocol {
 
 /// Opens the records of `input` that fit, then reads at most one event from what they held.
 pub fn read(connection: *Connection, input: []const u8, now_ns: u64) Error!Received {
-    connection.drop_read_plaintext();
+    internal.drop_read_plaintext(connection);
     const consumed = try open_records(connection, input, now_ns);
-    const read_event = try connection.read_protocol(connection.plain_in[0..connection.plain_in_len], now_ns);
+    const read_event = try internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);
     connection.plain_in_read = read_event.consumed;
     return .{ .consumed = consumed, .event = read_event.event };
 }
@@ -92,7 +94,7 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
             // The protocol has not read enough of what earlier records held.
             error.NoSpaceLeft => return consumed,
             // An h2 connection error with its GOAWAY queued, or TLS failed with its alert owed.
-            error.ConnectionFailed, error.TlsFailed => return connection.fail(),
+            error.ConnectionFailed, error.TlsFailed => return internal.fail(connection),
             // The protocol took the provider of a finished handshake.
             error.HandshakeIncomplete, error.NoProvider => unreachable,
         };
@@ -110,12 +112,12 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
 pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
     const copied = @min(output.len, connection.records_len);
     @memcpy(output[0..copied], connection.output[0..copied]);
-    connection.take_output(copied);
+    internal.take_output(connection, copied);
     // Records the call leaves filled `output`, so nothing is sealed after them, and nothing is
     // sealed before the protocol opens or after the connection closed.
     if (connection.phase != .open) return copied;
     var written = copied + seal(connection, output[copied..], now_ns);
-    if (connection.close_sent or connection.output_len > 0 or !connection.finished()) return written;
+    if (connection.close_sent or connection.output_len > 0 or !connection_close.finished(connection)) return written;
     // RFC 9846 §6.1: "Each party MUST send a "close_notify" alert before closing its write side of
     // the connection".
     written += close_notify(connection, output[written..]) catch return written;
@@ -143,7 +145,7 @@ fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
             error.ConnectionFailed, error.HandshakeIncomplete, error.NoProvider => unreachable,
         };
         written += sealed.written;
-        connection.take_output(sealed.consumed);
+        internal.take_output(connection, sealed.consumed);
         connection.reply_owed = false;
         if (sealed.consumed == 0) return written;
     }

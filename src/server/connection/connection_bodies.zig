@@ -23,6 +23,7 @@ const event = @import("../event.zig");
 const deadline = @import("../deadline.zig");
 const rate = @import("../rate.zig");
 const connection_module = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 const connection_coding = @import("connection_coding.zig");
 const connection_sends = @import("connection_sends.zig");
 
@@ -211,7 +212,7 @@ fn cancel_stream(connection: *Connection, id: Id, passed: Deadline) void {
 /// Writes a 408 that ends the stream, and returns whether it went into the output. h2 refuses one
 /// after the final response.
 fn write_timeout(connection: *Connection, stream_id: u32) bool {
-    const written = connection.session.h2.write_response(connection.room(), stream_id, request_timeout, &.{}, true) catch {
+    const written = connection.session.h2.write_response(internal.room(connection), stream_id, request_timeout, &.{}, true) catch {
         return false;
     };
     connection.output_len += written;
