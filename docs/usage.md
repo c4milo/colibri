@@ -401,7 +401,9 @@ try server_tls.init(.{
     .alpn = &.{"h3"},
     .cpu = cpu,
 });
-server_quic = .{ .tls = &server_tls };
+// Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit a
+// server, and this one ends an idle connection sooner.
+server_quic = .{ .tls = &server_tls, .deadlines = .{ .idle_ns = idle_ns } };
 endpoint_config = .{ .quic = &server_quic };
 // One endpoint for the program's UDP socket. It starts a connection from each client's first
 // datagram, in a slot of its own.
@@ -431,7 +433,12 @@ fn server_turn() !void {
         try link.send(.server, sent.octets);
     }
     // A connection that is over comes back once, and its slot is free for a later client.
-    if (endpoint.ended()) |_| ended += 1;
+    // `close_reason` names the deadline or the limit that made colibri close it, and is null
+    // when its client closed it, as this one does.
+    if (endpoint.ended()) |connection| {
+        if (connection.close_reason()) |reason| std.debug.print("server: closed for {s}\n", .{@tagName(reason)});
+        ended += 1;
+    }
 }
 ```
 
@@ -455,6 +462,9 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
                 // `cancelled`, or until `ended` hands its connection back.
                 _ = try connection.write_body(request.id, .{ .octets = greeting, .end = true });
                 answered += 1;
+                // A program short of connections shortens the deadlines of one it holds. This
+                // connection has answered the one request the example sends.
+                try connection.set_deadlines(.{ .idle_ns = idle_after_answer_ns });
             },
             // The client acknowledged every octet of the response. A client that closes its
             // connection first, as this one does, ends the connection instead.
@@ -471,10 +481,13 @@ Three things differ from TCP:
   They stay the program's until the request is `done` or `cancelled`, or until `ended` hands its
   connection back. `done` comes once the peer has acknowledged every octet of the response.
 - **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`: for loss
-  recovery, acknowledgments, idle timeouts, and the deadlines of [decision 110](decisions.md),
-  which `QuicConfig.deadlines` sets for each connection. A program sleeps until then when no
-  datagram arrives. `Endpoint.init` refuses limits a connection would refuse, with
-  `error.DeadlineInvalid`.
+  recovery, acknowledgments and idle timeouts, and for the deadlines of
+  [decision 110](decisions.md), which bound an h3 connection as they bound a TCP one. A program
+  sleeps until then when no datagram arrives. `QuicConfig.deadlines` sets the limits, and
+  `Endpoint.init` refuses limits a connection would refuse, with `error.DeadlineInvalid`.
+  `set_deadlines` changes one connection's limits, and `close_reason` names the deadline that
+  ended a connection, or the limit its client passed. `QuicConfig.idle_timeout_ms` is QUIC's
+  own idle timeout, which ends a peer that sends nothing at all.
 - **The end.** `ended` hands back each connection that is over, once, and a later client takes
   its slot.
 

@@ -65,9 +65,9 @@ test "decision 110: a connection that brings no whole request head by its first-
     const at_ns = connection.clock.opened_ns + constants.first_request_timeout_ns;
     try testing.expectEqual(at_ns, quic_deadline.soonest(connection).?);
     server_at(at_ns - 1);
-    try testing.expectEqual(null, connection.clock.timed_out);
+    try testing.expectEqual(null, connection.close_reason());
     server_at(at_ns);
-    try testing.expectEqual(Deadline.first_request, connection.clock.timed_out.?);
+    try testing.expectEqual(Deadline.first_request, connection.close_reason().?.deadline);
     try testing.expect(closing_with_no_error());
     // A deadline is no failure, and the connection reads nothing more.
     try support.pump(rounds_few);
@@ -111,6 +111,22 @@ test "decision 110: a deadline that passed fires at the next receive, with no ca
     try testing.expectEqual(null, (try connection.receive(at_ns)).event);
     try testing.expectEqual(Deadline.first_request, connection.clock.timed_out.?);
 }
+
+test "decision 110: a program changes one connection's limits, null turns one off, and what a start refuses is refused" {
+    try connected(constants.idle_timeout_ns);
+    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .idle_ns = 0 }));
+    // Twice 819 octets a second over a window of 10 s is under a unit of 16,384 octets.
+    try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = unit_bound_rate - 1 }));
+    try testing.expectEqual(constants.first_request_timeout_ns, connection.deadlines.first_request_ns.?);
+    try connection.set_deadlines(.{ .first_request_ns = null });
+    try testing.expectEqual(null, quic_deadline.soonest(connection));
+    // A shorter limit counts from the start the deadline already has.
+    try connection.set_deadlines(.{ .first_request_ns = idle_short_ns });
+    try testing.expectEqual(connection.clock.opened_ns + idle_short_ns, quic_deadline.soonest(connection).?);
+}
+
+/// The least body rate `Deadlines.validate_units` takes at the default window.
+const unit_bound_rate: u32 = 820;
 
 test "decision 110: a deadline set to null does not run" {
     try support.start();

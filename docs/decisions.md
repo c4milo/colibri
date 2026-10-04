@@ -3414,7 +3414,21 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        (RFC 9114 §4.1), or reset its stream with H3_REQUEST_CANCELLED once a response started
        (§4.1.1). The connection goes on, because h3's streams are independent. The send rate
        resets a stream held by its own credit, and closes a connection held as a whole with
-       H3_EXCESSIVE_LOAD.
+       H3_EXCESSIVE_LOAD. A program changes one connection's limits with `set_deadlines` and
+       reads why colibri closed one with `close_reason`, as on a TCP connection, and the reset
+       limit reads as `Limit.peer_resets`.
+     - **The GOAWAY before a close.** At the first-request, idle and drain deadlines the server
+       sends a GOAWAY first, and closes with H3_NO_ERROR once the client acknowledged it or the
+       drain deadline passed, as the owner ruled on 2026-10-04. RFC 9114 §5.2 says a server
+       SHOULD send one when it knows of the close in advance, so that a client learns which
+       requests the server did not take. `quic` writes a CONNECTION_CLOSE alone once it owes one
+       (RFC 9000 §10.2.1), so a GOAWAY written with the close would never be sent. `shutdown`
+       with no request open sends its GOAWAY the same way. A close before the handshake
+       completes sends none, because h3 has not started.
+     - **An endpoint given limits a connection refuses** returns `DeadlineInvalid` from
+       `Endpoint.init`, as `server.Connection.init` does, as the owner ruled on 2026-10-04. The
+       endpoint starts each connection itself and drops one that refuses to start, so without
+       the error it would answer no client and tell its program nothing.
      - **What stops the idle deadline.** Only a request whose head arrived whole, as the owner
        ruled on 2026-10-04. A request stream that still waits for its head does not stop it.
        Each such stream gets its 408 at the head deadline, and the connection closes at the idle
@@ -3463,7 +3477,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      The owner ruled the reset limit, the deadlines and what each does, and what stops the idle
      deadline. The three points on a request body and on the send rate apply those rulings to
-     QUIC. They were settled while building step 20c, and the owner has yet to confirm them.
+     QUIC. They were settled while building step 20c, and the owner confirmed them on
+     2026-10-04.
 
      The alternatives refused:
      - Leaving h3 to QUIC's idle timeout, which counts silence alone.
@@ -3488,6 +3503,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Counting the octets QUIC frames for the first time. The server keeps a response until
        the peer acknowledges it, so a peer that acknowledges nothing of a response framed whole
        would hold its record with no meter running.
+     - The GOAWAY in the close's packet, which RFC 9114 §5.3 names. `quic` would write a stream
+       frame beside a CONNECTION_CLOSE, against a property spec/tla/quic_close checks, and a
+       GOAWAY lost with its packet is not sent again.
+     - Closing at once with no GOAWAY, which the first three parts of step 20c did. A client
+       that sent a request as the server closed could not tell whether the server took it.
+     - An assertion in `Endpoint.init` in place of the error, which the third part of step 20c
+       had. A program that reads its limits from outside would stop on a value it could have
+       reported.
 
      Cost: a few branches for each datagram and each event of an h3 connection, and 8 octets
      for each request stream h3 holds, the instant it first saw the stream. The work is design

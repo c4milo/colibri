@@ -47,6 +47,11 @@ const wait_ns_max = 100_000_000;
 /// 300 ms.
 const fallback_delay_ns = 300_000_000;
 
+/// How long the server keeps a connection with no request open, in nanoseconds: 10 s, and 5 s
+/// once the connection has answered the example's request.
+const idle_ns = 10_000_000_000;
+const idle_after_answer_ns = 5_000_000_000;
+
 const greeting = "hello from colibri over h3\n";
 const content_type = "text/plain; charset=utf-8";
 
@@ -149,7 +154,9 @@ fn start_server(cpu: tls.Cpu) !void {
         .alpn = &.{"h3"},
         .cpu = cpu,
     });
-    server_quic = .{ .tls = &server_tls };
+    // Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit a
+    // server, and this one ends an idle connection sooner.
+    server_quic = .{ .tls = &server_tls, .deadlines = .{ .idle_ns = idle_ns } };
     endpoint_config = .{ .quic = &server_quic };
     // One endpoint for the program's UDP socket. It starts a connection from each client's first
     // datagram, in a slot of its own.
@@ -201,7 +208,12 @@ fn server_turn() !void {
         try link.send(.server, sent.octets);
     }
     // A connection that is over comes back once, and its slot is free for a later client.
-    if (endpoint.ended()) |_| ended += 1;
+    // `close_reason` names the deadline or the limit that made colibri close it, and is null
+    // when its client closed it, as this one does.
+    if (endpoint.ended()) |connection| {
+        if (connection.close_reason()) |reason| std.debug.print("server: closed for {s}\n", .{@tagName(reason)});
+        ended += 1;
+    }
 }
 
 /// Takes every event `connection` reports, and answers each request by its id, as a TCP
@@ -222,6 +234,9 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
                 // `cancelled`, or until `ended` hands its connection back.
                 _ = try connection.write_body(request.id, .{ .octets = greeting, .end = true });
                 answered += 1;
+                // A program short of connections shortens the deadlines of one it holds. This
+                // connection has answered the one request the example sends.
+                try connection.set_deadlines(.{ .idle_ns = idle_after_answer_ns });
             },
             // The client acknowledged every octet of the response. A client that closes its
             // connection first, as this one does, ends the connection instead.

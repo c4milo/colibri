@@ -26,6 +26,7 @@ const quic_deadline = @import("quic_deadline.zig");
 const quic_body = @import("quic_body.zig");
 const quic_sends = @import("quic_sends.zig");
 const deadline = @import("../deadline.zig");
+const close_reason_module = @import("../close_reason.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const http = @import("http");
 
@@ -128,6 +129,8 @@ pub const QuicConnection = struct {
     /// `peer_reset_period_start_ns` (decision 110 as amended).
     peer_resets: u32,
     peer_reset_period_start_ns: u64,
+    /// Whether the client passed that limit, which closed the connection.
+    peer_resets_passed: bool,
     /// This connection's limits and where its deadlines stand (decision 110 as amended).
     deadlines: deadline.Deadlines,
     clock: quic_deadline.Clock,
@@ -202,6 +205,23 @@ pub const QuicConnection = struct {
         quic_connection_h3.shut_down(connection, now_ns);
     }
 
+    /// Replaces this connection's limits (decision 110 as amended), for a program short of
+    /// connections that shortens its deadlines. It refuses what a connection refuses at its
+    /// start. A deadline that has started keeps its start.
+    pub fn set_deadlines(connection: *QuicConnection, deadlines: deadline.Deadlines) error{DeadlineInvalid}!void {
+        try deadlines.validate();
+        try deadlines.validate_units();
+        connection.deadlines = deadlines;
+    }
+
+    /// Why colibri closed the connection on its own: the deadline that passed, or the limit the
+    /// peer passed. Null while the connection runs, and after any other end.
+    pub fn close_reason(connection: *const QuicConnection) ?close_reason_module.CloseReason {
+        if (connection.clock.timed_out) |passed| return .{ .deadline = passed };
+        if (connection.peer_resets_passed) return .{ .limit = .peer_resets };
+        return null;
+    }
+
     /// h3 once the handshake completed, or null.
     pub fn protocol(connection: *const QuicConnection) ?event.Protocol {
         return if (connection.started) .h3 else null;
@@ -216,7 +236,7 @@ pub const QuicConnection = struct {
 test "design §8 step 17f: the QUIC connection's public functions are the calls a program makes" {
     const public_names = @import("core").public_names;
     try public_names.expect(QuicConnection, &.{
-        "receive",  "respond",  "write_body",  "write_trailers", "cancel",
-        "shutdown", "protocol", "server_name",
+        "receive",  "respond",       "write_body",   "write_trailers", "cancel",
+        "shutdown", "set_deadlines", "close_reason", "protocol",       "server_name",
     });
 }

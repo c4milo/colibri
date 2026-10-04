@@ -112,6 +112,7 @@ fn count_peer_reset(connection: *QuicConnection) bool {
     // limits on it, and "MAY treat activity that is suspicious as a connection error of type
     // H3_EXCESSIVE_LOAD".
     if (connection.peer_resets == constants.quic_peer_reset_rate_max) {
+        connection.peer_resets_passed = true;
         const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
         assert(failed == error.ConnectionFailed);
         internal.fail(connection);

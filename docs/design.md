@@ -6520,6 +6520,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - the body and send rates, and the cap per request;
     - drain, the close reasons, `set_deadlines`, and the calls in `docs/usage.md` and an example.
 
+    It adds two public functions to `server.QuicConnection`, which a TCP connection has already:
+    `set_deadlines`, for a server short of connections that shortens the deadlines of the ones
+    it holds, and `close_reason`, for an operator's log that tells an attack from a limit set
+    too tight. `examples/h3_exchange.zig` calls both.
+
   **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
   period its instant falls in, beside the count of the resets colibri sends. What was checked, on
   macOS arm64 with Zig 0.16.0:
@@ -7114,6 +7119,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     open.
   - The mutations of the three parts ran on 590b3d8. The replay on ecd57e1 moved the calls the
     endpoint makes into `quic_connection_internal.zig` and changed no rule.
+
+  **The calls of the fourth part, 2026-10-04** ([#95](https://github.com/c4milo/colibri/issues/95)).
+  - `QuicConnection.set_deadlines` replaces one connection's limits, and refuses what a
+    connection refuses at its start. `QuicConnection.close_reason` names the deadline that
+    closed a connection, or `Limit.peer_resets` for the reset limit, and is null after any other
+    end. Both are on the list in the test of `quic_connection.zig` (decision 115).
+  - `examples/h3_exchange.zig` sets `QuicConfig.deadlines`, shortens one connection's idle
+    deadline with `set_deadlines`, and reads `close_reason` from each connection `ended` hands
+    back. docs/usage.md quotes each, and no longer says that nothing bounds a slow h3 peer.
+  - Decision 110's amendment records the owner's rulings of 2026-10-04: a GOAWAY before a
+    close, an error from `Endpoint.init`, and the body and send rates over QUIC as built. The
+    first two are not built yet.
+  - `zig build test`, on 93ced64: 131 of 131 steps and 2593 of 2593 tests passed, and `zig build
+    examples` ran all four.
+  - 7 mutations, each **CAUGHT**: `set_deadlines` keeping the old limits, taking a limit of 0,
+    or taking a rate under the unit bound; `close_reason` naming no deadline, or no limit; the
+    reset limit not kept as the reason; and a public function added and not listed.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

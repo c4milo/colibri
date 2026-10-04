@@ -31,8 +31,10 @@ test "RFC 9114 §10.5: a client that cancels more requests in one period than th
     // The limit's worth of cancelled requests is not past it.
     try testing.expectEqual(constants.quic_peer_reset_rate_max, connection.peer_resets);
     try testing.expect(!support.server_failed);
+    try testing.expectEqual(null, connection.close_reason());
     try cancel_batch(1);
     try testing.expect(support.server_failed);
+    try testing.expectEqual(.peer_resets, connection.close_reason().?.limit);
     const close = connection.transport.pending_close.?;
     try testing.expectEqual(.application, close.layer);
     try testing.expectEqual(h3.constants.error_excessive_load, close.error_code);
