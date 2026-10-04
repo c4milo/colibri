@@ -58,8 +58,8 @@ pub const Config = struct {
     /// decision 111), or null to keep every client in its original version.
     switch_to: ?quic.packet.header.Version = .v2,
     /// The limits each connection starts with (decision 110 as amended). Null turns a deadline
-    /// off. An endpoint asserts they are limits `Deadlines.validate` and `validate_units` take,
-    /// so a program that reads them from outside validates them first.
+    /// off. `Endpoint.init` refuses limits `Deadlines.validate` or `validate_units` refuses,
+    /// with `error.DeadlineInvalid`.
     deadlines: deadline.Deadlines = .{},
 };
 

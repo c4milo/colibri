@@ -153,7 +153,7 @@ fn start_server(cpu: tls.Cpu) !void {
     endpoint_config = .{ .quic = &server_quic };
     // One endpoint for the program's UDP socket. It starts a connection from each client's first
     // datagram, in a slot of its own.
-    endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
+    try endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
 }
 
 fn start_client(cpu: tls.Cpu) !void {

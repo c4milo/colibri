@@ -163,10 +163,10 @@ test "decision 103: a connection that is over is handed back once, and its slot 
 test "the Unix seconds a connection's tickets carry count on from the endpoint's start" {
     try support.start_endpoint(null);
     const later_ns = support.now_ns + elapsed_seconds * constants.nanoseconds_per_second;
-    endpoint.init(&support.endpoint_config, tcp_support.stream.random(), start_seconds, support.now_ns);
+    try endpoint.init(&support.endpoint_config, tcp_support.stream.random(), start_seconds, support.now_ns);
     try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.held.seconds_at(later_ns));
     // An endpoint started at 0 issues no ticket, however late.
-    endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
+    try endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
     try testing.expectEqual(0, endpoint.held.seconds_at(later_ns));
 }
 const start_seconds: u64 = 1_790_000_000;
@@ -294,4 +294,18 @@ test "decision 102: a connection the provider gives no log writes none, and hand
     try testing.expectEqual(1, test_logs.opened);
     try testing.expectEqual(null, support.served.transport.qlog.log);
     try testing.expectEqual(null, support.served.h3.options.qlog);
+}
+
+test "decision 110 as amended: an endpoint refuses, when it starts, deadlines a connection would refuse" {
+    try support.start_endpoint(null);
+    // A limit of 0 is one `Deadlines.validate` refuses: null says no limit.
+    support.config.deadlines.idle_ns = 0;
+    try testing.expectError(error.DeadlineInvalid, endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
+    // A body rate of one octet a second is one `validate_units` refuses: twice that rate over a
+    // window brings less than a unit.
+    support.config.deadlines = .{ .body_rate_min = 1 };
+    try testing.expectError(error.DeadlineInvalid, endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
+    // The default limits are ones an endpoint takes.
+    support.config.deadlines = .{};
+    try endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
 }

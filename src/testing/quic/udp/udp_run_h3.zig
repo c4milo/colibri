@@ -63,7 +63,7 @@ pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64
         .retry = if (asked.retry) udp_identity.retry_config() else null,
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
     };
-    endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns);
+    endpoint.init(&endpoint_config, entropy.random(), asked.now_seconds, started_ns) catch |failure| fail("the endpoint did not start: {t}", .{failure});
     for (&files) |*held| held.init(asked.www);
     for (0..constants.quic_run_ticks_max) |_| {
         const ready = socket.tick(&events, wait_ns(socket)) catch |failure| fail("the tick failed: {t}", .{failure});

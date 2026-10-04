@@ -405,7 +405,7 @@ server_quic = .{ .tls = &server_tls };
 endpoint_config = .{ .quic = &server_quic };
 // One endpoint for the program's UDP socket. It starts a connection from each client's first
 // datagram, in a slot of its own.
-endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
+try endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
 ```
 
 The program passes the endpoint each datagram with the address it came from. The endpoint finds
@@ -471,9 +471,10 @@ Three things differ from TCP:
   They stay the program's until the request is `done` or `cancelled`, or until `ended` hands its
   connection back. `done` comes once the peer has acknowledged every octet of the response.
 - **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`: for loss
-  recovery, acknowledgments and idle timeouts. A program sleeps until then when no datagram
-  arrives. The deadlines of [decision 110](decisions.md) bound a TCP connection alone. Over h3,
-  `QuicConfig.idle_timeout_ms` ends a silent peer, and nothing yet bounds a slow one.
+  recovery, acknowledgments, idle timeouts, and the deadlines of [decision 110](decisions.md),
+  which `QuicConfig.deadlines` sets for each connection. A program sleeps until then when no
+  datagram arrives. `Endpoint.init` refuses limits a connection would refuse, with
+  `error.DeadlineInvalid`.
 - **The end.** `ended` hands back each connection that is over, once, and a later client takes
   its slot.
 

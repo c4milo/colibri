@@ -48,10 +48,11 @@ pub fn EndpointOf(comptime connections_max: usize, comptime receive_capacity: us
 
         /// Prepares an endpoint that holds no connection. Every value it draws comes from
         /// `random`. `now_seconds` is the Unix time at `now_ns`, which the server's tickets are
-        /// issued at, or 0 for none.
-        pub fn init(endpoint: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+        /// issued at, or 0 for none. `error.DeadlineInvalid` says `config.quic.deadlines` holds a
+        /// limit `Deadlines.validate` or `validate_units` refuses (decision 110 as amended).
+        pub fn init(endpoint: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
             for (&endpoint.pools, &endpoint.storages) |*pool, *storage| storage.* = pool.storage();
-            endpoint.held.init(config, &endpoint.connections, &endpoint.live, &endpoint.storages, random, now_seconds, now_ns);
+            try endpoint.held.init(config, &endpoint.connections, &endpoint.live, &endpoint.storages, random, now_seconds, now_ns);
         }
 
         /// Takes one datagram the socket read from `from`, which the suite opens in place, and

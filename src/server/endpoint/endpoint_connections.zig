@@ -69,15 +69,16 @@ pub const Connections = struct {
     /// The connection `send` asks first, which moves round each call.
     cursor: usize,
 
-    /// Holds no connection. Every value the endpoint draws comes from `random`. The limits in
-    /// `config.quic.deadlines` are ones `Deadlines.validate` and `validate_units` take.
-    pub fn init(held: *Connections, config: *const Config, connections: []QuicConnection, live: []bool, pools: []const ReceiveStorage, random: tls.Random, now_seconds: u64, now_ns: u64) void {
+    /// Holds no connection. Every value the endpoint draws comes from `random`. It refuses
+    /// limits in `config.quic.deadlines` that `Deadlines.validate` or `validate_units` refuses, as
+    /// `Connection.init` does over TCP (decision 110 as amended).
+    pub fn init(held: *Connections, config: *const Config, connections: []QuicConnection, live: []bool, pools: []const ReceiveStorage, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
         assert(connections.len > 0 and connections.len == live.len and live.len == pools.len);
-        // A connection refuses limits `validate` refuses, and an endpoint whose every connection
-        // refused to start would answer no client and tell its program nothing.
-        const deadlines_valid = if (config.quic.deadlines.validate()) |_| true else |_| false;
-        const units_valid = if (config.quic.deadlines.validate_units()) |_| true else |_| false;
-        assert(deadlines_valid and units_valid);
+        // A connection refuses limits `validate` refuses. An endpoint whose every connection
+        // refused to start would answer no client and tell its program nothing, so the endpoint
+        // refuses them here, once, where its program reads the error.
+        try config.quic.deadlines.validate();
+        try config.quic.deadlines.validate_units();
         held.* = .{
             .config = config,
             .random = random,

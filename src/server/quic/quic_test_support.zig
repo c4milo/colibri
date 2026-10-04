@@ -175,7 +175,7 @@ pub fn start_endpoint(retry: ?*const tls.quic.Retry) !void {
     try start();
     through_endpoint = true;
     endpoint_config = .{ .quic = &config, .retry = retry };
-    endpoint.init(&endpoint_config, support.stream.random(), 0, now_ns);
+    try endpoint.init(&endpoint_config, support.stream.random(), 0, now_ns);
 }
 
 fn start_client() !void {
