@@ -3655,8 +3655,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        under its own name, so `http.Field`, `h2.Connection` and `quic.PeerAddress` replace
        `http.field.Field` and its like. A function or a constant keeps its file's namespace. A
        test variable two modules share is reached through a function, because a root cannot
-       alias a `threadlocal`. The connections of h11 and h2 keep as methods the calls made from
-       outside their module: 13 of 16, and 20 of 22.
+       alias a `threadlocal`. The connections of h11, h2 and h3 keep as methods the calls made
+       from outside their module: 13 of 16, 20 of 22 and 15 of 16.
      - The lint rule `root-exports` refuses a root that exports a file whole, or that has no
        test listing its exports (`tools/lint/root_exports.zig`).
      - The root is the module's API file. Zig has file-private and `pub` and nothing between, so

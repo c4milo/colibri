@@ -5877,8 +5877,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     72 whole files are no longer exported. A type named after its file is exported under its own
     name: `http.Field`, `h2.Connection` and `quic.PeerAddress` replace `http.field.Field` and its
     like, which rewrote 147 call sites. `tools/lint/root_exports.zig` refuses a root that
-    exports a file or lists nothing. h11's connection keeps 13 methods of 16 and h2's 20 of 22;
-    a build with each candidate made private showed that the server calls `fail` on both.
+    exports a file or lists nothing. h11's connection keeps 13 methods of 16, h2's 20 of 22 and
+    h3's 15 of 16; a build with each candidate made private showed that the server calls `fail`
+    on all three.
+  - `server.Endpoint.init` returns `error.DeadlineInvalid` for limits a connection would refuse,
+    as the owner ruled on 2026-10-04 ([decision 110](decisions.md) as amended), so its callers
+    gained `try`. Before, each connection's start failed and the endpoint answered no client.
   - Writing the examples found four things a program must know, and the guide or the example it
     quotes now says each. A connection's deadlines count from the instant `init` is given. A
     client takes a QUIC datagram only from the address it sends to. Over QUIC a client that
@@ -5902,15 +5906,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the lengths, and a private declaration made public; and for `reference`, a root exporting a
     name no file declares, visiting no name, and looking into no namespace.
   - Mutations of the twelve roots: one each, a file exported whole again, 12 CAUGHT by the
-    lists. Of the lists of h11's and h2's connections: one each, a function made a method
-    again, 2 CAUGHT.
+    lists. Of the lists of the connections of h11, h2 and h3: one each, a function made a
+    method again, 3 CAUGHT. Of `Endpoint.init`: 2, each CAUGHT, a limit of 0 taken and a body
+    rate under the unit bound taken.
   - Mutations of the `root-exports` rule: 7, each CAUGHT. A real root exporting a file, the rule
     passing a file exported through `files` and through a private name, letting any root export
     `error_code`, letting `constants` name another file, asking for no list, and reading every
     file.
   - Mutations of the consumer check: 3, each CAUGHT. The package exports no `client` module, the
     consumer's server answers 200, and colibri's server writes another status.
-  - `zig build test` passed: 2572 of 2572 tests.
+  - `zig build test` passed: 2628 of 2628 tests.
 
   **17f check,** run on macOS 26.6.2 arm64 on 2026-10-04:
   - `zig build examples`: the four programs each printed that every octet arrived as sent.
