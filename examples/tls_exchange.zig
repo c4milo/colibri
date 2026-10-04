@@ -7,9 +7,10 @@
 //! one outcome for each exchange it placed, in memory it owns.
 //!
 //! Each side does three things in a turn. It hands colibri the octets that arrived and takes one
-//! event from each `receive`. It acts on the event. It sends what `send` writes. Both run over
-//! `link.zig`, which stands where a program's sockets would be, and `tls_program.zig` holds what
-//! any program that links `tls` defines once.
+//! event from each `receive`. It acts on the event. It sends what `send` writes. The server also
+//! keeps time: it sleeps no longer than its connection's `deadline_ns`, and then calls
+//! `on_instant` (decision 110). Both run over `link.zig`, which stands where a program's sockets
+//! would be, and `tls_program.zig` holds what any program that links `tls` defines once.
 //!
 //! The program checks what arrived: the client must see 200 twice, the greeting, the note it
 //! posted and the content type, octet for octet. Anything else exits with an error, which is how
@@ -36,6 +37,9 @@ const turns_max = 32;
 
 /// Events one side takes in one turn, at most.
 const events_per_turn_max = 64;
+
+/// The longest the server sleeps when no octet waits, in nanoseconds: 100 ms.
+const wait_ns_max: u64 = 100_000_000;
 
 const greeting = "hello from colibri over TLS\n";
 const note = "a note the client posts, which the server sends back\n";
@@ -115,6 +119,9 @@ pub fn main() !void {
         try client_turn();
         try server_turn();
         if (client_connection.should_close() and server_connection.should_close()) break;
+        // No octet waits for either side. A program sleeps here until its socket has octets or
+        // its connection's next deadline passes, whichever comes first.
+        if (!link.pending()) try link.wait(.server, server_wait_ns());
     } else return error.ExchangeUnfinished;
     // `should_close` says when to close the transport: the connection is over and `send` has
     // written everything, the TLS close_notify too. `transport_closed` then wipes the session's
@@ -173,9 +180,16 @@ fn server_turn() !void {
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.server, consumed);
     try link.send(.server, output[0..server_connection.send(&output, now_ns)]);
-    // Decision 110: a deadline bounds how long a peer may hold the connection. A program sleeps
-    // until `deadline_ns` and then calls `on_instant`, which ends a connection whose peer is late.
+    // Decision 110: a deadline bounds how long a peer may hold the connection. `on_instant` ends
+    // a connection whose peer is late, at the instant the program woke at.
     server_connection.on_instant(now_ns);
+}
+
+/// How long the server may sleep: until its connection's next deadline (decision 110), which
+/// `deadline_ns` names, and never longer than `wait_ns_max`. `server_turn` then calls `on_instant`.
+fn server_wait_ns() u64 {
+    const deadline_ns = server_connection.deadline_ns() orelse return wait_ns_max;
+    return @min(wait_ns_max, deadline_ns -| link.now_ns(.server));
 }
 
 /// Acts on one event of the server. A request is answered by its id, in h11 and h2 alike.
@@ -224,11 +238,10 @@ fn answer(id: server.Id, content: []const u8) !void {
     assert(taken == content.len);
 }
 
-/// One turn of the client: send what the connection owes, then read every event that arrived.
+/// One turn of the client: read every event that arrived, then send what the connection owes.
 fn client_turn() !void {
     const input = try link.receive(.client);
     const now_ns = link.now_ns(.client);
-    try link.send(.client, output[0..client_connection.send(&output, now_ns)]);
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
         const received = client_connection.receive(input[consumed..], now_ns);
@@ -240,6 +253,7 @@ fn client_turn() !void {
         report(event);
     }
     link.consume(.client, consumed);
+    try link.send(.client, output[0..client_connection.send(&output, now_ns)]);
 }
 
 /// Acts on one event of the client. Each exchange ends in one `finished` event, whatever happened

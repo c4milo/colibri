@@ -22,7 +22,7 @@ zig build example-tls_exchange
 
 Each example checks what arrived against what was sent, octet for octet, and exits with an error
 when anything differs. `tools/ci.sh` runs them on every push, so an example that stops working fails
-CI. Eighteen deliberate breaks each made `zig build examples` fail: in colibri's h11 and h2
+CI. Nineteen deliberate breaks each made `zig build examples` fail: in colibri's h11 and h2
 writers, in its server, client and endpoint, in the TLS setup, and in the links.
 
 The code in README.md and docs/usage.md is quoted from these programs, and `tools/doc_snippets.sh`

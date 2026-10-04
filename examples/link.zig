@@ -164,6 +164,20 @@ pub const Link = struct {
         queue_len.* -= len;
     }
 
+    /// Whether octets wait for either side.
+    pub fn pending(link: *const Link) bool {
+        for (link.queue_lens) |queue_len| {
+            if (queue_len > 0) return true;
+        }
+        return false;
+    }
+
+    /// Waits on `side`'s loop until `wait_ns` nanoseconds pass, as a program waits on its socket
+    /// until its next deadline. Both loops run on this thread, so the time passes for both sides.
+    pub fn wait(link: *Link, side: Side, wait_ns: u64) Error!void {
+        try link.loops.tick(side, wait_ns);
+    }
+
     /// The instant `side`'s loop read at its last tick, which is what colibri is given.
     pub fn now_ns(link: *const Link, side: Side) u64 {
         return link.loops.now_ns(side);
