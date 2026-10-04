@@ -30,7 +30,7 @@ const udp_run_client = @import("udp_run_client.zig");
 const udp_run_h3 = @import("udp_run_h3.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.stream_provider.StreamProvider;
+const StreamProvider = quic.stream.StreamProvider;
 
 /// The application a server's connection runs, which its ALPN decides (RFC 9001 §8.1).
 const Application = enum { undecided, hq, h3 };

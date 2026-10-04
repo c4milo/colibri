@@ -25,7 +25,7 @@ const Connection = quic.Connection;
 const Role = quic.connection.Role;
 const Version = quic.packet.header.Version;
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.stream_provider.StreamProvider;
+const StreamProvider = quic.stream.StreamProvider;
 
 /// Why an endpoint stopped: a connection error, which two colibri endpoints never give each other,
 /// or a send colibri refused.
@@ -323,12 +323,12 @@ pub fn network_ecn(ecn: quic.connection_send.Ecn) sim.network.Ecn {
 }
 
 /// The network's address as colibri names a peer's (decision 72): the host as one octet.
-pub fn peer_address(address: sim.network.Address) quic.peer_address.PeerAddress {
-    return quic.peer_address.PeerAddress.of(&.{address.host}, address.port);
+pub fn peer_address(address: sim.network.Address) quic.PeerAddress {
+    return quic.PeerAddress.of(&.{address.host}, address.port);
 }
 
 /// The address colibri named for a datagram, as the network carries it.
-pub fn network_address(address: quic.peer_address.PeerAddress) sim.network.Address {
+pub fn network_address(address: quic.PeerAddress) sim.network.Address {
     assert(address.len == 1);
     return .{ .host = address.octets[0], .port = address.port };
 }

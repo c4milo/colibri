@@ -19,7 +19,7 @@ const udp_run = @import("udp_run.zig");
 
 const Connection = udp_run.Connection;
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.stream_provider.StreamProvider;
+const StreamProvider = quic.stream.StreamProvider;
 
 var client: hq_client.Client align(@alignOf(hq_client.Client)) = undefined;
 var h3_side: h3_client.Client align(@alignOf(h3_client.Client)) = undefined;

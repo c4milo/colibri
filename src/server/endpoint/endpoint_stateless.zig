@@ -6,7 +6,7 @@ const assert = std.debug.assert;
 const quic = @import("quic");
 const constants = @import("../constants.zig");
 
-const PeerAddress = quic.peer_address.PeerAddress;
+const PeerAddress = quic.PeerAddress;
 
 /// The Destination Connection ID of a datagram's first packet, which RFC 9000 §5.2 matches to a
 /// connection, or null for a packet that names none. §12.2: "Receivers SHOULD ignore any

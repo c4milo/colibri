@@ -17,7 +17,7 @@ const udp_qlog = @import("udp_qlog.zig");
 const udp = @import("../../udp.zig");
 
 const Parameters = quic.transport_parameters.Parameters;
-const StreamProvider = quic.stream.stream_provider.StreamProvider;
+const StreamProvider = quic.stream.StreamProvider;
 
 pub const Error = quic.connection_datagram.Error || quic.connection_send.Error || quic.connection_recovery.Error ||
     error{
@@ -33,7 +33,7 @@ pub const Outgoing = struct {
     to: udp.Address,
 };
 
-const PeerAddress = quic.peer_address.PeerAddress;
+const PeerAddress = quic.PeerAddress;
 
 /// A socket address as colibri names a peer's (decision 72): four octets for IPv4 and sixteen for
 /// IPv6, and the port.

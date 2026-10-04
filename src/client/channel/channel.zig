@@ -42,7 +42,7 @@ pub const Protocol = event.Protocol;
 pub const Finished = event.Finished;
 pub const RequestError = connection_module.RequestError;
 pub const StartError = connection_module.StartError;
-pub const Address = quic.peer_address.PeerAddress;
+pub const Address = quic.PeerAddress;
 pub const Sent = quic_connection.Sent;
 pub const QuicStart = quic_connection.Start;
 

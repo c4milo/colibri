@@ -34,7 +34,7 @@ pub const Received = event.Received;
 pub const Field = connection_module.Field;
 pub const Error = connection_module.Error;
 pub const SendError = connection_module.SendError;
-pub const PeerAddress = quic.peer_address.PeerAddress;
+pub const PeerAddress = quic.PeerAddress;
 /// Where a QUIC connection's received octets wait until h3 reads them (decision 61): the storage
 /// of a `quic.stream.stream_incoming.Pool` the caller places.
 pub const ReceiveStorage = quic.stream.stream_incoming.Storage;

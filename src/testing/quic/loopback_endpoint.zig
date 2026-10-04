@@ -178,7 +178,7 @@ pub const Endpoint = struct {
         endpoint.transfer_started = true;
     }
 
-    fn stream_provider(endpoint: *Endpoint) quic.stream.stream_provider.StreamProvider {
+    fn stream_provider(endpoint: *Endpoint) quic.stream.StreamProvider {
         return .{ .context = endpoint, .vtable = &stream_vtable };
     }
 };

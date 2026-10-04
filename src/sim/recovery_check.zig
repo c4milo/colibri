@@ -25,8 +25,8 @@ pub const run_seed = recovery_check_run.run_seed;
 
 const Network = sim.network.Network;
 const Schedule = sim.network.Schedule;
-const Recovery = quic.recovery.Recovery;
-const Space = quic.space.Space;
+const Recovery = quic.Recovery;
+const Space = quic.Space;
 const Record = quic.recovery_sent.Record;
 
 /// The digest of every seed's run and the counts beside it. They change when the network, the

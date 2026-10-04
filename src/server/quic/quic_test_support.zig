@@ -404,8 +404,8 @@ fn start_server(first: []const u8) !void {
     server_started = true;
 }
 
-pub fn client_address() quic.peer_address.PeerAddress {
-    return quic.peer_address.PeerAddress.of(&client_octets, client_port_now);
+pub fn client_address() quic.PeerAddress {
+    return quic.PeerAddress.of(&client_octets, client_port_now);
 }
 
 fn server_to_client() !void {

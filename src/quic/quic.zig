@@ -75,6 +75,12 @@ const files = struct {
 
 /// One QUIC connection, in storage the caller owns.
 pub const Connection = files.connection.Connection;
+/// A peer's address as the caller names it (decision 72).
+pub const PeerAddress = files.peer_address.PeerAddress;
+/// A packet number space, and the loss recovery of a connection, which the simulator drives by
+/// themselves. A program names neither.
+pub const Space = files.space.Space;
+pub const Recovery = files.recovery.Recovery;
 
 /// A datagram the caller read is passed to `receive`, and `send` writes the next one the
 /// connection owes (design §4.2).
@@ -209,20 +215,12 @@ pub const connection_stream_recovery = struct {
     pub const on_packets_acknowledged = files.connection_stream_recovery.on_packets_acknowledged;
 };
 
-pub const recovery = struct {
-    pub const Recovery = files.recovery.Recovery;
-};
-
 pub const recovery_ack = struct {
     pub const on_ack_received = files.recovery_ack.on_ack_received;
 };
 
 pub const recovery_sent = struct {
     pub const Record = files.recovery_sent.Record;
-};
-
-pub const space = struct {
-    pub const Space = files.space.Space;
 };
 
 /// The wire formats a caller reads and writes itself: a packet's header before any connection
@@ -310,7 +308,6 @@ pub const stream = struct {
         pub const block_len = files.stream.stream_incoming.block_len;
     };
     pub const stream_provider = struct {
-        pub const StreamProvider = files.stream.stream_provider.StreamProvider;
         pub const VTable = files.stream.stream_provider.VTable;
     };
     pub const stream_table = struct {
@@ -318,27 +315,22 @@ pub const stream = struct {
     };
 };
 
-/// A peer's address as the caller names it (decision 72).
-pub const peer_address = struct {
-    pub const PeerAddress = files.peer_address.PeerAddress;
-};
-
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",                           "wire",                      "crypto",
-        "tls_provider",                   "qlog",                      "constants",
-        "error_code",                     "Connection",                "connection_datagram",
-        "connection_send",                "connection_timer",          "connection_idle",
-        "connection_close",               "connection_stream_send",    "connection_stream_read",
-        "connection_stream_acknowledged", "connection_stream_credit",  "connection_version",
-        "connection_retry",               "connection_id_frames",      "connection_migration",
-        "connection_key_update",          "connection_qlog",           "connection",
-        "connection_receive",             "connection_recovery",       "connection_frames",
-        "connection_keys",                "connection_stream_frames",  "connection_stream_recovery",
-        "recovery",                       "recovery_ack",              "recovery_sent",
-        "space",                          "packet",                    "frame",
-        "transport_parameters",           "transport_parameters_read", "stream",
-        "peer_address",
+        "core",                           "wire",                     "crypto",
+        "tls_provider",                   "qlog",                     "constants",
+        "error_code",                     "Connection",               "PeerAddress",
+        "Space",                          "Recovery",                 "connection_datagram",
+        "connection_send",                "connection_timer",         "connection_idle",
+        "connection_close",               "connection_stream_send",   "connection_stream_read",
+        "connection_stream_acknowledged", "connection_stream_credit", "connection_version",
+        "connection_retry",               "connection_id_frames",     "connection_migration",
+        "connection_key_update",          "connection_qlog",          "connection",
+        "connection_receive",             "connection_recovery",      "connection_frames",
+        "connection_keys",                "connection_stream_frames", "connection_stream_recovery",
+        "recovery_ack",                   "recovery_sent",            "packet",
+        "frame",                          "transport_parameters",     "transport_parameters_read",
+        "stream",
     });
 }
 

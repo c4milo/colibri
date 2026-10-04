@@ -14,7 +14,7 @@ const hq_file = @import("hq_file.zig");
 
 const Connection = quic.Connection;
 const StreamId = quic.stream.StreamId;
-const StreamProvider = quic.stream.stream_provider.StreamProvider;
+const StreamProvider = quic.stream.StreamProvider;
 
 pub const Error = quic.connection_stream_send.Error || quic.connection_stream_read.Error || error{
     /// A file in the downloads directory could not be created or written.
