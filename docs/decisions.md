@@ -2624,6 +2624,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
       nowhere.
     - h11 and h2 come first, in cleartext. Examples over TLS, QUIC and h3 need chapulin, which
       design §8 step 16 links into the library.
+    - Amended on 2026-10-04, for design §8 step 17f: `tls_exchange.zig` runs `server` and `client`
+      over TLS, and `h3_exchange.zig` runs `server.Endpoint` and `client.Channel` over
+      `examples/link_datagram.zig`, a link that moves datagrams. Both present the test identity of
+      `src/testing/testdata/`, which colibri's build gives them as the module `testdata`. The
+      package still exports no test data.
 
     The alternatives refused:
     - Programs over real sockets that CI builds and never runs, as chapulin's are. They show a
@@ -3505,3 +3510,39 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        its peer. Another process can bind the port in between.
      - A range of ports for each worktree. It needs a rule that hands the ranges out, and two
        runs in one worktree still collide.
+
+115. **A type's public functions are the calls a program makes, and a module's root exports the
+     types a program names.** Ruled by the owner on 2026-10-04, who asked why so much of `server`
+     and `client` was public, for design §8 step 17f. It trims the types of decisions 100 and 103
+     and changes none of the calls a program makes.
+     - Zig lets one file call another's function only when the function is `pub`. Each of the six
+       types is split over several files to stay under 500 lines, so the calls its own files make
+       of each other had become public methods beside the calls a program makes.
+     - A call that only the module's other files make is a free function that takes the type's
+       pointer, in a file the root does not export: `connection_internal.zig` for each TCP
+       connection, `quic_connection_internal.zig` for each QUIC connection, and
+       `channel_events.zig` for the channel. `Endpoint` calls a connection through the server's
+       `quic_connection_internal.zig`.
+     - A test beside each type lists its public functions by name, and a test beside each root
+       lists what the root exports. A function made public, or a file exported, fails its test
+       until the list names it.
+     - Each root exports `constants` whole (decision 35), and an alias for every type a program
+       names: those its calls take and return, and those its configurations hold. It exports no
+       other file. `server` exported nine files and `client` six.
+     - The public functions, before and after: `server.Connection` 25 and 16,
+       `server.QuicConnection` 18 and 8, `server.Endpoint` 7 and 6, `client.Connection` 23 and
+       11, `client.QuicConnection` 15 and 12, `client.Channel` 18 and 15.
+     - One call stays public for the simulator alone, and says so: `Channel.phase`, with the
+       `ChannelPhase` and `ChannelEntry` the client trace reads (decision 105). The TCP trace
+       called `write_owed` on the two TCP connections, and now calls `send` with no room, which
+       writes what a connection owes and hands out nothing.
+
+     The alternatives refused:
+     - Leave the calls public and say in each comment who makes it. A reader of the type still
+       sees twice the calls, and nothing stops a program from making one.
+     - Stop at the two TCP connections. `server.QuicConnection` showed a program the ten calls
+       its endpoint makes.
+     - One file for each type, which needs no `pub` between files. Each type passes 500 lines
+       with its tests.
+     - Fewer calls, such as `should_close` folded into what `send` returns. It changes the loop a
+       program writes, and the owner chose to keep the calls.

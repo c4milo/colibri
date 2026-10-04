@@ -124,6 +124,12 @@ exists — never propose a second one.
   that.
 - One name per thing, and it is the name in the code. Never invent prose shorthand for something
   a field or constant already names.
+- A type's `pub fn`s are the calls a program makes (decision 115). A call that only the module's
+  other files make is a free function in a file the root does not export, such as
+  `connection_internal.zig`. A root exports `constants` and an alias for each type a program
+  names, and no other file. A test beside each type of `server` and `client`, and beside each
+  root, lists the names: add one there when a program needs it, never to call it from another
+  file.
 - Every GitHub issue reference carries its full URL
   (`https://github.com/c4milo/colibri/issues/1`), never the bare hash-and-number form. Markdown
   may keep the short form as the link label; Zig and shell comments spell the URL out.
@@ -167,9 +173,9 @@ exists — never propose a second one.
 - Each module owns its `constants.zig`. A limit two modules share belongs in
   `src/core/constants.zig`. A comptime assert stays with the constant it pins.
 - Tests belong in the file they test. Fixtures and corpora belong beside the module that reads them.
-  The one exception is the TLS test identity, which the tests of several modules read: it lives
-  once in `src/testing/testdata/`, a test-only module no packaged module imports, beside the
-  openssl commands that made it.
+  The one exception is the TLS test identity, which the tests of several modules and the examples
+  over TLS read: it lives once in `src/testing/testdata/`, a test-only module no packaged module
+  imports, beside the openssl commands that made it.
 - `src/testing/` holds the test-only entry points of design §9. It is excluded from the packaged
   library and is the only directory permitted to open a socket. Every endpoint there does its I/O
   without blocking: Rotor's one system call per tick, and no other call that waits (decisions 46,
