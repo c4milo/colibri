@@ -8,27 +8,66 @@
 //! every key, and colibri passes it pointers to the caller's keys and never reads one
 //! (non-negotiable 2). Each session draws from the `Random` its caller passes to `start`, and the
 //! program defines chapulin's one remaining hook, `ch_assert_fail` (decision 94 as amended).
+//!
+//! This root is the module's API file (decision 115). It exports the names code outside the
+//! module uses: a type under its own name, a function or a constant under the namespace of its
+//! file, and no file but `constants`.
 const std = @import("std");
 
 pub const constants = @import("constants.zig");
-pub const values = @import("values.zig");
-pub const record = @import("record/record.zig");
-pub const quic = @import("quic/quic.zig");
 
-pub const Random = values.Random;
-pub const Cpu = values.Cpu;
-pub const Anchor = values.Anchor;
-pub const Pin = values.Pin;
-pub const Trust = values.Trust;
-pub const Client = values.Client;
-pub const Server = values.Server;
-pub const Ticket = values.Ticket;
-pub const Resumption = values.Resumption;
-pub const EcdsaP256Identity = values.EcdsaP256Identity;
-pub const RsaPssIdentity = values.RsaPssIdentity;
+/// Every file of the module. None of these is exported: the names below are.
+const files = struct {
+    pub const values = @import("values.zig");
+    pub const record = @import("record/record.zig");
+    pub const quic = @import("quic/quic.zig");
+};
+
+pub const Random = files.values.Random;
+pub const Cpu = files.values.Cpu;
+pub const Anchor = files.values.Anchor;
+pub const Pin = files.values.Pin;
+pub const Trust = files.values.Trust;
+pub const Client = files.values.Client;
+pub const Server = files.values.Server;
+pub const Ticket = files.values.Ticket;
+pub const Resumption = files.values.Resumption;
+pub const EcdsaP256Identity = files.values.EcdsaP256Identity;
+pub const RsaPssIdentity = files.values.RsaPssIdentity;
+
+pub const record = struct {
+    pub const Client = files.record.Client;
+    pub const ClientConfig = files.record.ClientConfig;
+    pub const Server = files.record.Server;
+    pub const ServerConfig = files.record.ServerConfig;
+    pub const alert_record_len = files.record.alert_record_len;
+};
+
+pub const quic = struct {
+    pub const Client = files.quic.Client;
+    pub const ClientConfig = files.quic.ClientConfig;
+    pub const Error = files.quic.Error;
+    pub const Retry = files.quic.Retry;
+    pub const Server = files.quic.Server;
+    pub const ServerConfig = files.quic.ServerConfig;
+    pub const State = files.quic.State;
+    pub const token_key_len = files.quic.token_key_len;
+};
+
+test "decision 115: the root exports the names code outside the module uses" {
+    try @import("crypto").core.public_names.expect(@This(), &.{
+        "constants", "Random",     "Cpu",               "Anchor",
+        "Pin",       "Trust",      "Client",            "Server",
+        "Ticket",    "Resumption", "EcdsaP256Identity", "RsaPssIdentity",
+        "record",    "quic",
+    });
+}
 
 test {
-    std.testing.refAllDecls(@This());
+    // Every file's tests run, whether or not the root exports a name of it.
+    std.testing.refAllDecls(files);
+    // Every name the root exports resolves, in each namespace it declares.
+    _ = @import("crypto").core.public_names.reference(@This(), &.{});
     // The hooks a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }
