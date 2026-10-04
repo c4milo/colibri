@@ -25,7 +25,11 @@ pub const ConfigError = config_module.Error;
 pub const State = quic_provider.State;
 pub const Retry = quic_suite.Retry;
 pub const token_key_len = quic_suite.token_key_len;
-pub const version = quic_suite.version;
+
+/// The version a client's session starts in when neither its configuration nor the ticket it
+/// offers names one (decision 111): version 1 (RFC 9000 §15). It is the oldest version colibri's
+/// `quic` speaks, which RFC 9368 §2.5 suggests as a client's original version.
+const original_version_default: chapulin.quic.Version = .v1;
 
 /// The version a ticket's connection negotiated, which RFC 9369 §5 binds it to, or null for no
 /// ticket, a ticket a TCP connection issued, or a version colibri does not run.
@@ -64,7 +68,7 @@ pub const Client = struct {
         client.chosen.random = random;
         // RFC 9368 §2.5: the version of the client's first Initial packet, its original one: the
         // version its configuration names, else its ticket's (decision 111), else version 1.
-        client.chosen.quic_version = config.values.quic_version orelse ticket_version(resumption) orelse version;
+        client.chosen.quic_version = config.values.quic_version orelse ticket_version(resumption) orelse original_version_default;
         switch (client.chosen.trust) {
             .web_pki => |*judged| judged.now_seconds = now_seconds,
             .pins => {},

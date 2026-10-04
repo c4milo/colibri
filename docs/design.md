@@ -6316,6 +6316,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the UDP server or the loopback server installing no chooser, and the UDP connection starting in
     version 1.
 
+  **`tls.quic.version` leaves the API, 2026-10-04.** The owner ruled that the constant becomes
+  private to `src/tls/quic/quic.zig`, as `original_version_default`.
+  - Its one reader is `tls.quic.Client.start`. It is the version a client's session starts in
+    when neither its configuration nor the ticket it offers names one: version 1.
+  - The public name read as the one QUIC version. Its type is chapulin's `Version`, which no
+    colibri call takes: a connection's `Options.version` is a `crypto.suite.Version`. A caller
+    that converted it would seal version 1 packets for a session that a version 2 ticket started
+    in version 2, and the suite asserts that the two agree. `Client.original_version()` gives the
+    version the session chose, in colibri's type, and `client.QuicConnection` passes it to its
+    connection.
+  - Nothing else read it: no file in `src`, `examples`, `tools`, `bench` or `build`.
+  - The alternatives refused: keeping the name public, and renaming it while keeping it public.
+
+  What each check printed, on macOS arm64:
+  - `zig build test`: 2539 of 2539 tests.
+  - 1 mutation, **CAUGHT** by `zig build test-tls`: the default naming version 2. 5 tests failed,
+    and 3 more ended on the suite's assertion.
+
 - **Step 20 — denial of service at the server.** [Decision 110](decisions.md) rules the defences
   that [#82](https://github.com/c4milo/colibri/issues/82) planned, in two parts.
   - **20a**, Rapid Reset (CVE-2023-44487). h2 counts the streams the peer opens and then resets,
