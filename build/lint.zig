@@ -30,6 +30,7 @@ const canary_rules = [_][]const u8{
     "peer-index",
     "static-alignment",
     "global-state",
+    "root-exports",
 };
 
 /// The most lines a hand-written file may hold (tools/lint/file_length.zig).
@@ -72,6 +73,12 @@ const canary_markdown =
     \\```
     \\code
     \\```
+    \\
+;
+
+/// A library module's root that exports a file whole, which the root-exports rule refuses.
+const canary_root =
+    \\pub const frame = @import("frame.zig");
     \\
 ;
 
@@ -137,5 +144,6 @@ fn add_canary_tree(b: *std.Build) std.Build.LazyPath {
     _ = tree.add("src/testing/canary.zig", canary_testing_source);
     _ = tree.add("docs/canary.md", canary_markdown);
     _ = tree.add("build/modules.zig", canary_modules);
+    _ = tree.add("src/h2/h2.zig", canary_root);
     return tree.getDirectory();
 }

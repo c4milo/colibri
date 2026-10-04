@@ -289,8 +289,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   relative-import, module-graph, magic-numbers, markdown GFM, file length, rfc-citation
   (a validation branch with no RFC section comment), peer-index (invariant 3) and
   static-alignment (a global states `align(@alignOf(T))`, which Zig 0.16's x86_64 backend needs
-  to place it right) and global-state (no library `var` that every thread shares; a fixture
-  several test files share lives in a `*_test_support.zig` file). Every rule
+  to place it right), global-state (no library `var` that every thread shares; a fixture
+  several test files share lives in a `*_test_support.zig` file) and root-exports (a library
+  module's root exports no file but `constants`, and lists what it exports in a test; decision
+  115). Every rule
   `tools/lint/main.zig` registers runs, and a canary tree in `build/lint.zig` proves it. The
   rules read `bench/`, `build/`, `examples/`, `src/`, `tools/` and `docs/`, and the Markdown
   files at the repository root, which `lint_rule_files` in `build.zig` names. A new one joins

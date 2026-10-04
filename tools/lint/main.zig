@@ -17,7 +17,8 @@
 //! 2 on a usage error.
 //!
 //! Ten rules are pepegrillo's, configured in the file named after each. `module-graph`,
-//! `rfc-citation` and `peer-index` are colibri's own, written against pepegrillo's readers.
+//! `rfc-citation`, `peer-index` and `root-exports` are colibri's own, written against pepegrillo's
+//! readers.
 //!
 //! This tool is developer tooling. It is never linked into the library, so it allocates, reads the
 //! filesystem, and is exempt from the rules it enforces over `src/` (CLAUDE.md, Layout).
@@ -42,6 +43,7 @@ const rules = .{
     @import("peer_index.zig"),
     @import("static_alignment.zig"),
     @import("global_state.zig"),
+    @import("root_exports.zig"),
 };
 
 const Linter = pepegrillo.lint.Linter(rules);
@@ -70,6 +72,7 @@ test "the registered rules are exactly the rules CLAUDE.md names" {
         "peer-index",
         "static-alignment",
         "global-state",
+        "root-exports",
     };
     try testing.expectEqual(expected.len, Linter.count);
     inline for (rules, 0..) |rule, index| {
