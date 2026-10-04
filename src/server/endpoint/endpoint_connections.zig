@@ -70,13 +70,14 @@ pub const Connections = struct {
     cursor: usize,
 
     /// Holds no connection. Every value the endpoint draws comes from `random`. The limits in
-    /// `config.quic.deadlines` are ones `Deadlines.validate` takes.
+    /// `config.quic.deadlines` are ones `Deadlines.validate` and `validate_units` take.
     pub fn init(held: *Connections, config: *const Config, connections: []QuicConnection, live: []bool, pools: []const ReceiveStorage, random: tls.Random, now_seconds: u64, now_ns: u64) void {
         assert(connections.len > 0 and connections.len == live.len and live.len == pools.len);
         // A connection refuses limits `validate` refuses, and an endpoint whose every connection
         // refused to start would answer no client and tell its program nothing.
         const deadlines_valid = if (config.quic.deadlines.validate()) |_| true else |_| false;
-        assert(deadlines_valid);
+        const units_valid = if (config.quic.deadlines.validate_units()) |_| true else |_| false;
+        assert(deadlines_valid and units_valid);
         held.* = .{
             .config = config,
             .random = random,

@@ -40,7 +40,15 @@ pub const round_ns: u64 = 30_000_000;
 pub const rounds_default: usize = 8;
 const datagrams_per_round_max: usize = 64;
 const client_idle_timeout_ms: u64 = 30_000;
-const client_stream_window: u64 = 65_536;
+const client_uni_window: u64 = 65_536;
+/// How a test's client departs from an honest one: the credit its request streams and its
+/// connection start with, whether it reads what arrives, so that credit grows (RFC 9000 §4.1),
+/// and whether its datagrams reach the server. `start` restores the last two.
+pub const window_default: u64 = quic.constants.receive_pool_len_default;
+pub var client_stream_window: u64 = window_default;
+pub var client_connection_window: u64 = window_default;
+pub var client_reads: bool = true;
+pub var client_mute: bool = false;
 
 pub var now_ns: u64 = start_ns;
 /// The server's connection and what it borrows.
@@ -152,6 +160,8 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     server_started = false;
     server_failed = false;
     client_h3_started = false;
+    client_reads = true;
+    client_mute = false;
     seen_len = 0;
     fetches_len = 0;
     try start_client();
@@ -192,9 +202,9 @@ const parameters_len_max: usize = 1024;
 
 fn client_parameters() quic.transport_parameters.Parameters {
     var held = quic.transport_parameters.Parameters.initial();
-    held.initial_max_data = quic.constants.receive_pool_len_default;
-    held.initial_max_stream_data_bidi_local = quic.constants.receive_pool_len_default;
-    held.initial_max_stream_data_uni = client_stream_window;
+    held.initial_max_data = client_connection_window;
+    held.initial_max_stream_data_bidi_local = client_stream_window;
+    held.initial_max_stream_data_uni = client_uni_window;
     held.initial_max_streams_uni = h3.constants.uni_streams_max;
     held.max_idle_timeout_ms = client_idle_timeout_ms;
     return held;
@@ -241,16 +251,11 @@ pub fn request_with_trailers(path: []const u8, trailers: []const Field) !*Fetch 
 }
 
 /// As `request`, holding back the last octet of the request's head, so the server never has a
-/// whole head until `finish_head`.
+/// whole head.
 pub fn request_short_of_head(method: []const u8, path: []const u8) !*Fetch {
     const fetch = try stage_request(method, path, &.{}, "", &.{});
     try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len - 1, false);
     return fetch;
-}
-
-/// Sends the octet `request_short_of_head` held back, and ends the stream.
-pub fn finish_head(fetch: *const Fetch) !void {
-    try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len, true);
 }
 
 fn write_request(method: []const u8, path: []const u8, fields: []const Field, content: []const u8, trailers: []const Field, fin: bool) !*Fetch {
@@ -260,7 +265,7 @@ fn write_request(method: []const u8, path: []const u8, fields: []const Field, co
 }
 
 /// Opens a request stream and writes the request's frames into a fetch, sending none of them.
-fn stage_request(method: []const u8, path: []const u8, fields: []const Field, content: []const u8, trailers: []const Field) !*Fetch {
+pub fn stage_request(method: []const u8, path: []const u8, fields: []const Field, content: []const u8, trailers: []const Field) !*Fetch {
     assert(client_h3_started and fetches_len < fetches.len);
     assert(trailers.len == 0 or content.len == 0);
     const fetch = &fetches[fetches_len];
@@ -368,6 +373,7 @@ pub fn nth(kind: std.meta.Tag(Event), n: usize) ?*const Seen {
 }
 
 fn client_to_server() !void {
+    if (client_mute) return;
     for (0..datagrams_per_round_max) |_| {
         const sent = quic.connection_send.send(&client, client_session.suite(), client_session.provider(), client_provider(), &client_send_scratch, &datagram, now_ns) catch return error.TestUnexpectedResult;
         const held = sent orelse return;
@@ -407,12 +413,12 @@ fn server_to_client() !void {
         const sent = (if (through_endpoint) endpoint.send(&datagram, now_ns) else internal.send(&connection, &datagram, now_ns)) orelse return;
         @memcpy(crossing[0..sent.octets.len], sent.octets);
         _ = quic.connection_datagram.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.octets.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
-        try client_read();
+        if (client_reads) try client_read();
     }
 }
 
 /// Starts the client's h3 once its handshake completed, and reads every event it has.
-fn client_read() !void {
+pub fn client_read() !void {
     if (!client_h3_started) {
         if (!client.handshake_complete) return;
         try client_h3.start(&client, now_ns);

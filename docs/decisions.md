@@ -3421,9 +3421,49 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        deadline unless a whole request arrives. The first-request deadline counts from the
        client's first datagram, so it covers the handshake, and a close before the handshake
        completes leaves as RFC 9000 §10.2.3 has it.
+     - **A request body over h3.** Its wait starts at the call that reads its request's head,
+       because the QUIC server owes no 100 (Continue) of its own, and ends with its content or
+       its stream. Only the data of its DATA frames counts (RFC 9114 §7.2.1), and only while
+       the caller still hears of the request. A body under the rate or past the cap ends its
+       request alone:
+       - with no final response begun, a 408 and a STOP_SENDING with H3_NO_ERROR;
+       - with a final response begun and not ended, a reset with H3_REQUEST_CANCELLED;
+       - with a response ended, a STOP_SENDING with H3_NO_ERROR, and the response goes on.
+
+       The caller reads `cancelled`, naming the deadline, unless the response had ended. h3
+       checks the rate across the connection's bodies too, as h2 does, and closes with
+       H3_EXCESSIVE_LOAD where h2 sends ENHANCE_YOUR_CALM.
+     - **Where a body over h3 differs from h2.** Its rate does not wait on flow control. QUIC
+       writes a MAX_STREAM_DATA frame ahead of stream data in its next packet, so the frame
+       never waits behind a response, as an h2 WINDOW_UPDATE does in a TCP connection's output.
+       A body arrives a QUIC packet at a time, and a QUIC connection refuses to start with a rate
+       `validate_units` refuses: the bound for a unit of 16,384 octets covers every packet up
+       to that length, and one `Deadlines` then suits a server's TCP and QUIC connections. A
+       longer packet crosses only a path with such an MTU, as loopback has, and the bound is
+       not proved for it.
+     - **The send rate over h3.** A QUIC peer takes a response's octets by acknowledging them,
+       and lets them leave by the credit it gives the stream and the connection (RFC 9000 §4.1,
+       §13.2). So the meters count the octets the peer acknowledged, which the server reads
+       when it settles its requests after each datagram, and not for each frame.
+       - While any response holds octets the peer may take and has not acknowledged, the peer
+         must acknowledge the minimum send rate over each window, across the responses. A peer
+         that falls short acknowledges too little, or holds the responses with the connection's
+         credit, and the connection closes with H3_EXCESSIVE_LOAD.
+       - A response its stream's credit does not cover has a meter of its own, which counts
+         what the peer acknowledges of it. It waits while any other response holds octets the
+         peer may take, as an h2 stream's waits while the connection's output holds octets. A
+         stream under the rate is reset with H3_REQUEST_CANCELLED, and the caller reads
+         `cancelled`.
+       - A stream's meter keeps its window while its own credit grows, so credit that grows a
+         few octets at a time is judged by what it lets through. h2 needs a floor on a DATA
+         frame for that, and h3 needs none.
      - **What does not apply.** h3 defines no SETTINGS acknowledgment (RFC 9114 Appendix A.4),
        and QUIC's closing period bounds a close (RFC 9000 §10.2), so h3 has no SETTINGS deadline
        and no linger.
+
+     The owner ruled the reset limit, the deadlines and what each does, and what stops the idle
+     deadline. The three points on a request body and on the send rate apply those rulings to
+     QUIC. They were settled while building step 20c, and the owner has yet to confirm them.
 
      The alternatives refused:
      - Leaving h3 to QUIC's idle timeout, which counts silence alone.
@@ -3436,6 +3476,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        client that stays under the count holds the connection for as long as it likes.
      - Leaving a connection that brings partial heads alone to the caller. The caller never
        hears of a request whose head is not whole, so it has nothing to decide with.
+     - Resetting a response that ended when its request's body falls short. Over TCP the
+       response's octets are ahead of the RST_STREAM and arrive. A QUIC stream that is reset
+       sends its octets no more (RFC 9000 §3.1), so the client would lose a whole response.
+     - Body deadlines for each stream alone. A client that opens slow bodies one after another
+       would then hold the connection with no end, each body taking a grace period and a
+       window.
+     - Counting the datagrams `send` writes, as a TCP connection counts what its socket takes.
+       A UDP socket takes every datagram, and a peer that sends PING frames draws
+       acknowledgments from the server at no cost to itself.
+     - Counting the octets QUIC frames for the first time. The server keeps a response until
+       the peer acknowledges it, so a peer that acknowledges nothing of a response framed whole
+       would hold its record with no meter running.
 
      Cost: a few branches for each datagram and each event of an h3 connection, and 8 octets
      for each request stream h3 holds, the instant it first saw the stream. The work is design

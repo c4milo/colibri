@@ -6900,7 +6900,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Past `quic_peer_reset_rate_max` in one `quic_peer_reset_rate_period_ns`, which are h2's 100
     and one second, the connection closes with H3_EXCESSIVE_LOAD (RFC 9114 §10.5).
   - The connection grows by 16 octets, to 717,536 (`docs/performance.md`).
-  - `zig build test`: 131 of 131 steps and 2543 of 2543 tests passed.
+  - `zig build test`, on 590b3d8: 131 of 131 steps and 2543 of 2543 tests passed.
   - 8 mutations, each **CAUGHT**: a RESET_STREAM not counted; a STOP_SENDING not counted; a
     request cancelled with both frames counted twice; one cancel past the limit allowed; the
     cancel at the limit refused; the period never starting again; the period starting one
@@ -6914,9 +6914,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     whose every connection refused to start would answer no client. Whether `init` returns
     `DeadlineInvalid`, as `server.Connection.init` does, changes a public call and is the
     owner's to rule.
-  - `deadline_ns` reports the sooner of QUIC's next timer and the connection's own deadlines,
-    and `on_instant` and `receive` fire each one that passed. A caller that runs QUIC's timers
-    runs these with no new call, and so does `server.Endpoint`.
+  - A connection's deadline is the sooner of QUIC's next timer and its own deadlines, and it
+    fires each one that passed at `on_instant` and at `receive`. A program that runs QUIC's
+    timers through `server.Endpoint`, with its `deadline_ns` and `on_instant`, runs these with
+    no new call.
   - The first-request deadline counts from the client's first datagram until a whole request
     head arrives, so it covers the handshake. The idle deadline counts from the instant no
     request is open, after the first one. Each closes the connection with H3_NO_ERROR (RFC 9114
@@ -6940,7 +6941,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     request open has the same fault. The last part of 20c owns both, with the drain deadline.
   - `h3.Connection` grows by 800 octets, 8 for each of its 100 request streams, to 146,312, and
     `server.QuicConnection` by 960, to 718,496 (`docs/performance.md`).
-  - `zig build test`: 131 of 131 steps and 2555 of 2555 tests passed.
+  - `zig build test`, on 590b3d8: 131 of 131 steps and 2555 of 2555 tests passed.
   - 34 mutations. 33 were **CAUGHT**: a deadline passing one nanosecond late; the first-request
     deadline never firing, waiting for the handshake, or not ending at a whole head; the idle
     deadline running before the first request, running with a request open, stopped by a
@@ -6956,6 +6957,70 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     repeated, and every call walking the streams.
     The STOP_SENDING carrying H3_REQUEST_REJECTED was **NOT CAUGHT** until the late-head test
     read the code the server's stream holds.
+
+  **The body and send rates over h3, 2026-10-04**
+  ([#95](https://github.com/c4milo/colibri/issues/95)). The third part of 20c.
+  - A request's body waits from the call that reads its head until its content or its stream
+    ends (`quic_body.zig`). Each body keeps the minimum rate over each window and ends within
+    the cap, and the bodies of a connection keep the rate together. Only the data of DATA
+    frames counts.
+  - A body that falls short ends its request alone. With no final response begun, the request
+    gets a 408 and the server asks the client to stop with H3_NO_ERROR. With one begun, the
+    server resets the stream with H3_REQUEST_CANCELLED. With one ended, the server asks the
+    client to stop and the response arrives whole. The caller reads `cancelled`, naming the
+    deadline, unless the response had ended. Bodies that together fall short close the
+    connection with H3_EXCESSIVE_LOAD.
+  - A connection refuses to start with a body rate `Deadlines.validate_units` refuses, and
+    `Endpoint` asserts its configuration holds none.
+  - The send meters count the octets the peer acknowledged (`quic_sends.zig`). The connection
+    reads them from each response's stream when it settles its requests, after each datagram.
+    A response is busy while it holds octets its stream's credit covers and the peer has not
+    acknowledged, its FIN among them. It is bound while it holds octets the credit does not
+    cover.
+  - While any response is busy, the peer acknowledges the minimum send rate across the
+    responses, or the connection closes with H3_EXCESSIVE_LOAD. That ends a peer that
+    acknowledges too little and one that withholds the connection's credit.
+  - A bound response has a meter of its own, which runs while no other response is busy. Under
+    the rate, the server resets its stream with H3_REQUEST_CANCELLED and the caller reads
+    `cancelled`. The meter keeps its window while the stream's own credit grows.
+  - A connection fires the deadlines that passed before it takes a datagram, as it does at
+    `receive` and at `on_instant`, so octets acknowledged after a window's end count in the
+    next window.
+  - Not done: the QUIC server owes no 100 (Continue) of its own (RFC 9110 §10.1.1), so a
+    body's wait starts at its head. Over TCP it starts once the 100 is written.
+  - `server.QuicConnection` grows by 2,632 octets, to 721,128 (`docs/performance.md`).
+  - `zig build test`, with the three parts replayed on ecd57e1: 131 of 131 steps and 2592 of
+    2592 tests passed.
+  - `tools/quic_udp.sh`, `tools/h3spec.sh` and `tools/quic_aioquic.sh`, on macOS arm64 before
+    the replay: each passed with the default deadlines on.
+  - 32 mutations of the body deadlines. 29 were **CAUGHT**: a wait never starting; content not
+    counted for a body or for the bodies together; the bodies never judged; the cap not kept,
+    or one nanosecond late; a body's own rate not judged; the wait not ended by the content's
+    end, a reset, the caller's cancel, a refusal, or the end of a request the caller hears of
+    no more; a reset in place of the 408; a response that ended reset, or one acknowledged
+    cancelled; either STOP_SENDING carrying H3_REQUEST_CANCELLED; the server reading on after
+    a 408; no `cancelled` event, or a `done` after it; a coded response keeping its encoder; a
+    rate under the unit bound accepted; the caller not woken; no deadline fired; the bodies'
+    meter never starting, or running on after the last body; another close code; the cap not
+    reported; and the deadline that closed the connection not kept.
+    Three were **NOT CAUGHT** until tests were added: a trailer section that arrives before
+    its stream's end not ending the wait, and a body's window and the bodies' window each not
+    reported to the caller's loop, which the first tests hid because both fell at one instant.
+    A 33rd found a line with no effect, which is gone.
+  - 24 mutations of the send rate. 23 were **CAUGHT**: acknowledged octets not counted for the
+    connection, or for the stream; a response never busy, or never bound; a stream's own octets
+    stopping its meter; a stream's meter running while another response is busy; the
+    connection's meter, or a stream's, never judged; another reset code; no `cancelled` event;
+    the caller not woken; no deadline fired; the meters never started; the server never looking
+    at a response; a record keeping the last response's count; a datagram taken with no window
+    judged before it counts; a stream's window, or the connection's, not reported; meters that
+    ran not stopped; a FIN alone not making a response busy; octets past the stream's credit
+    making one busy; a stream a send deadline ends still waiting for its body; and another
+    close code.
+    A reset stream keeping its state was **NOT CAUGHT** until the cancel test kept the stream
+    open.
+  - The mutations of the three parts ran on 590b3d8. The replay on ecd57e1 moved the calls the
+    endpoint makes into `quic_connection_internal.zig` and changed no rule.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

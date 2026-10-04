@@ -23,6 +23,8 @@ const connection_module = @import("../connection/connection.zig");
 const quic_request = @import("quic_request.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
 const quic_deadline = @import("quic_deadline.zig");
+const quic_body = @import("quic_body.zig");
+const quic_sends = @import("quic_sends.zig");
 const deadline = @import("../deadline.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const http = @import("http");
@@ -56,8 +58,8 @@ pub const Config = struct {
     /// decision 111), or null to keep every client in its original version.
     switch_to: ?quic.packet.header.Version = .v2,
     /// The limits each connection starts with (decision 110 as amended). Null turns a deadline
-    /// off. An endpoint asserts they are limits `Deadlines.validate` takes, so a program that
-    /// reads them from outside validates them first.
+    /// off. An endpoint asserts they are limits `Deadlines.validate` and `validate_units` take,
+    /// so a program that reads them from outside validates them first.
     deadlines: deadline.Deadlines = .{},
 };
 
@@ -126,6 +128,9 @@ pub const QuicConnection = struct {
     /// This connection's limits and where its deadlines stand (decision 110 as amended).
     deadlines: deadline.Deadlines,
     clock: quic_deadline.Clock,
+    /// The request bodies the connection waits for, and the responses its peer has yet to take.
+    bodies: quic_body.Bodies,
+    sends: quic_sends.Sends,
     /// The caller's source, which the connection IDs it issues, their reset tokens and each
     /// PATH_CHALLENGE's data are drawn from (invariant 5).
     random: tls.Random,

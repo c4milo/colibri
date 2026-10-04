@@ -10,21 +10,22 @@
 //! Only a request whose head arrived whole is open. A stream that still waits for its head does
 //! not stop the idle deadline, so a client cannot hold a connection with partial heads. The
 //! streams of h3 are independent, so a head that is late ends its request alone, with a 408.
+//!
+//! `quic_body.zig` keeps the deadlines of the request bodies, and `quic_sends.zig` those of the
+//! responses the peer has yet to take. Both are reported and fired from here.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
 const h3 = @import("h3");
-const http = @import("http");
 const deadline = @import("../deadline.zig");
 const quic_connection = @import("quic_connection.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
 const internal = @import("quic_connection_internal.zig");
+const quic_body = @import("quic_body.zig");
+const quic_sends = @import("quic_sends.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const Deadline = deadline.Deadline;
-
-/// RFC 9110 §15.5.9: 408 (Request Timeout).
-const request_timeout: u16 = @intFromEnum(http.status.Code.request_timeout);
 
 /// Where a connection stands for its deadlines.
 pub const Clock = struct {
@@ -58,6 +59,7 @@ pub fn observe(connection: *QuicConnection, now_ns: u64) void {
     } else if (clock.idle_since_ns == null) {
         clock.idle_since_ns = now_ns;
     }
+    quic_sends.observe(connection, now_ns);
 }
 
 /// The soonest instant a deadline passes, or null when none runs.
@@ -69,11 +71,12 @@ pub fn soonest(connection: *QuicConnection) ?u64 {
     if (!clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
     if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
     if (head_wait(connection)) |wait| at = earlier(at, wait.since_ns, limits.head_ns);
-    return at;
+    return quic_sends.soonest(connection, quic_body.soonest(connection, at));
 }
 
-/// Closes the connection when its first-request or idle deadline has passed at `now_ns`, and
-/// answers each request whose head is late.
+/// Closes the connection when its first-request or idle deadline has passed at `now_ns`, answers
+/// each request whose head or body is late, and closes a connection whose bodies together fell
+/// short.
 pub fn fire(connection: *QuicConnection, now_ns: u64) void {
     if (!running(connection)) return;
     const clock = &connection.clock;
@@ -84,12 +87,33 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) void {
     if (clock.idle_since_ns) |since| {
         if (is_past(since, limits.idle_ns, now_ns)) return close(connection, .idle);
     }
+    fire_heads(connection, now_ns);
+    if (!running(connection)) return;
+    if (quic_body.fire(connection, now_ns)) |passed| return overload(connection, passed);
+    if (!running(connection)) return;
+    if (quic_sends.fire(connection, now_ns)) |passed| overload(connection, passed);
+}
+
+/// Answers each request whose head is late at `now_ns`.
+fn fire_heads(connection: *QuicConnection, now_ns: u64) void {
     // Bounded: each pass stops reading one stream, and h3 holds `request_streams_max` of them.
     for (0..h3.constants.request_streams_max) |_| {
         const wait = head_wait(connection) orelse return;
-        if (!is_past(wait.since_ns, limits.head_ns, now_ns)) return;
+        if (!is_past(wait.since_ns, connection.deadlines.head_ns, now_ns)) return;
         refuse_head(connection, wait.stream_id);
+        // A response that failed the connection stopped it.
+        if (!running(connection)) return;
     }
+}
+
+/// Closes a connection whose peer `passed` judged across its streams. RFC 9114 §10.5: an endpoint
+/// "MAY treat activity that is suspicious as a connection error of type H3_EXCESSIVE_LOAD".
+fn overload(connection: *QuicConnection, passed: Deadline) void {
+    assert(running(connection));
+    connection.clock.timed_out = passed;
+    const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
+    assert(failed == error.ConnectionFailed);
+    internal.fail(connection);
 }
 
 /// Whether the deadlines run: the connection reads requests, and QUIC has not begun to close it.
@@ -146,10 +170,10 @@ fn close(connection: *QuicConnection, passed: Deadline) void {
 fn refuse_head(connection: *QuicConnection, stream_id: u64) void {
     connection.h3.stop_reading(&connection.transport, stream_id, connection.h3.no_error_code());
     const record = connection.requests.take(stream_id) orelse return reject(connection, stream_id);
-    quic_connection_h3.respond(connection, stream_id, .{ .status = request_timeout, .end = true }) catch {
+    if (!quic_connection_h3.respond_timeout(connection, stream_id)) {
         record.in_use = false;
         return reject(connection, stream_id);
-    };
+    }
     // The caller never heard of the request, so nothing is reported of it, and its record only
     // waits for the stream to close.
     record.over = true;

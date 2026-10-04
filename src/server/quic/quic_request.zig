@@ -6,6 +6,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
+const deadline = @import("../deadline.zig");
 const quic_response = @import("quic_response.zig");
 const coding_rules = @import("../coding/coding_rules.zig");
 const coding_response = @import("../coding/coding_response.zig");
@@ -78,6 +79,13 @@ pub const Requests = struct {
         return true;
     }
 
+    /// Where `record` sits among the records, which the tables kept beside them are indexed by.
+    pub fn index_of(requests: *const Requests, record: *const Request) usize {
+        const index = (@intFromPtr(record) - @intFromPtr(&requests.records[0])) / @sizeOf(Request);
+        assert(index < requests.records.len and record == &requests.records[index]);
+        return index;
+    }
+
     /// Whether the caller still hears of any request: one whose head arrived and which is not
     /// over. A record that is over only waits for its stream to close.
     pub fn any_open(requests: *const Requests) bool {
@@ -91,7 +99,7 @@ pub const Requests = struct {
 /// An event the connection owes the caller for a request that ended: its response is done, or it
 /// was cancelled.
 pub const Ending = struct {
-    kind: enum { done, cancelled },
+    kind: union(enum) { done, cancelled: event.CancelReason },
     id: Id,
 };
 
@@ -116,8 +124,7 @@ pub const Owed = struct {
         owed.len -= 1;
         return switch (ending.kind) {
             .done => .{ .done = .{ .id = ending.id } },
-            // RFC 9000 §3.5: the peer's STOP_SENDING reset the response's stream.
-            .cancelled => .{ .cancelled = .{ .id = ending.id, .reason = .peer_reset } },
+            .cancelled => |reason| .{ .cancelled = .{ .id = ending.id, .reason = reason } },
         };
     }
 
@@ -146,15 +153,18 @@ test "a record is taken for each request stream, found by its stream, and freed 
     try testing.expectEqual(null, requests.of(4));
     try testing.expect(requests.take(1000) != null);
     try testing.expect(!requests.idle());
+    try testing.expectEqual(1, requests.index_of(requests.of(1000).?));
 }
 
 test "decision 103: the endings owed come out in order, as the events the caller reads" {
     var owed: Owed = .{};
     try testing.expectEqual(null, owed.take());
     owed.push(.{ .kind = .done, .id = 8 });
-    owed.push(.{ .kind = .cancelled, .id = 4 });
+    owed.push(.{ .kind = .{ .cancelled = .{ .deadline = .body } }, .id = 4 });
     try testing.expectEqual(8, owed.take().?.done.id);
-    try testing.expectEqual(4, owed.take().?.cancelled.id);
+    const cancelled = owed.take().?.cancelled;
+    try testing.expectEqual(4, cancelled.id);
+    try testing.expectEqual(deadline.Deadline.body, cancelled.reason.deadline);
     try testing.expectEqual(null, owed.take());
     // A ring that starts partway round wraps past its end.
     for (0..constants.quic_requests_max) |index| owed.push(.{ .kind = .done, .id = index });

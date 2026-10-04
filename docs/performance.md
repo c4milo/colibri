@@ -93,7 +93,7 @@ With chapulin's objects built `AES=runtime`:
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
 | `server.Connection` | 306280 | one TCP connection: h11 or h2, in cleartext or over TLS |
-| `server.QuicConnection` | 718496 | one h3 connection, without its receive pool |
+| `server.QuicConnection` | 721128 | one h3 connection, without its receive pool |
 | `client.Connection` | 289064 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `client.QuicConnection` | 703712 | one h3 connection, without its receive pool |
 | `client.Channel` | 993704 | one server's connections, QUIC first and TCP after, without receive pools |

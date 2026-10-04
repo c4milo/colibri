@@ -8,6 +8,9 @@ const core = @import("core");
 const quic = @import("quic");
 const h3 = @import("h3");
 const quic_deadline = @import("quic_deadline.zig");
+const quic_body = @import("quic_body.zig");
+const quic_sends = @import("quic_sends.zig");
+const http = @import("http");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const quic_request = @import("quic_request.zig");
@@ -59,19 +62,23 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
                 assert(record.finished);
                 end(connection, record, .done);
             }
-            // Each way a request ends gave its encoder back.
+            // Each way a request ends gave its encoder back, and each way its stream's receiving
+            // part ends stopped the wait for its content.
             assert(record.coded == null);
+            assert(!quic_body.waits(connection, record));
+            quic_sends.forget(connection, record);
             record.in_use = false;
             return;
         },
     };
+    quic_sends.look(connection, record, stream);
     switch (stream.sending.state) {
         // RFC 9000 §3.1: "Data Recvd" means the peer acknowledged every octet.
         .data_recvd => if (!record.over) end(connection, record, .done),
         // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, whose octets are read no more.
         // RFC 9114 §4.1.1: that is the client cancelling its request, which the limit counts.
         .reset_sent, .reset_recvd => if (!record.over) {
-            end(connection, record, .cancelled);
+            end(connection, record, .{ .cancelled = .peer_reset });
             if (!count_peer_reset(connection)) return;
         },
         .ready, .send, .data_sent => {},
@@ -109,7 +116,7 @@ fn count_peer_reset(connection: *QuicConnection) bool {
     return true;
 }
 
-fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_request.Ending, "kind")) void {
+pub fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_request.Ending, "kind")) void {
     assert(!record.over);
     record.over = true;
     quic_coding.give_back(connection, record);
@@ -136,10 +143,7 @@ pub fn read_event(connection: *QuicConnection, now_ns: u64) quic_connection.Erro
 fn report(connection: *QuicConnection, h3_event: h3.connection.Event) ?event.Event {
     return switch (h3_event) {
         .request => |arrived| on_request(connection, arrived),
-        .data => |data| if (reading(connection, data.stream_id)) |_|
-            .{ .body = .{ .id = data.stream_id, .octets = data.octets, .end = false } }
-        else
-            null,
+        .data => |data| on_data(connection, data),
         .trailers => |stream_id| on_trailers(connection, stream_id),
         .end => |stream_id| on_end(connection, stream_id),
         .reset => |ended| on_reset(connection, ended.stream_id),
@@ -160,6 +164,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
         connection.h3.cancel(&connection.transport, arrived.stream_id, h3.constants.error_request_rejected);
         return null;
     };
+    quic_body.add(connection, record, connection.last_ns);
     const request = arrived.request;
     const reported: event.Event = .{
         .request = .{
@@ -180,7 +185,15 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
     return reported;
 }
 
+/// RFC 9114 §7.2.1: a DATA frame's data is the request's content, which the body's rate counts.
+fn on_data(connection: *QuicConnection, data: h3.connection.Data) ?event.Event {
+    const record = reading(connection, data.stream_id) orelse return null;
+    quic_body.count(connection, record, data.octets.len);
+    return .{ .body = .{ .id = data.stream_id, .octets = data.octets, .end = false } };
+}
+
 fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.Event {
+    stop_waiting(connection, stream_id);
     const record = reading(connection, stream_id) orelse return null;
     // RFC 9110 §6.5: a trailer section ends the request.
     record.ended = true;
@@ -188,6 +201,7 @@ fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.Event {
 }
 
 fn on_end(connection: *QuicConnection, stream_id: u64) ?event.Event {
+    stop_waiting(connection, stream_id);
     const record = reading(connection, stream_id) orelse return null;
     record.ended = true;
     return .{ .body = .{ .id = stream_id, .octets = &.{}, .end = true } };
@@ -198,6 +212,8 @@ fn on_end(connection: *QuicConnection, stream_id: u64) ?event.Event {
 fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
     // A stream reset before its head was whole has no record, and still counts. One whose record
     // is over was counted when `settle` saw its STOP_SENDING, or was ended by the server.
+    // RFC 9000 §3.2: a stream the client reset brings no more of the request.
+    stop_waiting(connection, stream_id);
     const known = connection.requests.of(stream_id);
     if (known) |held| if (held.over) return null;
     if (!count_peer_reset(connection)) return null;
@@ -210,10 +226,18 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
 
 /// RFC 9114 §4.1.2: h3 refused a malformed request and reset its stream.
 fn on_refused(connection: *QuicConnection, stream_id: u64) ?event.Event {
+    stop_waiting(connection, stream_id);
     const record = live(connection, stream_id) orelse return null;
     record.over = true;
     quic_coding.give_back(connection, record);
     return .{ .cancelled = .{ .id = stream_id, .reason = .refused } };
+}
+
+/// The request on `stream_id` brings no more content, whether the caller still hears of it or
+/// not, so the wait for its body ends.
+fn stop_waiting(connection: *QuicConnection, stream_id: u64) void {
+    const record = connection.requests.of(stream_id) orelse return;
+    quic_body.remove(connection, record);
 }
 
 /// The record of a request the caller still hears of, or null.
@@ -298,7 +322,16 @@ pub fn cancel(connection: *QuicConnection, id: Id) void {
     // response stream with the error code H3_REQUEST_CANCELLED".
     connection.h3.cancel(&connection.transport, id, h3.constants.error_request_cancelled);
     record.over = true;
+    quic_body.remove(connection, record);
     quic_coding.give_back(connection, record);
+}
+
+/// Answers request `id` with a 408 that ends its response, and returns whether its stream took
+/// it. RFC 9110 §15.5.9: the server "did not receive a complete request message within the time
+/// that it was prepared to wait".
+pub fn respond_timeout(connection: *QuicConnection, id: Id) bool {
+    respond(connection, id, .{ .status = @intFromEnum(http.status.Code.request_timeout), .end = true }) catch return false;
+    return true;
 }
 
 /// Sends a GOAWAY naming the first request stream not taken, after which h3 refuses every later

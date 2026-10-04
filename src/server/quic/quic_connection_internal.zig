@@ -43,9 +43,15 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     assert((config.codings.len == 0) == (config.encoders == null));
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
     try config.deadlines.validate();
+    // Over QUIC a request's content arrives a packet at a time. The bound kept for a TLS record
+    // and an h2 DATA frame covers a packet of up to `body_unit_len` octets, and one `Deadlines`
+    // then suits a server's TCP and QUIC connections (decision 110 as amended).
+    try config.deadlines.validate_units();
     connection.config = config;
     connection.deadlines = config.deadlines;
     connection.clock = .init(now_ns);
+    connection.bodies.init();
+    connection.sends.init();
     connection.requests.init();
     connection.owed = .{};
     connection.started = false;
@@ -104,6 +110,9 @@ fn hand_over_parameters(connection: *QuicConnection) StartError!void {
 pub fn take(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_receive.Datagram.Ecn, from: PeerAddress, now_ns: u64) void {
     if (connection.closed) return;
     connection.last_ns = now_ns;
+    // Decision 110: a window that ended before `now_ns` is judged before this datagram's
+    // acknowledgments count, so they count in the window they arrived in.
+    quic_deadline.fire(connection, now_ns);
     const received = quic.connection_datagram.receive(
         &connection.transport,
         connection.session.suite(),
@@ -247,6 +256,8 @@ fn start_h3(connection: *QuicConnection, now_ns: u64) void {
 pub fn stop(connection: *QuicConnection) void {
     connection.stopped = true;
     connection.owed.clear();
+    connection.bodies.init();
+    connection.sends.init();
     quic_coding.give_back_all(connection);
     for (&connection.requests.records) |*record| record.in_use = false;
 }
