@@ -827,7 +827,7 @@ that sends Retry packets mints and checks their tokens with a `tls.quic.Retry`.
 
 ## QUIC and h3
 
-A `quic.connection.Connection` is one QUIC connection. Your program moves datagrams and time
+A `quic.Connection` is one QUIC connection. Your program moves datagrams and time
 through four calls:
 - `quic.connection_datagram.receive` takes one datagram the peer sent, with its ECN marking and
   its source address.

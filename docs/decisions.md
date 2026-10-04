@@ -3537,9 +3537,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        called `write_owed` on the two TCP connections, and now calls `send` with no room, which
        writes what a connection owes and hands out nothing.
 
+     - Amended on 2026-10-04, when the owner asked for `quic` too. Its calls are functions of its
+       files and not methods, and h3, `server`, `client`, the simulator, the corpus and the test
+       endpoints name 121 of its declarations. `quic.zig` exports each of those under the
+       namespace of the file that declares it, so `quic.connection_send.send` reads as before
+       and no caller changed. It exports no file but `constants` and `error_code`. The root had
+       58 names and has 40: the 18 files nothing outside named are gone from it, and so is every
+       function only the module's own files call. `quic.Connection` keeps `init` and
+       `addressed_by` as methods, and its six others became functions of `connection.zig`. The
+       root's tests list its 40 names and resolve every name under them.
+
      The alternatives refused:
      - Leave the calls public and say in each comment who makes it. A reader of the type still
        sees twice the calls, and nothing stops a program from making one.
+     - For `quic`, methods on `quic.Connection`, as on `server` and `client`. About 600 call
+       sites would change in five modules and the guide, for the same reachable names.
+     - For `quic`, dropping only the 18 unused files. The other files would stay exported whole,
+       with each function their neighbours call.
      - Stop at the two TCP connections. `server.QuicConnection` showed a program the ten calls
        its endpoint makes.
      - One file for each type, which needs no `pub` between files. Each type passes 500 lines

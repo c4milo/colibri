@@ -126,10 +126,12 @@ exists — never propose a second one.
   a field or constant already names.
 - A type's `pub fn`s are the calls a program makes (decision 115). A call that only the module's
   other files make is a free function in a file the root does not export, such as
-  `connection_internal.zig`. A root exports `constants` and an alias for each type a program
-  names, and no other file. A test beside each type of `server` and `client`, and beside each
-  root, lists the names: add one there when a program needs it, never to call it from another
-  file.
+  `connection_internal.zig`. The roots of `server` and `client` export `constants` and an alias
+  for each type a program names, and no other file. The root of `quic` exports each name code
+  outside the module uses, under its file's namespace, and no file but `constants` and
+  `error_code`. A test beside each type, and beside each of the three roots, lists the names:
+  add one there when a caller outside the module needs it, never to call it from another file
+  of the module.
 - Every GitHub issue reference carries its full URL
   (`https://github.com/c4milo/colibri/issues/1`), never the bare hash-and-number form. Markdown
   may keep the short form as the link label; Zig and shell comments spell the URL out.
