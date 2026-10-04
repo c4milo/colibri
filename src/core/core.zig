@@ -25,6 +25,10 @@ pub const levels_count = encryption_level.levels_count;
 /// The fuzz harness every decoder's tests share. Test-only.
 pub const fuzz = @import("fuzz.zig");
 
+/// The comparison of a type's public declarations with a list of names, which the tests of
+/// decision 115 share. Test-only.
+pub const public_names = @import("public_names.zig");
+
 test {
     std.testing.refAllDecls(@This());
     _ = constants;
@@ -33,4 +37,5 @@ test {
     _ = slots;
     _ = encryption_level;
     _ = fuzz;
+    _ = public_names;
 }
