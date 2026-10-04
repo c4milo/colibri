@@ -69,14 +69,81 @@ Then import the modules you use. Each of the fifteen library modules is exported
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });
-exe.root_module.addImport("h11", colibri.module("h11"));
-exe.root_module.addImport("http", colibri.module("http"));
+exe.root_module.addImport("server", colibri.module("server"));
+exe.root_module.addImport("client", colibri.module("client"));
+exe.root_module.addImport("tls", colibri.module("tls"));
 ```
 
 `.release = true` builds ReleaseSafe. colibri offers Debug and ReleaseSafe only, because its
 assertions stay on in production.
 
-An h11 client writes each request into a buffer it owns, then sends it. These lines are from
+Most programs use two modules. `client` sends requests and `server` answers them, behind one
+set of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the
+version. A client places an exchange for each request: the request, and the memory its response
+goes into. These lines are from [`examples/tls_exchange.zig`](examples/tls_exchange.zig):
+
+```zig
+var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+    .method = "GET",
+    .path = "/greeting",
+    .wanted = &wanted,
+    .values = &wanted_values,
+    .body = &get_body,
+};
+```
+
+It hands the exchange to a connection, which sends it once the handshake has picked the version:
+
+```zig
+client_config = .{ .tls = &client_tls, .authority = origin };
+try client_connection.init(&client_config, program.random(), now_seconds, null);
+// `request` only takes an exchange. `send` writes it once the handshake has picked the
+// version, so a program asks at once and never waits for the connection.
+_ = try client_connection.request(&get);
+_ = try client_connection.request(&post);
+```
+
+The program moves octets between its socket and the connection's `send` and `receive`, and every
+exchange ends in one `finished` event:
+
+```zig
+.finished => |ended| {
+    const exchange = ended.exchange;
+    std.debug.print("client: {s}: {s}, {d}\n", .{
+        exchange.path, @tagName(exchange.outcome), exchange.status,
+    });
+    finished += 1;
+    // Every exchange has ended, so the client ends the connection.
+    if (finished == exchanges_count) client_connection.shutdown();
+},
+```
+
+A server gets one event from each `receive`, and answers a request by its id:
+
+```zig
+fn answer(id: server.Id, content: []const u8) !void {
+    var digits: [8]u8 = undefined;
+    const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
+    try server_connection.respond(id, .{
+        .status = 200,
+        .fields = &.{
+            .{ .name = "content-type", .value = content_type },
+            .{ .name = "content-length", .value = length },
+        },
+        .end = false,
+    });
+    // `write_body` returns the octets it took. It takes fewer than it was given when the room or
+    // the peer's window runs out, and a program then calls it again with the rest after `send`.
+    const taken = try server_connection.write_body(id, .{ .octets = content, .end = true });
+    assert(taken == content.len);
+}
+```
+
+[`docs/usage.md`](docs/usage.md) walks through both modules, and through h3's endpoint and
+channel.
+
+The protocol modules are there for a program that wants one version by itself. An h11 client
+writes each request into a buffer it owns, then sends it. These lines are from
 [`examples/h11_exchange.zig`](examples/h11_exchange.zig), where `link` stands in for the
 program's socket:
 
@@ -111,8 +178,10 @@ response's field lines are in `client.section` until the next call. h2 and h3 fo
 shape: octets in, at most one event out, and the frames colibri owes written into your buffer.
 [`docs/usage.md`](docs/usage.md) walks through each protocol, TLS, and the buffers each one needs.
 
-[`examples/`](examples/) holds whole programs: an h11 and an h2 client and server, run over
-[Rotor](https://github.com/c4milo/rotor)'s loop. `zig build examples` runs them, and CI does too.
+[`examples/`](examples/) holds whole programs, each a client and a server run over
+[Rotor](https://github.com/c4milo/rotor)'s loop: the `server` and `client` modules over TLS, h3
+through the endpoint and the channel, and h11 and h2 by themselves. `zig build examples` runs
+them, and CI does too.
 
 ## How it is checked
 

@@ -1,9 +1,11 @@
 # Using colibri
 
 This guide shows how a program drives colibri: how to add it, what the program owns, and the calls
-each protocol takes. Each module's entry file documents its calls in full; this guide shows how
-they fit together. [`examples/`](../examples/) holds short whole programs for h11 and h2, and the
-test-only endpoints under [`src/testing/`](../src/testing/) run every protocol over real sockets.
+it makes. It starts with the `server` and `client` modules, which most programs use and which
+serve every version, and then covers each protocol module by itself. Each module's entry file
+documents its calls in full; this guide shows how they fit together.
+[`examples/`](../examples/) holds a short whole program for each part, and the test-only endpoints
+under [`src/testing/`](../src/testing/) run every protocol over real sockets.
 
 ## Adding colibri
 
@@ -13,13 +15,14 @@ Depend on a release tag, or on a commit for a change made since:
 zig fetch --save git+https://github.com/c4milo/colibri#v0.7.0
 ```
 
-In `build.zig`, import the modules your program uses:
+In `build.zig`, import the modules your program uses. Most programs take these three, and a
+protocol module is imported the same way:
 
 ```zig
 const colibri = b.dependency("colibri", .{ .target = target, .release = true });
-exe.root_module.addImport("h11", colibri.module("h11"));
-exe.root_module.addImport("http", colibri.module("http"));
-exe.root_module.addImport("h2", colibri.module("h2"));
+exe.root_module.addImport("server", colibri.module("server"));
+exe.root_module.addImport("client", colibri.module("client"));
+exe.root_module.addImport("tls", colibri.module("tls"));
 ```
 
 The library is fifteen modules, each exported by name:
@@ -70,16 +73,18 @@ colibri makes no system call, holds no allocator, and reads no clock. Four thing
 - **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
   nanoseconds from any fixed origin. The same instants and the same octets give the same output,
   which is what lets the simulator replay a connection.
-- **Your program starts the TLS sessions.** h11 and h2 take a `tls_provider.Provider`, and QUIC
-  takes a `tls_provider.QuicProvider` and a `crypto.Suite`. The `tls` module fills all three from
-  chapulin. Convert your values once into a configuration: `tls.record.ClientConfig` or
-  `ServerConfig` over TCP, `tls.quic.ClientConfig` or `ServerConfig` for QUIC. Start a session of
-  the matching kind for each connection. Over TCP, hand its `provider()` to the connection's
-  `attach_tls` once `handshake` completes. For QUIC, hand `provider()` and `suite()` to the
-  connection, which starts chapulin's session when it sets its transport parameters. A server that
-  sends Retry packets checks their tokens with a `tls.quic.Retry` under a key it draws once. A
-  program that links `tls` defines chapulin's one hook, `ch_assert_fail`, and passes each session's
-  `start` the source it draws from. A program without TLS never links chapulin.
+- **Your program configures TLS.** Convert your values once into a configuration:
+  `tls.record.ClientConfig` or `ServerConfig` over TCP, `tls.quic.ClientConfig` or `ServerConfig`
+  for QUIC. The `server` and `client` modules take the configuration and run each handshake
+  themselves. A program that drives a protocol module by itself starts a session of the matching
+  kind for each connection: h11 and h2 take a `tls_provider.Provider`, and QUIC takes a
+  `tls_provider.QuicProvider` and a `crypto.Suite`, and the `tls` module fills all three from
+  chapulin. Over TCP, hand the session's `provider()` to the connection's `attach_tls` once
+  `handshake` completes. For QUIC, hand `provider()` and `suite()` to the connection, which starts
+  chapulin's session when it sets its transport parameters. A server that sends Retry packets
+  checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that links
+  `tls` defines chapulin's one hook, `ch_assert_fail`, and passes each connection the source it
+  draws from. A program without TLS never links chapulin.
 
 A peer that breaks a protocol rule never crashes colibri. `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
@@ -87,6 +92,537 @@ such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A QUIC co
 from `receive` or `send` leaves the CONNECTION_CLOSE owed, and the next `send` writes it (RFC 9000
 §10.2). Over TLS, a record that does not open ends the connection, and `encrypt` called with no
 plaintext writes the alert the provider owes (RFC 9846 §5.2).
+
+## The server
+
+The `server` module answers requests behind one set of calls, whichever version the connection
+speaks ([decision 100](decisions.md)). A program makes one `server.Config`, and one
+`server.Connection` for each TCP connection its listener accepts. Over TLS the connection runs the
+handshake itself, and ALPN picks h2 or h11 during it. In cleartext, `Config.cleartext` names the
+version.
+
+The code in this section and the next is from
+[`examples/tls_exchange.zig`](../examples/tls_exchange.zig), where `link` stands in for a
+program's sockets. The server converts its TLS values once into a configuration every connection
+borrows. It starts each connection with the source the connection draws from and the instants it
+starts at:
+
+```zig
+try server_tls.init(.{
+    .ecdsa_p256 = .{
+        .chain = &chain,
+        .public_key = identity.public_key,
+        .private_key = identity.private_key,
+    },
+    .cookie_key = &cookie_key,
+    .alpn = &protocols,
+    .cpu = cpu,
+});
+server_config = .{ .tls = &server_tls };
+// One call for each connection the listener accepts, in storage the program owns.
+try server_connection.init(&server_config, program.random(), now_seconds, link.now_ns(.server));
+```
+
+`now_seconds` is Unix time, which the server's tickets are issued at. `now_ns` is the instant on
+the clock every later call passes, and the connection's deadlines count from it.
+
+Each turn of the program's loop reads every event that arrived, answers, and sends what the
+connection owes:
+
+```zig
+const input = try link.receive(.server);
+const now_ns = link.now_ns(.server);
+var consumed: usize = 0;
+for (0..events_per_turn_max) |_| {
+    const received = try server_connection.receive(input[consumed..], now_ns);
+    consumed += received.consumed;
+    const event = received.event orelse {
+        if (received.consumed == 0) break;
+        continue;
+    };
+    try serve(event);
+}
+// What an event carried points into the queue, so the queue is consumed only now.
+link.consume(.server, consumed);
+try link.send(.server, output[0..server_connection.send(&output, now_ns)]);
+// Decision 110: a deadline bounds how long a peer may hold the connection. `on_instant` ends
+// a connection whose peer is late, at the instant the program woke at.
+server_connection.on_instant(now_ns);
+```
+
+`receive` returns at most one event a call. A program loops over it until it consumes nothing and
+returns no event, and loops again after each `send`. What an event carries points into the octets
+the program passed, so the program keeps them until the next call.
+
+Every event names its request by id, in h11 and h2 alike:
+
+```zig
+fn serve(event: server.Event) !void {
+    switch (event) {
+        .request => |request| {
+            std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
+            if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
+            // The POST's content follows in `body` events, and the answer waits for its end.
+            if (is(request, "POST", "/echo")) return;
+            try server_connection.respond(request.id, .{ .status = 404, .end = true });
+        },
+        .body => |body| {
+            if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
+            @memcpy(posted[posted_len..][0..body.octets.len], body.octets);
+            posted_len += body.octets.len;
+            if (body.end) try answer(body.id, posted[0..posted_len]);
+        },
+        // The peer has the whole response to this request.
+        .done => answered += 1,
+        .trailers, .cancelled => {},
+    }
+}
+```
+
+- `request` carries the method, the target and the field lines, which `fields.find` and
+  `fields.iterator` read. Its `end` says the head ended the request, so no content follows.
+- `body` carries octets of the request's content, and its `end` marks the last of them. A request
+  with no content may end this way too, in a `body` event with no octets, as a GET over h3 often
+  does. A program that waits for a request's end reads `end` in both events.
+- `trailers` carries the request's trailer section, and `cancelled` says the peer gave the request
+  up.
+- `done` says the peer has the whole response.
+
+The program answers with a head, then content:
+
+```zig
+fn answer(id: server.Id, content: []const u8) !void {
+    var digits: [8]u8 = undefined;
+    const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
+    try server_connection.respond(id, .{
+        .status = 200,
+        .fields = &.{
+            .{ .name = "content-type", .value = content_type },
+            .{ .name = "content-length", .value = length },
+        },
+        .end = false,
+    });
+    // `write_body` returns the octets it took. It takes fewer than it was given when the room or
+    // the peer's window runs out, and a program then calls it again with the rest after `send`.
+    const taken = try server_connection.write_body(id, .{ .octets = content, .end = true });
+    assert(taken == content.len);
+}
+```
+
+A response with no content sets `end` in `respond`, and `write_trailers` ends a response with a
+trailer section. `cancel` ends one request before its response is whole. `shutdown` ends the
+connection once the requests it holds are answered.
+
+A peer may hold a connection only so long ([decision 110](decisions.md)). Deadlines bound the
+wait for a first request, the time between requests, a request's head and its content, and how
+slowly the peer may take the response. `deadline_ns` names the soonest instant one passes, and
+the program waits for octets no longer than that:
+
+```zig
+fn server_wait_ns() u64 {
+    const deadline_ns = server_connection.deadline_ns() orelse return wait_ns_max;
+    return @min(wait_ns_max, deadline_ns -| link.now_ns(.server));
+}
+```
+
+The program then calls `on_instant` with the instant it woke at, as the turn above does, and a
+connection whose peer is late ends. `receive` and `send` fire a deadline that passed too.
+`Config.deadlines` sets the limits, `set_deadlines` changes one connection's, and `close_reason`
+names the deadline that ended a connection, or the limit its peer passed. A program that wakes
+only when octets arrive never ends a silent peer.
+
+Three more things a server sets or watches:
+
+- **The end.** `should_close` says when to close the transport: the connection is over and `send`
+  has written everything. The program then calls `transport_closed`, which wipes the TLS
+  session's secrets. When `receive` fails with `error.ConnectionFailed`, the octets colibri owes
+  the peer wait for `send`, and `should_close` follows.
+- **Content codings.** With `Config.codings` and an `EncoderPool` the program places, a response
+  marked `codable` goes out in the coding its request accepts, gzip or deflate
+  ([decision 101](decisions.md)). The program calls the pool's `reset` once, with
+  `server.Features.detect()` or `.target()`, and gives its `encoders()` to the configuration.
+- **h3.** `Config.h3_alternative` makes each TLS connection advertise the server's h3 endpoint
+  (RFC 7838).
+
+## The client
+
+The `client` module sends requests behind one set of calls too. A program makes one
+`client.Config` for an origin, and one `client.Connection` for each TCP connection it opens to it.
+For each request it places an `HttpExchange` in its own memory: the request, and where the
+response goes.
+
+```zig
+var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
+var wanted_values: [content_type.len]u8 = undefined;
+var get_body: [greeting.len]u8 = undefined;
+var post_body: [note.len]u8 = undefined;
+var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+    .method = "GET",
+    .path = "/greeting",
+    .wanted = &wanted,
+    .values = &wanted_values,
+    .body = &get_body,
+};
+var post: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+    .method = "POST",
+    .path = "/echo",
+    .fields = &.{.{ .name = "content-type", .value = content_type }},
+    .content = note,
+    .body = &post_body,
+};
+```
+
+`wanted` names the fields of the response the program reads. Their values go into `values` and
+the content into `body`; colibri keeps no other field. `content` is the request's own content,
+which stays the program's until the exchange ends.
+
+The client converts its TLS values once, starts the connection, and hands it the exchanges:
+
+```zig
+try client_tls.init(.{
+    .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } },
+    .alpn = &protocols,
+    .cpu = cpu,
+});
+client_config = .{ .tls = &client_tls, .authority = origin };
+try client_connection.init(&client_config, program.random(), now_seconds, null);
+// `request` only takes an exchange. `send` writes it once the handshake has picked the
+// version, so a program asks at once and never waits for the connection.
+_ = try client_connection.request(&get);
+_ = try client_connection.request(&post);
+```
+
+Each turn reads every event that arrived and sends what the connection owes:
+
+```zig
+const input = try link.receive(.client);
+const now_ns = link.now_ns(.client);
+var consumed: usize = 0;
+for (0..events_per_turn_max) |_| {
+    const received = client_connection.receive(input[consumed..], now_ns);
+    consumed += received.consumed;
+    const event = received.event orelse {
+        if (received.consumed == 0) break;
+        continue;
+    };
+    report(event);
+}
+link.consume(.client, consumed);
+try link.send(.client, output[0..client_connection.send(&output, now_ns)]);
+```
+
+An exchange ends in exactly one `finished` event, whatever happened to it:
+
+```zig
+fn report(event: client.Event) void {
+    switch (event) {
+        .connected => |protocol| {
+            std.debug.print("client: connected over {s}\n", .{@tagName(protocol)});
+            spoken = protocol;
+        },
+        .finished => |ended| {
+            const exchange = ended.exchange;
+            std.debug.print("client: {s}: {s}, {d}\n", .{
+                exchange.path, @tagName(exchange.outcome), exchange.status,
+            });
+            finished += 1;
+            // Every exchange has ended, so the client ends the connection.
+            if (finished == exchanges_count) client_connection.shutdown();
+        },
+        // This client opens no second connection, so it wipes the ticket a server gives it.
+        .ticket => if (client_connection.take_ticket()) |ticket| {
+            var held = ticket;
+            held.wipe();
+        },
+        .draining, .closed => {},
+    }
+}
+```
+
+The exchange's `outcome` says what happened:
+
+| Outcome | What it means |
+| --- | --- |
+| `response` | The final response arrived whole: `status`, `content_received()`, and each wanted value. |
+| `refused` | The server processed none of the request, so the program may send it on another connection. |
+| `reset` | The server reset the stream, and `error_code` names why. |
+| `closed` | The connection ended before the response was whole. The server may have processed the request. |
+| `malformed` | colibri refused the response, because the protocol's rules make it malformed. |
+| `invalid` | The request is one the protocol refuses to send. |
+| `too_large` | The content did not fit `body`, or a wanted value did not fit `values`. |
+
+`connected` reports the version ALPN picked. `ticket` says the server issued a resumption ticket:
+`take_ticket` hands it over, and a later connection offers it through `init`'s last argument.
+`draining` says the server takes no new request on this connection, and `closed` that the
+connection is over.
+
+Both sides end the same way:
+
+```zig
+// `should_close` says when to close the transport: the connection is over and `send` has
+// written everything, the TLS close_notify too. `transport_closed` then wipes the session's
+// secrets.
+client_connection.transport_closed();
+server_connection.transport_closed();
+```
+
+A client that decodes content codings names them in `Config.codings`, and places the pool of
+decoders each needs ([decision 101](decisions.md)).
+
+## h3: the endpoint and the channel
+
+Over QUIC the same events and the same calls serve h3. What changes is what carries them: a
+program moves datagrams with addresses in place of a stream of octets, and it keeps time for the
+connection. The code in this section is from
+[`examples/h3_exchange.zig`](../examples/h3_exchange.zig), where `link` stands in for a program's
+UDP sockets.
+
+### The server's endpoint
+
+A `server.Endpoint` holds every QUIC connection behind one UDP socket
+([decision 103](decisions.md)). `server.EndpointOf(connections_max, receive_capacity)` makes one of
+another size: the connections it holds at once, and the octets each holds unread. Its TLS
+configuration names "h3" in its ALPN list:
+
+```zig
+try server_tls.init(.{
+    .ecdsa_p256 = .{
+        .chain = &chain,
+        .public_key = identity.public_key,
+        .private_key = identity.private_key,
+    },
+    .cookie_key = &cookie_key,
+    .alpn = &.{"h3"},
+    .cpu = cpu,
+});
+server_quic = .{ .tls = &server_tls };
+endpoint_config = .{ .quic = &server_quic };
+// One endpoint for the program's UDP socket. It starts a connection from each client's first
+// datagram, in a slot of its own.
+endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
+```
+
+The program passes the endpoint each datagram with the address it came from. The endpoint finds
+the connection the datagram's connection ID names, or starts one from a client's first datagram,
+and answers Version Negotiation and Retry itself. It returns the connection that took the
+datagram:
+
+```zig
+fn server_turn() !void {
+    for (0..datagrams_per_turn_max) |_| {
+        const datagram = try link.receive(.server) orelse break;
+        const now_ns = link.now_ns(.server);
+        // The endpoint finds the connection the datagram's connection ID names, or starts one.
+        if (endpoint.receive(datagram, .not_ect, client_address, now_ns)) |connection| {
+            try serve(connection, now_ns);
+        }
+        link.consume(.server);
+    }
+    const now_ns = link.now_ns(.server);
+    endpoint.on_instant(now_ns);
+    for (0..datagrams_per_turn_max) |_| {
+        const sent = endpoint.send(&output, now_ns) orelse break;
+        try link.send(.server, sent.octets);
+    }
+    // A connection that is over comes back once, and its slot is free for a later client.
+    if (endpoint.ended()) |_| ended += 1;
+}
+```
+
+The program drives that connection with the calls of a TCP connection: one event from each
+`receive`, and `respond`, `write_body` and `write_trailers` by the request's id.
+
+```zig
+fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
+    for (0..events_per_datagram_max) |_| {
+        const received = try connection.receive(now_ns);
+        switch (received.event orelse return) {
+            .request => |request| {
+                std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
+                try connection.respond(request.id, .{
+                    .status = 200,
+                    .fields = &.{.{ .name = "content-type", .value = content_type }},
+                    .end = false,
+                });
+                // Over QUIC `write_body` copies nothing, because QUIC reads the octets again to
+                // send them again. They stay the program's until the request is `done` or
+                // `cancelled`, or until `ended` hands its connection back.
+                _ = try connection.write_body(request.id, .{ .octets = greeting, .end = true });
+                answered += 1;
+            },
+            // The client acknowledged every octet of the response. A client that closes its
+            // connection first, as this one does, ends the connection instead.
+            .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id}),
+            .body, .trailers, .cancelled => {},
+        }
+    }
+}
+```
+
+Three things differ from TCP:
+
+- **Content is not copied.** QUIC reads the program's octets again whenever it sends them again.
+  They stay the program's until the request is `done` or `cancelled`, or until `ended` hands its
+  connection back. `done` comes once the peer has acknowledged every octet of the response.
+- **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`: for loss
+  recovery, acknowledgments and idle timeouts. A program sleeps until then when no datagram
+  arrives. The deadlines of [decision 110](decisions.md) bound a TCP connection alone. Over h3,
+  `QuicConfig.idle_timeout_ms` ends a silent peer, and nothing yet bounds a slow one.
+- **The end.** `ended` hands back each connection that is over, once, and a later client takes
+  its slot.
+
+`EndpointConfig.retry` makes every client prove its address before a connection starts (RFC 9000
+§8.1.2), and `EndpointConfig.logs` gives each connection a qlog log
+([decision 102](decisions.md)).
+
+### The client's channel
+
+A `client.Channel` carries a program's exchanges to one origin over QUIC or over TCP, and tells
+the program which transport to open ([decision 105](decisions.md)). The program passes what DNS
+knows as values: the server's addresses and its port, and an HTTPS record's `alpn` and `port` when
+it has one.
+
+```zig
+client_tcp = .{ .tls = &client_tls, .authority = origin };
+client_quic = .{ .tls = &client_quic_tls, .authority = origin };
+channel_config = .{
+    .tcp = &client_tcp,
+    .quic = &client_quic,
+    .fallback_delay_ns = fallback_delay_ns,
+};
+// The channel takes what DNS knows as values: the server's addresses and its port.
+const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+channel.init(&channel_config, known, receive_pool.storage());
+// `request` only takes an exchange. The channel sends it over the first connection that
+// completes its handshake.
+_ = try channel.request(&get);
+```
+
+The channel takes a configuration for each transport, and the pool its QUIC connection holds the
+server's unread octets in: `client.ReceivePool(capacity)`, sized to the longest response the
+program expects.
+
+Each turn passes the channel every datagram that arrived, fires its deadlines, and sends every
+datagram it owes:
+
+```zig
+fn client_turn() !void {
+    for (0..datagrams_per_turn_max) |_| {
+        const datagram = try link.receive(.client) orelse break;
+        const now_ns = link.now_ns(.client);
+        // A connection takes a datagram only from the address its server answers from.
+        drain(.{ .datagram = .{ .octets = datagram, .from = server_address } }, now_ns);
+        link.consume(.client);
+    }
+    const now_ns = link.now_ns(.client);
+    channel.on_instant(now_ns);
+    drain(.none, now_ns);
+    for (0..datagrams_per_turn_max) |_| {
+        const sent = channel.send_datagram(&output, now_ns) orelse break;
+        try link.send(.client, sent.octets);
+        drain(.none, now_ns);
+    }
+}
+```
+
+After each of those, the program loops over `receive` until the channel consumes nothing and
+reports nothing:
+
+```zig
+fn drain(input: client.ChannelInput, now_ns: u64) void {
+    var rest = input;
+    for (0..events_per_datagram_max) |_| {
+        const received = channel.receive(rest, now_ns);
+        if (received.consumed > 0) rest = .none;
+        const event = received.event orelse {
+            if (received.consumed == 0) return;
+            continue;
+        };
+        report(event, now_ns);
+    }
+}
+```
+
+The channel's events say what the program does next:
+
+```zig
+fn report(event: client.ChannelEvent, now_ns: u64) void {
+    switch (event) {
+        // The channel names the transport to open. A program opens a UDP flow or a TCP
+        // connection to `open.to`, then starts the connection.
+        .open => |open| switch (open.transport) {
+            .quic => start_quic(now_ns),
+            // This example has no TCP to open, so it tells the channel the transport closed.
+            .tcp => channel.transport_closed(.tcp),
+        },
+        // Nothing to close: one UDP socket serves every QUIC connection, and stays open.
+        .close => {},
+        .connected => |protocol| {
+            std.debug.print("client: connected over {s}\n", .{@tagName(protocol)});
+            spoken = protocol;
+        },
+        .finished => |finished| {
+            const exchange = finished.exchange;
+            std.debug.print("client: {s}: {s}, {d}\n", .{
+                exchange.path, @tagName(exchange.outcome), exchange.status,
+            });
+            // The one exchange has ended, so the client ends the channel.
+            channel.shutdown();
+        },
+        // This client opens no second connection, so it wipes the ticket a server gives it.
+        .ticket => |transport| if (channel.take_ticket(transport)) |ticket| {
+            var held = ticket;
+            held.wipe();
+        },
+        .closed => closed = true,
+    }
+}
+```
+
+- `open` names a transport and where it goes. The program opens a UDP flow or a TCP connection
+  there, then calls `start_quic` or `start_tcp`. QUIC goes first when the origin is known to speak
+  h3, or when `ChannelConfig.quic_first` says to try it. TCP opens when QUIC fails or
+  `fallback_delay_ns` passes, and the first connection whose handshake completes takes the
+  exchanges.
+- `close` names a transport the program closes.
+- `connected`, `ticket` and `finished` mean what they mean on a TCP connection, and `closed` says
+  the channel was shut down and every transport is closed.
+
+A program that opens TCP passes what its socket read as `.stream` input, and sends what
+`send_stream` writes. It starts a QUIC connection with values it draws at random:
+
+```zig
+fn start_quic(now_ns: u64) void {
+    var start: client.QuicStart = undefined;
+    program.fill(&start.source_id);
+    program.fill(&start.original_destination_id);
+    program.fill(std.mem.asBytes(&start.grease));
+    // A start the TLS stack refuses ends the attempt, which the channel reports.
+    channel.start_quic(start, program.random(), now_seconds, now_ns, null) catch {};
+}
+```
+
+Both sides sleep until the sooner of their deadlines when no datagram waits:
+
+```zig
+fn sleep_ns() u64 {
+    var wait_ns: u64 = wait_ns_max;
+    if (channel.deadline_ns()) |deadline_ns| {
+        wait_ns = @min(wait_ns, deadline_ns -| link.now_ns(.client));
+    }
+    if (endpoint.deadline_ns()) |deadline_ns| {
+        wait_ns = @min(wait_ns, deadline_ns -| link.now_ns(.server));
+    }
+    // A wait of 0 would poll, so the shortest sleep is one nanosecond.
+    return @max(wait_ns, 1);
+}
+```
+
+## The protocol modules
+
+The sections below are for a program that wants one version by itself: h11 or h2 with no TLS or
+with a TLS stack of its own, or QUIC without HTTP. The `server` and `client` modules are built on
+the same calls.
 
 ## h11
 
