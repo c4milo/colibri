@@ -110,6 +110,7 @@ test {
     _ = @import("quic/quic_request.zig");
     _ = @import("quic/quic_connection_test.zig");
     _ = @import("quic/quic_connection_flow_test.zig");
+    _ = @import("quic/quic_connection_limit_test.zig");
     _ = @import("quic/quic_coding_test.zig");
     _ = @import("endpoint/endpoint_stateless.zig");
     _ = @import("endpoint/endpoint_test.zig");

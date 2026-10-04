@@ -67,6 +67,14 @@ pub const last_chunk_len: usize = 5;
 /// responses. h3 tracks more (`h3.constants.request_streams_max`).
 pub const quic_requests_max: u32 = 32;
 
+/// Most request streams a QUIC client opens and then cancels in one
+/// `quic_peer_reset_rate_period_ns`, after which the connection closes with H3_EXCESSIVE_LOAD
+/// (RFC 9114 §10.5). The stream limit above bounds how many are open at once, not how fast they
+/// are opened and cancelled. Both are h2's, which the owner ruled for h3 (decision 110 as
+/// amended).
+pub const quic_peer_reset_rate_max: u32 = h2.constants.peer_reset_rate_max;
+pub const quic_peer_reset_rate_period_ns: u64 = h2.constants.peer_reset_rate_period_ns;
+
 /// Octets of the frames one h3 response keeps until the peer acknowledges them (decision 79): its
 /// heads' HEADERS frames, each DATA frame's header, and its trailer section's HEADERS frame.
 pub const quic_response_kept_len: usize = 8192;

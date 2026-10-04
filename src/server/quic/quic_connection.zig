@@ -111,6 +111,10 @@ pub const QuicConnection = struct {
     /// The latest instant a call passed, which the qlog events of the writes that take none carry
     /// (decision 102).
     last_ns: u64,
+    /// The request streams the client opened and then cancelled in the period that began at
+    /// `peer_reset_period_start_ns` (decision 110 as amended).
+    peer_resets: u32,
+    peer_reset_period_start_ns: u64,
     /// The caller's source, which the connection IDs it issues, their reset tokens and each
     /// PATH_CHALLENGE's data are drawn from (invariant 5).
     random: tls.Random,

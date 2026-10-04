@@ -3396,6 +3396,39 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      `Deadlines.validate`, which cannot see the protocol and would refuse h11 in cleartext too; and
      accepting such limits with the bound in a note.
 
+     Amended a sixth time by the owner on 2026-10-04, for
+     [#95](https://github.com/c4milo/colibri/issues/95): h3 gets the defences too. The QUIC
+     server ran QUIC's loss, idle and closing timers alone. A peer keeps a QUIC connection alive
+     with a PING, so it held request streams with no limit in time, and RFC 9000 §21.6 names a
+     minimum transfer speed among the mitigations a deployment SHOULD provide. A caller now has
+     the same limits whichever protocol carries a request.
+     - **The reset limit first.** The QUIC server counts the request streams the client opens
+       and then cancels in each period, with h2's limit of 100 a second. Past it, the connection
+       closes with H3_EXCESSIVE_LOAD (RFC 9114 §10.5). A client cancels with a RESET_STREAM or
+       with a STOP_SENDING that stops its response (RFC 9114 §4.1.1), and a request cancelled
+       with both counts once. A request the server cancels or refuses does not count.
+     - **The deadlines in `server.QuicConnection`**, from the `Deadlines` that `server.QuicConfig`
+       carries, reported and fired by the calls that already run QUIC's timers. First request,
+       idle and drain close the connection with H3_NO_ERROR after a GOAWAY (RFC 9114 §5.2). Head,
+       body rate and the cap answer one request with a 408 and stop reading it with H3_NO_ERROR
+       (RFC 9114 §4.1), or reset its stream with H3_REQUEST_CANCELLED once a response started
+       (§4.1.1). The connection goes on, because h3's streams are independent. The send rate
+       resets a stream held by its own credit, and closes a connection held as a whole with
+       H3_EXCESSIVE_LOAD.
+     - **What does not apply.** h3 defines no SETTINGS acknowledgment (RFC 9114 Appendix A.4),
+       and QUIC's closing period bounds a close (RFC 9000 §10.2), so h3 has no SETTINGS deadline
+       and no linger.
+
+     The alternatives refused:
+     - Leaving h3 to QUIC's idle timeout, which counts silence alone.
+     - Resetting a slow request's stream with no response. It is cheaper to write, but an honest
+       slow client learns less, and RFC 9114 §4.1.1 recommends a response with a status code.
+     - Deadlines with no reset limit. QUIC's stream limit bounds how many streams are open at
+       once, and nothing would bound how fast they are opened and reset.
+
+     Cost: a few branches for each datagram and each event of an h3 connection. The work is
+     design §8 step 20c.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes

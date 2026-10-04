@@ -36,7 +36,7 @@ pub var client_port_now: u16 = client_port;
 /// The instant a test starts at, and how far each round of `pump` moves it: past each side's
 /// delayed acknowledgment (RFC 9000 §13.2.1), so every packet is acknowledged.
 pub const start_ns: u64 = 1_000_000_000;
-const round_ns: u64 = 30_000_000;
+pub const round_ns: u64 = 30_000_000;
 pub const rounds_default: usize = 8;
 const datagrams_per_round_max: usize = 64;
 const client_idle_timeout_ms: u64 = 30_000;

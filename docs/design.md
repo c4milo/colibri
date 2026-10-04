@@ -6403,7 +6403,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and 3 more ended on the suite's assertion.
 
 - **Step 20 — denial of service at the server.** [Decision 110](decisions.md) rules the defences
-  that [#82](https://github.com/c4milo/colibri/issues/82) planned, in two parts.
+  that [#82](https://github.com/c4milo/colibri/issues/82) planned, in three parts.
   - **20a**, Rapid Reset (CVE-2023-44487). h2 counts the streams the peer opens and then resets,
     and ends the connection past `peer_reset_rate_max` in one `peer_reset_rate_period_ns`.
     **Check:** unit tests at the limit and across a period, a client whose streams its server
@@ -6416,6 +6416,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       close, and 100 concurrent h2 streams;
     - the SETTINGS acknowledgment and drain deadlines, the close reasons, and the test-only server
       taking its instants from Rotor's loop.
+  - **20c**, the same defences over h3 ([#95](https://github.com/c4milo/colibri/issues/95),
+    decision 110 as amended). **Check:** unit tests at the reset limit and at each deadline's
+    instant, a simulator check with seeded slow and flooding peers over QUIC and an honest slow
+    peer that is never cut, a check over real sockets with aioquic as the slow peer, and
+    mutations. It lands in four parts:
+    - the reset limit in h3;
+    - the first-request, idle and head deadlines in `server.QuicConnection`, and `Deadlines` in
+      `server.QuicConfig`;
+    - the body and send rates, and the cap per request;
+    - drain, the close reasons, `set_deadlines`, and the calls in `docs/usage.md` and an example.
 
   **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
   period its instant falls in, beside the count of the resets colibri sends. What was checked, on
@@ -6876,6 +6886,25 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 4 mutations, each **CAUGHT**: one frame per call again; each frame offering the content from
     its start; a bound of one frame; and an empty last piece reported as `Blocked`, which was
     **NOT CAUGHT** until the empty-piece test above.
+
+  **The reset limit over h3, 2026-10-04** ([#95](https://github.com/c4milo/colibri/issues/95)).
+  The first part of 20c. QUIC's stream limit bounds how many request streams are open at once,
+  and nothing bounded how fast a client opens and cancels them.
+  - `server.QuicConnection` counts a request stream the client opened and then cancelled, in the
+    period its latest instant falls in. A client cancels with a RESET_STREAM, which h3 reports
+    even before the request's head is whole, or with a STOP_SENDING that stops its response,
+    which the connection sees when it settles each response.
+  - A request cancelled with both frames counts once. One the server cancelled or refused does
+    not count: the RESET_STREAM a client owes a STOP_SENDING (RFC 9000 §3.5) is no cancel of
+    its own.
+  - Past `quic_peer_reset_rate_max` in one `quic_peer_reset_rate_period_ns`, which are h2's 100
+    and one second, the connection closes with H3_EXCESSIVE_LOAD (RFC 9114 §10.5).
+  - The connection grows by 16 octets, to 717,536 (`docs/performance.md`).
+  - `zig build test`: 131 of 131 steps and 2543 of 2543 tests passed.
+  - 8 mutations, each **CAUGHT**: a RESET_STREAM not counted; a STOP_SENDING not counted; a
+    request cancelled with both frames counted twice; one cancel past the limit allowed; the
+    cancel at the limit refused; the period never starting again; the period starting one
+    nanosecond late; and another error code.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

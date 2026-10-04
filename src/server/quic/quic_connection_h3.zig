@@ -68,7 +68,11 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
         // RFC 9000 §3.1: "Data Recvd" means the peer acknowledged every octet.
         .data_recvd => if (!record.over) end(connection, record, .done),
         // RFC 9000 §3.5: the peer's STOP_SENDING reset the stream, whose octets are read no more.
-        .reset_sent, .reset_recvd => if (!record.over) end(connection, record, .cancelled),
+        // RFC 9114 §4.1.1: that is the client cancelling its request, which the limit counts.
+        .reset_sent, .reset_recvd => if (!record.over) {
+            end(connection, record, .cancelled);
+            if (!count_peer_reset(connection)) return;
+        },
         .ready, .send, .data_sent => {},
     }
     if (quic.connection_stream_acknowledged.acknowledged_end(&connection.transport, id)) |acknowledged| {
@@ -77,6 +81,31 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
         if (record.coded) |*coded| coded.ring.free(freed);
     }
     quic_coding.go_on(connection, record);
+}
+
+/// Counts one request stream the client opened and then cancelled, in the period the latest
+/// instant falls in, and returns whether the connection goes on: past the limit it closes
+/// (decision 110 as amended). A client cancels with a RESET_STREAM, or with a STOP_SENDING that
+/// stops its response (RFC 9114 §4.1.1). Either cost the application a request's work, which
+/// CVE-2023-44487 made the peer's to spend at line rate.
+fn count_peer_reset(connection: *QuicConnection) bool {
+    const now_ns = connection.last_ns;
+    assert(now_ns >= connection.peer_reset_period_start_ns);
+    if (now_ns - connection.peer_reset_period_start_ns >= constants.quic_peer_reset_rate_period_ns) {
+        connection.peer_reset_period_start_ns = now_ns;
+        connection.peer_resets = 0;
+    }
+    // RFC 9114 §10.5: an endpoint SHOULD track the use of features that cost it work and set
+    // limits on it, and "MAY treat activity that is suspicious as a connection error of type
+    // H3_EXCESSIVE_LOAD".
+    if (connection.peer_resets == constants.quic_peer_reset_rate_max) {
+        const failed = connection.h3.fail(&connection.transport, h3.constants.error_excessive_load);
+        assert(failed == error.ConnectionFailed);
+        internal.fail(connection);
+        return false;
+    }
+    connection.peer_resets += 1;
+    return true;
 }
 
 fn end(connection: *QuicConnection, record: *Request, kind: @FieldType(quic_request.Ending, "kind")) void {
@@ -165,7 +194,12 @@ fn on_end(connection: *QuicConnection, stream_id: u64) ?event.Event {
 /// RFC 9114 §4.1.1: the client cancelled the request. The server resets its response too, so
 /// nothing reads the caller's octets once `cancelled` says so.
 fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
-    const record = live(connection, stream_id) orelse return null;
+    // A stream reset before its head was whole has no record, and still counts. One whose record
+    // is over was counted when `settle` saw its STOP_SENDING, or was ended by the server.
+    const known = connection.requests.of(stream_id);
+    if (known) |held| if (held.over) return null;
+    if (!count_peer_reset(connection)) return null;
+    const record = known orelse return null;
     connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
     record.over = true;
     quic_coding.give_back(connection, record);
