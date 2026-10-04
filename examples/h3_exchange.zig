@@ -62,9 +62,9 @@ const now_seconds = identity.now_seconds;
 const loopback = [_]u8{ 127, 0, 0, 1 };
 const server_port = 443;
 const client_port = 50_000;
-const server_addresses = [_]client.channel.Address{.of(&loopback, 0)};
-const server_address: client.channel.Address = .of(&loopback, server_port);
-const client_address: client.channel.Address = .of(&loopback, client_port);
+const server_addresses = [_]client.Address{.of(&loopback, 0)};
+const server_address: client.Address = .of(&loopback, server_port);
+const client_address: server.Address = .of(&loopback, client_port);
 
 pub const Error = error{
     /// The connections had not both ended within `turns_max` turns.
@@ -175,7 +175,7 @@ fn start_client(cpu: tls.Cpu) !void {
         .fallback_delay_ns = fallback_delay_ns,
     };
     // The channel takes what DNS knows as values: the server's addresses and its port.
-    const known: client.channel.Values = .{ .addresses = &server_addresses, .port = server_port };
+    const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
     channel.init(&channel_config, known, receive_pool.storage());
     // `request` only takes an exchange. The channel sends it over the first connection that
     // completes its handshake.
@@ -253,7 +253,7 @@ fn client_turn() !void {
 
 /// Passes `input` to the channel and acts on each event, until the channel consumes nothing and
 /// reports nothing. A datagram is consumed whole.
-fn drain(input: client.channel.Input, now_ns: u64) void {
+fn drain(input: client.ChannelInput, now_ns: u64) void {
     var rest = input;
     for (0..events_per_datagram_max) |_| {
         const received = channel.receive(rest, now_ns);
@@ -267,7 +267,7 @@ fn drain(input: client.channel.Input, now_ns: u64) void {
 }
 
 /// Acts on one event of the channel.
-fn report(event: client.channel.Event, now_ns: u64) void {
+fn report(event: client.ChannelEvent, now_ns: u64) void {
     switch (event) {
         // The channel names the transport to open. A program opens a UDP flow or a TCP
         // connection to `open.to`, then starts the connection.

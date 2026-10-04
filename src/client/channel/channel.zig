@@ -19,6 +19,10 @@
 //! clock: time is a value the caller passes (non-negotiable 3). A caller that offers h3 also places
 //! the receive pool each QUIC connection holds the server's octets in, one at a time (decision 61),
 //! and sizes it to the longest response it expects: `ReceivePool(capacity)`.
+//!
+//! `Channel`'s functions are the calls a program makes, and `phase`, which the simulator's trace
+//! reads. The steps the channel takes on its own are in `channel_events.zig`, which the module's
+//! root does not export (design §8 step 17f).
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -27,7 +31,6 @@ const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
-const alt_svc = @import("../alt_svc.zig");
 const choice = @import("channel_choice.zig");
 const channel_events = @import("channel_events.zig");
 
@@ -355,7 +358,8 @@ pub const Channel = struct {
         return channel.values.alternative;
     }
 
-    /// Where `transport`'s connection stands, as spec/tla/client_exchanges's `phase` names it.
+    /// Where `transport`'s connection stands, as spec/tla/client_exchanges's `phase` names it. A
+    /// program reads the events and never this: the simulator's trace does (decision 105).
     pub fn phase(channel: *const Channel, transport: Transport) Phase {
         const link = channel.links.get(transport);
         return switch (link.state) {
@@ -378,31 +382,6 @@ pub const Channel = struct {
         if (failed) return .failed;
         if (draining) return .draining;
         return if (link.won) .open else .handshake;
-    }
-
-    /// Whether QUIC may carry the exchanges at `now_ns`: h3 is offered, and a fresh Alt-Svc
-    /// alternative, an HTTPS record or the configuration says to try it.
-    pub fn quic_allowed(channel: *const Channel, now_ns: u64) bool {
-        if (channel.config.quic == null) return false;
-        if (channel.fresh_alternative(now_ns)) |_| return true;
-        // RFC 9460 §7.1.2: a client uses the transports of the protocols the record names.
-        if (channel.values.https) |https| return https.h3;
-        return channel.config.quic_first;
-    }
-
-    /// The Alt-Svc alternative, while it is fresh (RFC 7838 §2.2).
-    pub fn fresh_alternative(channel: *const Channel, now_ns: u64) ?Alternative {
-        const held = channel.values.alternative orelse return null;
-        return if (now_ns < held.fresh_until_ns) held else null;
-    }
-
-    /// Keeps what a TCP response's Alt-Svc said at `now_ns`, which replaces what the channel knew
-    /// (RFC 7838 §3.1).
-    pub fn learn(channel: *Channel, advert: alt_svc.Advert, now_ns: u64) void {
-        channel.values.alternative = switch (advert) {
-            .clear, .none => null,
-            .h3 => |h3| .{ .port = h3.port, .fresh_until_ns = now_ns +| h3.max_age_s *| constants.nanoseconds_per_second },
-        };
     }
 
     /// The first event the channel owes, after it has read what its connections owe and chosen what
@@ -440,3 +419,12 @@ pub const Channel = struct {
         return null;
     }
 };
+
+test "design §8 step 17f: the channel's public functions are the calls a program makes, and phase" {
+    const public_names = @import("core").public_names;
+    try public_names.expect(Channel, &.{
+        "init",          "request",          "cancel",      "shutdown",    "receive",
+        "send_datagram", "send_stream",      "deadline_ns", "on_instant",  "start_quic",
+        "start_tcp",     "transport_closed", "take_ticket", "alternative", "phase",
+    });
+}

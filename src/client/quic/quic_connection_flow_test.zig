@@ -5,6 +5,7 @@ const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
 const support = @import("quic_test_support.zig");
+const internal = @import("quic_connection_internal.zig");
 const connection_support = @import("../connection/connection_test_support.zig");
 const event = @import("../event.zig");
 
@@ -205,7 +206,7 @@ test "RFC 9000 §10.2: an active connection that fails owes its CONNECTION_CLOSE
     try support.pump(support.rounds_default);
     try testing.expect(!quic.connection_close.owes(&connection.transport));
     // A failure no h3 or QUIC rule closed, as the loss timer's refusals are.
-    connection.fail();
+    internal.fail(connection);
     try testing.expect(connection.failed);
     try testing.expect(quic.connection_close.owes(&connection.transport));
     try support.pump(support.rounds_default);

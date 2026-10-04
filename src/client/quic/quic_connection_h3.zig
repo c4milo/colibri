@@ -16,6 +16,7 @@ const slots_module = @import("../slots.zig");
 const response = @import("../response.zig");
 const coding = @import("../coding.zig");
 const quic_connection = @import("quic_connection.zig");
+const internal = @import("quic_connection_internal.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const HttpExchange = event.HttpExchange;
@@ -78,7 +79,7 @@ fn refused(connection: *QuicConnection, slot: *Slot, failure: h3.connection.Send
         // not yet written when the GOAWAY arrived, so none is left to try.
         error.GoawayReceived => unreachable,
         // RFC 9114 §8: h3 failed the connection while it wrote.
-        error.ConnectionFailed => connection.fail(),
+        error.ConnectionFailed => internal.fail(connection),
         // RFC 9114 §4.1.2 and §4.2.2: a request h3 would send malformed, or too large for the
         // server's SETTINGS_MAX_FIELD_SECTION_SIZE.
         else => slots_module.end(slot, .invalid),
@@ -202,7 +203,7 @@ pub fn read_events(connection: *QuicConnection, now_ns: u64) void {
     for (0..constants.h3_events_per_read_max) |_| {
         const read = connection.h3.receive(&connection.transport, &connection.body, now_ns) catch {
             // RFC 9114 §8: h3 failed the connection, and QUIC owes the CONNECTION_CLOSE.
-            connection.fail();
+            internal.fail(connection);
             return;
         };
         record(connection, read orelse return);
@@ -264,7 +265,7 @@ fn on_reset(connection: *QuicConnection, ended: h3.connection.Ended) void {
 /// RFC 9114 §5.2: the server processes no request stream at or above `stream_id`, so each
 /// exchange on one, and each not yet written, may go on another connection.
 fn on_goaway(connection: *QuicConnection, stream_id: u64) void {
-    connection.start_draining();
+    internal.start_draining(connection);
     for (&connection.slots.slots) |*slot| {
         const unprocessed = slot.stage == .sent and slot.stream_id >= stream_id;
         if (slot.stage == .queued or unprocessed) slots_module.end(slot, .refused);

@@ -15,6 +15,7 @@ const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const connection_module = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 const connection_h11 = @import("connection_h11.zig");
 
 const Connection = connection_module.Connection;
@@ -30,14 +31,14 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) usize {
     assert(connection.phase == .handshake);
     // chapulin writes all a call owes, a ClientHello or the alert of a refused flight, and the
     // output holds every flight the handshake writes before a send (`constants.flights_max`).
-    assert(connection.room().len >= constants.flight_len_max);
-    const progress = connection.tls_client.handshake(input, connection.room()) catch {
+    assert(internal.room(connection).len >= constants.flight_len_max);
+    const progress = connection.tls_client.handshake(input, internal.room(connection)) catch {
         // RFC 9846 §6.2: what the refused handshake wrote ends with the alert that says why, and
         // the connection closes once `send` has written it.
         connection.output_len += connection.tls_client.failure_written();
         connection.records_len = connection.output_len;
         connection.phase = .closed;
-        connection.fail();
+        internal.fail(connection);
         return 0;
     };
     connection.output_len += progress.written;
@@ -53,7 +54,7 @@ fn attach(connection: *Connection) bool {
     const provider = connection.tls_client.provider();
     // RFC 7301 §3.2: the protocol the server selected is definitive for the connection, and a
     // selection of none is h11 (decision 88).
-    connection.open_session(protocol_of(provider.vtable.negotiated_alpn(provider.context)));
+    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context)));
     // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet moves.
     const attached = switch (connection.session) {
         .h2 => |*session| session.attach_tls(provider),
@@ -63,7 +64,7 @@ fn attach(connection: *Connection) bool {
     attached catch {
         connection.owed.connected = false;
         connection.phase = .closed;
-        connection.fail();
+        internal.fail(connection);
         return false;
     };
     return true;
@@ -80,9 +81,9 @@ pub fn protocol_of(selected: ?[]const u8) Protocol {
 /// exchange ends. Returns the octets of `input` taken.
 pub fn read(connection: *Connection, input: []const u8, now_ns: u64) usize {
     const consumed = open_records(connection, input, now_ns);
-    connection.collect_ticket();
-    const taken = connection.read_protocol(connection.plain_in[0..connection.plain_in_len], now_ns);
-    connection.take_plaintext(taken);
+    internal.collect_ticket(connection);
+    const taken = internal.read_protocol(connection, connection.plain_in[0..connection.plain_in_len], now_ns);
+    internal.take_plaintext(connection, taken);
     // RFC 9846 §6.1: nothing follows the server's close_notify, so every exchange still awaiting
     // its response has what it will get.
     if (connection.peer_closed and connection.plain_in_len == 0 and !connection.stopped) peer_ended(connection);
@@ -93,7 +94,7 @@ pub fn read(connection: *Connection, input: []const u8, now_ns: u64) usize {
 /// the close ends with it (RFC 9112 §9.8), and every other exchange ends.
 fn peer_ended(connection: *Connection) void {
     if (connection.session == .h11) connection_h11.transport_closed(connection);
-    connection.fail();
+    internal.fail(connection);
 }
 
 /// Opens whole records into the protocol's octets while one fits, and returns the octets taken.
@@ -110,7 +111,7 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) usize {
             error.NoSpaceLeft => return consumed,
             // An h2 connection error with its GOAWAY queued, or TLS failed with its alert owed.
             error.ConnectionFailed, error.TlsFailed => {
-                connection.fail();
+                internal.fail(connection);
                 return consumed;
             },
             // The protocol took the provider of a finished handshake.
@@ -132,12 +133,12 @@ pub fn send(connection: *Connection, output: []u8, now_ns: u64) usize {
     if (connection.phase == .handshake) _ = handshake(connection, &.{}, now_ns);
     const copied = @min(output.len, connection.records_len);
     @memcpy(output[0..copied], connection.output[0..copied]);
-    connection.take_output(copied);
+    internal.take_output(connection, copied);
     // Records the call leaves filled `output`, so nothing is sealed after them, and nothing is
     // sealed before the protocol opens or after the connection closed.
     if (connection.phase != .open) return copied;
     var written = copied + seal(connection, output[copied..], now_ns);
-    if (connection.close_sent or connection.output_len > 0 or !connection.finished()) return written;
+    if (connection.close_sent or connection.output_len > 0 or !internal.finished(connection)) return written;
     // RFC 9846 §6.1: "Each party MUST send a "close_notify" alert before closing its write side of
     // the connection".
     written += close_notify(connection, output[written..]) catch return written;
@@ -159,13 +160,13 @@ fn seal(connection: *Connection, output: []u8, now_ns: u64) usize {
             // the provider owes.
             error.TlsFailed => {
                 connection.output_len = 0;
-                connection.fail();
+                internal.fail(connection);
                 continue;
             },
             error.ConnectionFailed, error.HandshakeIncomplete, error.NoProvider => unreachable,
         };
         written += sealed.written;
-        connection.take_output(sealed.consumed);
+        internal.take_output(connection, sealed.consumed);
         connection.reply_owed = false;
         if (sealed.consumed == 0) return written;
     }

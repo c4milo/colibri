@@ -12,6 +12,7 @@ const assert = std.debug.assert;
 const h11 = @import("h11");
 const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 const slots_module = @import("../slots.zig");
 const response = @import("../response.zig");
 const coding = @import("../coding.zig");
@@ -69,7 +70,7 @@ fn record(connection: *Connection, h11_event: h11.connection.Event) bool {
 }
 
 fn on_response(connection: *Connection, slot: *Slot, status: u16) bool {
-    connection.note_alt_svc(&connection.session.h11.section, 0);
+    internal.note_alt_svc(connection, &connection.session.h11.section, 0);
     if (slot.stage == .sent) {
         const section = &connection.session.h11.section;
         response.record_head(slot, status, section, 0) catch |failure| {
@@ -106,7 +107,7 @@ fn finish(connection: *Connection, slot: *Slot) bool {
 /// RFC 9112 §9.6: the server closes the connection. The requests it never saw may go on another
 /// connection, and it "SHOULD NOT assume" the ones written after the close were processed.
 fn close(connection: *Connection) void {
-    connection.start_draining();
+    internal.start_draining(connection);
     connection.slots.end_all(.refused, .closed);
 }
 
@@ -116,7 +117,7 @@ fn fail(connection: *Connection) void {
     if (slot) |reading| {
         if (reading.stage == .sent) slots_module.end(reading, .malformed) else slots_module.settle_drop(reading);
     }
-    connection.fail();
+    internal.fail(connection);
 }
 
 /// The transport closed. A body that runs until the close ends with it (RFC 9112 §6.3 rule 8), and
@@ -136,7 +137,7 @@ pub fn cancel(connection: *Connection, slot: *Slot) void {
         return;
     }
     slots_module.release(slot);
-    connection.fail();
+    internal.fail(connection);
 }
 
 /// Writes exchanges in order while h11, the room and decision 88 allow: the rest of the content
@@ -171,7 +172,7 @@ fn write_request(connection: *Connection, slot: *Slot) bool {
     const session = &connection.session.h11;
     // RFC 9112 §6.2: a body of a declared length ends with its last octet, and the next head may
     // follow.
-    if (session.writer.open()) connection.output_len += session.write_end(connection.room(), &.{}) catch return false;
+    if (session.writer.open()) connection.output_len += session.write_end(internal.room(connection), &.{}) catch return false;
     return true;
 }
 
@@ -185,7 +186,7 @@ fn write_head(connection: *Connection, slot: *Slot) bool {
         slots_module.end(slot, .invalid);
         return true;
     };
-    const written = connection.session.h11.write_request(connection.room(), slot.exchange.method, slot.exchange.path, fields) catch |failure| {
+    const written = connection.session.h11.write_request(internal.room(connection), slot.exchange.method, slot.exchange.path, fields) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += written;
@@ -240,9 +241,9 @@ fn request_fields(
 fn write_content(connection: *Connection, slot: *Slot) void {
     const exchange = slot.exchange;
     const left = exchange.content.len - exchange.content_sent;
-    const take = @min(left, connection.room().len);
+    const take = @min(left, internal.room(connection).len);
     if (take == 0) return;
-    const written = connection.session.h11.write_body(connection.room(), exchange.content[exchange.content_sent..][0..take]) catch {
+    const written = connection.session.h11.write_body(internal.room(connection), exchange.content[exchange.content_sent..][0..take]) catch {
         // RFC 9112 §9.6: the connection closed, and no more of the body goes out.
         slot.content_stopped = true;
         return;

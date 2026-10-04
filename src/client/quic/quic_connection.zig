@@ -16,6 +16,10 @@
 //! again with no datagram, which reports what they changed. An exchange's `finished` event waits
 //! until its stream reads nothing more of the exchange (RFC 9000 §3.1), so the caller may reuse the
 //! exchange's memory once the event arrives.
+//!
+//! `QuicConnection`'s functions are the calls a program makes. What its other files and the
+//! channel call is in `quic_connection_internal.zig`, which the module's root does not export
+//! (design §8 step 17f).
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -31,6 +35,7 @@ const coding_pool = @import("../coding_pool.zig");
 const owed_module = @import("../owed.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_h3 = @import("quic_connection_h3.zig");
+const internal = @import("quic_connection_internal.zig");
 
 pub const Id = event.Id;
 pub const Event = event.Event;
@@ -221,7 +226,7 @@ pub const QuicConnection = struct {
             &connection.scratch,
         ) catch {
             // RFC 9000 §10.2: the connection closes, and QUIC owes its CONNECTION_CLOSE.
-            connection.fail();
+            internal.fail(connection);
             return .{ .consumed = datagram.len, .event = connection.owed_event() };
         };
         _ = received;
@@ -243,7 +248,7 @@ pub const QuicConnection = struct {
             output,
             now_ns,
         ) catch {
-            connection.fail();
+            internal.fail(connection);
             return null;
         } orelse return null;
         assert(sent.len <= output.len);
@@ -266,7 +271,7 @@ pub const QuicConnection = struct {
         if (now_ns < at_ns) return;
         connection.act_on_idle(now_ns);
         _ = quic.connection_timer.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
-            connection.fail();
+            internal.fail(connection);
             return;
         };
         connection.after_change(now_ns);
@@ -296,13 +301,13 @@ pub const QuicConnection = struct {
         // A connection already draining closes after its last exchange anyway.
         if (connection.draining) return;
         connection.retired = true;
-        connection.start_draining();
+        internal.start_draining(connection);
     }
 
     /// Ends the connection once the exchanges it holds have finished: no new request is taken, and
     /// QUIC then closes with H3_NO_ERROR (RFC 9114 §5.2, RFC 9000 §10.2).
     pub fn shutdown(connection: *QuicConnection) void {
-        connection.start_draining();
+        internal.start_draining(connection);
     }
 
     /// Whether the caller closes the flow now: the connection is over, its CONNECTION_CLOSE is out
@@ -351,7 +356,7 @@ pub const QuicConnection = struct {
         if (connection.started and !connection.stopped) quic_h3.read_events(connection, now_ns);
         quic_h3.release_closed(connection);
         // RFC 9000 §10: once the connection stops being active, nothing more comes on its streams.
-        if (connection.transport.termination.state != .active and !connection.stopped) connection.fail();
+        if (connection.transport.termination.state != .active and !connection.stopped) internal.fail(connection);
     }
 
     /// Starts h3 once the handshake completed with ALPN's "h3" (RFC 9114 §3.1), and says which
@@ -361,12 +366,12 @@ pub const QuicConnection = struct {
         const selected = connection.session.provider().negotiated_alpn() orelse "";
         // RFC 9114 §3.1: an h3 connection is one whose handshake selected the "h3" token.
         if (!std.mem.eql(u8, selected, h3_alpn)) {
-            connection.close_quic(h3.constants.error_version_fallback);
-            connection.fail();
+            internal.close_quic(connection, h3.constants.error_version_fallback);
+            internal.fail(connection);
             return;
         }
         connection.h3.start(&connection.transport, now_ns) catch {
-            connection.fail();
+            internal.fail(connection);
             return;
         };
         connection.started = true;
@@ -378,43 +383,6 @@ pub const QuicConnection = struct {
         connection.wipe_ticket();
         connection.ticket = issued;
         connection.owed.ticket = true;
-    }
-
-    /// Takes no new request from here on, and owes the caller the `draining` event.
-    pub fn start_draining(connection: *QuicConnection) void {
-        if (connection.draining) return;
-        connection.draining = true;
-        connection.owed.draining = true;
-    }
-
-    /// Ends the connection on a failure: every exchange it holds ends, and what QUIC owes, such as
-    /// its CONNECTION_CLOSE, still goes out.
-    pub fn fail(connection: *QuicConnection) void {
-        connection.stopped = true;
-        connection.failed = true;
-        const transport = &connection.transport;
-        // RFC 9000 §10.2: an active connection that ends owes its CONNECTION_CLOSE, unless h3 or
-        // QUIC already owes one. The loss timer's refusals owe none, and RFC 9000 §20.1 closes
-        // them with INTERNAL_ERROR.
-        if (transport.termination.state == .active and !quic.connection_close.owes(transport)) {
-            quic.connection_close.owe(transport, quic.connection_close.transport(quic.error_code.internal_error, null));
-        }
-        // RFC 9000 §10.2.1: a connection that closes sends only its CONNECTION_CLOSE from here on,
-        // so no stream reads an exchange's octets again.
-        for (&connection.slots.slots) |*slot| slot.holds_octets = false;
-        connection.slots.end_all(.refused, .closed);
-        assert(connection.slots.idle());
-    }
-
-    /// Owes the server a CONNECTION_CLOSE carrying h3's `code` (RFC 9000 §10.2, RFC 9114 §8).
-    pub fn close_quic(connection: *QuicConnection, code: u64) void {
-        quic.connection_close.owe(&connection.transport, .{
-            .layer = .application,
-            .error_code = code,
-            // RFC 9000 §19.19: only a transport close carries the Frame Type field.
-            .frame_type = null,
-            .reason = "",
-        });
     }
 
     fn owed_event(connection: *QuicConnection) ?Event {
@@ -436,7 +404,7 @@ pub const QuicConnection = struct {
     /// limit only server push, which colibri never allows, so none goes out.
     fn finish_draining(connection: *QuicConnection) void {
         assert(connection.draining and connection.slots.idle());
-        if (connection.transport.termination.state == .active) connection.close_quic(connection.h3.no_error_code());
+        if (connection.transport.termination.state == .active) internal.close_quic(connection, connection.h3.no_error_code());
         connection.stopped = true;
     }
 };
@@ -464,4 +432,13 @@ fn parameters(config: *const Config, capacity: u64) Parameters {
     held.initial_max_streams_uni = h3.constants.uni_streams_max;
     held.max_idle_timeout_ms = config.idle_timeout_ms;
     return held;
+}
+
+test "design §8 step 17f: the QUIC connection's public functions are the calls a program makes" {
+    const public_names = @import("core").public_names;
+    try public_names.expect(QuicConnection, &.{
+        "init",        "request",     "cancel",   "receive",      "send",
+        "deadline_ns", "on_instant",  "shutdown", "should_close", "transport_closed",
+        "protocol",    "take_ticket",
+    });
 }

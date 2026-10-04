@@ -7,6 +7,8 @@ const assert = std.debug.assert;
 const quic = @import("quic");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
+const alt_svc = @import("../alt_svc.zig");
+const quic_internal = @import("../quic/quic_connection_internal.zig");
 const channel_module = @import("channel.zig");
 const choice = @import("channel_choice.zig");
 
@@ -16,6 +18,7 @@ const Event = channel_module.Event;
 const Entry = channel_module.Entry;
 const Link = channel_module.Link;
 const Stage = channel_module.Stage;
+const Alternative = channel_module.Alternative;
 
 const transports = [_]Transport{ .quic, .tcp };
 
@@ -101,7 +104,7 @@ pub fn feed(channel: *Channel, input: channel_module.Input, now_ns: u64) Fed {
         .stream => |octets| {
             if (channel.links.get(.tcp).state != .running) return .{ .len = octets.len, .event = null };
             const received = channel.tcp.receive(octets, now_ns);
-            if (channel.tcp.take_alt_svc()) |advert| channel.learn(advert, now_ns);
+            if (channel.tcp.take_alt_svc()) |advert| learn(channel, advert, now_ns);
             const reported = received.event orelse return .{ .len = received.consumed, .event = null };
             return .{ .len = received.consumed, .event = handle(channel, .tcp, reported) };
         },
@@ -220,7 +223,7 @@ fn abandon(channel: *Channel, transport: Transport) void {
             .quic => {
                 // RFC 9000 §10.2: the close carries NO_ERROR, since no error ended the connection.
                 quic.connection_close.owe(&channel.quic.transport, quic.connection_close.transport(quic.error_code.no_error, null));
-                channel.quic.fail();
+                quic_internal.fail(&channel.quic);
             },
             .tcp => channel.tcp.transport_closed(),
         },
@@ -284,10 +287,35 @@ fn open_link(channel: *Channel, transport: Transport, now_ns: u64) void {
 /// the HTTPS record's "port", else the origin's (RFC 9460 §7.2).
 fn port_of(channel: *const Channel, transport: Transport, now_ns: u64) u16 {
     if (transport == .quic) {
-        if (channel.fresh_alternative(now_ns)) |held| return held.port;
+        if (fresh_alternative(channel, now_ns)) |held| return held.port;
     }
     const https = channel.values.https orelse return channel.values.port;
     return https.port orelse channel.values.port;
+}
+
+/// Whether QUIC may carry the exchanges at `now_ns`: h3 is offered, and a fresh Alt-Svc
+/// alternative, an HTTPS record or the configuration says to try it.
+pub fn quic_allowed(channel: *const Channel, now_ns: u64) bool {
+    if (channel.config.quic == null) return false;
+    if (fresh_alternative(channel, now_ns)) |_| return true;
+    // RFC 9460 §7.1.2: a client uses the transports of the protocols the record names.
+    if (channel.values.https) |https| return https.h3;
+    return channel.config.quic_first;
+}
+
+/// The Alt-Svc alternative, while it is fresh (RFC 7838 §2.2).
+fn fresh_alternative(channel: *const Channel, now_ns: u64) ?Alternative {
+    const held = channel.values.alternative orelse return null;
+    return if (now_ns < held.fresh_until_ns) held else null;
+}
+
+/// Keeps what a TCP response's Alt-Svc said at `now_ns`, which replaces what the channel knew
+/// (RFC 7838 §3.1).
+pub fn learn(channel: *Channel, advert: alt_svc.Advert, now_ns: u64) void {
+    channel.values.alternative = switch (advert) {
+        .clear, .none => null,
+        .h3 => |h3| .{ .port = h3.port, .fresh_until_ns = now_ns +| h3.max_age_s *| constants.nanoseconds_per_second },
+    };
 }
 
 /// Ends each waiting exchange refused, since no connection is left to take it (the model's
@@ -312,7 +340,7 @@ fn view_of(channel: *const Channel, now_ns: u64) choice.View {
     return .{
         .phases = .init(.{ .quic = channel.phase(.quic), .tcp = channel.phase(.tcp) }),
         .waiting = any_waiting(channel),
-        .quic_allowed = channel.quic_allowed(now_ns),
+        .quic_allowed = quic_allowed(channel, now_ns),
         .tried = channel.tried,
         .fallback = channel.fallback,
     };

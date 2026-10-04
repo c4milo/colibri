@@ -27,7 +27,7 @@ const Plan = plan_module.Plan;
 const Ledger = ledger_module.Ledger;
 const Direction = link_module.Direction;
 const Channel = client.Channel;
-const Transport = client.channel.Transport;
+const Transport = client.Transport;
 
 pub const Error = error{
     /// An exchange was reported twice, or after the caller cancelled it.
@@ -66,7 +66,7 @@ pub const World = struct {
     tcp_config: client.Config,
     quic_tls: tls.quic.ClientConfig,
     quic_config: client.QuicConfig,
-    addresses: [1]client.channel.Address,
+    addresses: [1]client.Address,
     exchanges: [limits.exchanges_max]client.HttpExchange,
     bodies: [limits.exchanges_max][body_len]u8,
     paths: [limits.exchanges_max][body_len]u8,
@@ -142,9 +142,9 @@ pub const World = struct {
         try world.tcp_server.configure();
     }
 
-    fn values(world: *World) client.channel.Values {
-        world.addresses = .{client.channel.Address.of(&server_host, 0)};
-        var held: client.channel.Values = .{ .addresses = &world.addresses, .port = https_port };
+    fn values(world: *World) client.ChannelValues {
+        world.addresses = .{client.Address.of(&server_host, 0)};
+        var held: client.ChannelValues = .{ .addresses = &world.addresses, .port = https_port };
         // RFC 9460 §7.1.2: an HTTPS record naming h3 has the channel try QUIC first, and one naming
         // no h3 has it wait for Alt-Svc.
         if (world.plan.https) held.https = .{ .h3 = world.plan.policy == .first };
@@ -331,7 +331,7 @@ pub const World = struct {
     }
 
     /// Passes a datagram to the channel, reporting each event it owes first.
-    fn to_channel(world: *World, input: client.channel.Input) Error!void {
+    fn to_channel(world: *World, input: client.ChannelInput) Error!void {
         // Bounded: each pass consumes the datagram or reports one of the channel's events.
         for (0..limits.settle_rounds_max) |_| {
             const received = world.channel.receive(input, world.now_ns);
@@ -408,7 +408,7 @@ pub const World = struct {
     }
 
     /// What the caller does with each of the channel's events.
-    fn handle(world: *World, reported: client.channel.Event) Error!void {
+    fn handle(world: *World, reported: client.ChannelEvent) Error!void {
         switch (reported) {
             .open => |open| switch (open.transport) {
                 .quic => world.open_quic(),

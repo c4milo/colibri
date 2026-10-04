@@ -4,6 +4,7 @@
 const std = @import("std");
 const quic = @import("quic");
 const support = @import("quic_test_support.zig");
+const internal = @import("quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const constants = @import("../constants.zig");
 
@@ -122,7 +123,7 @@ test "RFC 9114 §5.1: a connection whose handshake has not completed is not reti
 test "RFC 9114 §5.1: a connection that failed is not retired, though its close has not gone out" {
     try support.start(&support.alpn_h3, &support.alpn_h3, false);
     try answered_once();
-    connection.fail();
+    internal.fail(connection);
     // The CONNECTION_CLOSE waits for the next send, so the idle timer still runs.
     const acts_at = quic.connection_idle.deadline_ns(&connection.transport).? - constants.quic_idle_margin_ns_min;
     fire_at(acts_at);

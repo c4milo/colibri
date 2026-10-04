@@ -16,13 +16,15 @@ const quic = @import("quic");
 const h11 = @import("h11");
 const http = @import("http");
 const coding_pool = @import("coding_pool.zig");
+const event = @import("event.zig");
+const connection = @import("connection/connection.zig");
+const quic_connection = @import("quic/quic_connection.zig");
+const channel = @import("channel/channel.zig");
+const alt_svc = @import("alt_svc.zig");
 
+/// The module's named limits and sizes (decision 35). It is the one file the root exports whole:
+/// every other name below is a type a program names (design §8 step 17f).
 pub const constants = @import("constants.zig");
-pub const event = @import("event.zig");
-pub const connection = @import("connection/connection.zig");
-pub const quic_connection = @import("quic/quic_connection.zig");
-pub const channel = @import("channel/channel.zig");
-pub const alt_svc = @import("alt_svc.zig");
 
 pub const Config = connection.Config;
 pub const Connection = connection.Connection;
@@ -37,11 +39,42 @@ pub const Outcome = event.Outcome;
 pub const Event = event.Event;
 pub const Finished = event.Finished;
 pub const Received = event.Received;
+/// What one response's Alt-Svc field says of h3 on the origin's host (RFC 7838 §3), which
+/// `Connection.take_alt_svc` returns.
+pub const Advert = alt_svc.Advert;
 pub const QuicConnection = quic_connection.QuicConnection;
 pub const QuicConfig = quic_connection.Config;
 pub const QuicStart = quic_connection.Start;
+pub const QuicStartError = quic_connection.StartError;
+/// A datagram a QUIC connection or a channel wrote, with its ECN codepoint and the address it
+/// goes to.
+pub const Sent = quic_connection.Sent;
+/// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
+pub const Address = channel.Address;
+/// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
+/// sets when `QuicConfig.ecn` is set (decision 68).
+pub const Ecn = quic.connection_send.Ecn;
 pub const Channel = channel.Channel;
 pub const ChannelConfig = channel.Config;
+/// What DNS knows of the origin, which `Channel.init` takes, an HTTPS record's values in it, and
+/// the h3 alternative a channel learned from Alt-Svc.
+pub const ChannelValues = channel.Values;
+pub const Https = channel.Https;
+pub const Alternative = channel.Alternative;
+/// What a program passes `Channel.receive`, and what it returns.
+pub const ChannelInput = channel.Input;
+pub const Datagram = channel.Datagram;
+pub const ChannelReceived = channel.Received;
+pub const ChannelEvent = channel.Event;
+/// The transport an `open` event asks for and where it goes, and which of the two transports a
+/// channel's calls name.
+pub const ChannelOpen = channel.Open;
+pub const Transport = channel.Transport;
+/// Where a transport's connection and an exchange stand at a channel, as
+/// spec/tla/client_exchanges names them (decision 105). The simulator's trace reads them: a
+/// program reads the events.
+pub const ChannelPhase = channel.Phase;
+pub const ChannelEntry = channel.Entry;
 /// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
 /// places: `ReceivePool(capacity)` for `capacity` octets, a whole number of
 /// `quic.constants.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
@@ -66,6 +99,25 @@ pub const ZstdDecoderPool = coding_pool.ZstdDecoderPool;
 pub const ZstdDecoders = coding_pool.ZstdDecoders;
 pub const BrotliDecoderPool = coding_pool.BrotliDecoderPool;
 pub const BrotliDecoders = coding_pool.BrotliDecoders;
+/// The CPU features a pool's codecs run on, which its `reset` takes: `Features.detect()` asks the
+/// CPU, as colibri never does itself, and `Features.target()` is what the build target guarantees.
+pub const Features = coding_pool.Features;
+
+test "design §8 step 17f: the root exports its constants and the types a program names" {
+    const public_names = @import("core").public_names;
+    try public_names.expect(@This(), &.{
+        "constants",          "Config",             "Connection",      "StartError",     "RequestError",
+        "Field",              "Id",                 "Protocol",        "HttpExchange",   "Wanted",
+        "Outcome",            "Event",              "Finished",        "Received",       "Advert",
+        "QuicConnection",     "QuicConfig",         "QuicStart",       "QuicStartError", "Sent",
+        "Address",            "Ecn",                "Channel",         "ChannelConfig",  "ChannelValues",
+        "Https",              "Alternative",        "ChannelInput",    "Datagram",       "ChannelReceived",
+        "ChannelEvent",       "ChannelOpen",        "Transport",       "ChannelPhase",   "ChannelEntry",
+        "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",         "DecoderPool",
+        "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool",
+        "BrotliDecoders",     "Features",
+    });
+}
 
 test {
     std.testing.refAllDecls(@This());

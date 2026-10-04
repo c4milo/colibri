@@ -29,8 +29,8 @@ const client_tls = @import("../tls/client_tls.zig");
 const channel_tcp = @import("channel_tcp.zig");
 
 const Run = client_options.Run;
-const Address = client.channel.Address;
-const Input = client.channel.Input;
+const Address = client.Address;
+const Input = client.ChannelInput;
 
 var memory: udp.Memory align(@alignOf(udp.Memory)) = undefined;
 var socket: udp.Endpoint align(@alignOf(udp.Endpoint)) = undefined;
@@ -183,7 +183,7 @@ fn rest_of(input: Input, consumed: usize) Input {
     };
 }
 
-fn handle(reported: client.channel.Event, now_ns: u64) void {
+fn handle(reported: client.ChannelEvent, now_ns: u64) void {
     switch (reported) {
         .open => |open| switch (open.transport) {
             .quic => start_quic(now_ns),

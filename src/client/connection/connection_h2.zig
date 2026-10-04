@@ -12,6 +12,7 @@ const http = @import("http");
 const h2 = @import("h2");
 const constants = @import("../constants.zig");
 const connection_module = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 const slots_module = @import("../slots.zig");
 const response = @import("../response.zig");
 const coding = @import("../coding.zig");
@@ -31,14 +32,14 @@ pub fn receive(connection: *Connection, plaintext: []const u8, now_ns: u64) usiz
     for (0..constants.frames_per_receive_max) |_| {
         const received = session.receive(plaintext[consumed..], now_ns) catch {
             // RFC 9113 §5.4.1: a connection error ends every exchange, and h2's GOAWAY goes out.
-            connection.fail();
+            internal.fail(connection);
             return consumed;
         };
         consumed += received.consumed;
         if (received.consumed == 0) {
             // RFC 9113 §3.4, §6.5.3: h2 reads nothing more until what it owes is written, such as
             // the acknowledgment of the server's SETTINGS.
-            if (!session.has_pending() or !connection.write_owed(now_ns)) return consumed;
+            if (!session.has_pending() or !internal.write_owed(connection, now_ns)) return consumed;
             continue;
         }
         const h2_event = received.event orelse continue;
@@ -91,7 +92,7 @@ fn on_response(connection: *Connection, head: h2.connection.Response) bool {
         return false;
     }
     const section = connection.session.h2.field_section();
-    connection.note_alt_svc(section, first_regular(section));
+    internal.note_alt_svc(connection, section, first_regular(section));
     response.record_head(slot, head.response.status.code, section, first_regular(section)) catch |failure| {
         return refuse(connection, slot, response.outcome_of(failure));
     };
@@ -122,7 +123,7 @@ fn on_reset(connection: *Connection, reset: h2.connection.StreamReset) bool {
 /// RFC 9113 §6.8: the server processed no stream past `last_stream_id` and opens none, so each
 /// exchange on one, and each not yet written, may go on another connection.
 fn on_goaway(connection: *Connection, last_stream_id: u32) bool {
-    connection.start_draining();
+    internal.start_draining(connection);
     for (&connection.slots.slots) |*slot| {
         const unprocessed = slot.stage == .sent and slot.stream_id > last_stream_id;
         if (slot.stage == .queued or unprocessed) slots_module.end(slot, .refused);
@@ -224,7 +225,7 @@ fn open(connection: *Connection, slot: *Slot) bool {
         // RFC 7541 §7.1.3: a value an intermediary must not index goes out never-indexed.
         .indexing = .{ .path = if (exchange.never_indexed.path) .never_indexed else .without_indexing },
     };
-    const sent = connection.session.h2.write_request(connection.room(), head, fields, indexing[0..fields.len], exchange.content.len == 0) catch |failure| {
+    const sent = connection.session.h2.write_request(internal.room(connection), head, fields, indexing[0..fields.len], exchange.content.len == 0) catch |failure| {
         return refused(connection, slot, failure);
     };
     connection.output_len += sent.written;
@@ -245,7 +246,7 @@ fn refused(connection: *Connection, slot: *Slot, failure: h2.connection.RequestE
         // RFC 9113 §5.1.1: with no identifier left, the requests go on a new connection.
         error.IdentifiersExhausted => {
             slots_module.end(slot, .refused);
-            connection.start_draining();
+            internal.start_draining(connection);
         },
         // RFC 9113 §8.3.1, §8.2: a request h2 would put on the wire malformed.
         error.MethodInvalid,
@@ -301,7 +302,7 @@ fn write_content(connection: *Connection, slot: *Slot) void {
     for (0..content.len + 1) |_| {
         if (slot.content_done()) return;
         const exchange = slot.exchange;
-        const sent = connection.session.h2.write_data(connection.room(), @intCast(slot.stream_id), content[exchange.content_sent..], true) catch {
+        const sent = connection.session.h2.write_data(internal.room(connection), @intCast(slot.stream_id), content[exchange.content_sent..], true) catch {
             // RFC 9113 §5.1: the stream is no longer one the client may send on.
             slot.content_stopped = true;
             return;

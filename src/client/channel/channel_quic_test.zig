@@ -9,6 +9,7 @@ const h3 = @import("h3");
 const quic_support = @import("../quic/quic_test_support.zig");
 const fixture = @import("channel_quic_test_support.zig");
 const channel_module = @import("channel.zig");
+const channel_events = @import("channel_events.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
@@ -175,14 +176,14 @@ test "RFC 7838 §3.1: what Alt-Svc says replaces what the channel knew, fresh fo
     try start(&quic_support.alpn_h3, values_at(https_port), false);
     const now_ns = quic_support.now_ns;
     const max_age_s: u64 = 60;
-    channel.learn(.{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
+    channel_events.learn(channel, .{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
     try testing.expectEqual(alternative_port, channel.alternative().?.port);
     try testing.expectEqual(now_ns + max_age_s * 1_000_000_000, channel.alternative().?.fresh_until_ns);
-    try testing.expect(channel.quic_allowed(now_ns));
-    channel.learn(.none, now_ns);
+    try testing.expect(channel_events.quic_allowed(channel, now_ns));
+    channel_events.learn(channel, .none, now_ns);
     try testing.expectEqual(null, channel.alternative());
-    channel.learn(.{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
-    channel.learn(.clear, now_ns);
+    channel_events.learn(channel, .{ .h3 = .{ .port = alternative_port, .max_age_s = max_age_s } }, now_ns);
+    channel_events.learn(channel, .clear, now_ns);
     try testing.expectEqual(null, channel.alternative());
 }
 
