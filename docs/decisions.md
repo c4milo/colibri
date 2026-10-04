@@ -3646,9 +3646,19 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Amended again on 2026-10-04, when the owner asked how to avoid a refactor of this size.
        The lists come first from now on: a step names a type's public functions and its root's
        exports before it writes them, starts with their tests, and shows each call in an example.
-       CLAUDE.md holds the rules, under "The public API is written first". The roots of the
-       twelve other library modules still export whole files, and each comes under the rules in
-       the step that next changes its API.
+       CLAUDE.md holds the rules, under "The public API is written first".
+     - Amended a third time on 2026-10-04, when the owner asked for one convention in every
+       module and for no name that repeats its file's, such as `http.field.Field`. The twelve
+       other roots follow the rules now: they exported 72 whole files beside `constants` and
+       export none. A script lists each name code outside a module uses, with aliases and
+       re-exports followed, and each root is that list. A type named after its file is exported
+       under its own name, so `http.Field`, `h2.Connection` and `quic.PeerAddress` replace
+       `http.field.Field` and its like. A function or a constant keeps its file's namespace. A
+       test variable two modules share is reached through a function, because a root cannot
+       alias a `threadlocal`. The connections of h11 and h2 keep as methods the calls made from
+       outside their module: 13 of 16, and 20 of 22.
+     - The lint rule `root-exports` refuses a root that exports a file whole, or that has no
+       test listing its exports (`tools/lint/root_exports.zig`).
      - The root is the module's API file. Zig has file-private and `pub` and nothing between, so
        a package's root file is where the Zig community draws the line: `zig init` calls it "the
        root source file when making a package". `std.zig` exports whole files, which works there
@@ -3665,6 +3675,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        with each function their neighbours call.
      - A file beside the root for the API, such as `server_api.zig`, which the owner asked
        about. The build needs the root, so the API would be written in two files that must agree.
+     - A file named after its type, `Connection.zig`, as the standard library has, which removes
+       the repeated name inside the module too. It renames 57 files and moves each file's other
+       declarations, and no dependent sees a difference.
      - Stop at the two TCP connections. `server.QuicConnection` showed a program the ten calls
        its endpoint makes.
      - One file for each type, which needs no `pub` between files. Each type passes 500 lines

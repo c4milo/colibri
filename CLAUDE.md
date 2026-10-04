@@ -108,10 +108,14 @@ code that serves it.
   name becomes public. A `pub` in any other file means only that another file of the module may
   call it. A line such as `pub const frames = @import("frames.zig");` exports every `pub` of that
   file, the ones its neighbours call too, so a root holds no such line beside `constants`, and
-  `error_code` in `quic`.
-- **Every root reads in one order.** The modules it re-exports, `constants`, an alias for each
-  type a program names, each function a program calls under the namespace of its file, the test
-  that lists the names, and last the test block that references each file so its tests run.
+  `error_code` in `quic`. The `root-exports` lint rule refuses one.
+- **No public name repeats itself.** A type named after its file is exported under its own
+  name: `h2.Connection` and `http.Field`, never `h2.connection.Connection`. A function or a
+  constant keeps the namespace of its file: `http.field.validate_name`.
+- **Every root reads in one order.** The modules it re-exports, `constants`, the private `files`
+  struct that imports each file, each type under its own name, each function or constant under
+  the namespace of its file, the test that lists the names, and last the test block that
+  references each file so its tests run.
 - **A struct's `pub fn`s are a program's calls.** Zig makes a function `pub` so that another
   file can call it, and a type that passes 500 lines is split over files. A function the type's
   other files call is therefore a free function that takes the type's pointer, in a file the
@@ -124,9 +128,8 @@ code that serves it.
   the step's entry in design §8 says which program needs it. Never add one to make a test or
   another file compile.
 
-`server`, `client` and `quic` follow these rules. The root of every other library module still
-exports whole files: a step that changes such a module's API brings its root under the rules
-first, in a commit of its own.
+Every library module follows these rules. A name code outside a module needs and the root lacks
+is added to the root and to the list in its test, which prints the name that differs.
 
 ## Conventions
 

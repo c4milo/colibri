@@ -5862,14 +5862,23 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     dependent that named a file of either module. `write_owed` moved with the rest, since the
     TCP trace calls `send` with no room in its place (step 4's record of 2026-10-04).
   - `core.public_names`, test-only as `core.fuzz` is, compares a type's public declarations with
-    the names its test lists, and prints each name one list has and the other lacks. Ten tests
-    use it: one beside each of the seven types and one beside each of the three roots.
+    the names its test lists, and prints each name one list has and the other lacks. A test
+    beside each listed type and beside each root uses it, but qlog's root, which cannot import
+    `core` and compares its names itself.
   - `quic` followed the same day, when the owner asked for it. `quic.zig` exports the 121 names
     code outside the module uses, each under the namespace of its file, so no caller changed.
     The root went from 58 names to 40, and exports no file but `constants` and `error_code`.
     `quic.Connection` keeps `init` and `addressed_by`: its six other methods became functions
     of `connection.zig`, which rewrote 144 call sites inside the module. The corpus and h3's
     test call two of them, through `quic.connection`.
+  - The twelve other roots followed too, when the owner asked for one convention in every module
+    and for no name that repeats its file's ([decision 115](decisions.md) as amended a third
+    time). A script lists the names code outside a module uses, and each root is that list, so
+    72 whole files are no longer exported. A type named after its file is exported under its own
+    name: `http.Field`, `h2.Connection` and `quic.PeerAddress` replace `http.field.Field` and its
+    like, which rewrote 147 call sites. `tools/lint/root_exports.zig` refuses a root that
+    exports a file or lists nothing. h11's connection keeps 13 methods of 16 and h2's 20 of 22;
+    a build with each candidate made private showed that the server calls `fail` on both.
   - Writing the examples found four things a program must know, and the guide or the example it
     quotes now says each. A connection's deadlines count from the instant `init` is given. A
     client takes a QUIC datagram only from the address it sends to. Over QUIC a client that
@@ -5889,11 +5898,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     test names the declaration, as in `public and not listed: write_owed`.
   - Mutations of `quic`'s lists: 4, each CAUGHT. A file exported again, a namespace dropped, a
     method added to `quic.Connection`, and a name no file declares.
-  - Mutations of `core.public_names`: 3, each CAUGHT. The comparison ignoring the names, ignoring
-    the lengths, and a private declaration made public.
+  - Mutations of `core.public_names`: 6, each CAUGHT. The comparison ignoring the names, ignoring
+    the lengths, and a private declaration made public; and for `reference`, a root exporting a
+    name no file declares, visiting no name, and looking into no namespace.
+  - Mutations of the twelve roots: one each, a file exported whole again, 12 CAUGHT by the
+    lists. Of the lists of h11's and h2's connections: one each, a function made a method
+    again, 2 CAUGHT.
+  - Mutations of the `root-exports` rule: 7, each CAUGHT. A real root exporting a file, the rule
+    passing a file exported through `files` and through a private name, letting any root export
+    `error_code`, letting `constants` name another file, asking for no list, and reading every
+    file.
   - Mutations of the consumer check: 3, each CAUGHT. The package exports no `client` module, the
     consumer's server answers 200, and colibri's server writes another status.
-  - `zig build test` passed: 2550 of 2550 tests.
+  - `zig build test` passed: 2572 of 2572 tests.
 
   **17f check,** run on macOS 26.6.2 arm64 on 2026-10-04:
   - `zig build examples`: the four programs each printed that every octet arrived as sent.
