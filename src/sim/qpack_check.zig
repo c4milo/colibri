@@ -49,8 +49,8 @@ const Stream = struct {
 /// The storage one seed runs in, too large for a stack frame.
 pub const Storage = struct {
     plan: qpack_plan.Plan,
-    encoder: qpack.encoder.Encoder,
-    decoder: qpack.decoder.Decoder,
+    encoder: qpack.Encoder,
+    decoder: qpack.Decoder,
     states: [constants.qpack_check_sections_max]State,
     section_octets: [constants.qpack_check_sections_max][constants.qpack_check_section_len_max]u8,
     section_lens: [constants.qpack_check_sections_max]u32,

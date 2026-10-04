@@ -27,7 +27,7 @@ const Line = harness.Line;
 const frames_len_max: usize = 512;
 
 /// A static-table-only encoder that writes whatever section a test gives it. Test-only.
-var raw_encoder: qpack.encoder.Encoder align(@alignOf(qpack.encoder.Encoder)) = undefined;
+var raw_encoder: qpack.Encoder align(@alignOf(qpack.Encoder)) = undefined;
 var raw_section: FieldSection align(@alignOf(FieldSection)) = undefined;
 var raw_octets: [constants.frame_length_max]u8 = undefined;
 

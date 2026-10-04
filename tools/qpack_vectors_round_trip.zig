@@ -36,7 +36,7 @@ const blocked_streams: u64 = 100;
 const encoded_room: usize = 1 << 16;
 
 /// The encoder and its buffers, placed outside any stack frame.
-var encoder: qpack.encoder.Encoder align(@alignOf(qpack.encoder.Encoder)) = undefined;
+var encoder: qpack.Encoder align(@alignOf(qpack.Encoder)) = undefined;
 var section: FieldSection align(@alignOf(FieldSection)) = undefined;
 var section_octets: [encoded_room]u8 = undefined;
 var stream_octets: [encoded_room]u8 = undefined;

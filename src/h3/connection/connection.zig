@@ -120,8 +120,8 @@ pub const Connection = struct {
     /// The peer's SETTINGS once they arrived. Until then every setting has its default (RFC 9114
     /// §7.2.4.2).
     peer_settings: ?frame.Settings,
-    encoder: qpack.encoder.Encoder,
-    decoder: qpack.decoder.Decoder,
+    encoder: qpack.Encoder,
+    decoder: qpack.Decoder,
     /// colibri's three streams and their octets (decision 79).
     local: connection_local.Local,
     /// The peer's unidirectional streams and its control stream's state.

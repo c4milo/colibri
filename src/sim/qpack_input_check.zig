@@ -35,8 +35,8 @@ pub const Outcome = enum(u8) { taken, blocked, refused };
 
 pub const Storage = struct {
     plan: qpack_plan.Plan,
-    encoder: qpack.encoder.Encoder,
-    decoder: qpack.decoder.Decoder,
+    encoder: qpack.Encoder,
+    decoder: qpack.Decoder,
     section: FieldSection,
     decoded: FieldSection,
     strings: [core.constants.field_section_size_max]u8,

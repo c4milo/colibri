@@ -40,7 +40,7 @@ const round_trip = @import("qpack_vectors_round_trip.zig");
 const Reader = qpack.core.Reader;
 const Writer = qpack.core.Writer;
 const FieldSection = qpack.http.FieldSection;
-const Decoder = qpack.decoder.Decoder;
+const Decoder = qpack.Decoder;
 
 const encoded_directory = "encoded/qpack-05";
 pub const inputs_directory = "qifs";

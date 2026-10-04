@@ -35,7 +35,7 @@ pub const Counts = struct {
 };
 
 /// The decoder and its buffers, placed outside any stack frame.
-var decoder: qpack.decoder.Decoder align(@alignOf(qpack.decoder.Decoder)) = undefined;
+var decoder: qpack.Decoder align(@alignOf(qpack.Decoder)) = undefined;
 var decoded: FieldSection align(@alignOf(FieldSection)) = undefined;
 var strings: [core.constants.field_section_size_max]u8 = undefined;
 /// Encoder stream octets not yet read: an instruction may span two blocks.
