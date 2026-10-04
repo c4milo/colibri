@@ -11,7 +11,7 @@ const core = @import("core");
 const qpack = @import("qpack");
 
 const Writer = core.Writer;
-const FieldSection = qpack.http.field_section.FieldSection;
+const FieldSection = qpack.http.FieldSection;
 
 pub const Error = qpack.http.field_section.AppendError || error{
     /// A line with no TAB between a name and a value.

@@ -117,7 +117,7 @@ const test_http_1_1: event.Version = .{ .major = 1, .minor = 1 };
 threadlocal var test_section: http.FieldSection align(@alignOf(http.FieldSection)) = undefined;
 
 /// What a request with `method`, `version` and the field lines `lines` asks.
-fn test_asked(method: []const u8, version: event.Version, lines: []const http.field.Field) !Asked {
+fn test_asked(method: []const u8, version: event.Version, lines: []const http.Field) !Asked {
     test_section.init();
     for (lines) |line| try test_section.append(line.name, line.value);
     return asked(&test_codings, .{
@@ -134,10 +134,10 @@ fn test_asked(method: []const u8, version: event.Version, lines: []const http.fi
 }
 
 test "decision 101: Accept-Encoding chooses the coding, and every field line of it counts" {
-    const both = [_]http.field.Field{.{ .name = "Accept-Encoding", .value = "deflate;q=0.5, gzip" }};
+    const both = [_]http.Field{.{ .name = "Accept-Encoding", .value = "deflate;q=0.5, gzip" }};
     try testing.expectEqual(Coding.gzip, (try test_asked("GET", test_http_1_1, &both)).accepted.?);
     // RFC 9110 §5.3: two lines are one list, and the first weight a coding gets is the one it keeps.
-    const split = [_]http.field.Field{
+    const split = [_]http.Field{
         .{ .name = "accept-encoding", .value = "gzip;q=0" },
         .{ .name = "accept-encoding", .value = "gzip, deflate" },
     };
@@ -148,9 +148,9 @@ test "decision 101: Accept-Encoding chooses the coding, and every field line of 
 
 test "decision 101: no Accept-Encoding, an HTTP/1.0 request or a value the grammar refuses, and no coding" {
     try testing.expectEqual(null, (try test_asked("GET", test_http_1_1, &.{})).accepted);
-    const gzip = [_]http.field.Field{.{ .name = "accept-encoding", .value = "gzip" }};
+    const gzip = [_]http.Field{.{ .name = "accept-encoding", .value = "gzip" }};
     try testing.expectEqual(null, (try test_asked("GET", http_1_0, &gzip)).accepted);
-    const broken = [_]http.field.Field{
+    const broken = [_]http.Field{
         .{ .name = "accept-encoding", .value = "gzip" },
         .{ .name = "accept-encoding", .value = "deflate;q=2" },
     };

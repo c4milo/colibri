@@ -181,7 +181,7 @@ pub fn count(writer: *Writer, len: u64) WriteError!void {
 
 /// Ends the body: the last chunk and `trailers` for a chunked body, nothing for the others.
 /// Returns the octets written into `output`.
-pub fn end(writer: *Writer, output: []u8, trailers: []const http.field.Field) WriteError!usize {
+pub fn end(writer: *Writer, output: []u8, trailers: []const http.Field) WriteError!usize {
     assert(writer.open());
     const written: usize = switch (writer.kind) {
         .none => unreachable,
@@ -200,7 +200,7 @@ pub fn end(writer: *Writer, output: []u8, trailers: []const http.field.Field) Wr
 
 /// The body a head declares with its own fields: chunked when Transfer-Encoding names it, fixed
 /// when Content-Length gives a length, and `otherwise` when neither does.
-pub fn declared(fields: []const http.field.Field, otherwise: Writer.Kind) Writer {
+pub fn declared(fields: []const http.Field, otherwise: Writer.Kind) Writer {
     for (fields) |line| {
         if (http.field.names_equal(line.name, "Transfer-Encoding")) return .{ .kind = .chunked };
     }

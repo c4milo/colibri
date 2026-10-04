@@ -17,7 +17,7 @@ const http = @import("http");
 const message = @import("message.zig");
 const message_lines = @import("message_lines.zig");
 
-const Field = http.field.Field;
+const Field = http.Field;
 const FieldSection = http.FieldSection;
 const Kind = message_lines.Kind;
 

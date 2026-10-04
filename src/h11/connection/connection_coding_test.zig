@@ -11,7 +11,7 @@ const connection = @import("connection.zig");
 
 const testing = std.testing;
 const Connection = connection.Connection;
-const Field = http.field.Field;
+const Field = http.Field;
 
 /// The connection, the pool of one decoder, the encoders and the buffers the tests use, placed
 /// outside any stack frame.

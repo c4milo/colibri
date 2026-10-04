@@ -9,7 +9,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
 
-pub const Field = http.field.Field;
+pub const Field = http.Field;
 
 /// An exchange's id on its connection, counting from 1 in the order `request` took them.
 pub const Id = u64;

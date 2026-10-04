@@ -111,7 +111,7 @@ pub fn check_connect(body: Body) Error!void {
 }
 
 /// A response's body (RFC 9112 §6.3 rules 1 to 6 and 8), to a request that asked `asked`.
-pub fn response_body(asked: Asked, status: http.status.Status, version: Version, section: *const FieldSection) Error!Body {
+pub fn response_body(asked: Asked, status: http.Status, version: Version, section: *const FieldSection) Error!Body {
     assert(version.major == 1);
     const code = status.code;
     const no_content = @intFromEnum(http.status.Code.no_content);
@@ -240,14 +240,14 @@ threadlocal var test_section: FieldSection align(@alignOf(FieldSection)) = undef
 const http11: Version = .{ .major = 1, .minor = 1 };
 const http10: Version = .{ .major = 1, .minor = 0 };
 
-fn section_of(fields: []const http.field.Field) !*const FieldSection {
+fn section_of(fields: []const http.Field) !*const FieldSection {
     test_section.init();
     for (fields) |line| try test_section.append(line.name, line.value);
     return &test_section;
 }
 
-fn status_of(code: u16) http.status.Status {
-    return http.status.Status.from_code(code) catch unreachable;
+fn status_of(code: u16) http.Status {
+    return http.Status.from_code(code) catch unreachable;
 }
 
 test "RFC 9112 §6.3: a request's body is chunked, fixed, or absent" {

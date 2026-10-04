@@ -9,7 +9,7 @@ const constants = @import("../constants.zig");
 const message = @import("message.zig");
 
 const testing = std.testing;
-const Field = http.field.Field;
+const Field = http.Field;
 const FieldSection = http.FieldSection;
 
 /// The section the tests fill, placed outside any stack frame.

@@ -155,8 +155,8 @@ const sample =
 const test_room: usize = 4096;
 var test_encoded: [test_room]u8 = undefined;
 var test_decoded: [test_room]u8 = undefined;
-var test_expected: qpack.http.field_section.FieldSection align(@alignOf(qpack.http.field_section.FieldSection)) = undefined;
-var test_got: qpack.http.field_section.FieldSection align(@alignOf(qpack.http.field_section.FieldSection)) = undefined;
+var test_expected: qpack.http.FieldSection align(@alignOf(qpack.http.FieldSection)) = undefined;
+var test_got: qpack.http.FieldSection align(@alignOf(qpack.http.FieldSection)) = undefined;
 
 /// Requires `decoded` to hold `sample`'s sets in order. Test-only.
 fn expect_sample(decoded: []const u8) !void {

@@ -43,7 +43,7 @@ const message_authority = @import("message_authority.zig");
 
 const FieldSection = http.FieldSection;
 const Seen = http.message_lines.Seen;
-const Status = http.status.Status;
+const Status = http.Status;
 
 pub const Error = error{
     /// A regular field name that is empty or holds an uppercase letter, a colon or another octet

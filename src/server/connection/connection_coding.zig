@@ -22,7 +22,7 @@ const connection_h2 = @import("connection_h2.zig");
 
 const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
-const Field = http.field.Field;
+const Field = http.Field;
 const Id = event.Id;
 const Coded = coding_response.Coded;
 

@@ -13,7 +13,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const http = @import("http");
 
-const Field = http.field.Field;
+const Field = http.Field;
 const Writer = core.writer.Writer;
 
 pub const Error = error{

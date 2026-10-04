@@ -22,7 +22,7 @@ const connection_body = @import("connection_body.zig");
 
 const Connection = connection.Connection;
 const Received = connection.Received;
-const Field = http.field.Field;
+const Field = http.Field;
 const Code = http.status.Code;
 
 pub const Error = error{

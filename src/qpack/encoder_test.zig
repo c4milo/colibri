@@ -11,7 +11,7 @@ const decoder_module = @import("decoder.zig");
 const testing = std.testing;
 const Reader = core.Reader;
 const Writer = core.Writer;
-const FieldSection = http.field_section.FieldSection;
+const FieldSection = http.FieldSection;
 const Encoder = encoder_module.Encoder;
 const Indexing = encoder_module.Indexing;
 

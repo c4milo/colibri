@@ -32,7 +32,7 @@ const decoder_stream = @import("decoder_stream.zig");
 
 const Reader = core.Reader;
 const Writer = core.Writer;
-const FieldSection = http.field_section.FieldSection;
+const FieldSection = http.FieldSection;
 const Representation = representation.Representation;
 
 pub const Error = representation.Error || http.field_section.AppendError || error{

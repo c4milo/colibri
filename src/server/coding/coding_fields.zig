@@ -8,7 +8,7 @@ const core = @import("core");
 const http = @import("http");
 const coding_rules = @import("coding_rules.zig");
 
-const Field = http.field.Field;
+const Field = http.Field;
 
 pub const Error = error{
     /// More field lines than `field_count_max`, or an ETag too long to make weak.

@@ -17,7 +17,7 @@ const Encoders = coding_pool.Encoders;
 
 /// The head a final response goes out with, and the slot its coded content holds, if any.
 pub const Head = struct {
-    fields: []const http.field.Field,
+    fields: []const http.Field,
     slot: ?coding_pool.Index,
 };
 

@@ -27,7 +27,7 @@ const Writer = core.Writer;
 const Random = sim.Random;
 const Trace = sim.Trace;
 const constants = sim.constants;
-const FieldSection = qpack.http.field_section.FieldSection;
+const FieldSection = qpack.http.FieldSection;
 
 /// The name every QPACK-check trace carries on its first line.
 pub const check_name = "qpack";

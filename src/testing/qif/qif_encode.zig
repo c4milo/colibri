@@ -15,7 +15,7 @@ const qif_block = @import("qif_block.zig");
 
 const Reader = core.Reader;
 const Writer = core.Writer;
-const FieldSection = qpack.http.field_section.FieldSection;
+const FieldSection = qpack.http.FieldSection;
 
 pub const Settings = struct {
     max_table_capacity: u64,

@@ -37,7 +37,7 @@ fn fuzz_head(_: void, smith: *Smith) anyerror!void {
     if (message.read_response(&scanner, .other, octets, &fuzz_section)) |read| {
         if (read) |response| {
             try expect_head(octets, response.head_len);
-            _ = try http.status.Status.from_code(response.line.status.code);
+            _ = try http.Status.from_code(response.line.status.code);
         }
     } else |_| {}
 }

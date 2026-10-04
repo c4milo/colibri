@@ -23,7 +23,7 @@ const Reader = core.Reader;
 const Writer = core.Writer;
 const Random = sim.Random;
 const constants = sim.constants;
-const FieldSection = qpack.http.field_section.FieldSection;
+const FieldSection = qpack.http.FieldSection;
 
 /// The CRC-32 of the outcomes of seeds `[0, check_seeds_default)`, in order.
 pub const census_crc32_expected: u32 = 0x7971245b;

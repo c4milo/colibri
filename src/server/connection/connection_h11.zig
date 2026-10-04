@@ -21,7 +21,7 @@ const internal = @import("connection_internal.zig");
 const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
 const Error = connection_module.Error;
-const Field = http.field.Field;
+const Field = http.Field;
 const Event = event.Event;
 const Received = event.Received;
 const Id = event.Id;
@@ -150,7 +150,7 @@ pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Fie
 /// it names none, and the Alt-Svc line that advertises h3.
 fn complete(connection: *const Connection, status: u16, fields: []const Field, end: bool, lines: *[core.constants.field_count_max]Field) SendError![]const Field {
     // RFC 9110 §15: a status code is three digits from 100 to 599.
-    const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
+    const code = http.Status.from_code(status) catch return error.StatusInvalid;
     var added: [lines_added_max]Field = undefined;
     var added_len: usize = 0;
     if (framing(connection, code, fields, end)) |line| {
@@ -171,7 +171,7 @@ fn complete(connection: *const Connection, status: u16, fields: []const Field, e
 }
 
 /// The framing field the response needs when the caller names none, or null.
-fn framing(connection: *const Connection, code: http.status.Status, fields: []const Field, end: bool) ?Field {
+fn framing(connection: *const Connection, code: http.Status, fields: []const Field, end: bool) ?Field {
     const session = &connection.session.h11;
     const status = code.code;
     // RFC 9112 §6.3 rules 1 and 2: an interim response, a response to HEAD, a 204 or 304, and a

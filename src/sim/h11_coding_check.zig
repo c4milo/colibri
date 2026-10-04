@@ -33,7 +33,7 @@ const Plan = h11_coding_plan.Plan;
 const Defect = h11_coding_plan.Defect;
 const Connection = h11.connection.Connection;
 const coding = h11.coding;
-const Field = h11.http.field.Field;
+const Field = h11.http.Field;
 
 /// The name every h11 coding-check trace carries on its first line.
 pub const check_name = "h11-coding";

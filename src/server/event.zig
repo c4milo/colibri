@@ -26,7 +26,7 @@ pub const Version = struct {
 /// still follows it (RFC 9110 §15.2).
 pub const Response = struct {
     status: u16,
-    fields: []const http.field.Field = &.{},
+    fields: []const http.Field = &.{},
     end: bool,
     /// Whether the server may code the content in a coding the request accepts (decision 101),
     /// when its configuration names codings. Only the caller knows whether the content mixes a
@@ -59,7 +59,7 @@ pub const Fields = struct {
     }
 
     /// The first regular field line named `name`, compared case-insensitively (RFC 9110 §5.1).
-    pub fn find(fields: Fields, name: []const u8) ?http.field.Field {
+    pub fn find(fields: Fields, name: []const u8) ?http.Field {
         assert(!is_pseudo(name));
         return fields.section.find(name);
     }

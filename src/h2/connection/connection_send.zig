@@ -81,7 +81,7 @@ pub fn write_response(
 ) Error!usize {
     assert(target.role == .server);
     // RFC 9110 §15: a status code is a three-digit integer between 100 and 599.
-    const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
+    const code = http.Status.from_code(status) catch return error.StatusInvalid;
     // RFC 9113 §8.1: "A HEADERS frame with the END_STREAM flag set that carries an informational
     // status code is malformed".
     if (code.is_interim() and end_stream) return error.InterimEndsStream;
@@ -193,7 +193,7 @@ fn sendable(target: *Connection, stream_id: u32, kind: stream.Kind, end_stream: 
 
 /// Encodes the response's field section into the connection's block buffer (RFC 9113 §8.3.2). The
 /// caller declares the block once its frames are written (`Encoder.commit_block`).
-fn encode_response(target: *Connection, code: http.status.Status, fields: []const hpack.Field) Error![]const u8 {
+fn encode_response(target: *Connection, code: http.Status, fields: []const hpack.Field) Error![]const u8 {
     var writer = Writer.init(&target.send_block);
     // RFC 7541 §4.2: a block may open with the size updates the encoder owes, and a buffer that
     // cannot hold them holds no block. The buffer is `send_block_len_max` (design §7).

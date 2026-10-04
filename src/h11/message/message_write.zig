@@ -18,7 +18,7 @@ const http = @import("http");
 const message_start = @import("message_start.zig");
 const message_target = @import("message_target.zig");
 
-const Field = http.field.Field;
+const Field = http.Field;
 const Writer = core.writer.Writer;
 
 pub const Error = error{
@@ -79,7 +79,7 @@ pub fn write_request_head(output: []u8, method: []const u8, target: []const u8, 
 /// requires. Returns the octets written.
 pub fn write_response_head(output: []u8, status: u16, reason: []const u8, fields: []const Field) Error!usize {
     // RFC 9110 §15: a status code is three digits from 100 to 599.
-    const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
+    const code = http.Status.from_code(status) catch return error.StatusInvalid;
     // RFC 9112 §4: reason-phrase = 1*( HTAB / SP / VCHAR / obs-text ).
     message_start.check_reason(reason) catch return error.ReasonInvalid;
     try check_fields(fields);

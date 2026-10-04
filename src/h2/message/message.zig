@@ -84,9 +84,9 @@ const message_lines = @import("message_lines.zig");
 const message_request = @import("message_request.zig");
 const message_fuzz = @import("message_fuzz.zig");
 
-const Field = http.field.Field;
+const Field = http.Field;
 const FieldSection = http.FieldSection;
-const Status = http.status.Status;
+const Status = http.Status;
 const Seen = message_lines.Seen;
 
 /// Why a field section is a malformed message. Every one is a stream error of PROTOCOL_ERROR

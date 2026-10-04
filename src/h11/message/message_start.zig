@@ -53,7 +53,7 @@ pub const RequestLine = struct {
 /// A status line. The reason phrase points into the caller's octets, and may be empty.
 pub const StatusLine = struct {
     version: Version,
-    status: http.status.Status,
+    status: http.Status,
     reason: []const u8,
 };
 
@@ -92,7 +92,7 @@ pub fn parse_status_line(line: []const u8) Error!StatusLine {
     // RFC 9112 §4: status-code = 3DIGIT, after the first SP.
     const digits = reader.take(http.constants.status_digits_len) catch return error.StartLineInvalid;
     // RFC 9112 §4: status-code = 3DIGIT; RFC 9110 §15: from 100 to 599.
-    const status = http.status.Status.from_digits(digits) catch return error.StatusInvalid;
+    const status = http.Status.from_digits(digits) catch return error.StatusInvalid;
     // RFC 9112 §4: a server MUST send the SP after the status code even when the reason phrase
     // is absent.
     try expect_separator(&reader);

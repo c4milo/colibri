@@ -19,7 +19,7 @@ const vectors = @import("qpack_vectors.zig");
 
 const Reader = qpack.core.Reader;
 const Writer = qpack.core.Writer;
-const FieldSection = qpack.http.field_section.FieldSection;
+const FieldSection = qpack.http.FieldSection;
 const Line = vectors.Line;
 
 /// The table sizes and blocked-stream counts colibri's encoder runs at.

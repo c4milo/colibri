@@ -20,7 +20,7 @@ const http = @import("http");
 const message = @import("message.zig");
 
 const Error = message.Error;
-const Field = http.field.Field;
+const Field = http.Field;
 const FieldSection = http.FieldSection;
 
 /// The names the shared module owns, re-exported so the rest of h2 reads one name per thing.

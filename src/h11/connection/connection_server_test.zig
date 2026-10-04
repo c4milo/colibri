@@ -6,7 +6,7 @@ const connection = @import("connection.zig");
 
 const testing = std.testing;
 const Connection = connection.Connection;
-const Field = http.field.Field;
+const Field = http.Field;
 
 /// The connection and buffer the tests use, placed outside any stack frame.
 var test_connection: Connection align(@alignOf(Connection)) = undefined;

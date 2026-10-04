@@ -23,7 +23,7 @@ const connection_body = @import("connection_body.zig");
 
 const Connection = connection.Connection;
 const Received = connection.Received;
-const Field = http.field.Field;
+const Field = http.Field;
 const Code = http.status.Code;
 
 /// 431 Request Header Fields Too Large (RFC 6585 §5), which RFC 9110 §15 does not define.
@@ -90,7 +90,7 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
     // RFC 9110 §15.2.2: 101 switches to the protocol Upgrade names, which h11 does not implement.
     if (status == @intFromEnum(Code.switching_protocols)) return error.UpgradeUnsupported;
     // RFC 9110 §15: a status code is three digits from 100 to 599.
-    const code = http.status.Status.from_code(status) catch return error.StatusInvalid;
+    const code = http.Status.from_code(status) catch return error.StatusInvalid;
     if (code.is_interim()) return message.write_response_head(output, status, reason, fields);
     if (target.asked == .connect) try answer_connect(target, code, fields);
     const writer = response_body(target, code, fields);
@@ -108,7 +108,7 @@ pub fn write_response(target: *Connection, output: []u8, status: u16, reason: []
 
 /// What a final response to CONNECT decides besides its framing (decision 109): a 2xx opens the
 /// tunnel and names no framing field, and any other status ends the connection.
-fn answer_connect(target: *Connection, code: http.status.Status, fields: []const Field) connection.SendError!void {
+fn answer_connect(target: *Connection, code: http.Status, fields: []const Field) connection.SendError!void {
     assert(target.asked == .connect and !code.is_interim());
     if (code.class() != .successful) {
         // RFC 9931 §8: a server that refuses a CONNECT closes the connection and processes no
@@ -131,7 +131,7 @@ fn names_framing(fields: []const Field) bool {
 }
 
 /// How the final response's body is framed (RFC 9112 §6.3 rules 1 and 2, then its own fields).
-fn response_body(target: *const Connection, code: http.status.Status, fields: []const Field) connection_body.Writer {
+fn response_body(target: *const Connection, code: http.Status, fields: []const Field) connection_body.Writer {
     // RFC 9112 §6.3 rule 2 and RFC 9110 §6.4.1: every 2xx to CONNECT makes the connection a
     // tunnel, a 204 too. Rule 1 ends a 204 at the empty line as well, so only the tunnel is new.
     if (target.asked == .connect and code.class() == .successful) return .{ .kind = .tunnel };

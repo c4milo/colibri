@@ -263,14 +263,14 @@ pub const Connection = struct {
     }
 
     /// Writes a request head (a client's call). See `connection_client.zig`.
-    pub fn write_request(connection: *Connection, output: []u8, method: []const u8, target: []const u8, fields: []const http.field.Field) SendError!usize {
+    pub fn write_request(connection: *Connection, output: []u8, method: []const u8, target: []const u8, fields: []const http.Field) SendError!usize {
         assert(connection.role == .client);
         return connection_client.write_request(connection, output, method, target, fields);
     }
 
     /// Writes a response head for the current request (a server's call). See
     /// `connection_server.zig`.
-    pub fn write_response(connection: *Connection, output: []u8, status: u16, reason: []const u8, fields: []const http.field.Field) SendError!usize {
+    pub fn write_response(connection: *Connection, output: []u8, status: u16, reason: []const u8, fields: []const http.Field) SendError!usize {
         assert(connection.role == .server);
         return connection_server.write_response(connection, output, status, reason, fields);
     }
@@ -298,7 +298,7 @@ pub const Connection = struct {
     }
 
     /// Ends the body the caller is writing, with `trailers` for a chunked one.
-    pub fn write_end(connection: *Connection, output: []u8, trailers: []const http.field.Field) SendError!usize {
+    pub fn write_end(connection: *Connection, output: []u8, trailers: []const http.Field) SendError!usize {
         // RFC 9112 §6: a message has a body only where its head declared one.
         if (!connection.writer.open()) return error.NoBody;
         const written = try connection_body.end(&connection.writer, output, trailers);
@@ -365,7 +365,7 @@ pub fn section_asks_close(section: *const http.FieldSection) bool {
 }
 
 /// Whether a Connection field line in `fields` carries the "close" option (RFC 9110 §7.6.1).
-pub fn fields_ask_close(fields: []const http.field.Field) bool {
+pub fn fields_ask_close(fields: []const http.Field) bool {
     for (fields) |line| {
         if (line_asks_close(line)) return true;
     }
@@ -374,7 +374,7 @@ pub fn fields_ask_close(fields: []const http.field.Field) bool {
 
 /// Connection = #connection-option, and an option is a token compared case-insensitively
 /// (RFC 9110 §7.6.1).
-fn line_asks_close(line: http.field.Field) bool {
+fn line_asks_close(line: http.Field) bool {
     if (!http.field.names_equal(line.name, "Connection")) return false;
     var options = std.mem.splitScalar(u8, line.value, ',');
     // Bounded: a value of n octets holds at most n + 1 members.

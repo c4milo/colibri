@@ -16,7 +16,7 @@ const http = h11.http;
 const sim = @import("sim");
 
 const Random = sim.Random;
-const Field = http.field.Field;
+const Field = http.Field;
 const constants = sim.constants;
 
 pub const Role = h11.message.Role;
