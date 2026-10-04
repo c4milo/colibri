@@ -22,6 +22,8 @@ const event = @import("../event.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_request = @import("quic_request.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
+const quic_deadline = @import("quic_deadline.zig");
+const deadline = @import("../deadline.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const http = @import("http");
 
@@ -53,6 +55,10 @@ pub const Config = struct {
     /// The version the server switches a client to when the client lists it (RFC 9368 §2.3,
     /// decision 111), or null to keep every client in its original version.
     switch_to: ?quic.packet.header.Version = .v2,
+    /// The limits each connection starts with (decision 110 as amended). Null turns a deadline
+    /// off. An endpoint asserts they are limits `Deadlines.validate` takes, so a program that
+    /// reads them from outside validates them first.
+    deadlines: deadline.Deadlines = .{},
 };
 
 /// What a connection starts from, which the endpoint read off the client's first Initial or drew
@@ -76,6 +82,8 @@ pub const Start = struct {
 pub const StartError = error{
     /// chapulin would not take the transport parameters or the Initial keys.
     TlsRefused,
+    /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
+    DeadlineInvalid,
 };
 
 /// A datagram `send` wrote, the ECN codepoint for its IP header (decision 68), and the address it
@@ -115,6 +123,9 @@ pub const QuicConnection = struct {
     /// `peer_reset_period_start_ns` (decision 110 as amended).
     peer_resets: u32,
     peer_reset_period_start_ns: u64,
+    /// This connection's limits and where its deadlines stand (decision 110 as amended).
+    deadlines: deadline.Deadlines,
+    clock: quic_deadline.Clock,
     /// The caller's source, which the connection IDs it issues, their reset tokens and each
     /// PATH_CHALLENGE's data are drawn from (invariant 5).
     random: tls.Random,
@@ -126,6 +137,13 @@ pub const QuicConnection = struct {
     /// datagrams already. Every slice points into storage the connection holds until the next call.
     pub fn receive(connection: *QuicConnection, now_ns: u64) Error!Received {
         connection.last_ns = now_ns;
+        quic_deadline.fire(connection, now_ns);
+        const received = try connection.receive_event(now_ns);
+        quic_deadline.observe(connection, now_ns);
+        return received;
+    }
+
+    fn receive_event(connection: *QuicConnection, now_ns: u64) Error!Received {
         if (connection.failure_owed) {
             connection.failure_owed = false;
             // RFC 9000 §10.2: a connection that failed reads nothing more from its peer.

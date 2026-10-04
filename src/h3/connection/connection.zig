@@ -34,6 +34,7 @@ const message = @import("../message/message.zig");
 const connection_local = @import("connection_local.zig");
 const connection_peer = @import("connection_peer.zig");
 const connection_request = @import("connection_request.zig");
+const connection_request_deadline = @import("connection_request_deadline.zig");
 const connection_send = @import("connection_send.zig");
 const connection_qlog = @import("connection_qlog.zig");
 
@@ -67,6 +68,8 @@ pub const Options = struct {
 pub const Error = error{ConnectionFailed};
 
 pub const SendError = connection_send.Error;
+/// A request stream that waits for its head, and since when (`connection_request_deadline.zig`).
+pub const HeadWait = connection_request_deadline.HeadWait;
 
 /// What the peer sent, one at a time.
 pub const Event = union(enum) {
@@ -258,6 +261,18 @@ pub const Connection = struct {
         connection_request.cancel(connection, transport, stream_id, error_code);
     }
 
+    /// The request stream that has waited longest for its head, at a server, and since when, or
+    /// null when none waits (decision 110 as amended).
+    pub fn oldest_head_wait(connection: *Connection) ?connection_request_deadline.HeadWait {
+        return connection_request_deadline.oldest_head_wait(connection);
+    }
+
+    /// Reads no more of the request on `stream_id` and asks the peer to stop sending it, with
+    /// `error_code`, leaving colibri's side of the stream open for a response (§4.1).
+    pub fn stop_reading(connection: *Connection, transport: *QuicConnection, stream_id: u64, error_code: u64) void {
+        connection_request_deadline.stop_reading(connection, transport, stream_id, error_code);
+    }
+
     /// Starts a graceful shutdown with a GOAWAY frame (§5.2). A server names the first request
     /// stream it has not taken, and refuses every later one; a client names push ID 0, having
     /// allowed none.
@@ -299,6 +314,7 @@ test {
     _ = connection_local;
     _ = connection_peer;
     _ = connection_request;
+    _ = connection_request_deadline;
     _ = connection_send;
     _ = connection_qlog;
     _ = @import("connection_test.zig");

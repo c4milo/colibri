@@ -7,6 +7,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 const quic = @import("quic");
 const h3 = @import("h3");
+const quic_deadline = @import("quic_deadline.zig");
 const constants = @import("../constants.zig");
 const event = @import("../event.zig");
 const quic_request = @import("quic_request.zig");
@@ -152,6 +153,7 @@ fn report(connection: *QuicConnection, h3_event: h3.connection.Event) ?event.Eve
 }
 
 fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?event.Event {
+    quic_deadline.on_request(connection);
     const record = connection.requests.take(arrived.stream_id) orelse {
         // RFC 9114 §4.1.1: a request cancelled "without performing any application processing"
         // is rejected, which the client may send again.

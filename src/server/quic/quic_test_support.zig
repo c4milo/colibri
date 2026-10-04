@@ -240,7 +240,27 @@ pub fn request_with_trailers(path: []const u8, trailers: []const Field) !*Fetch 
     return write_request("POST", path, &.{}, "", trailers, true);
 }
 
+/// As `request`, holding back the last octet of the request's head, so the server never has a
+/// whole head until `finish_head`.
+pub fn request_short_of_head(method: []const u8, path: []const u8) !*Fetch {
+    const fetch = try stage_request(method, path, &.{}, "", &.{});
+    try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len - 1, false);
+    return fetch;
+}
+
+/// Sends the octet `request_short_of_head` held back, and ends the stream.
+pub fn finish_head(fetch: *const Fetch) !void {
+    try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len, true);
+}
+
 fn write_request(method: []const u8, path: []const u8, fields: []const Field, content: []const u8, trailers: []const Field, fin: bool) !*Fetch {
+    const fetch = try stage_request(method, path, fields, content, trailers);
+    try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len + content.len, fin);
+    return fetch;
+}
+
+/// Opens a request stream and writes the request's frames into a fetch, sending none of them.
+fn stage_request(method: []const u8, path: []const u8, fields: []const Field, content: []const u8, trailers: []const Field) !*Fetch {
     assert(client_h3_started and fetches_len < fetches.len);
     assert(trailers.len == 0 or content.len == 0);
     const fetch = &fetches[fetches_len];
@@ -261,7 +281,6 @@ fn write_request(method: []const u8, path: []const u8, fields: []const Field, co
         try client_h3.write_trailers(&client, fetch.id, &client_section, &writer, now_ns);
     }
     fetch.prefix_len = writer.written().len;
-    try quic.connection_stream_send.supply(&client, .{ .value = fetch.id }, fetch.prefix_len + content.len, fin);
     fetches_len += 1;
     return fetch;
 }

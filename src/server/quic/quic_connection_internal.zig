@@ -11,6 +11,7 @@ const tls = @import("tls");
 const constants = @import("../constants.zig");
 const quic_connection = @import("quic_connection.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
+const quic_deadline = @import("quic_deadline.zig");
 const quic_coding = @import("quic_coding.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 
@@ -41,7 +42,10 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     assert(receive_pool.capacity > 0 and how.original_destination.len > 0);
     assert((config.codings.len == 0) == (config.encoders == null));
     for (config.codings) |coding| assert(coding_pool.encodes(coding));
+    try config.deadlines.validate();
     connection.config = config;
+    connection.deadlines = config.deadlines;
+    connection.clock = .init(now_ns);
     connection.requests.init();
     connection.owed = .{};
     connection.started = false;
@@ -132,22 +136,36 @@ pub fn send(connection: *QuicConnection, output: []u8, now_ns: u64) ?Sent {
     return .{ .octets = output[0..sent.len], .ecn = sent.ecn, .to = sent.to };
 }
 
-/// The instant the connection next wants `on_instant` at (design §4.2), or null for none.
+/// The instant the connection next wants `on_instant` at (design §4.2), or null for none: the
+/// sooner of QUIC's timers and the connection's own deadlines (decision 110 as amended).
 pub fn deadline_ns(connection: *QuicConnection) ?u64 {
     if (connection.closed) return null;
-    const deadline = quic.connection_timer.next(&connection.transport) orelse return null;
-    return deadline.at_ns;
+    const timer_at_ns = timer_ns(connection);
+    const own_ns = quic_deadline.soonest(connection) orelse return timer_at_ns;
+    return @min(timer_at_ns orelse own_ns, own_ns);
+}
+
+/// The instant QUIC's next timer is due at, or null.
+fn timer_ns(connection: *QuicConnection) ?u64 {
+    const timer = quic.connection_timer.next(&connection.transport) orelse return null;
+    return timer.at_ns;
 }
 
 /// Fires whichever deadlines `now_ns` has reached: a loss, the idle timeout, the end of the
-/// closing period (RFC 9002 §6.2, RFC 9000 §10).
+/// closing period (RFC 9002 §6.2, RFC 9000 §10), and the connection's own (decision 110 as
+/// amended).
 pub fn on_instant(connection: *QuicConnection, now_ns: u64) void {
     const at_ns = deadline_ns(connection) orelse return;
     if (now_ns < at_ns) return;
     connection.last_ns = now_ns;
-    _ = quic.connection_timer.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
-        return fail(connection);
-    };
+    if (timer_ns(connection)) |timer_at_ns| {
+        if (now_ns >= timer_at_ns) {
+            _ = quic.connection_timer.on_instant(&connection.transport, connection.session.suite(), &connection.scratch.recovery, now_ns) catch {
+                return fail(connection);
+            };
+        }
+    }
+    quic_deadline.fire(connection, now_ns);
     after_change(connection, now_ns);
 }
 
@@ -186,6 +204,7 @@ fn after_change(connection: *QuicConnection, now_ns: u64) void {
     // The peer closed it, or it went idle, and neither is a failure this side found: the
     // endpoint's `ended` reports it once its closing or draining period is over.
     if (connection.transport.termination.state != .active and !connection.stopped) stop(connection);
+    quic_deadline.observe(connection, now_ns);
 }
 
 /// Issues spare connection IDs once the handshake is confirmed, as many as the peer's
@@ -225,7 +244,7 @@ fn start_h3(connection: *QuicConnection, now_ns: u64) void {
 /// Stops the connection: no request is read or answered from here on, and no stream reads the
 /// caller's octets again, because a connection that is not active sends none (RFC 9000
 /// §10.2.1).
-fn stop(connection: *QuicConnection) void {
+pub fn stop(connection: *QuicConnection) void {
     connection.stopped = true;
     connection.owed.clear();
     quic_coding.give_back_all(connection);

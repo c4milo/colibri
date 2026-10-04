@@ -67,6 +67,9 @@ pub const RequestStream = struct {
     cancel_owed: bool = false,
     /// Whether colibri has taken the stream's FIN (RFC 9000 §3.2), so its end comes next.
     fin_read: bool = false,
+    /// At a server, the instant colibri first saw the stream, from which the server's deadline
+    /// for the request's head runs (decision 110 as amended).
+    opened_ns: u64 = 0,
 };
 
 /// What one pass over a stream did.
@@ -86,11 +89,15 @@ pub const Requests = struct {
     next_index: u64,
     /// The slot after the one that produced the last event, so streams take turns.
     turn: u32,
+    /// At a server, whether a stream may wait for its head: one opened since a look last found
+    /// none waiting (`oldest_head_wait`).
+    head_wait_possible: bool,
 
     pub fn init(requests: *Requests) void {
         requests.slots = @splat(null);
         requests.next_index = 0;
         requests.turn = 0;
+        requests.head_wait_possible = false;
     }
 
     pub fn find(requests: *Requests, stream_id: u64) ?*RequestStream {
@@ -131,7 +138,8 @@ pub fn accept(connection: *Connection, transport: *QuicConnection) Error!void {
             .closed => {},
             .live => {
                 const slot = requests.free_slot() orelse return;
-                slot.* = .{ .id = id.value };
+                slot.* = .{ .id = id.value, .opened_ns = connection.now_ns };
+                requests.head_wait_possible = true;
                 connection_qlog.request_stream_set(connection, .remote, id.value);
                 // §5.2: "Requests or pushes with the indicated identifier or greater are
                 // rejected", which §4.1.1 does with H3_REQUEST_REJECTED.
@@ -471,7 +479,9 @@ fn refuse_stream(connection: *Connection, transport: *QuicConnection, request: *
     request.blocked_at = null;
 }
 
-fn owe_cancel(connection: *Connection, request: *RequestStream) void {
+/// Has the QPACK decoder cancel the references the stream's sections held (RFC 9204 §2.2.2.2),
+/// and notes a Stream Cancellation it had no room to queue.
+pub fn owe_cancel(connection: *Connection, request: *RequestStream) void {
     request.cancel_owed = connection.decoder.abandon_stream(request.id) == .owes_instructions;
 }
 

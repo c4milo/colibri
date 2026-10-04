@@ -77,6 +77,15 @@ pub const Requests = struct {
         }
         return true;
     }
+
+    /// Whether the caller still hears of any request: one whose head arrived and which is not
+    /// over. A record that is over only waits for its stream to close.
+    pub fn any_open(requests: *const Requests) bool {
+        for (&requests.records) |*record| {
+            if (record.in_use and !record.over) return true;
+        }
+        return false;
+    }
 };
 
 /// An event the connection owes the caller for a request that ended: its response is done, or it

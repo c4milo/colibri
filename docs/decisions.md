@@ -3415,6 +3415,12 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        (§4.1.1). The connection goes on, because h3's streams are independent. The send rate
        resets a stream held by its own credit, and closes a connection held as a whole with
        H3_EXCESSIVE_LOAD.
+     - **What stops the idle deadline.** Only a request whose head arrived whole, as the owner
+       ruled on 2026-10-04. A request stream that still waits for its head does not stop it.
+       Each such stream gets its 408 at the head deadline, and the connection closes at the idle
+       deadline unless a whole request arrives. The first-request deadline counts from the
+       client's first datagram, so it covers the handshake, and a close before the handshake
+       completes leaves as RFC 9000 §10.2.3 has it.
      - **What does not apply.** h3 defines no SETTINGS acknowledgment (RFC 9114 Appendix A.4),
        and QUIC's closing period bounds a close (RFC 9000 §10.2), so h3 has no SETTINGS deadline
        and no linger.
@@ -3425,9 +3431,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        slow client learns less, and RFC 9114 §4.1.1 recommends a response with a status code.
      - Deadlines with no reset limit. QUIC's stream limit bounds how many streams are open at
        once, and nothing would bound how fast they are opened and reset.
+     - Letting a request stream with a partial head stop the idle deadline, and closing the
+       connection after some number of late heads. It needs a second limit and a count, and a
+       client that stays under the count holds the connection for as long as it likes.
+     - Leaving a connection that brings partial heads alone to the caller. The caller never
+       hears of a request whose head is not whole, so it has nothing to decide with.
 
-     Cost: a few branches for each datagram and each event of an h3 connection. The work is
-     design §8 step 20c.
+     Cost: a few branches for each datagram and each event of an h3 connection, and 8 octets
+     for each request stream h3 holds, the instant it first saw the stream. The work is design
+     §8 step 20c.
 
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for

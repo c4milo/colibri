@@ -6906,6 +6906,57 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     cancel at the limit refused; the period never starting again; the period starting one
     nanosecond late; and another error code.
 
+  **The first-request, idle and head deadlines over h3, 2026-10-04**
+  ([#95](https://github.com/c4milo/colibri/issues/95)). The second part of 20c.
+  - `server.QuicConfig` carries `deadlines`, the `Deadlines` a TCP connection takes. A
+    connection refuses to start with limits `Deadlines.validate` refuses, and `Endpoint`
+    asserts they are valid when it starts: `Endpoint.init` returns no error, and an endpoint
+    whose every connection refused to start would answer no client. Whether `init` returns
+    `DeadlineInvalid`, as `server.Connection.init` does, changes a public call and is the
+    owner's to rule.
+  - `deadline_ns` reports the sooner of QUIC's next timer and the connection's own deadlines,
+    and `on_instant` and `receive` fire each one that passed. A caller that runs QUIC's timers
+    runs these with no new call, and so does `server.Endpoint`.
+  - The first-request deadline counts from the client's first datagram until a whole request
+    head arrives, so it covers the handshake. The idle deadline counts from the instant no
+    request is open, after the first one. Each closes the connection with H3_NO_ERROR (RFC 9114
+    §8.1), and `receive` reports no failure. Before the handshake completes, `quic` sends the
+    close as RFC 9000 §10.2.3 has it.
+  - A request is open from its whole head until its `done` or `cancelled` event. A request
+    stream that waits for its head does not stop the idle deadline (decision 110 as amended).
+  - h3 keeps the instant it first saw each request stream, and `oldest_head_wait` names the
+    stream that has waited longest for its head. A look that finds none is not repeated until
+    another request stream opens, so a connection whose heads arrive whole walks its request
+    streams once for each stream, and not at each call. Past the head deadline the server asks the
+    client to stop sending with H3_NO_ERROR, answers 408 (RFC 9110 §15.5.9, RFC 9114 §4.1), and
+    the connection goes on. The caller never hears of the request, and the RESET_STREAM the
+    client owes the STOP_SENDING (RFC 9000 §3.5) does not count toward the reset limit. With no
+    record free for a response, the server resets the stream with H3_REQUEST_REJECTED (RFC
+    9114 §4.1.1).
+  - **Not done: the GOAWAY.** Decision 110 has these deadlines close the connection after a
+    GOAWAY, and RFC 9114 §5.2 says a server SHOULD send one when it knows of the close in
+    advance. `quic` writes a CONNECTION_CLOSE alone once it owes one (RFC 9000 §10.2.1), so a
+    GOAWAY written at the deadline's instant is never sent. `shutdown` on a connection with no
+    request open has the same fault. The last part of 20c owns both, with the drain deadline.
+  - `h3.Connection` grows by 800 octets, 8 for each of its 100 request streams, to 146,312, and
+    `server.QuicConnection` by 960, to 718,496 (`docs/performance.md`).
+  - `zig build test`: 131 of 131 steps and 2555 of 2555 tests passed.
+  - 34 mutations. 33 were **CAUGHT**: a deadline passing one nanosecond late; the first-request
+    deadline never firing, waiting for the handshake, or not ending at a whole head; the idle
+    deadline running before the first request, running with a request open, stopped by a
+    partial head, restarting at each call, or never firing; a late head with no response, still
+    read, reported to the caller, left open with no record free, cancelled where it must be
+    rejected, or answered 400; the caller not woken for a late head or for the idle deadline;
+    `deadline_ns`, `on_instant` and `receive` each ignoring the connection's deadlines; the
+    deadlines running on a stopped connection; a late head's deadline never firing; the close
+    carrying H3_INTERNAL_ERROR or sent as a transport close; and nine in h3, a stream's first
+    instant not kept, the newest stream named, a stream whose head arrived still waiting, no
+    STOP_SENDING sent, a stopped stream still waiting for its head, a stream that opens asking
+    for no look, a look that found none repeated at each call, a look that found a stream not
+    repeated, and every call walking the streams.
+    The STOP_SENDING carrying H3_REQUEST_REJECTED was **NOT CAUGHT** until the late-head test
+    read the code the server's stream holds.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
