@@ -1225,6 +1225,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `ConnectionFailed` on seed 0x4; TLC with 24 of 64; `OpenedAfterGoaway` on seed 0x18; the
     client's assertion in `record_head`; and `Malformed` on seed 0.
 
+  **The TCP trace without `write_owed`, 2026-10-04.** After a cancel or a shutdown the run called
+  each connection's `write_owed`, the one caller that kept those two functions public. It now
+  calls `send` with no room, which writes what the connection owes and hands out nothing.
+  - The client's `send` also writes the requests that wait, so a cancel's action can write them
+    too, and the census has one state fewer: `seeds=64 tls=38 states=563 requests=129
+    responses=83 refused=3 shut_down=25`.
+  - `tools/tcp_trace.sh`: 64 of 64 traces are behaviors of the model.
+  - The six mutations are each still **CAUGHT**, the third by TLC with 25 of 64.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

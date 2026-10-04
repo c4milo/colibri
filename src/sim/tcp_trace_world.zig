@@ -10,8 +10,9 @@
 //!
 //! A cancel or a shutdown decides a RST_STREAM or a GOAWAY that h2 owes and writes later, at the
 //! caller's next `send`. The model sends either frame in the step that decides it, so after each
-//! the run has the connection write what it owes into its output at once, with `write_owed`, as
-//! that `send` would first.
+//! the run calls `send` with no room: the connection writes what it owes into its output at once
+//! and hands out nothing. The client's call also writes the requests that wait, as any `send` of
+//! its does.
 //!
 //! Over TLS a send seals the protocol's octets into records, so the run calls `send` twice. The
 //! first, with no room, writes what the connection owes and seals nothing; the run copies the
@@ -200,7 +201,7 @@ pub const World = struct {
         if (world.exchanges[stream - 1].outcome != .pending) return;
         world.client.cancel(id);
         world.client_ids[stream - 1] = null;
-        _ = world.client.write_owed(world.now_ns);
+        _ = world.client.send(&.{}, world.now_ns);
     }
 
     /// The answer the server's caller holds for `stream`, while it may still write.
@@ -265,14 +266,14 @@ pub const World = struct {
         const answer = world.answer_of(stream) orelse return;
         world.server.cancel(answer.id.?);
         answer.cancelled = true;
-        _ = world.server.write_owed(world.now_ns);
+        _ = world.server.send(&.{}, world.now_ns);
     }
 
     fn server_shutdown(world: *World) void {
         if (world.shut_down) return;
         world.server.shutdown();
         world.shut_down = true;
-        _ = world.server.write_owed(world.now_ns);
+        _ = world.server.send(&.{}, world.now_ns);
     }
 
     /// The server reads every octet the client handed out, and its caller notes each request.
