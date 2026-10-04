@@ -154,7 +154,7 @@ test "decision 110: a stream the connection's window holds ends the connection w
     try h2_support.start();
     _ = try receive_at(try h2_support.request_frame(1, "/", true), early_ns);
     try connection.respond(1, .{ .status = ok_status, .end = false });
-    connection.session.h2.send_window = h2.window.Window.init(server_constants.data_frame_len_min - 1);
+    connection.session.h2.send_window = h2.Window.init(server_constants.data_frame_len_min - 1);
     // As after an increment below the floor, which makes the floor apply.
     connection.session.h2.tiny_update_read = true;
     try testing.expectError(error.Blocked, connection.write_body(1, .{ .octets = &content, .end = true }));

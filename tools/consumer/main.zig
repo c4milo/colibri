@@ -12,7 +12,7 @@ const client_module = @import("client");
 const platform = @import("platform");
 
 var client: h11.Connection align(@alignOf(h11.Connection)) = undefined;
-var h2_client: h2.connection.Connection align(@alignOf(h2.connection.Connection)) = undefined;
+var h2_client: h2.Connection align(@alignOf(h2.Connection)) = undefined;
 var tls_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
 var tls_client: tls.record.Client align(@alignOf(tls.record.Client)) = undefined;
 var output: [4096]u8 = undefined;

@@ -16,7 +16,7 @@ const std = @import("std");
 const h2 = @import("h2");
 const link_module = @import("link.zig");
 
-const Connection = h2.connection.Connection;
+const Connection = h2.Connection;
 const Link = link_module.Link;
 const Side = link_module.Side;
 

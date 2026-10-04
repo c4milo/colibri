@@ -721,7 +721,7 @@ pool offers both codings in TE (RFC 9112 §7.4), and one without refuses a respo
 
 ## h2
 
-One `h2.connection.Connection` is one HTTP/2 connection. `receive(input, now_ns)` consumes at most
+One `h2.Connection` is one HTTP/2 connection. `receive(input, now_ns)` consumes at most
 one whole frame and returns at most one event. When it consumes nothing, `has_pending` says
 whether colibri must write first, and `write_pending(output, now_ns)` writes the connection
 preface, colibri's SETTINGS, and every frame it owes: acknowledgments, WINDOW_UPDATE, RST_STREAM
@@ -874,7 +874,7 @@ Every connection is a struct your program places, and its size is fixed at compi
 | --- | --- |
 | `h11.Connection` | 35,040 |
 | `h11.coding.DefaultPool` | 691,472, 16 decoders the connections given it share |
-| `h2.connection.Connection` | 162,192 |
+| `h2.Connection` | 162,192 |
 | `quic.Connection` | 141,232 |
 | `h3.connection.Connection` | 145,496, beside the QUIC connection it runs over |
 
