@@ -406,7 +406,7 @@ test "§8.3: the block carries the pseudo-header fields, then the regular field 
     try start_client();
     const lines = [_]hpack.Field{.{ .name = "accept", .value = "*/*" }};
     const sent = try write_request(test_connection, test_output, test_request, &lines, &.{}, true);
-    hpack.decoder.test_decoder.init(constants.header_table_size_initial);
+    hpack.decoder.test_decoder().init(constants.header_table_size_initial);
     // RFC 9113 §8.3: all pseudo-header fields appear before the regular field lines.
     try hpack.decoder.expect_lines(test_output[constants.frame_header_len..sent.written], &.{
         .{ .name = ":method", .value = "GET" },
@@ -419,8 +419,8 @@ test "§8.3: the block carries the pseudo-header fields, then the regular field 
 
 /// The lines of one HEADERS block the tests wrote, with whether each is never indexed. Test-only.
 fn expect_never_indexed(block: []const u8, expected: []const bool) !void {
-    hpack.decoder.test_decoder.init(constants.header_table_size_initial);
-    var lines = hpack.decoder.test_decoder.block(block);
+    hpack.decoder.test_decoder().init(constants.header_table_size_initial);
+    var lines = hpack.decoder.test_decoder().block(block);
     for (expected) |never_indexed| {
         const line = (try lines.next()) orelse return error.TestUnexpectedResult;
         try testing.expectEqual(never_indexed, line.never_indexed);
@@ -457,7 +457,7 @@ test "§8.5: a CONNECT block carries :method and :authority alone" {
     try start_client();
     const connect: Request = .{ .method = "CONNECT", .authority = "example.com:443" };
     const sent = try write_request(test_connection, test_output, connect, &.{}, &.{}, false);
-    hpack.decoder.test_decoder.init(constants.header_table_size_initial);
+    hpack.decoder.test_decoder().init(constants.header_table_size_initial);
     // RFC 9113 §8.5: the :scheme and :path pseudo-header fields are omitted.
     try hpack.decoder.expect_lines(test_output[constants.frame_header_len..sent.written], &.{
         .{ .name = ":method", .value = "CONNECT" },
