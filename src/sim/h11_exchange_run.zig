@@ -13,7 +13,7 @@ const Trace = sim.Trace;
 const constants = sim.constants;
 const Plan = h11_exchange_plan.Plan;
 const BodyKind = h11_exchange_plan.BodyKind;
-const Connection = h11.connection.Connection;
+const Connection = h11.Connection;
 const Field = http.Field;
 
 pub const Error = h11.connection.SendError || h11.connection.Error || sim.trace.Error || error{

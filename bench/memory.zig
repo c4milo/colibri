@@ -34,7 +34,7 @@ const rows = [_]Row{
     .{ .name = "client.QuicConnection", .size = @sizeOf(client.QuicConnection), .holds = "one h3 connection, without its receive pool" },
     .{ .name = "client.Channel", .size = @sizeOf(client.Channel), .holds = "one server's connections, QUIC first and TCP after, without receive pools" },
     .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a QUIC connection's caller passes, at its default capacity" },
-    .{ .name = "h11.connection.Connection", .size = @sizeOf(h11.connection.Connection), .holds = "the h11 state inside a TCP connection" },
+    .{ .name = "h11.Connection", .size = @sizeOf(h11.Connection), .holds = "the h11 state inside a TCP connection" },
     .{ .name = "h2.Connection", .size = @sizeOf(h2.Connection), .holds = "the h2 state inside a TCP connection" },
     .{ .name = "h3.Connection", .size = @sizeOf(h3.Connection), .holds = "the h3 state inside a QUIC connection" },
     .{ .name = "quic.Connection", .size = @sizeOf(quic.Connection), .holds = "the QUIC state inside an h3 connection" },

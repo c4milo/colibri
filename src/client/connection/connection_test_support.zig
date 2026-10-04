@@ -67,7 +67,7 @@ pub var events_len: usize = 0;
 
 /// The peers: h2's and h11's server side, and the TLS server under either.
 pub var peer_h2: h2.Connection align(@alignOf(h2.Connection)) = undefined;
-pub var peer_h11: h11.connection.Connection align(@alignOf(h11.connection.Connection)) = undefined;
+pub var peer_h11: h11.Connection align(@alignOf(h11.Connection)) = undefined;
 
 /// A cleartext connection speaking `protocol`, and a peer of the same protocol, with nothing read
 /// or written.

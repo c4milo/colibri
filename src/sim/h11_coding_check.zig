@@ -31,7 +31,7 @@ const constants = sim.constants;
 const limits = constants.h11_coding;
 const Plan = h11_coding_plan.Plan;
 const Defect = h11_coding_plan.Defect;
-const Connection = h11.connection.Connection;
+const Connection = h11.Connection;
 const coding = h11.coding;
 const Field = h11.http.Field;
 

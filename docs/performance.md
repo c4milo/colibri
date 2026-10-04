@@ -98,7 +98,7 @@ With chapulin's objects built `AES=runtime`:
 | `client.QuicConnection` | 703712 | one h3 connection, without its receive pool |
 | `client.Channel` | 993704 | one server's connections, QUIC first and TCP after, without receive pools |
 | `client.DefaultReceivePool` | 1505288 | the receive pool a QUIC connection's caller passes, at its default capacity |
-| `h11.connection.Connection` | 35040 | the h11 state inside a TCP connection |
+| `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163248 | the h2 state inside a TCP connection |
 | `h3.Connection` | 146312 | the h3 state inside a QUIC connection |
 | `quic.Connection` | 141624 | the QUIC state inside an h3 connection |

@@ -14,7 +14,7 @@ const std = @import("std");
 const h11 = @import("h11");
 const link_module = @import("link.zig");
 
-const Connection = h11.connection.Connection;
+const Connection = h11.Connection;
 const Link = link_module.Link;
 
 /// The octets one side writes before it sends them, at most.

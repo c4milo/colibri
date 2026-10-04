@@ -36,7 +36,7 @@ const Plan = h11_exchange_plan.Plan;
 const Run = h11_exchange_run.Run;
 const Stream = h11_exchange_run.Stream;
 const Seen = h11_exchange_run.Seen;
-const Connection = h11.connection.Connection;
+const Connection = h11.Connection;
 
 /// The name every h11 connection-check trace carries on its first line.
 pub const check_name = "h11-connection";

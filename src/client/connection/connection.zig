@@ -85,7 +85,7 @@ const Phase = enum {
 pub const Session = union(enum) {
     /// No protocol serves the connection: its TLS handshake has not completed, or it failed.
     none,
-    h11: h11.connection.Connection,
+    h11: h11.Connection,
     h2: h2.Connection,
 };
 

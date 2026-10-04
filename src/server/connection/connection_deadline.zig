@@ -84,7 +84,7 @@ fn wait_of(connection: *const Connection) Wait {
     };
 }
 
-fn wait_h11(session: *const h11.connection.Connection) Wait {
+fn wait_h11(session: *const h11.Connection) Wait {
     if (session.phase != .head) return .request;
     return if (session.scanner.scanned > 0) .head else .idle;
 }

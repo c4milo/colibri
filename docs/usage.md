@@ -632,7 +632,7 @@ the same calls.
 
 ## h11
 
-One `h11.connection.Connection` is one HTTP/1.1 connection. `receive(input, decoded)` consumes the
+One `h11.Connection` is one HTTP/1.1 connection. `receive(input, decoded)` consumes the
 octets of at most one event: a head, a run of body data, or the end of a body. Loop over it until
 it consumes nothing and returns no event. `decoded` is where the body of a message coded with
 `gzip` or `deflate` goes; a program that places no decoders passes it empty.
@@ -872,7 +872,7 @@ Every connection is a struct your program places, and its size is fixed at compi
 
 | Struct | Octets |
 | --- | --- |
-| `h11.connection.Connection` | 35,040 |
+| `h11.Connection` | 35,040 |
 | `h11.coding.DefaultPool` | 691,472, 16 decoders the connections given it share |
 | `h2.connection.Connection` | 162,192 |
 | `quic.Connection` | 141,232 |
