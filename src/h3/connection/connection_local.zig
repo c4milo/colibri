@@ -219,6 +219,20 @@ pub fn write_goaway(connection: *Connection, transport: *QuicConnection) connect
     try supply(connection, transport, id, local.control.end_offset());
 }
 
+/// Whether the peer acknowledged the GOAWAY: every octet the control stream holds, the frame
+/// among them. RFC 9114 §5.2 has a server send one so that the client learns which requests it
+/// did not take, which a close that overtakes the frame would leave unsaid.
+pub fn goaway_acknowledged(connection: *const Connection, transport: *QuicConnection) bool {
+    if (connection.goaway_sent == null) return false;
+    const id = connection.local.control_id orelse return false;
+    const control = switch (transport.streams.lookup(.{ .value = id })) {
+        .live => |live| live,
+        // RFC 9114 §6.2.1: the control stream stays open for the life of the connection.
+        .closed, .unopened => return false,
+    };
+    return control.outgoing.acknowledged_len == control.outgoing.supplied_end;
+}
+
 /// The provider `quic`'s send path reads through (decision 79).
 pub fn provider(connection: *Connection) StreamProvider {
     return .{ .context = connection, .vtable = &vtable };

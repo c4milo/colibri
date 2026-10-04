@@ -56,7 +56,10 @@ pub const Deadlines = struct {
     send_rate_min: ?u32 = constants.send_rate_min,
     /// How long a connection that has ended waits for its last octets to go out before it closes.
     linger_ns: ?u64 = constants.close_linger_ns,
-    /// How long the requests a connection holds have after `shutdown` before it closes.
+    /// How long the requests a connection holds have after `shutdown` before it closes. Over
+    /// QUIC it also bounds how long a connection its first-request or idle deadline ended waits
+    /// for the client to acknowledge the GOAWAY. With null only QUIC's own idle timeout bounds
+    /// that wait, and a client that sends a PING keeps that timeout away.
     drain_ns: ?u64 = constants.drain_timeout_ns,
 
     /// Refuses a limit of 0, which null says better, and a span past `timeout_ns_max`.

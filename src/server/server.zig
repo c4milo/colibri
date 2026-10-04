@@ -114,6 +114,7 @@ test {
     _ = @import("quic/quic_deadline_test.zig");
     _ = @import("quic/quic_body_test.zig");
     _ = @import("quic/quic_sends_test.zig");
+    _ = @import("quic/quic_drain_test.zig");
     _ = @import("quic/quic_coding_test.zig");
     _ = @import("quic/quic_continue_test.zig");
     _ = @import("endpoint/endpoint_stateless.zig");

@@ -7137,6 +7137,35 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     or taking a rate under the unit bound; `close_reason` naming no deadline, or no limit; the
     reset limit not kept as the reason; and a public function added and not listed.
 
+  **A GOAWAY before the close, and the drain deadline, 2026-10-04**
+  ([#95](https://github.com/c4milo/colibri/issues/95)). The owner's ruling, in decision 110 as
+  amended.
+  - At its first-request or idle deadline a connection whose h3 runs sends a GOAWAY and takes
+    no new request. It closes with H3_NO_ERROR once its requests are over and the client has
+    acknowledged the GOAWAY. h3's `goaway_acknowledged` says whether the client acknowledged
+    every octet of the control stream. `server` calls it, so it is a method of
+    `h3.Connection`, the sixteenth on the list in its test (decision 115).
+  - `shutdown` ends a connection the same way, so a shutdown with no request open now sends
+    its GOAWAY before it closes.
+  - The drain runs from the first call that sees the connection shutting down. When it passes,
+    the connection closes with the requests it still holds. `close_reason` names the deadline
+    that began the shutdown, or `drain` after the program's own `shutdown`. With `drain_ns`
+    null nothing of colibri's bounds the wait for the acknowledgment, and the comment on
+    `Deadlines.drain_ns` says so.
+  - A connection that is shutting down runs no first-request and no idle deadline. One whose
+    h3 never started has no stream to send a GOAWAY on, and closes at once (RFC 9000 §10.2.3).
+  - `server.QuicConnection` grows by 16 octets, to 721,400 (`docs/performance.md`).
+  - `zig build test`, on 93ced64: 131 of 131 steps and 2600 of 2600 tests passed.
+  - `tools/quic_udp.sh`, `tools/h3spec.sh`, `tools/quic_aioquic.sh` and
+    `tools/channel_interop.sh`, on macOS arm64: each passed.
+  - 12 mutations, each **CAUGHT**: the close not waiting for the GOAWAY's acknowledgment; a
+    deadline closing at once with no GOAWAY; the drain never firing, not reported, starting
+    again at each call, or never starting; a drain a deadline began reported as the reason;
+    the idle deadline firing again on a connection shutting down; a connection whose h3 never
+    started waiting for a GOAWAY; a shutdown sending no GOAWAY; and in h3, a GOAWAY that
+    never went out read as acknowledged, and one read as acknowledged before the peer
+    acknowledged it.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

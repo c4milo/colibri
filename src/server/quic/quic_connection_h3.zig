@@ -345,8 +345,8 @@ pub fn respond_timeout(connection: *QuicConnection, id: Id) bool {
 /// Sends a GOAWAY naming the first request stream not taken, after which h3 refuses every later
 /// one (RFC 9114 §5.2).
 pub fn shut_down(connection: *QuicConnection, now_ns: u64) void {
-    if (connection.stopped or !connection.started) return;
-    connection.h3.shutdown(&connection.transport, now_ns) catch return internal.fail(connection);
+    if (connection.stopped) return;
+    if (connection.started) connection.h3.shutdown(&connection.transport, now_ns) catch return internal.fail(connection);
     finish_if_drained(connection);
 }
 
@@ -355,6 +355,11 @@ pub fn shut_down(connection: *QuicConnection, now_ns: u64) void {
 /// immediate closure", and "SHOULD use the H3_NO_ERROR error code".
 fn finish_if_drained(connection: *QuicConnection) void {
     if (!connection.shutting_down or connection.stopped or !connection.requests.idle()) return;
+    // RFC 9114 §5.2: the GOAWAY tells the client which requests the server did not take. QUIC
+    // writes a CONNECTION_CLOSE alone once it owes one, so the close waits until the client
+    // acknowledged the GOAWAY, and the drain deadline bounds that wait (decision 110 as amended).
+    // A connection whose h3 never started has no stream to send one on.
+    if (connection.started and !connection.h3.goaway_acknowledged(&connection.transport)) return;
     connection.stopped = true;
     if (connection.transport.termination.state != .active) return;
     quic.connection_close.owe(&connection.transport, .{

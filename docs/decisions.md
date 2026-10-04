@@ -3424,7 +3424,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        requests the server did not take. `quic` writes a CONNECTION_CLOSE alone once it owes one
        (RFC 9000 §10.2.1), so a GOAWAY written with the close would never be sent. `shutdown`
        with no request open sends its GOAWAY the same way. A close before the handshake
-       completes sends none, because h3 has not started.
+       completes sends none, because h3 has not started. A program that sets `drain_ns` to
+       null leaves the wait for that acknowledgment to QUIC's own idle timeout, which a
+       client's PING keeps away, as `linger_ns` of null leaves a TCP connection's last octets
+       to its peer.
      - **An endpoint given limits a connection refuses** returns `DeadlineInvalid` from
        `Endpoint.init`, as `server.Connection.init` does, as the owner ruled on 2026-10-04. The
        endpoint starts each connection itself and drops one that refuses to start, so without

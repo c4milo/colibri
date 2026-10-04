@@ -281,6 +281,12 @@ pub const Connection = struct {
         return connection_local.write_goaway(connection, transport);
     }
 
+    /// Whether the peer acknowledged colibri's GOAWAY, with every octet of the control stream
+    /// before it. False until a GOAWAY went out.
+    pub fn goaway_acknowledged(connection: *const Connection, transport: *QuicConnection) bool {
+        return connection_local.goaway_acknowledged(connection, transport);
+    }
+
     /// Ends the connection with `code` (RFC 9114 §8): `quic` owes the peer an application
     /// CONNECTION_CLOSE, and every later `receive` fails.
     pub fn fail(connection: *Connection, transport: *QuicConnection, code: u64) Error {
@@ -312,9 +318,10 @@ pub fn initiator(connection: *const Connection) quic.stream.Initiator {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        "init",             "start",          "provider",       "receive",           "field_section",
-        "write_request",    "write_response", "write_trailers", "write_data_header", "cancel",
-        "oldest_head_wait", "stop_reading",   "shutdown",       "fail",              "no_error_code",
+        "init",             "start",          "provider",       "receive",             "field_section",
+        "write_request",    "write_response", "write_trailers", "write_data_header",   "cancel",
+        "oldest_head_wait", "stop_reading",   "shutdown",       "goaway_acknowledged", "fail",
+        "no_error_code",
     });
 }
 

@@ -57,7 +57,7 @@ fn one_exchange() !void {
     try testing.expect(fetch.ended);
 }
 
-test "decision 110: a connection that brings no whole request head by its first-request deadline closes with H3_NO_ERROR" {
+test "decision 110: a connection that brings no whole request head by its first-request deadline ends with H3_NO_ERROR" {
     try connected(constants.idle_timeout_ns);
     // A head that is not whole is no request.
     _ = try support.request_short_of_head("GET", "/");
@@ -68,6 +68,9 @@ test "decision 110: a connection that brings no whole request head by its first-
     try testing.expectEqual(null, connection.close_reason());
     server_at(at_ns);
     try testing.expectEqual(Deadline.first_request, connection.close_reason().?.deadline);
+    // RFC 9114 §5.2: a GOAWAY goes first, and the close follows its acknowledgment.
+    try testing.expect(connection.h3.goaway_sent != null and connection.transport.pending_close == null);
+    try support.pump(rounds_few);
     try testing.expect(closing_with_no_error());
     // A deadline is no failure, and the connection reads nothing more.
     try support.pump(rounds_few);
@@ -155,6 +158,7 @@ test "decision 110: an idle connection closes at its idle deadline, counted from
     try testing.expectEqual(null, connection.clock.timed_out);
     server_at(at_ns);
     try testing.expectEqual(Deadline.idle, connection.clock.timed_out.?);
+    try support.pump(rounds_few);
     try testing.expect(closing_with_no_error());
 }
 

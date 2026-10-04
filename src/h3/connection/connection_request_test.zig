@@ -273,6 +273,16 @@ test "§5.2: after colibri's GOAWAY a server rejects later requests, and the cli
     try testing.expectError(error.GoawayReceived, harness.request(&harness.get_lines, ""));
 }
 
+test "§5.2: colibri's GOAWAY is acknowledged once the peer acknowledged every octet of the control stream" {
+    try harness.pair(.{ .role = .client }, .{ .role = .server });
+    // The peer acknowledged the control stream's SETTINGS, and no GOAWAY went out.
+    try testing.expect(!server.h3.goaway_acknowledged(&server.transport));
+    try server.h3.shutdown(&server.transport, harness.test_now_ns);
+    try testing.expect(!server.h3.goaway_acknowledged(&server.transport));
+    try harness.transfer(server, client);
+    try testing.expect(server.h3.goaway_acknowledged(&server.transport));
+}
+
 test "§4.2.2: a section past the peer's SETTINGS_MAX_FIELD_SECTION_SIZE is not sent" {
     try harness.pair(.{ .role = .client }, .{ .role = .server });
     server.h3.peer_settings.?.max_field_section_size = 64;
