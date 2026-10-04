@@ -78,7 +78,7 @@ fn receive(connection: *Connection, len: usize) datagram_module.Error!datagram_m
 test "RFC 9000 §10.2: a connection error receive finds owes the CONNECTION_CLOSE that names it" {
     open_pair(&.{.handshake});
     // RFC 9000 §13.1: the client acknowledges a packet the server never sent.
-    _ = client.space_at(.handshake).receive(unsent_number, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&client, .handshake).receive(unsent_number, test_now_ns, true, .not_ect);
     const sent = (try send_raw(&client)).?;
     try testing.expectError(error.AcknowledgedUnsentPacket, receive(&server, sent.len));
     const owed = server.pending_close.?;
@@ -101,7 +101,7 @@ test "RFC 9001 §4.8: TLS failing while send writes its octets owes the alert's 
 test "RFC 9000 §12.3: a space out of packet numbers closes with no frame and sends nothing after" {
     open_pair(&.{.initial});
     provider_holder = .{ .owed = &flight };
-    client.space_at(.initial).next_packet_number = constants.packet_number_max + 1;
+    connection_module.space_at(&client, .initial).next_packet_number = constants.packet_number_max + 1;
     try testing.expectError(error.PacketNumbersExhausted, send_raw(&client));
     try testing.expectEqual(null, client.pending_close);
     try testing.expectEqual(.closed, client.termination.state);

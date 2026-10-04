@@ -81,8 +81,8 @@ fn open_pair(validated: bool) void {
     provider_holder = .{};
     open_one(&client, .client, server_address);
     open_one(&server, .server, client_address);
-    client.apply_peer_parameters(parameters());
-    server.apply_peer_parameters(parameters());
+    connection_module.apply_peer_parameters(&client, parameters());
+    connection_module.apply_peer_parameters(&server, parameters());
     if (validated) server.path.on_handshake_processed();
 }
 
@@ -145,7 +145,7 @@ test "RFC 9000 §9: a client discards a datagram from an address other than its 
     const received = try deliver(&client, sent, 0, PeerAddress.of(&other_host, server_port), test_now_ns);
     try testing.expect(received.from_unknown_server);
     try testing.expectEqual(0, received.processed);
-    try testing.expectEqual(null, client.space_at(.application).received.largest());
+    try testing.expectEqual(null, connection_module.space_at(&client, .application).received.largest());
 }
 
 test "RFC 9000 §9.3: a non-probing packet from a new address moves the path, and a probing one does not" {
@@ -185,7 +185,7 @@ test "RFC 9000 §9.3.3: the previous path is challenged in a datagram of its own
     try testing.expect(server.migration.previous.?.challenge != null);
     // RFC 9000 §9.1: the probe carried probing frames alone, so the ACK the client's PING earned
     // is still to go, to the new address.
-    try testing.expect(server.space_at(.application).has_new_ack_eliciting());
+    try testing.expect(connection_module.space_at(&server, .application).has_new_ack_eliciting());
     // The next datagram goes to the new address and carries the new path's challenge.
     const next = try send_into(&server, 1, test_now_ns);
     try testing.expect(next.to.eql(&moved_address));
@@ -346,7 +346,7 @@ test "decision 72: a path the peer moved to carries ACK and path frames alone un
     try testing.expect(server.path.send_allowance() > challenge.len);
     // The ACK the client's PING earned went with the challenge, and a PING waits for the path
     // to be validated.
-    try testing.expect(!server.space_at(.application).has_new_ack_eliciting());
+    try testing.expect(!connection_module.space_at(&server, .application).has_new_ack_eliciting());
     // One more PING from the client: its ACK may wait (RFC 9000 §13.2.1), so nothing goes.
     _ = try deliver(&server, try client_ping(1), 1, moved_address, test_now_ns);
     try testing.expectError(error.NothingSent, send_into(&server, 0, test_now_ns));

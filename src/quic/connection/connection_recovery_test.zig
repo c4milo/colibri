@@ -56,7 +56,7 @@ fn parameters() Parameters {
 
 fn open_server() void {
     open_as(.server);
-    server.apply_peer_parameters(parameters());
+    connection_module.apply_peer_parameters(&server, parameters());
 }
 
 /// An endpoint of `role` holding keys at every level, before the peer's parameters arrive.
@@ -116,7 +116,7 @@ test "decision 59: a lost packet reaches every piece that sent what it carried" 
 test "decision 59: a lost packet whose CRYPTO octets are forgotten, or a full table, ends the connection" {
     open_server();
     // A window that forgot what it framed, which `connection_crypto.on_packets_lost` reports.
-    server.crypto_at(.initial).send_base = 1;
+    connection_module.crypto_at(&server, .initial).send_base = 1;
     var crypto: Record = .{ .number = 0, .sent_at_ns = test_now_ns, .sent_len = range_len, .ack_eliciting = true, .in_flight = true };
     crypto.carries = .crypto;
     try testing.expectError(error.CryptoForgotten, recovery.on_packets_lost(&server, .initial, &.{crypto}));
@@ -167,7 +167,7 @@ const threshold_packets: u64 = constants.loss_packet_threshold + 1;
 /// Records that packet `number` carried `range` of stream `id`, as the send path will (RFC 9002
 /// Appendix A.5), and spends the number in the space so the peer may acknowledge it.
 fn record_sent(level: Level, carries: recovery_sent.Carries, id: u64, offset: u64, at_ns: u64) !void {
-    const number = try server.space_at(level).next_number();
+    const number = try connection_module.space_at(&server, level).next_number();
     const kind: @import("../space/space.zig").Kind = @enumFromInt(@intFromEnum(level));
     try server.recovery.on_packet_sent(kind, .{
         .number = number,
@@ -249,7 +249,7 @@ test "RFC 9000 §19.3: the ACK Delay is decoded with the peer's exponent, and ig
 test "decision 59: an ACK that reveals a loss the connection cannot repair is a connection error" {
     open_server();
     // CRYPTO octets the level's window already forgot (`connection_crypto.on_packets_lost`).
-    server.crypto_at(.initial).send_base = 1;
+    connection_module.crypto_at(&server, .initial).send_base = 1;
     for (0..threshold_packets) |_| try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
     try testing.expectError(
         error.CryptoForgotten,
@@ -264,7 +264,7 @@ const peer_max_ack_delay_ms: u64 = 50;
 /// A client's padded Initial carrying only an ACK: in flight, eliciting nothing (RFC 9002 §2).
 /// It sets the loss detection timer (Appendix A.5) and leaves the peer nothing to acknowledge.
 fn send_padded_ack() !void {
-    const number = try server.space_at(.initial).next_number();
+    const number = try connection_module.space_at(&server, .initial).next_number();
     try server.recovery.on_packet_sent(.initial, .{
         .number = number,
         .sent_at_ns = sent_at_ns,
@@ -301,7 +301,7 @@ test "RFC 9002 A.9, decision 59: the loss timer declares a packet lost and owes 
 
 test "decision 59: a loss the timer finds that the connection cannot repair is a connection error" {
     open_server();
-    server.crypto_at(.initial).send_base = 1;
+    connection_module.crypto_at(&server, .initial).send_base = 1;
     try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
     try record_sent(.initial, .crypto, 0, 0, sent_at_ns);
     _ = try take_ack(.initial, 1, 1, 0, sent_at_ns + round_trip_ns);
@@ -314,7 +314,7 @@ test "RFC 9002 A.9, decision 59: a Probe Timeout owes probes in the space that s
     // RFC 9002 §6.2.1: no Application Data probe before the handshake is confirmed.
     try record_sent(.application, .none, 0, 0, sent_at_ns);
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
-    server.confirm_handshake();
+    connection_module.confirm_handshake(&server);
     try testing.expect(try fire_loss_timer());
     // RFC 9002 §6.2.4: two probes, because a packet is in flight.
     try testing.expectEqual(constants.probe_packets, server.probes_owed[@intFromEnum(Level.application)]);
@@ -324,7 +324,7 @@ test "RFC 9002 A.9, decision 59: a Probe Timeout owes probes in the space that s
 test "decision 66: an application PTO declares the oldest packets lost, one for each probe" {
     open_server();
     server.path.on_datagram_received(constants.datagram_len_min);
-    server.confirm_handshake();
+    connection_module.confirm_handshake(&server);
     const id = try framed_stream();
     // The stream's range went out first, then two packets of nothing a probe could carry.
     try record_sent(.application, .stream_fin, id.value, 0, sent_at_ns);
@@ -352,7 +352,7 @@ test "decision 64: a Handshake PTO declares its packets lost, and the window sta
 
 test "RFC 9002 A.8: a server at the anti-amplification limit sets no probe timer" {
     open_server();
-    server.confirm_handshake();
+    connection_module.confirm_handshake(&server);
     try record_sent(.application, .none, 0, 0, sent_at_ns);
     // RFC 9000 §8.1: a server that has received nothing may send nothing, and one that has
     // received a single octet may send three, which holds no packet.
@@ -382,7 +382,7 @@ test "RFC 9002 A.8: a client probes until the server has validated its address" 
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
     open_as(.client);
     try send_padded_ack();
-    server.confirm_handshake();
+    connection_module.confirm_handshake(&server);
     try testing.expectEqual(null, recovery.loss_deadline_ns(&server));
 }
 
@@ -414,7 +414,7 @@ test "RFC 9000 §18.2: the peer's max_ack_delay reaches the Probe Timeout" {
     open_as(.server);
     var peer = parameters();
     peer.max_ack_delay_ms = peer_max_ack_delay_ms;
-    server.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(&server, peer);
     const expected_ns = peer_max_ack_delay_ms * constants.nanoseconds_per_millisecond;
     try testing.expectEqual(expected_ns, server.recovery.rtt.peer_max_ack_delay_ns);
 }
@@ -446,7 +446,7 @@ test "RFC 9002 §5.3: once the handshake is confirmed the ACK Delay counts up to
     server.peer_parameters.?.ack_delay_exponent = peer_exponent;
     try record_sent(.application, .none, 0, 0, sent_at_ns);
     _ = try take_ack(.application, 0, 0, 0, sent_at_ns + round_trip_ns);
-    server.confirm_handshake();
+    connection_module.confirm_handshake(&server);
     // The peer reports 50 ms, above its max_ack_delay of 25, so only 25 comes off the sample.
     const later_ns = sent_at_ns + slower_round_trip_ns;
     try record_sent(.application, .none, 0, 0, later_ns);

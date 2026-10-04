@@ -301,7 +301,7 @@ const AckWritten = struct {
 /// `repeat` writes one although nothing new asks for it, which `repeats_ack` decides. A space that
 /// has received nothing writes none.
 fn write_ack(connection: *const Connection, space: anytype, writer: *Writer, now_ns: u64, repeat: bool) AckWritten {
-    const held: AckWritten = .{ .owed = space.owes_ack(now_ns, connection.max_ack_delay_ns()), .pending = space.ack_pending() };
+    const held: AckWritten = .{ .owed = space.owes_ack(now_ns, connection_module.max_ack_delay_ns(connection)), .pending = space.ack_pending() };
     if (!held.owed and !space.has_new_ack_eliciting() and !repeat) return held;
     // RFC 9000 §13.4.1: only an endpoint with "access to received ECN codepoints" reports ECN,
     // and decision 68 has the caller say whether it has.

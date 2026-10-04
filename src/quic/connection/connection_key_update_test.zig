@@ -97,7 +97,7 @@ fn suite() crypto.Suite {
 /// Sends one 1-RTT packet number and has the peer acknowledge it, which is the state RFC 9001
 /// §6.1 requires before another key update may be initiated.
 pub fn send_and_acknowledge() void {
-    const space = test_connection.space_at(.application);
+    const space = connection_module.space_at(&test_connection, .application);
     const number = space.next_number() catch unreachable;
     key_update.on_packet_sent(&test_connection, .application, number, false);
     space.largest_acknowledged = number;
@@ -119,7 +119,7 @@ fn settled_ns() u64 {
 /// Says the peer acknowledged every 1-RTT packet up to `number`, which is what RFC 9001 §6.1
 /// compares the lowest number sent in the current phase against.
 fn acknowledge(number: u64) void {
-    test_connection.space_at(.application).largest_acknowledged = number;
+    connection_module.space_at(&test_connection, .application).largest_acknowledged = number;
 }
 
 /// Walks one 1-RTT packet the peer wrote, under the key set `suite_holder.opens_with` names.
@@ -415,10 +415,10 @@ test "RFC 9001 §6.1, §6.2: the send path reports what it sealed" {
 /// RFC 9000 §13.2.2: a receiver owes an ACK after two ack-eliciting packets, which is what makes
 /// the next 1-RTT packet this endpoint builds carry one.
 pub fn owe_ack(first: u64, second: u64) void {
-    const space = test_connection.space_at(.application);
+    const space = connection_module.space_at(&test_connection, .application);
     _ = space.receive(first, test_now_ns, true, .not_ect);
     _ = space.receive(second, test_now_ns, true, .not_ect);
-    std.debug.assert(space.owes_ack(test_now_ns, test_connection.max_ack_delay_ns()));
+    std.debug.assert(space.owes_ack(test_now_ns, connection_module.max_ack_delay_ns(&test_connection)));
 }
 
 pub fn build_1rtt() !?packet_build.Built {

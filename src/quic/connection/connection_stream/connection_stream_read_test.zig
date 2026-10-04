@@ -88,8 +88,8 @@ fn open_pair() void {
     provider_holder = .{};
     open_one(&client, .client, client_pool.storage());
     open_one(&server, .server, pool.storage());
-    client.apply_peer_parameters(parameters());
-    server.apply_peer_parameters(parameters());
+    connection_module.apply_peer_parameters(&client, parameters());
+    connection_module.apply_peer_parameters(&server, parameters());
 }
 
 fn open_one(connection: *Connection, role: connection_module.Role, receive: ?stream_module.stream_incoming.Storage) void {

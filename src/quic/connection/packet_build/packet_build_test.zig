@@ -303,7 +303,7 @@ test "RFC 9000 §17.2: a packet built at Initial is read back as one" {
     try testing.expectEqualSlices(
         u8,
         &handshake_octets,
-        peer_connection.crypto_at(.initial).readable(),
+        connection_module.crypto_at(&peer_connection, .initial).readable(),
     );
 }
 
@@ -423,7 +423,7 @@ test "RFC 9000 §17.3: a 1-RTT packet is built with a short header and read back
     try testing.expectEqualSlices(
         u8,
         &handshake_octets,
-        peer_connection.crypto_at(.application).readable(),
+        connection_module.crypto_at(&peer_connection, .application).readable(),
     );
 }
 
@@ -450,7 +450,7 @@ test "decision 35: a smaller scratch bounds the packet, not the datagram" {
     const opened = try walk_back(built);
     try testing.expectEqual(small_payload_len, opened.payload.len);
     _ = try frames.process(&peer_connection, opened, test_now_ns, &recovery_scratch);
-    try testing.expectEqual(small_payload_len - 3, peer_connection.crypto_at(.initial).readable().len);
+    try testing.expectEqual(small_payload_len - 3, connection_module.crypto_at(&peer_connection, .initial).readable().len);
 }
 
 test "RFC 9000 §17.3: a 1-RTT packet fills the datagram exactly, with no Length field" {

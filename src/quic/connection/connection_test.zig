@@ -65,22 +65,22 @@ test "a connection begins having heard nothing from its peer" {
 test "RFC 9000 §12.3 and RFC 9001 Table 1: one packet number space per encryption level" {
     test_connection.init(.{ .role = .server, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     const levels = [_]Level{ .initial, .handshake, .application };
-    const kinds = [_]@TypeOf(test_connection.space_at(.initial).kind){ .initial, .handshake, .application };
+    const kinds = [_]@TypeOf(connection_module.space_at(&test_connection, .initial).kind){ .initial, .handshake, .application };
     for (levels, kinds) |level, kind| {
         // The space a level indexes is the space for that level, which is what `space_at` rests on.
-        try testing.expectEqual(kind, test_connection.space_at(level).kind);
+        try testing.expectEqual(kind, connection_module.space_at(&test_connection, level).kind);
         // Nothing has been sent, so every space is at its first packet number (§12.3).
-        try testing.expectEqual(0, test_connection.space_at(level).next_packet_number);
+        try testing.expectEqual(0, connection_module.space_at(&test_connection, level).next_packet_number);
     }
 }
 
 test "RFC 9000 §19.6: each level carries its own CRYPTO stream" {
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
-    try test_connection.crypto_at(.initial).receive(0, "client hello");
-    try testing.expectEqualStrings("client hello", test_connection.crypto_at(.initial).readable());
+    try connection_module.crypto_at(&test_connection, .initial).receive(0, "client hello");
+    try testing.expectEqualStrings("client hello", connection_module.crypto_at(&test_connection, .initial).readable());
     // The other two are untouched, because §19.6 makes each level a separate flow.
-    try testing.expectEqual(0, test_connection.crypto_at(.handshake).readable().len);
-    try testing.expectEqual(0, test_connection.crypto_at(.application).readable().len);
+    try testing.expectEqual(0, connection_module.crypto_at(&test_connection, .handshake).readable().len);
+    try testing.expectEqual(0, connection_module.crypto_at(&test_connection, .application).readable().len);
 }
 
 test "RFC 9000 §18.2: what colibri may spend starts at zero and the peer's parameters raise it" {
@@ -96,7 +96,7 @@ test "RFC 9000 §18.2: what colibri may spend starts at zero and the peer's para
     peer.initial_max_data = 1 << 18;
     peer.initial_max_streams_bidi = 5;
     peer.initial_max_streams_uni = 2;
-    test_connection.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(&test_connection, peer);
     try testing.expectEqual(peer.initial_max_data, test_connection.send_flow.available());
     try testing.expect(!test_connection.send_flow.is_blocked());
     try testing.expectEqual(peer, test_connection.peer_parameters.?);
@@ -119,14 +119,14 @@ test "RFC 9000 §10.1: the peer's parameters make the timeout the smaller of the
     var peer = Parameters.initial();
     const shorter_ms = test_idle_timeout_ms / 2;
     peer.max_idle_timeout_ms = shorter_ms;
-    test_connection.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(&test_connection, peer);
     try testing.expectEqual(shorter_ms * constants.nanoseconds_per_millisecond, test_connection.termination.idle_timeout_ns.?);
 }
 
 test "RFC 9001 §4.1.2: confirmed is a state of its own, reached after complete" {
     test_connection.init(.{ .role = .client, .local_parameters = local_parameters(), .now_ns = test_now_ns, .identity = test_identity });
     try testing.expect(!test_connection.handshake_confirmed);
-    test_connection.confirm_handshake();
+    connection_module.confirm_handshake(&test_connection);
     try testing.expect(test_connection.handshake_confirmed);
 }
 

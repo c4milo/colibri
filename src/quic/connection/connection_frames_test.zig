@@ -123,7 +123,7 @@ test "RFC 9000 §13.2.1: PADDING and ACK elicit nothing and PING does" {
     open_as(.client);
     // Table 3 marks PADDING and ACK N, so a packet of only those is not ack-eliciting.
     const quiet = [_]Frame{ .{ .padding = .{ .len = 3 } }, .{ .ack = ack_of(0) } };
-    _ = test_connection.space_at(.initial).next_number() catch unreachable;
+    _ = connection_module.space_at(&test_connection, .initial).next_number() catch unreachable;
     const first = try run(.initial, &quiet);
     try testing.expect(!first.ack_eliciting);
 
@@ -217,7 +217,7 @@ fn run_with(key_set: crypto.suite.KeySet, list: []const Frame) frames.Error!fram
 /// Spends `count` packet numbers in `level`'s space, so an ACK naming one of them is not
 /// RFC 9000 §13.1's acknowledgment of a packet that was never sent.
 fn spend_numbers(level: Level, count: usize) void {
-    for (0..count) |_| _ = test_connection.space_at(level).next_number() catch unreachable;
+    for (0..count) |_| _ = connection_module.space_at(&test_connection, level).next_number() catch unreachable;
 }
 
 test "RFC 9001 §6.2: an ACK under old keys naming a new-keys packet closes the connection" {

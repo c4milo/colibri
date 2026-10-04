@@ -59,8 +59,8 @@ fn open_pair(client_flags: Flags, server_flags: Flags) void {
     provider_holder = .{};
     open_one(&client, .client, client_flags);
     open_one(&server, .server, server_flags);
-    client.apply_peer_parameters(parameters());
-    server.apply_peer_parameters(parameters());
+    connection_module.apply_peer_parameters(&client, parameters());
+    connection_module.apply_peer_parameters(&server, parameters());
 }
 
 fn open_one(connection: *Connection, role: connection_module.Role, flags: Flags) void {

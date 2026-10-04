@@ -51,7 +51,7 @@ fn open_with_flight(role: connection_module.Role) !void {
     });
     keys.on_keys_installed(&endpoint, .initial, .read);
     keys.on_keys_installed(&endpoint, .initial, .write);
-    const stream = endpoint.crypto_at(.initial);
+    const stream = connection_module.crypto_at(&endpoint, .initial);
     try stream.receive(0, &client_hello);
     _ = stream.send_room();
     stream.produced(flight_len);
@@ -67,7 +67,7 @@ fn record_sent(carries: recovery_sent.Carries) !void {
 /// Records one ack-eliciting packet at `level`, sent at `sent_at_ns`, that carried `carries`.
 fn record_sent_at(level: Level, carries: recovery_sent.Carries, sent_at_ns: u64) !void {
     const kind: space_module.Kind = @enumFromInt(@intFromEnum(level));
-    const number = try endpoint.space_at(level).next_number();
+    const number = try connection_module.space_at(&endpoint, level).next_number();
     try endpoint.recovery.on_packet_sent(kind, .{
         .number = number,
         .sent_at_ns = sent_at_ns,
@@ -83,7 +83,7 @@ fn record_sent_at(level: Level, carries: recovery_sent.Carries, sent_at_ns: u64)
 /// The server has processed, at `now_ns`, an ack-eliciting Initial packet whose CRYPTO octets, if
 /// any, it already held: a repeated ClientHello, or a client's padded PING.
 fn take_repeat_at(now_ns: u64) !void {
-    const received_len = endpoint.crypto_at(.initial).received_len();
+    const received_len = connection_module.crypto_at(&endpoint, .initial).received_len();
     try recovery.on_initial_processed(&endpoint, true, received_len, now_ns, &scratch);
 }
 
@@ -93,7 +93,7 @@ fn take_repeat() !void {
 
 /// The server's Initial CRYPTO octets, declared lost, go out again in a new packet in flight.
 fn send_flight_again() !void {
-    endpoint.crypto_at(.initial).framed(flight_len);
+    connection_module.crypto_at(&endpoint, .initial).framed(flight_len);
     try record_sent(.crypto);
 }
 
@@ -108,7 +108,7 @@ test "decision 65: a repeat from the client sends the server's Initial CRYPTO oc
     // RFC 9002 §6.2.3: "send a packet containing unacknowledged CRYPTO data earlier than the PTO
     // expiry". The packet is declared lost, so its octets wait to be framed again.
     try testing.expectEqual(0, initial_in_flight());
-    try testing.expectEqual(flight_len, endpoint.crypto_at(.initial).unsent().len);
+    try testing.expectEqual(flight_len, connection_module.crypto_at(&endpoint, .initial).unsent().len);
     try testing.expectEqual(1, endpoint.early_crypto_resends);
     // Declared lost to move the octets, as decision 64 does, and not for congestion.
     try testing.expectEqual(window, endpoint.recovery.congestion.window);
@@ -117,11 +117,11 @@ test "decision 65: a repeat from the client sends the server's Initial CRYPTO oc
 test "decision 65: new CRYPTO octets, or a packet the peer need not acknowledge, show nothing" {
     try open_with_flight(.server);
     // The client's flight was still arriving: the octets moved `received_len`.
-    const before = endpoint.crypto_at(.initial).received_len() - client_hello.len;
+    const before = connection_module.crypto_at(&endpoint, .initial).received_len() - client_hello.len;
     try recovery.on_initial_processed(&endpoint, true, before, test_now_ns, &scratch);
     try testing.expectEqual(1, initial_in_flight());
     // An ACK alone asks for no answer (RFC 9002 §2).
-    try recovery.on_initial_processed(&endpoint, false, endpoint.crypto_at(.initial).received_len(), test_now_ns, &scratch);
+    try recovery.on_initial_processed(&endpoint, false, connection_module.crypto_at(&endpoint, .initial).received_len(), test_now_ns, &scratch);
     try testing.expectEqual(1, initial_in_flight());
     try testing.expectEqual(0, endpoint.early_crypto_resends);
 }
@@ -130,7 +130,7 @@ test "decision 65: a client sends nothing early" {
     try open_with_flight(.client);
     try take_repeat();
     try testing.expectEqual(1, initial_in_flight());
-    try testing.expectEqual(0, endpoint.crypto_at(.initial).unsent().len);
+    try testing.expectEqual(0, connection_module.crypto_at(&endpoint, .initial).unsent().len);
 }
 
 test "decision 65: with no CRYPTO octets in flight nothing is sent and the limit is not spent" {
@@ -182,7 +182,7 @@ test "decision 70: a PTO probes every other space with ack-eliciting packets in 
     try open_with_flight(.server);
     keys.on_keys_installed(&endpoint, .handshake, .read);
     keys.on_keys_installed(&endpoint, .handshake, .write);
-    const handshake = endpoint.crypto_at(.handshake);
+    const handshake = connection_module.crypto_at(&endpoint, .handshake);
     _ = handshake.send_room();
     handshake.produced(flight_len);
     handshake.framed(flight_len);
@@ -196,8 +196,8 @@ test "decision 70: a PTO probes every other space with ack-eliciting packets in 
     // RFC 9002 §6.2.4: the Handshake space has data in flight, so it sends a probe too, and
     // decision 64 has that probe carry its CRYPTO octets.
     try testing.expectEqual(1, endpoint.probes_owed[@intFromEnum(Level.handshake)]);
-    try testing.expectEqual(flight_len, endpoint.crypto_at(.handshake).unsent().len);
-    try testing.expectEqual(flight_len, endpoint.crypto_at(.initial).unsent().len);
+    try testing.expectEqual(flight_len, connection_module.crypto_at(&endpoint, .handshake).unsent().len);
+    try testing.expectEqual(flight_len, connection_module.crypto_at(&endpoint, .initial).unsent().len);
     // The application space has nothing in flight, so it owes nothing.
     try testing.expectEqual(0, endpoint.probes_owed[@intFromEnum(Level.application)]);
 }

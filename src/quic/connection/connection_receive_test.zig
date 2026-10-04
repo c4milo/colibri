@@ -316,7 +316,7 @@ test "RFC 9000 §12.3: a packet number already processed is discarded, not read 
     _ = (try receive.next(&walk, &test_connection, opener.suite())).?;
     // The walk asks the space; nothing has recorded the number yet, because §13.1 waits for the
     // frames. So the test records it the way the frame layer will.
-    _ = test_connection.space_at(.initial).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&test_connection, .initial).receive(0, test_now_ns, true, .not_ect);
     const repeat = (try receive.next(&walk, &test_connection, opener.suite())).?;
     try testing.expectEqual(receive.Discarded.already_processed, repeat.discarded);
 }

@@ -100,7 +100,7 @@ pub fn alert_error_code(description: tls_provider.Alert) u64 {
 /// Takes one CRYPTO frame the peer sent at `level` (RFC 9000 §19.6). What it holds joins the
 /// level's in-order run, and a retransmission of octets already read changes nothing.
 pub fn receive_crypto(connection: *Connection, level: Level, crypto: frame_stream.Crypto) Error!void {
-    connection.crypto_at(level).receive(crypto.offset, crypto.data) catch |failure| switch (failure) {
+    connection_module.crypto_at(connection, level).receive(crypto.offset, crypto.data) catch |failure| switch (failure) {
         error.CryptoBufferExceeded => return Error.CryptoBufferExceeded,
     };
     // RFC 9369 §4.1: a CRYPTO frame from the server fixes the negotiated version.
@@ -113,7 +113,7 @@ pub fn provide_handshake(connection: *Connection, provider: tls_provider.QuicPro
     // Bounded by the levels, of which RFC 9001 §4.1.4 names three.
     for (0..core.levels_count) |index| {
         const level: Level = @enumFromInt(index);
-        const stream = connection.crypto_at(level);
+        const stream = connection_module.crypto_at(connection, level);
         const readable = stream.readable();
         if (readable.len == 0) continue;
         provider.provide_handshake(level, readable) catch |failure| return provider_failure(connection, provider, failure);
@@ -143,7 +143,7 @@ pub fn write_crypto(
     output: []u8,
 ) Error!Written {
     assert(output.len > 0);
-    const stream = connection.crypto_at(level);
+    const stream = connection_module.crypto_at(connection, level);
     // The provider gives its octets up once, so they go into the level's own window before they
     // go into a packet: RFC 9000 §13.3 retransmits them and §17.2.5.3 repeats them after a Retry.
     const room = stream.send_room();
@@ -193,7 +193,7 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
     for (lost) |record| {
         if (record.carries != .crypto) continue;
         held.packets += 1;
-        if (!connection.crypto_at(level).on_lost(record.data_offset)) held.forgotten = true;
+        if (!connection_module.crypto_at(connection, level).on_lost(record.data_offset)) held.forgotten = true;
     }
     return held;
 }
@@ -204,7 +204,7 @@ pub fn on_packets_lost(connection: *Connection, level: Level, lost: []const Reco
 /// lost datagram", and lets a probe carry "previously sent data". Called after the rewind.
 pub fn on_probes_owed(connection: *Connection, level: Level) void {
     assert(level != .application);
-    connection.crypto_probe_from[@intFromEnum(level)] = connection.crypto_at(level).sent_len;
+    connection.crypto_probe_from[@intFromEnum(level)] = connection_module.crypto_at(connection, level).sent_len;
 }
 
 /// Frames the probe's CRYPTO octets again while a probe is owed at `level` and nothing else is
@@ -216,12 +216,12 @@ fn repeat_for_probe(connection: *Connection, level: Level) void {
     const from = connection.crypto_probe_from[at] orelse return;
     // A window that has already forgotten those octets, which only a flight longer than the
     // window leads to, leaves the second probe a PING, as it was before.
-    _ = connection.crypto_at(level).on_lost(from);
+    _ = connection_module.crypto_at(connection, level).on_lost(from);
 }
 
 /// Puts the octets in a CRYPTO frame at the level's current offset, and advances it.
 fn write_frame(connection: *Connection, level: Level, payload: []const u8, output: []u8) Error!usize {
-    const stream = connection.crypto_at(level);
+    const stream = connection_module.crypto_at(connection, level);
     var writer = Writer.init(output);
     // RFC 9000 §19.6: the Offset is where these octets sit in the level's own flow, which is how
     // many colibri has already sent on it.
@@ -263,7 +263,7 @@ pub fn take_peer_parameters(connection: *Connection, provider: tls_provider.Quic
     const local = &connection.local_parameters.version_information.?;
     connection_version.check_information(connection.role, local, peer.version_information, connection_version.in_use(connection)) catch
         return Error.VersionNegotiationFailed;
-    connection.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(connection, peer);
     return true;
 }
 

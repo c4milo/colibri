@@ -195,7 +195,7 @@ test "RFC 9000 §10.2.3: a client with no Handshake keys closes in an Initial pa
 test "RFC 9000 §10.2.3: after the handshake is confirmed the close goes in a 1-RTT packet alone" {
     open_pair();
     install_application();
-    server.confirm_handshake();
+    connection_module.confirm_handshake(&server);
     server.termination.state = .active;
     close_module.owe(&server, close_module.transport(test_error_code, test_frame_type));
     // "After the handshake is confirmed ... an endpoint MUST send any CONNECTION_CLOSE frames in

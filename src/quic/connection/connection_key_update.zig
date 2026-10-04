@@ -211,7 +211,7 @@ pub fn on_instant(connection: *Connection, suite: Suite, now_ns: u64) void {
 /// higher than or equal to the former, another key update can be initiated."
 fn current_phase_acknowledged(connection: *Connection) bool {
     const lowest = connection.key_phase.lowest_sent orelse return false;
-    const acknowledged = connection.space_at(.application).largest_acknowledged orelse return false;
+    const acknowledged = connection_module.space_at(connection, .application).largest_acknowledged orelse return false;
     return acknowledged >= lowest;
 }
 

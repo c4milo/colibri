@@ -215,7 +215,7 @@ fn take_ack(
     if (key_update.acknowledges_newer_keys(connection, opened.key_set, ack.ranges.largest_acknowledged)) {
         return Error.OldKeysAcknowledgeNew;
     }
-    _ = connection.space_at(opened.level).on_ack(ack) catch |failure| switch (failure) {
+    _ = connection_module.space_at(connection, opened.level).on_ack(ack) catch |failure| switch (failure) {
         // RFC 9000 §13.1: "if a packet is acknowledged that was never sent, this is a connection
         // error of type PROTOCOL_VIOLATION."
         error.AcknowledgedUnsentPacket => return Error.AcknowledgedUnsentPacket,
@@ -252,7 +252,7 @@ fn take_handshake_done(connection: *Connection) Error!void {
     // RFC 9000 §19.20: "A server MUST treat receipt of a HANDSHAKE_DONE frame as a connection
     // error of type PROTOCOL_VIOLATION", because only a server sends one.
     if (connection.role == .server) return Error.HandshakeDoneFromClient;
-    connection.confirm_handshake();
+    connection_module.confirm_handshake(connection);
 }
 
 test {

@@ -373,7 +373,7 @@ test "RFC 9000 §19.6: the room a frame leaves is measured from the offset it wi
     // nothing back on it yet. §19.6 gives each direction of a level its own flow, so the Offset
     // this frame carries is the sending one and it is still 0, while the receiving mark is 4096.
     fresh(.server);
-    const stream = test_connection.crypto_at(.handshake);
+    const stream = connection_module.crypto_at(&test_connection, .handshake);
     try stream.receive(0, &wide_received);
     stream.consume(wide_offset_len);
     try testing.expectEqual(wide_offset_len, stream.consumed_len());

@@ -127,7 +127,7 @@ fn open(endpoint: *Endpoint, role: connection_module.Role, options: connection_m
         .identity = .{ .local_initial_source = &id_octets, .original_destination = &id_octets },
         .receive = endpoint.pool.storage(),
     });
-    endpoint.transport.apply_peer_parameters(parameters());
+    quic.connection.apply_peer_parameters(&endpoint.transport, parameters());
     endpoint.transport.handshake_complete = true;
     endpoint.h3.init(options);
     endpoint.kept = @splat(.{});

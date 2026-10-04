@@ -184,7 +184,7 @@ test "an ACK frame's delay is decoded by the exponent of the endpoint that sent 
     server.local_parameters.ack_delay_exponent = exponent;
     var peer = parameters();
     peer.ack_delay_exponent = exponent;
-    client.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(&client, peer);
     send.owe_probes(&client, .handshake, 1);
     const probe = try send_from(&client, later_ns);
     _ = try receive(&server, probe.len, later_ns);
@@ -297,7 +297,7 @@ test "the peer's parameters and the chosen protocol are logged once, when the pa
     try testing.expectEqual(0, count_of(&client_log, "quic:alpn_information"));
     var peer = Parameters.initial();
     peer.initial_source_connection_id = .of(&peer_id);
-    client.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(&client, peer);
     connection_qlog.log_changes(&client, provider_holder.provider(), later_ns);
     connection_qlog.log_changes(&client, provider_holder.provider(), later_ns);
     try testing.expectEqual(1, count_of(&client_log, "\"initiator\":\"remote\""));

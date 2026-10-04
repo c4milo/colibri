@@ -486,7 +486,7 @@ test "RFC 9000 §17.2.5.3: a Retry is discarded when the first flight was forgot
     open_as(.client);
     // A flight longer than the send window forgets the octets it already framed, which
     // `send_base` above zero is. colibri cannot repeat what it no longer holds.
-    test_connection.crypto_at(.initial).send_base = 1;
+    connection_module.crypto_at(&test_connection, .initial).send_base = 1;
     const outcome = receive(try retry_packet(&s2, &test_token));
     try testing.expectEqual(retry.Discarded.flight_forgotten, outcome.discarded);
     try testing.expectEqual(null, test_connection.identity.retry_source);

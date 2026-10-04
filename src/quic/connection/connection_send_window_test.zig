@@ -102,7 +102,7 @@ fn leave_window(len: u64) void {
 /// One ack-eliciting packet arrives at `level`. RFC 9000 §13.2.1 has an Initial or Handshake
 /// one acknowledged at once, and lets a 1-RTT one wait for max_ack_delay.
 fn receive_eliciting(level: Level) void {
-    _ = endpoint.space_at(level).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&endpoint, level).receive(0, test_now_ns, true, .not_ect);
 }
 
 test "RFC 9002 A.5, decision 59: a packet in flight is recorded with what it carried" {
@@ -152,7 +152,7 @@ test "RFC 9002 §7: no packet takes more than the window leaves, nor does the ne
     open(.server);
     var peer = parameters();
     peer.max_udp_payload_size = datagram_buffer_len;
-    endpoint.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(&endpoint, peer);
     // Handshake octets to fill the window, and a 1-RTT frame to go after them.
     provider_holder = .{ .owed = &long_flight, .owed_level = .handshake };
     _ = try id_frames.issue(&endpoint, &issued_id, &token);
@@ -171,7 +171,7 @@ test "RFC 9000 §13.2.1: a window that holds everything back sends no ACK that c
     leave_window(0);
     // A lone ACK is not owed yet, and nothing it could go out with may.
     try testing.expectEqual(null, try send_now());
-    try testing.expect(endpoint.space_at(.application).has_new_ack_eliciting());
+    try testing.expect(connection_module.space_at(&endpoint, .application).has_new_ack_eliciting());
 }
 
 test "RFC 9002 §7: a probe goes whatever the window says" {

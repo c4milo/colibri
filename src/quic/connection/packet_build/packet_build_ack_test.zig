@@ -22,8 +22,8 @@ var recovery_scratch: connection_recovery.Scratch align(@alignOf(connection_reco
 test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
     fixture.open_connection();
     // One ack-eliciting Initial arrived, which §13.2.1 says must be acknowledged immediately.
-    _ = fixture.test_connection.space_at(.initial).receive(0, test_now_ns, true, .not_ect);
-    try testing.expect(fixture.test_connection.space_at(.initial).owes_ack(test_now_ns, fixture.test_connection.max_ack_delay_ns()));
+    _ = connection_module.space_at(&fixture.test_connection, .initial).receive(0, test_now_ns, true, .not_ect);
+    try testing.expect(connection_module.space_at(&fixture.test_connection, .initial).owes_ack(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
     const built = (try fixture.build_at(.initial)).?;
     // Table 3 marks ACK with N, so a packet of only ACK frames is not ack-eliciting, and
     // RFC 9002 §2 keeps it out of the bytes in flight.
@@ -32,12 +32,12 @@ test "RFC 9000 §13.2.1: an acknowledgment goes out and elicits nothing" {
 
     // It reads back as an ACK naming the packet that arrived. The peer must have sent that
     // packet for §13.1 to admit the acknowledgment, so its space is advanced first.
-    _ = try fixture.peer_connection.space_at(.initial).next_number();
+    _ = try connection_module.space_at(&fixture.peer_connection, .initial).next_number();
     const opened = try fixture.walk_back(built);
     const report = try frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch);
     try testing.expectEqual(1, report.frames);
     try testing.expect(!report.ack_eliciting);
-    try testing.expectEqual(0, fixture.peer_connection.space_at(.initial).largest_acknowledged.?);
+    try testing.expectEqual(0, connection_module.space_at(&fixture.peer_connection, .initial).largest_acknowledged.?);
 }
 
 test "RFC 9000 §13.2.1: an ACK goes out once max_ack_delay has passed" {
@@ -49,13 +49,13 @@ test "RFC 9000 §13.2.1: an ACK goes out once max_ack_delay has passed" {
     }
     // The peer has sent one packet, so an ACK naming number 0 is not §13.1's acknowledgment of a
     // packet that was never sent when it reads the frame back.
-    _ = fixture.peer_connection.space_at(.application).next_number() catch unreachable;
+    _ = connection_module.space_at(&fixture.peer_connection, .application).next_number() catch unreachable;
     // One in-order ack-eliciting 1-RTT packet, which §13.2.2's count of two does not cover.
-    _ = fixture.test_connection.space_at(.application).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&fixture.test_connection, .application).receive(0, test_now_ns, true, .not_ect);
     fixture.fake = .{};
 
     // Before the delay runs out nothing is owed, so there is nothing to build.
-    const deadline_ns = test_now_ns + fixture.test_connection.max_ack_delay_ns();
+    const deadline_ns = test_now_ns + connection_module.max_ack_delay_ns(&fixture.test_connection);
     try testing.expectEqual(null, try fixture.build_at_instant(.application, deadline_ns - 1));
 
     // "ack-eliciting packets MUST be acknowledged at least once within the maximum delay an
@@ -79,10 +79,10 @@ test "RFC 9000 §13.2.1: an ACK not yet owed goes out with other frames, and onl
         keys.on_keys_installed(connection, .application, .write);
         connection.handshake_complete = true;
     }
-    _ = fixture.peer_connection.space_at(.application).next_number() catch unreachable;
-    const space = fixture.test_connection.space_at(.application);
+    _ = connection_module.space_at(&fixture.peer_connection, .application).next_number() catch unreachable;
+    const space = connection_module.space_at(&fixture.test_connection, .application);
     _ = space.receive(0, test_now_ns, true, .not_ect);
-    try testing.expect(!space.owes_ack(test_now_ns, fixture.test_connection.max_ack_delay_ns()));
+    try testing.expect(!space.owes_ack(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
     fixture.fake = .{};
 
     // "An endpoint SHOULD send an ACK frame with other frames when there are new ack-eliciting
@@ -93,7 +93,7 @@ test "RFC 9000 §13.2.1: an ACK not yet owed goes out with other frames, and onl
     const opened = try fixture.walk_back(built);
     const report = try frames.process(&fixture.peer_connection, opened, test_now_ns, &recovery_scratch);
     try testing.expectEqual(2, report.frames);
-    try testing.expectEqual(0, fixture.peer_connection.space_at(.application).largest_acknowledged.?);
+    try testing.expectEqual(0, connection_module.space_at(&fixture.peer_connection, .application).largest_acknowledged.?);
 
     // With nothing new to acknowledge, the next packet's other frame goes alone.
     fixture.test_connection.path.owe_challenge(challenge_data);
@@ -108,13 +108,13 @@ test "RFC 9000 §13.2.2: an ACK taken back leaves the count, so the second packe
     keys.on_keys_installed(&fixture.test_connection, .application, .write);
     fixture.test_connection.handshake_complete = true;
     fixture.fake = .{};
-    const space = fixture.test_connection.space_at(.application);
+    const space = connection_module.space_at(&fixture.test_connection, .application);
     _ = space.receive(0, test_now_ns, true, .not_ect);
     // The ACK is pending and would stand alone, so it is taken back.
     try testing.expectEqual(null, try fixture.build_at_instant(.application, test_now_ns));
     // §13.2.2: a receiver sends one "after receiving at least two ack-eliciting packets".
     _ = space.receive(1, test_now_ns, true, .not_ect);
-    try testing.expect(space.owes_ack(test_now_ns, fixture.test_connection.max_ack_delay_ns()));
+    try testing.expect(space.owes_ack(test_now_ns, connection_module.max_ack_delay_ns(&fixture.test_connection)));
 }
 
 /// Opens the fixture's pair at the application level, with `sent_at_ns` the instant the tested
@@ -138,8 +138,8 @@ const packets_owing_ack: usize = 2;
 fn receive_two() void {
     // Bounded by the count.
     for (0..packets_owing_ack) |_| {
-        const number = fixture.peer_connection.space_at(.application).next_number() catch unreachable;
-        _ = fixture.test_connection.space_at(.application).receive(number, test_now_ns, true, .not_ect);
+        const number = connection_module.space_at(&fixture.peer_connection, .application).next_number() catch unreachable;
+        _ = connection_module.space_at(&fixture.test_connection, .application).receive(number, test_now_ns, true, .not_ect);
     }
 }
 
@@ -194,7 +194,7 @@ test "decision 73: the PING joins an ACK the space owes, and never forces one ou
     open_application(test_now_ns);
     fixture.test_connection.recovery.rtt.smoothed_ns = short_round_trip_ns;
     // One in-order ack-eliciting packet, whose ACK may wait for max_ack_delay (§13.2.1).
-    const number = try fixture.peer_connection.space_at(.application).next_number();
-    _ = fixture.test_connection.space_at(.application).receive(number, test_now_ns, true, .not_ect);
+    const number = try connection_module.space_at(&fixture.peer_connection, .application).next_number();
+    _ = connection_module.space_at(&fixture.test_connection, .application).receive(number, test_now_ns, true, .not_ect);
     try testing.expectEqual(null, try fixture.build_at_instant(.application, test_now_ns + short_round_trip_ns));
 }

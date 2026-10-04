@@ -85,8 +85,8 @@ test "RFC 9002 §6.2.4: a probe carries what else is owed, and a PING only when 
 
     // A pending ACK elicits nothing, so a probe beside it carries a PING, and the ACK is not taken
     // back as one standing alone would be (RFC 9000 §13.2.1).
-    _ = fixture.peer_connection.space_at(.application).next_number() catch unreachable;
-    _ = fixture.test_connection.space_at(.application).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&fixture.peer_connection, .application).next_number() catch unreachable;
+    _ = connection_module.space_at(&fixture.test_connection, .application).receive(0, test_now_ns, true, .not_ect);
     send.owe_probes(&fixture.test_connection, .application, 1);
     const with_ack = (try fixture.build_at(.application)).?;
     try testing.expect(with_ack.ack_eliciting);
@@ -205,13 +205,13 @@ test "RFC 9000 §10.1.2: a packet that elicits an acknowledgment anyway answers 
 test "RFC 9000 §13.2: a probe repeats the latest ACK, whose own packet the path lost" {
     open_application();
     // The peer's packet 0 arrived. The peer sent it, so §13.1 admits an ACK naming it.
-    _ = try fixture.peer_connection.space_at(.application).next_number();
-    _ = fixture.test_connection.space_at(.application).receive(0, test_now_ns, true, .not_ect);
+    _ = try connection_module.space_at(&fixture.peer_connection, .application).next_number();
+    _ = connection_module.space_at(&fixture.test_connection, .application).receive(0, test_now_ns, true, .not_ect);
     // Its ACK goes out alone once max_ack_delay has passed, and the path loses that packet.
-    const later_ns = test_now_ns + fixture.test_connection.max_ack_delay_ns();
+    const later_ns = test_now_ns + connection_module.max_ack_delay_ns(&fixture.test_connection);
     const lost = (try fixture.build_at_instant(.application, later_ns)).?;
     try testing.expect(!lost.ack_eliciting);
-    try testing.expect(!fixture.test_connection.space_at(.application).has_new_ack_eliciting());
+    try testing.expect(!connection_module.space_at(&fixture.test_connection, .application).has_new_ack_eliciting());
     try testing.expectEqual(null, try fixture.build_at_instant(.application, later_ns));
     // A PTO fires. The probe carries the ACK again beside its PING, though nothing new asks for
     // one, and the peer learns its packet 0 arrived.
@@ -220,15 +220,15 @@ test "RFC 9000 §13.2: a probe repeats the latest ACK, whose own packet the path
     try testing.expect(probe.ack_eliciting);
     const report = try read_back(probe);
     try testing.expectEqual(2, report.frames);
-    try testing.expectEqual(0, fixture.peer_connection.space_at(.application).largest_acknowledged.?);
+    try testing.expectEqual(0, connection_module.space_at(&fixture.peer_connection, .application).largest_acknowledged.?);
 }
 
 test "RFC 9000 §13.2: a Handshake probe repeats the latest ACK too" {
     fixture.open_connection();
     // The peer's Handshake packet 0 arrived, and §13.2.1 sends its ACK at once, in a packet the
     // path loses.
-    _ = try fixture.peer_connection.space_at(.handshake).next_number();
-    _ = fixture.test_connection.space_at(.handshake).receive(0, test_now_ns, true, .not_ect);
+    _ = try connection_module.space_at(&fixture.peer_connection, .handshake).next_number();
+    _ = connection_module.space_at(&fixture.test_connection, .handshake).receive(0, test_now_ns, true, .not_ect);
     const lost = (try fixture.build_at(.handshake)).?;
     try testing.expect(!lost.ack_eliciting);
     try testing.expectEqual(null, try fixture.build_at(.handshake));
@@ -237,14 +237,14 @@ test "RFC 9000 §13.2: a Handshake probe repeats the latest ACK too" {
     try testing.expect(probe.ack_eliciting);
     const report = try read_back(probe);
     try testing.expectEqual(2, report.frames);
-    try testing.expectEqual(0, fixture.peer_connection.space_at(.handshake).largest_acknowledged.?);
+    try testing.expectEqual(0, connection_module.space_at(&fixture.peer_connection, .handshake).largest_acknowledged.?);
 }
 
 test "decision 107: an Initial probe does not repeat an ACK already sent" {
     fixture.open_connection();
     // The peer's Initial packet 0 arrived, and its ACK went out at once in a packet the path lost.
-    _ = try fixture.peer_connection.space_at(.initial).next_number();
-    _ = fixture.test_connection.space_at(.initial).receive(0, test_now_ns, true, .not_ect);
+    _ = try connection_module.space_at(&fixture.peer_connection, .initial).next_number();
+    _ = connection_module.space_at(&fixture.test_connection, .initial).receive(0, test_now_ns, true, .not_ect);
     const lost = (try fixture.build_at(.initial)).?;
     try testing.expect(!lost.ack_eliciting);
     // RFC 9002 §5.3 lets the peer ignore an Initial ACK's delay, so the probe carries no old ACK.
@@ -252,5 +252,5 @@ test "decision 107: an Initial probe does not repeat an ACK already sent" {
     const probe = (try fixture.build_at(.initial)).?;
     try testing.expect(probe.ack_eliciting);
     _ = try read_back(probe);
-    try testing.expectEqual(null, fixture.peer_connection.space_at(.initial).largest_acknowledged);
+    try testing.expectEqual(null, connection_module.space_at(&fixture.peer_connection, .initial).largest_acknowledged);
 }

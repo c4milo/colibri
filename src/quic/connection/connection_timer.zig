@@ -87,7 +87,7 @@ fn acknowledgment_deadline_ns(connection: *const Connection) ?u64 {
     // owes an ACK. A deadline `send` cannot meet would come due again at every instant.
     if (connection.termination.state != .active) return null;
     const space = &connection.spaces[@intFromEnum(core.Level.application)];
-    return space.ack_deadline_ns(connection.max_ack_delay_ns());
+    return space.ack_deadline_ns(connection_module.max_ack_delay_ns(connection));
 }
 
 /// The instant the PATH_CHALLENGE this endpoint waits on times out or is owed again (RFC 9000

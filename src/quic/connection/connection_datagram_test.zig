@@ -117,7 +117,7 @@ test "RFC 9000 §13.1, §10.1: a processed packet is recorded and restarts the i
     const sent = try send_from(&client);
     const received = try receive_at(&server, provider_holder.provider(), sent.len, later_ns);
     try testing.expectEqual(1, received.processed);
-    try testing.expectEqual(sent.packets[0].packet_number, server.space_at(.handshake).received.largest().?);
+    try testing.expectEqual(sent.packets[0].packet_number, connection_module.space_at(&server, .handshake).received.largest().?);
     try testing.expectEqual(later_ns, server.termination.idle_since_ns);
 }
 
@@ -143,30 +143,30 @@ test "decision 65: a client's padded Initial PING has the server send its CRYPTO
     // The server's first flight, which the path loses.
     provider_holder = .{ .owed = &flight, .owed_level = .initial };
     _ = try send_from(&server);
-    try testing.expectEqual(0, server.crypto_at(.initial).unsent().len);
+    try testing.expectEqual(0, connection_module.crypto_at(&server, .initial).unsent().len);
     // RFC 9002 §6.2.2.1: a client whose PTO fires with no Handshake keys sends an Initial.
     provider_holder = .{};
     send.owe_probes(&client, .initial, 1);
     const probe = try send_from(&client);
     _ = try receive(&server, probe.len);
-    try testing.expectEqual(flight_len, server.crypto_at(.initial).unsent().len);
+    try testing.expectEqual(flight_len, connection_module.crypto_at(&server, .initial).unsent().len);
     try testing.expectEqual(1, server.early_crypto_resends);
 }
 
 test "RFC 9000 §13.1: a packet whose frames close the connection is not recorded" {
     open_pair(&.{.handshake});
     // The client acknowledges a packet the server never sent (RFC 9000 §13.1).
-    _ = client.space_at(.handshake).receive(unsent_number, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&client, .handshake).receive(unsent_number, test_now_ns, true, .not_ect);
     const sent = try send_from(&client);
     try testing.expectError(error.AcknowledgedUnsentPacket, receive(&server, sent.len));
-    try testing.expectEqual(null, server.space_at(.handshake).received.largest());
+    try testing.expectEqual(null, connection_module.space_at(&server, .handshake).received.largest());
     try testing.expectEqual(test_now_ns, server.termination.idle_since_ns);
 }
 
 test "RFC 9001 §4.9.2: HANDSHAKE_DONE confirms a client and discards its Handshake keys" {
     open_pair(&.{ .handshake, .application });
     for ([_]*Connection{ &client, &server }) |connection| connection.handshake_complete = true;
-    server.confirm_handshake();
+    connection_module.confirm_handshake(&server);
     server.handshake_done.owed = true;
     const sent = try send_from(&server);
     _ = try receive(&client, sent.len);
@@ -293,7 +293,7 @@ test "decision 62: a Handshake packet behind the Initial that made its keys open
     recorder = .{ .makes_available = .handshake };
     const received = try receive_at(&server, recorder.provider(), sent.len, test_now_ns);
     try testing.expectEqual(2, received.processed);
-    try testing.expectEqual(sent.packets[1].packet_number, server.space_at(.handshake).received.largest().?);
+    try testing.expectEqual(sent.packets[1].packet_number, connection_module.space_at(&server, .handshake).received.largest().?);
 }
 
 test "decision 62: a 1-RTT packet behind the packet that completes the handshake opens" {
@@ -311,7 +311,7 @@ test "decision 62: a 1-RTT packet behind the packet that completes the handshake
     const received = try receive_at(&server, recorder.provider(), sent.len, test_now_ns);
     try testing.expect(received.handshake_completed);
     try testing.expectEqual(2, received.processed);
-    try testing.expectEqual(sent.packets[1].packet_number, server.space_at(.application).received.largest().?);
+    try testing.expectEqual(sent.packets[1].packet_number, connection_module.space_at(&server, .application).received.largest().?);
 }
 
 test "decision 62: receive marks the Initial keys the caller gave the suite before it" {

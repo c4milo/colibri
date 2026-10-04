@@ -63,8 +63,8 @@ fn open_pair(limit: u64) void {
     provider_holder = .{};
     open_one(&client, .client, limit);
     open_one(&server, .server, limit);
-    client.apply_peer_parameters(parameters(limit));
-    server.apply_peer_parameters(parameters(limit));
+    connection_module.apply_peer_parameters(&client, parameters(limit));
+    connection_module.apply_peer_parameters(&server, parameters(limit));
 }
 
 fn open_one(connection: *Connection, role: connection_module.Role, limit: u64) void {

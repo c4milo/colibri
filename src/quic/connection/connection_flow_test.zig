@@ -87,8 +87,8 @@ fn open_pair() void {
     provider_holder = .{};
     open_one(&client, .client);
     open_one(&server, .server);
-    client.apply_peer_parameters(parameters());
-    server.apply_peer_parameters(parameters());
+    connection_module.apply_peer_parameters(&client, parameters());
+    connection_module.apply_peer_parameters(&server, parameters());
 }
 
 fn open_one(connection: *Connection, role: connection_module.Role) void {
@@ -437,7 +437,7 @@ fn ping_server() !void {
 
 test "RFC 9000 §4.1: a sender still blocked with nothing in flight says so again a PTO later" {
     open_pair();
-    client.confirm_handshake();
+    connection_module.confirm_handshake(&client);
     const id = try fill_window_recorded(body_len, false);
     const blocked = (try send_from(&client)).?;
     // The BLOCKED frames are in flight, so nothing is owed yet.
@@ -462,7 +462,7 @@ test "RFC 9000 §4.1: a sender still blocked with nothing in flight says so agai
 
 test "RFC 9000 §4.1: a sender the limits hold nothing back for owes nothing periodically" {
     open_pair();
-    client.confirm_handshake();
+    connection_module.confirm_handshake(&client);
     // The whole body and its FIN fit in the window, so the limit holds nothing back.
     _ = try fill_window_recorded(window, true);
     try ping_server();

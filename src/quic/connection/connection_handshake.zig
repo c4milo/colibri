@@ -53,7 +53,7 @@ pub fn complete(connection: *Connection, provider: tls_provider.QuicProvider, su
     // handshake completes. The server MUST send a HANDSHAKE_DONE frame as soon as the handshake
     // is complete." A client waits for that frame.
     if (connection.role == .server) {
-        connection.confirm_handshake();
+        connection_module.confirm_handshake(connection);
         connection.handshake_done.owed = true;
         // RFC 9001 §4.9.2: "An endpoint MUST discard its Handshake keys when the TLS handshake
         // is confirmed".

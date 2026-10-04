@@ -119,7 +119,7 @@ fn walk_back(reader: *Connection, sent: send.Sent) !usize {
 test "RFC 9000 §12.2: two levels are coalesced into one datagram, in increasing order" {
     open_pair();
     // The client owes a flight at both handshake levels, which is the case §12.2 exists for.
-    _ = client.space_at(.initial).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&client, .initial).receive(0, test_now_ns, true, .not_ect);
     provider_holder = .{ .owed = &flight, .owed_level = .initial };
     const first = (try send_from(&client)).?;
     try testing.expectEqual(1, first.count);
@@ -127,7 +127,7 @@ test "RFC 9000 §12.2: two levels are coalesced into one datagram, in increasing
 
     // Both endpoints must have sent what the other acknowledges, so the server's space is moved
     // along before it reads.
-    _ = try server.space_at(.initial).next_number();
+    _ = try connection_module.space_at(&server, .initial).next_number();
     try testing.expectEqual(1, try walk_back(&server, first));
 }
 
@@ -143,7 +143,7 @@ test "RFC 9000 §14.1, decision 54: a client's Initial datagram reaches 1,200 oc
     try testing.expect(sent.written()[sent.count - 1].in_flight);
 
     // And it still comes apart: the PADDING is frames inside the packet, not octets after it.
-    _ = try server.space_at(.initial).next_number();
+    _ = try connection_module.space_at(&server, .initial).next_number();
     try testing.expectEqual(1, try walk_back(&server, sent));
 }
 
@@ -152,7 +152,7 @@ test "RFC 9000 §14.1: a server expands only its ack-eliciting Initial datagrams
     // An Initial carrying nothing but an acknowledgment. §14.1 asks a server to expand "all UDP
     // datagrams carrying ack-eliciting Initial packets", and this is not one.
     server.path.on_datagram_received(constants.datagram_len_min);
-    _ = server.space_at(.initial).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&server, .initial).receive(0, test_now_ns, true, .not_ect);
     const sent = (try send_from(&server)).?;
     try testing.expect(!sent.written()[0].ack_eliciting);
     try testing.expect(sent.len < constants.datagram_len_min);
@@ -215,7 +215,7 @@ test "RFC 9000 §14.2: no datagram exceeds the smallest maximum, whatever the pe
     var peer = parameters();
     const larger: u64 = 1500;
     peer.max_udp_payload_size = larger;
-    client.apply_peer_parameters(peer);
+    connection_module.apply_peer_parameters(&client, peer);
     provider_holder = .{ .owed = &long_flight, .owed_level = .initial };
     const after = (try send_from(&client)).?;
     try testing.expectEqual(constants.datagram_len_min, after.len);
@@ -385,7 +385,7 @@ test "RFC 9000 §13.3: CRYPTO octets from a lost packet are sent again under a n
 
     // The peer reads the flight off the second datagram, having never seen the first.
     _ = try walk_back(&server, again);
-    try testing.expectEqualSlices(u8, &flight, server.crypto_at(.initial).readable());
+    try testing.expectEqualSlices(u8, &flight, connection_module.crypto_at(&server, .initial).readable());
 }
 
 test "RFC 9000 §13.3: a lost packet that carried no CRYPTO asks for nothing" {
@@ -418,7 +418,7 @@ test "RFC 9000 §13.3: octets the window forgot cannot be sent again" {
     const first = (try send_from(&client)).?;
     // A flight longer than the send window forgets what it has already framed, which `send_base`
     // above the lost offset is. §13.3 has no answer for that.
-    client.crypto_at(.initial).send_base = 1;
+    connection_module.crypto_at(&client, .initial).send_base = 1;
 
     const report = connection_crypto.on_packets_lost(&client, .initial, &.{record_of(first, 0)});
     try testing.expectEqual(1, report.packets);
@@ -450,7 +450,7 @@ test "RFC 9000 §13.3: losing a packet of frames that need no repair asks for no
     open_application(&client);
     // An ACK, a PATH_RESPONSE and a PATH_CHALLENGE, which §13.3 answers three different ways and
     // none of them by sending this packet's frames again.
-    const space = client.space_at(.application);
+    const space = connection_module.space_at(&client, .application);
     _ = space.receive(0, test_now_ns, true, .not_ect);
     _ = space.receive(1, test_now_ns, true, .not_ect);
     client.path.take_challenge(challenge_data);

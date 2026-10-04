@@ -226,8 +226,8 @@ fn process_packet(
     scratch: *Scratch,
     received: *Received,
 ) Error!void {
-    const initial_received_len = connection.crypto_at(.initial).received_len();
-    const largest_before = connection.space_at(opened.level).received.largest();
+    const initial_received_len = connection_module.crypto_at(connection, .initial).received_len();
+    const largest_before = connection_module.space_at(connection, opened.level).received.largest();
     const report = try frames.process(connection, opened, datagram.now_ns, &scratch.recovery);
     // RFC 9000 §9.3: only a non-probing 1-RTT packet that raises the largest packet number moves
     // the path. Every packet before the handshake travels on the path it began on (§9).
@@ -237,7 +237,7 @@ fn process_packet(
     // successfully removed and all frames contained in the packet have been processed."
     // Decision 68: a caller that reads no codepoint passes Not-ECT, so no count rises.
     assert(connection.ecn_reads or datagram.ecn == .not_ect);
-    _ = connection.space_at(opened.level).receive(opened.packet_number, datagram.now_ns, report.ack_eliciting, datagram.ecn);
+    _ = connection_module.space_at(connection, opened.level).receive(opened.packet_number, datagram.now_ns, report.ack_eliciting, datagram.ecn);
     // RFC 9000 §10.1: "An endpoint restarts its idle timer when a packet from its peer is
     // received and processed successfully."
     connection.termination.on_packet_received(datagram.now_ns);

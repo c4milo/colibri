@@ -264,7 +264,7 @@ pub const Connection = struct {
     /// Both levels of §4.1. The send side starts at zero for the same reason the stream limits do.
     fn init_flow(connection: *Connection, parameters: Parameters) void {
         connection.send_flow = flow.Sender.init(0);
-        connection.receive_flow = flow.Receiver.init(parameters.initial_max_data, connection.receive_window_max(parameters.initial_max_data));
+        connection.receive_flow = flow.Receiver.init(parameters.initial_max_data, receive_window_max(connection, parameters.initial_max_data));
     }
 
     fn init_paths(connection: *Connection, options: Options) void {
@@ -297,43 +297,6 @@ pub const Connection = struct {
         connection.recovery.init(constants.datagram_len_min);
     }
 
-    /// Takes the peer's parameters once the handshake has carried them (RFC 9000 §7.4), which is
-    /// what raises every limit colibri may spend against.
-    pub fn apply_peer_parameters(connection: *Connection, peer: Parameters) void {
-        assert(peer.valid());
-        // RFC 9000 §7.4: a peer sends its parameters once, so this runs once.
-        assert(connection.peer_parameters == null);
-        connection.peer_parameters = peer;
-        // RFC 9000 §18.2: initial_max_data is "the initial value for the maximum amount of data
-        // that can be sent on the connection".
-        _ = connection.send_flow.raise(peer.initial_max_data);
-        // §18.2: each stream limit is "equivalent to sending a MAX_STREAMS of the corresponding
-        // type with the same value", so raising is the same operation a MAX_STREAMS performs.
-        _ = connection.streams.raise_local_limit(.bidirectional, peer.initial_max_streams_bidi);
-        _ = connection.streams.raise_local_limit(.unidirectional, peer.initial_max_streams_uni);
-        // RFC 9000 §10.1: "the effective value at an endpoint is computed as the minimum of the two
-        // advertised values (or the sole advertised value, if only one endpoint advertises a
-        // non-zero value)".
-        connection.termination.idle_timeout_ns = termination_module.Termination.advertised_idle_timeout_ns(
-            connection.local_parameters.max_idle_timeout_ms,
-            peer.max_idle_timeout_ms,
-        );
-        // RFC 9002 §6.2.1: the Probe Timeout adds the peer's max_ack_delay, which RFC 9000 §18.2
-        // gives "in milliseconds".
-        connection.recovery.rtt.peer_max_ack_delay_ns = peer.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
-        assert(connection.peer_parameters != null);
-    }
-
-    /// The packet number space a packet at `level` belongs to (RFC 9000 §12.3).
-    pub fn space_at(connection: *Connection, level: Level) *space.Space {
-        return &connection.spaces[@intFromEnum(level)];
-    }
-
-    /// The CRYPTO stream a packet at `level` carries handshake octets on (RFC 9000 §19.6).
-    pub fn crypto_at(connection: *Connection, level: Level) *crypto_stream.CryptoStream {
-        return connection.crypto_streams.at(level);
-    }
-
     /// Whether a packet whose Destination Connection ID is `dcid` belongs to this connection.
     /// RFC 9000 §5.2 has the caller decide that before it hands the datagram over, and the
     /// connection holds the IDs it is decided by.
@@ -349,29 +312,66 @@ pub const Connection = struct {
         if (connection.identity.retry_source) |retry| return std.mem.eql(u8, retry.slice(), dcid);
         return std.mem.eql(u8, connection.identity.original_destination.slice(), dcid);
     }
-
-    /// RFC 9000 §18.2: the maximum delay this endpoint advertised before it acknowledges an
-    /// ack-eliciting packet, in the unit RFC 9002 counts in. §13.2.1 calls it "an explicit
-    /// contract", so it is this endpoint's own parameter and never the peer's.
-    pub fn max_ack_delay_ns(connection: *const Connection) u64 {
-        return connection.local_parameters.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
-    }
-
-    /// The largest a receive window starting at `window` grows to (decision 49): the receive
-    /// pool's capacity (decision 61), or `window` itself when the connection keeps no octets.
-    pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
-        const storage = connection.receive_storage orelse return window;
-        // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
-        assert(window <= storage.capacity);
-        return storage.capacity;
-    }
-
-    /// RFC 9001 §4.1.2's confirmed state, which a server reaches when the handshake completes and
-    /// a client when a HANDSHAKE_DONE frame arrives.
-    pub fn confirm_handshake(connection: *Connection) void {
-        connection.handshake_confirmed = true;
-    }
 };
+
+/// The packet number space a packet at `level` belongs to (RFC 9000 §12.3).
+pub fn space_at(connection: *Connection, level: Level) *space.Space {
+    return &connection.spaces[@intFromEnum(level)];
+}
+
+/// The CRYPTO stream a packet at `level` carries handshake octets on (RFC 9000 §19.6).
+pub fn crypto_at(connection: *Connection, level: Level) *crypto_stream.CryptoStream {
+    return connection.crypto_streams.at(level);
+}
+
+/// Takes the peer's parameters once the handshake has carried them (RFC 9000 §7.4), which is
+/// what raises every limit colibri may spend against.
+pub fn apply_peer_parameters(connection: *Connection, peer: Parameters) void {
+    assert(peer.valid());
+    // RFC 9000 §7.4: a peer sends its parameters once, so this runs once.
+    assert(connection.peer_parameters == null);
+    connection.peer_parameters = peer;
+    // RFC 9000 §18.2: initial_max_data is "the initial value for the maximum amount of data
+    // that can be sent on the connection".
+    _ = connection.send_flow.raise(peer.initial_max_data);
+    // §18.2: each stream limit is "equivalent to sending a MAX_STREAMS of the corresponding
+    // type with the same value", so raising is the same operation a MAX_STREAMS performs.
+    _ = connection.streams.raise_local_limit(.bidirectional, peer.initial_max_streams_bidi);
+    _ = connection.streams.raise_local_limit(.unidirectional, peer.initial_max_streams_uni);
+    // RFC 9000 §10.1: "the effective value at an endpoint is computed as the minimum of the two
+    // advertised values (or the sole advertised value, if only one endpoint advertises a
+    // non-zero value)".
+    connection.termination.idle_timeout_ns = termination_module.Termination.advertised_idle_timeout_ns(
+        connection.local_parameters.max_idle_timeout_ms,
+        peer.max_idle_timeout_ms,
+    );
+    // RFC 9002 §6.2.1: the Probe Timeout adds the peer's max_ack_delay, which RFC 9000 §18.2
+    // gives "in milliseconds".
+    connection.recovery.rtt.peer_max_ack_delay_ns = peer.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
+    assert(connection.peer_parameters != null);
+}
+
+/// RFC 9000 §18.2: the maximum delay this endpoint advertised before it acknowledges an
+/// ack-eliciting packet, in the unit RFC 9002 counts in. §13.2.1 calls it "an explicit
+/// contract", so it is this endpoint's own parameter and never the peer's.
+pub fn max_ack_delay_ns(connection: *const Connection) u64 {
+    return connection.local_parameters.max_ack_delay_ms *| constants.nanoseconds_per_millisecond;
+}
+
+/// The largest a receive window starting at `window` grows to (decision 49): the receive
+/// pool's capacity (decision 61), or `window` itself when the connection keeps no octets.
+pub fn receive_window_max(connection: *const Connection, window: u64) u64 {
+    const storage = connection.receive_storage orelse return window;
+    // RFC 9000 §4.1: a receiver advertises what it can hold, and the pool is all it holds.
+    assert(window <= storage.capacity);
+    return storage.capacity;
+}
+
+/// RFC 9001 §4.1.2's confirmed state, which a server reaches when the handshake completes and
+/// a client when a HANDSHAKE_DONE frame arrives.
+pub fn confirm_handshake(connection: *Connection) void {
+    connection.handshake_confirmed = true;
+}
 
 /// The connection's role as the stream table names it. RFC 9000 §2.1 calls the endpoint that
 /// opened a stream its initiator, which is the same two values under a name about streams.
@@ -385,6 +385,12 @@ fn initiator_of(role: Role) stream_id.Initiator {
 comptime {
     // One space per encryption level, which is what lets `space_at` index by level.
     assert(constants.packet_number_spaces == core.levels_count);
+}
+
+test "decision 115: the connection's public functions are the calls a program makes" {
+    // What the module's own files call on a connection is a function of this file, and the root
+    // exports only the ones the simulator and the corpus call.
+    try core.public_names.expect(Connection, &.{ "init", "addressed_by" });
 }
 
 test {

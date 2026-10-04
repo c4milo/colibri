@@ -290,7 +290,7 @@ fn send_limit(connection: *const Connection, id: StreamId) u64 {
 /// `flow.Receiver.init` cannot express because decision 49's window must be above zero.
 fn receiver_for(connection: *const Connection, limit: u64) flow.Receiver {
     if (limit == 0) return flow.Receiver.none();
-    return flow.Receiver.init(limit, connection.receive_window_max(limit));
+    return flow.Receiver.init(limit, connection_module.receive_window_max(connection, limit));
 }
 
 /// RFC 9000 §19.11's bit and §2.1's bit stand for the same thing under two names: the frame

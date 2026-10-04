@@ -74,7 +74,7 @@ pub fn decode(state: ReceiveState, octets: []const u8) Error!void {
             .discarded => |reason| return discard_error(reason),
         };
         // RFC 9000 §13.1: the packet is recorded once processed, which here is once opened.
-        _ = connection.space_at(opened.level).receive(opened.packet_number, test_now_ns, false, .not_ect);
+        _ = quic.connection.space_at(&connection, opened.level).receive(opened.packet_number, test_now_ns, false, .not_ect);
     }
     unreachable;
 }

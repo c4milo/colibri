@@ -113,8 +113,8 @@ pub fn open_pair(windows: Windows) void {
     provider_holder = .{};
     open_one(&client, .client);
     open_one(&server, .server);
-    client.apply_peer_parameters(parameters(windows));
-    server.apply_peer_parameters(parameters(.{}));
+    connection_module.apply_peer_parameters(&client, parameters(windows));
+    connection_module.apply_peer_parameters(&server, parameters(.{}));
 }
 
 fn open_one(connection: *Connection, role: connection_module.Role) void {

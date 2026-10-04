@@ -219,7 +219,7 @@ test "RFC 9000 §13.2.1: an unacknowledged ack-eliciting packet is a deadline of
     open_connection(idle_timeout_ms);
     // One in-order ack-eliciting 1-RTT packet: §13.2.2's count of two is not met, so what makes
     // the acknowledgment owed is §13.2.1's "explicit contract" and nothing else.
-    _ = test_connection.space_at(.application).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&test_connection, .application).receive(0, test_now_ns, true, .not_ect);
 
     const deadline = next().?;
     try testing.expectEqual(timer.Kind.acknowledgment, deadline.kind);
@@ -232,13 +232,13 @@ test "RFC 9000 §13.2.1: an unacknowledged ack-eliciting packet is a deadline of
 
     // A second ack-eliciting packet meets §13.2.2's count, so one is owed now and wants no
     // timer: the caller writes it on its next pass and the idle timeout is nearest again.
-    _ = test_connection.space_at(.application).receive(1, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&test_connection, .application).receive(1, test_now_ns, true, .not_ect);
     try testing.expectEqual(timer.Kind.idle, next().?.kind);
 }
 
 test "RFC 9000 §10.2.1: a closing connection owes no ACK and no PATH_CHALLENGE, so its period is next" {
     open_connection(idle_timeout_ms);
-    _ = test_connection.space_at(.application).receive(0, test_now_ns, true, .not_ect);
+    _ = connection_module.space_at(&test_connection, .application).receive(0, test_now_ns, true, .not_ect);
     test_connection.path.on_challenge_sent(challenge_data, constants.datagram_len_min, test_now_ns, challenge_timeout_ns);
     try testing.expectEqual(timer.Kind.path, next().?.kind);
     const probe_timeout_ns = test_connection.recovery.rtt.probe_timeout_ns(true);

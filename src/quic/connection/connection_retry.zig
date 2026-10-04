@@ -120,7 +120,7 @@ pub fn receive(
     // §17.2.5.3: the same cryptographic handshake message goes out again, in a new Initial with
     // the new Destination Connection ID and the token. The packet number is not reset: §17.2.5.3
     // forbids it, and nothing here touches the space.
-    connection.crypto_at(.initial).rewind();
+    connection_module.crypto_at(connection, .initial).rewind();
     assert(connection.identity.retry_source != null);
     return .{ .taken = .{ .destination = retry.scid } };
 }

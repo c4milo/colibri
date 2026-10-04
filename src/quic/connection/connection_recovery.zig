@@ -178,7 +178,7 @@ pub fn on_initial_processed(connection: *Connection, ack_eliciting: bool, receiv
     if (connection.role != .server or !ack_eliciting) return;
     // New octets are the client's own flight still arriving, which shows nothing about the
     // server's.
-    if (connection.crypto_at(.initial).received_len() != received_len_before) return;
+    if (connection_module.crypto_at(connection, .initial).received_len() != received_len_before) return;
     // RFC 9002 §6.2.3: "for a limited number of times per connection".
     if (connection.early_crypto_resends == constants.early_crypto_resends_max) return;
     // RFC 9002 §6.2.3: what is sent early is "unacknowledged CRYPTO data", so without any there

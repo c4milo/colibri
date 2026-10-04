@@ -162,7 +162,7 @@ pub fn plan(
     // RFC 9001 §4.9 and invariant 21: a level colibri never installed or already discarded is not
     // one to seal at, and §4.9.1 makes sending an Initial after the discard a rule broken.
     if (!keys_module.can_seal(connection, level)) return null;
-    const space = connection.space_at(level);
+    const space = connection_module.space_at(connection, level);
     // RFC 9000 §17.1, Appendix A.2: the width is measured against the largest acknowledged in
     // this space and no other. It is settled before framing because it sizes the header.
     const number = space.peek_number() catch return Error.PacketNumbersExhausted;

@@ -271,7 +271,7 @@ fn open_at(
     if (!keys_module.can_open(connection, level, connection.handshake_complete)) {
         return advance(walk, packet_len, .no_keys);
     }
-    const space = connection.space_at(level);
+    const space = connection_module.space_at(connection, level);
     const opened = suite.open(.{
         .level = level,
         .version = version,
