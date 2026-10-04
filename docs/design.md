@@ -5834,6 +5834,65 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - h2o 2.2.5 codes nothing for a token that carries a weight: `br;q=0.9` gets an uncoded answer,
     and `br` a coded one. So the test client offers `br` first, with no weight.
 
+  **17f, what a dependent reads, 2026-10-04.** The owner asked whether the client and the server
+  are easy to use, and then why so much of them was public. The release is the owner's to cut.
+  - `examples/tls_exchange.zig` runs `server.Connection` and `client.Connection` over TLS: ALPN
+    picks h2, the client places a GET and a POST, and the server answers each by its id. The
+    server sleeps no longer than `deadline_ns` and calls `on_instant` each turn (decision 110).
+  - `examples/h3_exchange.zig` runs `server.Endpoint` and `client.Channel` over
+    `examples/link_datagram.zig`, which moves datagrams between the two Rotor loops of
+    `examples/link.zig`. `examples/tls_program.zig` holds what a program that links `tls` defines
+    once. Both examples present the test identity ([decision 96](decisions.md) as amended).
+  - docs/usage.md and README.md lead with the two modules. The guide's sections on the server,
+    the client, the endpoint and the channel are excerpts of the two examples, and
+    `tools/consumer/` builds `server`, `client` and `tls` as a dependent and runs an h2 exchange.
+  - [Decision 115](decisions.md): a type's public functions are the calls a program makes. The
+    calls a type's other files make moved to free functions in files the roots do not export,
+    and each root exports `constants` and an alias for each type a program names. A program now
+    writes `client.ChannelValues`, `client.ChannelInput`, `client.ChannelEvent`, `client.Address`
+    and `server.Sent` where it wrote `client.channel.Values` and the like. This breaks a
+    dependent that named a file of either module. `write_owed` moved with the rest, since the
+    TCP trace calls `send` with no room in its place (step 4's record of 2026-10-04).
+  - `core.public_names`, test-only as `core.fuzz` is, compares a type's public declarations with
+    the names its test lists, and prints each name one list has and the other lacks. Ten tests
+    use it: one beside each of the seven types and one beside each of the three roots.
+  - `quic` followed the same day, when the owner asked for it. `quic.zig` exports the 121 names
+    code outside the module uses, each under the namespace of its file, so no caller changed.
+    The root went from 58 names to 40, and exports no file but `constants` and `error_code`.
+    `quic.Connection` keeps `init` and `addressed_by`: its six other methods became functions
+    of `connection.zig`, which rewrote 144 call sites inside the module. The corpus and h3's
+    test call two of them, through `quic.connection`.
+  - Writing the examples found four things a program must know, and the guide or the example it
+    quotes now says each. A connection's deadlines count from the instant `init` is given. A
+    client takes a QUIC datagram only from the address it sends to. Over QUIC a client that
+    closes as its exchange ends acknowledges nothing more, so the server reports no `done`, and
+    `ended` hands the connection back. Over h3 a request with no content may end in an empty
+    `body` event.
+  - Deliberate breaks of the examples: 13, each CAUGHT by `zig build examples`. For
+    `tls_exchange`: the server never reports `done`, the server answers another status, the client
+    keeps no wanted field, the client drops the last octet of content, the link drops an octet,
+    the client asks for another server name, and the client never shuts the connection down,
+    after which both sides sleep until the server's deadline and the example gives up. For
+    `h3_exchange`: the server answers another status, the endpoint never hands back an ended
+    connection, the client keeps no wanted field, the client drops the last octet, the link
+    changes an octet of each datagram, and the client offers another ALPN token.
+  - Mutations of decision 115's tests: 10, each CAUGHT. A call made public again on each of the
+    six types, a file exported again from each root, and an alias dropped from each root. Each
+    test names the declaration, as in `public and not listed: write_owed`.
+  - Mutations of `quic`'s lists: 4, each CAUGHT. A file exported again, a namespace dropped, a
+    method added to `quic.Connection`, and a name no file declares.
+  - Mutations of `core.public_names`: 3, each CAUGHT. The comparison ignoring the names, ignoring
+    the lengths, and a private declaration made public.
+  - Mutations of the consumer check: 3, each CAUGHT. The package exports no `client` module, the
+    consumer's server answers 200, and colibri's server writes another status.
+  - `zig build test` passed: 2550 of 2550 tests.
+
+  **17f check,** run on macOS 26.6.2 arm64 on 2026-10-04:
+  - `zig build examples`: the four programs each printed that every octet arrived as sent.
+  - `tools/doc_snippets.sh`: every Zig block of README.md, docs/usage.md and examples/README.md
+    is an excerpt of code that runs.
+  - `tools/consumer_check.sh`: the dependent project built and ran `server` and `client`.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
