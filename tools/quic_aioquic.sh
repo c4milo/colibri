@@ -2,7 +2,8 @@
 #
 # colibri's UDP QUIC endpoint against aioquic's, in both directions, over UDP on 127.0.0.1: over
 # hq-interop, design §8 step 9e, and over h3, step 12. Over h3 colibri's server runs in its `h3`
-# mode, which serves h3 through the `server` module (step 17b). It is the first check in which
+# mode, which serves h3 through the `server` module (step 17b), and must write the 100 (Continue)
+# a request expects before the client sends its content (step 17i). It is the first check in which
 # colibri's QUIC connection, and chapulin's QUIC mode beneath it, meet another implementation: a
 # shared misreading of an RFC passes the loopback and tools/quic_udp.sh, and fails here. Over h3
 # both ends advertise a QPACK dynamic table, so colibri's QPACK meets ls-qpack's too.
@@ -99,7 +100,14 @@ against_colibri_server() {
     cat "$scratch/colibri.log" >&2
     exit 1
   fi
-  # aioquic's CONNECTION_CLOSE ends colibri's connection (RFC 9000 §10.2.2).
+  await_colibri_exit "$direction"
+  compare "$into" "$direction"
+}
+
+# colibri's server, run with `once`, exits when its connection ends, which aioquic's
+# CONNECTION_CLOSE does (RFC 9000 §10.2.2).
+await_colibri_exit() {
+  local direction="$1"
   for _ in $(seq 1 50); do
     kill -0 "$server_pid" 2>/dev/null || break
     sleep 0.1
@@ -114,7 +122,24 @@ against_colibri_server() {
     exit 1
   fi
   server_pid=""
-  compare "$into" "$direction"
+}
+
+# RFC 9110 §10.1.1: colibri's server in its `h3` mode writes the 100 (Continue) a request expects
+# while aioquic's client sends no content (design §8 step 17i).
+continue_before_content() {
+  local direction="h3, aioquic client expecting 100-continue, colibri server"
+  ./zig-out/bin/quic-udp server 127.0.0.1 0 "$scratch/identity" "$scratch/www" once h3 \
+    >"$scratch/colibri.log" 2>&1 &
+  server_pid=$!
+  await_listening "$scratch/colibri.log"
+  if ! "$venv/bin/python" tools/quic_interop/expect_continue.py 127.0.0.1 "$port" \
+    "$scratch/identity" "$hostname"; then
+    echo "quic_aioquic: $direction: no 100 (Continue) in time; colibri's server said:" >&2
+    cat "$scratch/colibri.log" >&2
+    exit 1
+  fi
+  await_colibri_exit "$direction"
+  echo "quic_aioquic: $direction: the 100 arrived before any content"
 }
 
 # RFC 9001 §4.8: a handshake colibri's server refuses still ends with its CONNECTION_CLOSE, and the
@@ -147,4 +172,5 @@ against_colibri_server "$scratch/from_colibri" "aioquic client, colibri server"
 active_peer=("${h3_peer[@]}")
 against_aioquic_server "$scratch/h3_from_aioquic" "h3, colibri client, aioquic server" h3
 against_colibri_server "$scratch/h3_from_colibri" "h3, aioquic client, colibri server" h3
+continue_before_content
 echo "quic_aioquic: ok, aioquic ${aioquic_version}"

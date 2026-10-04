@@ -3422,8 +3422,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        client's first datagram, so it covers the handshake, and a close before the handshake
        completes leaves as RFC 9000 §10.2.3 has it.
      - **A request body over h3.** Its wait starts at the call that reads its request's head,
-       because the QUIC server owes no 100 (Continue) of its own, and ends with its content or
-       its stream. Only the data of its DATA frames counts (RFC 9114 §7.2.1), and only while
+       also when the request is owed a 100 (Continue) (decision 116), and ends with its content
+       or its stream. Only the data of its DATA frames counts (RFC 9114 §7.2.1), and only while
        the caller still hears of the request. A body under the rate or past the cap ends its
        request alone:
        - with no final response begun, a 408 and a STOP_SENDING with H3_NO_ERROR;
@@ -3671,3 +3671,48 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        with its tests.
      - Fewer calls, such as `should_close` folded into what `send` returns. It changes the loop a
        program writes, and the owner chose to keep the calls.
+
+116. **Over h3 the server owes a 100 (Continue) on a request's head alone, and none to a request
+     whose stream has ended.** Adopted on 2026-10-04 for design §8 step 17i; the owner may
+     overrule it.
+     The server over TCP owes a 100 (Continue) to a request that expects one and has content
+     (design §8 step 17a). The server over QUIC owed none, so a client that sent
+     `expect: 100-continue` waited until the caller answered or its own timer ran out.
+     - RFC 9110 §10.1.1 has a server that reads the expectation send a final response at once
+       or "an immediate 100 (Continue) response". It may omit the 100 when it "has already
+       received some or all of the content", or when "the framing indicates that there is no
+       content".
+     - Over h11 and h2 the head says whether content follows, and `request.end` reports it. h3
+       ends a request where its stream ends (RFC 9114 §4.1) and reports that apart from the
+       head, so a `request` event over h3 never says the request ended. So the server owes
+       the 100 on the head alone.
+     - When the connection writes the 100, it looks at the request's stream. Once the stream's
+       final size is known (RFC 9000 §4.5) and h3 has taken every octet below it, nothing more
+       of the request arrives: the stream ended with the head, or every octet of the content
+       has been read. Such a request gets no 100. Every other request that expects one gets
+       it, whether or not content has begun to arrive, as over h2.
+     - The connection writes the 100 when it next settles its requests, which `receive` does
+       first and `send` does when a 100 may be owed. A caller that answers the request before
+       its next call answers first: a final response or `cancel` leaves no 100 to write, and
+       the caller's own 100 is the one owed.
+     - A 100 that finds no free run among its response's runs stays owed until the peer
+       acknowledges one (RFC 9000 §3.1), and delays no other request.
+
+     The alternatives refused:
+     - A 100 for every request that expects one, whether or not its stream has ended. It needs
+       nothing from the stream, but a request with no content gets an interim response no
+       client waits for, where the server over TCP sends none.
+     - h3's `request` event saying that the stream ended with the head, so that `request.end`
+       is true over h3 as over h2. It changes h3's event and what a program reads over h3, and
+       a FIN that arrives in a later packet is still unknown at the head.
+     - Omitting the 100 once the stream's final size is known, since the client has then sent
+       its last octet. When the content was lost and the FIN alone arrived, the server has
+       received none of the content, and RFC 9110 §10.1.1 then requires the 100.
+     - Waiting for content, or for the request's end, before deciding. RFC 9110 §10.1.1: the
+       server "MUST NOT wait for the content before sending the 100 (Continue) response".
+     - One 100 owed for each connection, as over TCP, with `receive` reporting nothing while it
+       waits for room. A TCP connection has one output for every stream. Over QUIC one
+       request's response would delay the events of every other stream.
+
+     Cost: 8 octets for each request a QUIC connection holds, 256 for a connection, and a branch
+     for each request each time the connection settles them.

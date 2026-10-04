@@ -17,6 +17,7 @@ const quic_request = @import("quic_request.zig");
 const quic_connection = @import("quic_connection.zig");
 const internal = @import("quic_connection_internal.zig");
 const quic_coding = @import("quic_coding.zig");
+const quic_continue = @import("quic_continue.zig");
 const coding_rules = @import("../coding/coding_rules.zig");
 const coding_fields = @import("../coding/coding_fields.zig");
 
@@ -40,10 +41,13 @@ const status_digits_len: usize = 3;
 const no_insert: [core.constants.field_count_max + 1]Indexing = @splat(.no_insert);
 
 /// Brings each request up to date with its stream: drops the runs the peer acknowledged, reports
-/// a response that is done or a stream the peer stopped, and frees each record whose stream
-/// closed. A connection shut down ends once it holds none.
+/// a response that is done or a stream the peer stopped, writes the 100 (Continue) a request is
+/// owed, and frees each record whose stream closed. A connection shut down ends once it holds
+/// none.
 pub fn settle(connection: *QuicConnection) void {
     if (connection.closed or connection.stopped) return;
+    // A 100 (Continue) that finds no room in this pass sets it again (`quic_continue.zig`).
+    connection.continue_owed = false;
     for (&connection.requests.records) |*record| {
         if (record.in_use) settle_one(connection, record);
     }
@@ -89,6 +93,7 @@ fn settle_one(connection: *QuicConnection, record: *Request) void {
         if (record.coded) |*coded| coded.ring.free(freed);
     }
     quic_coding.go_on(connection, record);
+    quic_continue.write(connection, record, stream);
 }
 
 /// Counts one request stream the client opened and then cancelled, in the period the latest
@@ -182,6 +187,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
         },
     };
     if (connection.config.encoders != null) record.asked = coding_rules.asked(connection.config.codings, reported.request);
+    quic_continue.note(connection, record, reported.request);
     return reported;
 }
 
@@ -269,6 +275,7 @@ pub fn respond(connection: *QuicConnection, id: Id, response: event.Response) Se
     // RFC 9114 §4.1: only the final response ends the stream.
     try supply(connection, record, response.end and !interim);
     if (head.slot) |slot| record.coded = .{ .slot = slot };
+    quic_continue.on_response(record, status);
 }
 
 const status_min: u16 = 100;

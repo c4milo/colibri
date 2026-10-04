@@ -25,6 +25,9 @@ pub const Request = struct {
     /// The request ended for the caller: its `done` or `cancelled` event is owed or went out,
     /// or the caller cancelled it. Nothing more is reported of it.
     over: bool,
+    /// The request expects a 100 (Continue) the connection has not written (RFC 9110 §10.1.1,
+    /// `quic_continue.zig`).
+    continue_owed: bool,
     /// The response's frames and the runs of the caller's octets, until the peer acknowledges
     /// them.
     response: quic_response.Pieces,
@@ -53,6 +56,7 @@ pub const Requests = struct {
                 .answered = false,
                 .finished = false,
                 .over = false,
+                .continue_owed = false,
                 .response = undefined,
                 .asked = .{},
                 .coded = null,

@@ -112,6 +112,9 @@ pub const QuicConnection = struct {
     started: bool,
     /// The caller asked the connection to end once its requests are answered.
     shutting_down: bool,
+    /// Whether a request may be owed a 100 (Continue) (RFC 9110 §10.1.1), so the next `send`
+    /// settles the requests before it writes a datagram (`quic_continue.zig`).
+    continue_owed: bool,
     /// The connection failed or is ending, so it reads no request, and the next `receive` says
     /// so once.
     stopped: bool,
@@ -140,6 +143,9 @@ pub const QuicConnection = struct {
     /// Reports the next event: a request's head, its content, its trailer section, its
     /// cancellation, or that its response is done. `consumed` is always 0: the endpoint passed the
     /// datagrams already. Every slice points into storage the connection holds until the next call.
+    /// A request that expects a 100 (Continue) gets one at the next `receive`, or before the next
+    /// datagram the endpoint sends for the connection, unless the caller answers it first: with a
+    /// final response, with its own 100, or with `cancel` (RFC 9110 §10.1.1).
     pub fn receive(connection: *QuicConnection, now_ns: u64) Error!Received {
         connection.last_ns = now_ns;
         quic_deadline.fire(connection, now_ns);

@@ -13,6 +13,7 @@ const quic_connection = @import("quic_connection.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
 const quic_deadline = @import("quic_deadline.zig");
 const quic_coding = @import("quic_coding.zig");
+const quic_continue = @import("quic_continue.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
@@ -56,6 +57,7 @@ pub fn start(connection: *QuicConnection, config: *const Config, receive_pool: R
     connection.owed = .{};
     connection.started = false;
     connection.shutting_down = false;
+    connection.continue_owed = false;
     connection.stopped = false;
     connection.failure_owed = false;
     connection.closed = false;
@@ -126,9 +128,11 @@ pub fn take(connection: *QuicConnection, datagram: []u8, ecn: quic.connection_re
     after_change(connection, now_ns);
 }
 
-/// Writes the next datagram the connection owes into `output`, or null when it owes none.
+/// Writes the next datagram the connection owes into `output`, or null when it owes none. A 100
+/// (Continue) a request is owed goes into its stream first (RFC 9110 §10.1.1).
 pub fn send(connection: *QuicConnection, output: []u8, now_ns: u64) ?Sent {
     if (connection.closed) return null;
+    quic_continue.write_before_send(connection, now_ns);
     const sent = quic.connection_send.send(
         &connection.transport,
         connection.session.suite(),

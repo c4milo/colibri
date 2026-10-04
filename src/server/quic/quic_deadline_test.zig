@@ -201,7 +201,7 @@ test "RFC 9114 §4.1.1: a late head with no record free for a response is reject
     // Every record is taken, as if each held a response.
     for (&connection.requests.records) |*record| {
         if (record.in_use) continue;
-        record.* = .{ .in_use = true, .stream_id = open.id, .ended = true, .answered = false, .finished = false, .over = true, .response = undefined, .asked = .{}, .coded = null };
+        record.* = .{ .in_use = true, .stream_id = open.id, .ended = true, .answered = false, .finished = false, .over = true, .continue_owed = false, .response = undefined, .asked = .{}, .coded = null };
         record.response.init();
     }
     server_at(wait.since_ns + constants.head_timeout_ns);

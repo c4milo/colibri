@@ -167,6 +167,7 @@ test "RFC 9114 §4.1.1: a request no record can hold is rejected, which the clie
             .answered = false,
             .finished = false,
             .over = true,
+            .continue_owed = false,
             .response = undefined,
             .asked = .{},
             .coded = null,

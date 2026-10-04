@@ -5397,10 +5397,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
-  [#70](https://github.com/c4milo/colibri/issues/70). Eight parts. The owner ruled on 2026-09-27
+  [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27
   that 17c and 17d go before 17b, because cocuyo waits for the client and 17c does not depend on
-  step 17b, and on 2026-09-28 that 17g goes after 17b. 17h came on 2026-09-30, after 17e. The
-  order is 17a, 17c, 17d, 17b, 17g, 17e, 17h, 17f:
+  step 17b, and on 2026-09-28 that 17g goes after 17b. 17h came on 2026-09-30, after 17e, and 17i
+  on 2026-10-04, after 17f. The order is 17a, 17c, 17d, 17b, 17g, 17e, 17h, 17f, 17i:
   - **17a**, the server over TCP. It takes octets tagged by connection, runs the handshake
     through `tls.record.Server`, and serves h11 or h2 as ALPN chose. One set of calls covers
     both: a request is an event with an id, and a response is written by that id, its status,
@@ -5460,6 +5460,14 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     as they arrive; a stream whose window passes the limit fails its response; a pool with no
     free decoder drops its coding from the offer; the client decodes `br` from h2o and `zstd`
     from Caddy, in cleartext and over TLS; and mutations.
+  - **17i**, the server over QUIC owes the 100 (Continue) ([decision 116](decisions.md)). A
+    request over h3 that expects one gets it at the connection's next `receive` or `send`,
+    unless the caller answered it first, as a request over TCP does (RFC 9110 §10.1.1). A
+    request whose stream ended gets none.
+    **Check:** server tests that read one event at a time: the 100 at the next `receive` and
+    before the next datagram; none after a final response, the caller's own 100, a cancel or
+    the stream's end; a 100 that waits for a run of its response; and mutations. aioquic's
+    client reads the 100 from §9's UDP server before it sends its content.
 
   **17a, 2026-09-27.** `src/server/` is the `server` module, exported by name. It imports `core`,
   `http`, `h11`, `h2`, `tls` and `tls_provider`.
@@ -5892,6 +5900,69 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/doc_snippets.sh`: every Zig block of README.md, docs/usage.md and examples/README.md
     is an excerpt of code that runs.
   - `tools/consumer_check.sh`: the dependent project built and ran `server` and `client`.
+
+  **17i, the 100 (Continue) over QUIC, 2026-10-04.** The server over TCP owed the 100 from 17a.
+  The server over QUIC wrote none, so a client that sent `expect: 100-continue` waited until the
+  caller answered or its own timer ran out.
+  - The code is in `src/server/quic/quic_continue.zig`. When the connection reports a request's
+    head, it sets `continue_owed` on the request's record and on itself if `expects_continue`
+    says so, the test the TCP server applies. `settle` then writes the 100 through `respond`, the
+    call a program makes, as an interim response on the request's stream (RFC 9114 §4.1).
+    `receive` settles first, and `send` settles when the connection's `continue_owed` is set.
+  - `respond` refuses a 100 for a request the caller answered with a final response or cancelled,
+    and `settle` then clears the record's `continue_owed`. A 100 the caller writes itself clears
+    it too.
+  - [Decision 116](decisions.md): the server owes the 100 on the head alone, and a request whose
+    stream h3 has read to its end gets none, whether the stream ended with the head or after it.
+    Content that arrived with the head leaves the 100 owed, as over h2.
+  - A 100 that finds no free run among its response's runs stays owed until the peer acknowledges
+    one, and delays no other request.
+  - `server.QuicConnection` gains no call and the root no name, so the lists of step 17f are
+    unchanged. A `QuicConnection` is 721,384 octets, 256 more: each of its 32 request records
+    holds `continue_owed`.
+  - docs/usage.md says when the server writes the 100, in every version, and how a program
+    answers first.
+  - Not done: a body's wait over h3 (step 20c,
+    [#95](https://github.com/c4milo/colibri/issues/95)) still starts at its request's head, also
+    when the request is owed a 100. Over TCP it starts once the 100 is written, and over h3 it
+    is to start when the record's `continue_owed` clears.
+  - 12 tests in `quic_continue_test.zig`. `pump` reads every event the server has, so each test
+    moves the datagrams while the connection reads nothing, and then calls `receive` itself.
+  - `tools/quic_aioquic.sh` gains a check against another implementation.
+    `tools/quic_interop/expect_continue.py` has aioquic's client send a request's head with
+    `expect: 100-continue` and no content to the `h3` mode of §9's UDP server, and requires the
+    first response head it reads to carry 100. The check ends there: aioquic 1.3.0 validates a
+    second HEADERS frame of a response as a trailer section, so it reads no final response after
+    an interim one.
+  - Mutations: 30, each **CAUGHT** by `zig build test-server`.
+    - The head: owing nothing, owing every request, setting `continue_owed` on the record alone
+      or on the connection alone, and `on_request` noting nothing.
+    - The write: `settle` or `send` calling no write, and `send` never settling; `send`
+      settling with nothing owed, or keeping the last call's instant; a status of 103; and a 100
+      for every request.
+    - The caller's answer: `respond` clearing nothing, or told of no status; any interim status,
+      or any status, clearing `continue_owed`; and a refused 100 left owed.
+    - The stream's end: never read; read as its opposite; a known final size alone; "Data Read"
+      alone; an unknown final size; and octets still to read taken for the end.
+    - Room: a 100 with no room dropped, or left off the connection's `continue_owed`; and the
+      test for no room inverted.
+    - `continue_owed` itself: the connection's never cleared, or cleared after the pass; `start`
+      leaving it as it was; and a new record that starts with it set.
+  - Two of them, `settle` writing no 100 and a status of 103, are each **CAUGHT** by
+    `tools/quic_aioquic.sh` too. The script cannot tell which call wrote the 100: the `h3` mode
+    calls `receive` until it reports nothing, so `send` writing none passes the script, and the
+    unit test catches it.
+
+  **17i check,** run on macOS 26.6.2 arm64 on 2026-10-04, with the commit replayed on step 20c's
+  first three parts:
+  - `zig build test`: 131 of 131 steps and 2604 of 2604 tests passed.
+  - `tools/quic_aioquic.sh`: aioquic 1.3.0's client read a response head with status 100, 0.002 s
+    after it sent the request's head and with no content sent. The files of both directions
+    arrived octet for octet, as before.
+  - `tools/quic_udp.sh`: colibri's client fetched the three files from the `h3` mode, and each
+    connection's qlog files passed `tools/qlog_check.py`.
+  - `tools/h3spec.sh`: h3spec 0.1.13 passed 49 of 49 against the `h3` mode.
+  - `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` passed.
 
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:

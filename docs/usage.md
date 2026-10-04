@@ -188,6 +188,12 @@ fn serve(event: server.Event) !void {
   up.
 - `done` says the peer has the whole response.
 
+A client that puts `100-continue` in a request's `Expect` field waits for a 100 (Continue) before
+it sends the content (RFC 9110 §10.1.1). The connection writes that 100 at the next `receive` or
+`send`, in every version, unless the program answered the request first. A program that refuses
+such a request therefore answers it before its next call: a final response, the program's own
+100, or `cancel` takes the place of the 100 the connection owes.
+
 The program answers with a head, then content:
 
 ```zig
