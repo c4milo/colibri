@@ -11,7 +11,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
 
-const Reader = core.reader.Reader;
+const Reader = core.Reader;
 
 /// The octets of `pct-encoded = "%" HEXDIG HEXDIG` after its "%" (RFC 3986 §2.1).
 const pct_digits_len = 2;

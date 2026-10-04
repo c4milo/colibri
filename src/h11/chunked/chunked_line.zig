@@ -14,7 +14,7 @@ const core = @import("core");
 const http = @import("http");
 const constants = @import("../constants.zig");
 
-const Reader = core.reader.Reader;
+const Reader = core.Reader;
 
 pub const Error = error{
     /// A chunk-size that is not one or more hex digits (RFC 9112 §7.1).

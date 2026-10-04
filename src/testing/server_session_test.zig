@@ -206,7 +206,7 @@ test "RFC 9110 §9.3.6: an h2 CONNECT gets 501 on a HEADERS frame that ends the 
     // RFC 7541 Appendix A: the static table holds no :status of 501, so its digits are a string
     // literal, which the encoder writes in the Huffman code because that is shorter (§5.2).
     var digits: [h2.wire.huffman.encoded_len_max(not_implemented.len)]u8 = undefined;
-    var writer = h2.core.writer.Writer.init(&digits);
+    var writer = h2.core.Writer.init(&digits);
     try h2.wire.huffman.encode(not_implemented, &writer);
     try testing.expect(std.mem.indexOf(u8, written, writer.written()) != null);
     try testing.expectEqual(0, test_session.owed_count);

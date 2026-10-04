@@ -19,7 +19,7 @@ const message_start = @import("message_start.zig");
 const message_target = @import("message_target.zig");
 
 const Field = http.Field;
-const Writer = core.writer.Writer;
+const Writer = core.Writer;
 
 pub const Error = error{
     /// The caller's buffer cannot hold the head.

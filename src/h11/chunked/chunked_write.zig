@@ -14,7 +14,7 @@ const core = @import("core");
 const http = @import("http");
 
 const Field = http.Field;
-const Writer = core.writer.Writer;
+const Writer = core.Writer;
 
 pub const Error = error{
     /// The caller's buffer cannot hold the chunk.

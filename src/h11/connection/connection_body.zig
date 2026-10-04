@@ -55,7 +55,7 @@ pub fn read(reader: *Reader, role: Role, input: []const u8, trailers: *http.Fiel
         .none => unreachable,
         .fixed => {
             const taken: usize = @intCast(@min(reader.remaining, input.len));
-            var octets = core.reader.Reader.init(input);
+            var octets = core.Reader.init(input);
             const data = octets.take(taken) catch unreachable;
             reader.remaining -= taken;
             const ended = reader.remaining == 0;
@@ -96,7 +96,7 @@ pub fn read_coded(
     const progress = try coding.decode(decoding, storage, run.data, decoded);
     const left = run.data.len - progress.consumed;
     give_back(reader, left);
-    var written = core.reader.Reader.init(decoded);
+    var written = core.Reader.init(decoded);
     const data = written.take(progress.written) catch unreachable;
     return .{ .consumed = run.consumed - left, .data = data, .ended = false };
 }

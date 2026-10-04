@@ -178,7 +178,7 @@ const status_fields_too_large: u16 = 431;
 /// stream ends, the connection closes, or it refuses a request.
 pub fn decode_server(octets: []const u8) Error!void {
     connection.init(.server, .{});
-    var reader = core.reader.Reader.init(octets);
+    var reader = core.Reader.init(octets);
     serve(&reader) catch |failure| switch (failure) {
         error.ConnectionFailed => return refusal(connection.reply_status orelse unreachable),
     };
@@ -186,7 +186,7 @@ pub fn decode_server(octets: []const u8) Error!void {
     if (connection.transport_closed().incomplete) return error.Truncated;
 }
 
-fn serve(reader: *core.reader.Reader) h11.connection.Error!void {
+fn serve(reader: *core.Reader) h11.connection.Error!void {
     // Every pass consumes an octet or ends a request, and a request takes at least one octet, so
     // n octets take at most 2n passes, and one more finds them short.
     for (0..passes_per_octet * reader.remaining_len() + 1) |_| {
@@ -244,7 +244,7 @@ fn consume_body(role: h11.message.Role, length: Length, body: []const u8) Error!
 
 fn consume_chunked(role: h11.message.Role, body: []const u8) Error!void {
     var decoder: h11.chunked.Decoder = .{};
-    var reader = core.reader.Reader.init(body);
+    var reader = core.Reader.init(body);
     // Bounded: each call consumes an octet at least, or the coding stops.
     for (0..body.len + 1) |_| {
         const decoded = try decoder.decode(role, reader.peek_rest(), &trailers);

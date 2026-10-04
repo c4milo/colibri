@@ -26,7 +26,7 @@ pub const write_chunk = chunked_write.write_chunk;
 pub const write_last_chunk = chunked_write.write_last_chunk;
 
 const FieldSection = http.FieldSection;
-const Reader = core.reader.Reader;
+const Reader = core.Reader;
 const Role = message_scan.Role;
 
 pub const Error = chunked_line.Error || message_fields.Error || error{

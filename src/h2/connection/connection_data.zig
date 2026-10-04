@@ -281,7 +281,7 @@ fn owe_stream_credit() !void {
 
 /// How many WINDOW_UPDATE frames in `queued` name stream `stream_id`. Test-only.
 fn updates_on(queued: []const u8, stream_id: u32) !usize {
-    var reader = core.reader.Reader.init(queued);
+    var reader = core.Reader.init(queued);
     var count: usize = 0;
     for (0..queued.len) |_| {
         if (reader.remaining_len() == 0) return count;

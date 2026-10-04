@@ -23,7 +23,7 @@ const core = @import("core");
 const http = @import("http");
 const constants = @import("../constants.zig");
 
-const Reader = core.reader.Reader;
+const Reader = core.Reader;
 
 pub const Error = error{
     /// A CR not followed by LF (RFC 9112 §2.2).

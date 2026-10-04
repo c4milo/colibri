@@ -16,7 +16,7 @@ const core = @import("core");
 const http = @import("http");
 const constants = @import("../constants.zig");
 
-const Reader = core.reader.Reader;
+const Reader = core.Reader;
 
 pub const Error = error{
     /// A request line or status line that does not have the elements its grammar gives it, one

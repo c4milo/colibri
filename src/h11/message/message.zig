@@ -27,7 +27,7 @@ const message_body = @import("message_body.zig");
 const message_write = @import("message_write.zig");
 
 const FieldSection = http.FieldSection;
-const Reader = core.reader.Reader;
+const Reader = core.Reader;
 
 pub const Scanner = message_scan.Scanner;
 pub const Role = message_scan.Role;
