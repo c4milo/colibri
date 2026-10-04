@@ -27,7 +27,9 @@ jobs:
     # The scheduled run is the Garden's and the runner's alone.
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    # The job takes 37 to 60 minutes on this runner, 17 to 28 of them in the TLA+ models. A limit
+    # of 60 cancelled two jobs whose every check had passed, before they saved their caches.
+    timeout-minutes: 90
     # One run of each job at a time, and each job its own queue, so the Garden's hours never hold
     # up a push's checks.
     concurrency:
