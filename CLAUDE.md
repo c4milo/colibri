@@ -416,12 +416,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   builds http.zig; `BENCH_COMPETITORS` names a part of the list. `--h11` adds four h11 inputs,
   which wrk sends and which http.zig serves in cleartext alone; it needs wrk and curl. `--h3` adds
   two inputs that measure the test-only UDP server over h3, under the h2load
-  `tools/h3load/Dockerfile` builds with HTTP/3, and needs Docker (design §8 step 13d). `--filter`
-  needs neither perf nor taskset and reads the server's CPU time from /proc: its numbers order
-  candidates on a laptop and are never published. It needs Zig, h2load, python3, and Go to mint the
-  TLS identity. `zig build bench-memory` prints the static memory per connection for the objects the
-  build targets (design §8 step 13b), and `zig build test` fails when `docs/performance.md`'s table
-  for those objects differs from it.
+  `tools/h3load/Dockerfile` builds with HTTP/3, and needs Docker (design §8 step 13d). With
+  `--competitors` and `--h3`, quic-go's server answers the h3 inputs too, from its QUIC Interop
+  Runner image, pinned by digest. `--filter` needs neither perf nor taskset and reads the server's
+  CPU time from /proc: its numbers order candidates on a laptop and are never published. It needs
+  Zig, h2load, python3, and Go to mint the TLS identity. `zig build bench-memory` prints the static
+  memory per connection for the objects the build targets (design §8 step 13b), and `zig build
+  test` fails when `docs/performance.md`'s table for those objects differs from it.
 - Router probes: `bench/router/compile_time.sh [--tree <tree>] [table...]` compiles each route
   table of `bench/router/build.zig` twice and prints the wall time of each compile.
   `bench/router/run_time.sh [--tree <tree>] [count]` counts the instructions of one `match` under

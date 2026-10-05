@@ -5,8 +5,9 @@
 # a change stays only when it wins past the noise in both. With `competitors`, nginx and h2o from
 # Ubuntu's packages, hyper and http.zig answer the same requests in the same job (design §8 steps
 # 13c and 13g), and with `h11` four h11 inputs join the four h2 ones, which wrk sends. With `h3`,
-# the UDP server answers the load over h3 too (design §8 step 13d). The work is bench/run.sh, which
-# a person on Linux with perf runs for the same answer; this file only installs what it needs.
+# the UDP server answers the load over h3 too, and with `competitors` and `h3`, so does quic-go's
+# server from its image (design §8 step 13d). The work is bench/run.sh, which a person on Linux
+# with perf runs for the same answer; this file only installs what it needs.
 name: bench
 on:
   workflow_dispatch:
@@ -20,7 +21,7 @@ on:
         type: string
         default: "5"
       competitors:
-        description: "Measure nginx, h2o, hyper and http.zig too, in turns with colibri's server"
+        description: "Measure nginx, h2o, hyper and http.zig too, and quic-go with h3, in turns with colibri's servers"
         type: boolean
         default: false
       h11:
