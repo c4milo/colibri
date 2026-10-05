@@ -39,9 +39,10 @@ JUDGE_EVENTS = ("instructions:u", "instructions:k", "cycles:u", "cycles:k", "tas
 H2LOAD_TLS = re.compile(r"^(TLS Protocol|Cipher|Server Temp Key): (.+)$", re.M)
 TLS_NAMES = ("TLS Protocol", "Cipher", "Server Temp Key")
 # The application protocol h2load names for each run of an h2 input: h2 over TLS and h2c in
-# cleartext (RFC 9113 §3).
+# cleartext (RFC 9113 §3). An h3 input's runs name h3, the ALPN token of RFC 9114 §3.2.
 H2LOAD_PROTOCOL = re.compile(r"^Application protocol: (\S+)$", re.M)
 H2_PROTOCOLS = ("h2", "h2c")
+H3_PROTOCOLS = ("h3",)
 # wrk's report of an h11 input (design §8 step 13g): the requests it counted, the answers outside
 # 2xx and 3xx, and its socket errors. wrk speaks h11 alone.
 WRK_REQUESTS = re.compile(r"^\s*(\d+) requests in ", re.M)
@@ -54,6 +55,7 @@ H2LOAD_REQUESTS = re.compile(r"requests: (\d+) total, (\d+) started, (\d+) done,
 TASK_CLOCK_NANOSECONDS = {"": 1.0, "ns": 1.0, "nsec": 1.0, "usec": 1e3, "msec": 1e6}
 # The lines of a server's log the report prints when a load against it failed.
 SERVER_LOG_LINES = 20
+NANOSECONDS_PER_SECOND = 1e9
 
 
 def read_counts(path):
@@ -119,17 +121,22 @@ def is_h11(input_name):
     return input_name.startswith("h11-")
 
 
+def is_h3(input_name):
+    return input_name.startswith("h3-")
+
+
 def check_protocol(path, input_name):
     """Fails unless `path` holds the reports of the tool `input_name` takes, speaking its version:
-    wrk for an h11 input, and h2load speaking h2 for an h2 one. Every server here speaks both, so a
-    load sent in the wrong version would pass unseen otherwise."""
+    wrk for an h11 input, h2load speaking h2 for an h2 one, and h2load speaking h3 for an h3 one.
+    Every TCP server here speaks h11 and h2, so a load sent in the wrong version would pass unseen
+    otherwise."""
     text = open(path).read()
     if is_h11(input_name):
         if WRK_REQUESTS.search(text) is None or H2LOAD_REQUESTS.search(text) is not None:
             sys.exit(f"report.py: {path}: no wrk report for {input_name}")
         return
     spoken = set(H2LOAD_PROTOCOL.findall(text))
-    if not spoken or not spoken <= set(H2_PROTOCOLS):
+    if not spoken or not spoken <= set(H3_PROTOCOLS if is_h3(input_name) else H2_PROTOCOLS):
         sys.exit(f"report.py: {path}: h2load spoke {', '.join(sorted(spoken)) or 'no protocol'} for {input_name}")
 
 
@@ -153,6 +160,11 @@ def read_tls(path):
     for name, value in H2LOAD_TLS.findall(open(path).read()):
         found.setdefault(name, value.strip())
     return ", ".join(found[name] for name in TLS_NAMES if name in found) or None
+
+
+def runs_tls(input_name):
+    """Whether an input's connections run TLS: the TCP inputs named for it, and every h3 one."""
+    return "-tls-" in input_name or is_h3(input_name)
 
 
 def per_unit(counts, units, mode):
@@ -216,25 +228,30 @@ def main():
             if units != expected:
                 sys.exit(f"report.py: {h2load_path}: {units} units where {expected} were planned")
         samples.setdefault((variant, input_name), []).append(per_unit(read_counts(perf_path), units, mode))
-        if "-tls-" in input_name and not is_h11(input_name):
+        if runs_tls(input_name) and not is_h11(input_name):
             tls.setdefault(variant, set()).add(read_tls(h2load_path) or "h2load named no TLS parameters")
 
     inputs = sorted({key[1] for key in samples})
     found = {key[0] for key in samples}
     variants = [v for v in COLIBRI_VARIANTS if v in found] + sorted(found - set(COLIBRI_VARIANTS))
     competitors = [v for v in variants if v not in COLIBRI_VARIANTS]
-    rows, verdicts, standings = [], [], []
+    rows, verdicts, standings, rates = [], [], [], []
     for input_name in inputs:
         unit = "request" if input_name.endswith("-many") else "connection"
         summary = {}
         for variant in variants:
-            # A competitor that does not serve this input, as http.zig serves no TLS, has no runs.
+            # A competitor that does not serve this input, as http.zig serves no TLS and nginx no
+            # h3, has no runs.
             runs = samples.get((variant, input_name))
             if not runs:
                 continue
             summary[variant] = {metric: summarize([run[metric] for run in runs]) for metric in runs[0]}
             cells = " | ".join(f"{number(summary[variant][m][0])} ({summary[variant][m][1] * 100:.2f}%)" for m in summary[variant])
             rows.append(f"| {input_name} | {unit} | {variant} | {len(runs)} | {cells} |")
+        if unit == "connection":
+            # Design §11.2's handshakes per second: what one core completes when its CPU is the limit.
+            rates += [f"| {input_name} | {variant} | {number(NANOSECONDS_PER_SECOND / summary[variant]['cpu_nanoseconds'][0])} |"
+                      for variant in summary]
         if "base" in summary and "change" in summary:
             ratio, noise, verdict = compare(summary, "change", "base", primary, floor)
             verdicts.append((verdict, f"| {input_name} | {ratio:.4f} | {noise * 100:.2f}% | {verdict} |"))
@@ -260,6 +277,10 @@ def main():
               "| Input | Unit | Variant | Rounds | " + " | ".join(metrics) + " |",
               "| --- | --- | --- | ---: | " + " | ".join("---:" for _ in metrics) + " |"]
     lines += rows
+    if rates:
+        lines += ["", "The connections one core of the server completes a second, each with one handshake and one request:",
+                  "the reciprocal of the median CPU time per connection.", "",
+                  "| Input | Variant | Connections per second |", "| --- | --- | ---: |"] + rates
     with open(arguments.report, "w") as report:
         report.write("\n".join(lines) + "\n")
     print("\n".join(lines))
@@ -271,6 +292,11 @@ def main():
 
 TEST_UNITS = {"h2-many": 20000, "h2-tls-one": 640}
 TEST_INSTRUCTIONS_PER_UNIT = {"h2-many": 50000.0, "h2-tls-one": 900000.0}
+# The h3 input a test run has when it asks for one, and what a request of it costs.
+TEST_H3_UNITS = {"h3-many": 20000}
+TEST_H3_INSTRUCTIONS_PER_UNIT = 150000.0
+# The connections one run of h2load opens on an input that has one request on each.
+TEST_ONE_CLIENTS = 16
 # The floor the tests pass in BENCH_FLOOR, which the expected verdicts assume.
 TEST_FLOOR = 0.05
 # The nanoseconds the server runs a unit in, before a round's factor.
@@ -287,29 +313,31 @@ TEST_ROUND_FACTORS = (1.5, 1.004, 0.997, 1.002, 0.999, 1.001)
 
 def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), failed_request=False, mode="judge", kernel_only=False,
                    change_cipher="TLS_AES_256_GCM_SHA384", task_clock_unit="msec", competitors=None, with_base=True,
-                   change_protocol=None, served=None):
+                   change_protocol=None, served=None, h3=False):
     """Writes the files a run of bench/run.sh leaves, with the change costing `change_factor` times
     the base on each input in `changed_inputs`: in the server's user and kernel instructions both,
     or with `kernel_only` in the kernel's alone, as a change that adds system calls costs. The base
     runs TLS_AES_256_GCM_SHA384 on its TLS input, and the change runs `change_cipher`. The server
     runs TEST_NANOSECONDS_PER_UNIT a unit, which perf writes in `task_clock_unit`. Each competitor
     in `competitors` costs its factor times the base, and with `with_base` false no base runs. Each
-    run speaks h2 over TLS and h2c in cleartext, and the change `change_protocol` if one is given.
-    A competitor that `served` names runs only the inputs it lists there."""
+    run speaks h2 over TLS, h2c in cleartext and h3 on an h3 input, and the change
+    `change_protocol` if one is given. A variant that `served` names runs only the inputs it lists
+    there. With `h3` the run has TEST_H3_UNITS' inputs too."""
     factors = dict(competitors or {})
+    units_of = dict(TEST_UNITS, **(TEST_H3_UNITS if h3 else {}))
     if with_base:
         factors["base"] = 1.0
     with open(os.path.join(directory, "machine.txt"), "w") as machine:
         machine.write(f"mode={mode}\nrounds={len(TEST_ROUND_FACTORS) - 1}\n")
     records = []
     for round_number, round_factor in enumerate(TEST_ROUND_FACTORS):
-        for input_name, units in TEST_UNITS.items():
+        for input_name, units in units_of.items():
             for variant in ["change"] + sorted(factors):
                 if input_name not in (served or {}).get(variant, (input_name,)):
                     continue
                 name = os.path.join(directory, f"{variant}-{input_name}-{round_number}")
                 changed = variant == "change" and input_name in changed_inputs
-                base_instructions = TEST_INSTRUCTIONS_PER_UNIT[input_name] * units * round_factor * factors.get(variant, 1.0)
+                base_instructions = TEST_INSTRUCTIONS_PER_UNIT.get(input_name, TEST_H3_INSTRUCTIONS_PER_UNIT) * units * round_factor * factors.get(variant, 1.0)
                 user = base_instructions * 0.7 * (change_factor if changed and not kernel_only else 1.0)
                 nanoseconds = TEST_NANOSECONDS_PER_UNIT * units * round_factor
                 kernel = base_instructions * 0.3 * (change_factor if changed else 1.0)
@@ -329,13 +357,13 @@ def write_test_run(directory, change_factor, changed_inputs=tuple(TEST_UNITS), f
                 failed = 1 if failed_request and changed and round_number == 3 else 0
                 with open(name + ".server", "w") as server_log:
                     server_log.write("http-server: listening\n" + ("http-server: assertion failed\n" if failed else ""))
-                per_run = units if input_name.endswith("-many") else 16
+                per_run = units if input_name.endswith("-many") else TEST_ONE_CLIENTS
                 cipher = change_cipher if variant == "change" else "TLS_AES_256_GCM_SHA384"
                 with open(name + ".h2load", "w") as h2load:
                     for run in range(units // per_run):
-                        if "-tls-" in input_name:
+                        if runs_tls(input_name):
                             h2load.write(TEST_TLS.format(cipher=cipher))
-                        protocol = "h2" if "-tls-" in input_name else "h2c"
+                        protocol = "h3" if is_h3(input_name) else "h2" if "-tls-" in input_name else "h2c"
                         if variant == "change" and change_protocol:
                             protocol = change_protocol
                         h2load.write(f"Application protocol: {protocol}\n")
@@ -425,6 +453,15 @@ class Verdicts(unittest.TestCase):
             self.assertEqual(status, 0, output)
             self.assertIn(" | 4,004.0 (0.70%) |", output)
 
+    def test_a_report_gives_the_connections_a_core_completes_a_second(self):
+        # 4,004 ns of CPU a connection, the median round's, is 249,750.2 connections a second.
+        status, output = self.report(1.0)
+        self.assertEqual(status, 0, output)
+        self.assertIn("| h2-tls-one | change | 249,750.2 |\n", output)
+        self.assertIn("| h2-tls-one | base | 249,750.2 |\n", output)
+        # An input counted per request has no such row.
+        self.assertNotIn("| h2-many | change | 249,750.2 |", output)
+
     def test_each_mode_has_its_own_floor(self):
         status, output = self.report(1.0, floor=None)
         self.assertEqual(status, 0, output)
@@ -471,6 +508,16 @@ class Verdicts(unittest.TestCase):
         for path in (h2load, wrk, empty):
             os.unlink(path)
 
+    def test_an_h3_input_takes_h2load_speaking_h3(self):
+        h3 = self.written("Application protocol: h3\nrequests: 1 total, 1 started, 1 done, 1 succeeded, 0 failed, 0 errored, 0 timeout\n")
+        h2 = self.written("Application protocol: h2\nrequests: 1 total, 1 started, 1 done, 1 succeeded, 0 failed, 0 errored, 0 timeout\n")
+        check_protocol(h3, "h3-one")
+        for path, input_name in ((h2, "h3-one"), (h3, "h2-tls-one")):
+            with self.assertRaises(SystemExit):
+                check_protocol(path, input_name)
+        for path in (h3, h2):
+            os.unlink(path)
+
     def test_wrk_counts_its_requests_and_refuses_errors(self):
         close = "load: wrk -H Connection: close http://127.0.0.1:18480/\n"
         keep = "load: wrk http://127.0.0.1:18480/\n"
@@ -510,6 +557,32 @@ class Verdicts(unittest.TestCase):
         self.assertNotIn("| h2-tls-one | httpz |", output)
         self.assertNotIn("| h2-tls-one | connection | httpz |", output)
         self.assertIn("| h2-tls-one | nginx | 1.0000 | 5.00% | within the noise |", output)
+
+    def test_an_h3_input_is_judged_and_names_the_suite_its_builds_ran(self):
+        # The h3 input alone costs more.
+        status, output = self.report(1.10, changed_inputs=("h3-many",), h3=True)
+        self.assertNotEqual(status, 0, output)
+        self.assertIn("| h3-many | 1.1000 | 5.00% | loses |", output)
+        self.assertIn("| h2-many | 1.0000 | 5.00% | within the noise |", output)
+        self.assertIn("| h3-many | request | change | 5 | ", output)
+        # Every h3 connection runs TLS, so its parameters are read as a TLS input's are.
+        self.assertTrue(runs_tls("h3-many") and runs_tls("h3-one") and runs_tls("h2-tls-one"))
+        self.assertFalse(runs_tls("h2-many") or runs_tls("h2-one"))
+        # A build that runs the h3 input alone names the suite from the h3 runs' reports.
+        status, output = self.report(1.0, with_base=False, h3=True, served={"change": tuple(TEST_H3_UNITS)})
+        self.assertEqual(status, 0, output)
+        self.assertIn("- tls, change: TLSv1.3, TLS_AES_256_GCM_SHA384, X25519 253 bits\n", output)
+
+    def test_a_competitor_is_compared_on_the_inputs_it_ran(self):
+        # nginx runs no h3 input and quic-go no h2 one.
+        ran = {"nginx": tuple(TEST_UNITS), "quic-go": tuple(TEST_H3_UNITS)}
+        status, output = self.report(1.0, competitors={"nginx": 0.5, "quic-go": 2.0}, with_base=False, h3=True, served=ran)
+        self.assertEqual(status, 0, output)
+        self.assertIn("| h2-many | nginx | 2.0000 | 5.00% | loses |", output)
+        self.assertIn("| h3-many | quic-go | 0.5000 | 5.00% | wins |", output)
+        self.assertNotIn("| h3-many | nginx |", output)
+        self.assertNotIn("| h2-many | quic-go |", output)
+        self.assertNotIn("| h3-many | request | nginx |", output)
 
     def test_a_filter_run_compares_cpu_time(self):
         status, output = self.report(1.10, mode="filter")

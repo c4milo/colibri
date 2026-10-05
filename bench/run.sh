@@ -9,9 +9,11 @@
 # colibri's ratio to each without failing the run (design §8 step 13c). hyper, in Rust, and
 # http.zig, in Zig, answer too (design §8 step 13g); BENCH_COMPETITORS names a part of the list.
 # With --h11, four h11 inputs join the four h2 ones. wrk sends them, for h11_seconds each: h2load
-# counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it).
+# counts no answer whose reason phrase is empty, as http.zig's is (RFC 9112 §4 allows it). With
+# --h3, the test-only UDP server answers the same load over h3, from h2load built with HTTP/3
+# (design §8 step 13d).
 #
-#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--rounds <n>] [report.md]
+#   bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--rounds <n>] [report.md]
 #
 # The judge runs on Linux with perf and taskset, as .github/workflows/bench.yml runs it on the
 # ubuntu-24.04-arm runner. --filter runs without either and reads the server's CPU time from each
@@ -20,8 +22,11 @@
 # It needs Zig, h2load, python3, and Go for the TLS identity unless BENCH_IDENTITY names one, and
 # wrk and curl with --h11. With --competitors it needs nginx and h2o on the PATH, cargo to build
 # hyper, and BENCH_ZIG_HTTPZ naming the Zig 0.17.0 that builds http.zig. BENCH_HYPER and
-# BENCH_HTTPZ name servers built already.
-# BENCH_SERVER and BENCH_BASE_SERVER name servers built already, for a machine with no Zig.
+# BENCH_HTTPZ name servers built already. Ubuntu's and Debian's h2load have no HTTP/3, so --h3
+# runs the image tools/h3load/Dockerfile builds, on the load generator's cores, and needs Docker;
+# BENCH_H3LOAD=native says the h2load on the PATH has HTTP/3 itself.
+# BENCH_SERVER and BENCH_BASE_SERVER name servers built already, for a machine with no Zig, and
+# BENCH_QUIC_SERVER and BENCH_BASE_QUIC_SERVER the UDP servers.
 set -euo pipefail
 
 readonly repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -29,6 +34,7 @@ mode=judge
 base=""
 competitors=""
 h11=""
+h3=""
 rounds=5
 report="${repository_root}/bench-report.md"
 while [ $# -gt 0 ]; do
@@ -37,6 +43,7 @@ while [ $# -gt 0 ]; do
     --base) base="$(cd "$2" && pwd)"; shift 2 ;;
     --competitors) competitors=yes; shift ;;
     --h11) h11=yes; shift ;;
+    --h3) h3=yes; shift ;;
     --rounds) rounds="$2"; shift 2 ;;
     *) report="$1"; shift ;;
   esac
@@ -54,13 +61,22 @@ readonly many_streams=10
 # within the 32 connections one worker holds at once.
 readonly one_runs=40
 readonly one_clients=16
+# The same over h3, as many connections in all. The UDP server holds 64 connections at once, and
+# one that ended keeps its slot through its draining period (RFC 9000 §10.2.2), so each run opens
+# fewer.
+readonly one_h3_runs=80
+readonly one_h3_clients=8
 # The requests before each measurement that are never counted: the server's first connections
 # touch memory the operating system has not mapped yet.
 readonly warm_requests=2000
-# The requests the script sends, 0.1 s apart, before it gives up on a server that has not started.
+# The requests the script sends, 0.1 s apart, before it gives up on a server that has not started,
+# and the seconds each may take: a TCP connection nothing listens for is refused at once, and
+# h2load waits out a QUIC handshake nothing answers.
 readonly ready_tries=100
+readonly ready_seconds=1
 inputs=(h2-many h2-tls-many h2-one h2-tls-one)
 if [ -n "$h11" ]; then inputs+=(h11-many h11-tls-many h11-one h11-tls-one); fi
+if [ -n "$h3" ]; then inputs+=(h3-many h3-one); fi
 readonly inputs
 # The competitors --competitors measures, each in turns with colibri's server.
 read -r -a competitor_names <<<"${BENCH_COMPETITORS:-nginx h2o hyper httpz}"
@@ -70,9 +86,25 @@ readonly competitor_names
 readonly h11_seconds=2
 readonly h11_warm_seconds=1
 readonly wrk_threads=2
+# The image tools/h3load/Dockerfile builds, and the shell that runs an h2load with HTTP/3: the
+# image's, or this one when the PATH's h2load has HTTP/3. A container does not take the cores
+# taskset gives the command that starts it, so the judge names the load generator's cores here.
+readonly h3load_image="${BENCH_H3LOAD_IMAGE:-colibri-h3load:latest}"
+if [ "${BENCH_H3LOAD:-image}" = native ]; then
+  h3_shell=(bash -c)
+else
+  h3_shell=(docker run --rm --network host)
+  if [ "$mode" = judge ]; then h3_shell+=(--cpuset-cpus "$load_cores"); fi
+  h3_shell+=("$h3load_image" sh -c)
+fi
+readonly h3_shell
 # The one TLS 1.3 suite h2load offers, so that every server runs the same cipher: colibri's server
 # chooses by its own order, which puts this suite first, and nginx and h2o follow the client's.
 readonly tls_suite=TLS_AES_256_GCM_SHA384
+# What an h3 input asks for: a file of the eight octets colibri's h2 server answers with, which
+# each server reads from its directory. The servers of design §11.3 that colibri's is measured
+# against over h3 answer from files alone, so colibri's does the same work.
+readonly h3_file=colibri.txt
 
 scratch="$(mktemp -d)"
 server_pid=""
@@ -89,21 +121,25 @@ build() {  # build <tree> <prefix>
 
 url() {  # url <input>
   case "$1" in
+    h3-*) echo "https://127.0.0.1:${port}/${h3_file}" ;;
     *-tls-*) echo "https://127.0.0.1:${port}/" ;;
     *) echo "http://127.0.0.1:${port}/" ;;
   esac
 }
 
-# What h2load offers for <input>, into the array `offer`: over TLS the one suite of tls_suite.
+# What h2load offers for <input>, into the array `offer`: over TLS the one suite of tls_suite. For
+# an h3 input, `succeeded` adds that suite itself, as load.sh does.
 offer_of() {  # offer_of <input>
   offer=()
   case "$1" in *-tls-*) offer+=(--tls13-ciphers="$tls_suite") ;; esac
 }
 
-# Whether <variant> serves <input>: http.zig has no TLS and speaks h11 alone.
+# Whether <variant> serves <input>. A build of colibri serves every input. http.zig has no TLS and
+# speaks h11 alone, and nginx, h2o and hyper serve no h3 input.
 serves() {  # serves <variant> <input>
   case "$1" in
     httpz) [[ "$2" == h11-* && "$2" != *-tls-* ]] ;;
+    nginx | h2o | hyper) [[ "$2" != h3-* ]] ;;
     *) true ;;
   esac
 }
@@ -141,7 +177,12 @@ case "\$1" in
       -d "\${2:-${h11_seconds}}s" "\${headers[@]}" "\$target"
     ;;
 esac
+# An h3 input's load is one shell command, so that the image starts once for all of its runs.
+h3="h2load --alpn-list=h3 --tls13-ciphers=${tls_suite}"
+h3_target=https://127.0.0.1:${port}/${h3_file}
 case "\$1" in
+  h3-many) ${h3_shell[*]} "\$h3 -n ${many_requests} -c ${many_clients} -m ${many_streams} \$h3_target" ;;
+  h3-one) ${h3_shell[*]} "for run in \\\$(seq 1 ${one_h3_runs}); do \$h3 -n ${one_h3_clients} -c ${one_h3_clients} \$h3_target; done" ;;
   *-many) h2load "\${options[@]}" -n ${many_requests} -c ${many_clients} -m ${many_streams} "\$target" ;;
   *-one) for _ in \$(seq 1 ${one_runs}); do h2load "\${options[@]}" -n ${one_clients} -c ${one_clients} "\$target"; done ;;
 esac
@@ -149,10 +190,15 @@ EOF
 
 # h2load exits 0 even when every request fails, so each use of it here reads the count it reports.
 # The output is read whole, because a reader that stops at the first match ends h2load early.
-succeeded() {  # succeeded <requests> <h2load arguments...>: whether all of them succeeded
-  local requests="$1" output
-  shift
-  output="$(h2load "$@" 2>/dev/null)" || true
+# <seconds> bounds h2load's run, and 0 leaves it unbounded.
+succeeded() {  # succeeded <requests> <input> <seconds> <h2load arguments...>: whether all succeeded
+  local requests="$1" input="$2" bound=() output
+  if [ "$3" -gt 0 ]; then bound=(timeout "$3"); fi
+  shift 3
+  case "$input" in
+    h3-*) output="$("${h3_shell[@]}" "${bound[*]} h2load --alpn-list=h3 --tls13-ciphers=${tls_suite} $*" 2>/dev/null)" || true ;;
+    *) output="$("${bound[@]}" h2load "$@" 2>/dev/null)" || true ;;
+  esac
   [[ "$output" == *", ${requests} succeeded, 0 failed,"* ]]
 }
 
@@ -163,7 +209,8 @@ wrk_clean() {  # wrk_clean <output>
   [[ "$1" != *"Socket errors:"* || "$1" == *"Socket errors: connect 0, read "*", write 0, timeout 0"* ]]
 }
 
-# Whether <input>'s server answers one request: curl for h11, as wrk speaks it, and h2load for h2.
+# Whether <input>'s server answers one request: curl for h11, as wrk speaks it, and h2load for h2
+# and h3, which may take ready_seconds.
 answers() {  # answers <input>
   local offer
   case "$1" in
@@ -172,7 +219,7 @@ answers() {  # answers <input>
       ;;
     *)
       offer_of "$1"
-      succeeded 1 "${offer[@]}" -n 1 -c 1 "$(url "$1")"
+      succeeded 1 "$1" "$ready_seconds" "${offer[@]}" -n 1 -c 1 "$(url "$1")"
       ;;
   esac
 }
@@ -184,7 +231,7 @@ warms() {  # warms <input>
     h11-*) wrk_clean "$(bash "$scratch/load.sh" "$1" "$h11_warm_seconds" 2>/dev/null || true)" ;;
     *)
       offer_of "$1"
-      succeeded "$warm_requests" "${offer[@]}" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$1")"
+      succeeded "$warm_requests" "$1" 0 "${offer[@]}" -n "$warm_requests" -c "$many_clients" -m "$many_streams" "$(url "$1")"
       ;;
   esac
 }
@@ -237,6 +284,11 @@ server_command() {  # server_command <variant> <input>
       command=("$httpz_server" --port "$port")
       ;;
     *)
+      if [[ "$2" == h3-* ]]; then
+        if [ "$1" = base ]; then command=("$base_quic_server"); else command=("$change_quic_server"); fi
+        command+=(server 127.0.0.1 "$port" "$identity" "$scratch/www" h3)
+        return
+      fi
       if [ "$1" = base ]; then command=("$base_server"); else command=("$change_server"); fi
       command+=(--port "$port")
       if [ -n "$tls" ]; then command+=(--tls "$identity"); fi
@@ -327,6 +379,9 @@ machine() {
   if [ -n "$h11" ]; then
     echo "wrk=$(wrk --version 2>&1 | head -1 | cut -d' ' -f1-2), TLS 1.3 with ${tls_suite} alone"
   fi
+  if [ -n "$h3" ]; then
+    echo "h2load for h3=$("${h3_shell[@]}" "h2load --version" 2>/dev/null | head -1), ${BENCH_H3LOAD:-$h3load_image}"
+  fi
   if [ -n "$competitors" ]; then
     if wants nginx; then
       echo "nginx=$(nginx -v 2>&1 | sed 's/^nginx version: //'), $(nginx -V 2>&1 | sed -n 's/^built with //p')"
@@ -366,6 +421,12 @@ if [ -z "$base_server" ] && [ -n "$base" ]; then
   build "$base" "$scratch/base"
   base_server="$scratch/base/bin/http-server"
 fi
+# The UDP servers come from the same builds, beside the h2 servers.
+change_quic_server="${BENCH_QUIC_SERVER:-$(dirname "$change_server")/quic-udp}"
+base_quic_server="${BENCH_BASE_QUIC_SERVER:-}"
+if [ -z "$base_quic_server" ] && [ -n "$base_server" ]; then base_quic_server="$(dirname "$base_server")/quic-udp"; fi
+mkdir -p "$scratch/www"
+printf 'colibri\n' >"$scratch/www/$h3_file"
 # Whether --competitors measures <competitor>.
 wants() {  # wants <competitor>
   local name
@@ -405,14 +466,18 @@ variants=(change)
 if [ -n "$base_server" ]; then variants+=(base); fi
 if [ -n "$competitors" ]; then variants+=("${competitor_names[@]}"); fi
 
-# Round 0 is the warm-up, which the report discards. Each round after it measures the variants in
-# turns, starting one place later in the list each round, so that each goes first as often.
+# Round 0 is the warm-up, which the report discards. In each later round, the variants that serve
+# an input take turns. Their list starts one place later each round, so in n rounds that follow
+# one another, each of n variants goes first once.
 for round in $(seq 0 "$rounds"); do
   for input in "${inputs[@]}"; do
     echo "run.sh: round $round, $input" >&2
-    for ((place = 0; place < ${#variants[@]}; place++)); do
-      variant="${variants[(round + place) % ${#variants[@]}]}"
-      if serves "$variant" "$input"; then measure "$variant" "$input" "$round"; fi
+    serving=()
+    for variant in "${variants[@]}"; do
+      if serves "$variant" "$input"; then serving+=("$variant"); fi
+    done
+    for ((place = 0; place < ${#serving[@]}; place++)); do
+      measure "${serving[(round + place) % ${#serving[@]}]}" "$input" "$round"
     done
   done
 done

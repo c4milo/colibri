@@ -13,15 +13,27 @@ Performance section states the rules, and design §11 holds the method's numbers
   2026-09-30, design §8 step 13a). macOS publishes no number (decision 32). The script builds the
   test-only h2 server in ReleaseSafe, pins it to one core and h2load to two others, and counts the
   server's instructions, cycles, CPU time and system calls with `perf stat`, run as root. It has
-  four inputs:
+  four inputs, four more with `--h11`, and two more with `--h3`:
   - `h2-many` and `h2-tls-many`: many requests on each of a few connections, counted per request,
     in cleartext and over TLS.
   - `h2-one` and `h2-tls-one`: one request on each connection, counted per connection.
+  - `h11-many`, `h11-tls-many`, `h11-one` and `h11-tls-one`: the same four loads over h11, which
+    wrk sends, as the baselines below describe (design §8 step 13g).
+  - `h3-many` and `h3-one`: the same two loads over h3, against the test-only UDP server in its
+    `h3` mode (design §8 step 13d). Each request asks for a file of the same eight octets, which
+    the server reads from its directory: the h3 servers design §11.3 names answer from files
+    alone, so colibri's does the same work. The h2load that sends them is the one
+    `tools/h3load/Dockerfile` builds with HTTP/3, run from its image on the load generator's
+    cores.
 - Each input runs one warm-up round, which the report discards, and then five rounds. With
   `--base`, the base and the change take turns in each round, and the order alternates. The report
   gives each input's median and spread, and the ratio of the change to the base with the losses
   first. The run fails when an input loses past the noise: the larger of the two spreads and the
   floor.
+- For each input counted per connection, the report also gives the connections one core of the
+  server completes a second: the reciprocal of the median CPU time per connection. That is design
+  §11.2's handshakes per second for a server whose CPU is the limit. It is a time, so it is
+  compared within one job and never across jobs.
 - The programs the judge and `tools/h3load.sh` time, `http-server` and `quic-udp`, export their own
   `memset` on Linux under Zig 0.16 (`src/testing/memset.zig`), as pepegrillo's guide tells a
   program to: compiler_rt's writes one octet at a time, for Zig's fills and chapulin's C code
@@ -170,7 +182,7 @@ With chapulin's host objects:
 ## Commands
 
 ```bash
-bench/run.sh [--filter] [--base <tree>] [--competitors] [--rounds <n>] [report.md]
+bench/run.sh [--filter] [--base <tree>] [--competitors] [--h11] [--h3] [--rounds <n>] [report.md]
 zig build bench-memory
 tools/h3load.sh [requests] [port]
 tools/interop.sh [peers] [tests]
