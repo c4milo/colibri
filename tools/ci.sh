@@ -67,7 +67,7 @@ simulator_checks() {
   local mode
   for mode in "" "-Drelease"; do
     for check in chunk connection tls h2-input qpack qpack-input h3 h3-long h3-trace h11-split \
-      h11-connection h11-coding content-coding deadline; do
+      h11-connection h11-coding content-coding deadline h3-deadline; do
       zig build sim ${mode} -- "--${check}-check" 2>&1 | grep -E "^${check}:" || return 1
     done >"${scratch}/sim${mode}.txt"
   done

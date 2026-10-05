@@ -16,6 +16,7 @@ const run_main_h11 = @import("run_main_h11.zig");
 const run_main_content_coding = @import("run_main_content_coding.zig");
 const run_main_h3 = @import("run_main_h3.zig");
 const run_main_deadline = @import("run_main_deadline.zig");
+const run_main_h3_deadline = @import("run_main_h3_deadline.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
 const run_main_deadline_trace = @import("run_main_deadline_trace.zig");
 const run_main_h2_stall = @import("run_main_h2_stall.zig");
@@ -87,6 +88,8 @@ pub fn main(init: std.process.Init) !void {
         .deadline_check => |seeds| try run_main_deadline.check(seeds),
         .deadline_trace_check => |seeds| try run_main_deadline_trace.check(seeds),
         .deadline_trace_write => |directory| try deadline_trace_write(init.io, directory),
+        .h3_deadline_seed => |seed| try run_main_h3_deadline.seed(seed),
+        .h3_deadline_check => |seeds| try run_main_h3_deadline.check(seeds),
         .h2_stall_seed => |seed| try run_main_h2_stall.seed(seed),
         .h2_stall_check => |seeds| try run_main_h2_stall.check(seeds),
         .tcp_trace_check => |seeds| try run_main_tcp_trace.check(seeds),

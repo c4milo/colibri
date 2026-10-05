@@ -7217,6 +7217,91 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     H3_REQUEST_REJECTED; the connection's deadline fired before a late head is answered; the
     oldest unread head rejected alone; and a stream asked to stop but not reset.
 
+  **The h3 deadline check, 2026-10-04** ([#95](https://github.com/c4milo/colibri/issues/95)).
+  - `zig build sim -- --h3-deadline-check [seeds]` runs each seed's plan between a server
+    `Endpoint` and a scripted client over QUIC in simulated time, through the calls a program
+    makes. `--h3-deadline-seed <hex>` prints one seed's trace. Each seed runs twice and must
+    write one trace. `zig build test` runs 256 seeds and pins the CRC-32 of their traces, and
+    `tools/ci.sh` runs them in Debug and in ReleaseSafe and compares the two.
+  - A plan draws one of eighteen peers, decision 110's default limits or stricter ones in one
+    plan of four, and how long the application holds each request before it answers, up to
+    25 s. The application writes half of its answers to honest peers in two halves, up to 25 s
+    apart.
+  - Five peers are honest, and each must read every response whole:
+    - one that makes up to three exchanges at once;
+    - one whose request heads arrive in two parts, up to 2 s apart;
+    - one that uploads content at two to four times the minimum body rate;
+    - one that reads long responses at two to four times the minimum send rate, from streams
+      whose credit starts at 8,192 octets;
+    - one behind a link that carries four to eight times the minimum send rate and drops the
+      datagrams its queue of eight cannot hold. Its responses stay unacknowledged for whole
+      windows, so the connection's send meter judges it at each one.
+  - Thirteen are slow or flooding, and the server must end each at the instant decision 110
+    names:
+    - a peer that sends nothing after the handshake, and one that sends only PINGs: a GOAWAY
+      at the first-request deadline;
+    - a peer that sends only PINGs after one exchange: a GOAWAY at the idle deadline, counted
+      from the instant the server reported the response done;
+    - a head short of its last octet, the connection's first or one after an exchange: a 408
+      at the head deadline, or a reset with H3_REQUEST_REJECTED when the connection's own
+      deadline comes first. The connection ends at its own deadline either way;
+    - a body under the rate: a 408 at the end of its first window. A body that keeps the rate
+      for longer than the cap: a 408 at the cap. The application reads `cancelled` for each,
+      naming the deadline;
+    - a long response to a peer that reads none of it, or reads far under the rate: a reset
+      with H3_REQUEST_CANCELLED at the end of the first window, and `cancelled`;
+    - a peer that acknowledges nothing, one that holds an open response with its connection's
+      credit, two bodies that bring nothing, and a peer that cancels requests past the reset
+      limit: a close with H3_EXCESSIVE_LOAD, whose `close_reason` names the deadline or the
+      limit. The flood is closed with the batch that carries its 101st cancelled request.
+  - A connection that ended one request runs on to its idle deadline, counted from that end.
+  - The peer must read each GOAWAY at the deadline's instant, and the close must follow with
+    H3_NO_ERROR within the 25 ms the peer takes to acknowledge the GOAWAY. A slow link adds the
+    time it takes to carry a datagram to each.
+  - What it printed on macOS arm64, in Debug and in ReleaseSafe: `h3-deadline: seeds=256
+    exchanges=129 first_request=34 idle=151 body_rate=15 send_rate=38 peer_resets=18
+    requests_cut=78 trace_octets=116332 crc32=0xd51694dc`.
+  - The slow link dropped 13 to 19 datagrams in each of its 13 seeds, and the server cut none
+    of them.
+  - The check found one fault in the server: the request whose head is unread at a shutdown,
+    above.
+  - Not covered: the application answers only after a request's content has ended, so a
+    body's deadline always finds no response begun. The unit tests cover the reset of a
+    response that began and the response that ended.
+  - `zig build test`, on faa6575 with the commits of the fourth part: 131 of 131 steps and
+    2644 of 2644 tests passed.
+  - 31 mutations of the server, each **CAUGHT**:
+    - a deadline passing one nanosecond late; the first-request deadline never closing a
+      connection; the idle deadline running with a request open, or stopped by an unfinished
+      head;
+    - a late head never answered, its deadline counted from the connection's start, or the
+      caller not woken for it;
+    - the close not waiting for the GOAWAY's acknowledgment, or never reading it as
+      acknowledged; a shutdown keeping no deadline as its reason;
+    - a body's wait never starting, or going on after its content ended; its octets not
+      counted; its own window, or the bodies' together, never judged; the cap one nanosecond
+      late, or reported as the rate; a late body's request reset in place of its 408; the
+      caller not told of it;
+    - the connection's send meter, or a stream's, counting nothing; the connection's meter
+      never judged; a stream its credit holds never reset; a response its connection's credit
+      holds not waiting on its peer; a response whose end is not written waiting on its peer;
+    - the reset limit never closing the connection, letting one more cancelled request
+      through, or keeping no reason;
+    - no unread head rejected at a shutdown, another code for it, and the connection's
+      deadline fired before a late head is answered.
+  - One of them was **NOT CAUGHT** at first, by the check and by the unit tests: a response
+    its connection's credit holds not waiting on its peer. Every answer ended as it was
+    written, and the unacknowledged end alone kept the response waiting. `quic_sends_test.zig`
+    has the test now, and the check's application leaves that peer's answer open.
+  - Three parts of the check came from reading the mutations before running them. No honest
+    peer kept the connection's send meter running for a whole window, so one is behind the
+    slow link. A flood in batches of four could not find the limit's last request, so a plan
+    draws the batch, and a batch of one finds it. And the peer says when it read the GOAWAY,
+    where the run first read the server's clock.
+  - The mutations ran in copies of this tree with `zig build sim -- --h3-deadline-check`. One
+    is caught when the command fails or prints another CRC, which is what the module's test
+    compares.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
