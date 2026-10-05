@@ -7187,6 +7187,18 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     silent peer reports as a close with no GOAWAY before it; a late head never answered; a
     body's rate not judged; and the connection's send meter not judged.
 
+  **A body's wait and the 100 (Continue), 2026-10-04**
+  ([#95](https://github.com/c4milo/colibri/issues/95)). The owner ruled on 2026-10-04 that h3
+  adds no code for it.
+  - Over TCP a body's wait starts once the 100 (Continue) its request is owed is written. Over
+    h3 it starts at the request's head, also when a 100 is owed (decision 116, step 17i).
+  - The connection writes the 100 at its next call after the head, before the next datagram it
+    sends, so the two instants are most often one.
+  - The wait starts before the 100 in two cases. The caller filled the response's 16 runs with
+    interim responses before its next call, so the 100 waits for the client to acknowledge one.
+    Or the caller made its next call late. The grace period covers both while the caller's
+    loop keeps turning.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
