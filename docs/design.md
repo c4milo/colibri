@@ -7199,6 +7199,24 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     Or the caller made its next call late. The grace period covers both while the caller's
     loop keeps turning.
 
+  **A request whose head is unread at a shutdown, 2026-10-04**
+  ([#95](https://github.com/c4milo/colibri/issues/95)). The h3 deadline check, below, found it.
+  - A connection that shut down while a request stream still waited for its head closed with
+    nothing said of that request. The GOAWAY names the first stream the server has not seen,
+    so that stream was below it, and its client could not tell whether the server took the
+    request.
+  - When the server sends the GOAWAY, at a deadline or at `shutdown`, it now resets each such
+    stream with H3_REQUEST_REJECTED (RFC 9114 §4.1.1), and the client may send the request
+    again (decision 110 as amended). The owner has not ruled on it.
+  - A connection answers each head that is late before its own deadline shuts it down. So a
+    head that is late at that instant gets its 408, and only a head that is not late is
+    rejected.
+  - `zig build test-server`, on ae1f066 with the commits before this one: 298 of 298 tests
+    passed.
+  - 5 mutations, each **CAUGHT**: no stream rejected; H3_REQUEST_CANCELLED in place of
+    H3_REQUEST_REJECTED; the connection's deadline fired before a late head is answered; the
+    oldest unread head rejected alone; and a stream asked to stop but not reset.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

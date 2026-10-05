@@ -13,6 +13,8 @@ const testing = std.testing;
 const connection = &support.connection;
 
 const ok: u16 = 200;
+/// RFC 9110 §15.5.9: 408 (Request Timeout).
+const request_timeout: u16 = 408;
 /// Rounds that carry a request to the server, and its answer back.
 const rounds_few: usize = 2;
 /// An idle limit and a drain limit shorter than QUIC's own idle timeout, so each is told from it.
@@ -144,4 +146,60 @@ test "decision 110: a connection that is shutting down runs no first-request and
     try testing.expectEqual(drain_end_ns, quic_deadline.soonest(connection).?);
     server_at(drain_end_ns);
     try testing.expectEqual(Deadline.drain, connection.close_reason().?.deadline);
+}
+
+test "RFC 9114 §4.1.1: a connection its idle deadline ends rejects each request whose head is not whole" {
+    try connected();
+    try one_exchange();
+    const late = try support.request_short_of_head("GET", "/");
+    const later = try support.request_short_of_head("GET", "/");
+    try support.pump(rounds_few);
+    try testing.expectEqual(late.id, connection.h3.oldest_head_wait().?.stream_id);
+    // Each head's own deadline is further off than the idle deadline, so neither gets a 408.
+    server_at(connection.clock.idle_since_ns.? + short_ns);
+    try testing.expectEqual(Deadline.idle, connection.close_reason().?.deadline);
+    try testing.expectEqual(null, connection.h3.oldest_head_wait());
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(h3.constants.error_request_rejected, late.reset.?);
+    try testing.expectEqual(h3.constants.error_request_rejected, later.reset.?);
+    try testing.expectEqual(0, late.status + later.status);
+    try testing.expect(closing_with_no_error() and !support.server_failed);
+    // The client resets its side because the server asked it to, which is no cancel of its own.
+    try testing.expectEqual(0, connection.peer_resets);
+}
+
+test "RFC 9114 §4.1.1: a shutdown rejects the request whose head is not whole, and answers the one it holds" {
+    try connected();
+    const held = try support.request("GET", "/", "");
+    try support.pump(rounds_few);
+    const late = try support.request_short_of_head("GET", "/");
+    try support.pump(rounds_few);
+    connection.shutdown(support.now_ns);
+    try support.pump(rounds_few);
+    try testing.expectEqual(h3.constants.error_request_rejected, late.reset.?);
+    try testing.expectEqual(null, connection.transport.pending_close);
+    try connection.respond(held.id, .{ .status = ok, .end = true });
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(ok, held.status);
+    try testing.expect(held.ended and held.reset == null and closing_with_no_error());
+}
+
+test "decision 110: a head that is late at the instant the idle deadline passes gets its 408, and no reset" {
+    try connected();
+    try one_exchange();
+    const idle_since_ns = connection.clock.idle_since_ns.?;
+    const late = try support.request_short_of_head("GET", "/");
+    try support.pump(rounds_few);
+    const wait = connection.h3.oldest_head_wait().?;
+    // Both deadlines pass at one instant: the head's, and the idle deadline that began before it.
+    const at_ns = wait.since_ns + short_ns;
+    try connection.set_deadlines(.{ .head_ns = short_ns, .idle_ns = at_ns - idle_since_ns, .drain_ns = short_ns });
+    server_at(at_ns - 1);
+    try testing.expectEqual(null, connection.close_reason());
+    server_at(at_ns);
+    try testing.expectEqual(Deadline.idle, connection.close_reason().?.deadline);
+    try support.pump(support.rounds_default);
+    try testing.expectEqual(request_timeout, late.status);
+    try testing.expect(late.ended and late.reset == null);
+    try testing.expect(closing_with_no_error() and !support.server_failed);
 }

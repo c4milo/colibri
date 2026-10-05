@@ -343,11 +343,29 @@ pub fn respond_timeout(connection: *QuicConnection, id: Id) bool {
 }
 
 /// Sends a GOAWAY naming the first request stream not taken, after which h3 refuses every later
-/// one (RFC 9114 §5.2).
+/// one (RFC 9114 §5.2), and rejects each request whose head has not arrived whole.
 pub fn shut_down(connection: *QuicConnection, now_ns: u64) void {
     if (connection.stopped) return;
-    if (connection.started) connection.h3.shutdown(&connection.transport, now_ns) catch return internal.fail(connection);
+    if (connection.started) {
+        connection.h3.shutdown(&connection.transport, now_ns) catch return internal.fail(connection);
+        reject_unread(connection);
+    }
     finish_if_drained(connection);
+}
+
+/// Rejects each request stream that still waits for its head, on a connection that takes no more
+/// requests. Such a stream is below the identifier the GOAWAY named, and the connection closes
+/// without waiting for it, so its client could not tell whether the server took the request.
+/// RFC 9114 §4.1.1: a request the server cancels "without performing any application
+/// processing" is rejected, with H3_REQUEST_REJECTED, and the client may send it again. §5.2
+/// lets a server reject requests below the GOAWAY's identifier "if these requests were not
+/// processed".
+fn reject_unread(connection: *QuicConnection) void {
+    // Bounded: each pass rejects one stream, and h3 holds `request_streams_max` of them.
+    for (0..h3.constants.request_streams_max) |_| {
+        const wait = connection.h3.oldest_head_wait() orelse return;
+        connection.h3.cancel(&connection.transport, wait.stream_id, h3.constants.error_request_rejected);
+    }
 }
 
 /// The last request of a connection shut down is over, so QUIC closes with H3_NO_ERROR. RFC 9114

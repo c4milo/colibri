@@ -3438,6 +3438,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        deadline unless a whole request arrives. The first-request deadline counts from the
        client's first datagram, so it covers the handshake, and a close before the handshake
        completes leaves as RFC 9000 §10.2.3 has it.
+     - **A request whose head is unread when the connection shuts down** is rejected. The
+       GOAWAY names the first request stream the server has not seen, so a stream that still
+       waits for its head is below that identifier, and the connection closes without waiting
+       for it. When the server sends the GOAWAY, at a deadline or at the program's `shutdown`,
+       it resets each such stream with H3_REQUEST_REJECTED. RFC 9114 §4.1.1 says a server
+       SHOULD do so for a request it cancels with no application processing, and the client
+       may then send the request again. §5.2 allows it below the GOAWAY's identifier. A head
+       whose own deadline passes at that instant gets its 408 first.
      - **A request body over h3.** Its wait starts at the call that reads its request's head,
        also when the request is owed a 100 (Continue) (decision 116), and ends with its content
        or its stream. Only the data of its DATA frames counts (RFC 9114 §7.2.1), and only while
@@ -3481,7 +3489,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      The owner ruled the reset limit, the deadlines and what each does, and what stops the idle
      deadline. The three points on a request body and on the send rate apply those rulings to
      QUIC. They were settled while building step 20c, and the owner confirmed them on
-     2026-10-04.
+     2026-10-04. The rejection of an unread head was settled on 2026-10-04 too, after the
+     simulator's check of step 20c showed a connection that closed with such a stream
+     unanswered. It follows RFC 9114 §4.1.1, and the owner has not ruled on it.
 
      The alternatives refused:
      - Leaving h3 to QUIC's idle timeout, which counts silence alone.
@@ -3511,6 +3521,14 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        GOAWAY lost with its packet is not sent again.
      - Closing at once with no GOAWAY, which the first three parts of step 20c did. A client
        that sent a request as the server closed could not tell whether the server took it.
+     - Closing with a request stream's head unread and nothing said of it, which the GOAWAY
+       did at first. That stream is below the GOAWAY's identifier, so its client could not
+       tell whether the server took the request either.
+     - Waiting for each unread head until its own deadline before the close. A connection
+       would outlive its first-request or idle deadline by up to the head deadline, for a
+       client that sent part of a head.
+     - A GOAWAY that names the unread stream. A request stream above it that the server did
+       take would then read as rejected.
      - An assertion in `Endpoint.init` in place of the error, which the third part of step 20c
        had. A program that reads its limits from outside would stop on a value it could have
        reported.

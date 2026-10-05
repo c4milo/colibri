@@ -9,7 +9,9 @@
 //!
 //! Only a request whose head arrived whole is open. A stream that still waits for its head does
 //! not stop the idle deadline, so a client cannot hold a connection with partial heads. The
-//! streams of h3 are independent, so a head that is late ends its request alone, with a 408.
+//! streams of h3 are independent, so a head that is late ends its request alone, with a 408. A
+//! head that is not late when the connection begins to shut down is rejected, so its client may
+//! send the request again.
 //!
 //! `quic_body.zig` keeps the deadlines of the request bodies, and `quic_sends.zig` those of the
 //! responses the peer has yet to take. Both are reported and fired from here.
@@ -91,9 +93,11 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) void {
     if (clock.drain_since_ns) |since| {
         if (is_past(since, limits.drain_ns, now_ns)) return close(connection);
     }
-    if (late_for_requests(connection, now_ns)) |passed| shut_down(connection, passed, now_ns);
-    if (!running(connection)) return;
+    // A head that is late at this instant gets its 408 before the connection's own deadline
+    // rejects each head that is not.
     fire_heads(connection, now_ns);
+    if (!running(connection)) return;
+    if (late_for_requests(connection, now_ns)) |passed| shut_down(connection, passed, now_ns);
     if (!running(connection)) return;
     if (quic_body.fire(connection, now_ns)) |passed| return overload(connection, passed);
     if (!running(connection)) return;
@@ -152,9 +156,10 @@ fn late_for_requests(connection: *const QuicConnection, now_ns: u64) ?Deadline {
 /// Ends a connection that brought no request in time. RFC 9114 §5.1: "Servers SHOULD NOT
 /// actively keep connections open". §5.2: a server "SHOULD send a GOAWAY frame when the closing
 /// of a connection is known in advance", so the client learns which requests the server did not
-/// take. The close follows once the client acknowledged the GOAWAY, or at the drain deadline
-/// (decision 110 as amended). Before h3 runs there is no stream to send one on, and the
-/// connection closes at once (RFC 9000 §10.2.3).
+/// take, and a request whose head is not whole is rejected with it (§4.1.1). The close follows
+/// once the client acknowledged the GOAWAY, or at the drain deadline (decision 110 as amended).
+/// Before h3 runs there is no stream to send one on, and the connection closes at once (RFC 9000
+/// §10.2.3).
 fn shut_down(connection: *QuicConnection, passed: Deadline, now_ns: u64) void {
     assert(passed == .first_request or passed == .idle);
     connection.clock.timed_out = passed;
