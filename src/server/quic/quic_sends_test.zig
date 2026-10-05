@@ -162,6 +162,25 @@ test "decision 110: a peer that acknowledges the quota each window is not closed
     try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
 }
 
+test "decision 110: a response its connection's credit holds waits on its peer before its end is written" {
+    try connected(support.window_default, window_small);
+    support.client_reads = false;
+    const fetch = try support.request("GET", "/", "");
+    try support.pump(rounds_few);
+    try connection.respond(fetch.id, .{ .status = ok, .end = false });
+    try testing.expectEqual(content.len, try connection.write_body(fetch.id, .{ .octets = &content, .end = false }));
+    try support.pump(support.rounds_default);
+    // The client acknowledged every octet its connection's credit let through. The rest is
+    // within the stream's credit and waits on the connection's, which is the peer's to give.
+    const outgoing = &connection.transport.streams.lookup(.{ .value = fetch.id }).live.outgoing;
+    try testing.expectEqual(outgoing.framed_end, outgoing.acknowledged_len);
+    try testing.expect(outgoing.framed_end < content.len and !outgoing.finished);
+    try testing.expect(entry_of(fetch).busy and !entry_of(fetch).bound);
+    server_at(connection.sends.meter.window_end_ns.?);
+    try testing.expectEqual(Deadline.send_rate, connection.clock.timed_out.?);
+    try testing.expect(closing_for_load());
+}
+
 test "RFC 9000 §3.1: a response whose end alone is not acknowledged still waits on its peer" {
     try connected(support.window_default, support.window_default);
     const fetch = try support.request("GET", "/", "");
