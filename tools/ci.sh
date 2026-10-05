@@ -154,6 +154,10 @@ h11_server_interop_lines="$(grep -E "^h11_server_interop.sh: (curl|go|over TLS|e
 # Decision 110: the test-only server's deadlines, over real sockets and on its loop's clock.
 section "Deadlines of the test-only server" tools/deadlines.sh
 deadline_lines="$(grep -E "^deadlines.sh: (an |every)" "${scratch}/last.log")"
+# Decision 110 as amended: the same limits on the test-only h3 server, with aioquic as the slow
+# peer (design §8 step 20c).
+section "Deadlines of the test-only h3 server" tools/h3_deadlines.sh
+deadline_lines="${deadline_lines}"$'\n'"$(grep -E "^slow_peer: " "${scratch}/last.log")"
 section "TLS handshake, colibri as client" tools/tls_handshake.sh
 tls_lines="$(grep -E "^tls-handshake:|^tls_handshake: a refused handshake" "${scratch}/last.log")"
 section "TLS handshake, colibri as server" tools/tls_accept.sh

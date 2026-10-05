@@ -431,6 +431,12 @@ Everything below exists. Change this section when a step adds or renames a comma
   loop's clock and requires four peers to be cut at decision 110's default deadlines, each within
   a second after its instant: half a head and a silent peer at 10 s, a body too slow at 20 s, and
   an h2 preface alone at 10 s. It needs `python3`, and `tools/ci.sh` runs it.
+  `tools/h3_deadlines.sh` runs the test-only h3 server the same way, with aioquic as the slow
+  peer, from the cached virtual environment of `tools/quic_aioquic.sh` (design §8 step 20c): a
+  peer that sends a PING every second and no request gets a GOAWAY and then H3_NO_ERROR at 10 s,
+  half a head a 408 at 10 s, a body too slow a 408 at 20 s, and a peer that acknowledges nothing
+  of a response H3_EXCESSIVE_LOAD at 20 s. It needs `python3` and a Go toolchain, and
+  `tools/ci.sh` runs it.
 - QUIC check: `tools/quic_loopback.sh` runs a colibri client and a colibri server over the QUIC
   object in one process, through one handshake and one stream, and writes the secrets to
   `$SSLKEYLOGFILE` when it is set. It needs a Go toolchain, and `tools/ci.sh` runs it.

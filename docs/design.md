@@ -7166,6 +7166,27 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     never went out read as acknowledged, and one read as acknowledged before the peer
     acknowledged it.
 
+  **The h3 deadlines over real sockets, 2026-10-04**
+  ([#95](https://github.com/c4milo/colibri/issues/95)).
+  - `tools/h3_deadlines.sh` runs the test-only h3 server on its loop's clock, and four aioquic
+    peers at the default limits (`tools/quic_interop/slow_peer.py`). The server must end each
+    within a second after its instant, and not before it. `tools/ci.sh` runs it after
+    `tools/deadlines.sh`.
+  - What it printed on macOS arm64, with a load average over 100:
+    - a peer that sends a PING every second and no request: a GOAWAY, then H3_NO_ERROR, after
+      10.21 s;
+    - half a request's head, after one whole fetch: 408 after 10.01 s, and the connection
+      served a later fetch;
+    - a head and three octets of content: 408 after 20.02 s;
+    - a peer that acknowledges nothing of a response: H3_EXCESSIVE_LOAD after 20.02 s.
+  - aioquic reports a close only when its draining period ends, three PTOs after the close
+    arrived, and a peer whose datagrams are dropped has a PTO that has grown past a second. So
+    the peer reads the close from aioquic's `_close_event`, at the datagram that carried it.
+  - 5 mutations of the server, each **CAUGHT** by the peer that covers it: the first-request
+    deadline never firing; the close not waiting for the GOAWAY's acknowledgment, which the
+    silent peer reports as a close with no GOAWAY before it; a late head never answered; a
+    body's rate not judged; and the connection's send meter not judged.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
