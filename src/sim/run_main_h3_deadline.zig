@@ -26,7 +26,7 @@ pub fn check(seeds: u64) !void {
         return failure;
     };
     const format = "h3-deadline: seeds={d} exchanges={d} first_request={d} idle={d} body_rate={d} send_rate={d}" ++
-        " peer_resets={d} requests_cut={d} trace_octets={d} crc32=0x{x:0>8}\n";
+        " peer_resets={d} requests_cut={d} trace_octets={d} crc32=0x{x:0>8} wire_crc32=0x{x:0>8}\n";
     std.debug.print(format, .{
         census.seeds,
         census.exchanges,
@@ -38,5 +38,6 @@ pub fn check(seeds: u64) !void {
         census.requests_cut,
         census.trace_octets,
         census.crc32.final(),
+        census.wire_crc32.final(),
     });
 }

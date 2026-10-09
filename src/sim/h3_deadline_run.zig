@@ -77,6 +77,9 @@ pub const Record = struct {
     close_reason: ?server.CloseReason,
     /// The datagrams the link dropped.
     dropped: u32,
+    /// The CRC-32 of every datagram the endpoint took and wrote, in the order it did: what the
+    /// wire carried, apart from what the application reads of it.
+    wire: std.hash.Crc32,
 };
 
 const Endpoint = server.EndpointOf(1, quic.constants.receive_pool_len_default);
@@ -144,6 +147,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     try storage.peer.start(plan, tls.Random.init(&storage.peer_random, fill), now_ns);
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     storage.record = .{
+        .wire = .init(),
         .end = .held,
         .end_ms = 0,
         .app = undefined,
@@ -207,6 +211,7 @@ fn peer_send(storage: *Storage, now_ns: u64) Error!bool {
         moved = true;
         if (peer.muted) continue;
         const from = server.Address.of(&peer_octets, peer_port);
+        storage.record.wire.update(storage.datagram[0..len]);
         if (storage.endpoint.receive(storage.datagram[0..len], .not_ect, from, now_ns)) |connection| storage.served = connection;
     }
     // A deaf peer's request has left, and nothing of its leaves after.
@@ -239,6 +244,7 @@ fn server_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     for (0..limits.datagrams_per_pass_max) |_| {
         const sent = storage.endpoint.send(&storage.datagram, now_ns) orelse break;
         moved = true;
+        storage.record.wire.update(sent.octets);
         storage.link.take(sent.octets, now_ms);
         // A link with no rate has carried the datagram already.
         _ = try deliver(storage, now_ns, now_ms);

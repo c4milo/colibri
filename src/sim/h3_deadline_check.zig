@@ -49,6 +49,11 @@ pub const check_name = "h3-deadline";
 /// committed with the new value after the check passes in both build modes.
 pub const census_crc32_expected: u32 = 0xd51694dc;
 
+/// The CRC-32 of the runs' datagram CRC-32s, in seed order. It follows what the wire carried apart
+/// from what the application reads, so a change to how the server reports events keeps it, and a
+/// change to what it sends does not (design §8 step 21b.3).
+pub const census_wire_crc32_expected: u32 = 0x942c7916;
+
 pub const Violation = h3_deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
     ReplayDiverged,
@@ -89,6 +94,8 @@ pub const Census = struct {
     requests_cut: u64 = 0,
     trace_octets: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
+    /// The CRC-32 of each run's datagrams' CRC-32, in seed order (`h3_deadline_run.Record.wire`).
+    wire_crc32: std.hash.Crc32 = .init(),
 };
 
 /// The plan of `seed`.
@@ -125,6 +132,9 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.exchanges += result.record.exchanges_done;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
+        var wire_octets: [@sizeOf(u32)]u8 = undefined;
+        std.mem.writeInt(u32, &wire_octets, result.record.wire.final(), .big);
+        census.wire_crc32.update(&wire_octets);
         if (cut_a_request(seed, &result.record)) census.requests_cut += 1;
         // `verify` refused a run the server held open, so each run has a reason.
         switch (result.record.close_reason.?) {
@@ -402,4 +412,5 @@ test "decision 110: every h3 seed replays, honest peers finish their exchanges, 
     try std.testing.expect(census.first_request > 0 and census.idle > 0 and census.peer_resets > 0);
     try std.testing.expect(census.body_rate > 0 and census.send_rate > 0);
     try std.testing.expectEqual(census_crc32_expected, census.crc32.final());
+    try std.testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }
