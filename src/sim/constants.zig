@@ -377,6 +377,7 @@ pub const content_coding = @import("constants_content_coding.zig");
 pub const deadline = @import("constants_deadline.zig");
 pub const deadline_trace = @import("constants_deadline_trace.zig");
 pub const h3_deadline = @import("constants_h3_deadline.zig");
+pub const h3_deadline_trace = @import("constants_h3_deadline_trace.zig");
 
 /// The h11 split check (design §8 step 15a): the messages one seed pipelines, the field lines a
 /// message carries besides Host and its framing, the longest fixed body, the chunks of a chunked

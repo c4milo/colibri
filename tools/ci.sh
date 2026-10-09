@@ -200,6 +200,9 @@ if command -v java >/dev/null 2>&1; then
   # decision 110's deadlines.
   section "deadline traces against the TLA+ model" tools/deadline_trace.sh
   tla_lines="${tla_lines}"$'\n'"$(grep -E "^deadline_trace.sh: " "${scratch}/last.log")"
+  # Design §8 step 20d: the h3 deadline trace run's logs against the model of the h3 deadlines.
+  section "h3 deadline traces against the TLA+ model" tools/h3_deadline_trace.sh
+  tla_lines="${tla_lines}"$'\n'"$(grep -E "^h3_deadline_trace.sh: " "${scratch}/last.log")"
   # https://github.com/c4milo/colibri/issues/79: the TCP trace run's logs, from the server and
   # client modules, against the h2 model.
   section "TCP traces against the TLA+ model" tools/tcp_trace.sh

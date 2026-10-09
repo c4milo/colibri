@@ -6541,6 +6541,36 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - the simulator's h3 deadline run written as traces of the model, which TLC checks are
       behaviors of it, as `tools/deadline_trace.sh` does for h2.
 
+    The second part logs only what maps one to one, at the owner's ruling of 2026-10-09. colibri
+    counts octets and the model units and packets, its congestion window grows with each
+    acknowledgment while the model's is fixed, and its receive windows grow too (decision 49),
+    so no run can match the model state for state.
+    - A run, `h3_deadline_trace_*.zig`, acts out a seed's plan with the h3 deadline run's peer
+      and a `server.Endpoint`, one queue of datagrams each way that loses and reorders nothing.
+      The peer sends each request in the model's units: its head in `HeadUnits` pieces and its
+      content in `Content`, each in a datagram of its own. The application writes each response
+      in `ResponseUnits` calls. The program's shutdown and time are actions too. Time moves only
+      while no datagram is in flight, to the instant the endpoint or the client next names, and
+      never as far as QUIC's own idle timeout, which the model leaves out.
+    - A seed may stop the client inside a head or a body, or the application inside an answer,
+      so the head, body and drain deadlines pass. The client does not cancel: after a cancel its
+      h3 stops reading the stream, where the model's client still learns the response.
+    - After each action the run logs the client's side (what it opened, what it learned of each
+      request, the GOAWAY and the close), colibri's (each request's phase, whether the
+      application heard of it and waits for its content, what it wrote and reset, the GOAWAY's
+      identifier, the shutdown, the close and its reason), and whether each of colibri's clocks
+      runs. TLC finds the units, windows and packets in flight that fit, and each clock must run
+      exactly when the model's rule says. colibri reads and writes all it can in the action that
+      brings it, so each logged state is one where the model's colibri has no step left.
+    - The run's windows are wide enough that flow control never binds, as the h3 trace run's
+      are, so the credit rules are checked by TLC on the model and by the unit tests. The run
+      turns the body rate off, because the meter of all bodies together, which the model leaves
+      out, would close the connection; the body cap is the body clock.
+    - `zig build sim -- --h3-deadline-trace-check [seeds]` runs it, `--h3-deadline-trace-write
+      <directory>` writes each seed's trace as TLA+, and `tools/h3_deadline_trace.sh` has TLC
+      check each one against `spec/tla/h3_deadlines/H3DeadlinesTrace.tla`. `tools/ci.sh` runs
+      the script.
+
   **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
   period its instant falls in, beside the count of the resets colibri sends. What was checked, on
   macOS arm64 with Zig 0.16.0:
@@ -7417,6 +7447,33 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       instant of a request whose head arrived, which nothing reads again.
   - `zig build test`: 131 of 131 steps and 2652 of 2652 tests passed, the h3 deadline check's
     census unchanged.
+
+  **The h3 deadline trace check, 2026-10-09.** The second part of 20d, which logs only what maps
+  one to one, at the owner's ruling.
+  - `zig build sim -- --h3-deadline-trace-check`, on macOS arm64: `seeds=32 states=418 opened=61
+    responses=24 timeouts=2 rejected=26 cancelled=0 drained=21 drain_passed=11`. Each seed runs
+    twice and goes through the same states.
+  - `tools/h3_deadline_trace.sh`: 32 of 32 traces are behaviors of the model, in 96 seconds of
+    TLC. The largest seed takes 2,744,823 states.
+  - What the first runs found was the run's mapping, not colibri:
+    - h3 forgets a request stream in the call that reads its end, so the run takes a request's
+      end from the server's events;
+    - colibri frees its records when the connection stops, so the trace compares `bodyWaits`
+      only while the connection is open;
+    - with nothing of colibri's due, a wait reached QUIC's own idle timeout, so one wait moves
+      time 30 seconds at most.
+  - Matching only states where the model's colibri has no step left cut one seed from 5,781,839
+    states to 513,029.
+  - Clients and applications that stop short are what make deadlines pass: before them, 256
+    seeds reached 4 timeouts and 4 drains, and after them 18 and 88.
+  - 6 mutations of colibri, each **CAUGHT** by `tools/h3_deadline_trace.sh`. TLC finds a trace
+    the model cannot reach for a shutdown that leaves unread heads unrejected (10 seeds), a close
+    that does not wait for the GOAWAY's acknowledgment (8), an idle clock that runs while a
+    request is open (20), and a late head rejected rather than answered with a 408 (1). The run
+    fails before TLC for a drain that never starts, whose client never reads the close, and an
+    assertion in colibri for a body's wait that goes on after its content ended.
+  - `zig build test`: 131 of 131 steps and 2654 of 2654 tests passed, the trace run's test among
+    them.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists

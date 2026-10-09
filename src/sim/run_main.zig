@@ -19,6 +19,7 @@ const run_main_deadline = @import("run_main_deadline.zig");
 const run_main_h3_deadline = @import("run_main_h3_deadline.zig");
 const run_main_h2_trace = @import("run_main_h2_trace.zig");
 const run_main_deadline_trace = @import("run_main_deadline_trace.zig");
+const run_main_h3_deadline_trace = @import("run_main_h3_deadline_trace.zig");
 const run_main_h2_stall = @import("run_main_h2_stall.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
 const run_main_tcp_trace = @import("run_main_tcp_trace.zig");
@@ -90,6 +91,8 @@ pub fn main(init: std.process.Init) !void {
         .deadline_trace_write => |directory| try deadline_trace_write(init.io, directory),
         .h3_deadline_seed => |seed| try run_main_h3_deadline.seed(seed),
         .h3_deadline_check => |seeds| try run_main_h3_deadline.check(seeds),
+        .h3_deadline_trace_check => |seeds| try run_main_h3_deadline_trace.check(seeds),
+        .h3_deadline_trace_write => |directory| try h3_deadline_trace_write(init.io, directory),
         .h2_stall_seed => |seed| try run_main_h2_stall.seed(seed),
         .h2_stall_check => |seeds| try run_main_h2_stall.check(seeds),
         .tcp_trace_check => |seeds| try run_main_tcp_trace.check(seeds),
@@ -279,6 +282,17 @@ fn deadline_trace_write(io: std.Io, directory: []const u8) !void {
         try write_file(io, directory, files.name, ".cfg", files.config);
     }
     std.debug.print("deadline-trace: wrote {d} seeds to {s}\n", .{ constants.deadline_trace.written_seeds, directory });
+}
+
+/// Writes seeds `[0, written_seeds)` of the h3 deadline trace run into `directory`, as
+/// `deadline_trace_write` does for the h2 one (design §8 step 20d).
+fn h3_deadline_trace_write(io: std.Io, directory: []const u8) !void {
+    for (0..constants.h3_deadline_trace.written_seeds) |seed| {
+        const files = try run_main_h3_deadline_trace.files_of(seed);
+        try write_file(io, directory, files.name, ".tla", files.module);
+        try write_file(io, directory, files.name, ".cfg", files.config);
+    }
+    std.debug.print("h3-deadline-trace: wrote {d} seeds to {s}\n", .{ constants.h3_deadline_trace.written_seeds, directory });
 }
 
 /// Writes seeds `[0, tcp_trace.written_seeds)` of the TCP trace run into `directory`: a TLA+ module

@@ -32,6 +32,9 @@
 //!     sim --deadline-trace-write <directory> each seed's trace as TLA+, for tools/deadline_trace.sh
 //!     sim --h3-deadline-seed <hex>     one seed's peer against a server's deadlines over QUIC
 //!     sim --h3-deadline-check [seeds]  (step 20c)
+//!     sim --h3-deadline-trace-check [seeds] colibri's h3 endpoint in the h3 deadline model's terms
+//!     sim --h3-deadline-trace-write <directory> each seed's trace as TLA+, for
+//!                                      tools/h3_deadline_trace.sh (step 20d)
 //!     sim --h2-stall-seed <hex>        one seed's h2 exchange over a small transport (#85)
 //!     sim --h2-stall-check [seeds]
 //!     sim --tcp-trace-check [seeds]    a client and a server connection in the h2 model's terms (#79)
@@ -63,6 +66,7 @@ pub const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --deadline-seed <hex> | --deadline-check [seeds]" ++
     " | --deadline-trace-check [seeds] | --deadline-trace-write <directory>" ++
     " | --h3-deadline-seed <hex> | --h3-deadline-check [seeds]" ++
+    " | --h3-deadline-trace-check [seeds] | --h3-deadline-trace-write <directory>" ++
     " | --h2-stall-seed <hex> | --h2-stall-check [seeds]" ++
     " | --tcp-trace-check [seeds] | --tcp-trace-write <directory>\n";
 
@@ -99,6 +103,8 @@ pub const Command = union(enum) {
     deadline_trace_write: []const u8,
     h3_deadline_seed: u64,
     h3_deadline_check: u64,
+    h3_deadline_trace_check: u64,
+    h3_deadline_trace_write: []const u8,
     h2_stall_seed: u64,
     h2_stall_check: u64,
     tcp_trace_check: u64,
@@ -163,10 +169,13 @@ fn parse_h2_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     return parse_deadline(flag, value);
 }
 
-/// The commands of the h3 deadline check, decision 110 as amended (design §8 step 20c).
+/// The commands of the h3 deadline check, decision 110 as amended (design §8 step 20c), and of its
+/// trace run (step 20d).
 fn parse_h3_deadline(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--h3-deadline-seed")) return .{ .h3_deadline_seed = try parse_seed(value) };
     if (std.mem.eql(u8, flag, "--h3-deadline-check")) return .{ .h3_deadline_check = if (value == null) constants.h3_deadline.check_seeds_default else try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--h3-deadline-trace-check")) return .{ .h3_deadline_trace_check = if (value == null) constants.h3_deadline_trace.written_seeds else try parse_seeds(value) };
+    if (std.mem.eql(u8, flag, "--h3-deadline-trace-write")) return .{ .h3_deadline_trace_write = value orelse return error.Usage };
     return parse_h2_stall(flag, value);
 }
 
