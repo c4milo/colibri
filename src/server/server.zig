@@ -112,6 +112,7 @@ test {
     _ = @import("quic/quic_connection_flow_test.zig");
     _ = @import("quic/quic_connection_limit_test.zig");
     _ = @import("quic/quic_deadline_test.zig");
+    _ = @import("quic/quic_deadline_credit_test.zig");
     _ = @import("quic/quic_body_test.zig");
     _ = @import("quic/quic_sends_test.zig");
     _ = @import("quic/quic_drain_test.zig");

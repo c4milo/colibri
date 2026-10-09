@@ -361,7 +361,8 @@ pub fn client_address() quic.PeerAddress {
     return quic.PeerAddress.of(&client_octets, client_port_now);
 }
 
-fn server_to_client() !void {
+/// Has the server send every datagram it owes, and the client take each one.
+pub fn server_to_client() !void {
     for (0..datagrams_per_round_max) |_| {
         const room = datagram[0..server_datagram_len];
         const sent = (if (through_endpoint) endpoint.send(room, now_ns) else internal.send(&connection, room, now_ns)) orelse return;

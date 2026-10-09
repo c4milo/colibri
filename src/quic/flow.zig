@@ -170,15 +170,22 @@ pub const Receiver = struct {
     /// A caller with none passes 0, which grows nothing: every interval is then at least as long
     /// as the test, so the window stays where it started.
     pub fn credit_frame_limit(receiver: *Receiver, now_ns: u64, round_trip_ns: u64) ?u64 {
-        const gain = receiver.consumed + receiver.window - receiver.limit;
-        // RFC 9000 §4.1: a limit that does not rise "has no effect", so it is never worth a frame.
-        // A window of 0 or 1 makes the fraction below 0, which alone would offer one every call.
-        if (gain == 0) return null;
-        if (gain < receiver.window / constants.flow_credit_fraction) return null;
+        if (!receiver.owes_credit()) return null;
         receiver.tune(now_ns, round_trip_ns);
         receiver.credited_at_ns = now_ns;
         receiver.limit = receiver.consumed + receiver.window;
         return receiver.limit;
+    }
+
+    /// Whether new credit is worth a frame, which `credit_frame_limit` then gives: the peer has
+    /// used `window / flow_credit_fraction` of its window. It changes nothing, so a caller may ask
+    /// at any time whether credit waits to be sent.
+    pub fn owes_credit(receiver: *const Receiver) bool {
+        const gain = receiver.consumed + receiver.window - receiver.limit;
+        // RFC 9000 §4.1: a limit that does not rise "has no effect", so it is never worth a frame.
+        // A window of 0 or 1 makes the fraction below 0, which alone would offer one every call.
+        if (gain == 0) return false;
+        return gain >= receiver.window / constants.flow_credit_fraction;
     }
 
     /// Grows the window when this endpoint is crediting faster than the peer can learn of it,
@@ -275,10 +282,13 @@ test "§4.1, §4.2: credit follows what the application took, not what arrived" 
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     // Reading less than the fraction is not yet worth a frame.
     receiver.consume(half_window - 1);
+    try testing.expect(!receiver.owes_credit());
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     receiver.consume(1);
+    try testing.expect(receiver.owes_credit());
     try testing.expectEqual(test_window + half_window, receiver.credit_frame_limit(0, 0).?);
     // The limit moved, so the same read is not offered twice.
+    try testing.expect(!receiver.owes_credit());
     try testing.expectEqual(null, receiver.credit_frame_limit(0, 0));
     try testing.expectEqual(half_window, receiver.available());
 }

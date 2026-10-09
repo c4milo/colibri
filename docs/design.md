@@ -7381,6 +7381,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test`: 131 of 131 steps and 2646 of 2646 tests passed, the h3 deadline check's
     census unchanged.
 
+  **The clocks wait for held credit, 2026-10-09.** Decision 110's seventh amendment, the owner's
+  ruling on `credit_held_body`, `credit_held_head` and `credit_held_idle`.
+  - colibri holds credit while QUIC owes a MAX_DATA, MAX_STREAMS or MAX_STREAM_DATA frame it has
+    not sent: a new limit worth a frame, or one lost and owed again.
+    `quic.connection_flow.credit_owed` answers it, and `flow.Receiver.owes_credit` is the test
+    `credit_frame_limit` already made. The server calls it at each `take`, `receive` and
+    `on_instant`, and after a `send` while credit is held, so the hold ends at the send that
+    carries the credit.
+  - While credit is held, the body meters stop and the head and idle deadlines do not run. Once
+    the credit is out, the meters start again with a grace period, as h2's do, and the head and
+    idle deadlines move by the time it was held: one that began during the hold starts at its
+    end. h3 moves the instants of the heads it waits for, through `h3.Connection`'s new
+    `delay_head_waits`. Both new public names are the server's. The body cap and the
+    first-request deadline run on, as the ruling names neither.
+  - `server.QuicConnection` grows by 16 octets, to 721,416, for the instant the hold began
+    (`docs/performance.md`).
+  - `zig build tla -- spec/tla/h3_deadlines/*.cfg`: the eleven configurations give their
+    verdicts in 2 minutes 55 seconds. colibri's rules hold every rule-2 invariant over 754,135
+    states with two streams (`colibri_flow`) and over 4,789,077 with three
+    (`colibri_flow_three`). The three `credit_held_*` configurations keep the clocks before this
+    change, violated.
+  - Four tests hold the credit by leaving the server's congestion window no room
+    (`quic_deadline_credit_test.zig`): a head whose deadline moves, an idle deadline that moves,
+    one that starts once the credit is out, and a body whose meters start again.
+  - Mutations, by `zig build test-quic`, `test-h3` and `test-server`:
+    - 9 of the credit query, each **CAUGHT**: each limit, fresh or lost, not counted; a stream
+      past "Recv" counted; the fraction off by one; and a limit that does not rise offered.
+    - 15 of the server and of h3, each **CAUGHT**: the credit never observed, or not at a send;
+      a wait moved wrongly whether it began before the hold or inside it; the idle or head
+      instants not moved; the idle or head deadline reported or fired during a hold; either
+      meter running during a hold; the hold restarted at each call; and the first-request
+      deadline not reported.
+    - 3 **NOT CAUGHT**, which change no behaviour: two skip a fast path, and one moves the
+      instant of a request whose head arrived, which nothing reads again.
+  - `zig build test`: 131 of 131 steps and 2652 of 2652 tests passed, the h3 deadline check's
+    census unchanged.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

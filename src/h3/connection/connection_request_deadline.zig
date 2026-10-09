@@ -36,6 +36,23 @@ pub fn oldest_head_wait(connection: *Connection) ?HeadWait {
     return oldest;
 }
 
+/// Moves the start of each head's wait past the span from `from_ns` to `to_ns`, in which the server
+/// held credit its client needed (decision 110 as amended), so the span counts against no head. A
+/// wait that began before the span starts the span's length later, and one that began inside it
+/// starts at its end.
+pub fn delay_head_waits(connection: *Connection, from_ns: u64, to_ns: u64) void {
+    assert(connection.options.role == .server);
+    assert(from_ns <= to_ns);
+    // A look that found no head waiting holds until `accept` takes another stream.
+    if (!connection.requests.head_wait_possible) return;
+    for (&connection.requests.slots) |*slot| {
+        const request = if (slot.*) |*held| held else continue;
+        if (request.phase != .head) continue;
+        assert(request.opened_ns <= to_ns);
+        request.opened_ns = if (request.opened_ns >= from_ns) to_ns else request.opened_ns + (to_ns - from_ns);
+    }
+}
+
 /// Reads no more of the request on `stream_id`, and asks the peer to stop sending it, with
 /// `code`. colibri's side of the stream stays open, so a response still goes out on it.
 pub fn stop_reading(connection: *Connection, transport: *QuicConnection, stream_id: u64, code: u64) void {
@@ -123,6 +140,25 @@ test "decision 110: a look that finds no request stream waiting is repeated only
     try testing.expectEqual(id, (try server_reads(second_ns)).?.request.stream_id);
     try testing.expectEqual(null, oldest_head_wait(&server.h3));
     try testing.expect(!server.h3.requests.head_wait_possible);
+}
+
+test "decision 110: a head's wait moves past the span the server held credit, and one that began inside it starts at its end" {
+    try harness.pair(.{ .role = .client }, .{ .role = .server });
+    var storage: [frame_len_max]u8 = undefined;
+    const frame = try get_frame(&storage);
+    const first = try open_short_of_head(frame);
+    try testing.expectEqual(null, try server_reads(first_ns));
+    const second = try open_short_of_head(frame);
+    try testing.expectEqual(null, try server_reads(second_ns));
+    const held_ns = second_ns - 1;
+    const released_ns = second_ns + first_ns;
+    delay_head_waits(&server.h3, held_ns, released_ns);
+    const first_moved_ns = first_ns + (released_ns - held_ns);
+    try testing.expectEqual(HeadWait{ .stream_id = first, .since_ns = first_moved_ns }, oldest_head_wait(&server.h3).?);
+    // The first head arrives whole, so the second's wait, moved to the span's end, is the oldest.
+    try client.send_raw(first, frame[frame.len - 1 ..], true);
+    try testing.expectEqual(first, (try server_reads(released_ns)).?.request.stream_id);
+    try testing.expectEqual(HeadWait{ .stream_id = second, .since_ns = released_ns }, oldest_head_wait(&server.h3).?);
 }
 
 test "RFC 9114 §4.1: a server that stops reading a request asks the client to stop sending, and still answers" {

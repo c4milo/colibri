@@ -22,6 +22,7 @@ const h3 = @import("h3");
 const constants = @import("../constants.zig");
 const deadline = @import("../deadline.zig");
 const rate = @import("../rate.zig");
+const connection_sends = @import("../connection/connection_sends.zig");
 const quic_connection = @import("quic_connection.zig");
 const quic_connection_h3 = @import("quic_connection_h3.zig");
 const quic_coding = @import("quic_coding.zig");
@@ -89,6 +90,19 @@ pub fn count(connection: *QuicConnection, record: *const Request, octets: usize)
     if (!body.waiting) return;
     body.meter.count(octets);
     bodies.together.count(octets);
+}
+
+/// Stops each body's meter, and the meter of them together, while colibri holds credit its client
+/// needs, and starts them at `now_ns` with a grace period once it is out, as h2's are (decision
+/// 110 as amended). The caps keep running.
+pub fn observe(connection: *QuicConnection, credit_held: bool, now_ns: u64) void {
+    const bodies = &connection.bodies;
+    if (bodies.waiting == 0) return;
+    const limits = &connection.deadlines;
+    for (&bodies.entries) |*body| {
+        if (body.waiting) connection_sends.start_or_stop(&body.meter, !credit_held, now_ns, limits);
+    }
+    connection_sends.start_or_stop(&bodies.together, !credit_held, now_ns, limits);
 }
 
 /// The soonest instant a body deadline passes, or `current` when it is sooner or none does.

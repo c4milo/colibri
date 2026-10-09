@@ -76,6 +76,27 @@ pub fn write_limits(connection: *Connection, level: Level, writer: *Writer, numb
     return wrote;
 }
 
+/// Whether this endpoint owes its peer credit it has not sent: a MAX_DATA, MAX_STREAMS or
+/// MAX_STREAM_DATA frame whose new limit is worth one (`Receiver.owes_credit`), or one lost and
+/// owed again (§13.3). RFC 9002 §7 holds these back with every ack-eliciting frame while the
+/// congestion window is full, and a peer that needs the credit waits on this endpoint then
+/// (decision 110 as amended).
+pub fn credit_owed(connection: *Connection) bool {
+    if (connection.receive_flow.owes_credit() or connection.max_data.owed) return true;
+    const streams = &connection.streams;
+    for (streams.peer_limit, streams.max_streams) |count, frame| {
+        if (count.owes_credit() or frame.owed) return true;
+    }
+    var walk = streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        // RFC 9000 §13.3: no MAX_STREAM_DATA once the receiving part leaves "Recv".
+        if (stream.receiving.state != .recv) continue;
+        if (stream.receive_flow.owes_credit() or stream.max_stream_data.owed) return true;
+    }
+    return false;
+}
+
 /// Writes the DATA_BLOCKED, STREAMS_BLOCKED and STREAM_DATA_BLOCKED frames owed now, each naming
 /// the limit current when it is written, and records packet `number` as the one carrying them.
 /// True when any went in.

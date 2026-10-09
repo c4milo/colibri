@@ -146,6 +146,10 @@ pub const connection_stream_acknowledged = struct {
     pub const resets_acknowledged = files.connection_stream_acknowledged.resets_acknowledged;
 };
 
+pub const connection_flow = struct {
+    pub const credit_owed = files.connection_flow.credit_owed;
+};
+
 pub const connection_stream_credit = struct {
     pub const send_credit = files.connection_stream_credit.send_credit;
 };
@@ -318,20 +322,20 @@ pub const stream = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try core.public_names.expect(@This(), &.{
-        "core",                           "wire",                     "crypto",
-        "tls_provider",                   "qlog",                     "constants",
-        "error_code",                     "Connection",               "PeerAddress",
-        "Space",                          "Recovery",                 "connection_datagram",
-        "connection_send",                "connection_timer",         "connection_idle",
-        "connection_close",               "connection_stream_send",   "connection_stream_read",
-        "connection_stream_acknowledged", "connection_stream_credit", "connection_version",
-        "connection_retry",               "connection_id_frames",     "connection_migration",
-        "connection_key_update",          "connection_qlog",          "connection",
-        "connection_receive",             "connection_recovery",      "connection_frames",
-        "connection_keys",                "connection_stream_frames", "connection_stream_recovery",
-        "recovery_ack",                   "recovery_sent",            "packet",
-        "frame",                          "transport_parameters",     "transport_parameters_read",
-        "stream",
+        "core",                           "wire",                   "crypto",
+        "tls_provider",                   "qlog",                   "constants",
+        "error_code",                     "Connection",             "PeerAddress",
+        "Space",                          "Recovery",               "connection_datagram",
+        "connection_send",                "connection_timer",       "connection_idle",
+        "connection_close",               "connection_stream_send", "connection_stream_read",
+        "connection_stream_acknowledged", "connection_flow",        "connection_stream_credit",
+        "connection_version",             "connection_retry",       "connection_id_frames",
+        "connection_migration",           "connection_key_update",  "connection_qlog",
+        "connection",                     "connection_receive",     "connection_recovery",
+        "connection_frames",              "connection_keys",        "connection_stream_frames",
+        "connection_stream_recovery",     "recovery_ack",           "recovery_sent",
+        "packet",                         "frame",                  "transport_parameters",
+        "transport_parameters_read",      "stream",
     });
 }
 

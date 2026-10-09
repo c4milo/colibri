@@ -78,7 +78,8 @@
 (*   - send: while a response the client has not acknowledged is unreset;  *)
 (*   - drain: from the shutdown, until the close.                          *)
 (* The first-request and idle deadlines stop once the connection shuts     *)
-(* down.                                                                   *)
+(* down. The head, body and idle clocks also wait while colibri holds      *)
+(* credit it has not sent (quic_deadline.zig's observe_credit).            *)
 (*                                                                         *)
 (* Left out: the handshake, which the first-request deadline also covers;  *)
 (* the cap on a body and the arithmetic of the rates, which                *)
@@ -105,8 +106,7 @@
 (*                     (quic.connection_stream_acknowledged's              *)
 (*                     resets_acknowledged).                               *)
 (*   PauseForCredit    the head, body and idle clocks wait while colibri   *)
-(*                     holds credit it has not sent. colibri does not keep *)
-(*                     this rule.                                          *)
+(*                     holds credit it has not sent (observe_credit).      *)
 (***************************************************************************)
 EXTENDS Naturals, Sequences, FiniteSets
 

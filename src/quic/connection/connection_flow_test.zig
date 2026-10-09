@@ -195,6 +195,34 @@ test "RFC 9000 §4.1: reading half the window sends MAX_DATA and MAX_STREAM_DATA
     try testing.expectEqual(half_window, more.packets[0].data_len);
 }
 
+test "decision 110: credit waits to be sent from the read that earns it to the packet that carries it" {
+    open_pair();
+    const id = try fill_window(body_len, false);
+    try testing.expect(!flow_frames.credit_owed(&server));
+    try flow_frames.consume(&server, id, half_window);
+    try testing.expect(flow_frames.credit_owed(&server));
+    _ = (try send_from(&server)).?;
+    try testing.expect(!flow_frames.credit_owed(&server));
+    // Each limit counts alone, fresh or lost and owed again (RFC 9000 §13.3): the connection's, a
+    // stream count's and a stream's.
+    const stream = server_stream(id);
+    const fresh = [_]*flow.Receiver{ &server.receive_flow, &server.streams.peer_limit[0], &stream.receive_flow };
+    const lost = [_]*bool{ &server.max_data.owed, &server.streams.max_streams[0].owed, &stream.max_stream_data.owed };
+    for (fresh, lost) |receiver, owed| {
+        const gain = receiver.window / constants.flow_credit_fraction;
+        receiver.limit -= gain;
+        try testing.expect(flow_frames.credit_owed(&server));
+        receiver.limit += gain;
+        owed.* = true;
+        try testing.expect(flow_frames.credit_owed(&server));
+        owed.* = false;
+    }
+    // RFC 9000 §13.3: a stream whose size is known gets no more credit.
+    stream.max_stream_data.owed = true;
+    _ = stream.receiving.on(.received_fin);
+    try testing.expect(!flow_frames.credit_owed(&server));
+}
+
 test "RFC 9000 §13.3: a lost limit frame is sent again at the current value, for the most recent only" {
     open_pair();
     const id = try fill_window(body_len, false);

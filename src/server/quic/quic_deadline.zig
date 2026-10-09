@@ -13,6 +13,11 @@
 //! head that is not late when the connection begins to shut down is rejected, so its client may
 //! send the request again.
 //!
+//! The idle and head deadlines wait while colibri holds credit its client needs, and move by the
+//! time it was held once the credit is out; the body meters stop for it. RFC 9002 §7 bounds
+//! MAX_DATA and MAX_STREAM_DATA by the congestion window like any ack-eliciting frame, so a client
+//! may wait on colibri for them (decision 110 as amended).
+//!
 //! `quic_body.zig` keeps the deadlines of the request bodies, and `quic_sends.zig` those of the
 //! responses the peer has yet to take. Both are reported and fired from here.
 const std = @import("std");
@@ -41,9 +46,18 @@ pub const Clock = struct {
     drain_since_ns: ?u64,
     /// The deadline that closed the connection, once one has.
     timed_out: ?Deadline,
+    /// The instant colibri began to hold credit its client needs, or null while it holds none.
+    credit_held_since_ns: ?u64,
 
     pub fn init(now_ns: u64) Clock {
-        return .{ .opened_ns = now_ns, .first_request_read = false, .idle_since_ns = null, .drain_since_ns = null, .timed_out = null };
+        return .{
+            .opened_ns = now_ns,
+            .first_request_read = false,
+            .idle_since_ns = null,
+            .drain_since_ns = null,
+            .timed_out = null,
+            .credit_held_since_ns = null,
+        };
     }
 };
 
@@ -65,7 +79,37 @@ pub fn observe(connection: *QuicConnection, now_ns: u64) void {
     } else if (clock.idle_since_ns == null) {
         clock.idle_since_ns = now_ns;
     }
+    observe_credit(connection, now_ns);
     quic_sends.observe(connection, now_ns);
+}
+
+/// Notes at `now_ns`, after a datagram went out, whether the credit colibri held went with it.
+pub fn observe_sent(connection: *QuicConnection, now_ns: u64) void {
+    if (connection.clock.credit_held_since_ns == null) return;
+    observe_credit(connection, now_ns);
+}
+
+/// Notes at `now_ns` whether colibri holds credit its client needs, which stops the body meters.
+/// Once the credit is out, the idle and head deadlines move by the time it was held.
+fn observe_credit(connection: *QuicConnection, now_ns: u64) void {
+    const clock = &connection.clock;
+    const held = quic.connection_flow.credit_owed(&connection.transport);
+    quic_body.observe(connection, held, now_ns);
+    if (held) {
+        if (clock.credit_held_since_ns == null) clock.credit_held_since_ns = now_ns;
+        return;
+    }
+    const since = clock.credit_held_since_ns orelse return;
+    clock.credit_held_since_ns = null;
+    if (clock.idle_since_ns) |idle| clock.idle_since_ns = moved(idle, since, now_ns);
+    if (connection.started) connection.h3.delay_head_waits(since, now_ns);
+}
+
+/// `since_ns` moved past the span from `from_ns` to `to_ns`: by the span's length when it began
+/// before the span, and to its end when it began inside it.
+fn moved(since_ns: u64, from_ns: u64, to_ns: u64) u64 {
+    assert(from_ns <= to_ns and since_ns <= to_ns);
+    return if (since_ns >= from_ns) to_ns else since_ns + (to_ns - from_ns);
 }
 
 /// The soonest instant a deadline passes, or null when none runs.
@@ -74,12 +118,16 @@ pub fn soonest(connection: *QuicConnection) ?u64 {
     const clock = &connection.clock;
     const limits = &connection.deadlines;
     var at: ?u64 = null;
-    if (takes_requests(connection)) {
-        if (!clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
-        if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
-    }
     if (clock.drain_since_ns) |since| at = earlier(at, since, limits.drain_ns);
-    if (head_wait(connection)) |wait| at = earlier(at, wait.since_ns, limits.head_ns);
+    if (takes_requests(connection) and !clock.first_request_read) at = earlier(at, clock.opened_ns, limits.first_request_ns);
+    // Decision 110 as amended: the idle and head deadlines wait while colibri holds credit its
+    // client needs.
+    if (clock.credit_held_since_ns == null) {
+        if (takes_requests(connection)) {
+            if (clock.idle_since_ns) |since| at = earlier(at, since, limits.idle_ns);
+        }
+        if (head_wait(connection)) |wait| at = earlier(at, wait.since_ns, limits.head_ns);
+    }
     return quic_sends.soonest(connection, quic_body.soonest(connection, at));
 }
 
@@ -106,6 +154,8 @@ pub fn fire(connection: *QuicConnection, now_ns: u64) void {
 
 /// Answers each request whose head is late at `now_ns`.
 fn fire_heads(connection: *QuicConnection, now_ns: u64) void {
+    // Decision 110 as amended: no head is late while colibri holds credit its client needs.
+    if (connection.clock.credit_held_since_ns != null) return;
     // Bounded: each pass stops reading one stream, and h3 holds `request_streams_max` of them.
     for (0..h3.constants.request_streams_max) |_| {
         const wait = head_wait(connection) orelse return;
@@ -149,6 +199,8 @@ fn late_for_requests(connection: *const QuicConnection, now_ns: u64) ?Deadline {
     const clock = &connection.clock;
     const limits = &connection.deadlines;
     if (!clock.first_request_read and is_past(clock.opened_ns, limits.first_request_ns, now_ns)) return .first_request;
+    // Decision 110 as amended: the idle deadline waits while colibri holds credit its client needs.
+    if (clock.credit_held_since_ns != null) return null;
     const since = clock.idle_since_ns orelse return null;
     return if (is_past(since, limits.idle_ns, now_ns)) .idle else null;
 }

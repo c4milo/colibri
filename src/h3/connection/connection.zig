@@ -267,6 +267,12 @@ pub const Connection = struct {
         return connection_request_deadline.oldest_head_wait(connection);
     }
 
+    /// Moves each head's wait past the span from `from_ns` to `to_ns`, in which the server held
+    /// credit its client needed, so the span counts against no head (decision 110 as amended).
+    pub fn delay_head_waits(connection: *Connection, from_ns: u64, to_ns: u64) void {
+        connection_request_deadline.delay_head_waits(connection, from_ns, to_ns);
+    }
+
     /// Reads no more of the request on `stream_id` and asks the peer to stop sending it, with
     /// `error_code`, leaving colibri's side of the stream open for a response (§4.1).
     pub fn stop_reading(connection: *Connection, transport: *QuicConnection, stream_id: u64, error_code: u64) void {
@@ -318,10 +324,10 @@ pub fn initiator(connection: *const Connection) quic.stream.Initiator {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        "init",             "start",          "provider",       "receive",             "field_section",
-        "write_request",    "write_response", "write_trailers", "write_data_header",   "cancel",
-        "oldest_head_wait", "stop_reading",   "shutdown",       "goaway_acknowledged", "fail",
-        "no_error_code",
+        "init",             "start",            "provider",       "receive",           "field_section",
+        "write_request",    "write_response",   "write_trailers", "write_data_header", "cancel",
+        "oldest_head_wait", "delay_head_waits", "stop_reading",   "shutdown",          "goaway_acknowledged",
+        "fail",             "no_error_code",
     });
 }
 
