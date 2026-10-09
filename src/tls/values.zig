@@ -18,14 +18,35 @@ const constants = @import("constants.zig");
 /// answers on the thread that drives the session.
 pub const Random = std.Random;
 
-/// What the program's one probe of its CPU answered: stdx's `platform.Cpu`, which
-/// `platform.probe()` returns. A program probes once, at start, and passes the result to every
-/// configuration; colibri reads it and probes nothing (decision 97 as amended on 2026-09-30).
-/// `aes_clmul` says whether the CPU has the AES instructions and the carry-less multiply, and only
-/// `yes` lets a session run them. Under `no` and `not_known` a session runs no AES instruction and
-/// holds TLS_CHACHA20_POLY1305_SHA256 alone. An object built for an architecture other than x86-64
-/// and arm64 fixes the choice when it is built, and there the answer changes nothing.
-pub const Cpu = platform.Cpu;
+/// What the program says of the CPU and the thread that drive a session (decision 97 as amended for
+/// chapulin 0.2.0, https://github.com/c4milo/colibri/issues/84): what its one probe of the CPU
+/// found, and the timing mode the thread runs in. A program probes once, at start, and passes the
+/// same value to every configuration. colibri reads it, probes nothing and sets no CPU mode.
+///
+/// A session runs the AES instructions and the carry-less multiply only where `probe.aes_clmul` is
+/// `yes` and `timing` is `data_independent`. Without both it runs no AES instruction and holds
+/// TLS_CHACHA20_POLY1305_SHA256 alone. It runs the native widening multiply, and X25519 on its wide
+/// field, only under `data_independent` (chapulin's `cpu_cfg.h`). An object built for an
+/// architecture other than x86-64 and arm64 runs the portable code, and there the value changes
+/// nothing.
+pub const Cpu = struct {
+    /// stdx's `platform.Cpu`, which `platform.probe()` returns.
+    probe: platform.Cpu,
+    /// The mode of the thread that drives each session, which only the program can state.
+    timing: Timing,
+};
+
+/// The timing mode of the thread that drives a session. Arm's A64 reference lists the AES
+/// instructions, PMULL and the widening multiplies as taking a time independent of their data while
+/// PSTATE.DIT is 1, and Intel's DOIT list names their x86-64 forms while the operating system has
+/// set DOITM. Neither mode is one a program can read on x86-64, and colibri checks neither.
+pub const Timing = enum {
+    /// The program states nothing about the thread's mode.
+    not_stated,
+    /// On arm64, a core with FEAT_DIT whose thread has set PSTATE.DIT. On x86-64, a part on
+    /// Intel's DOIT list whose operating system has set DOITM.
+    data_independent,
+};
 
 /// A root a client trusts: its subject Name and its SubjectPublicKeyInfo, each the whole DER TLV.
 pub const Anchor = struct {

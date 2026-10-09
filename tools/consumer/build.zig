@@ -28,7 +28,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("gzip", colibri.module("gzip"));
     // Decision 97 as amended on 2026-09-30: the program probes its CPU through stdx's `platform`, from
     // the stdx colibri pins and with the options colibri gives it, so both reach one module and one
-    // `platform.Cpu`, the type colibri's TLS values take.
+    // `platform.Cpu`, the probe colibri's `tls.Cpu` holds.
     const stdx = b.dependency("stdx", .{ .target = target, .release = true });
     exe.root_module.addImport("platform", stdx.module("platform"));
 

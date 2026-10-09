@@ -399,16 +399,15 @@ Everything below exists. Change this section when a step adds or renames a comma
   the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
   `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
   object, `TRANSPORT=quic-nonblocking ROLE=both TRUST=webpki`. On x86-64 and arm64 each is
-  `SUITE=aesgcm AES=runtime` with the builder's statement `CH_NATIVE_AES`: it holds the AES
-  instructions and a fallback, and each session runs the one its caller's `cpu` names: the
-  `platform.Cpu` the program's one probe returned, which has no default (decision 97 as amended for
-  design §8 step 16e). When its `aes_clmul` is `yes` a session holds RFC 9846 §9.1's mandatory
-  TLS_AES_128_GCM_SHA256, and when it is `no` or `not_known` ChaCha20 alone. On any
-  other target the build target decides: `SUITE=aesgcm AES=hw` where its features include the AES
-  instructions, and `AES=soft` with ChaCha20 alone elsewhere, because chapulin refuses AES-GCM over
-  software AES (chapulin's INV-26). On a little-endian target with SSE2 or NEON, which every x86-64 and arm64 CPU has, each
-  is also `CHACHA=vector`, and `CHACHA=portable` on any other (decision 97 as amended on
-  2026-09-29). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
+  chapulin's host object, `SUITE=aesgcm` with no `AES`, `WIDEMUL` or `CHACHA` value: it holds every
+  fast path beside the portable code, and each session picks from the `tls.Cpu` its caller passes,
+  which has no default: the `platform.Cpu` the program's one probe returned, and the `tls.Timing`
+  its thread runs in (decision 97 as amended for chapulin 0.2.0,
+  https://github.com/c4milo/colibri/issues/84). A session holds RFC 9846 §9.1's mandatory
+  TLS_AES_128_GCM_SHA256 only where the probe's `aes_clmul` is `yes` and the timing is
+  `data_independent`, and ChaCha20 alone otherwise. On any other target chapulin builds its device
+  object, `SUITE=chacha` over its software AES, because chapulin refuses AES-GCM over software AES
+  (chapulin's INV-26). `TRANSPORT=tcp-nonblocking` drives the handshake from octets the caller read, so an
   endpoint runs it inside its loop (decisions 46 and 82), and `TRUST=webpki` is the one client
   trust mode that compiles ALPN in, without which no client negotiates h2 (RFC 9113 §3.1).
   `src/testing/`'s h11 and h2 endpoints and TLS checks reach chapulin through `tls`; its QUIC
@@ -418,11 +417,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   the object's own defines as its `c`. Because the module carries the object, nothing else may add
   it: a second copy fails the link. A program that links `tls` defines chapulin's one hook,
   `ch_assert_fail`, passes each session's `start` the `std.Random` it draws from, and passes each
-  configuration its CPU's probe, which it takes once, at start. Each image of `src/testing/`
-  defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s octets
-  (`src/testing/entropy.zig`) and the probe `src/testing/cpu.zig` takes from stdx's `platform`
-  once, and a QUIC image defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests pass
-  a probe of the build target, and run every answer where it has the instructions. `zig build
+  configuration its `tls.Cpu`: the probe it takes once, at start, and its thread's timing. Each
+  image of `src/testing/` defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s
+  octets (`src/testing/entropy.zig`) and the `tls.Cpu` `src/testing/cpu.zig` builds from stdx's
+  probe, taken once: it sets PSTATE.DIT on arm64 and states the timing on x86-64, where no program
+  can read DOITM. A QUIC image defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests
+  describe the build target's probe with the timing stated, and run every description where the
+  target has the instructions. `zig build
   test-tls test-tls-keylog -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES
   instructions, so with no `yes` among them: `x86_64` on x86-64 and `generic` on Arm. `tools/ci.sh` runs it. A bump is `zig fetch
   --save=chapulin git+https://github.com/c4milo/chapulin#<commit>`.

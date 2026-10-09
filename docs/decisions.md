@@ -2780,6 +2780,32 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     The alternatives refused: keeping the export, which the previous amendment ruled; and keeping
     colibri's own `present` or `absent` answer, which each caller would translate from the probe.
 
+    **Amended by the owner on 2026-10-09, for chapulin 0.2.0**
+    (https://github.com/c4milo/colibri/issues/84). chapulin 0.2.0 builds a host object on x86-64
+    and arm64, which holds every fast path beside the portable code and takes no `AES`, `WIDEMUL` or
+    `CHACHA` value, and each session picks its paths from the CPU its caller describes (chapulin's
+    decision 89). Two of chapulin's claims state a timing: that the AES instructions, and the
+    widening multiply, run in data-independent time in the mode the session's thread runs in. That
+    mode is PSTATE.DIT on arm64 and DOITM on x86-64, which only the program knows, and which no
+    program can read on x86-64.
+    - `tls.Cpu` is the probe and a `tls.Timing`, `not_stated` or `data_independent`, which the
+      program states. colibri claims constant-time AES under `data_independent` where the probe's
+      `aes_clmul` is `yes`, and the constant-time multiply under `data_independent` alone. Without
+      the AES claim a session holds ChaCha20 alone. colibri checks neither statement and sets no
+      CPU mode.
+    - The test programs set PSTATE.DIT on their thread on arm64 where the core has FEAT_DIT, and
+      then state the mode. On x86-64 they state it unchecked, so CI's x86-64 job runs the AES-GCM
+      suites, which h3spec offers alone. The tests describe every combination.
+    - Any other target builds chapulin's device object, `SUITE=chacha` over its software AES.
+
+    The alternatives refused:
+    - chapulin's two claims as booleans in `tls.Cpu`, which each program would work out from its
+      own probe and mode.
+    - colibri setting PSTATE.DIT on arm64 around each call into chapulin, which changes the
+      thread's CPU mode inside a library call and still needs the program's word on x86-64.
+    - Test programs that state nothing on x86-64, which run ChaCha20 alone there, so h3spec could
+      not pass in CI's x86-64 job.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.

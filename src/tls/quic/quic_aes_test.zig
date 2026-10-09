@@ -1,8 +1,8 @@
-//! Decision 97 as amended for design §8 step 16e, in QUIC: an `AES=runtime` object runs the AES
-//! instructions or ChaCha20 alone, as the probe each session's caller passes says. QUIC's Initial
-//! packets use a key anyone can derive (RFC 9001 §5.2), so chapulin protects them in software when
-//! the probe does not say yes, and the handshake completes under every probe. Split out of
-//! `quic_test.zig` for length.
+//! Decision 97 as amended for chapulin 0.2.0, in QUIC (https://github.com/c4milo/colibri/issues/84):
+//! a host object runs the AES instructions or ChaCha20 alone, as the CPU each session's caller
+//! describes says. QUIC's Initial packets use a key anyone can derive (RFC 9001 §5.2), so chapulin
+//! protects them in software when the description does not state the instructions, and the
+//! handshake completes under every description. Split out of `quic_test.zig` for length.
 const std = @import("std");
 const values = @import("../values.zig");
 const identity = @import("../record/record_test_support.zig");
@@ -16,14 +16,14 @@ const server = &support.server;
 const payload = "a payload colibri frames, 32 oct";
 
 /// The suite a session ran, where one that holds ChaCha20 alone may record none.
-fn suite_ran(session: anytype, probed: values.Cpu) !u16 {
+fn suite_ran(session: anytype, described: values.Cpu) !u16 {
     if (session.suite()) |recorded| return @intFromEnum(recorded);
-    try testing.expect(!identity.holds_aes_gcm(probed));
+    try testing.expect(!identity.holds_aes_gcm(described));
     return identity.chacha;
 }
 
-test "decision 97: each pair of probes completes a QUIC handshake and runs the suite both hold" {
-    // Bounded by the probes a test may run under, at most three on each side.
+test "decision 97: each pair of descriptions completes a QUIC handshake and runs the suite both hold" {
+    // Bounded by the descriptions a test may run under, at most four on each side.
     for (identity.cpus) |client_cpu| {
         for (identity.cpus) |server_cpu| {
             var offered = support.web_pki;

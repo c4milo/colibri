@@ -2,6 +2,7 @@
 //! server of one TCP object, run against each other in memory over the test identity of
 //! `src/testing/testdata/`.
 const std = @import("std");
+const platform = @import("platform");
 const tls_provider = @import("tls_provider");
 const chapulin = @import("chapulin_tcp");
 const testdata = @import("testdata");
@@ -20,12 +21,20 @@ pub const public_key: *const [constants.p256_public_key_len]u8 = testdata.public
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The probe the tests pass: the build target's, since a test runs where it was built.
-pub const cpu: values.Cpu = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known };
-/// Probes whose `aes_clmul` lets a session run the AES instructions, and those that do not.
-pub const cpu_with_aes: values.Cpu = .{ .aes_clmul = .yes, .dit = .not_known };
-pub const cpu_without_aes: values.Cpu = .{ .aes_clmul = .no, .dit = .not_known };
-pub const cpu_unknown: values.Cpu = .{ .aes_clmul = .not_known, .dit = .not_known };
+/// The CPU the tests describe: the build target's answer on the AES instructions, since a test runs
+/// where it was built, and the thread's mode stated `data_independent`. No test's result depends
+/// on its timing, and the statement lets a session run the paths a program that makes it runs.
+pub const cpu: values.Cpu = described(if (testdata.aes_instructions_present) .yes else .no, .data_independent);
+/// A description under which a session runs the AES instructions, and those under which it does
+/// not: a probe that does not say yes, and a mode the program does not state.
+pub const cpu_with_aes: values.Cpu = described(.yes, .data_independent);
+pub const cpu_without_aes: values.Cpu = described(.no, .data_independent);
+pub const cpu_unknown: values.Cpu = described(.not_known, .data_independent);
+pub const cpu_not_stated: values.Cpu = described(.yes, .not_stated);
+
+fn described(aes_clmul: platform.Answer, timing: values.Timing) values.Cpu {
+    return .{ .probe = .{ .aes_clmul = aes_clmul, .dit = .not_known }, .timing = timing };
+}
 /// The first and the last instant the identity is valid at, which chapulin counts inside.
 pub const not_before_seconds = testdata.not_before_seconds;
 pub const not_after_seconds = testdata.not_after_seconds;
@@ -75,20 +84,22 @@ pub const Wire = struct {
 };
 
 /// Whether the linked object holds AES-GCM beside ChaCha20 (decision 97), and whether it takes the
-/// caller's answer on the AES instructions, as an `AES=runtime` object does (decision 97 as amended
-/// on 2026-09-29).
+/// caller's description of its CPU, as chapulin's host object does (its decision 89, decision 97 as
+/// amended for chapulin 0.2.0).
 pub const aes_gcm = @hasField(chapulin.c.ch_srv_cfg, "cipher_suites");
-pub const takes_answer = @hasField(chapulin.c.ch_cfg, "aes_instructions");
+pub const takes_cpu = @hasField(chapulin.c.ch_cfg, "cpu");
 
-/// Whether a session given the probe `probed` holds AES-GCM: an object with AES-GCM, where
-/// `aes_clmul` is `yes` when the object takes the answer.
-pub fn holds_aes_gcm(probed: values.Cpu) bool {
-    return aes_gcm and (!takes_answer or probed.aes_clmul == .yes);
+/// Whether a session given the description `described_cpu` holds AES-GCM: an object with AES-GCM,
+/// where the probe says `yes` and the mode is stated when the object takes the description.
+pub fn holds_aes_gcm(described_cpu: values.Cpu) bool {
+    const stated = described_cpu.probe.aes_clmul == .yes and described_cpu.timing == .data_independent;
+    return aes_gcm and (!takes_cpu or stated);
 }
 
-/// The probes a test may run a session under. `yes` needs the instructions, which the build target
-/// has or does not, so a target without them runs the others alone.
-pub const cpus: []const values.Cpu = if (takes_answer and cpu.aes_clmul == .yes) &.{ cpu_with_aes, cpu_without_aes, cpu_unknown } else &.{ cpu_without_aes, cpu_unknown };
+/// The descriptions a test may run a session under. A probe that says yes needs the instructions,
+/// which the build target has or does not, so a target without them runs the others alone. A mode
+/// not stated runs none of them, whatever the probe says.
+pub const cpus: []const values.Cpu = if (takes_cpu and cpu.probe.aes_clmul == .yes) &.{ cpu_with_aes, cpu_without_aes, cpu_unknown, cpu_not_stated } else &.{ cpu_without_aes, cpu_unknown, cpu_not_stated };
 
 /// The suites a session under the tests' answer holds: the three colibri admits with AES-GCM, and
 /// ChaCha20 alone without it.

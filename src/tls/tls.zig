@@ -25,6 +25,7 @@ const files = struct {
 
 pub const Random = files.values.Random;
 pub const Cpu = files.values.Cpu;
+pub const Timing = files.values.Timing;
 pub const Anchor = files.values.Anchor;
 pub const Pin = files.values.Pin;
 pub const Trust = files.values.Trust;
@@ -56,10 +57,10 @@ pub const quic = struct {
 
 test "decision 115: the root exports the names code outside the module uses" {
     try @import("crypto").core.public_names.expect(@This(), &.{
-        "constants", "Random",     "Cpu",               "Anchor",
-        "Pin",       "Trust",      "Client",            "Server",
-        "Ticket",    "Resumption", "EcdsaP256Identity", "RsaPssIdentity",
-        "record",    "quic",
+        "constants",      "Random", "Cpu",        "Timing",
+        "Anchor",         "Pin",    "Trust",      "Client",
+        "Server",         "Ticket", "Resumption", "EcdsaP256Identity",
+        "RsaPssIdentity", "record", "quic",
     });
 }
 

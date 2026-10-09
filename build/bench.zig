@@ -24,10 +24,10 @@ pub fn add(
     module.addImport("quic", graph.quic);
     module.addImport("tls", graph.tls);
     module.addAnonymousImport("performance_md", .{ .root_source_file = b.path("docs/performance.md") });
-    // Decision 97 as amended: chapulin's `AES` value for the target, which sizes every struct that
-    // holds a session.
+    // Decision 97 as amended: whether chapulin builds its host object for the target or its device
+    // object, which sizes every struct that holds a session.
     const options = b.addOptions();
-    options.addOption([]const u8, "aes", @tagName(modules.aes_of(target)));
+    options.addOption([]const u8, "object", if (modules.host_object(target)) "host" else "device");
     module.addOptions("options", options);
     const program = b.addExecutable(.{ .name = "bench-memory", .root_module = module });
     const print = b.step("bench-memory", "Print the static memory per connection (design §8 step 13b)");

@@ -81,7 +81,7 @@ pub fn main() !void {
 
     // tls converts the client's values once, and a session's first call writes its ClientHello. The
     // program probes its CPU once, through stdx's `platform`, and passes the result on.
-    const cpu = platform.probe();
+    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
     const anchors = [_]tls.Anchor{.{ .subject = &empty_sequence, .spki = &empty_sequence }};
     try tls_config.init(.{
         .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = "example.test" } },

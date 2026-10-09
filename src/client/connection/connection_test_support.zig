@@ -29,8 +29,12 @@ pub const public_key: *const [tls.constants.p256_public_key_len]u8 = testdata.pu
 /// The instant the tests judge the chain at. Any instant inside the identity's validity works,
 /// from `testdata.not_before_seconds` to `testdata.not_after_seconds`.
 pub const now_seconds: u64 = testdata.now_seconds;
-/// The probe the tests pass: the build target's, since a test runs where it was built.
-pub const cpu: tls.Cpu = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known };
+/// The CPU the tests describe: the build target's probe, since a test runs where it was built, and
+/// the thread's mode stated, which no test's result depends on (decision 97 as amended).
+pub const cpu: tls.Cpu = .{
+    .probe = .{ .aes_clmul = if (testdata.aes_instructions_present) .yes else .no, .dit = .not_known },
+    .timing = .data_independent,
+};
 /// The instant each call passes, in nanoseconds. The tests hold it still.
 pub const now_ns: u64 = 1_000_000;
 pub const authority = "localhost";

@@ -14,11 +14,11 @@ const tls = @import("tls");
 const options = @import("options");
 const performance_md = @embedFile("performance_md");
 
-/// The line the table follows in `docs/performance.md`, naming the objects its sizes come from by
-/// chapulin's `AES` value. x86-64 and arm64 build `AES=runtime` (decision 97 as amended); a target
-/// whose objects are built otherwise holds sessions of other sizes, and prints another heading
-/// that the document holds no table under.
-const heading = "With chapulin's objects built `AES=" ++ options.aes ++ "`:\n\n";
+/// The line the table follows in `docs/performance.md`, naming the objects its sizes come from:
+/// chapulin's host objects, which x86-64 and arm64 build (decision 97 as amended), or its device
+/// objects, which any other target builds. Those hold sessions of other sizes, and print another
+/// heading that the document holds no table under.
+const heading = "With chapulin's " ++ options.object ++ " objects:\n\n";
 
 /// One row: a struct a caller holds per connection, and what it holds.
 const Row = struct {

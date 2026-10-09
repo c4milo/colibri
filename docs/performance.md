@@ -82,13 +82,13 @@ Each one is set up so that the three do the same work:
 
 Each struct a caller holds for one connection, in bytes, from the code being built (design §8 step
 13b, §11.2). `zig build bench-memory` prints the table for the objects the build targets, and
-`zig build test` fails when the table here differs from it. The sizes depend on chapulin's `AES`
-value: x86-64 and arm64 build `AES=runtime` (decision 97 as amended), so one table serves both. A
-target built otherwise prints another heading, and its test fails until this section holds its
-table. The QUIC connections hold no receive pool: their caller passes one, whose default the table
+`zig build test` fails when the table here differs from it. The sizes depend on which object
+chapulin builds: x86-64 and arm64 build its host objects (decision 97 as amended), so one table
+serves both. Any other target builds its device objects, prints another heading, and its test
+fails until this section holds its table. The QUIC connections hold no receive pool: their caller passes one, whose default the table
 lists.
 
-With chapulin's objects built `AES=runtime`:
+With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |

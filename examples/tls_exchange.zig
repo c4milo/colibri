@@ -111,8 +111,10 @@ var spoken: ?client.Protocol align(@alignOf(client.Protocol)) = null;
 pub fn main() !void {
     try link.init();
     defer link.deinit();
-    // A program probes its CPU once, and passes the answer to every TLS configuration.
-    const cpu = platform.probe();
+    // A program probes its CPU once and says what mode its thread runs in, and passes both to every
+    // TLS configuration. This one sets no mode, so its sessions run ChaCha20 alone; one whose
+    // thread set PSTATE.DIT on arm64 states `.data_independent`.
+    const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
     try start_server(cpu);
     try start_client(cpu);
     for (0..turns_max) |_| {

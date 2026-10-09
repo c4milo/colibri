@@ -4761,6 +4761,21 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     **Check:** the `tls` tests under both answers where the build target has the instructions,
     and under `absent` on a CPU model without them; a suite order that names AES-GCM refused
     under `absent`; every check of `tools/ci.sh`; and mutations.
+  - **16f**, chapulin 0.2.0 ([#84](https://github.com/c4milo/colibri/issues/84)), the one bump the
+    owner ruled. On x86-64 and arm64 both objects are chapulin's host objects, which take no
+    `AES`, `WIDEMUL` or `CHACHA` value, and each session picks its paths from the CPU its caller
+    describes (chapulin's decision 89). Two of chapulin's claims state a timing: that the AES
+    instructions, and the widening multiply, run in data-independent time in the mode the
+    session's thread runs in. `values.Client` and `values.Server` carry them as the owner rules
+    between the shapes the proposal shows in code. The owner ruled the shape that makes
+    `tls.Cpu` the probe and a `tls.Timing`, a new public name every program that links `tls`
+    needs, since it says what mode its thread runs in. avx2 and vaes wait on
+    [stdx#16](https://github.com/c4milo/stdx/issues/16).
+    **Check:** the `tls` tests under every description where the build target has the
+    instructions, and on a CPU model without them; each claim chapulin receives, read from the
+    converted values; a suite order that names AES-GCM refused without the AES claim; on arm64,
+    PSTATE.DIT set on the test programs' thread; h3spec, which offers AES-GCM alone; every check
+    of `tools/ci.sh`; and mutations.
 
   **16c, ruled by the owner on 2026-09-26.** What a user sets is plain values, and chapulin's
   `ch_cfg` (its `cfg.h`, `webpki_cfg.h` and `srv_cfg.h`) is what they become. Each rule below is
@@ -5394,6 +5409,26 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   What each check printed, on macOS arm64:
   - `tools/ci.sh`: every section passed, with 2528 of 2528 tests in Debug and in ReleaseSafe.
+
+  **16f, 2026-10-09.** The pin moves from chapulin `c798fb8` to `v0.2.0` (`26fa782`). The proposal
+  carried one shape for the timing claims in code, and showed two more, and the owner ruled for the
+  one built, and for test programs that state the mode on x86-64, where no program can read DOITM
+  ([decision 97](decisions.md) as amended on 2026-10-09).
+  - `tls.Cpu` holds the probe and a `tls.Timing`, `not_stated` or `data_independent`. colibri
+    claims constant-time AES under `data_independent` where the probe's `aes_clmul` is `yes`, and
+    the constant-time multiply under `data_independent` alone. Without the AES claim a session
+    holds ChaCha20 alone, and chapulin refuses a suite order that names AES-GCM.
+  - The test programs set PSTATE.DIT on their thread on arm64 where the core has FEAT_DIT, and
+    state the mode on x86-64, so their sessions run the AES-GCM suites h3spec offers alone. The
+    examples state nothing and run ChaCha20.
+  - On macOS arm64: the `tls` tests passed 58 of 58, and 122 of 122 with the `tls_keylog` tests on
+    `-Dcpu=generic`; h3spec passed 49 of 49; `tools/quic_loopback.sh`, `tools/tls_handshake.sh` and
+    `tools/tls_accept.sh` passed.
+  - 8 mutations, each **CAUGHT** by a test: the AES claim without the mode, or without the probe;
+    the multiply claim never made, or always; the client's description never reaching chapulin;
+    the host objects built with ChaCha20 alone; and the test programs stating the mode without
+    setting PSTATE.DIT, or stating none on arm64.
+  - `zig build test`: 131 of 131 steps and 2662 of 2662 tests passed, the memory table unchanged.
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for

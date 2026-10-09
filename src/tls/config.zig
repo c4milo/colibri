@@ -51,9 +51,9 @@ pub fn ClientConfig(comptime chapulin: type) type {
             const alpn = try protocols(chapulin, &config.alpn, client.alpn);
             const trust = try config.trust_of(client.trust);
             config.values = .{ .trust = trust, .alpn = alpn, .require_pq = client.require_pq };
-            // Decided when the object is built, so an object that takes no answer never names
-            // chapulin's `AesInstructions`, which exists in an `AES=runtime` object alone.
-            if (comptime takes_answer(chapulin.Client)) config.values.aes_instructions = answer_of(chapulin, client.cpu);
+            // Decided when the object is built, so an object that takes no description of the
+            // CPU never names chapulin's `Cpu`, which exists in a host object alone.
+            if (comptime has_cpu(chapulin.Client)) config.values.cpu = cpu_of(chapulin, client.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, client.cipher_suites);
             } else if (client.cipher_suites.len > 0) {
@@ -113,9 +113,9 @@ pub fn ServerConfig(comptime chapulin: type) type {
                 .alpn = try protocols(chapulin, &config.alpn, server.alpn),
                 .require_server_name = server.require_server_name,
             };
-            // Decided when the object is built, so an object that takes no answer never names
-            // chapulin's `AesInstructions`, which exists in an `AES=runtime` object alone.
-            if (comptime takes_answer(chapulin.Server)) config.values.aes_instructions = answer_of(chapulin, server.cpu);
+            // Decided when the object is built, so an object that takes no description of the
+            // CPU never names chapulin's `Cpu`, which exists in a host object alone.
+            if (comptime has_cpu(chapulin.Server)) config.values.cpu = cpu_of(chapulin, server.cpu);
             if (has_suite_order) {
                 config.values.cipher_suites = try suite_order(chapulin, &config.suites, server.cipher_suites);
             } else if (server.cipher_suites.len > 0) {
@@ -150,19 +150,23 @@ pub fn ServerConfig(comptime chapulin: type) type {
     };
 }
 
-/// Whether an object's `Values`, chapulin's `Client` or `Server`, take the caller's answer on the AES
-/// instructions, which an `AES=runtime` object alone does (decision 97 as amended on 2026-09-29).
-fn takes_answer(comptime Values: type) bool {
-    return @TypeOf(@as(Values, undefined).aes_instructions) != void;
+/// Whether an object's `Values`, chapulin's `Client` or `Server`, take the caller's description of
+/// its CPU, which a host object alone does (chapulin's decision 89, decision 97 as amended for
+/// chapulin 0.2.0).
+fn has_cpu(comptime Values: type) bool {
+    return @TypeOf(@as(Values, undefined).cpu) != void;
 }
 
-/// The probe's answer on the AES instructions in the object's own type: present for `yes` alone,
-/// since `no` and `not_known` give no ground to run them. chapulin refuses a session whose answer
-/// is unset, and colibri's values have no unset answer.
-fn answer_of(comptime chapulin: type, cpu: values.Cpu) chapulin.AesInstructions {
-    return switch (cpu.aes_clmul) {
-        .yes => .present,
-        .no, .not_known => .absent,
+/// chapulin's description of the CPU from what the program said: each constant-time claim rests on
+/// the program's statement of the thread's mode, and the AES claim on the probe's `yes` as well,
+/// since `no` and `not_known` give no ground to run the instructions. chapulin refuses a session
+/// whose description is unset, and colibri's values have none unset. `avx2` and `vaes` stay false
+/// until stdx's probe answers them (https://github.com/c4milo/stdx/issues/16).
+fn cpu_of(comptime chapulin: type, cpu: values.Cpu) chapulin.Cpu {
+    const stated = cpu.timing == .data_independent;
+    return .{
+        .constant_time_aes = stated and cpu.probe.aes_clmul == .yes,
+        .constant_time_multiply = stated,
     };
 }
 
