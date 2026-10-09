@@ -50,6 +50,19 @@ pub fn acknowledged_end(connection: *Connection, id: StreamId) ?u64 {
     return lowest;
 }
 
+/// Whether the peer acknowledged every RESET_STREAM this endpoint sent: no stream it holds is in
+/// "Reset Sent", which only that acknowledgment leaves (RFC 9000 §3.1). A stream it no longer holds
+/// ended in a terminal state, "Reset Recvd" among them. A caller that closes the connection once it
+/// is true knows the peer read each reset before the close (decision 110 as amended).
+pub fn resets_acknowledged(connection: *Connection) bool {
+    var walk = connection.streams.pool.iterator();
+    // Bounded by the table's capacity, `streams_per_connection_max`.
+    while (walk.next()) |stream| {
+        if (stream.sending.state == .reset_sent) return false;
+    }
+    return true;
+}
+
 const testing = std.testing;
 const send = @import("../connection_send.zig");
 const stream_send = @import("connection_stream_send.zig");
@@ -147,4 +160,20 @@ test "decision 78: a reset stream, and one this endpoint does not send on, have 
     try testing.expectEqual(.live, std.meta.activeTag(send_test.client.streams.lookup(peer_stream)));
     try testing.expectEqual(null, end_of(peer_stream));
     try testing.expectEqual(null, end_of(StreamId.of(.client, .bidirectional, 3)));
+}
+
+test "RFC 9000 §3.1: every reset is acknowledged once no stream waits in Reset Sent" {
+    send_test.open_pair(.{});
+    try testing.expect(resets_acknowledged(&send_test.client));
+    const first = try send_test.open_supplied(send_test.short_body_len, false);
+    const second = try send_test.open_supplied(send_test.short_body_len, false);
+    try testing.expect(resets_acknowledged(&send_test.client));
+    try stream_send.reset(&send_test.client, first, 0);
+    try stream_send.reset(&send_test.client, second, 0);
+    try testing.expect(!resets_acknowledged(&send_test.client));
+    // The acknowledgment of one reset leaves the other waiting.
+    _ = send_test.stream_of(first).sending.on(.reset_acknowledged);
+    try testing.expect(!resets_acknowledged(&send_test.client));
+    _ = send_test.stream_of(second).sending.on(.reset_acknowledged);
+    try testing.expect(resets_acknowledged(&send_test.client));
 }

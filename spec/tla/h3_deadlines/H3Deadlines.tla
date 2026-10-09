@@ -46,6 +46,10 @@
 (*   - the network delivers colibri's packets in the order it sent them,   *)
 (*     and the client's units of one stream in order, and loses none.      *)
 (*     colibri's CONNECTION_CLOSE may pass any packet sent before it;      *)
+(*   - colibri's QUIC takes what arrives when the datagram does (`take`),  *)
+(*     and h3 reads it when the caller next reads (`receive`), one of      *)
+(*     colibri's own steps. `settle`, which decides the close, runs at     *)
+(*     both, so a close may come between them;                             *)
 (*   - colibri's packets in flight, all of them ack-eliciting, number      *)
 (*     CongestionWindow at most (RFC 9002 §7). Its CONNECTION_CLOSE is not *)
 (*     counted, and once it owes one it sends nothing else (§10.2.1);      *)
@@ -97,8 +101,9 @@
 (*   UncountedAsked    a reset on a stream colibri abandoned is not        *)
 (*                     counted (h3 does not report it).                    *)
 (*   CloseAfterResets  the close also waits for the client's               *)
-(*                     acknowledgment of every RESET_STREAM colibri sent.  *)
-(*                     colibri does not keep this rule.                    *)
+(*                     acknowledgment of every RESET_STREAM colibri sent   *)
+(*                     (quic.connection_stream_acknowledged's              *)
+(*                     resets_acknowledged).                               *)
 (*   PauseForCredit    the head, body and idle clocks wait while colibri   *)
 (*                     holds credit it has not sent. colibri does not keep *)
 (*                     this rule.                                          *)
@@ -169,10 +174,14 @@ VARIABLES
     \* The network.
     inFlight,           \* colibri's packets on their way to the client, oldest first
     delivered,          \* colibri's packets the client read and has not acknowledged
+    \* colibri's QUIC.
+    atQuic,             \* atQuic[r]: the units of r that reached colibri's QUIC
+    resetIn,            \* resetIn[r]: whether the client's RESET_STREAM on r reached it
+    quicOpened,         \* the request streams it opened: one past the highest a frame named
     \* colibri.
     taken,              \* the request streams h3 has seen: `next_index`
     phase,              \* phase[r]: where h3 is on request stream r
-    arrived,            \* arrived[r]: the units of r that reached colibri
+    readUnits,          \* readUnits[r]: the units of r h3 read
     resetRead,          \* resetRead[r]: whether colibri read the client's RESET_STREAM on r
     processed,          \* processed[r]: whether the application heard of request r
     rec,                \* rec[r]: the server's record of r: "none", "open" or "over"
@@ -195,17 +204,19 @@ VARIABLES
 client == <<opened, cliSent, cliReset, own, resetOut, stopOut, limitStream, limitConnection,
             got, outcome, goawayRead, closeRead>>
 network == <<inFlight, delivered>>
-colibri == <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, written, sent, acked,
+transport == <<atQuic, resetIn, quicOpened>>
+colibri == <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, written, sent, acked,
              aborted, owed, ackedControl, advStream, advConnection, goawayId, firstRequestRead,
              shuttingDown, timedOut, closed, counted>>
-vars == <<client, network, colibri>>
+vars == <<client, network, transport, colibri>>
 
 TypeOK ==
     /\ opened \in 0..N /\ cliSent \in [Requests -> 0..Units]
     /\ outcome \in [Requests -> Outcomes] /\ got \in [Requests -> 0..ResponseUnits]
     /\ phase \in [Requests -> Phases] /\ rec \in [Requests -> {"none", "open", "over"}]
-    /\ arrived \in [Requests -> 0..Units] /\ written \in [Requests -> 0..ResponseUnits]
-    /\ taken \in 0..N /\ goawayId \in 0..NoGoaway
+    /\ readUnits \in [Requests -> 0..Units] /\ written \in [Requests -> 0..ResponseUnits]
+    /\ taken \in 0..N /\ goawayId \in 0..NoGoaway /\ quicOpened \in 0..N
+    /\ atQuic \in [Requests -> 0..Units] /\ resetIn \in [Requests -> BOOLEAN]
     /\ closed \in {"open", "drained", "drain"}
     /\ Len(inFlight) + Cardinality(delivered) <= CongestionWindow
 
@@ -217,7 +228,8 @@ Init ==
     /\ got = [r \in Requests |-> 0] /\ outcome = [r \in Requests |-> "none"]
     /\ goawayRead = FALSE /\ closeRead = FALSE
     /\ inFlight = <<>> /\ delivered = {}
-    /\ taken = 0 /\ phase = [r \in Requests |-> "unseen"] /\ arrived = [r \in Requests |-> 0]
+    /\ atQuic = [r \in Requests |-> 0] /\ resetIn = [r \in Requests |-> FALSE] /\ quicOpened = 0
+    /\ taken = 0 /\ phase = [r \in Requests |-> "unseen"] /\ readUnits = [r \in Requests |-> 0]
     /\ resetRead = [r \in Requests |-> FALSE] /\ processed = [r \in Requests |-> FALSE]
     /\ rec = [r \in Requests |-> "none"] /\ bodyWaits = [r \in Requests |-> FALSE]
     /\ written = [r \in Requests |-> 0] /\ sent = [r \in Requests |-> 0]
@@ -246,7 +258,7 @@ OpenRequest(r) == rec[r] = "open" /\ ~Done(r)
 (* response, the 408, or colibri's reset.                                  *)
 ReceivingDone(r) ==
     \/ phase[r] = "ended" \/ resetRead[r]
-    \/ phase[r] = "abandoned" /\ arrived[r] = Units
+    \/ phase[r] = "abandoned" /\ readUnits[r] = Units
 SendingDone(r) ==
     \/ Done(r)
     \/ \E k \in {"timeout", "rejected", "cancelled"} : Packet(k, r, 0) \in ackedControl
@@ -266,7 +278,7 @@ InUse(r) == rec[r] # "none" /\ ~StreamClosed(r)
 Consumed(r) ==
     IF resetRead[r] THEN cliSent[r]
     ELSE IF phase[r] \in {"unseen", "head"} THEN 0
-    ELSE arrived[r]
+    ELSE readUnits[r]
 ConsumedAll == Sum([r \in Requests |-> Consumed(r)])
 
 (* flow.Receiver's credit_frame_limit: new credit is worth a frame once    *)
@@ -314,7 +326,7 @@ Open ==
     /\ opened' = opened + 1
     /\ UNCHANGED <<cliReset, own, resetOut, stopOut, limitStream, limitConnection, got,
                    outcome, goawayRead, closeRead>>
-    /\ UNCHANGED <<network, colibri>>
+    /\ UNCHANGED <<network, transport, colibri>>
 
 (* It sends the next unit of r within both of colibri's limits.            *)
 SendUnit(r) ==
@@ -323,7 +335,7 @@ SendUnit(r) ==
     /\ cliSent' = [cliSent EXCEPT ![r] = @ + 1]
     /\ UNCHANGED <<opened, cliReset, own, resetOut, stopOut, limitStream, limitConnection, got,
                    outcome, goawayRead, closeRead>>
-    /\ UNCHANGED <<network, colibri>>
+    /\ UNCHANGED <<network, transport, colibri>>
 
 (* RFC 9114 §4.1.1: it cancels a request by resetting its sending part,    *)
 (* when it has more to send, and asking colibri to stop the response.      *)
@@ -336,7 +348,7 @@ Cancel(r) ==
     /\ stopOut' = [stopOut EXCEPT ![r] = TRUE]
     /\ UNCHANGED <<opened, cliSent, limitStream, limitConnection, got, outcome, goawayRead,
                    closeRead>>
-    /\ UNCHANGED <<network, colibri>>
+    /\ UNCHANGED <<network, transport, colibri>>
 
 (* It reads colibri's oldest packet on its way.                            *)
 Deliver ==
@@ -363,7 +375,7 @@ Deliver ==
     /\ limitConnection' = Max(limitConnection, p.connection)
     /\ goawayRead' = (goawayRead \/ p.kind = "goaway")
     /\ UNCHANGED <<opened, cliSent, own, stopOut, closeRead>>
-    /\ UNCHANGED colibri
+    /\ UNCHANGED <<transport, colibri>>
 
 (* colibri's CONNECTION_CLOSE reaches the client, which then reads and     *)
 (* sends nothing more (RFC 9000 §10.2.2). It may pass any packet sent      *)
@@ -373,7 +385,7 @@ ReadClose ==
     /\ closeRead' = TRUE
     /\ UNCHANGED <<opened, cliSent, cliReset, own, resetOut, stopOut, limitStream,
                    limitConnection, got, outcome, goawayRead>>
-    /\ UNCHANGED <<network, colibri>>
+    /\ UNCHANGED <<network, transport, colibri>>
 
 (* The client's acknowledgment of every packet it read reaches colibri,    *)
 (* which frees its congestion window and notes what the client took. A     *)
@@ -388,107 +400,120 @@ Acknowledge ==
     /\ ackedControl' = IF Running
                        THEN ackedControl \cup {p \in delivered : p.kind \in ControlKinds}
                        ELSE ackedControl
-    /\ UNCHANGED client
+    /\ UNCHANGED <<client, transport>>
     /\ UNCHANGED inFlight
-    /\ UNCHANGED <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, written, sent,
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, written, sent,
                    aborted, owed, advStream, advConnection, goawayId, firstRequestRead,
                    shuttingDown, timedOut, closed, counted>>
 
 -----------------------------------------------------------------------------
-(* What the client sends reaches colibri, which takes it at once.          *)
+(* What the client sends reaches colibri's QUIC, which takes it when the   *)
+(* datagram arrives (`take`). h3 reads it when the caller next reads       *)
+(* (`receive`), which is one of colibri's own steps (Read).                *)
 
-(* RFC 9000 §3.2: a frame for a request stream opens it and every lower    *)
-(* one, and h3 sees them in order (`accept`). After its GOAWAY, a stream   *)
-(* at or above the identifier it named is rejected (RFC 9114 §5.2), with   *)
-(* H3_REQUEST_REJECTED (§4.1.1).                                           *)
-Seen(r) == [q \in Requests |->
-              IF taken <= q /\ q <= r
-              THEN (IF q >= goawayId THEN "abandoned" ELSE "head")
-              ELSE phase[q]]
-RefusedAt(r) == {q \in Requests : taken <= q /\ q <= r /\ q >= goawayId}
-Refusals(r) == {Packet(k, q, 0) : k \in {"rejected", "stop"}, q \in RefusedAt(r)}
-
-(* A unit of r arrives. A whole head is a request, which the application   *)
-(* hears of (`on_request`), and the wait for its content starts            *)
-(* (quic_body.zig's add). The last unit ends the request.                  *)
+(* A unit of r reaches colibri's QUIC, which opens r and every lower       *)
+(* request stream (RFC 9000 §3.2). A reset stream takes no more.           *)
 ArriveUnit(r) ==
-    LET seen == Seen(r)
-        n == arrived[r] + 1
-        whole == seen[r] = "head" /\ n = HeadUnits
-        ends == n = Units
-    IN
-    /\ Running /\ arrived[r] < cliSent[r] /\ ~resetRead[r]
-    /\ arrived' = [arrived EXCEPT ![r] = n]
-    /\ taken' = Max(taken, r + 1)
-    /\ phase' = [seen EXCEPT ![r] =
-                    CASE whole /\ ends -> "ended"
-                      [] whole -> "content"
-                      [] seen[r] = "content" /\ ends -> "ended"
-                      [] OTHER -> seen[r]]
-    /\ processed' = IF whole THEN [processed EXCEPT ![r] = TRUE] ELSE processed
-    /\ rec' = IF whole THEN [rec EXCEPT ![r] = "open"] ELSE rec
-    /\ bodyWaits' = [bodyWaits EXCEPT ![r] =
-                        IF whole THEN ~ends ELSE IF seen[r] = "content" /\ ends THEN FALSE ELSE @]
-    /\ firstRequestRead' = (firstRequestRead \/ whole)
-    /\ aborted' = [q \in Requests |-> aborted[q] \/ q \in RefusedAt(r)]
-    /\ owed' = owed \cup Refusals(r)
-    /\ UNCHANGED client
-    /\ UNCHANGED network
-    /\ UNCHANGED <<resetRead, written, sent, acked, ackedControl, advStream, advConnection,
-                   goawayId, shuttingDown, timedOut, closed, counted>>
+    /\ Running /\ atQuic[r] < cliSent[r] /\ ~resetIn[r]
+    /\ atQuic' = [atQuic EXCEPT ![r] = @ + 1]
+    /\ quicOpened' = Max(quicOpened, r + 1)
+    /\ UNCHANGED resetIn
+    /\ UNCHANGED <<client, network, colibri>>
 
-(* The client's RESET_STREAM on r arrives. h3 reports it unless colibri    *)
-(* abandoned the stream (connection_request.zig's on_reset), and quic      *)
-(* ignores one after the request's end. The server counts a reset h3       *)
-(* reports toward its limit unless the request is over, and resets its     *)
-(* own response with H3_REQUEST_CANCELLED (quic_connection_h3.zig's        *)
-(* on_reset).                                                              *)
+(* The client's RESET_STREAM on r reaches colibri's QUIC.                  *)
 ArriveReset(r) ==
-    LET seen == Seen(r)
-        reported == seen[r] \in {"head", "content"}
-        over == rec[r] = "over" \/ (rec[r] = "open" /\ Done(r))
-        counts == (reported /\ ~over) \/ (~UncountedAsked /\ seen[r] = "abandoned")
-        cancels == reported /\ rec[r] = "open" /\ ~Done(r)
-    IN
     /\ Running /\ resetOut[r]
     /\ resetOut' = [resetOut EXCEPT ![r] = FALSE]
-    /\ resetRead' = [resetRead EXCEPT ![r] = TRUE]
-    /\ taken' = Max(taken, r + 1)
-    /\ phase' = [seen EXCEPT ![r] = IF @ = "ended" THEN "ended" ELSE "abandoned"]
-    /\ counted' = [counted EXCEPT ![r] = @ \/ counts]
-    /\ rec' = IF cancels THEN [rec EXCEPT ![r] = "over"] ELSE rec
-    /\ bodyWaits' = [bodyWaits EXCEPT ![r] = FALSE]
-    /\ aborted' = [q \in Requests |-> aborted[q] \/ q \in RefusedAt(r) \/ (q = r /\ cancels)]
-    /\ owed' = owed \cup Refusals(r)
-                    \cup (IF cancels THEN {Packet("cancelled", r, 0), Packet("stop", r, 0)} ELSE {})
+    /\ resetIn' = [resetIn EXCEPT ![r] = TRUE]
+    /\ quicOpened' = Max(quicOpened, r + 1)
+    /\ UNCHANGED atQuic
     /\ UNCHANGED <<opened, cliSent, cliReset, own, stopOut, limitStream, limitConnection, got,
                    outcome, goawayRead, closeRead>>
-    /\ UNCHANGED network
-    /\ UNCHANGED <<arrived, processed, written, sent, acked, ackedControl, advStream,
-                   advConnection, goawayId, firstRequestRead, shuttingDown, timedOut, closed>>
+    /\ UNCHANGED <<network, colibri>>
 
 (* The client's STOP_SENDING on r arrives. quic resets a response it has   *)
-(* not had acknowledged whole (RFC 9000 §3.5), and the server counts that  *)
-(* as the client's cancel unless the request is over (settle_one).         *)
+(* not had acknowledged whole (RFC 9000 §3.5), and the server's `settle`,  *)
+(* which runs after each datagram, counts that as the client's cancel      *)
+(* unless the request is over (settle_one).                                *)
 ArriveStop(r) ==
-    LET seen == Seen(r)
-        resets == ~aborted[r] /\ ~SendingDone(r)
+    LET resets == ~aborted[r] /\ ~SendingDone(r)
         counts == resets /\ rec[r] = "open"
     IN
     /\ Running /\ stopOut[r]
     /\ stopOut' = [stopOut EXCEPT ![r] = FALSE]
-    /\ taken' = Max(taken, r + 1)
-    /\ phase' = seen
-    /\ aborted' = [q \in Requests |-> aborted[q] \/ q \in RefusedAt(r) \/ (q = r /\ resets)]
-    /\ owed' = owed \cup Refusals(r) \cup (IF resets THEN {Packet("cancelled", r, 0)} ELSE {})
+    /\ quicOpened' = Max(quicOpened, r + 1)
+    /\ aborted' = [aborted EXCEPT ![r] = @ \/ resets]
+    /\ owed' = owed \cup (IF resets THEN {Packet("cancelled", r, 0)} ELSE {})
     /\ counted' = [counted EXCEPT ![r] = @ \/ counts]
     /\ rec' = IF counts THEN [rec EXCEPT ![r] = "over"] ELSE rec
     /\ bodyWaits' = IF counts THEN [bodyWaits EXCEPT ![r] = FALSE] ELSE bodyWaits
+    /\ UNCHANGED <<atQuic, resetIn>>
     /\ UNCHANGED <<opened, cliSent, cliReset, own, resetOut, limitStream, limitConnection, got,
                    outcome, goawayRead, closeRead>>
     /\ UNCHANGED network
-    /\ UNCHANGED <<arrived, resetRead, processed, written, sent, acked, ackedControl, advStream,
-                   advConnection, goawayId, firstRequestRead, shuttingDown, timedOut, closed>>
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, written, sent, acked,
+                   ackedControl, advStream, advConnection, goawayId, firstRequestRead,
+                   shuttingDown, timedOut, closed>>
+
+(* Whether QUIC holds something h3 has not read: a request stream h3 has   *)
+(* not seen, a unit, or a reset.                                           *)
+Unread ==
+    \/ quicOpened > taken
+    \/ \E r \in Requests : atQuic[r] > readUnits[r] \/ (resetIn[r] /\ ~resetRead[r])
+
+(* h3 reads what QUIC holds. It sees each request stream QUIC opened, in   *)
+(* order (`accept`), and after its GOAWAY rejects one at or above the      *)
+(* identifier the GOAWAY named (RFC 9114 §5.2), with H3_REQUEST_REJECTED   *)
+(* (§4.1.1). Then it reads each stream: a reset first, which h3 reports    *)
+(* unless colibri abandoned the stream (connection_request.zig's           *)
+(* on_reset), and the units in order. A whole head is a request the        *)
+(* application hears of (`on_request`), and the wait for its content       *)
+(* starts (quic_body.zig's add). The last unit ends the request. The       *)
+(* server counts a reset h3 reports toward its limit unless the request    *)
+(* is over, and resets its own response with H3_REQUEST_CANCELLED          *)
+(* (quic_connection_h3.zig's on_reset).                                    *)
+Read ==
+    LET seen == [q \in Requests |->
+                   IF taken <= q /\ q < quicOpened
+                   THEN (IF q >= goawayId THEN "abandoned" ELSE "head")
+                   ELSE phase[q]]
+        refused == {q \in Requests : taken <= q /\ q < quicOpened /\ q >= goawayId}
+        resetNow(q) == resetIn[q] /\ ~resetRead[q]
+        reported(q) == resetNow(q) /\ seen[q] \in {"head", "content"}
+        over(q) == rec[q] = "over" \/ (rec[q] = "open" /\ Done(q))
+        counts(q) == \/ reported(q) /\ ~over(q)
+                     \/ ~UncountedAsked /\ resetNow(q) /\ seen[q] = "abandoned"
+        cancels(q) == reported(q) /\ rec[q] = "open" /\ ~Done(q)
+        whole(q) == ~resetNow(q) /\ seen[q] = "head" /\ atQuic[q] >= HeadUnits
+        ends(q) == ~resetNow(q) /\ seen[q] \in {"head", "content"} /\ atQuic[q] = Units
+        cancelled == {q \in Requests : cancels(q)}
+    IN
+    /\ Running /\ Unread
+    /\ taken' = Max(taken, quicOpened)
+    /\ readUnits' = [q \in Requests |-> IF resetNow(q) THEN readUnits[q] ELSE atQuic[q]]
+    /\ resetRead' = [q \in Requests |-> resetRead[q] \/ resetNow(q)]
+    /\ phase' = [q \in Requests |->
+                   CASE resetNow(q) -> IF seen[q] = "ended" THEN "ended" ELSE "abandoned"
+                     [] whole(q) /\ ends(q) -> "ended"
+                     [] whole(q) -> "content"
+                     [] seen[q] = "content" /\ ends(q) -> "ended"
+                     [] OTHER -> seen[q]]
+    /\ processed' = [q \in Requests |-> processed[q] \/ whole(q)]
+    /\ rec' = [q \in Requests |->
+                 IF whole(q) THEN "open" ELSE IF cancels(q) THEN "over" ELSE rec[q]]
+    /\ bodyWaits' = [q \in Requests |->
+                       CASE resetNow(q) -> FALSE
+                         [] whole(q) -> ~ends(q)
+                         [] seen[q] = "content" /\ ends(q) -> FALSE
+                         [] OTHER -> bodyWaits[q]]
+    /\ firstRequestRead' = (firstRequestRead \/ \E q \in Requests : whole(q))
+    /\ counted' = [q \in Requests |-> counted[q] \/ counts(q)]
+    /\ aborted' = [q \in Requests |-> aborted[q] \/ q \in refused \/ q \in cancelled]
+    /\ owed' = owed \cup {Packet(k, q, 0) : k \in {"rejected", "stop"}, q \in refused}
+                    \cup {Packet(k, q, 0) : k \in {"cancelled", "stop"}, q \in cancelled}
+    /\ UNCHANGED <<client, network, transport>>
+    /\ UNCHANGED <<written, sent, acked, ackedControl, advStream, advConnection, goawayId,
+                   shuttingDown, timedOut, closed>>
 
 -----------------------------------------------------------------------------
 (* The application and the program.                                        *)
@@ -498,8 +523,8 @@ ArriveStop(r) ==
 Write(r) ==
     /\ Running /\ rec[r] = "open" /\ ~aborted[r] /\ written[r] < ResponseUnits
     /\ written' = [written EXCEPT ![r] = @ + 1]
-    /\ UNCHANGED <<client, network>>
-    /\ UNCHANGED <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, sent, acked,
+    /\ UNCHANGED <<client, network, transport>>
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, sent, acked,
                    aborted, owed, ackedControl, advStream, advConnection, goawayId,
                    firstRequestRead, shuttingDown, timedOut, closed, counted>>
 
@@ -518,8 +543,8 @@ ShutDown(passed) ==
     /\ aborted' = [r \in Requests |-> aborted[r] \/ r \in unread]
     /\ owed' = owed \cup {Packet("goaway", 0, taken)}
                     \cup {Packet(k, r, 0) : k \in {"rejected", "stop"}, r \in unread}
-    /\ UNCHANGED <<client, network>>
-    /\ UNCHANGED <<taken, arrived, resetRead, processed, rec, bodyWaits, written, sent, acked,
+    /\ UNCHANGED <<client, network, transport>>
+    /\ UNCHANGED <<taken, readUnits, resetRead, processed, rec, bodyWaits, written, sent, acked,
                    ackedControl, advStream, advConnection, firstRequestRead, closed, counted>>
 
 (* The program shuts the connection down, in the shutdown scope.           *)
@@ -533,9 +558,9 @@ SendResponse(r) ==
     /\ Running /\ Room /\ ~CreditOwed /\ ~aborted[r] /\ sent[r] < written[r]
     /\ inFlight' = Append(inFlight, Packet("unit", r, sent[r] + 1))
     /\ sent' = [sent EXCEPT ![r] = @ + 1]
-    /\ UNCHANGED client
+    /\ UNCHANGED <<client, transport>>
     /\ UNCHANGED delivered
-    /\ UNCHANGED <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, written, acked,
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, written, acked,
                    aborted, owed, ackedControl, advStream, advConnection, goawayId,
                    firstRequestRead, shuttingDown, timedOut, closed, counted>>
 
@@ -544,9 +569,9 @@ SendControl(p) ==
     /\ Running /\ Room /\ p \in owed
     /\ owed' = owed \ {p}
     /\ inFlight' = Append(inFlight, p)
-    /\ UNCHANGED client
+    /\ UNCHANGED <<client, transport>>
     /\ UNCHANGED delivered
-    /\ UNCHANGED <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, written, sent,
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, written, sent,
                    acked, aborted, ackedControl, advStream, advConnection, goawayId,
                    firstRequestRead, shuttingDown, timedOut, closed, counted>>
 
@@ -561,28 +586,32 @@ SendCredit ==
     /\ advStream' = [r \in Requests |-> IF limits[r] > 0 THEN limits[r] ELSE advStream[r]]
     /\ advConnection' = IF connection > 0 THEN connection ELSE advConnection
     /\ inFlight' = Append(inFlight, CreditPacket(limits, connection))
-    /\ UNCHANGED client
+    /\ UNCHANGED <<client, transport>>
     /\ UNCHANGED delivered
-    /\ UNCHANGED <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, written, sent,
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, written, sent,
                    acked, aborted, owed, ackedControl, goawayId, firstRequestRead, shuttingDown,
                    timedOut, closed, counted>>
 
-(* quic_connection_h3.zig's finish_if_drained: a connection shutting       *)
-(* down closes with H3_NO_ERROR once no request holds a record and, with   *)
-(* CloseAfterAck, the client acknowledged the GOAWAY. With                 *)
-(* CloseAfterResets it also waits for each RESET_STREAM colibri sent.      *)
+(* quic_connection_h3.zig's finish_if_drained, which `settle` runs after   *)
+(* each datagram and at each call: a connection shutting down closes with  *)
+(* H3_NO_ERROR once no request holds a record and, with CloseAfterAck, the *)
+(* client acknowledged the GOAWAY, and with CloseAfterResets every         *)
+(* RESET_STREAM colibri sent. It may close before h3 reads a request       *)
+(* stream a datagram opened, which the GOAWAY already puts among those the *)
+(* server did not take.                                                    *)
 Close ==
     /\ Running /\ shuttingDown
     /\ \A r \in Requests : ~InUse(r)
     /\ CloseAfterAck => Packet("goaway", 0, goawayId) \in ackedControl
     /\ CloseAfterResets => \A r \in Requests : aborted[r] => ResetAcked(r)
     /\ closed' = "drained"
-    /\ UNCHANGED <<client, network>>
-    /\ UNCHANGED <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, written, sent,
+    /\ UNCHANGED <<client, network, transport>>
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, written, sent,
                    acked, aborted, owed, ackedControl, advStream, advConnection, goawayId,
                    firstRequestRead, shuttingDown, timedOut, counted>>
 
 ColibriStep ==
+    \/ Read
     \/ Close
     \/ \E p \in owed : SendControl(p)
     \/ SendCredit
@@ -600,8 +629,8 @@ RefuseHead(r) ==
     /\ phase' = [phase EXCEPT ![r] = "abandoned"]
     /\ rec' = [rec EXCEPT ![r] = "over"]
     /\ owed' = owed \cup {Packet("timeout", r, 0), Packet("stop", r, 0)}
-    /\ UNCHANGED <<client, network>>
-    /\ UNCHANGED <<taken, arrived, resetRead, processed, bodyWaits, written, sent, acked,
+    /\ UNCHANGED <<client, network, transport>>
+    /\ UNCHANGED <<taken, readUnits, resetRead, processed, bodyWaits, written, sent, acked,
                    aborted, ackedControl, advStream, advConnection, goawayId, firstRequestRead,
                    shuttingDown, timedOut, closed, counted>>
 
@@ -620,8 +649,8 @@ EndRequest(r) ==
     /\ owed' = owed \cup {Packet("stop", r, 0)}
                     \cup (IF none THEN {Packet("timeout", r, 0)}
                           ELSE IF ~finished THEN {Packet("cancelled", r, 0)} ELSE {})
-    /\ UNCHANGED <<client, network>>
-    /\ UNCHANGED <<taken, arrived, resetRead, processed, written, sent, acked, ackedControl,
+    /\ UNCHANGED <<client, network, transport>>
+    /\ UNCHANGED <<taken, readUnits, resetRead, processed, written, sent, acked, ackedControl,
                    advStream, advConnection, goawayId, firstRequestRead, shuttingDown,
                    timedOut, closed, counted>>
 
@@ -635,8 +664,8 @@ PassDrain ==
     /\ Fire /\ DrainRuns
     /\ closed' = "drain"
     /\ timedOut' = IF timedOut = "none" THEN "drain" ELSE timedOut
-    /\ UNCHANGED <<client, network>>
-    /\ UNCHANGED <<taken, phase, arrived, resetRead, processed, rec, bodyWaits, written, sent,
+    /\ UNCHANGED <<client, network, transport>>
+    /\ UNCHANGED <<taken, phase, readUnits, resetRead, processed, rec, bodyWaits, written, sent,
                    acked, aborted, owed, ackedControl, advStream, advConnection, goawayId,
                    firstRequestRead, shuttingDown, counted>>
 
@@ -702,7 +731,7 @@ BodyWaitsOnPeer == \A r \in Requests : Quiescent /\ BodyRuns(r) => ~Held(r)
 (* stops the idle clock.                                                   *)
 HeadOnItsWay ==
     \E r \in Requests :
-        /\ r < opened /\ cliSent[r] >= HeadUnits /\ arrived[r] < cliSent[r]
+        /\ r < opened /\ cliSent[r] >= HeadUnits /\ atQuic[r] < HeadUnits
         /\ phase[r] \in {"unseen", "head"}
 
 (* The client has a request to make, or a head to finish.                  *)

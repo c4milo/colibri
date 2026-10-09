@@ -143,6 +143,7 @@ pub const connection_stream_read = struct {
 
 pub const connection_stream_acknowledged = struct {
     pub const acknowledged_end = files.connection_stream_acknowledged.acknowledged_end;
+    pub const resets_acknowledged = files.connection_stream_acknowledged.resets_acknowledged;
 };
 
 pub const connection_stream_credit = struct {

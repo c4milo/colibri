@@ -7358,6 +7358,29 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - Next: the simulator's h3 deadline run written as traces of the model, the second part of
     20d.
 
+  **The close waits for every reset, 2026-10-08.** Decision 110's seventh amendment, the owner's
+  ruling on `rejection_lost`.
+  - `finish_if_drained` also waits until no stream of the connection is in "Reset Sent", which
+    `quic.connection_stream_acknowledged.resets_acknowledged` answers from QUIC's stream table.
+    It is a new public name of `quic`, and the server calls it.
+  - The model now parts a datagram's arrival from h3's read of it, as colibri does: `take` hands
+    the datagram to QUIC, and h3 reads it at the caller's next `receive`. `settle`, which
+    decides the close, runs at both. A server test first found a close coming before h3 read a
+    request stream the closing datagram opened, and TLC finds it harmless: that stream is at or
+    above the GOAWAY's identifier, which tells the client the server did not take it.
+  - `zig build tla -- spec/tla/h3_deadlines/*.cfg`: the twelve configurations give their
+    verdicts in 3 minutes 37 seconds. colibri's rules hold NothingUnsaid with the other three
+    over 8,133,722 states with two streams, and over 774,510 with bodies and the client's
+    cancels. `rejection_lost` keeps the rule before this change, violated.
+  - A test splits the rejection from the GOAWAY with datagrams of 36 octets and loses the one
+    that carries the rejection (`quic_drain_test.zig`). The events the harness keeps moved to
+    `quic_seen_test_support.zig`, which leaves room for the two settings the test needs.
+  - 3 mutations, each **CAUGHT**: the close not waiting for the resets, by the drain test; and a
+    reset read as waiting only once acknowledged, and every reset read as acknowledged, by
+    `zig build test-quic` and the drain test.
+  - `zig build test`: 131 of 131 steps and 2646 of 2646 tests passed, the h3 deadline check's
+    census unchanged.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

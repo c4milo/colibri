@@ -2,6 +2,7 @@
 //! first, the close once the client acknowledged it, and the drain deadline that bounds both a
 //! client that acknowledges nothing and the requests a shutdown leaves open.
 const std = @import("std");
+const quic = @import("quic");
 const h3 = @import("h3");
 const support = @import("quic_test_support.zig");
 const constants = @import("../constants.zig");
@@ -15,8 +16,12 @@ const connection = &support.connection;
 const ok: u16 = 200;
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
 const request_timeout: u16 = 408;
-/// Rounds that carry a request to the server, and its answer back.
+/// Rounds that carry a request to the server, and its answer back, and rounds past the probe
+/// timeout that resends a lost datagram (RFC 9002 §6.2).
 const rounds_few: usize = 2;
+const rounds_lost: usize = 40;
+/// A datagram with room for one small frame beside a packet's header, its tag and an ACK frame.
+const short_datagram_len: usize = 36;
 /// An idle limit and a drain limit shorter than QUIC's own idle timeout, so each is told from it.
 const short_seconds: u64 = 5;
 const short_ns: u64 = short_seconds * constants.nanoseconds_per_second;
@@ -201,5 +206,24 @@ test "decision 110: a head that is late at the instant the idle deadline passes 
     try support.pump(support.rounds_default);
     try testing.expectEqual(request_timeout, late.status);
     try testing.expect(late.ended and late.reset == null);
+    try testing.expect(closing_with_no_error() and !support.server_failed);
+}
+
+test "decision 110: a close waits for the client's acknowledgment of every rejection, not of the GOAWAY alone" {
+    try connected();
+    const late = try support.request_short_of_head("GET", "/");
+    try support.pump(rounds_few);
+    try testing.expectEqual(late.id, connection.h3.oldest_head_wait().?.stream_id);
+    // Short datagrams split the rejection, which colibri writes first, from the GOAWAY, and the
+    // network loses the one that carries the rejection. The client acknowledges the GOAWAY.
+    connection.shutdown(support.now_ns);
+    support.server_datagram_len = short_datagram_len;
+    support.server_drop = 1;
+    try support.pump(1);
+    try testing.expect(support.client_h3.goaway_received != null and late.reset == null);
+    // colibri sends the rejection again once it learns of the loss (RFC 9002 §6), and closes
+    // only once the client acknowledged it.
+    try support.pump(rounds_lost);
+    try testing.expectEqual(@as(?u64, h3.constants.error_request_rejected), late.reset);
     try testing.expect(closing_with_no_error() and !support.server_failed);
 }

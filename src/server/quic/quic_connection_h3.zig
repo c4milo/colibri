@@ -378,6 +378,10 @@ fn finish_if_drained(connection: *QuicConnection) void {
     // acknowledged the GOAWAY, and the drain deadline bounds that wait (decision 110 as amended).
     // A connection whose h3 never started has no stream to send one on.
     if (connection.started and !connection.h3.goaway_acknowledged(&connection.transport)) return;
+    // RFC 9114 §4.1.1: the client may send a rejected request again, which it learns only from
+    // the RESET_STREAM, and QUIC sends nothing but the close once it owes one. So the close also
+    // waits until the client acknowledged every reset (decision 110 as amended).
+    if (!quic.connection_stream_acknowledged.resets_acknowledged(&connection.transport)) return;
     connection.stopped = true;
     if (connection.transport.termination.state != .active) return;
     quic.connection_close.owe(&connection.transport, .{

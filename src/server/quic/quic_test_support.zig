@@ -43,12 +43,15 @@ const client_idle_timeout_ms: u64 = 30_000;
 const client_uni_window: u64 = 65_536;
 /// How a test's client departs from an honest one: the credit its request streams and its
 /// connection start with, whether it reads what arrives, so that credit grows (RFC 9000 §4.1),
-/// and whether its datagrams reach the server. `start` restores the last two.
+/// and whether its datagrams reach the server. And how many of the server's next datagrams the
+/// network loses, and how long the server's datagrams may be. `start` restores the last four.
 pub const window_default: u64 = quic.constants.receive_pool_len_default;
 pub var client_stream_window: u64 = window_default;
 pub var client_connection_window: u64 = window_default;
 pub var client_reads: bool = true;
 pub var client_mute: bool = false;
+pub var server_drop: usize = 0;
+pub var server_datagram_len: usize = quic.constants.datagram_len_max;
 
 pub var now_ns: u64 = start_ns;
 /// The server's connection and what it borrows.
@@ -88,25 +91,10 @@ var client_body: [client_body_len]u8 = undefined;
 const client_body_len: usize = 16_384;
 var client_h3_started: bool = false;
 
-/// What the server reported, kept past the call that reported it: its kind, its request, and a
-/// request's path, a body event's length and end, or why a request was cancelled.
-pub const Seen = struct {
-    kind: std.meta.Tag(Event),
-    id: u64,
-    path: [path_len_max]u8 = undefined,
-    path_len: usize = 0,
-    len: usize = 0,
-    end: bool = false,
-    reason: ?event.CancelReason = null,
-
-    pub fn path_of(entry: *const Seen) []const u8 {
-        return entry.path[0..entry.path_len];
-    }
-};
-const path_len_max: usize = 256;
-const seen_max: usize = 256;
-pub var seen: [seen_max]Seen align(@alignOf(Seen)) = undefined;
-pub var seen_len: usize = 0;
+/// What the server reported, kept past the call that reported it.
+const seen_support = @import("quic_seen_test_support.zig");
+pub const Seen = seen_support.Seen;
+pub const nth = seen_support.nth;
 
 /// One request the client sent, and the response that came back.
 pub const Fetch = struct {
@@ -162,7 +150,9 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     client_h3_started = false;
     client_reads = true;
     client_mute = false;
-    seen_len = 0;
+    seen_support.seen_len = 0;
+    server_drop = 0;
+    server_datagram_len = quic.constants.datagram_len_max;
     fetches_len = 0;
     try start_client();
 }
@@ -326,50 +316,13 @@ pub fn pump(rounds: usize) !void {
 /// Keeps every event the server reports.
 pub fn collect() void {
     if (!server_started) return;
-    for (0..seen_max) |_| {
+    for (0..seen_support.seen_max) |_| {
         const received_event = served.receive(now_ns) catch {
             server_failed = true;
             continue;
         };
-        keep(received_event.event orelse return);
+        seen_support.keep(received_event.event orelse return);
     }
-}
-
-fn keep(reported: Event) void {
-    assert(seen_len < seen.len);
-    const entry = &seen[seen_len];
-    entry.* = .{ .kind = reported, .id = 0 };
-    switch (reported) {
-        .request => |head| {
-            entry.id = head.id;
-            const path = head.path orelse "";
-            @memcpy(entry.path[0..path.len], path);
-            entry.path_len = path.len;
-        },
-        .body => |body| {
-            entry.id = body.id;
-            entry.len = body.octets.len;
-            entry.end = body.end;
-        },
-        .trailers => |trailers| entry.id = trailers.id,
-        .cancelled => |cancelled| {
-            entry.id = cancelled.id;
-            entry.reason = cancelled.reason;
-        },
-        .done => |done| entry.id = done.id,
-    }
-    seen_len += 1;
-}
-
-/// The `n`th event of `kind` the server reported, or null.
-pub fn nth(kind: std.meta.Tag(Event), n: usize) ?*const Seen {
-    var count: usize = 0;
-    for (seen[0..seen_len]) |*entry| {
-        if (entry.kind != kind) continue;
-        if (count == n) return entry;
-        count += 1;
-    }
-    return null;
 }
 
 fn client_to_server() !void {
@@ -410,7 +363,12 @@ pub fn client_address() quic.PeerAddress {
 
 fn server_to_client() !void {
     for (0..datagrams_per_round_max) |_| {
-        const sent = (if (through_endpoint) endpoint.send(&datagram, now_ns) else internal.send(&connection, &datagram, now_ns)) orelse return;
+        const room = datagram[0..server_datagram_len];
+        const sent = (if (through_endpoint) endpoint.send(room, now_ns) else internal.send(&connection, room, now_ns)) orelse return;
+        if (server_drop > 0) {
+            server_drop -= 1;
+            continue;
+        }
         @memcpy(crossing[0..sent.octets.len], sent.octets);
         _ = quic.connection_datagram.receive(&client, client_session.suite(), client_session.provider(), .{ .octets = crossing[0..sent.octets.len], .now_ns = now_ns, .ecn = .not_ect }, &client_scratch) catch return error.TestUnexpectedResult;
         if (client_reads) try client_read();

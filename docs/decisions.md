@@ -3537,6 +3537,35 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      for each request stream h3 holds, the instant it first saw the stream. The work is design
      §8 step 20c.
 
+     Amended a seventh time by the owner on 2026-10-08, after `spec/tla/h3_deadlines` (design §8
+     step 20d) found two faults in the sixth amendment:
+     - **The close waits for every reset's acknowledgment.** A shutdown rejects each request
+       whose head h3 has not read, and the close waited for the GOAWAY's acknowledgment alone.
+       Once QUIC owes a close it sends nothing else. So a rejection still owed, or lost in a
+       packet of its own, never reached the client, which could not tell that it may send the
+       request again (RFC 9114 §4.1.1). colibri writes resets ahead of stream data, so a
+       datagram that fills, or one that is lost, parts a rejection from the GOAWAY. The close
+       now also waits until no stream of the connection is in "Reset Sent" (RFC 9000 §3.1), and
+       the drain deadline bounds the wait. It does not wait for h3 to read a request stream the
+       closing datagram opened: that stream is at or above the GOAWAY's identifier, which
+       already tells the client the server did not take it (RFC 9114 §5.2).
+     - **The head, body and idle clocks wait while colibri holds credit.** RFC 9002 §7 bounds
+       every ack-eliciting packet by the congestion window, MAX_DATA and MAX_STREAM_DATA among
+       them. While the window is full of packets the client has not acknowledged, the credit
+       the client needs waits in colibri, and these clocks judged the client for it, as h2's
+       body rate did before the fourth amendment. The body meters stop while colibri owes
+       credit it has not sent, and start again with a grace period once it is out, as h2's do.
+       The head and idle deadlines move by the time the credit was held.
+
+     The alternatives refused:
+     - Recording both and changing no code. A rejection lost to the close leaves a client
+       unable to retry a request the server never processed, and judging a client for credit
+       colibri holds breaks rule 2.
+     - Also waiting, before the close, for h3 to read every request stream QUIC opened. TLC
+       finds it changes nothing the client learns.
+     - Sending credit past the congestion window. RFC 9002 §7 forbids it for an ack-eliciting
+       packet.
+
 111. **A server switches every client that lists version 2, and a client resumes in its ticket's
      version.** Ruled by the owner on 2026-09-29 for
      [#54](https://github.com/c4milo/colibri/issues/54), after design §8 step 19d. It completes
