@@ -39,6 +39,7 @@ const connection_request = @import("connection_request.zig");
 const connection_tls = @import("connection_tls.zig");
 const reply = @import("connection_reply.zig");
 const connection_altsvc = @import("connection_altsvc.zig");
+const internal = @import("connection_internal.zig");
 
 const Role = @import("../role.zig").Role;
 const Writer = core.Writer;
@@ -385,7 +386,7 @@ pub const Connection = struct {
         // RFC 9846 §6: after the record layer failed, no frame goes out.
         if (connection.tls_failed) return 0;
         var writer = Writer.init(output);
-        connection.write_preface(&writer, now_ns);
+        internal.write_preface(connection, &writer, now_ns);
         const preface_len = writer.written().len;
         return preface_len + connection.write_replies(output[preface_len..]);
     }
@@ -451,39 +452,7 @@ pub const Connection = struct {
     pub fn preface_done(connection: *const Connection) bool {
         return connection.settings_written and (connection.role == .server or connection.preface_written);
     }
-
-    /// Writes the preface: the client's 24 octets, then colibri's SETTINGS, each once and whole.
-    fn write_preface(connection: *Connection, writer: *Writer, now_ns: u64) void {
-        if (connection.role == .client and !connection.preface_written) {
-            // RFC 9113 §3.4: a client starts the connection with these 24 octets.
-            writer.write_bytes(constants.client_preface) catch return;
-            connection.preface_written = true;
-        }
-        if (connection.settings_written) return;
-        var buffer: [constants.settings_count]settings.Setting = undefined;
-        const entries = settings.entries(connection.local, connection.role, &buffer);
-        var pairs: [constants.settings_count]frame.Setting = undefined;
-        for (entries, 0..) |entry, index| pairs[index] = .{ .id = entry.id, .value = entry.value };
-        // RFC 9113 §3.4: the preface ends with a SETTINGS frame, which may be empty.
-        frame.write_settings(writer, pairs[0..entries.len]) catch return;
-        connection.settings_written = true;
-        // RFC 9113 §6.5.3: the values are in force once the peer acknowledges them.
-        connection.pending.push(connection.local, now_ns) catch unreachable;
-    }
 };
-
-/// Whether colibri's SETTINGS_ENABLE_PUSH of 0 has been acknowledged, after which RFC 9113
-/// §6.5.2 makes a PUSH_PROMISE a connection error. a client sends the value in its preface and never changes it, so the acknowledgment is the only thing to wait for (decision 17); a server omits the setting (§6.5.2) and never reaches this call, because `on_push_promise` refuses a PUSH_PROMISE on its role first.
-pub fn push_refused(connection: *const Connection) bool {
-    return connection.settings_written and connection.pending.len() == 0;
-}
-
-/// Ends the connection with ENHANCE_YOUR_CALM for `limit` (RFC 9113 §10.5), and notes which
-/// limit it was. The first failure stands.
-pub fn fail_limit(connection: *Connection, limit: Limit) Error {
-    if (connection.failure == null) connection.failure_limit = limit;
-    return connection.fail(constants.error_enhance_your_calm);
-}
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
@@ -496,4 +465,5 @@ test "decision 115: the connection's public functions are the calls a caller out
 
 test {
     _ = @import("connection_test.zig");
+    _ = @import("connection_internal.zig");
 }

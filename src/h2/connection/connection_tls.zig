@@ -14,6 +14,7 @@ const core = @import("core");
 const tls_provider = @import("tls_provider");
 const constants = @import("../constants.zig");
 const connection = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 
 const Connection = connection.Connection;
 
@@ -181,7 +182,7 @@ fn without_data(target: *Connection, consumed: usize) RecordError!Decrypted {
     // RFC 9113 §10.5: a peer generating excessive load is a connection error of
     // ENHANCE_YOUR_CALM, which is what a run of records carrying nothing is.
     if (target.records_without_data > core.constants.records_without_data_max) {
-        return connection.fail_limit(target, .records_without_data);
+        return internal.fail_limit(target, .records_without_data);
     }
     return .{ .consumed = consumed, .plaintext_len = 0, .end_of_data = false };
 }

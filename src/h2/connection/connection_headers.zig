@@ -28,6 +28,7 @@ const stream = @import("../stream/stream.zig");
 const streams_table = @import("../stream/streams.zig");
 const field_block = @import("../field_block/field_block.zig");
 const connection = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 const stream_frames = @import("connection_stream.zig");
 
 const Connection = connection.Connection;
@@ -86,7 +87,7 @@ pub fn on_continuation(target: *Connection, header: frame.Header, payload: frame
 pub fn on_push_promise(target: *Connection, header: frame.Header, payload: frame.PushPromise, now_ns: u64) Error!?Event {
     // RFC 9113 §8.4: a client cannot push, so a server treats a PUSH_PROMISE as a connection error
     // of PROTOCOL_ERROR. §6.5.2: so does an endpoint whose ENABLE_PUSH of 0 has been acknowledged.
-    if (target.role == .server or connection.push_refused(target)) return target.fail(constants.error_protocol_error);
+    if (target.role == .server or internal.push_refused(target)) return target.fail(constants.error_protocol_error);
     const refusal = try reserve_promised(target, payload.promised_stream_id, now_ns);
     target.block.begin(header.stream_id, .push_promise, false);
     target.block_discarded = true;
@@ -132,7 +133,7 @@ fn feed_fragment(target: *Connection, fragment: []const u8, end_headers: bool) E
     return target.block.feed(&target.decoder, fragment, end_headers) catch |failure| switch (failure) {
         // RFC 9113 §10.5: the CONTINUATION frames of one block are bounded, and §6.10's excess is
         // ENHANCE_YOUR_CALM.
-        error.TooManyContinuations => return connection.fail_limit(target, .continuation_frames),
+        error.TooManyContinuations => return internal.fail_limit(target, .continuation_frames),
         // RFC 9113 §4.3: a field block that does not decompress is a connection error of
         // COMPRESSION_ERROR.
         error.DecodeFailed, error.RepresentationTooLong, error.BlockCutInsideRepresentation => {

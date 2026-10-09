@@ -26,6 +26,7 @@ const frame = @import("../frame/frame.zig");
 const stream = @import("../stream/stream.zig");
 const streams_table = @import("../stream/streams.zig");
 const connection = @import("connection.zig");
+const internal = @import("connection_internal.zig");
 const connection_send_window = @import("connection_send_window.zig");
 const data_frames = @import("connection_data.zig");
 const header_frames = @import("connection_headers.zig");
@@ -160,7 +161,7 @@ fn count_reset(target: *Connection, now_ns: u64) Error!void {
         target.rst_stream_sent = 0;
     }
     if (target.rst_stream_sent == constants.rst_stream_rate_max) {
-        return connection.fail_limit(target, .resets_sent);
+        return internal.fail_limit(target, .resets_sent);
     }
     target.rst_stream_sent += 1;
 }
@@ -176,7 +177,7 @@ fn count_peer_reset(target: *Connection, now_ns: u64) Error!void {
     // RFC 9113 §10.5: an endpoint tracks the use of the features that cost it work, sets limits on
     // them, and treats excess as ENHANCE_YOUR_CALM.
     if (target.peer_resets == constants.peer_reset_rate_max) {
-        return connection.fail_limit(target, .peer_resets);
+        return internal.fail_limit(target, .peer_resets);
     }
     target.peer_resets += 1;
 }
