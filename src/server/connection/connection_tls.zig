@@ -93,8 +93,15 @@ fn open_records(connection: *Connection, input: []const u8, now_ns: u64) Error!u
         const record = decrypt(connection, input[consumed..], room, now_ns) catch |failure| switch (failure) {
             // The protocol has not read enough of what earlier records held.
             error.NoSpaceLeft => return consumed,
-            // An h2 connection error with its GOAWAY queued, or TLS failed with its alert owed.
-            error.ConnectionFailed, error.TlsFailed => return internal.fail(connection),
+            // An h2 connection error with its GOAWAY queued.
+            error.ConnectionFailed => return internal.fail(connection),
+            // TLS failed with its alert owed. RFC 9846 §6: no data goes out after the failure, so
+            // the protocol's octets queued behind the flight's records are dropped.
+            error.TlsFailed => {
+                connection.output_len = connection.records_len;
+                connection.update_held_len = @min(connection.update_held_len, connection.records_len);
+                return internal.fail(connection);
+            },
             // The protocol took the provider of a finished handshake.
             error.HandshakeIncomplete, error.NoProvider => unreachable,
         };

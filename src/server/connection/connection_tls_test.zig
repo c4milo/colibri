@@ -170,6 +170,22 @@ fn expect_forged_record_refused(client_protocols: []const []const u8) !void {
     try testing.expectEqual(0, after.consumed);
 }
 
+test "RFC 9846 §6: a record that fails while a response waits to be sealed sends the alert alone, and closes" {
+    try support.start_tls(&support.protocols_both, &support.protocols_h2);
+    _ = try support.receive_sealed(client_preface ++ get_frame);
+    // The response waits in the output, unsealed, when the forged record arrives. Its `done`
+    // comes first, and then the record is read.
+    try connection.respond(1, .{ .status = ok, .end = true });
+    @memcpy(support.input[0..forged_record.len], forged_record);
+    const first = try connection.receive(support.input[0..forged_record.len], support.now_ns);
+    try testing.expectEqual(0, first.consumed);
+    try testing.expectEqual(.done, std.meta.activeTag(first.event.?));
+    try testing.expectError(error.ConnectionFailed, connection.receive(support.input[0..forged_record.len], support.now_ns));
+    const sent = connection.send(support.to_client[support.to_client_len..], support.now_ns);
+    try testing.expectEqual(tls.record.alert_record_len, sent);
+    try testing.expect(connection.should_close());
+}
+
 test "RFC 9846 §9.2: a configuration chapulin cannot serve from is refused at the start" {
     try support.server_config.init(.{ .cookie_key = &support.cookie_key, .alpn = &support.protocols_h2, .cpu = support.cpu });
     support.config = .{ .tls = &support.server_config };
