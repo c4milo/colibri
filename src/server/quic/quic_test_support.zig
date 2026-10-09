@@ -10,7 +10,6 @@ const tls = @import("tls");
 const support = @import("../connection/connection_test_support.zig");
 const quic_connection = @import("quic_connection.zig");
 const internal = @import("quic_connection_internal.zig");
-const endpoint_module = @import("../endpoint/endpoint.zig");
 const event = @import("../event.zig");
 
 pub const QuicConnection = quic_connection.QuicConnection;
@@ -66,15 +65,12 @@ pub var server_started: bool = false;
 /// Whether a `receive` of the server's failed.
 pub var server_failed: bool = false;
 
-/// The endpoint a test may route through instead of starting `connection` itself, and the
-/// connection the server's events come from either way.
-const TestEndpoint = endpoint_module.EndpointOf(endpoint_connections, endpoint_receive_capacity);
-const endpoint_connections: usize = 2;
-const endpoint_receive_capacity: usize = 65_536;
-pub var endpoint: TestEndpoint align(@alignOf(TestEndpoint)) = undefined;
-pub var endpoint_config: endpoint_module.Config align(@alignOf(endpoint_module.Config)) = undefined;
+/// Whether a test routes through `endpoint_support.endpoint` instead of starting `connection`
+/// itself, and the connection the server answers on either way.
 pub var through_endpoint: bool = false;
 pub var served: *QuicConnection = &connection;
+pub const endpoint_support = @import("quic_endpoint_test_support.zig");
+const endpoint = &endpoint_support.endpoint;
 
 /// The client and what it runs on. It starts in `client_version`, which a test that sets another
 /// restores after it.
@@ -91,10 +87,12 @@ var client_body: [client_body_len]u8 = undefined;
 const client_body_len: usize = 16_384;
 var client_h3_started: bool = false;
 
-/// What the server reported, kept past the call that reported it.
-const seen_support = @import("quic_seen_test_support.zig");
+/// What the server reported, kept past the call that reported it (`quic_seen_test_support.zig`).
+pub const seen_support = @import("quic_seen_test_support.zig");
 pub const Seen = seen_support.Seen;
 pub const nth = seen_support.nth;
+const keep = seen_support.keep;
+const seen_max = seen_support.seen_max;
 
 /// One request the client sent, and the response that came back.
 pub const Fetch = struct {
@@ -159,14 +157,7 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
 
 const alpn_h3 = [_][]const u8{"h3"};
 
-/// As `start`, with every datagram passing through `endpoint`, which starts the server's
-/// connection itself, after a Retry when `retry` is set (RFC 9000 §8.1.2).
-pub fn start_endpoint(retry: ?*const tls.quic.Retry) !void {
-    try start();
-    through_endpoint = true;
-    endpoint_config = .{ .quic = &config, .retry = retry };
-    try endpoint.init(&endpoint_config, support.stream.random(), 0, now_ns);
-}
+pub const start_endpoint = endpoint_support.start_endpoint;
 
 fn start_client() !void {
     client.init(.{
@@ -313,10 +304,26 @@ pub fn pump(rounds: usize) !void {
     }
 }
 
+/// Moves time on one round and passes each datagram the client owes to the endpoint's connection,
+/// with no event read: what a test changes the connection between.
+pub fn deliver_unread() !void {
+    now_ns += round_ns;
+    routes_only = true;
+    defer routes_only = false;
+    try client_to_server();
+}
+var routes_only: bool = false;
+
 /// Keeps every event the server reports.
 pub fn collect() void {
     if (!server_started) return;
-    for (0..seen_support.seen_max) |_| {
+    for (0..seen_max) |_| {
+        if (through_endpoint) {
+            const reported = endpoint.receive(.none, now_ns).event;
+            endpoint_support.check_deadline();
+            keep(reported orelse return);
+            continue;
+        }
         const received_event = served.receive(now_ns) catch {
             server_failed = true;
             continue;
@@ -332,14 +339,29 @@ fn client_to_server() !void {
         const held = sent orelse return;
         @memcpy(crossing[0..held.len], datagram[0..held.len]);
         if (through_endpoint) {
-            const taken = endpoint.receive(crossing[0..held.len], .not_ect, client_address(), now_ns) orelse continue;
-            served = taken;
-            server_started = true;
+            to_endpoint(crossing[0..held.len]);
             continue;
         }
         if (!server_started) try start_server(crossing[0..held.len]);
         internal.take(&connection, crossing[0..held.len], .not_ect, client_address(), now_ns);
     }
+}
+
+/// Passes one of the client's datagrams to the endpoint, and keeps the event it reports.
+fn to_endpoint(octets: []u8) void {
+    if (routes_only) {
+        // The connection takes the datagram, and the endpoint reads none of its events.
+        const slot = endpoint.held.connections.receive(octets, .not_ect, client_address(), now_ns, true) orelse return;
+        endpoint.held.ready.touch(slot);
+        return;
+    }
+    const taken = endpoint.receive(.{ .datagram = .{ .octets = octets, .from = client_address() } }, now_ns);
+    endpoint_support.check_deadline();
+    if (endpoint_support.live_connection()) |live| {
+        served = live;
+        server_started = true;
+    }
+    if (taken.event) |reported| keep(reported);
 }
 
 /// Starts the server's connection from the client's first Initial (RFC 9000 §7.2), as `Endpoint`
@@ -365,7 +387,7 @@ pub fn client_address() quic.PeerAddress {
 pub fn server_to_client() !void {
     for (0..datagrams_per_round_max) |_| {
         const room = datagram[0..server_datagram_len];
-        const sent = (if (through_endpoint) endpoint.send(room, now_ns) else internal.send(&connection, room, now_ns)) orelse return;
+        const sent = (if (through_endpoint) endpoint.send_datagram(room, now_ns) else internal.send(&connection, room, now_ns)) orelse return;
         if (server_drop > 0) {
             server_drop -= 1;
             continue;

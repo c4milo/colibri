@@ -1,5 +1,5 @@
 //! One run of the h3 deadline check (`h3_deadline_check.zig`, decision 110 as amended): a server
-//! `Endpoint` over one QUIC connection, the application that answers its requests
+//! `Endpoint` that holds one QUIC connection, the application that answers its requests
 //! (`h3_deadline_app.zig`), and the peer of the seed's plan (`h3_deadline_peer.zig`), in simulated
 //! time. At each instant the run moves datagrams both ways until nothing moves, then goes to the
 //! next instant something is due: an action or a read of the peer's, a timer of either side's
@@ -82,7 +82,7 @@ pub const Record = struct {
     wire: std.hash.Crc32,
 };
 
-const Endpoint = server.EndpointOf(1, quic.constants.receive_pool_len_default);
+const Endpoint = app_module.Endpoint;
 const alpn_h3 = [_][]const u8{"h3"};
 /// Where the peer sends from, which the endpoint reads off each datagram (decision 72).
 const ipv4_len: usize = 4;
@@ -95,7 +95,8 @@ pub const Storage = struct {
     quic_config: server.QuicConfig,
     endpoint_config: server.EndpointConfig,
     endpoint: Endpoint,
-    served: ?*server.QuicConnection,
+    /// The connection's `ended`, once the endpoint reported it.
+    ended: ?server.Ended,
     peer: Peer,
     link: link_module.Link,
     datagram: [quic.constants.datagram_len_max]u8,
@@ -142,7 +143,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     const now_ns = ns_of(plan, 0);
     // Decision 110 as amended: an endpoint refuses limits a connection would refuse.
     storage.endpoint.init(&storage.endpoint_config, tls.Random.init(&storage.server_random, fill), identity.now_seconds, now_ns) catch return error.ServerRefused;
-    storage.served = null;
+    storage.ended = null;
     storage.link.init(plan.link_rate);
     try storage.peer.start(plan, tls.Random.init(&storage.peer_random, fill), now_ns);
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
@@ -189,11 +190,12 @@ fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
         storage.endpoint.on_instant(now_ns);
         storage.peer.on_instant(now_ns);
         var moved = try script.act(&storage.peer, plan, now_ns, now_ms);
-        moved = try peer_send(storage, now_ns) or moved;
-        moved = try server_read(storage, plan, now_ns, now_ms) or moved;
-        if (storage.served) |connection| {
-            moved = try storage.record.app.answer(connection, plan, &storage.content, now_ms) or moved;
-        }
+        moved = try peer_send(storage, now_ns, now_ms) or moved;
+        moved = try server_read(storage, now_ns, now_ms) or moved;
+        // The endpoint notes that colibri failed the connection, and reports it with `ended`. A
+        // deadline or a limit may end a hostile peer's connection; an honest peer's, never.
+        if (plan.honest() and storage.endpoint.failed[0]) return error.ExchangeRefused;
+        moved = try storage.record.app.answer(&storage.endpoint, plan, &storage.content, now_ms) or moved;
         moved = try server_send(storage, now_ns, now_ms) or moved;
         moved = try storage.peer.read(plan, now_ns, now_ms) or moved;
         if (!moved) return;
@@ -202,8 +204,8 @@ fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
 }
 
 /// The peer writes every datagram it owes, and the endpoint takes each one a muted peer did not
-/// write.
-fn peer_send(storage: *Storage, now_ns: u64) Error!bool {
+/// write, and reports the next event it owes.
+fn peer_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     const peer = &storage.peer;
     var moved = false;
     for (0..limits.datagrams_per_pass_max) |_| {
@@ -212,29 +214,32 @@ fn peer_send(storage: *Storage, now_ns: u64) Error!bool {
         if (peer.muted) continue;
         const from = server.Address.of(&peer_octets, peer_port);
         storage.record.wire.update(storage.datagram[0..len]);
-        if (storage.endpoint.receive(storage.datagram[0..len], .not_ect, from, now_ns)) |connection| storage.served = connection;
+        const received = storage.endpoint.receive(.{ .datagram = .{ .octets = storage.datagram[0..len], .from = from } }, now_ns);
+        if (received.event) |reported| note(storage, reported, now_ms);
     }
     // A deaf peer's request has left, and nothing of its leaves after.
     if (peer.mute_pending) peer.muted = true;
     return moved;
 }
 
-/// The application reads every event the server's connection reports.
-fn server_read(storage: *Storage, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
-    const connection = storage.served orelse return false;
+/// The application reads every event the endpoint reports.
+fn server_read(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     var moved = false;
     // Bounded: every event reads an octet the pool holds, or ends a request.
     for (0..limits.events_per_pass_max) |_| {
-        const received = connection.receive(now_ns) catch {
-            // A deadline or a limit may end a hostile peer's connection; an honest peer's, never.
-            if (plan.honest()) return error.ExchangeRefused;
-            return moved;
-        };
-        const reported = received.event orelse return moved;
+        const reported = storage.endpoint.receive(.none, now_ns).event orelse return moved;
         moved = true;
-        storage.record.app.note_event(reported, now_ms);
+        note(storage, reported, now_ms);
     }
     return error.RunStalled;
+}
+
+/// Keeps the connection's `ended`, and hands every other event to the application.
+fn note(storage: *Storage, reported: server.Event, now_ms: u64) void {
+    switch (reported) {
+        .ended => |over| storage.ended = over,
+        else => storage.record.app.note_event(reported, now_ms),
+    }
 }
 
 /// The endpoint writes every datagram it owes into the link, and the peer takes each one the
@@ -242,7 +247,7 @@ fn server_read(storage: *Storage, plan: *const Plan, now_ns: u64, now_ms: u64) E
 fn server_send(storage: *Storage, now_ns: u64, now_ms: u64) Error!bool {
     var moved = try deliver(storage, now_ns, now_ms);
     for (0..limits.datagrams_per_pass_max) |_| {
-        const sent = storage.endpoint.send(&storage.datagram, now_ns) orelse break;
+        const sent = storage.endpoint.send_datagram(&storage.datagram, now_ns) orelse break;
         moved = true;
         storage.record.wire.update(sent.octets);
         storage.link.take(sent.octets, now_ms);
@@ -297,7 +302,14 @@ fn finish(storage: *Storage, plan: *const Plan, end: End, end_ms: u64) void {
     record.goaway_ms = peer.goaway_ms;
     record.dropped = storage.link.dropped;
     record.requests_opened = @intCast(peer.fetches_len);
-    if (storage.served) |connection| record.close_reason = connection.close_reason();
+    // `ended` names why colibri closed the connection. A run ends when the peer reads the
+    // CONNECTION_CLOSE, while the connection is still closing and before its `ended`, so the check
+    // then reads the reason off the endpoint's slot, as a program does not (RFC 9000 §10.2).
+    if (storage.ended) |over| {
+        record.close_reason = over.reason;
+    } else if (storage.endpoint.live[0]) {
+        record.close_reason = storage.endpoint.quic[0].close_reason();
+    }
     for (peer.fetches[0..peer.fetches_len], 0..) |*fetch, index| {
         if (index < kept_fetches) record.seen[index] = .{
             .status = fetch.status,

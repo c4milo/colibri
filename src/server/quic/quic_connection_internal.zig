@@ -258,10 +258,10 @@ fn start_h3(connection: *QuicConnection, now_ns: u64) void {
 
 /// Stops the connection: no request is read or answered from here on, and no stream reads the
 /// caller's octets again, because a connection that is not active sends none (RFC 9000
-/// §10.2.1).
+/// §10.2.1). The endings it already owes stay owed, so a response the peer acknowledged before
+/// the stop still ends with `done` (INV-30); an endpoint ends the rest with `cancelled`.
 pub fn stop(connection: *QuicConnection) void {
     connection.stopped = true;
-    connection.owed.clear();
     connection.bodies.init();
     connection.sends.init();
     quic_coding.give_back_all(connection);

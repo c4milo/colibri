@@ -2,9 +2,9 @@
 //! `client.Channel` and `server.Endpoint`.
 //!
 //! The server's `Endpoint` holds every QUIC connection behind one UDP socket. The program passes
-//! it each datagram with the address it came from, and the endpoint hands back the connection that
-//! took it, which the program then drives with the calls of a TCP `server.Connection`: one event
-//! from each `receive`, and `respond` and `write_body` by the request's id.
+//! it each datagram with the address it came from. Each `receive` reports one event of any
+//! connection, and the program answers a request by its id, which names the request's connection
+//! too: `respond` and `write_body`.
 //!
 //! The client's `Channel` carries exchanges to one origin over QUIC or over TCP, and tells the
 //! program which transport to open. Here it opens QUIC first, the handshake completes, and h3
@@ -85,9 +85,7 @@ var output: [link_module.datagram_len_max]u8 = undefined;
 // The server: the TLS configuration of its QUIC connections, and the endpoint that holds them.
 // colibri's test identity stands in for the certificate and the key a program loads.
 /// The QUIC connections the endpoint holds at once, and the octets each holds unread.
-const connections_max = 2;
-const receive_capacity = 64 * 1024;
-const Endpoint = server.EndpointOf(connections_max, receive_capacity);
+const Endpoint = server.EndpointOf(.{ .quic_connections = 2, .receive_pool_len = 64 * 1024 });
 const chain = [_][]const u8{ identity.leaf, identity.root };
 var cookie_key: [tls.constants.server_key_len]u8 = undefined;
 var server_tls: tls.quic.ServerConfig align(@alignOf(tls.quic.ServerConfig)) = undefined;
@@ -101,7 +99,7 @@ var ended: u32 = 0;
 // The client: a TLS configuration for each transport, the channel, the pool its QUIC connection
 // holds the server's unread octets in, and one exchange.
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
-const ReceivePool = client.ReceivePool(receive_capacity);
+const ReceivePool = client.ReceivePool(64 * 1024);
 var client_tls: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
 var client_quic_tls: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
 var client_tcp: client.Config align(@alignOf(client.Config)) = undefined;
@@ -189,61 +187,61 @@ fn start_client(cpu: tls.Cpu) !void {
     _ = try channel.request(&get);
 }
 
-/// One turn of the server: pass the endpoint each datagram, answer what its connection reports,
-/// send every datagram the endpoint owes, and fire its deadlines.
+/// One turn of the server: pass the endpoint each datagram, answer what its connections report,
+/// fire its deadlines, and send every datagram the endpoint owes.
 fn server_turn() !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try link.receive(.server) orelse break;
-        const now_ns = link.now_ns(.server);
         // The endpoint finds the connection the datagram's connection ID names, or starts one.
-        if (endpoint.receive(datagram, .not_ect, client_address, now_ns)) |connection| {
-            try serve(connection, now_ns);
-        }
+        try serve(.{ .datagram = .{ .octets = datagram, .from = client_address } }, link.now_ns(.server));
         link.consume(.server);
     }
     const now_ns = link.now_ns(.server);
     endpoint.on_instant(now_ns);
+    try serve(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
-        const sent = endpoint.send(&output, now_ns) orelse break;
+        const sent = endpoint.send_datagram(&output, now_ns) orelse break;
         try link.send(.server, sent.octets);
-    }
-    // A connection that is over comes back once, and its slot is free for a later client.
-    // `close_reason` names the deadline or the limit that made colibri close it, and is null
-    // when its client closed it, as this one does.
-    if (endpoint.ended()) |connection| {
-        if (connection.close_reason()) |reason| std.debug.print("server: closed for {s}\n", .{@tagName(reason)});
-        ended += 1;
     }
 }
 
-/// Takes every event `connection` reports, and answers each request by its id, as a TCP
-/// connection's caller does.
-fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
+/// Passes `input` to the endpoint, then takes every event it reports until it reports none, and
+/// answers each request by its id.
+fn serve(input: server.Input, now_ns: u64) !void {
+    var rest = input;
     for (0..events_per_datagram_max) |_| {
-        const received = try connection.receive(now_ns);
+        const received = endpoint.receive(rest, now_ns);
+        rest = .none;
         switch (received.event orelse return) {
             .request => |request| {
                 std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-                try connection.respond(request.id.number, .{
+                try endpoint.respond(request.id, .{
                     .status = 200,
                     .fields = &.{.{ .name = "content-type", .value = content_type }},
                     .end = false,
                 });
                 // Over QUIC `write_body` copies nothing, because QUIC reads the octets again to
                 // send them again. They stay the program's until the request is `done` or
-                // `cancelled`, or until `ended` hands its connection back.
-                _ = try connection.write_body(request.id.number, .{ .octets = greeting, .end = true });
+                // `cancelled`.
+                _ = try endpoint.write_body(request.id, .{ .octets = greeting, .end = true });
                 answered += 1;
                 // A program short of connections shortens the deadlines of one it holds. This
                 // connection has answered the one request the example sends.
-                try connection.set_deadlines(.{ .idle_ns = idle_after_answer_ns });
+                try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
             },
-            // The client acknowledged every octet of the response. A client that closes its
-            // connection first, as this one does, ends the connection instead.
+            // Every request ends once, with `done` or `cancelled`. `done` says the client
+            // acknowledged every octet of the response.
             .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id.number}),
-            .body, .trailers, .cancelled => {},
-            // A connection reports none of these: an endpoint does (decision 119).
-            .writable, .send, .close, .ended, .closed => unreachable,
+            .body, .trailers, .cancelled, .writable => {},
+            // A connection that is over comes once, after its requests' endings, and its slot is
+            // free for a later client. Its reason names the deadline or the limit that made colibri
+            // close it, and is null when its client closed it, as this one does.
+            .ended => |over| {
+                if (over.reason) |reason| std.debug.print("server: closed for {s}\n", .{@tagName(reason)});
+                ended += 1;
+            },
+            // Only a TCP connection owes octets or a close, and only a shutdown ends in `closed`.
+            .send, .close, .closed => unreachable,
         }
     }
 }

@@ -12,7 +12,8 @@ const constants = @import("../constants.zig");
 const endpoint_module = @import("endpoint.zig");
 
 const testing = std.testing;
-const endpoint = &support.endpoint;
+const endpoint_support = support.endpoint_support;
+const endpoint = &endpoint_support.endpoint;
 
 const ok: u16 = 200;
 
@@ -21,16 +22,25 @@ test "RFC 9000 §7.2, §5.2: a client's first Initial starts a connection, which
     try support.connect();
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
-    const served = support.served;
-    try served.respond(fetch.id, .{ .status = ok, .end = false });
-    _ = try served.write_body(fetch.id, .{ .octets = "through the endpoint", .end = true });
+    // Decision 119: the request's id names its connection, and the endpoint answers by it.
+    const id = endpoint_support.id_of(fetch.id);
+    try testing.expectEqual(1, id.connection.generation);
+    try endpoint.respond(id, .{ .status = ok, .end = false });
+    _ = try endpoint.write_body(id, .{ .octets = "through the endpoint", .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqualStrings("through the endpoint", support.content_of(fetch));
     try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
     // RFC 9000 §5.1.1: once the handshake is confirmed the client holds spare IDs to move to.
     try testing.expect(support.client.remote_ids.active_len() > 1);
-    try testing.expectEqual(null, endpoint.ended());
+    try testing.expectEqual(0, endpoint_support.ended_len);
 }
+
+/// What the endpoint reports of `octets`, a datagram from `from`.
+fn give(octets: []u8, from: quic.PeerAddress) ?server_event.Event {
+    return endpoint.receive(.{ .datagram = .{ .octets = octets, .from = from } }, support.now_ns).event;
+}
+
+const server_event = @import("../event.zig");
 
 /// The deployment's Retry token key (decision 55). Test-only.
 const retry_key: [tls.quic.token_key_len]u8 = @splat(retry_key_octet);
@@ -74,15 +84,16 @@ test "RFC 9000 §6.1: a datagram for another version gets Version Negotiation, a
     probe[5] = probe_id_len;
     probe[6 + probe_id_len] = probe_id_len;
     const from = support.client_address();
-    try testing.expectEqual(null, endpoint.receive(&probe, .not_ect, from, support.now_ns));
+    try testing.expectEqual(null, give(&probe, from));
+    try testing.expectEqual(null, endpoint_support.live_connection());
     var output: [quic.constants.datagram_len_max]u8 = undefined;
-    const reply = endpoint.send(&output, support.now_ns).?;
+    const reply = endpoint.send_datagram(&output, support.now_ns).?;
     try testing.expect((try quic.packet.invariant.read_long(reply.octets)).is_version_negotiation());
     try testing.expect(reply.to.eql(&from));
-    try testing.expectEqual(null, endpoint.send(&output, support.now_ns));
+    try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
     // RFC 9000 §5.2.2: a datagram too small to start a connection gets nothing.
-    try testing.expectEqual(null, endpoint.receive(probe[0 .. probe.len - 1], .not_ect, from, support.now_ns));
-    try testing.expectEqual(null, endpoint.send(&output, support.now_ns));
+    try testing.expectEqual(null, give(probe[0 .. probe.len - 1], from));
+    try testing.expectEqual(null, endpoint.send_datagram(&output, support.now_ns));
 }
 
 test "decision 111: a server switches a client of version 1 that lists version 2 to version 2" {
@@ -128,20 +139,25 @@ test "RFC 9368 §2: a client's first Initial in version 2 starts a connection th
         .packet_number = try quic.packet.packet_number.encode(0, null),
         .protected_payload_len = short_payload_len,
     });
-    try testing.expect(endpoint.receive(&probe, .not_ect, support.client_address(), support.now_ns) != null);
+    _ = give(&probe, support.client_address());
     var output: [quic.constants.datagram_len_max]u8 = undefined;
-    try testing.expectEqual(null, endpoint.held.replies.take(&output));
+    try testing.expectEqual(null, endpoint.held.connections.replies.take(&output));
 }
 
 test "RFC 9000 §5.2.2: with every slot in use, a client's Initial starts no connection" {
     try support.start_endpoint(null);
-    for (&endpoint.live, &endpoint.connections) |*live, *connection| {
-        live.* = true;
+    // Every slot is taken, and no datagram addresses the connections the test leaves in them.
+    var taken: [endpoint.quic.len]server_event.ConnectionHandle = undefined;
+    for (&taken, &endpoint.quic) |*handle, *connection| {
+        handle.* = endpoint.held.slots.take(.quic).?;
         connection.closed = true;
     }
     try support.pump(support.rounds_default);
-    try testing.expect(!support.server_started);
-    @memset(&endpoint.live, false);
+    // The client's Initials started nothing: every slot holds what the test put there, and no
+    // request came.
+    try testing.expectEqual(endpoint.quic.len, endpoint.held.slots.holding());
+    try testing.expectEqual(0, support.seen_support.seen_len);
+    for (taken) |handle| endpoint.held.slots.release(handle);
 }
 
 test "decision 103: a connection that is over is handed back once, and its slot takes the next client" {
@@ -149,25 +165,29 @@ test "decision 103: a connection that is over is handed back once, and its slot 
     try support.connect();
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
-    const served = support.served;
-    served.shutdown(support.now_ns);
-    try served.respond(fetch.id, .{ .status = ok, .end = true });
+    const id = endpoint_support.id_of(fetch.id);
+    endpoint.shutdown(support.now_ns);
+    try endpoint.respond(id, .{ .status = ok, .end = true });
     // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass.
     try support.pump(support.rounds_default * 8);
-    try testing.expect(internal.ended(served));
-    try testing.expectEqual(served, endpoint.ended().?);
-    try testing.expectEqual(null, endpoint.ended());
+    // INV-30: the request ended first, then its connection, once, and then the endpoint.
+    try testing.expectEqual(fetch.id, support.nth(.done, 0).?.id);
+    try testing.expectEqual(1, endpoint_support.ended_len);
+    try testing.expectEqual(id.connection, endpoint_support.ended[0].connection);
+    try testing.expect(endpoint_support.closed);
     try testing.expectEqual(null, endpoint.deadline_ns());
+    // The ended connection's id names nothing.
+    try testing.expectError(error.RequestUnknown, endpoint.respond(id, .{ .status = ok, .end = true }));
 }
 
 test "the Unix seconds a connection's tickets carry count on from the endpoint's start" {
     try support.start_endpoint(null);
     const later_ns = support.now_ns + elapsed_seconds * constants.nanoseconds_per_second;
-    try endpoint.init(&support.endpoint_config, tcp_support.stream.random(), start_seconds, support.now_ns);
-    try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.held.seconds_at(later_ns));
+    try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), start_seconds, support.now_ns);
+    try testing.expectEqual(start_seconds + elapsed_seconds, endpoint.held.connections.seconds_at(later_ns));
     // An endpoint started at 0 issues no ticket, however late.
-    try endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
-    try testing.expectEqual(0, endpoint.held.seconds_at(later_ns));
+    try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
+    try testing.expectEqual(0, endpoint.held.connections.seconds_at(later_ns));
 }
 const start_seconds: u64 = 1_790_000_000;
 const elapsed_seconds: u64 = 2;
@@ -214,8 +234,8 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
     });
     const len = writer.written().len + short_payload_len;
     @memset(short_initial[writer.written().len..len], 0);
-    try testing.expectEqual(null, endpoint.receive(short_initial[0..len], .not_ect, support.client_address(), support.now_ns));
-    try testing.expect(!std.mem.containsAtLeastScalar(bool, &endpoint.live, 1, true));
+    try testing.expectEqual(null, give(short_initial[0..len], support.client_address()));
+    try testing.expectEqual(null, endpoint_support.live_connection());
 }
 
 /// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets. Test-only.
@@ -240,11 +260,11 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
             });
             const len = writer.written().len + padded_payload_len;
             @memset(padded_initial[writer.written().len..len], 0);
-            try testing.expectEqual(null, endpoint.receive(padded_initial[0..len], .not_ect, support.client_address(), support.now_ns));
-            try testing.expect(!std.mem.containsAtLeastScalar(bool, &endpoint.live, 1, true));
+            try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
+            try testing.expectEqual(null, endpoint_support.live_connection());
             // With Retry set, no Retry is owed for it either.
             var output: [quic.constants.datagram_len_max]u8 = undefined;
-            try testing.expectEqual(null, endpoint.held.replies.take(&output));
+            try testing.expectEqual(null, endpoint.held.connections.replies.take(&output));
         }
     }
 }
@@ -288,7 +308,7 @@ fn start_logged_endpoint(giving: bool) !void {
     test_logs.giving = giving;
     test_logs.opened = 0;
     test_logs.closed = 0;
-    support.endpoint_config.logs = .{ .context = &test_logs, .vtable = &test_log_vtable };
+    endpoint_support.endpoint_config.logs = .{ .context = &test_logs, .vtable = &test_log_vtable };
 }
 
 fn expect_in_log(expected: []const u8) !void {
@@ -309,13 +329,13 @@ test "decision 102: each connection the endpoint starts asks for a log, and hand
     // The QUIC connection's events and h3's go into the one log (h3-events §1.1).
     try expect_in_log("\"name\":\"quic:version_information\"");
     try expect_in_log("\"name\":\"http3:frame_parsed\"");
-    const served = support.served;
-    served.shutdown(support.now_ns);
-    try served.respond(fetch.id, .{ .status = ok, .end = true });
-    // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass.
-    try support.pump(support.rounds_default * 8);
+    endpoint.shutdown(support.now_ns);
+    try endpoint.respond(endpoint_support.id_of(fetch.id), .{ .status = ok, .end = true });
     try testing.expectEqual(0, test_logs.closed);
-    try testing.expectEqual(served, endpoint.ended().?);
+    // RFC 9000 §10.2: the closing state lasts three PTOs, which these rounds pass, and the log
+    // comes back with the connection's `ended`.
+    try support.pump(support.rounds_default * 8);
+    try testing.expectEqual(1, endpoint_support.ended_len);
     try testing.expectEqual(1, test_logs.closed);
 }
 
@@ -331,12 +351,12 @@ test "decision 110 as amended: an endpoint refuses, when it starts, deadlines a 
     try support.start_endpoint(null);
     // A limit of 0 is one `Deadlines.validate` refuses: null says no limit.
     support.config.deadlines.idle_ns = 0;
-    try testing.expectError(error.DeadlineInvalid, endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
+    try testing.expectError(error.DeadlineInvalid, endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
     // A body rate of one octet a second is one `validate_units` refuses: twice that rate over a
     // window brings less than a unit.
     support.config.deadlines = .{ .body_rate_min = 1 };
-    try testing.expectError(error.DeadlineInvalid, endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
+    try testing.expectError(error.DeadlineInvalid, endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
     // The default limits are ones an endpoint takes.
     support.config.deadlines = .{};
-    try endpoint.init(&support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
+    try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
 }

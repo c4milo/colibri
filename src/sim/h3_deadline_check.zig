@@ -47,7 +47,7 @@ pub const check_name = "h3-deadline";
 /// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
 /// change to the plan, to what the server does or to the trace format changes it, and is
 /// committed with the new value after the check passes in both build modes.
-pub const census_crc32_expected: u32 = 0xd51694dc;
+pub const census_crc32_expected: u32 = 0x9050e8bf;
 
 /// The CRC-32 of the runs' datagram CRC-32s, in seed order. It follows what the wire carried apart
 /// from what the application reads, so a change to how the server reports events keeps it, and a
@@ -62,6 +62,9 @@ pub const Violation = h3_deadline_run.Error || error{
     /// The run ended other than decision 110 says: at another instant, for another deadline, or
     /// with another response.
     EndedWrong,
+    /// A request the application read had no `done` and no `cancelled` when the run ended
+    /// (INV-30).
+    RequestUnended,
     /// The trace passed its buffer.
     TraceFull,
 };
@@ -197,6 +200,10 @@ fn verify(storage: *Storage, plan: *const Plan, seed: u64) Violation!void {
     try write_trace(storage, plan, seed);
     // An honest peer's exchanges end whole, however long the application takes (decision 110).
     if (plan.honest() and record.exchanges_done != plan.exchanges_len) return error.ExchangeLost;
+    // INV-30: the connection stopped before its peer read the close, so each request has ended.
+    for (record.app.answers[0..record.app.answers_len]) |answered| {
+        if (answered.done_ms == null and answered.cancelled_ms == null) return error.RequestUnended;
+    }
     const expected = expect(plan, record) orelse return error.EndedWrong;
     if (record.end != .closed or !ended_as(record, expected.end, plan)) return error.EndedWrong;
     if (!requests_as(&expected, plan, record)) return error.EndedWrong;
@@ -331,10 +338,15 @@ fn send_overload(first: ?*const Answer, first_window_ms: u64) ?Expected {
 }
 
 /// Bodies that together brought too little in the first window after the application read the
-/// first request: the connection closes then.
+/// first request: the connection closes then. The first body alone brought nothing in that window
+/// too, so its deadline cancels its request at that instant, and the close keeps that ending
+/// (INV-30).
 fn bodies_overload(first: ?*const Answer, first_window_ms: u64) ?Expected {
     const cut_ms = (first orelse return null).read_ms + first_window_ms;
-    return .{ .end = .{ .overloaded = .{ .reason = .{ .deadline = .body_rate }, .at_ms = cut_ms } } };
+    var expected: Expected = .{ .end = .{ .overloaded = .{ .reason = .{ .deadline = .body_rate }, .at_ms = cut_ms } } };
+    expected.cancelled = .body_rate;
+    expected.cancelled_ms = cut_ms;
+    return expected;
 }
 
 /// A peer that floods is closed with the batch that carries the first cancelled request past the

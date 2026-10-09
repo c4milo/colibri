@@ -13,6 +13,9 @@ const plan_module = @import("h3_deadline_plan.zig");
 const limits = sim.constants.h3_deadline;
 const Plan = plan_module.Plan;
 
+/// The server's endpoint, which holds the run's one QUIC connection.
+pub const Endpoint = server.EndpointOf(.{ .quic_connections = 1 });
+
 pub const Error = error{
     /// The server refused an answer to an honest peer.
     ExchangeRefused,
@@ -21,7 +24,7 @@ pub const Error = error{
 /// A request the application read: when its content ended, when the application began its answer
 /// and when it ended it, when the server reported it done, and the deadline that cancelled it.
 pub const Answer = struct {
-    id: u64,
+    id: server.Id,
     read_ms: u64,
     content_end_ms: ?u64 = null,
     answered_ms: ?u64 = null,
@@ -52,7 +55,7 @@ pub const Application = struct {
     /// reports of it after.
     pub fn note_event(app: *Application, reported: server.Event, now_ms: u64) void {
         switch (reported) {
-            .request => |request| app.note_request(request.id.number, now_ms),
+            .request => |request| app.note_request(request.id, now_ms),
             .body => |body| if (body.end) app.note_content_end(body.id.number, now_ms),
             .trailers => |trailers| app.note_content_end(trailers.id.number, now_ms),
             .cancelled => |cancelled| if (app.find(cancelled.id.number)) |pending| {
@@ -62,12 +65,14 @@ pub const Application = struct {
             .done => |done| if (app.find(done.id.number)) |pending| {
                 pending.done_ms = now_ms;
             },
-            // A connection reports none of these: the endpoint does (decision 119).
-            .writable, .send, .close, .ended, .closed => unreachable,
+            .writable => {},
+            // The run reads `ended`. A QUIC connection owes no `send` or `close`, and the run never
+            // shuts the endpoint down (decision 119).
+            .send, .close, .ended, .closed => unreachable,
         }
     }
 
-    fn note_request(app: *Application, id: u64, now_ms: u64) void {
+    fn note_request(app: *Application, id: server.Id, now_ms: u64) void {
         app.requests_read += 1;
         // The application answers as many requests as a peer makes whole.
         if (app.answers_len == limits.exchanges_max) return;
@@ -80,9 +85,9 @@ pub const Application = struct {
         pending.content_end_ms = now_ms;
     }
 
-    fn find(app: *Application, id: u64) ?*Answer {
+    fn find(app: *Application, number: u64) ?*Answer {
         for (app.answers[0..app.answers_len]) |*pending| {
-            if (pending.id == id) return pending;
+            if (pending.id.number == number) return pending;
         }
         return null;
     }
@@ -90,13 +95,13 @@ pub const Application = struct {
     /// Writes what each answer owes at `now_ms`, from the first octets of `content`, which stay
     /// the application's (decision 103): its head and first octets once the request's content has
     /// ended and its delay has passed, and the rest a gap after. Returns whether anything moved.
-    pub fn answer(app: *Application, connection: *server.QuicConnection, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
+    pub fn answer(app: *Application, endpoint: *Endpoint, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
         var moved = false;
         for (app.answers[0..app.answers_len], 0..) |*pending, index| {
             const due_ms = next_write_ms(pending, plan, index) orelse continue;
             if (now_ms < due_ms) continue;
             moved = true;
-            write(connection, pending, plan, content[0..plan.content_len[index]], index, now_ms) catch {
+            write(endpoint, pending, plan, content[0..plan.content_len[index]], index, now_ms) catch {
                 // A server that ended a hostile peer's request takes no answer to it.
                 if (plan.honest()) return error.ExchangeRefused;
             };
@@ -147,21 +152,21 @@ fn next_write_ms(pending: *const Answer, plan: *const Plan, index: usize) ?u64 {
 
 /// Writes the answer's head and first octets, or its last octets and its end. QUIC reads the
 /// octets in place until the peer acknowledges them.
-fn write(connection: *server.QuicConnection, pending: *Answer, plan: *const Plan, content: []const u8, index: usize, now_ms: u64) server.SendError!void {
+fn write(endpoint: *Endpoint, pending: *Answer, plan: *const Plan, content: []const u8, index: usize, now_ms: u64) server.SendError!void {
     const in_two = plan.answer_gap_ms[index] > 0;
     const first_len = if (in_two) content.len / halves else content.len;
     if (pending.answered_ms != null) {
         pending.finished_ms = now_ms;
-        return write_content(connection, pending.id, content[first_len..], true);
+        return write_content(endpoint, pending.id, content[first_len..], true);
     }
     pending.answered_ms = now_ms;
     const ends = !in_two and !plan.answer_stays_open();
     if (ends) pending.finished_ms = now_ms;
-    try connection.respond(pending.id, .{ .status = answer_status, .end = ends and content.len == 0 });
-    if (first_len > 0) try write_content(connection, pending.id, content[0..first_len], ends);
+    try endpoint.respond(pending.id, .{ .status = answer_status, .end = ends and content.len == 0 });
+    if (first_len > 0) try write_content(endpoint, pending.id, content[0..first_len], ends);
 }
 
-fn write_content(connection: *server.QuicConnection, id: u64, content: []const u8, end: bool) server.SendError!void {
-    const taken = try connection.write_body(id, .{ .octets = content, .end = end });
+fn write_content(endpoint: *Endpoint, id: server.Id, content: []const u8, end: bool) server.SendError!void {
+    const taken = try endpoint.write_body(id, .{ .octets = content, .end = end });
     assert(taken == content.len);
 }

@@ -1,50 +1,79 @@
-//! The server's QUIC endpoint (decision 103, design §8 step 17b): up to a build-time number of
-//! QUIC connections behind one UDP socket the caller owns. The caller passes each datagram with
-//! the address it came from; the endpoint hands it to the connection its first packet's
-//! Destination Connection ID names (RFC 9000 §5.2), starts a connection from a client's first
-//! Initial (§7.2), and answers Version Negotiation (§6.1) and Retry (§8.1.2) itself. It returns
-//! the connection that took the datagram, which the caller then drives with the TCP connection's
-//! calls, in the shape the owner chose on 2026-09-28.
+//! The server's endpoint (decision 103, decision 119): up to a build-time number of QUIC
+//! connections behind one UDP socket the caller owns, each in a slot of its own. The caller passes
+//! each datagram, with the address it came from, to `receive`; the endpoint hands it to the
+//! connection its first packet's Destination Connection ID names (RFC 9000 §5.2), starts a
+//! connection from a client's first Initial (§7.2), and answers Version Negotiation (§6.1) and
+//! Retry (§8.1.2) itself. `receive` then reports the next event any connection owes, its id naming
+//! the connection, and the caller answers a request by its id with `respond`, `write_body` and
+//! `write_trailers`.
 //!
-//! `send` writes the next datagram any connection owes, with the address it goes to, and `ended`
-//! hands back each connection that is over, whose slot a later client takes. Every connection ID
-//! the endpoint issues and every value a handshake draws come from the caller's source (invariant
-//! 5). colibri makes no system call and reads no clock (non-negotiable 3). The endpoint keeps
-//! pointers into itself, so it stays where `init` found it.
+//! Every request ends with one `done` or `cancelled`, and a connection's `ended` comes after its
+//! requests' (INV-30); its slot then takes a later client, and the slot's generation makes every
+//! id of the ended connection name nothing. `send_datagram` writes the next datagram any
+//! connection owes, with the address it goes to, and `deadline_ns` is the soonest deadline of any
+//! connection, kept without reading every connection on each call (INV-31). Every connection ID the
+//! endpoint issues and every value a handshake draws come from the caller's source (invariant 5).
+//! colibri makes no system call and reads no clock (non-negotiable 3). The endpoint keeps pointers
+//! into itself, so it stays where `init` found it.
 const std = @import("std");
 const assert = std.debug.assert;
+const http = @import("http");
 const quic = @import("quic");
 const tls = @import("tls");
 const constants = @import("../constants.zig");
+const event = @import("../event.zig");
+const deadline = @import("../deadline.zig");
+const connection_errors = @import("../connection/connection_errors.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const endpoint_connections = @import("endpoint_connections.zig");
+const endpoint_held = @import("endpoint_held.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
-const PeerAddress = quic_connection.PeerAddress;
 const ReceiveStorage = quic_connection.ReceiveStorage;
 const Sent = quic_connection.Sent;
-const Ecn = quic.connection_receive.Datagram.Ecn;
+const Id = event.Id;
+const ConnectionHandle = event.ConnectionHandle;
+const SendError = connection_errors.SendError;
 
 pub const Config = endpoint_connections.Config;
 pub const LogProvider = endpoint_connections.LogProvider;
+pub const Input = endpoint_held.Input;
+pub const Datagram = endpoint_held.Datagram;
 
-/// An endpoint of the default size: `quic_connections_default` connections, each with a receive
-/// pool of `receive_pool_len_default` octets.
-pub const Endpoint = EndpointOf(constants.quic_connections_default, quic.constants.receive_pool_len_default);
+/// How many connections an endpoint holds, fixed at build time (decision 35): its QUIC
+/// connections, and the octets each holds that it has not read (decision 61).
+pub const Capacity = struct {
+    quic_connections: usize = constants.quic_connections_default,
+    receive_pool_len: usize = quic.constants.receive_pool_len_default,
+};
 
-/// An endpoint that holds up to `connections_max` connections, each holding up to
-/// `receive_capacity` octets it has not read (decision 61).
-pub fn EndpointOf(comptime connections_max: usize, comptime receive_capacity: usize) type {
-    comptime assert(connections_max > 0);
+/// An endpoint of the default size.
+pub const Endpoint = EndpointOf(.{});
+
+/// An endpoint that holds the connections `capacity` names.
+pub fn EndpointOf(comptime capacity: Capacity) type {
+    comptime assert(capacity.quic_connections > 0);
+    const slots_max = capacity.quic_connections;
     return struct {
         const Self = @This();
-        const Pool = quic.stream.stream_incoming.Pool(receive_capacity);
+        const Pool = quic.stream.stream_incoming.Pool(capacity.receive_pool_len);
 
-        held: endpoint_connections.Connections,
-        connections: [connections_max]QuicConnection,
-        live: [connections_max]bool,
-        pools: [connections_max]Pool,
-        storages: [connections_max]ReceiveStorage,
+        held: endpoint_held.Held,
+        quic: [capacity.quic_connections]QuicConnection,
+        pools: [capacity.quic_connections]Pool,
+        storages: [capacity.quic_connections]ReceiveStorage,
+        quic_tables: [capacity.quic_connections]endpoint_held.QuicTable,
+        generations: [slots_max]u32,
+        live: [slots_max]bool,
+        free: [slots_max]u32,
+        failed: [slots_max]bool,
+        ready_numbers: [slots_max]u32,
+        ready_queued: [slots_max]bool,
+        cached: [slots_max]u64,
+        position: [slots_max]u32,
+        order: [slots_max]u32,
+        stale_numbers: [slots_max]u32,
+        stale_queued: [slots_max]bool,
 
         /// Prepares an endpoint that holds no connection. Every value it draws comes from
         /// `random`. `now_seconds` is the Unix time at `now_ns`, which the server's tickets are
@@ -52,22 +81,76 @@ pub fn EndpointOf(comptime connections_max: usize, comptime receive_capacity: us
         /// limit `Deadlines.validate` or `validate_units` refuses (decision 110 as amended).
         pub fn init(endpoint: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
             for (&endpoint.pools, &endpoint.storages) |*pool, *storage| storage.* = pool.storage();
-            try endpoint.held.init(config, &endpoint.connections, &endpoint.live, &endpoint.storages, random, now_seconds, now_ns);
+            for (&endpoint.quic_tables) |*table| table.init();
+            try endpoint.held.init(config, .{
+                .quic = &endpoint.quic,
+                .pools = &endpoint.storages,
+                .quic_tables = &endpoint.quic_tables,
+                .generations = &endpoint.generations,
+                .live = &endpoint.live,
+                .free = &endpoint.free,
+                .failed = &endpoint.failed,
+                .ready_numbers = &endpoint.ready_numbers,
+                .ready_queued = &endpoint.ready_queued,
+                .cached = &endpoint.cached,
+                .position = &endpoint.position,
+                .order = &endpoint.order,
+                .stale_numbers = &endpoint.stale_numbers,
+                .stale_queued = &endpoint.stale_queued,
+            }, random, now_seconds, now_ns);
         }
 
-        /// Takes one datagram the socket read from `from`, which the suite opens in place, and
-        /// returns the connection that took it, or null when none did.
-        pub fn receive(endpoint: *Self, datagram: []u8, ecn: Ecn, from: PeerAddress, now_ns: u64) ?*QuicConnection {
-            return endpoint.held.receive(datagram, ecn, from, now_ns);
+        /// Takes what `input` brings, then reports the next event any connection owes. The
+        /// caller passes each datagram the socket read, and calls with `.none` after it answers
+        /// and after `on_instant`, until a call reports nothing. An event's slices stay valid
+        /// until the next `receive`, `on_instant`, `send_datagram` or `shutdown`.
+        pub fn receive(endpoint: *Self, input: Input, now_ns: u64) event.Received {
+            return endpoint.held.receive(input, now_ns);
         }
 
-        /// Writes into `output` the next datagram the endpoint owes: a Version Negotiation or
-        /// Retry packet first, then each connection's in turn. Null when it owes none.
-        pub fn send(endpoint: *Self, output: []u8, now_ns: u64) ?Sent {
-            return endpoint.held.send(output, now_ns);
+        /// Sets the word each later event of request `id` carries: its `body`, `trailers`,
+        /// `writable` and its one `done` or `cancelled` (decision 119).
+        pub fn set_user_data(endpoint: *Self, id: Id, user_data: usize) error{RequestUnknown}!void {
+            return endpoint.held.set_user_data(id, user_data);
         }
 
-        /// The instant a connection next wants `on_instant` at (design §4.2), or null for none.
+        /// Writes the head of the response to request `id`: an interim one (1xx) or the final
+        /// one. With `end`, the final response carries no content.
+        pub fn respond(endpoint: *Self, id: Id, response: event.Response) SendError!void {
+            return endpoint.held.respond(id, response);
+        }
+
+        /// Takes content of the response to request `id`, and returns the octets taken. Nothing is
+        /// copied over QUIC: the octets stay the caller's until the request is `done` or
+        /// `cancelled` (decision 103).
+        pub fn write_body(endpoint: *Self, id: Id, content: event.Content) SendError!usize {
+            return endpoint.held.write_body(id, content);
+        }
+
+        /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
+        pub fn write_trailers(endpoint: *Self, id: Id, fields: []const http.Field) SendError!void {
+            return endpoint.held.write_trailers(id, fields);
+        }
+
+        /// Ends request `id` before its response is whole: its `cancelled` follows, with the
+        /// reason `program`, and nothing more of it.
+        pub fn cancel(endpoint: *Self, id: Id) void {
+            endpoint.held.cancel(id);
+        }
+
+        /// Ends every connection once the requests it holds are answered, and starts no new one.
+        /// `closed` follows once every connection has ended.
+        pub fn shutdown(endpoint: *Self, now_ns: u64) void {
+            endpoint.held.shutdown(now_ns);
+        }
+
+        /// Writes into `output` the next datagram the endpoint owes, and names where it goes. Null
+        /// when it owes none.
+        pub fn send_datagram(endpoint: *Self, output: []u8, now_ns: u64) ?Sent {
+            return endpoint.held.send_datagram(output, now_ns);
+        }
+
+        /// The soonest instant any connection wants `on_instant` at (design §4.2), or null.
         pub fn deadline_ns(endpoint: *Self) ?u64 {
             return endpoint.held.deadline_ns();
         }
@@ -77,18 +160,25 @@ pub fn EndpointOf(comptime connections_max: usize, comptime receive_capacity: us
             endpoint.held.on_instant(now_ns);
         }
 
-        /// The next connection that is over, which the call frees, or null. The connection's
-        /// memory stays as it is until a later `receive` starts another in its slot.
-        pub fn ended(endpoint: *Self) ?*QuicConnection {
-            return endpoint.held.ended();
+        /// Replaces one connection's limits (decision 110), for a caller short of connections that
+        /// shortens its deadlines.
+        pub fn set_deadlines(endpoint: *Self, connection: ConnectionHandle, deadlines: deadline.Deadlines) error{ DeadlineInvalid, ConnectionUnknown }!void {
+            return endpoint.held.set_deadlines(connection, deadlines);
+        }
+
+        /// The server_name the connection's client sent (RFC 9846 §9.2), or null.
+        pub fn server_name(endpoint: *Self, connection: ConnectionHandle) ?[]const u8 {
+            return endpoint.held.server_name(connection);
         }
     };
 }
 
 test "design §8 step 17f: the endpoint's public functions are the calls a program makes" {
     const public_names = @import("core").public_names;
+    // Design §8 step 21b.3 (decision 119): the endpoint answers requests by id.
     try public_names.expect(Endpoint, &.{
-        "init",  "receive", "send", "deadline_ns", "on_instant",
-        "ended",
+        "init",           "receive",       "set_user_data", "respond",       "write_body",
+        "write_trailers", "cancel",        "shutdown",      "send_datagram", "deadline_ns",
+        "on_instant",     "set_deadlines", "server_name",
     });
 }

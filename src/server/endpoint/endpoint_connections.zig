@@ -1,7 +1,8 @@
-//! The connections of the server's QUIC endpoint (`endpoint.zig`), and what the endpoint does with
-//! each datagram: the routing, the start of a connection from a client's first Initial, and the
-//! Version Negotiation and Retry packets it owes (decision 103). It holds slices of the arrays
-//! `EndpointOf` places, so it takes no size of its own. Split out of `endpoint.zig` for length.
+//! The QUIC connections of the server's endpoint (`endpoint.zig`), and what the endpoint does with
+//! each datagram: the routing, the start of a connection from a client's first Initial in a free
+//! QUIC slot, and the Version Negotiation and Retry packets it owes (decision 103). It holds slices
+//! of the arrays `EndpointOf` places, so it takes no size of its own. Split out of `endpoint.zig`
+//! for length.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -10,6 +11,7 @@ const constants = @import("../constants.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const endpoint_stateless = @import("endpoint_stateless.zig");
+const endpoint_slots = @import("endpoint_slots.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const PeerAddress = quic_connection.PeerAddress;
@@ -61,19 +63,18 @@ pub const Connections = struct {
     /// Unix seconds at `base_ns`, from which each connection's tickets count, or 0 for none.
     base_seconds: u64,
     base_ns: u64,
-    /// Each connection, whether it runs, and its receive pool, at one index.
+    /// Each QUIC connection and its receive pool, at the index its slot has among the QUIC slots,
+    /// and the slots, which say which run.
     connections: []QuicConnection,
-    live: []bool,
     pools: []const ReceiveStorage,
+    slots: *endpoint_slots.Slots,
     replies: Replies,
-    /// The connection `send` asks first, which moves round each call.
-    cursor: usize,
 
     /// Holds no connection. Every value the endpoint draws comes from `random`. It refuses
     /// limits in `config.quic.deadlines` that `Deadlines.validate` or `validate_units` refuses, as
     /// `Connection.init` does over TCP (decision 110 as amended).
-    pub fn init(held: *Connections, config: *const Config, connections: []QuicConnection, live: []bool, pools: []const ReceiveStorage, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
-        assert(connections.len > 0 and connections.len == live.len and live.len == pools.len);
+    pub fn init(held: *Connections, config: *const Config, connections: []QuicConnection, pools: []const ReceiveStorage, slots: *endpoint_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
+        assert(connections.len == pools.len and slots.tcp_count + connections.len == slots.live.len);
         // A connection refuses limits `validate` refuses. An endpoint whose every connection
         // refused to start would answer no client and tell its program nothing, so the endpoint
         // refuses them here, once, where its program reads the error.
@@ -85,24 +86,30 @@ pub const Connections = struct {
             .base_seconds = now_seconds,
             .base_ns = now_ns,
             .connections = connections,
-            .live = live,
             .pools = pools,
+            .slots = slots,
             .replies = .{},
-            .cursor = 0,
         };
-        @memset(live, false);
+    }
+
+    /// The QUIC connection slot `slot` holds.
+    pub fn at(held: *Connections, slot: u32) *QuicConnection {
+        assert(held.slots.kind_of(slot) == .quic);
+        return &held.connections[slot - held.slots.tcp_count];
     }
 
     /// Takes one datagram the socket read from `from`, which the suite opens in place, and
-    /// returns the connection that took it, or null when none did.
-    pub fn receive(held: *Connections, datagram: []u8, ecn: Ecn, from: PeerAddress, now_ns: u64) ?*QuicConnection {
+    /// returns the slot of the connection that took it, or null when none did. With `accepting`
+    /// false, a client's first Initial starts no connection.
+    pub fn receive(held: *Connections, datagram: []u8, ecn: Ecn, from: PeerAddress, now_ns: u64, accepting: bool) ?u32 {
         if (endpoint_stateless.destination_of(datagram)) |dcid| {
-            if (held.connection_for(dcid)) |connection| {
-                internal.take(connection, datagram, ecn, from, now_ns);
-                return connection;
+            if (held.slot_for(dcid)) |slot| {
+                internal.take(held.at(slot), datagram, ecn, from, now_ns);
+                return slot;
             }
         }
         if (held.answer_version(datagram, from)) return null;
+        if (!accepting) return null;
         const long = endpoint_stateless.first_initial(datagram) orelse return null;
         // RFC 9000 §14.1: "A server MUST discard an Initial packet that is carried in a UDP
         // datagram with a payload that is smaller than the smallest allowed maximum datagram
@@ -112,60 +119,16 @@ pub const Connections = struct {
         // in length". The Initial keys come from it, so a shorter one starts nothing and owes no
         // Retry (INV-24: it never reaches the start's assertion).
         if (long.dcid.len < quic.constants.initial_destination_len_min) return null;
-        const connection = held.accept(long, from, now_ns) orelse return null;
-        internal.take(connection, datagram, ecn, from, now_ns);
-        return connection;
+        const slot = held.accept(long, from, now_ns) orelse return null;
+        internal.take(held.at(slot), datagram, ecn, from, now_ns);
+        return slot;
     }
 
-    /// Writes into `output` the next datagram the endpoint owes: a Version Negotiation or
-    /// Retry packet first, then each connection's in turn. Null when it owes none.
-    pub fn send(held: *Connections, output: []u8, now_ns: u64) ?Sent {
-        if (held.replies.take(output)) |reply| return reply;
-        // Bounded: each pass asks one slot.
-        for (0..held.connections.len) |_| {
-            const index = held.cursor;
-            held.cursor = (held.cursor + 1) % held.connections.len;
-            if (!held.live[index]) continue;
-            if (internal.send(&held.connections[index], output, now_ns)) |sent| return sent;
-        }
-        return null;
-    }
-
-    /// The instant a connection next wants `on_instant` at (design §4.2), or null for none.
-    pub fn deadline_ns(held: *Connections) ?u64 {
-        var soonest: ?u64 = null;
-        for (held.connections, held.live) |*connection, live| {
-            if (!live) continue;
-            const at_ns = internal.deadline_ns(connection) orelse continue;
-            soonest = @min(soonest orelse at_ns, at_ns);
-        }
-        return soonest;
-    }
-
-    /// Fires whichever deadlines `now_ns` has reached.
-    pub fn on_instant(held: *Connections, now_ns: u64) void {
-        for (held.connections, held.live) |*connection, live| {
-            if (live) internal.on_instant(connection, now_ns);
-        }
-    }
-
-    /// The next connection that is over, which the call frees, or null. The connection's
-    /// memory stays as it is until a later `receive` starts another in its slot.
-    pub fn ended(held: *Connections) ?*QuicConnection {
-        for (held.connections, held.live) |*connection, *live| {
-            if (!live.* or !internal.ended(connection)) continue;
-            live.* = false;
-            // The connection's secrets are wiped, and nothing more is read or written.
-            internal.transport_closed(connection);
-            held.close_log(connection);
-            return connection;
-        }
-        return null;
-    }
-
-    fn connection_for(held: *Connections, dcid: []const u8) ?*QuicConnection {
-        for (held.connections, held.live) |*connection, live| {
-            if (live and internal.addressed_by(connection, dcid)) return connection;
+    /// The slot of the running connection `dcid` addresses (RFC 9000 §5.2), or null.
+    fn slot_for(held: *Connections, dcid: []const u8) ?u32 {
+        for (held.connections, 0..) |*connection, index| {
+            const slot: u32 = @intCast(held.slots.tcp_count + index);
+            if (held.slots.live[slot] and internal.addressed_by(connection, dcid)) return slot;
         }
         return null;
     }
@@ -181,7 +144,7 @@ pub const Connections = struct {
 
     /// Starts a connection for a client's first Initial, or with Retry configured first
     /// checks the Initial's token (RFC 9000 §8.1.2).
-    fn accept(held: *Connections, long: quic.packet.header.Long, from: PeerAddress, now_ns: u64) ?*QuicConnection {
+    fn accept(held: *Connections, long: quic.packet.header.Long, from: PeerAddress, now_ns: u64) ?u32 {
         const retry = held.config.retry orelse return held.start(long.version, long.dcid, long.scid, null, from, now_ns);
         var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
         const address = endpoint_stateless.token_address(from, &address_storage);
@@ -223,8 +186,8 @@ pub const Connections = struct {
     /// A connection in a free slot, from values the caller's source draws. With every slot
     /// in use the Initial goes unanswered: RFC 9000 §5.2.2 lets a server drop what it will
     /// not serve, and the client sends it again.
-    fn start(held: *Connections, version: quic.packet.header.Version, original_destination: []const u8, peer_source: []const u8, retry_source: ?[]const u8, from: PeerAddress, now_ns: u64) ?*QuicConnection {
-        const index = held.free_slot() orelse return null;
+    fn start(held: *Connections, version: quic.packet.header.Version, original_destination: []const u8, peer_source: []const u8, retry_source: ?[]const u8, from: PeerAddress, now_ns: u64) ?u32 {
+        const handle = held.slots.take(.quic) orelse return null;
         var how: quic_connection.Start = .{
             .version = version,
             .local_id = undefined,
@@ -236,29 +199,25 @@ pub const Connections = struct {
         };
         // RFC 9000 §7.2: the server chooses its own connection ID, unpredictable (§5.1).
         held.random.bytes(&how.local_id);
-        const connection = &held.connections[index];
-        internal.start(connection, held.config.quic, held.pools[index], how, held.random, held.seconds_at(now_ns), now_ns) catch return null;
+        const connection = held.at(handle.slot);
+        const pool = held.pools[handle.slot - held.slots.tcp_count];
+        internal.start(connection, held.config.quic, pool, how, held.random, held.seconds_at(now_ns), now_ns) catch {
+            held.slots.release(handle);
+            return null;
+        };
         // Decision 102 as amended: a log only for a connection that started, so each log the
         // provider gives comes back through `close`.
         if (held.config.logs) |logs| {
             if (logs.open(original_destination, now_ns)) |log| internal.attach_log(connection, log, now_ns);
         }
-        held.live[index] = true;
-        return connection;
+        return handle.slot;
     }
 
     /// Hands the log of a connection that is over back to the caller.
-    fn close_log(held: *const Connections, connection: *QuicConnection) void {
+    pub fn close_log(held: *const Connections, connection: *QuicConnection) void {
         const logs = held.config.logs orelse return;
         const log = connection.transport.qlog.log orelse return;
         logs.close(log);
-    }
-
-    fn free_slot(held: *const Connections) ?usize {
-        for (held.live, 0..) |live, index| {
-            if (!live) return index;
-        }
-        return null;
     }
 
     /// The Unix seconds a connection starting at `now_ns` issues its tickets at.

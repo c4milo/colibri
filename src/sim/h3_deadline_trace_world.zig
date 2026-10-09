@@ -48,7 +48,7 @@ const actions_per_request: usize = 2;
 const actions_besides_requests: usize = 5;
 pub const allowed_max: usize = actions_per_request * limits.requests_max + actions_besides_requests;
 
-const Endpoint = server.EndpointOf(1, quic.constants.receive_pool_len_default);
+const Endpoint = server.EndpointOf(.{ .quic_connections = 1 });
 const alpn_h3 = [_][]const u8{"h3"};
 const datagram_len = limits.datagram_len;
 /// Where the client sends from, which the endpoint reads off each datagram (decision 72).
@@ -95,7 +95,9 @@ pub const World = struct {
     quic_config: server.QuicConfig,
     endpoint_config: server.EndpointConfig,
     endpoint: Endpoint,
+    /// The endpoint's one QUIC connection, read as a program does not, and the handle naming it.
     served: ?*server.QuicConnection,
+    handle: ?server.ConnectionHandle,
     peer: Peer,
     peer_plan: deadline_plan.Plan,
     to_server: Queue,
@@ -138,6 +140,7 @@ pub const World = struct {
         world.now_ns = limits.start_ns;
         world.endpoint.init(&world.endpoint_config, tls.Random.init(&world.server_random, fill), identity.now_seconds, world.now_ns) catch return error.ServerRefused;
         world.served = null;
+        world.handle = null;
         world.peer_plan = honest_plan();
         try world.peer.start(&world.peer_plan, tls.Random.init(&world.peer_random, fill), world.now_ns);
         world.to_server.first = 0;
@@ -205,8 +208,8 @@ pub const World = struct {
             .to_client => try world.deliver_to_client(),
             .write => |index| try world.write(plan, index),
             .shutdown => {
-                world.connection().shutdown(world.now_ns);
-                try world.server_step();
+                world.endpoint.shutdown(world.now_ns);
+                try world.server_step(.none);
             },
             .wait => try world.wait(),
         }
@@ -296,23 +299,23 @@ pub const World = struct {
     }
 
     fn write(world: *World, plan: *const Plan, index: usize) Error!void {
-        const held = world.connection();
+        const id: server.Id = .{ .connection = world.handle.?, .number = stream_of(index) };
         const unit = world.written[index] + 1;
         const last = unit == plan.response_units;
         if (unit == 1) {
-            held.respond(stream_of(index), .{ .status = ok_status, .end = last }) catch {
+            world.endpoint.respond(id, .{ .status = ok_status, .end = last }) catch {
                 world.broken = true;
                 return;
             };
         } else {
-            const taken = held.write_body(stream_of(index), .{ .octets = &world.response_content, .end = last }) catch 0;
+            const taken = world.endpoint.write_body(id, .{ .octets = &world.response_content, .end = last }) catch 0;
             if (taken != world.response_content.len) {
                 world.broken = true;
                 return;
             }
         }
         world.written[index] = unit;
-        try world.server_step();
+        try world.server_step(.none);
     }
 
     /// Time moves on to the next instant either side is due at, and each fires what is due.
@@ -321,15 +324,14 @@ pub const World = struct {
         world.now_ns = @max(world.now_ns, at_ns);
         world.endpoint.on_instant(world.now_ns);
         world.peer.on_instant(world.now_ns);
-        try world.server_step();
+        try world.server_step(.none);
         try world.client_sends();
     }
 
     fn deliver_to_server(world: *World) Error!void {
         const octets = world.to_server.pop(&world.datagram);
-        const from = server.Address.of(&client_octets, client_port);
-        if (world.endpoint.receive(octets, .not_ect, from, world.now_ns)) |held| world.served = held;
-        try world.server_step();
+        try world.server_step(.{ .datagram = .{ .octets = octets, .from = .of(&client_octets, client_port) } });
+        if (world.served == null and world.endpoint.live[0]) world.served = &world.endpoint.quic[0];
     }
 
     fn deliver_to_client(world: *World) Error!void {
@@ -340,20 +342,17 @@ pub const World = struct {
         try world.client_sends();
     }
 
-    /// colibri reads every event its connection reports, which the application notes, and writes
-    /// every datagram it owes.
-    fn server_step(world: *World) Error!void {
-        if (world.served) |held| {
-            for (0..limits.events_per_call_max) |_| {
-                const received = held.receive(world.now_ns) catch {
-                    world.broken = true;
-                    break;
-                };
-                world.note_event(received.event orelse break);
-            } else return error.Stalled;
-        }
+    /// colibri takes `input`, reports every event it owes to the application, and sends.
+    fn server_step(world: *World, input: server.Input) Error!void {
+        var rest = input;
+        for (0..limits.events_per_call_max) |_| {
+            const reported = world.endpoint.receive(rest, world.now_ns).event;
+            rest = .none;
+            world.note_event(reported orelse break);
+        } else return error.Stalled;
+        if (world.endpoint.failed[0]) world.broken = true; // colibri failed it; `ended` comes later
         for (0..limits.sends_per_call_max) |_| {
-            const sent = world.endpoint.send(&world.datagram, world.now_ns) orelse return;
+            const sent = world.endpoint.send_datagram(&world.datagram, world.now_ns) orelse return;
             try world.to_client.push(sent.octets);
         }
         return error.Stalled;
@@ -370,6 +369,7 @@ pub const World = struct {
     fn note_event(world: *World, reported: server.Event) void {
         switch (reported) {
             .request => |request| if (index_of(request.id.number)) |index| {
+                world.handle = request.id.connection;
                 world.processed[index] = true;
                 world.content_ended[index] = request.end;
             },
@@ -382,6 +382,7 @@ pub const World = struct {
             .cancelled => |cancelled| if (index_of(cancelled.id.number)) |index| {
                 world.cancelled[index] = true;
             },
+            .ended => |over| world.broken = world.broken or over.failed,
             else => {},
         }
     }

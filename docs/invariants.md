@@ -515,3 +515,49 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   `CONNECTION_REFUSED` as a QUIC transport code, and it is not an h3 error code at all — h3's
   space starts at 0x0100, and RFC 9114 §8.1 makes an unrecognised code equivalent to `H3_NO_ERROR`,
   so the literal silently means "no error" in h3.
+
+## The endpoint
+
+### INV-30 — every request ends once, before its connection
+
+- **Claim.** Each request the endpoint reports with `request` ends with exactly one `done` or
+  `cancelled`, and no event of the request follows its ending. A connection's `ended` comes after
+  the ending of every request it carried, and no event of the connection follows `ended`.
+- **Mechanism.** Each slot keeps a table of its open requests, from the `request` event to the
+  ending. An entry leaves the table only when its ending is reported, and the endpoint drops
+  every event of a number the table does not hold. The program's `cancel` owes `cancelled` with
+  the reason `program`. A connection that stops with requests open owes `cancelled` with the
+  reason `closed` for each, after the endings it already owed: QUIC's `stop` keeps its ring of
+  owed endings, so a response the peer acknowledged before the stop still ends with `done`.
+  `ended` comes once the table is empty, and the slot's generation then advances, so every id of
+  the connection names nothing ([decision 119](decisions.md)).
+- **Check.** Runtime assertion: `end` in `src/server/endpoint/endpoint_held.zig` asserts that the
+  connection stopped and its table is empty when it reports `ended`. Simulator invariant: the h3
+  deadline check requires every request its application read to have a `done` or a `cancelled`
+  when its run ends. The tests in `endpoint_held_test.zig` cover a word carried to the ending,
+  the program's own cancel, a failure, a failed send and an acknowledged response that outlives a
+  stop. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's check over seeds.
+- **Violation.** A stop that drops the endings its connection owed, so a program that frees a
+  request's state on `done` holds it forever, and keeps octets QUIC no longer reads. Or an event
+  of a request after its `cancelled`, which a program that freed the request's state reads after
+  it freed it.
+
+### INV-31 — the endpoint's deadline is the soonest of its connections'
+
+- **Claim.** `deadline_ns` returns the soonest instant any connection the endpoint holds wants
+  `on_instant` at, and `on_instant` fires each connection whose instant has come, and no other.
+  Neither reads every slot.
+- **Mechanism.** A binary min-heap holds each slot's deadline, ordered by the instant and then by
+  the slot. Every call that can change a slot marks it stale: input routed to it, an answer, a
+  cancel, a slot `receive` polls, each slot `send_datagram` asks, and a deadline it fires.
+  `deadline_ns` and `on_instant` first read each stale slot's deadline from that slot's
+  connection alone. A connection's deadlines move only inside a call to it, so a slot no call
+  changed keeps the deadline the heap holds.
+- **Check.** Runtime assertion: `on_instant` asserts that each slot the heap gives it still wants
+  the instant the heap held. The QUIC tests that run through the endpoint compare `deadline_ns`
+  with the soonest deadline of every slot after each call to `receive`
+  (`quic_endpoint_test_support.check_deadline`). Step 21b.3, and 21b.5's check over seeds, which
+  compares the two after every call.
+- **Violation.** A call that changes a connection and marks nothing, such as a poll that reads an
+  event whose arrival starts a deadline. The program then sleeps past that deadline, and a peer
+  holds the connection longer than decision 110 allows.

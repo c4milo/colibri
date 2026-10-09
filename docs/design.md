@@ -7607,6 +7607,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - the client preferring h2 in cleartext, or speaking h11 with no version allowed;
     - the test-only server ignoring `--h2`, which h2spec's run with it catches.
 
+  **21b.1 to 21b.3, 2026-10-09.** QUIC through one endpoint that answers by id. Run on macOS 26
+  on an Apple M1 Pro, on 590d457.
+  - 21b.3 moved the endpoint's QUIC calls to ids, `Capacity`, `Input` and `Datagram`, with the
+    endings of INV-30 and the deadline heap of INV-31. The folded configuration and `writable`
+    over h3 come next, as the last part of 21b.3.
+  - `zig build test` and `zig build test -Drelease`: 131 of 131 steps and 2676 of 2676 tests
+    passed in each.
+  - `zig build sim -- --h3-deadline-check`, 256 seeds in Debug and in ReleaseSafe: the event CRC
+    moved from 0xd51694dc to 0x9050e8bf, and the datagram CRC stayed 0x942c7916. A peer with many
+    slow bodies now shows its first request `cancelled` for its body rate, at the instant of the
+    overload: the stop used to drop that ending. The check now requires every request the
+    application read to end before the run does.
+  - `tools/h3spec.sh` (49 cases, none failed), `tools/quic_udp.sh`, `tools/quic_aioquic.sh`
+    (aioquic 1.3.0), `tools/h3_deadlines.sh`, `zig build examples`, `tools/doc_snippets.sh` and
+    `tools/consumer_check.sh`: each passed.
+  - Two defects, each fixed with a test. A first Initial whose Destination Connection ID was
+    shorter than 8 octets reached an assertion (INV-24). A poll that read an event moved its
+    connection's deadline without marking the slot, so `deadline_ns` read before it kept the old
+    instant (INV-31).
+  - Mutations, each **CAUGHT**:
+    - 21b.1: no length check; an 8-octet ID refused; a 7-octet one taken, which the test first
+      missed and now derives from the ID's length;
+    - 21b.2: a connection's id naming a generation; an owed cancellation losing its number;
+    - 21b.3, the run's datagram CRC and the endpoint's tables: the server's datagrams not
+      counted; a released slot keeping its generation; a wrapped generation naming a
+      connection; a slot queued twice; a tie going to the higher slot; a removal never sifting
+      down; a stale slot never read again; a removed request staying open;
+    - 21b.3, the calls by id: a body or a `done` carrying no word; `set_user_data` ignored; a `done` leaving its
+      entry; the program's cancel never reported, reported as `closed`, or leaving its id
+      usable; no `cancelled` at a stop, which the simulator's check also catches; `stop`
+      clearing its owed endings, which a test then had to be written for; `failed` never set,
+      or never reported; a slot never released; a poll or a send leaving its slot's deadline as
+      it was; a stopped connection's send not polled, which a test then had to be written for.
+  - One mutant was equivalent: `ended` reported with requests still open. A connection always
+    stops before it ends, and a stopped one gives each open request its `cancelled` first, so the
+    condition became INV-30's assertion.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

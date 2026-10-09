@@ -96,6 +96,13 @@ pub const Slots = struct {
         return handle.slot;
     }
 
+    /// How many slots hold a connection.
+    pub fn holding(slots: *const Slots) u32 {
+        const free = slots.free_tcp.len + slots.free_quic.len;
+        assert(free <= slots.generations.len);
+        return @as(u32, @intCast(slots.generations.len)) - free;
+    }
+
     /// The handle of the connection slot `slot` holds now.
     pub fn handle_of(slots: *const Slots, slot: u32) ConnectionHandle {
         assert(slots.live[slot]);

@@ -397,9 +397,9 @@ UDP sockets.
 ### The server's endpoint
 
 A `server.Endpoint` holds every QUIC connection behind one UDP socket
-([decision 103](decisions.md)). `server.EndpointOf(connections_max, receive_capacity)` makes one of
-another size: the connections it holds at once, and the octets each holds unread. Its TLS
-configuration names "h3" in its ALPN list:
+([decision 103](decisions.md)), each in a slot of its own. `server.EndpointOf(capacity)` makes one
+of another size: its `server.Capacity` names the connections it holds at once and the octets each
+holds unread. Its TLS configuration names "h3" in its ALPN list:
 
 ```zig
 try server_tls.init(.{
@@ -421,88 +421,97 @@ endpoint_config = .{ .quic = &server_quic };
 try endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
 ```
 
-The program passes the endpoint each datagram with the address it came from. The endpoint finds
-the connection the datagram's connection ID names, or starts one from a client's first datagram,
-and answers Version Negotiation and Retry itself. It returns the connection that took the
-datagram:
+The program passes the endpoint each datagram with the address it came from, as a
+`server.Input`. The endpoint finds the connection the datagram's connection ID names, or starts
+one from a client's first datagram, and answers Version Negotiation and Retry itself. After a
+datagram and after `on_instant`, the program calls `receive` with `.none` until it reports
+nothing:
 
 ```zig
 fn server_turn() !void {
     for (0..datagrams_per_turn_max) |_| {
         const datagram = try link.receive(.server) orelse break;
-        const now_ns = link.now_ns(.server);
         // The endpoint finds the connection the datagram's connection ID names, or starts one.
-        if (endpoint.receive(datagram, .not_ect, client_address, now_ns)) |connection| {
-            try serve(connection, now_ns);
-        }
+        try serve(.{ .datagram = .{ .octets = datagram, .from = client_address } }, link.now_ns(.server));
         link.consume(.server);
     }
     const now_ns = link.now_ns(.server);
     endpoint.on_instant(now_ns);
+    try serve(.none, now_ns);
     for (0..datagrams_per_turn_max) |_| {
-        const sent = endpoint.send(&output, now_ns) orelse break;
+        const sent = endpoint.send_datagram(&output, now_ns) orelse break;
         try link.send(.server, sent.octets);
-    }
-    // A connection that is over comes back once, and its slot is free for a later client.
-    // `close_reason` names the deadline or the limit that made colibri close it, and is null
-    // when its client closed it, as this one does.
-    if (endpoint.ended()) |connection| {
-        if (connection.close_reason()) |reason| std.debug.print("server: closed for {s}\n", .{@tagName(reason)});
-        ended += 1;
     }
 }
 ```
 
-The program drives that connection with the calls of a TCP connection: one event from each
-`receive`, and `respond`, `write_body` and `write_trailers` by the request's id.
+Each `receive` reports one event of any connection. A request's id names its connection, so the
+program answers it by that id alone, with `respond`, `write_body` and `write_trailers`:
 
 ```zig
-fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
+fn serve(input: server.Input, now_ns: u64) !void {
+    var rest = input;
     for (0..events_per_datagram_max) |_| {
-        const received = try connection.receive(now_ns);
+        const received = endpoint.receive(rest, now_ns);
+        rest = .none;
         switch (received.event orelse return) {
             .request => |request| {
                 std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-                try connection.respond(request.id.number, .{
+                try endpoint.respond(request.id, .{
                     .status = 200,
                     .fields = &.{.{ .name = "content-type", .value = content_type }},
                     .end = false,
                 });
                 // Over QUIC `write_body` copies nothing, because QUIC reads the octets again to
                 // send them again. They stay the program's until the request is `done` or
-                // `cancelled`, or until `ended` hands its connection back.
-                _ = try connection.write_body(request.id.number, .{ .octets = greeting, .end = true });
+                // `cancelled`.
+                _ = try endpoint.write_body(request.id, .{ .octets = greeting, .end = true });
                 answered += 1;
                 // A program short of connections shortens the deadlines of one it holds. This
                 // connection has answered the one request the example sends.
-                try connection.set_deadlines(.{ .idle_ns = idle_after_answer_ns });
+                try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
             },
-            // The client acknowledged every octet of the response. A client that closes its
-            // connection first, as this one does, ends the connection instead.
+            // Every request ends once, with `done` or `cancelled`. `done` says the client
+            // acknowledged every octet of the response.
             .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id.number}),
-            .body, .trailers, .cancelled => {},
-            // A connection reports none of these: an endpoint does (decision 119).
-            .writable, .send, .close, .ended, .closed => unreachable,
+            .body, .trailers, .cancelled, .writable => {},
+            // A connection that is over comes once, after its requests' endings, and its slot is
+            // free for a later client. Its reason names the deadline or the limit that made colibri
+            // close it, and is null when its client closed it, as this one does.
+            .ended => |over| {
+                if (over.reason) |reason| std.debug.print("server: closed for {s}\n", .{@tagName(reason)});
+                ended += 1;
+            },
+            // Only a TCP connection owes octets or a close, and only a shutdown ends in `closed`.
+            .send, .close, .closed => unreachable,
         }
     }
 }
 ```
 
+Every request ends with one `done` or `cancelled`, and a connection's `ended` comes after its
+requests' endings ([decision 119](decisions.md)). `set_user_data` sets a word that each later event
+of a request carries back, so a program finds its own state for the request without a lookup.
+`cancel` ends a request the program gives up on, and its `cancelled` follows with the reason
+`program`. A connection that stops with requests open ends each with `cancelled` and the reason
+`closed`.
+
 Three things differ from TCP:
 
 - **Content is not copied.** QUIC reads the program's octets again whenever it sends them again.
-  They stay the program's until the request is `done` or `cancelled`, or until `ended` hands its
-  connection back. `done` comes once the peer has acknowledged every octet of the response.
+  They stay the program's until the request is `done` or `cancelled`. `done` comes once the peer
+  has acknowledged every octet of the response.
 - **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`: for loss
   recovery, acknowledgments and idle timeouts, and for the deadlines of
   [decision 110](decisions.md), which bound an h3 connection as they bound a TCP one. A program
   sleeps until then when no datagram arrives. `QuicConfig.deadlines` sets the limits, and
   `Endpoint.init` refuses limits a connection would refuse, with `error.DeadlineInvalid`.
-  `set_deadlines` changes one connection's limits, and `close_reason` names the deadline that
-  ended a connection, or the limit its client passed. `QuicConfig.idle_timeout_ms` is QUIC's
-  own idle timeout, which ends a peer that sends nothing at all.
-- **The end.** `ended` hands back each connection that is over, once, and a later client takes
-  its slot.
+  `set_deadlines` changes one connection's limits, by its handle. `QuicConfig.idle_timeout_ms` is
+  QUIC's own idle timeout, which ends a peer that sends nothing at all.
+- **The end.** `ended` names each connection that is over, once. Its `reason` names the deadline
+  that ended the connection, or the limit its client passed, and `failed` says colibri closed it
+  because its client broke a rule of the protocol. A later client then takes its slot, and every id
+  of the ended connection names nothing.
 
 `EndpointConfig.retry` makes every client prove its address before a connection starts (RFC 9000
 §8.1.2), and `EndpointConfig.logs` gives each connection a qlog log

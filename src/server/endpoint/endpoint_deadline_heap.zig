@@ -58,9 +58,9 @@ pub const DeadlineHeap = struct {
     }
 
     /// Takes out the slot whose deadline is soonest, when it is at or before `now_ns`. The caller
-    /// fires it and marks it stale.
+    /// fires it and marks it stale, which leaves the rest of the heap as `flush` made it, so the
+    /// caller may take the next before it flushes again.
     pub fn take_due(heap: *DeadlineHeap, now_ns: u64) ?u32 {
-        assert(heap.stale.len == 0);
         if (heap.len == 0) return null;
         const slot = heap.order[0];
         if (heap.cached[slot] > now_ns) return null;

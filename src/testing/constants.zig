@@ -347,8 +347,10 @@ pub const quic_idle_timeout_ms: u64 = 30_000;
 /// reads them (decision 61). h3spec, aioquic and the QUIC Interop Runner send small requests.
 pub const h3_receive_pool_len: usize = 65_536;
 
-/// Events the `h3` mode reads from one connection in one turn at most, which bounds its loop.
+/// Events the `h3` mode reads from one connection in one turn at most, and from its endpoint, which
+/// holds `quic_connections_max` of them, which bounds its loop.
 pub const h3_serve_events_max: usize = 4096;
+pub const h3_endpoint_events_max: usize = h3_serve_events_max * quic_connections_max;
 
 comptime {
     assert(hq_paths_max >= hq_requests_max);
