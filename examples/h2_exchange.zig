@@ -162,6 +162,10 @@ fn answer(buffer: []u8, stream_id: u32) !usize {
     const head_len = try server.write_response(buffer, stream_id, 200, &.{
         .{ .name = "content-length", .value = std.fmt.comptimePrint("{d}", .{greeting.len}) },
     }, false);
+    // The windows and the buffer hold the whole greeting, which `sendable_len` says before it is
+    // written. A program with more content than they hold writes what it says, and the rest after
+    // the peer's WINDOW_UPDATE.
+    std.debug.assert(server.sendable_len(stream_id, buffer.len - head_len, greeting.len) == greeting.len);
     const data = try server.write_data(buffer[head_len..], stream_id, greeting, true);
     std.debug.assert(data.consumed == greeting.len);
     return head_len + data.written;

@@ -35,6 +35,7 @@ const streams_table = @import("../stream/streams.zig");
 const field_block = @import("../field_block/field_block.zig");
 const connection_receive = @import("connection_receive.zig");
 const connection_send = @import("connection_send.zig");
+const connection_send_window = @import("connection_send_window.zig");
 const connection_request = @import("connection_request.zig");
 const connection_tls = @import("connection_tls.zig");
 const reply = @import("connection_reply.zig");
@@ -336,6 +337,14 @@ pub const Connection = struct {
         return connection_send.write_data(connection, output, stream_id, payload, end_stream);
     }
 
+    /// The octets of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
+    /// `room_len` octets: what both flow-control windows (RFC 9113 §6.9.1), the largest frame
+    /// (§4.2) and the floor of decision 110 allow. 0 for a stream that takes no DATA frame now.
+    /// A server's endpoint asks it to say when a response takes more (decision 119).
+    pub fn sendable_len(connection: *Connection, stream_id: u32, room_len: usize, payload_len: usize) usize {
+        return connection_send_window.sendable_len(connection, stream_id, room_len, payload_len);
+    }
+
     /// Writes a trailer section on `stream_id`, which ends colibri's side of the stream (RFC 9113
     /// §8.1): see `connection_send.zig`.
     pub fn write_trailers(connection: *Connection, output: []u8, stream_id: u32, fields: []const hpack.Field) SendError!usize {
@@ -456,10 +465,12 @@ pub const Connection = struct {
 
 test "decision 115: the connection's public functions are the calls a caller outside the module makes" {
     try core.public_names.expect(Connection, &.{
-        "init",       "receive",        "write_response", "attach_tls",           "write_request",
-        "write_data", "write_trailers", "write_alt_svc",  "limit_peer_streams",   "reset_stream",
-        "shutdown",   "write_pending",  "write_replies",  "has_pending",          "owes_window_update",
-        "has_failed", "field_section",  "fail",           "settings_deadline_ns", "preface_done",
+        // Design §8 step 21b.4 adds `sendable_len` (decision 119).
+        "init",               "receive",      "write_response", "attach_tls",    "write_request",
+        "write_data",         "sendable_len", "write_trailers", "write_alt_svc", "limit_peer_streams",
+        "reset_stream",       "shutdown",     "write_pending",  "write_replies", "has_pending",
+        "owes_window_update", "has_failed",   "field_section",  "fail",          "settings_deadline_ns",
+        "preface_done",
     });
 }
 

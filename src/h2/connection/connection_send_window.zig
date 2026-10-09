@@ -13,6 +13,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const streams_table = @import("../stream/streams.zig");
+const stream = @import("../stream/stream.zig");
 const connection = @import("connection.zig");
 
 const Connection = connection.Connection;
@@ -59,6 +60,20 @@ pub fn sendable(target: *const Connection, record: *const Stream, room_len: usiz
     if (room < next.len) next = .{ .len = room, .short_by = .room };
     assert(next.len <= payload_len);
     return next;
+}
+
+/// The octets of `payload_len` that `write_data` sends now on `stream_id` into a buffer of
+/// `room_len` octets, or 0 for a stream that takes no DATA frame now.
+pub fn sendable_len(target: *Connection, stream_id: u32, room_len: usize, payload_len: usize) usize {
+    const found = target.streams.lookup(stream_id);
+    // RFC 9113 §5.1: a stream the table holds no record for is idle or closed, and takes nothing.
+    if (found != .live) return 0;
+    const record = found.live;
+    // RFC 9113 §5.1: a frame the state does not permit is one colibri never puts on the wire.
+    if (stream.on_send(record.state, record.closed, .data, false, target.role, record.peer_initiated) != .state) return 0;
+    // RFC 9113 §8.1: a message's DATA frames follow its final header section.
+    if (!record.final_sent) return 0;
+    return sendable(target, record, room_len, payload_len).len;
 }
 
 /// Notes an increment the peer granted on the connection or a stream: one below the floor makes
@@ -176,4 +191,31 @@ test "decision 110 as amended: a new connection's floor waits for a small increm
     // The tests above leave the connection with the floor on.
     try support.start_server();
     try testing.expect(!test_connection.tiny_update_read);
+}
+
+test "decision 119: sendable_len is what write_data sends, under the windows, the floor and the room" {
+    const record = try start(floor_len - 1);
+    // A window below the floor holds no frame of a longer payload, and all of a shorter one.
+    try testing.expectEqual(0, test_connection.sendable_len(1, test_output.len, body_len));
+    try testing.expectEqual(floor_len - 1, test_connection.sendable_len(1, test_output.len, floor_len - 1));
+    record.send_window = window_module.Window.init(floor_len);
+    try testing.expectEqual(floor_len, test_connection.sendable_len(1, test_output.len, body_len));
+    // RFC 9113 §4.1: the room holds the frame's header before its payload.
+    try testing.expectEqual(room_payload_len, test_connection.sendable_len(1, constants.frame_header_len + room_payload_len, body_len));
+    const sent = try connection_send.write_data(test_connection, test_output, 1, test_body[0..body_len], false);
+    try testing.expectEqual(floor_len, sent.consumed);
+}
+
+/// Payload octets a test's room holds after a frame's header. Test-only.
+const room_payload_len: usize = 10;
+
+test "RFC 9113 §5.1, §8.1: a stream before its final head, unknown, or reset, has nothing to send" {
+    _ = try start(floor_len);
+    // Stream 3's request is read and not answered, and stream 5 was never opened.
+    _ = try support.feed_request(3, "/", true);
+    try testing.expectEqual(0, test_connection.sendable_len(3, test_output.len, body_len));
+    try testing.expectEqual(0, test_connection.sendable_len(5, test_output.len, body_len));
+    try testing.expect(test_connection.sendable_len(1, test_output.len, body_len) > 0);
+    try test_connection.reset_stream(1, constants.error_cancel);
+    try testing.expectEqual(0, test_connection.sendable_len(1, test_output.len, body_len));
 }
