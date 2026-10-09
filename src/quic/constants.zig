@@ -127,6 +127,10 @@ pub const qlog_tuples_max: usize = 4;
 /// Octets of the Stateless Reset Token a NEW_CONNECTION_ID carries (RFC 9000 §19.15).
 pub const stateless_reset_token_len: usize = 16;
 
+/// Fewest octets of the Destination Connection ID a client's first Initial carries (RFC 9000
+/// §7.2): it "MUST be at least 8 bytes in length", and the Initial keys come from it.
+pub const initial_destination_len_min: usize = 8;
+
 /// Fewest octets of a connection ID a NEW_CONNECTION_ID may carry (RFC 9000 §19.15): a length
 /// below 1 or above `connection_id_len_max` is a FRAME_ENCODING_ERROR.
 pub const connection_id_len_min: u8 = 1;

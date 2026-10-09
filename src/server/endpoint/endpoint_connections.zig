@@ -108,6 +108,10 @@ pub const Connections = struct {
         // datagram with a payload that is smaller than the smallest allowed maximum datagram
         // size of 1200 bytes."
         if (datagram.len < quic.constants.datagram_len_min) return null;
+        // RFC 9000 §7.2: a client's first Destination Connection ID "MUST be at least 8 bytes
+        // in length". The Initial keys come from it, so a shorter one starts nothing and owes no
+        // Retry (INV-24: it never reaches the start's assertion).
+        if (long.dcid.len < quic.constants.initial_destination_len_min) return null;
         const connection = held.accept(long, from, now_ns) orelse return null;
         internal.take(connection, datagram, ecn, from, now_ns);
         return connection;

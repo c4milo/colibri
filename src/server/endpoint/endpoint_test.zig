@@ -218,6 +218,37 @@ test "RFC 9000 §14.1: an Initial in a datagram of fewer than 1,200 octets start
     try testing.expect(!std.mem.containsAtLeastScalar(bool, &endpoint.live, 1, true));
 }
 
+/// A client's first Initial, padded to RFC 9000 §14.1's 1,200 octets. Test-only.
+threadlocal var padded_initial: [padded_initial_len]u8 = undefined;
+const padded_initial_len: usize = quic.constants.datagram_len_max;
+const padded_payload_len: usize = quic.constants.datagram_len_min;
+
+test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8 octets starts no connection" {
+    for ([_]bool{ false, true }) |with_retry| {
+        retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
+        try support.start_endpoint(if (with_retry) &retry else null);
+        // Seven octets is one under the RFC's eight, written apart from the constant it checks.
+        for ([_]usize{ 0, short_id.len - 1 }) |dcid_len| {
+            var writer = quic.core.Writer.init(&padded_initial);
+            try quic.packet.header_write.write_long(&writer, .{
+                .version = .v1,
+                .type = .initial,
+                .dcid = short_id[0..dcid_len],
+                .scid = &short_id,
+                .packet_number = try quic.packet.packet_number.encode(0, null),
+                .protected_payload_len = padded_payload_len,
+            });
+            const len = writer.written().len + padded_payload_len;
+            @memset(padded_initial[writer.written().len..len], 0);
+            try testing.expectEqual(null, endpoint.receive(padded_initial[0..len], .not_ect, support.client_address(), support.now_ns));
+            try testing.expect(!std.mem.containsAtLeastScalar(bool, &endpoint.live, 1, true));
+            // With Retry set, no Retry is owed for it either.
+            var output: [quic.constants.datagram_len_max]u8 = undefined;
+            try testing.expectEqual(null, endpoint.held.replies.take(&output));
+        }
+    }
+}
+
 /// A log provider for the tests below: one log, given to the connection that asks when `giving`
 /// is set, and what the provider was asked. Test-only.
 const TestLogs = struct {
