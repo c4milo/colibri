@@ -7706,6 +7706,12 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       poll that queues no send; an ended slot left in the send ring.
   - One more was equivalent, and the code no longer has it: a `writable` checked while its
     connection stops, which empties its table first.
+  - A second review, of 21b.1 to 21b.3's tables and of main's trace world moved to the
+    endpoint's calls, found one defect, fixed after the push of 0532f7f. A Retry token sealed by
+    a build before 21b.1 can name a first Destination Connection ID under 8 octets. Under a key
+    shared across an upgrade, the Initial that returned it reached `start`'s assertion (INV-24).
+    `start` now checks the ID's length on every path. Mutations: no check at `start`, and a
+    check that refuses an empty ID alone, each **CAUGHT**.
   - One mutant was equivalent: `ended` reported with requests still open. A connection always
     stops before it ends, and a stopped one gives each open request its `cancelled` first, so the
     condition became INV-30's assertion.

@@ -10,6 +10,7 @@ const internal = @import("../quic/quic_connection_internal.zig");
 const tcp_support = @import("../connection/connection_test_support.zig");
 const constants = @import("../constants.zig");
 const endpoint_module = @import("endpoint.zig");
+const endpoint_stateless = @import("endpoint_stateless.zig");
 
 const testing = std.testing;
 const endpoint_support = support.endpoint_support;
@@ -269,6 +270,58 @@ test "RFC 9000 §7.2: a first Initial whose Destination Connection ID is under 8
         }
     }
 }
+
+/// The Source Connection ID of a Retry an earlier build sent, which its client addresses next.
+const retry_source_id: [constants.quic_id_len]u8 = @splat(retry_source_octet);
+const retry_source_octet: u8 = 0x6b;
+
+test "RFC 9000 §7.2: a Retry token naming a first Destination Connection ID under 8 octets starts nothing" {
+    retry = .{ .key = &retry_key, .lifetime_seconds = retry_lifetime_seconds };
+    try support.start_endpoint(&retry);
+    // A build that took a short first Destination Connection ID sealed it into its Retry token
+    // under the same key, so the token opens: the start checks the ID it names (INV-24). Seven
+    // octets is one under the RFC's eight, written apart from the constant it checks.
+    for ([_]usize{ 0, short_id.len - 1 }) |original_len| {
+        const token = try old_token(short_id[0..original_len]);
+        var writer = quic.core.Writer.init(&padded_initial);
+        try quic.packet.header_write.write_long(&writer, .{
+            .version = .v1,
+            .type = .initial,
+            .dcid = &retry_source_id,
+            .scid = &short_id,
+            .token = token,
+            .packet_number = try quic.packet.packet_number.encode(0, null),
+            .protected_payload_len = padded_payload_len,
+        });
+        const len = writer.written().len + padded_payload_len;
+        @memset(padded_initial[writer.written().len..len], 0);
+        try testing.expectEqual(null, give(padded_initial[0..len], support.client_address()));
+        try testing.expectEqual(null, endpoint_support.live_connection());
+    }
+}
+
+/// The token of a Retry the endpoint's key seals for the client's address, naming
+/// `original_destination` as the client's first Destination Connection ID, as an earlier build
+/// could have sent. It points into a buffer the next call writes over. Test-only.
+fn old_token(original_destination: []const u8) ![]const u8 {
+    var address_storage: [endpoint_stateless.token_address_len_max]u8 = undefined;
+    const address = endpoint_stateless.token_address(support.client_address(), &address_storage);
+    var pseudo: [quic.constants.retry_pseudo_packet_len_max]u8 = undefined;
+    const answered = quic.connection_retry.answer(retry.suite(), .{
+        .version = .v1,
+        .client_source = &short_id,
+        .original_destination = original_destination,
+        .server_source = &retry_source_id,
+        .address = address,
+        .now_ns = support.now_ns,
+    }, &pseudo, &old_retry);
+    const len = switch (answered) {
+        .written => |len| len,
+        .refused => return error.TestUnexpectedResult,
+    };
+    return (try quic.packet.header.read(old_retry[0..len], constants.quic_id_len)).retry.token;
+}
+threadlocal var old_retry: [quic.constants.datagram_len_min]u8 = undefined;
 
 /// A log provider for the tests below: one log, given to the connection that asks when `giving`
 /// is set, and what the provider was asked. Test-only.

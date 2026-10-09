@@ -173,6 +173,10 @@ pub const Connections = struct {
     /// in use the Initial goes unanswered: RFC 9000 §5.2.2 lets a server drop what it will
     /// not serve, and the client sends it again.
     fn start(held: *Connections, version: quic.packet.header.Version, original_destination: []const u8, peer_source: []const u8, retry_source: ?[]const u8, from: PeerAddress, now_ns: u64) ?u32 {
+        // RFC 9000 §7.2: a client's first Destination Connection ID "MUST be at least 8 bytes in
+        // length". After a Retry the ID comes from the token, which a build without `receive`'s
+        // check could have sealed shorter under the same key (INV-24).
+        if (original_destination.len < quic.constants.initial_destination_len_min) return null;
         const handle = held.slots.take(.quic) orelse return null;
         var how: quic_connection.Start = .{
             .version = version,
