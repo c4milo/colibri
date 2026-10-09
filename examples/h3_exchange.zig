@@ -224,7 +224,7 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
         switch (received.event orelse return) {
             .request => |request| {
                 std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-                try connection.respond(request.id, .{
+                try connection.respond(request.id.number, .{
                     .status = 200,
                     .fields = &.{.{ .name = "content-type", .value = content_type }},
                     .end = false,
@@ -232,7 +232,7 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
                 // Over QUIC `write_body` copies nothing, because QUIC reads the octets again to
                 // send them again. They stay the program's until the request is `done` or
                 // `cancelled`, or until `ended` hands its connection back.
-                _ = try connection.write_body(request.id, .{ .octets = greeting, .end = true });
+                _ = try connection.write_body(request.id.number, .{ .octets = greeting, .end = true });
                 answered += 1;
                 // A program short of connections shortens the deadlines of one it holds. This
                 // connection has answered the one request the example sends.
@@ -240,8 +240,10 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
             },
             // The client acknowledged every octet of the response. A client that closes its
             // connection first, as this one does, ends the connection instead.
-            .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id}),
+            .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id.number}),
             .body, .trailers, .cancelled => {},
+            // A connection reports none of these: an endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 }

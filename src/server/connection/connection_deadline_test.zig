@@ -107,7 +107,7 @@ test "decision 110: a wait that begins between calls starts at the instant of th
     // The response goes out in `send`, and the idle deadline starts then.
     try support.start_cleartext(.h11);
     const received = try receive_at(whole_request, early_ns);
-    try connection.respond(received.event.?.request.id, .{ .status = no_content, .end = true });
+    try connection.respond(received.event.?.request.id.number, .{ .status = no_content, .end = true });
     try testing.expectEqual(null, connection.deadline_ns());
     _ = send_at(early_ns + 1);
     try testing.expectEqual(early_ns + 1 + idle_ns, connection.deadline_ns().?);
@@ -122,7 +122,7 @@ test "decision 110: a wait that begins between calls starts at the instant of th
 
 test "decision 110: the idle deadline starts once the last response's octets are out" {
     try support.start_cleartext(.h11);
-    const id = (try receive_at(whole_request, early_ns)).event.?.request.id;
+    const id = (try receive_at(whole_request, early_ns)).event.?.request.id.number;
     try connection.respond(id, .{ .status = ok_status, .end = false });
     _ = try connection.write_body(id, .{ .octets = "a response the peer reads slowly", .end = true });
     // The peer's socket takes a few octets, and the rest wait in the output: only the send

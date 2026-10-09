@@ -31,11 +31,11 @@ pub fn send_at(now_ns: u64) []const u8 {
 /// Answers the request `receive_at` read with a 204, sends the answer at `now_ns`, and reads the
 /// request's `done` event (decision 103).
 pub fn answer_at(received: support.Received, now_ns: u64) !void {
-    const id = received.event.?.request.id;
+    const id = received.event.?.request.id.number;
     try connection.respond(id, .{ .status = no_content, .end = true });
     _ = send_at(now_ns);
     const done = try connection.receive(&.{}, now_ns);
-    try testing.expectEqual(id, done.event.?.done.id);
+    try testing.expectEqual(id, done.event.?.done.id.number);
 }
 
 /// The payload of the first frame of `frame_type` on `stream_id` in `sent`, or null.

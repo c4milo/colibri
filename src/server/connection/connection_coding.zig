@@ -23,13 +23,13 @@ const connection_h2 = @import("connection_h2.zig");
 const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
 const Field = http.Field;
-const Id = event.Id;
+const Number = event.Number;
 const Coded = coding_response.Coded;
 
 /// What the connection keeps of one request while its response may be coded.
 pub const Entry = struct {
     /// The request's id, or 0 for an entry not in use.
-    id: Id,
+    id: Number,
     asked: coding_rules.Asked,
     /// The coded response, once its head went out coded.
     coded: ?Coded,
@@ -47,7 +47,7 @@ pub const Table = struct {
         table.used = 0;
     }
 
-    fn find(table: *Table, id: Id) ?*Entry {
+    fn find(table: *Table, id: Number) ?*Entry {
         if (table.used == 0 or id == 0) return null;
         for (&table.entries) |*entry| {
             if (entry.id == id) return entry;
@@ -55,7 +55,7 @@ pub const Table = struct {
         return null;
     }
 
-    fn add(table: *Table, id: Id, asked: coding_rules.Asked) void {
+    fn add(table: *Table, id: Number, asked: coding_rules.Asked) void {
         assert(id != 0 and table.find(id) == null);
         for (&table.entries) |*entry| {
             if (entry.id != 0) continue;
@@ -72,11 +72,11 @@ pub const Table = struct {
 /// Keeps what `request` asks, when the connection codes content.
 pub fn on_request(connection: *Connection, request: event.Request) void {
     if (connection.config.encoders == null) return;
-    connection.coding.add(request.id, coding_rules.asked(connection.config.codings, request));
+    connection.coding.add(request.id.number, coding_rules.asked(connection.config.codings, request));
 }
 
 /// Forgets request `id`, which ended before its response did, and gives back its encoder.
-pub fn forget(connection: *Connection, id: Id) void {
+pub fn forget(connection: *Connection, id: Number) void {
     const entry = connection.coding.find(id) orelse return;
     release(connection, entry);
 }
@@ -99,7 +99,7 @@ fn release(connection: *Connection, entry: *Entry) void {
 
 /// Writes the head of the response to request `id`, rewritten as its plan says when it is the
 /// final one, and takes an encoder when its content is to be coded.
-pub fn respond(connection: *Connection, id: Id, response: event.Response) SendError!void {
+pub fn respond(connection: *Connection, id: Number, response: event.Response) SendError!void {
     const entry = connection.coding.find(id) orelse return write_head(connection, id, response.status, response.fields, response.end);
     // RFC 9110 §15.2: an interim response leaves the coding to the final one.
     if (is_interim(response.status)) return write_head(connection, id, response.status, response.fields, response.end);
@@ -117,7 +117,7 @@ pub fn respond(connection: *Connection, id: Id, response: event.Response) SendEr
 
 /// Writes content of the response to request `id`: the caller's octets, or for a coded response
 /// as many as the encoder's ring takes, coded. Returns the octets taken.
-pub fn write_body(connection: *Connection, id: Id, content: event.Content) SendError!usize {
+pub fn write_body(connection: *Connection, id: Number, content: event.Content) SendError!usize {
     const entry = connection.coding.find(id) orelse return write_content(connection, id, content.octets, content.end);
     const coded = if (entry.coded) |*coded| coded else return write_content(connection, id, content.octets, content.end);
     // RFC 9110 §6.4.1: the content ended, and nothing follows it.
@@ -135,7 +135,7 @@ pub fn write_body(connection: *Connection, id: Id, content: event.Content) SendE
 }
 
 /// Ends the response to request `id` with a trailer section, after every coded octet.
-pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) SendError!void {
+pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
     const entry = connection.coding.find(id) orelse return write_trailer_section(connection, id, fields);
     const coded = if (entry.coded) |*coded| coded else return write_trailer_section(connection, id, fields);
     // RFC 9110 §6.5: a trailer section follows the content, and one that ended has none.
@@ -211,7 +211,7 @@ fn is_interim(status: u16) bool {
     return status < @intFromEnum(http.status.Code.ok);
 }
 
-fn write_head(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
+fn write_head(connection: *Connection, id: Number, status: u16, fields: []const Field, end: bool) SendError!void {
     switch (connection.session) {
         .h2 => try connection_h2.respond(connection, id, status, fields, end),
         .h11 => try connection_h11.respond(connection, id, status, fields, end),
@@ -221,7 +221,7 @@ fn write_head(connection: *Connection, id: Id, status: u16, fields: []const Fiel
     }
 }
 
-fn write_content(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
+fn write_content(connection: *Connection, id: Number, octets: []const u8, end: bool) SendError!usize {
     return switch (connection.session) {
         .h2 => connection_h2.write_body(connection, id, octets, end),
         .h11 => connection_h11.write_body(connection, id, octets, end),
@@ -230,7 +230,7 @@ fn write_content(connection: *Connection, id: Id, octets: []const u8, end: bool)
     };
 }
 
-fn write_trailer_section(connection: *Connection, id: Id, fields: []const Field) SendError!void {
+fn write_trailer_section(connection: *Connection, id: Number, fields: []const Field) SendError!void {
     switch (connection.session) {
         .h2 => try connection_h2.write_trailers(connection, id, fields),
         .h11 => try connection_h11.write_trailers(connection, id, fields),

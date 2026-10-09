@@ -73,7 +73,7 @@ test "RFC 7838 §3: each final h11 response over TLS carries Alt-Svc, and an int
     defer support.alternative = null;
     try support.start_tls(&support.protocols_both, &support.protocols_h11);
     const received = try support.receive_sealed("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    const id = received.event.?.request.id;
+    const id = received.event.?.request.id.number;
     try connection.respond(id, .{ .status = early_hints, .end = false });
     try connection.respond(id, .{ .status = ok, .end = true });
     try testing.expectEqualStrings(
@@ -88,7 +88,7 @@ test "RFC 9114 §3.1.2: a cleartext h11 response advertises no h3" {
     defer support.alternative = null;
     try support.start_cleartext(.h11);
     const received = try support.receive_copy("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
-    try connection.respond(received.event.?.request.id, .{ .status = ok, .end = true });
+    try connection.respond(received.event.?.request.id.number, .{ .status = ok, .end = true });
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n", support.drain());
 }
 
@@ -114,7 +114,7 @@ test "RFC 7838 §3, §4: an h2 connection over TLS sends one ALTSVC frame, befor
     try testing.expectEqualStrings("\x00\x00h3=\":8443\"; ma=60", payload);
     // RFC 7838 §3: "A single ALTSVC frame can be sent for a connection".
     try support.expect_done(1);
-    try testing.expectEqual(3, (try support.receive_sealed(get_stream_3)).event.?.request.id);
+    try testing.expectEqual(3, (try support.receive_sealed(get_stream_3)).event.?.request.id.number);
     try connection.respond(3, .{ .status = ok, .end = true });
     try testing.expectEqual(0, count_of(try walk(try support.open_sent(), &found_storage), h2.constants.frame_type_altsvc));
 }

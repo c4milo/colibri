@@ -5,16 +5,16 @@ const assert = std.debug.assert;
 const constants = @import("constants.zig");
 const event = @import("event.zig");
 
-const Id = event.Id;
+const Number = event.Number;
 
 pub const Owed = struct {
-    ids: [constants.done_owed_max]Id = undefined,
+    ids: [constants.done_owed_max]Number = undefined,
     first: usize = 0,
     len: usize = 0,
 
     /// Owes a `done` event for `id`. A connection holds `done_owed_max` requests at most, and
     /// `receive` reports every event owed before it reads another request, so the ring never fills.
-    pub fn push(owed: *Owed, id: Id) void {
+    pub fn push(owed: *Owed, id: Number) void {
         assert(id != 0);
         assert(owed.len < owed.ids.len);
         owed.ids[(owed.first + owed.len) % owed.ids.len] = id;
@@ -22,7 +22,7 @@ pub const Owed = struct {
     }
 
     /// The oldest `done` event owed, which the call takes, or null.
-    pub fn take(owed: *Owed) ?Id {
+    pub fn take(owed: *Owed) ?Number {
         if (owed.len == 0) return null;
         const id = owed.ids[owed.first];
         owed.first = (owed.first + 1) % owed.ids.len;

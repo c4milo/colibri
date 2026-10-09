@@ -19,7 +19,7 @@ fn request_with(expect: []const u8, version: event.Version, end: bool) !event.Re
     try test_section.append("host", "a");
     try test_section.append("Expect", expect);
     return .{
-        .id = 1,
+        .id = event.id_of(1),
         .method = "PUT",
         .version = version,
         .target = "/",

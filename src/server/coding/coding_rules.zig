@@ -121,7 +121,7 @@ fn test_asked(method: []const u8, version: event.Version, lines: []const http.Fi
     test_section.init();
     for (lines) |line| try test_section.append(line.name, line.value);
     return asked(&test_codings, .{
-        .id = 1,
+        .id = event.id_of(1),
         .method = method,
         .version = version,
         .target = "/",

@@ -11,7 +11,7 @@ const quic_response = @import("quic_response.zig");
 const coding_rules = @import("../coding/coding_rules.zig");
 const coding_response = @import("../coding/coding_response.zig");
 
-const Id = event.Id;
+const Number = event.Number;
 
 /// One request stream, from its request's head until the stream closes.
 pub const Request = struct {
@@ -104,7 +104,7 @@ pub const Requests = struct {
 /// was cancelled.
 pub const Ending = struct {
     kind: union(enum) { done, cancelled: event.CancelReason },
-    id: Id,
+    id: Number,
 };
 
 /// The events owed, oldest first. Each request owes one at most, so the ring has room for every
@@ -127,8 +127,8 @@ pub const Owed = struct {
         owed.first = (owed.first + 1) % owed.endings.len;
         owed.len -= 1;
         return switch (ending.kind) {
-            .done => .{ .done = .{ .id = ending.id } },
-            .cancelled => |reason| .{ .cancelled = .{ .id = ending.id, .reason = reason } },
+            .done => .{ .done = .{ .id = event.id_of(ending.id) } },
+            .cancelled => |reason| .{ .cancelled = .{ .id = event.id_of(ending.id), .reason = reason } },
         };
     }
 
@@ -165,12 +165,12 @@ test "decision 103: the endings owed come out in order, as the events the caller
     try testing.expectEqual(null, owed.take());
     owed.push(.{ .kind = .done, .id = 8 });
     owed.push(.{ .kind = .{ .cancelled = .{ .deadline = .body } }, .id = 4 });
-    try testing.expectEqual(8, owed.take().?.done.id);
+    try testing.expectEqual(8, owed.take().?.done.id.number);
     const cancelled = owed.take().?.cancelled;
-    try testing.expectEqual(4, cancelled.id);
+    try testing.expectEqual(4, cancelled.id.number);
     try testing.expectEqual(deadline.Deadline.body, cancelled.reason.deadline);
     try testing.expectEqual(null, owed.take());
     // A ring that starts partway round wraps past its end.
     for (0..constants.quic_requests_max) |index| owed.push(.{ .kind = .done, .id = index });
-    for (0..constants.quic_requests_max) |index| try testing.expectEqual(index, owed.take().?.done.id);
+    for (0..constants.quic_requests_max) |index| try testing.expectEqual(index, owed.take().?.done.id.number);
 }

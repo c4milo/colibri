@@ -24,7 +24,7 @@ const Error = connection_module.Error;
 const Field = http.Field;
 const Event = event.Event;
 const Received = event.Received;
-const Id = event.Id;
+const Number = event.Number;
 const Code = http.status.Code;
 
 /// The framing fields colibri adds (RFC 9112 §6.1, RFC 9110 §8.6).
@@ -58,7 +58,7 @@ pub fn receive(connection: *Connection, plaintext: []const u8) Error!Received {
 
 fn report(connection: *Connection, h11_event: h11.connection.Event) Event {
     const session = &connection.session.h11;
-    const id = connection.current_id;
+    const id = event.id_of(connection.current_id);
     return switch (h11_event) {
         .request => |request| start_request(connection, request),
         .data, .tunnel => |octets| .{ .body = .{ .id = id, .octets = octets, .end = false } },
@@ -82,7 +82,7 @@ fn start_request(connection: *Connection, request: h11.connection.Request) Event
     const target = target_of(request, &session.section, connection.config.tls != null);
     return .{
         .request = .{
-            .id = connection.current_id,
+            .id = event.id_of(connection.current_id),
             .method = request.line.method,
             .version = .{ .major = request.line.version.major, .minor = request.line.version.minor },
             .target = request.line.target,
@@ -125,7 +125,7 @@ fn absolute_target(target: []const u8) Target {
     return .{ .scheme = uri.scheme, .authority = authority, .path = if (rest.len == 0) path_empty else rest };
 }
 
-pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
+pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const Field, end: bool) SendError!void {
     try check_current(connection, id);
     const session = &connection.session.h11;
     defer note_done(connection, id);
@@ -196,7 +196,7 @@ fn names_framing(fields: []const Field) bool {
     return false;
 }
 
-pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
+pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: bool) SendError!usize {
     try check_current(connection, id);
     const session = &connection.session.h11;
     defer note_done(connection, id);
@@ -218,7 +218,7 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
     return taken;
 }
 
-pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) SendError!void {
+pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
     try check_current(connection, id);
     defer note_done(connection, id);
     // RFC 9110 §6.5: a trailer section follows the content, after a final response. h11 refuses
@@ -227,7 +227,7 @@ pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) Se
 }
 
 /// h11 cannot end one request and keep the connection (RFC 9112 §9.6), so a cancel ends both.
-pub fn cancel(connection: *Connection, id: Id) void {
+pub fn cancel(connection: *Connection, id: Number) void {
     if (id != connection.current_id or connection.current_id == 0) return;
     connection.stopped = true;
 }
@@ -251,13 +251,13 @@ pub fn idle(connection: *const Connection) bool {
 /// Owes the `done` event of request `id` once its response is whole: h11 finished it, and no
 /// `done` is owed for it yet (decision 103). h11 finishes a response with its head when it has no
 /// content, such as a response to HEAD (RFC 9112 §6.3 rule 1).
-fn note_done(connection: *Connection, id: Id) void {
+fn note_done(connection: *Connection, id: Number) void {
     if (!connection.session.h11.responded or connection.done_id == id) return;
     connection.done_id = id;
     connection.done_owed.push(id);
 }
 
-fn check_current(connection: *const Connection, id: Id) SendError!void {
+fn check_current(connection: *const Connection, id: Number) SendError!void {
     // RFC 9112 §9.3.2: h11 answers the request it read last, and no other.
     if (id == 0 or id != connection.current_id) return error.RequestUnknown;
 }

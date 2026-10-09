@@ -54,10 +54,12 @@ pub const Files = struct {
     fn on_event(files: *Files, connection: *server.QuicConnection, reported: server.Event) void {
         switch (reported) {
             .request => |request| files.take(request),
-            .body => |body| if (body.end) files.answer(connection, body.id),
-            .trailers => |trailers| files.answer(connection, trailers.id),
-            .cancelled => |cancelled| files.release(cancelled.id),
-            .done => |done| files.release(done.id),
+            .body => |body| if (body.end) files.answer(connection, body.id.number),
+            .trailers => |trailers| files.answer(connection, trailers.id.number),
+            .cancelled => |cancelled| files.release(cancelled.id.number),
+            .done => |done| files.release(done.id.number),
+            // A connection reports none of these: the endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 
@@ -66,7 +68,7 @@ pub const Files = struct {
     /// cancel of the table's own, each of which releases its entry: so a free one is there.
     fn take(files: *Files, request: server.Request) void {
         const entry = files.free_entry() orelse unreachable;
-        entry.* = .{ .in_use = true, .id = request.id, .head = std.mem.eql(u8, request.method, "HEAD") };
+        entry.* = .{ .in_use = true, .id = request.id.number, .head = std.mem.eql(u8, request.method, "HEAD") };
         // A CONNECT names no path (RFC 9114 §4.4), and a path too long for hq-interop's rule names
         // no file; both are answered 404.
         const path = request.path orelse return;

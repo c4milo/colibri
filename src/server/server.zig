@@ -60,6 +60,7 @@ pub const StartError = connection.StartError;
 pub const SendError = connection.SendError;
 pub const Field = connection.Field;
 pub const Id = event.Id;
+pub const ConnectionHandle = event.ConnectionHandle;
 pub const Protocol = event.Protocol;
 pub const Version = event.Version;
 pub const Fields = event.Fields;
@@ -70,6 +71,8 @@ pub const Trailers = event.Trailers;
 pub const Cancelled = event.Cancelled;
 pub const CancelReason = event.CancelReason;
 pub const Done = event.Done;
+pub const Writable = event.Writable;
+pub const Ended = event.Ended;
 pub const Response = event.Response;
 pub const Content = event.Content;
 pub const Received = event.Received;
@@ -90,18 +93,20 @@ pub const Decoders = h11.coding.Storage;
 pub const Features = coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
-    // Design §8 step 21a adds `Versions` and `Limits` (decision 117).
+    // Design §8 step 21a adds `Versions` and `Limits` (decision 117), and 21b.2
+    // `ConnectionHandle`, `Writable` and `Ended` (decision 119).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",  "Config",       "Versions",           "Limits",         "Deadline",
-        "Deadlines",  "CloseReason",  "Limit",              "Connection",     "QuicConnection",
-        "QuicConfig", "Endpoint",     "EndpointOf",         "EndpointConfig", "LogProvider",
-        "Sent",       "Address",      "Ecn",                "Error",          "StartError",
-        "SendError",  "Field",        "Id",                 "Protocol",       "Version",
-        "Fields",     "Event",        "Request",            "Body",           "Trailers",
-        "Cancelled",  "CancelReason", "Done",               "Response",       "Content",
-        "Received",   "Alternative",  "Coding",             "EncoderPool",    "DefaultEncoderPool",
-        "Encoders",   "DecoderPool",  "DefaultDecoderPool", "Decoders",       "Features",
+        "constants",          "Config",      "Versions",           "Limits",           "Deadline",
+        "Deadlines",          "CloseReason", "Limit",              "Connection",       "QuicConnection",
+        "QuicConfig",         "Endpoint",    "EndpointOf",         "EndpointConfig",   "LogProvider",
+        "Sent",               "Address",     "Ecn",                "Error",            "StartError",
+        "SendError",          "Field",       "Id",                 "ConnectionHandle", "Protocol",
+        "Version",            "Fields",      "Event",              "Request",          "Body",
+        "Trailers",           "Cancelled",   "CancelReason",       "Done",             "Writable",
+        "Ended",              "Response",    "Content",            "Received",         "Alternative",
+        "Coding",             "EncoderPool", "DefaultEncoderPool", "Encoders",         "DecoderPool",
+        "DefaultDecoderPool", "Decoders",    "Features",
     });
 }
 

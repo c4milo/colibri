@@ -1,21 +1,46 @@
-//! What `Connection.receive` reports, the same for h11 and h2 (decision 100): a request's head,
-//! its content, its trailer section, its end by cancellation, or that its response is done. Every
-//! slice points into storage the connection or the caller holds, and stays valid until the next
-//! call to `receive`.
+//! What `receive` reports, the same for h11, h2 and h3 (decision 100): a request's head, its
+//! content, its trailer section, its end by cancellation, or that its response is done; and, from
+//! the endpoint (decision 119), that a response can take more, that a TCP connection owes octets or
+//! is to be closed, that a connection ended, or that every connection did. Every slice points into
+//! storage the connection or the caller holds, and stays valid until the next call to `receive`.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
 const deadline = @import("deadline.zig");
+const close_reason = @import("close_reason.zig");
 
-/// A request's id: the h2 stream it arrived on, or for h11 its place on the connection, counting
-/// from 1. A response names the request it answers by it.
-pub const Id = u64;
+/// A connection an endpoint holds: its slot, and the slot's generation, which advances each time
+/// the endpoint reports that a connection there ended (decision 119). So a handle of an ended
+/// connection names nothing. Generation 0 names no connection.
+pub const ConnectionHandle = packed struct(u64) {
+    /// Below the endpoint's TCP and QUIC slots together. TCP slots come first, so a TCP
+    /// connection's slot indexes a program's own array of sockets.
+    slot: u32,
+    generation: u32,
+};
+
+/// A request's number on its connection: the h2 or QUIC stream it arrived on, or for h11 its place
+/// on the connection, counting from 1. A connection never gives two requests one number.
+pub const Number = u64;
+
+/// A request's id: the connection that carries it and its number there (decision 119). A response
+/// names the request it answers by it.
+pub const Id = packed struct(u128) {
+    connection: ConnectionHandle,
+    number: Number,
+};
+
+/// The id a connection reports for its request `number`, with no connection named: the endpoint
+/// that holds the connection names it.
+pub fn id_of(number: Number) Id {
+    return .{ .connection = .{ .slot = 0, .generation = 0 }, .number = number };
+}
 
 /// The protocol serving a connection.
 pub const Protocol = enum { h11, h2, h3 };
 
 /// The HTTP version a request came in, numbered as RFC 9110 §2.5 numbers it: 1.0 or 1.1 for h11,
-/// and 2.0 for h2.
+/// 2.0 for h2, and 3.0 for h3.
 pub const Version = struct {
     major: u8,
     minor: u8,
@@ -105,9 +130,10 @@ pub const Request = struct {
 };
 
 /// Octets of a request's content, and whether they end it. The last `body` of a request may carry
-/// none.
+/// none. `user_data` is the word the program set at the request's head (decision 119).
 pub const Body = struct {
     id: Id,
+    user_data: usize = 0,
     octets: []const u8,
     end: bool,
 };
@@ -115,15 +141,17 @@ pub const Body = struct {
 /// A request's trailer section, which ends it (RFC 9110 §6.5).
 pub const Trailers = struct {
     id: Id,
+    user_data: usize = 0,
     fields: Fields,
 };
 
 /// A request ended before its response did: the peer reset its stream, colibri refused it (RFC
-/// 9113 §6.4, §5.4.2; RFC 9114 §4.1.1, §4.1.2), or one of decision 110's deadlines passed on its
-/// h2 stream. The id may be one no `request` event named, when the refusal came before the head
-/// was read whole.
+/// 9113 §6.4, §5.4.2; RFC 9114 §4.1.1, §4.1.2), one of decision 110's deadlines passed on its
+/// stream, its connection stopped first, or the program cancelled it. Through a connection, the
+/// id may be one no `request` event named, when the refusal came before the head was read whole.
 pub const Cancelled = struct {
     id: Id,
+    user_data: usize = 0,
     reason: CancelReason,
 };
 
@@ -134,13 +162,38 @@ pub const CancelReason = union(enum) {
     refused,
     /// The deadline passed, and colibri reset the stream (decision 110).
     deadline: deadline.Deadline,
+    /// The connection stopped before the response was whole (decision 119).
+    closed,
+    /// The program called `cancel` (decision 119).
+    program,
 };
 
 /// The response to a request is whole, and the server reads none of the caller's octets for it
 /// again, so the caller may reuse the memory its body came from (decision 103). h11 and h2 report
-/// it after the call that wrote the response's last octet. A request cancelled first gets none.
+/// it after the call that wrote the response's last octet, and h3 once the peer acknowledged
+/// every octet of it. A request cancelled first gets none.
 pub const Done = struct {
     id: Id,
+    user_data: usize = 0,
+};
+
+/// A response whose last write took fewer octets than it was given, or found no room, can take
+/// more (decision 119).
+pub const Writable = struct {
+    id: Id,
+    user_data: usize,
+};
+
+/// A connection is over (decision 119). Every request it carried had its `done` or `cancelled`
+/// first, and its handle and every id on it name nothing from here on.
+pub const Ended = struct {
+    connection: ConnectionHandle,
+    /// The deadline that passed or the limit the peer passed, when colibri closed the connection
+    /// for one (decision 110), or null.
+    reason: ?close_reason.CloseReason,
+    /// Whether colibri closed it because its peer broke a protocol rule or its record layer
+    /// failed.
+    failed: bool,
 };
 
 pub const Event = union(enum) {
@@ -149,6 +202,16 @@ pub const Event = union(enum) {
     trailers: Trailers,
     cancelled: Cancelled,
     done: Done,
+    /// A response can take more (decision 119).
+    writable: Writable,
+    /// A TCP connection owes octets: the program calls `send_stream` for it (decision 119).
+    send: ConnectionHandle,
+    /// The program closes this TCP connection's socket: colibri reads and writes nothing more on
+    /// it.
+    close: ConnectionHandle,
+    ended: Ended,
+    /// After `shutdown`, every connection has ended.
+    closed,
 };
 
 /// What one `receive` call took and reported.
@@ -157,3 +220,13 @@ pub const Received = struct {
     consumed: usize,
     event: ?Event,
 };
+
+test "decision 119: a connection's ids name no connection, which the endpoint that holds it names" {
+    const id = id_of(7);
+    try std.testing.expectEqual(7, id.number);
+    try std.testing.expectEqual(0, id.connection.generation);
+    try std.testing.expectEqual(0, id.connection.slot);
+    // Ids compare whole: the same number on another connection is another request.
+    const other: Id = .{ .connection = .{ .slot = 0, .generation = 1 }, .number = 7 };
+    try std.testing.expect(id != other);
+}

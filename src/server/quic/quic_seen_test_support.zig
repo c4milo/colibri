@@ -34,22 +34,23 @@ pub fn keep(reported: Event) void {
     entry.* = .{ .kind = reported, .id = 0 };
     switch (reported) {
         .request => |head| {
-            entry.id = head.id;
+            entry.id = head.id.number;
             const path = head.path orelse "";
             @memcpy(entry.path[0..path.len], path);
             entry.path_len = path.len;
         },
         .body => |body| {
-            entry.id = body.id;
+            entry.id = body.id.number;
             entry.len = body.octets.len;
             entry.end = body.end;
         },
-        .trailers => |trailers| entry.id = trailers.id,
+        .trailers => |trailers| entry.id = trailers.id.number,
         .cancelled => |cancelled| {
-            entry.id = cancelled.id;
+            entry.id = cancelled.id.number;
             entry.reason = cancelled.reason;
         },
-        .done => |done| entry.id = done.id,
+        .done => |done| entry.id = done.id.number,
+        .writable, .send, .close, .ended, .closed => unreachable, // the endpoint's (decision 119)
     }
     seen_len += 1;
 }

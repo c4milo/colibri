@@ -200,7 +200,7 @@ fn serve(event: server.Event) !void {
             if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
             // The POST's content follows in `body` events, and the answer waits for its end.
             if (is(request, "POST", "/echo")) return;
-            try server_connection.respond(request.id, .{ .status = 404, .end = true });
+            try server_connection.respond(request.id.number, .{ .status = 404, .end = true });
         },
         .body => |body| {
             if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
@@ -211,6 +211,8 @@ fn serve(event: server.Event) !void {
         // The peer has the whole response to this request.
         .done => answered += 1,
         .trailers, .cancelled => {},
+        // A connection reports none of these: an endpoint does (decision 119).
+        .writable, .send, .close, .ended, .closed => unreachable,
     }
 }
 
@@ -224,7 +226,7 @@ fn is(request: server.Request, method: []const u8, path: []const u8) bool {
 fn answer(id: server.Id, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try server_connection.respond(id, .{
+    try server_connection.respond(id.number, .{
         .status = 200,
         .fields = &.{
             .{ .name = "content-type", .value = content_type },
@@ -234,7 +236,7 @@ fn answer(id: server.Id, content: []const u8) !void {
     });
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
     // the peer's window runs out, and a program then calls it again with the rest after `send`.
-    const taken = try server_connection.write_body(id, .{ .octets = content, .end = true });
+    const taken = try server_connection.write_body(id.number, .{ .octets = content, .end = true });
     assert(taken == content.len);
 }
 

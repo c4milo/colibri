@@ -31,6 +31,9 @@ const coding_pool = @import("../coding/coding_pool.zig");
 const http = @import("http");
 
 pub const Id = event.Id;
+/// The number of a request on this connection, which its calls take (decision 119): an event's
+/// `id.number`.
+pub const Number = event.Number;
 pub const Received = event.Received;
 pub const Field = connection_module.Field;
 pub const Error = connection_module.Error;
@@ -171,7 +174,7 @@ pub const QuicConnection = struct {
 
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content.
-    pub fn respond(connection: *QuicConnection, id: Id, response: event.Response) SendError!void {
+    pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
         return quic_connection_h3.respond(connection, id, response);
     }
 
@@ -181,19 +184,19 @@ pub const QuicConnection = struct {
     /// ring has room for, and returns them, coded, to the caller at once (decision 101).
     /// `error.Blocked` says the response holds as many runs, or its ring as many octets, as it can
     /// until the peer acknowledges some: `receive`, then call again.
-    pub fn write_body(connection: *QuicConnection, id: Id, content: event.Content) SendError!usize {
+    pub fn write_body(connection: *QuicConnection, id: Number, content: event.Content) SendError!usize {
         return quic_connection_h3.write_body(connection, id, content);
     }
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
-    pub fn write_trailers(connection: *QuicConnection, id: Id, fields: []const Field) SendError!void {
+    pub fn write_trailers(connection: *QuicConnection, id: Number, fields: []const Field) SendError!void {
         return quic_connection_h3.write_trailers(connection, id, fields);
     }
 
     /// Ends request `id` before its response is whole: its stream is reset with
     /// H3_REQUEST_CANCELLED (RFC 9114 §4.1.1), after which nothing reads the caller's octets, and
     /// nothing more is reported of it.
-    pub fn cancel(connection: *QuicConnection, id: Id) void {
+    pub fn cancel(connection: *QuicConnection, id: Number) void {
         quic_connection_h3.cancel(connection, id);
     }
 

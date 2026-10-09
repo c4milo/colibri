@@ -59,7 +59,7 @@ const Stream = struct {
 /// What the server's caller holds of one request: the exchange of the plan it answers, and how
 /// far its answer has gone.
 const Answer = struct {
-    id: server.Id,
+    id: u64,
     index: u8,
     responded: bool,
     written: u32,
@@ -184,11 +184,13 @@ fn server_read(storage: *Storage) Error!void {
         switch (reported) {
             .request => |head| {
                 // Both protocols deliver the client's requests in the order it made them.
-                storage.answers[storage.answers_len] = .{ .id = head.id, .index = storage.answers_len, .responded = false, .written = 0 };
+                storage.answers[storage.answers_len] = .{ .id = head.id.number, .index = storage.answers_len, .responded = false, .written = 0 };
                 storage.answers_len += 1;
             },
             .body, .trailers, .done => {},
             .cancelled => return error.ExchangeRefused,
+            // A connection reports none of these: the endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 }

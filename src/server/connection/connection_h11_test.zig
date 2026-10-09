@@ -18,7 +18,7 @@ fn expect_request(request: []const u8, id: u64) !support.Request {
     const received = try support.receive_copy(request);
     try testing.expectEqual(request.len, received.consumed);
     const head = received.event.?.request;
-    try testing.expectEqual(id, head.id);
+    try testing.expectEqual(id, head.id.number);
     return head;
 }
 
@@ -129,7 +129,7 @@ test "RFC 9112 §7.1.2: a chunked request's trailer section ends it" {
         if (reported == .trailers) trailers = reported.trailers;
     }
     try testing.expectEqualStrings("0", trailers.?.fields.find("grpc-status").?.value);
-    try testing.expectEqual(1, trailers.?.id);
+    try testing.expectEqual(1, trailers.?.id.number);
 }
 
 test "RFC 9112 §3.2.2: an absolute-form target's authority replaces Host's" {

@@ -18,7 +18,7 @@ const Error = connection_module.Error;
 const Field = http.Field;
 const Event = event.Event;
 const Received = event.Received;
-const Id = event.Id;
+const Number = event.Number;
 
 /// RFC 9113 is HTTP/2, which RFC 9110 §2.5 numbers 2.0.
 const version: event.Version = .{ .major = version_major, .minor = 0 };
@@ -52,7 +52,7 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
     return switch (h2_event) {
         .request => |arrived| .{
             .request = .{
-                .id = arrived.stream_id,
+                .id = event.id_of(arrived.stream_id),
                 .method = arrived.request.method,
                 .version = version,
                 // RFC 9113 §8.3.1, §8.5: h2 reads a request only with a `:path`, or CONNECT's
@@ -65,11 +65,11 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
                 .end = arrived.end_stream,
             },
         },
-        .data => |data| .{ .body = .{ .id = data.stream_id, .octets = data.payload, .end = data.end_stream } },
-        .trailers => |trailers| .{ .trailers = .{ .id = trailers.stream_id, .fields = event.Fields.of(session.field_section()) } },
+        .data => |data| .{ .body = .{ .id = event.id_of(data.stream_id), .octets = data.payload, .end = data.end_stream } },
+        .trailers => |trailers| .{ .trailers = .{ .id = event.id_of(trailers.stream_id), .fields = event.Fields.of(session.field_section()) } },
         // RFC 9113 §6.4: the peer ended the stream; §5.4.2: colibri did, on a stream error.
-        .stream_reset => |reset| .{ .cancelled = .{ .id = reset.stream_id, .reason = .peer_reset } },
-        .stream_refused => |refused| .{ .cancelled = .{ .id = refused.stream_id, .reason = .refused } },
+        .stream_reset => |reset| .{ .cancelled = .{ .id = event.id_of(reset.stream_id), .reason = .peer_reset } },
+        .stream_refused => |refused| .{ .cancelled = .{ .id = event.id_of(refused.stream_id), .reason = .refused } },
         // RFC 9113 §8.1: a server receives no response; h2 refuses one before it is an event. RFC
         // 7838 §4: a server ignores ALTSVC, and h2 reports none to one.
         .settings_acknowledged, .settings_applied, .ping_acknowledged, .goaway, .response, .alt_svc => null,
@@ -86,7 +86,7 @@ fn write_owed_first(connection: *Connection) void {
     internal.take_owed(connection, session.write_replies(internal.room(connection)), update_owed);
 }
 
-pub fn respond(connection: *Connection, id: Id, status: u16, fields: []const Field, end: bool) SendError!void {
+pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const Field, end: bool) SendError!void {
     const stream_id = try stream_of(id);
     var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
     const converted = try convert(fields, &lines);
@@ -117,7 +117,7 @@ fn advertise(connection: *Connection, stream_id: u32) SendError!void {
 
 /// Writes as much of `octets` as the room and h2's windows allow, in as many DATA frames as the
 /// peer's largest frame cuts it into (https://github.com/c4milo/colibri/issues/91).
-pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool) SendError!usize {
+pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: bool) SendError!usize {
     const stream_id = try stream_of(id);
     write_owed_first(connection);
     var consumed: usize = 0;
@@ -143,7 +143,7 @@ pub fn write_body(connection: *Connection, id: Id, octets: []const u8, end: bool
     return consumed;
 }
 
-pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) SendError!void {
+pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
     const stream_id = try stream_of(id);
     var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
     const converted = try convert(fields, &lines);
@@ -157,7 +157,7 @@ pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) Se
     connection_sends.remove(connection, id);
 }
 
-pub fn cancel(connection: *Connection, id: Id) void {
+pub fn cancel(connection: *Connection, id: Number) void {
     const stream_id = stream_of(id) catch return;
     // RFC 9113 §6.4: CANCEL says the stream is no longer needed. A stream h2 no longer holds needs
     // no reset.
@@ -173,7 +173,7 @@ pub fn idle(connection: *const Connection) bool {
 
 /// The stream an id names, or `RequestUnknown` for one no stream can have. h2 refuses a stream
 /// the client did not open.
-fn stream_of(id: Id) SendError!u32 {
+fn stream_of(id: Number) SendError!u32 {
     // RFC 9113 §5.1.1: a stream identifier is 31 bits, and 0 names the connection.
     if (id == 0 or id > h2.constants.stream_id_max) return error.RequestUnknown;
     return @intCast(id);
@@ -201,7 +201,7 @@ fn send_error(connection: *const Connection, failure: h2.connection.SendError) S
 }
 
 /// Writes the 100 (Continue) request `id` is owed (RFC 9110 §10.1.1), an interim response.
-pub fn write_continue(connection: *Connection, id: Id) SendError!usize {
+pub fn write_continue(connection: *Connection, id: Number) SendError!usize {
     const stream_id = try stream_of(id);
     write_owed_first(connection);
     return connection.session.h2.write_response(internal.room(connection), stream_id, continue_status, &.{}, false) catch |failure| {

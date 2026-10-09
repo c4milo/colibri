@@ -167,7 +167,7 @@ fn serve(event: server.Event) !void {
             if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
             // The POST's content follows in `body` events, and the answer waits for its end.
             if (is(request, "POST", "/echo")) return;
-            try server_connection.respond(request.id, .{ .status = 404, .end = true });
+            try server_connection.respond(request.id.number, .{ .status = 404, .end = true });
         },
         .body => |body| {
             if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
@@ -178,6 +178,8 @@ fn serve(event: server.Event) !void {
         // The peer has the whole response to this request.
         .done => answered += 1,
         .trailers, .cancelled => {},
+        // A connection reports none of these: an endpoint does (decision 119).
+        .writable, .send, .close, .ended, .closed => unreachable,
     }
 }
 ```
@@ -203,7 +205,7 @@ The program answers with a head, then content:
 fn answer(id: server.Id, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try server_connection.respond(id, .{
+    try server_connection.respond(id.number, .{
         .status = 200,
         .fields = &.{
             .{ .name = "content-type", .value = content_type },
@@ -213,7 +215,7 @@ fn answer(id: server.Id, content: []const u8) !void {
     });
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
     // the peer's window runs out, and a program then calls it again with the rest after `send`.
-    const taken = try server_connection.write_body(id, .{ .octets = content, .end = true });
+    const taken = try server_connection.write_body(id.number, .{ .octets = content, .end = true });
     assert(taken == content.len);
 }
 ```
@@ -461,7 +463,7 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
         switch (received.event orelse return) {
             .request => |request| {
                 std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-                try connection.respond(request.id, .{
+                try connection.respond(request.id.number, .{
                     .status = 200,
                     .fields = &.{.{ .name = "content-type", .value = content_type }},
                     .end = false,
@@ -469,7 +471,7 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
                 // Over QUIC `write_body` copies nothing, because QUIC reads the octets again to
                 // send them again. They stay the program's until the request is `done` or
                 // `cancelled`, or until `ended` hands its connection back.
-                _ = try connection.write_body(request.id, .{ .octets = greeting, .end = true });
+                _ = try connection.write_body(request.id.number, .{ .octets = greeting, .end = true });
                 answered += 1;
                 // A program short of connections shortens the deadlines of one it holds. This
                 // connection has answered the one request the example sends.
@@ -477,8 +479,10 @@ fn serve(connection: *server.QuicConnection, now_ns: u64) !void {
             },
             // The client acknowledged every octet of the response. A client that closes its
             // connection first, as this one does, ends the connection instead.
-            .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id}),
+            .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id.number}),
             .body, .trailers, .cancelled => {},
+            // A connection reports none of these: an endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 }

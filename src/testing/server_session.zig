@@ -39,7 +39,7 @@ pub const Step = struct {
 /// A request read or being read, and whether its response carries content: a response to HEAD
 /// has the same fields and none (RFC 9110 §9.3.2), and a CONNECT gets a refusal with none.
 const Request = struct {
-    id: server.Id,
+    id: u64,
     head: bool,
     connect: bool,
 };
@@ -148,17 +148,19 @@ pub const Session = struct {
                     .version = .{ .major = request.version.major, .minor = request.version.minor },
                 }, request.fields.section);
                 const method = http.method.standard(request.method);
-                const read_request: Request = .{ .id = request.id, .head = method == .head, .connect = method == .connect };
+                const read_request: Request = .{ .id = request.id.number, .head = method == .head, .connect = method == .connect };
                 if (request.end) session.owe(read_request) else session.start_reading(read_request);
             },
             .body => |body| {
                 if (session.echo) |echo| echo.add(body.octets);
-                if (body.end) session.finish_reading(body.id);
+                if (body.end) session.finish_reading(body.id.number);
             },
-            .trailers => |trailers| session.finish_reading(trailers.id),
-            .cancelled => |cancelled| session.forget(cancelled.id),
+            .trailers => |trailers| session.finish_reading(trailers.id.number),
+            .cancelled => |cancelled| session.forget(cancelled.id.number),
             // Every response body is a constant or the echo's own copy, so nothing waits for it.
             .done => {},
+            // A connection reports none of these: the endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 
@@ -169,7 +171,7 @@ pub const Session = struct {
     }
 
     /// The request `id` ended, so its response is owed.
-    fn finish_reading(session: *Session, id: server.Id) void {
+    fn finish_reading(session: *Session, id: u64) void {
         const index = find(session.reading[0..session.reading_count], id) orelse return;
         const request = session.reading[index];
         remove(&session.reading, &session.reading_count, index);
@@ -184,7 +186,7 @@ pub const Session = struct {
     }
 
     /// The request `id` ended before its response: the peer reset it, or the connection refused it.
-    fn forget(session: *Session, id: server.Id) void {
+    fn forget(session: *Session, id: u64) void {
         if (find(session.reading[0..session.reading_count], id)) |index| remove(&session.reading, &session.reading_count, index);
         const index = find(session.owed[0..session.owed_count], id) orelse return;
         if (index == 0) {
@@ -279,7 +281,7 @@ pub const Session = struct {
     }
 };
 
-fn find(requests: []const Request, id: server.Id) ?usize {
+fn find(requests: []const Request, id: u64) ?usize {
     for (requests, 0..) |request, index| {
         if (request.id == id) return index;
     }

@@ -152,7 +152,7 @@ test "decision 101: a stream the peer resets gives its encoder back, and its oct
     var writer = h2.core.Writer.init(&h2_support.frames);
     try h2.frame.write_rst_stream(&writer, 1, constants.error_cancel);
     const received = try support.receive_copy(writer.written());
-    try testing.expectEqual(1, received.event.?.cancelled.id);
+    try testing.expectEqual(1, received.event.?.cancelled.id.number);
     try testing.expectEqual(encoders_all, support.pool.free_count());
     try testing.expectError(error.RequestUnknown, connection.write_body(1, .{ .octets = "x", .end = true }));
     // The frames stream 1 wrote fill the output, so the next head waits for a send.

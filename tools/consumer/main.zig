@@ -127,7 +127,7 @@ fn serve(len: usize) !void {
             if (received.consumed == 0) return;
             continue;
         };
-        if (event == .request) try served.respond(event.request.id, .{ .status = 204, .end = true });
+        if (event == .request) try served.respond(event.request.id.number, .{ .status = 204, .end = true });
     }
 }
 

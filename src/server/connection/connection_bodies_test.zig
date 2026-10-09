@@ -109,7 +109,7 @@ test "decision 110: a body that ends, or has no limits, runs no deadline" {
 test "decision 110: an h11 body that falls short after its response began closes without a 408" {
     try support.start_cleartext(.h11);
     const request = try receive_at(upload_head, early_ns);
-    try connection.respond(request.event.?.request.id, .{ .status = ok_status, .end = false });
+    try connection.respond(request.event.?.request.id.number, .{ .status = ok_status, .end = false });
     _ = send_at(early_ns);
     connection.on_instant(first_end_ns);
     try testing.expectEqual(.body_rate, connection.close_reason().?.deadline);
@@ -120,7 +120,7 @@ test "decision 110: an h11 body that falls short after its response began closes
 test "RFC 9112 §9.3: no deadline runs once h11 closes after a response to a request it did not read whole" {
     try support.start_cleartext(.h11);
     const request = try receive_at(upload_head, early_ns);
-    try connection.respond(request.event.?.request.id, .{ .status = deadline_support.no_content, .end = true });
+    try connection.respond(request.event.?.request.id.number, .{ .status = deadline_support.no_content, .end = true });
     _ = send_at(early_ns);
     try testing.expectEqual(null, connection.deadline_ns());
     connection.on_instant(first_end_ns);
@@ -146,7 +146,7 @@ test "RFC 9113 §8.1: an h2 body under the rate gets a 408 and RST_STREAM with N
     try testing.expectEqual(timeout_status, try deadline_support.response_status(sent, 1));
     try testing.expectEqual(h2.constants.error_no_error, try deadline_support.reset_code(sent, 1));
     const cancelled = (try connection.receive(&.{}, first_end_ns)).event.?.cancelled;
-    try testing.expectEqual(1, cancelled.id);
+    try testing.expectEqual(1, cancelled.id.number);
     try testing.expectEqual(Deadline.body_rate, cancelled.reason.deadline);
     // With no stream open, the idle deadline runs.
     try testing.expectEqual(first_end_ns + idle_ns, connection.deadline_ns().?);
@@ -203,7 +203,7 @@ test "RFC 9113 §8.2.1: a request colibri refuses as malformed is cancelled as r
     try h2_support.start();
     const upper = [_]support.Field{.{ .name = "X-Upper", .value = "1" }};
     const cancelled = (try receive_at(try h2_support.request_frame_with(1, "GET", "/", &upper, true), early_ns)).event.?.cancelled;
-    try testing.expectEqual(1, cancelled.id);
+    try testing.expectEqual(1, cancelled.id.number);
     try testing.expect(cancelled.reason == .refused);
 }
 
@@ -211,7 +211,7 @@ test "decision 110: a body ended by trailers, or a request the peer resets or th
     try h2_support.start();
     try open_upload(1, early_ns);
     const trailer = [_]support.Field{.{ .name = "checksum", .value = "1" }};
-    try testing.expectEqual(1, (try receive_at(try trailers_frame(1, &trailer), early_ns + 1)).event.?.trailers.id);
+    try testing.expectEqual(1, (try receive_at(try trailers_frame(1, &trailer), early_ns + 1)).event.?.trailers.id.number);
     try open_upload(3, early_ns + 2);
     var writer = h2.core.Writer.init(&deadline_support.data_frames);
     try h2.frame.write_rst_stream(&writer, 3, h2.constants.error_cancel);

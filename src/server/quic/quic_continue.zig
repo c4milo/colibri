@@ -31,7 +31,7 @@ const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");
 /// Notes the 100 (Continue) the request of `record` is owed, when its head `request` expects one.
 pub fn note(connection: *QuicConnection, record: *Request, request: event.Request) void {
     assert(record.in_use and !record.continue_owed);
-    assert(record.stream_id == request.id);
+    assert(record.stream_id == request.id.number);
     // RFC 9110 §10.1.1: a server that reads the 100-continue expectation "MUST send either" a
     // final response at once or "an immediate 100 (Continue) response".
     if (!expect.expects_continue(request)) return;

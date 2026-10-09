@@ -263,12 +263,14 @@ pub const World = struct {
 
     fn on_server_event(world: *World, event: server.Event) void {
         switch (event) {
-            .request => |arrived| world.req_read[index_of(@intCast(arrived.id))] = if (arrived.end) .ended else .head,
+            .request => |arrived| world.req_read[index_of(@intCast(arrived.id.number))] = if (arrived.end) .ended else .head,
             .body => |body| if (body.end) {
-                world.req_read[index_of(@intCast(body.id))] = .ended;
+                world.req_read[index_of(@intCast(body.id.number))] = .ended;
             },
             .done => {},
             .trailers, .cancelled => world.broken = true,
+            // A connection reports none of these: the endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 

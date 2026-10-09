@@ -25,7 +25,7 @@ const QuicConnection = quic_connection.QuicConnection;
 const Request = quic_request.Request;
 const SendError = quic_connection.SendError;
 const Field = quic_connection.Field;
-const Id = event.Id;
+const Number = event.Number;
 const StreamId = quic.stream.StreamId;
 const Indexing = h3.qpack.encoder.Indexing;
 
@@ -174,7 +174,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
     const request = arrived.request;
     const reported: event.Event = .{
         .request = .{
-            .id = arrived.stream_id,
+            .id = event.id_of(arrived.stream_id),
             .method = request.method,
             .version = version,
             // RFC 9114 §4.4: CONNECT names an authority and no path.
@@ -196,7 +196,7 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
 fn on_data(connection: *QuicConnection, data: h3.connection.Data) ?event.Event {
     const record = reading(connection, data.stream_id) orelse return null;
     quic_body.count(connection, record, data.octets.len);
-    return .{ .body = .{ .id = data.stream_id, .octets = data.octets, .end = false } };
+    return .{ .body = .{ .id = event.id_of(data.stream_id), .octets = data.octets, .end = false } };
 }
 
 fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.Event {
@@ -204,14 +204,14 @@ fn on_trailers(connection: *QuicConnection, stream_id: u64) ?event.Event {
     const record = reading(connection, stream_id) orelse return null;
     // RFC 9110 §6.5: a trailer section ends the request.
     record.ended = true;
-    return .{ .trailers = .{ .id = stream_id, .fields = event.Fields.of(connection.h3.field_section()) } };
+    return .{ .trailers = .{ .id = event.id_of(stream_id), .fields = event.Fields.of(connection.h3.field_section()) } };
 }
 
 fn on_end(connection: *QuicConnection, stream_id: u64) ?event.Event {
     stop_waiting(connection, stream_id);
     const record = reading(connection, stream_id) orelse return null;
     record.ended = true;
-    return .{ .body = .{ .id = stream_id, .octets = &.{}, .end = true } };
+    return .{ .body = .{ .id = event.id_of(stream_id), .octets = &.{}, .end = true } };
 }
 
 /// RFC 9114 §4.1.1: the client cancelled the request. The server resets its response too, so
@@ -228,7 +228,7 @@ fn on_reset(connection: *QuicConnection, stream_id: u64) ?event.Event {
     connection.h3.cancel(&connection.transport, stream_id, h3.constants.error_request_cancelled);
     record.over = true;
     quic_coding.give_back(connection, record);
-    return .{ .cancelled = .{ .id = stream_id, .reason = .peer_reset } };
+    return .{ .cancelled = .{ .id = event.id_of(stream_id), .reason = .peer_reset } };
 }
 
 /// RFC 9114 §4.1.2: h3 refused a malformed request and reset its stream.
@@ -237,7 +237,7 @@ fn on_refused(connection: *QuicConnection, stream_id: u64) ?event.Event {
     const record = live(connection, stream_id) orelse return null;
     record.over = true;
     quic_coding.give_back(connection, record);
-    return .{ .cancelled = .{ .id = stream_id, .reason = .refused } };
+    return .{ .cancelled = .{ .id = event.id_of(stream_id), .reason = .refused } };
 }
 
 /// The request on `stream_id` brings no more content, whether the caller still hears of it or
@@ -259,7 +259,7 @@ fn reading(connection: *QuicConnection, stream_id: u64) ?*Request {
     return if (record.ended) null else record;
 }
 
-pub fn respond(connection: *QuicConnection, id: Id, response: event.Response) SendError!void {
+pub fn respond(connection: *QuicConnection, id: Number, response: event.Response) SendError!void {
     const record = try writable(connection, id);
     const status = response.status;
     // RFC 9110 §15: a status code is three digits from 100 to 599; RFC 9114 §4.5: h3 has no 101.
@@ -284,7 +284,7 @@ const status_max: u16 = 599;
 const final_min: u16 = 200;
 const switching_protocols: u16 = 101;
 
-pub fn write_body(connection: *QuicConnection, id: Id, content: event.Content) SendError!usize {
+pub fn write_body(connection: *QuicConnection, id: Number, content: event.Content) SendError!usize {
     const record = try writable(connection, id);
     // RFC 9114 §4.1: DATA frames follow the final response's HEADERS frame.
     if (!record.answered) return error.SectionOutOfOrder;
@@ -310,7 +310,7 @@ pub fn write_body(connection: *QuicConnection, id: Id, content: event.Content) S
 /// The runs one DATA frame takes.
 const data_runs: usize = 2;
 
-pub fn write_trailers(connection: *QuicConnection, id: Id, fields: []const Field) SendError!void {
+pub fn write_trailers(connection: *QuicConnection, id: Number, fields: []const Field) SendError!void {
     const record = try writable(connection, id);
     // RFC 9114 §4.1: a trailer section follows the final response.
     if (!record.answered) return error.SectionOutOfOrder;
@@ -323,7 +323,7 @@ pub fn write_trailers(connection: *QuicConnection, id: Id, fields: []const Field
     try supply(connection, record, true);
 }
 
-pub fn cancel(connection: *QuicConnection, id: Id) void {
+pub fn cancel(connection: *QuicConnection, id: Number) void {
     if (connection.stopped or connection.closed) return;
     const record = live(connection, id) orelse return;
     // RFC 9114 §4.1.1: a server that abandons a response after processing "SHOULD abort its
@@ -337,7 +337,7 @@ pub fn cancel(connection: *QuicConnection, id: Id) void {
 /// Answers request `id` with a 408 that ends its response, and returns whether its stream took
 /// it. RFC 9110 §15.5.9: the server "did not receive a complete request message within the time
 /// that it was prepared to wait".
-pub fn respond_timeout(connection: *QuicConnection, id: Id) bool {
+pub fn respond_timeout(connection: *QuicConnection, id: Number) bool {
     respond(connection, id, .{ .status = @intFromEnum(http.status.Code.request_timeout), .end = true }) catch return false;
     return true;
 }
@@ -394,7 +394,7 @@ fn finish_if_drained(connection: *QuicConnection) void {
 }
 
 /// The record of request `id`, whose response the caller may still write.
-fn writable(connection: *QuicConnection, id: Id) SendError!*Request {
+fn writable(connection: *QuicConnection, id: Number) SendError!*Request {
     // RFC 9000 §10.2 and RFC 9114 §8: a connection that closed or failed sends no response.
     if (connection.stopped or connection.closed) return error.ConnectionClosed;
     // RFC 9110 §3.4: a response answers a request the connection still holds.

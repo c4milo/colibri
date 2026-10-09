@@ -46,7 +46,7 @@ test "RFC 7301 §3.2: ALPN's h2 serves the connection, and a response comes back
     try testing.expectEqualStrings("localhost", connection.server_name().?);
     const received = try support.receive_sealed(client_preface ++ get_frame);
     const head = received.event.?.request;
-    try testing.expectEqual(1, head.id);
+    try testing.expectEqual(1, head.id.number);
     try testing.expectEqualStrings("https", head.scheme.?);
     try connection.respond(1, .{ .status = ok, .end = false });
     try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
@@ -76,7 +76,7 @@ test "RFC 9113 §3.4: the SETTINGS goes first when a request comes in the flight
     // Finished in one flight (RFC 9113 §3.4), and the server reads them with the Finished.
     to_server_len = try support.seal_all(to_server_len, client_preface ++ get_frame);
     const received = try connection.receive(support.input[0..to_server_len], support.now_ns);
-    try testing.expectEqual(1, received.event.?.request.id);
+    try testing.expectEqual(1, received.event.?.request.id.number);
     try connection.respond(1, .{ .status = ok, .end = true });
     const opened = try support.open_sent();
     // RFC 9113 §3.4: the SETTINGS frame "MUST be the first frame the server sends".
@@ -94,7 +94,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the close_notify follows the 
     const head = received.event.?.request;
     // RFC 9112 §3.3: a secured connection's target URI has the https scheme.
     try testing.expectEqualStrings("https", head.scheme.?);
-    try connection.respond(head.id, .{ .status = ok, .end = true });
+    try connection.respond(head.id.number, .{ .status = ok, .end = true });
     const opened = try support.open_sent();
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-length: 0\r\nConnection: close\r\n\r\n", opened);
     // RFC 9112 §9.8, RFC 9846 §6.1: the server closes after the exchange of closure alerts starts.

@@ -22,13 +22,13 @@ const connection_bodies = @import("connection_bodies.zig");
 const connection_coding = @import("connection_coding.zig");
 
 const Connection = connection_module.Connection;
-const Id = event.Id;
+const Number = event.Number;
 const Deadline = deadline.Deadline;
 
 /// One h2 stream whose response waits on a window.
 const Blocked = struct {
     /// The request, or 0 for a free entry.
-    id: Id = 0,
+    id: Number = 0,
     /// Whether the connection's window held the last write, rather than the stream's.
     connection_window: bool = false,
     meter: rate.Meter = .{},
@@ -44,7 +44,7 @@ pub const Sends = struct {
         sends.entries = @splat(.{});
     }
 
-    fn find(sends: *Sends, id: Id) ?*Blocked {
+    fn find(sends: *Sends, id: Number) ?*Blocked {
         for (&sends.entries) |*blocked| {
             if (blocked.id == id) return blocked;
         }
@@ -54,7 +54,7 @@ pub const Sends = struct {
 
 /// Notes an h2 write to request `id` that was offered `offered` octets: what the window let
 /// through, and whether a window held it short.
-pub fn on_write(connection: *Connection, id: Id, offered: usize, sent: h2.connection.DataWritten) void {
+pub fn on_write(connection: *Connection, id: Number, offered: usize, sent: h2.connection.DataWritten) void {
     assert(id != 0);
     const sends = &connection.sends;
     const found = sends.find(id);
@@ -72,7 +72,7 @@ pub fn on_write(connection: *Connection, id: Id, offered: usize, sent: h2.connec
 }
 
 /// Request `id`'s response ended, or the request did.
-pub fn remove(connection: *Connection, id: Id) void {
+pub fn remove(connection: *Connection, id: Number) void {
     const blocked = connection.sends.find(id) orelse return;
     blocked.* = .{};
 }
@@ -132,7 +132,7 @@ pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
 }
 
 /// RFC 9113 §6.4: CANCEL says the stream is no longer needed; the caller reads `cancelled`.
-fn cancel_stream(connection: *Connection, id: Id) void {
+fn cancel_stream(connection: *Connection, id: Number) void {
     connection.session.h2.reset_stream(@intCast(id), h2.constants.error_cancel) catch |failure| {
         assert(failure == error.StreamNotSendable);
     };

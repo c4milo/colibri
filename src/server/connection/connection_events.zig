@@ -14,22 +14,24 @@ const Connection = connection_module.Connection;
 pub fn note(connection: *Connection, reported: event.Event) void {
     switch (reported) {
         .request => |request| {
-            if (expect.expects_continue(request)) connection.continue_owed = request.id;
+            if (expect.expects_continue(request)) connection.continue_owed = request.id.number;
             connection_coding.on_request(connection, request);
             connection_deadline.on_request(connection);
-            if (!request.end) connection_bodies.add(connection, request.id);
+            if (!request.end) connection_bodies.add(connection, request.id.number);
         },
         .body => |body| {
             // h11 counts its body's octets as it reads them, in `read_protocol`.
-            if (connection.session == .h2) connection_bodies.count(connection, body.id, body.octets.len);
-            if (body.end) connection_bodies.remove(connection, body.id);
+            if (connection.session == .h2) connection_bodies.count(connection, body.id.number, body.octets.len);
+            if (body.end) connection_bodies.remove(connection, body.id.number);
         },
-        .trailers => |trailers| connection_bodies.remove(connection, trailers.id),
+        .trailers => |trailers| connection_bodies.remove(connection, trailers.id.number),
         .cancelled => |cancelled| {
-            connection_coding.forget(connection, cancelled.id);
-            connection_bodies.remove(connection, cancelled.id);
-            connection_sends.remove(connection, cancelled.id);
+            connection_coding.forget(connection, cancelled.id.number);
+            connection_bodies.remove(connection, cancelled.id.number);
+            connection_sends.remove(connection, cancelled.id.number);
         },
         .done => {},
+        // A connection reports none of these: the endpoint does (decision 119).
+        .writable, .send, .close, .ended, .closed => unreachable,
     }
 }

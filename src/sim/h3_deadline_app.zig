@@ -21,7 +21,7 @@ pub const Error = error{
 /// A request the application read: when its content ended, when the application began its answer
 /// and when it ended it, when the server reported it done, and the deadline that cancelled it.
 pub const Answer = struct {
-    id: server.Id,
+    id: u64,
     read_ms: u64,
     content_end_ms: ?u64 = null,
     answered_ms: ?u64 = null,
@@ -52,20 +52,22 @@ pub const Application = struct {
     /// reports of it after.
     pub fn note_event(app: *Application, reported: server.Event, now_ms: u64) void {
         switch (reported) {
-            .request => |request| app.note_request(request.id, now_ms),
-            .body => |body| if (body.end) app.note_content_end(body.id, now_ms),
-            .trailers => |trailers| app.note_content_end(trailers.id, now_ms),
-            .cancelled => |cancelled| if (app.find(cancelled.id)) |pending| {
+            .request => |request| app.note_request(request.id.number, now_ms),
+            .body => |body| if (body.end) app.note_content_end(body.id.number, now_ms),
+            .trailers => |trailers| app.note_content_end(trailers.id.number, now_ms),
+            .cancelled => |cancelled| if (app.find(cancelled.id.number)) |pending| {
                 pending.cancelled_ms = now_ms;
                 if (cancelled.reason == .deadline) pending.cancelled = cancelled.reason.deadline;
             },
-            .done => |done| if (app.find(done.id)) |pending| {
+            .done => |done| if (app.find(done.id.number)) |pending| {
                 pending.done_ms = now_ms;
             },
+            // A connection reports none of these: the endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 
-    fn note_request(app: *Application, id: server.Id, now_ms: u64) void {
+    fn note_request(app: *Application, id: u64, now_ms: u64) void {
         app.requests_read += 1;
         // The application answers as many requests as a peer makes whole.
         if (app.answers_len == limits.exchanges_max) return;
@@ -73,12 +75,12 @@ pub const Application = struct {
         app.answers_len += 1;
     }
 
-    fn note_content_end(app: *Application, id: server.Id, now_ms: u64) void {
+    fn note_content_end(app: *Application, id: u64, now_ms: u64) void {
         const pending = app.find(id) orelse return;
         pending.content_end_ms = now_ms;
     }
 
-    fn find(app: *Application, id: server.Id) ?*Answer {
+    fn find(app: *Application, id: u64) ?*Answer {
         for (app.answers[0..app.answers_len]) |*pending| {
             if (pending.id == id) return pending;
         }
@@ -159,7 +161,7 @@ fn write(connection: *server.QuicConnection, pending: *Answer, plan: *const Plan
     if (first_len > 0) try write_content(connection, pending.id, content[0..first_len], ends);
 }
 
-fn write_content(connection: *server.QuicConnection, id: server.Id, content: []const u8, end: bool) server.SendError!void {
+fn write_content(connection: *server.QuicConnection, id: u64, content: []const u8, end: bool) server.SendError!void {
     const taken = try connection.write_body(id, .{ .octets = content, .end = end });
     assert(taken == content.len);
 }

@@ -144,7 +144,7 @@ pub fn receive_copy(octets: []const u8) !Received {
 pub fn expect_done(id: u64) !void {
     const received = try connection.receive(&.{}, now_ns);
     try std.testing.expectEqual(0, received.consumed);
-    try std.testing.expectEqual(id, received.event.?.done.id);
+    try std.testing.expectEqual(id, received.event.?.done.id.number);
 }
 
 /// Everything the connection owes, sent in one call.

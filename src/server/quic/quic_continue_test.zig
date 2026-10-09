@@ -40,7 +40,7 @@ fn put(fields: []const Field, open: bool) !*support.Fetch {
         try support.request_with_fields("PUT", "/f", fields);
     try deliver();
     const head = (try connection.receive(support.now_ns)).event.?.request;
-    try testing.expectEqual(fetch.id, head.id);
+    try testing.expectEqual(fetch.id, head.id.number);
     // RFC 9114 §4.1: h3 reports the request's end apart from its head.
     try testing.expect(!head.end);
     return fetch;
@@ -188,7 +188,7 @@ test "decision 116: content that arrived whole with the head leaves the 100 owed
     const fetch = try support.request_open_with_fields("PUT", "/f", &expect_continue);
     try send_content(fetch, "hello");
     try deliver();
-    try testing.expectEqual(fetch.id, (try connection.receive(support.now_ns)).event.?.request.id);
+    try testing.expectEqual(fetch.id, (try connection.receive(support.now_ns)).event.?.request.id.number);
     // RFC 9000 §4.5: the stream's final size is known, and its content is still to read.
     const content = (try connection.receive(support.now_ns)).event.?.body;
     try testing.expectEqual(5, content.octets.len);

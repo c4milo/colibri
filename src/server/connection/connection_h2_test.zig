@@ -31,7 +31,7 @@ test "RFC 9113 §8.3.1: a request's pseudo-header fields arrive as its parts, an
     try start();
     const received = try support.receive_copy(try request_frame(1, "/index.html", true));
     const head = received.event.?.request;
-    try testing.expectEqual(1, head.id);
+    try testing.expectEqual(1, head.id.number);
     try testing.expectEqualStrings("GET", head.method);
     try testing.expectEqualStrings("http", head.scheme.?);
     try testing.expectEqualStrings("example.com", head.authority.?);
@@ -54,7 +54,7 @@ test "RFC 9113 §3.4: the server's SETTINGS goes first, before a response to a r
     @memcpy(flight[0..preface.len], preface);
     @memcpy(flight[preface.len..][0..request.len], request);
     const received = try support.receive_copy(flight[0 .. preface.len + request.len]);
-    try testing.expectEqual(1, received.event.?.request.id);
+    try testing.expectEqual(1, received.event.?.request.id.number);
     try connection.respond(1, .{ .status = ok, .end = true });
     const sent = support.drain();
     // RFC 9113 §3.4: the SETTINGS frame "MUST be the first frame the server sends".
@@ -146,7 +146,7 @@ test "RFC 9113 §8.1: a request's DATA arrives as body events, the last ending i
     try h2.frame.write_data(&writer, 1, "hello", true, 0);
     const received = try support.receive_copy(writer.written());
     const body = received.event.?.body;
-    try testing.expectEqual(1, body.id);
+    try testing.expectEqual(1, body.id.number);
     try testing.expectEqualStrings("hello", body.octets);
     try testing.expect(body.end);
 }
@@ -195,7 +195,7 @@ test "RFC 9113 §6.4: a stream the peer resets arrives as its cancellation" {
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_rst_stream(&writer, 1, constants.error_cancel);
     const received = try support.receive_copy(writer.written());
-    try testing.expectEqual(1, received.event.?.cancelled.id);
+    try testing.expectEqual(1, received.event.?.cancelled.id.number);
 }
 
 test "RFC 9113 §5.1.1: an id no client stream can have names no request" {
@@ -286,7 +286,7 @@ test "RFC 9113 §8.1: a request's trailer section arrives as its trailers, and e
     try writer.write_bytes(block_writer.written());
     const received = try support.receive_copy(writer.written());
     const trailers = received.event.?.trailers;
-    try testing.expectEqual(1, trailers.id);
+    try testing.expectEqual(1, trailers.id.number);
     try testing.expectEqualStrings("0", trailers.fields.find("grpc-status").?.value);
 }
 
@@ -327,7 +327,7 @@ test "RFC 9113 §6.7: the PING acknowledgments h2 owes go out, and the request a
     @memcpy(support.input[pings_len..][0..request.len], request);
     const received = try connection.receive(support.input[0 .. pings_len + request.len], support.now_ns);
     try testing.expectEqual(pings_len + request.len, received.consumed);
-    try testing.expectEqual(1, received.event.?.request.id);
+    try testing.expectEqual(1, received.event.?.request.id.number);
 }
 
 test "RFC 9113 §6.8: nothing h2 owes goes out once the transport closed" {
@@ -383,7 +383,7 @@ fn read_ping_then_request(stream_id: u32, method: []const u8, fields: []const su
     @memcpy(flight[0..ping.len], ping);
     @memcpy(flight[ping.len..][0..request.len], request);
     const received = try support.receive_copy(flight[0 .. ping.len + request.len]);
-    try testing.expectEqual(stream_id, received.event.?.request.id);
+    try testing.expectEqual(stream_id, received.event.?.request.id.number);
 }
 
 /// Checks that `sent` starts with the PING's acknowledgment, then a frame of `frame_type`.
@@ -451,11 +451,11 @@ const lowered_floor_len: u32 = support.server_constants.data_frame_len_min - 1;
 fn expect_refused_after(limit: u32) !void {
     for (0..limit) |index| {
         const stream_id: u32 = @intCast(constants.stream_id_client_first + constants.stream_id_step * index);
-        try testing.expectEqual(stream_id, (try support.receive_copy(try h2_support.request_frame(stream_id, "/", false))).event.?.request.id);
+        try testing.expectEqual(stream_id, (try support.receive_copy(try h2_support.request_frame(stream_id, "/", false))).event.?.request.id.number);
     }
     const refused_id = constants.stream_id_client_first + constants.stream_id_step * limit;
     const cancelled = (try support.receive_copy(try h2_support.request_frame(refused_id, "/", false))).event.?.cancelled;
-    try testing.expectEqual(refused_id, cancelled.id);
+    try testing.expectEqual(refused_id, cancelled.id.number);
     try testing.expect(cancelled.reason == .refused);
 }
 
@@ -489,9 +489,9 @@ test "decision 110: a peer that resets streams past peer_reset_rate_max ends the
 /// (CVE-2023-44487). Test-only.
 fn open_and_reset(id: u32) !void {
     const opened = try support.receive_copy(try request_frame(id, "/", true));
-    try testing.expectEqual(id, opened.event.?.request.id);
+    try testing.expectEqual(id, opened.event.?.request.id.number);
     var writer = h2.core.Writer.init(frames);
     try h2.frame.write_rst_stream(&writer, id, constants.error_cancel);
     const reset = try support.receive_copy(writer.written());
-    try testing.expectEqual(id, reset.event.?.cancelled.id);
+    try testing.expectEqual(id, reset.event.?.cancelled.id.number);
 }

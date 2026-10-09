@@ -18,7 +18,7 @@ pub const Error = error{
 /// A request the application read: when its body ended, when the application answered it, the
 /// octets of its content the server took, and when the last of them left the server's output.
 pub const Answer = struct {
-    id: server.Id,
+    id: u64,
     read_ms: u64,
     body_end_ms: ?u64,
     answered_ms: ?u64,
@@ -44,17 +44,19 @@ pub const Application = struct {
     /// cancelled one.
     pub fn note_event(app: *Application, reported: server.Event, now_ms: u64) void {
         switch (reported) {
-            .request => |request| app.note_request(request.id, now_ms, request.end),
-            .body => |body| if (body.end) app.note_body_end(body.id, now_ms),
-            .trailers => |trailers| app.note_body_end(trailers.id, now_ms),
+            .request => |request| app.note_request(request.id.number, now_ms, request.end),
+            .body => |body| if (body.end) app.note_body_end(body.id.number, now_ms),
+            .trailers => |trailers| app.note_body_end(trailers.id.number, now_ms),
             .cancelled => |cancelled| if (cancelled.reason == .deadline) {
                 app.cancelled = cancelled.reason.deadline;
             },
             .done => {},
+            // A connection reports none of these: the endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 
-    fn note_request(app: *Application, id: server.Id, now_ms: u64, ended: bool) void {
+    fn note_request(app: *Application, id: u64, now_ms: u64, ended: bool) void {
         // The application answers as many requests as a peer makes whole.
         if (app.answers_len == limits.exchanges_max) return;
         app.answers[app.answers_len] = .{
@@ -68,7 +70,7 @@ pub const Application = struct {
         app.answers_len += 1;
     }
 
-    fn note_body_end(app: *Application, id: server.Id, now_ms: u64) void {
+    fn note_body_end(app: *Application, id: u64, now_ms: u64) void {
         for (app.answers[0..app.answers_len]) |*pending| {
             if (pending.id == id) pending.body_end_ms = now_ms;
         }

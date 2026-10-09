@@ -58,6 +58,9 @@ const done = @import("../done.zig");
 const alt_svc = @import("../alt_svc.zig");
 
 pub const Id = event.Id;
+/// The number of a request on this connection, which its calls take (decision 119): an event's
+/// `id.number`.
+pub const Number = event.Number;
 pub const Protocol = event.Protocol;
 pub const Event = event.Event;
 pub const Received = event.Received;
@@ -128,10 +131,10 @@ pub const Connection = struct {
     shutting_down: bool,
     /// The request a 100 (Continue) is owed to (RFC 9110 §10.1.1), which the next `receive` or
     /// `send` writes unless the caller answers the request first.
-    continue_owed: ?Id,
+    continue_owed: ?event.Number,
     /// h11: the id the next request gets, and the id of the request being answered.
-    next_id: Id,
-    current_id: Id,
+    next_id: event.Number,
+    current_id: event.Number,
     /// h11: the request being answered came as HTTP/1.1, so a response of unknown length is
     /// chunked (RFC 9112 §7.1). An HTTP/1.0 one runs until the close (RFC 9112 §6.3 rule 8).
     chunked_allowed: bool,
@@ -140,7 +143,7 @@ pub const Connection = struct {
     /// The responses made whole whose `done` event `receive` has not reported (decision 103).
     done_owed: done.Owed,
     /// h11: the last request whose `done` event is owed, so its response owes no second one.
-    done_id: Id,
+    done_id: event.Number,
     /// The Alt-Svc value the connection advertises h3 with, if any.
     advert: alt_svc.Advert,
     /// The requests whose responses may be coded, and the coded responses (decision 101).
@@ -214,7 +217,7 @@ pub const Connection = struct {
         if (!connection_continue.write(connection)) return .{ .consumed = 0, .event = null };
         // Decision 103: a response made whole since the last call is reported before anything
         // more is read, so no request arrives while one is owed.
-        if (connection.done_owed.take()) |id| return .{ .consumed = 0, .event = .{ .done = .{ .id = id } } };
+        if (connection.done_owed.take()) |id| return .{ .consumed = 0, .event = .{ .done = .{ .id = event.id_of(id) } } };
         // Decision 110: a request an h2 body deadline ended is reported the same way.
         if (connection_bodies.take_cancelled(connection)) |cancelled| return .{ .consumed = 0, .event = .{ .cancelled = cancelled } };
         const received = try switch (connection.phase) {
@@ -233,7 +236,7 @@ pub const Connection = struct {
     /// Writes the head of the response to request `id`: an interim one (1xx) or the final one.
     /// With `end`, the final response carries no content. A final response marked `codable` goes
     /// out as decision 101 has it (`connection_coding.zig`).
-    pub fn respond(connection: *Connection, id: Id, response: event.Response) SendError!void {
+    pub fn respond(connection: *Connection, id: Number, response: event.Response) SendError!void {
         try connection.check_writable();
         // RFC 9110 §10.1.1: the caller's own 100 replaces the one owed. A final response replaces
         // it too: the protocol refuses a 100 after it, and `write_continue` drops the one owed.
@@ -246,7 +249,7 @@ pub const Connection = struct {
     /// returns the octets taken. With `end`, the content ends once every octet is taken; a call
     /// that takes fewer leaves the rest, and the end, to the next call. A coded response's last
     /// octets go out in `send`.
-    pub fn write_body(connection: *Connection, id: Id, content: event.Content) SendError!usize {
+    pub fn write_body(connection: *Connection, id: Number, content: event.Content) SendError!usize {
         try connection.check_writable();
         if (content.octets.len == 0 and !content.end) return 0;
         return connection_coding.write_body(connection, id, content);
@@ -254,14 +257,14 @@ pub const Connection = struct {
 
     /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5). A coded
     /// response's trailer section waits, with `error.Blocked`, until its coded octets are written.
-    pub fn write_trailers(connection: *Connection, id: Id, fields: []const Field) SendError!void {
+    pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
         try connection.check_writable();
         return connection_coding.write_trailers(connection, id, fields);
     }
 
     /// Ends request `id` before its response is whole: h2 resets its stream with CANCEL (RFC
     /// 9113 §6.4), and h11, which cannot end one request alone, ends the connection.
-    pub fn cancel(connection: *Connection, id: Id) void {
+    pub fn cancel(connection: *Connection, id: Number) void {
         if (connection.phase != .open) return;
         connection_coding.forget(connection, id);
         connection_bodies.remove(connection, id);

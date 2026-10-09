@@ -369,17 +369,17 @@ pub const World = struct {
 
     fn note_event(world: *World, reported: server.Event) void {
         switch (reported) {
-            .request => |request| if (index_of(request.id)) |index| {
+            .request => |request| if (index_of(request.id.number)) |index| {
                 world.processed[index] = true;
                 world.content_ended[index] = request.end;
             },
-            .body => |body| if (index_of(body.id)) |index| {
+            .body => |body| if (index_of(body.id.number)) |index| {
                 if (body.end) world.content_ended[index] = true;
             },
-            .trailers => |trailers| if (index_of(trailers.id)) |index| {
+            .trailers => |trailers| if (index_of(trailers.id.number)) |index| {
                 world.content_ended[index] = true;
             },
-            .cancelled => |cancelled| if (index_of(cancelled.id)) |index| {
+            .cancelled => |cancelled| if (index_of(cancelled.id.number)) |index| {
                 world.cancelled[index] = true;
             },
             else => {},
@@ -444,9 +444,9 @@ pub fn stream_of(index: usize) u64 {
     return @as(u64, index) * request_stream_step;
 }
 
-fn index_of(id: server.Id) ?usize {
-    if (id % request_stream_step != 0) return null;
-    const index = id / request_stream_step;
+fn index_of(number: u64) ?usize {
+    if (number % request_stream_step != 0) return null;
+    const index = number / request_stream_step;
     return if (index < limits.requests_max) @intCast(index) else null;
 }
 

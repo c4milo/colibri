@@ -38,7 +38,7 @@ const taken_len: usize = 64;
 /// Answers the h11 request `receive_at` read with `content`, and has the peer take `taken_len`
 /// octets of it at `early_ns`, so the rest waits in the output.
 fn answer_slowly() !void {
-    const id = (try receive_at(whole_request, early_ns)).event.?.request.id;
+    const id = (try receive_at(whole_request, early_ns)).event.?.request.id.number;
     try connection.respond(id, .{ .status = ok_status, .end = false });
     _ = try connection.write_body(id, .{ .octets = &content, .end = true });
     try testing.expectEqual(taken_len, connection.send(support.output[0..taken_len], early_ns));
@@ -137,7 +137,7 @@ test "RFC 9113 §10.5: a stream whose window stays under the floor is reset with
     try testing.expectEqual(null, connection.close_reason());
     try testing.expectEqual(h2.constants.error_cancel, try deadline_support.reset_code(send_at(first_end_ns), 1));
     const cancelled = (try connection.receive(&.{}, first_end_ns)).event.?.cancelled;
-    try testing.expectEqual(1, cancelled.id);
+    try testing.expectEqual(1, cancelled.id.number);
     try testing.expectEqual(Deadline.send_rate, cancelled.reason.deadline);
 }
 
@@ -174,7 +174,7 @@ test "decision 110: a stream held by its window that ends, or is cancelled, runs
     try answer_blocked(0);
     try connection.write_trailers(1, &.{.{ .name = "checksum", .value = "1" }});
     _ = send_at(early_ns);
-    try testing.expectEqual(1, (try connection.receive(&.{}, early_ns)).event.?.done.id);
+    try testing.expectEqual(1, (try connection.receive(&.{}, early_ns)).event.?.done.id.number);
     connection.on_instant(first_end_ns);
     try testing.expect(try nothing_owed(first_end_ns));
     // The peer resets the stream.
@@ -282,6 +282,6 @@ test "decision 110: a stream's window meter does not run while another stream's 
     connection.on_instant(first_end_ns);
     try testing.expectEqual(null, connection.close_reason());
     // Stream 3's answer is done, and stream 1 is not cut.
-    try testing.expectEqual(3, (try connection.receive(&.{}, first_end_ns)).event.?.done.id);
+    try testing.expectEqual(3, (try connection.receive(&.{}, first_end_ns)).event.?.done.id.number);
     try testing.expect(try nothing_owed(first_end_ns));
 }

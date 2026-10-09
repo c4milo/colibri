@@ -29,9 +29,9 @@ test "decision 103: an h2 response is done after the call that ends it, before t
     const next = try h2_support.request_frame(3, "/next", true);
     const first = try support.receive_copy(next);
     try testing.expectEqual(0, first.consumed);
-    try testing.expectEqual(1, first.event.?.done.id);
+    try testing.expectEqual(1, first.event.?.done.id.number);
     const second = try support.receive_copy(next);
-    try testing.expectEqual(3, second.event.?.request.id);
+    try testing.expectEqual(3, second.event.?.request.id.number);
 }
 
 test "decision 103: an interim response ends no h2 request, and a final one without content does" {
@@ -80,7 +80,7 @@ test "decision 103: a request the caller or the peer cancelled is never done" {
     var writer = h2.core.Writer.init(h2_support.frames[0..]);
     try h2.frame.write_rst_stream(&writer, 3, h2.constants.error_cancel);
     const cancelled = (try support.receive_copy(writer.written())).event.?.cancelled;
-    try testing.expectEqual(3, cancelled.id);
+    try testing.expectEqual(3, cancelled.id.number);
     try testing.expect(cancelled.reason == .peer_reset);
     try expect_nothing();
 }
@@ -96,7 +96,7 @@ test "decision 103: the transport's close drops the done events owed" {
 test "decision 103: an h11 response is done once, whatever the calls after it" {
     try support.start_cleartext(.h11);
     const request = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
-    try testing.expectEqual(1, (try support.receive_copy(request)).event.?.request.id);
+    try testing.expectEqual(1, (try support.receive_copy(request)).event.?.request.id.number);
     try connection.respond(1, .{ .status = ok, .end = false });
     try expect_nothing();
     try testing.expectEqual(5, try connection.write_body(1, .{ .octets = "hello", .end = true }));
@@ -109,7 +109,7 @@ test "decision 103: an h11 response is done once, whatever the calls after it" {
 test "decision 103: an h11 trailer section ends the chunked response, and makes the request done" {
     try support.start_cleartext(.h11);
     const request = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
-    try testing.expectEqual(1, (try support.receive_copy(request)).event.?.request.id);
+    try testing.expectEqual(1, (try support.receive_copy(request)).event.?.request.id.number);
     // RFC 9112 §7.1: content of unknown length to an HTTP/1.1 request goes out chunked.
     try connection.respond(1, .{ .status = ok, .end = false });
     try testing.expectEqual(1, try connection.write_body(1, .{ .octets = "x", .end = false }));

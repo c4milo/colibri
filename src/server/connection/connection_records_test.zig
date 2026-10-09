@@ -57,7 +57,7 @@ test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before the next record op
     try testing.expectEqual(header_len + reply.content.len, sent.len);
     received = try connection.receive(support.input[update_len .. update_len + request_len], support.now_ns);
     try testing.expectEqual(request_len, received.consumed);
-    try testing.expectEqual(1, received.event.?.request.id);
+    try testing.expectEqual(1, received.event.?.request.id.number);
 }
 
 test "RFC 9846 §6.1: a record after the peer's close_notify is not read" {
@@ -116,7 +116,7 @@ test "RFC 9846 §5.1: what the protocol has not read waits, and the next record 
     try connection.respond(1, .{ .status = ok, .end = true });
     try support.expect_done(1);
     received = try connection.receive(&.{}, support.now_ns);
-    try testing.expectEqual(2, received.event.?.request.id);
+    try testing.expectEqual(2, received.event.?.request.id.number);
     try testing.expectEqualStrings("/two", received.event.?.request.path.?);
 }
 
@@ -140,7 +140,7 @@ test "RFC 9846 §5.1: records open while the protocol's octets have room, and th
     for (0..upload_records) |_| sealed += try record_at(sealed, plain_support.content_application_data, &upload_content);
     const received = try connection.receive(support.input[0..sealed], support.now_ns);
     try testing.expect(received.consumed > 0 and received.consumed < sealed);
-    try testing.expectEqual(1, received.event.?.request.id);
+    try testing.expectEqual(1, received.event.?.request.id.number);
 }
 
 /// The decoder pool and buffer of the coded-body test (decisions 91 and 98). Test-only.
@@ -160,7 +160,7 @@ test "RFC 9112 §7.2: content after a chunk that decodes to nothing is read in t
     try attach_plain_with(.{ .alpn = "http/1.1" });
     const record_len = try record_at(0, plain_support.content_application_data, coded_request);
     const head = try connection.receive(support.input[0..record_len], support.now_ns);
-    try testing.expectEqual(1, head.event.?.request.id);
+    try testing.expectEqual(1, head.event.?.request.id.number);
     // Every record is open, so the rest arrives with nothing more consumed.
     const body = try connection.receive(&.{}, support.now_ns);
     try testing.expectEqualStrings("hello", body.event.?.body.octets);
@@ -175,7 +175,7 @@ test "decision 91: a transport that closed gives back the decoder its coded body
         const head_len = coded_request.len - "0\r\n\r\n".len;
         const record_len = try record_at(0, plain_support.content_application_data, coded_request[0..head_len]);
         const received = try connection.receive(support.input[0..record_len], support.now_ns);
-        try testing.expectEqual(1, received.event.?.request.id);
+        try testing.expectEqual(1, received.event.?.request.id.number);
         connection.transport_closed();
     }
 }

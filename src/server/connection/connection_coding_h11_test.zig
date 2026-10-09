@@ -25,7 +25,7 @@ threadlocal var test_content: [support.coded_len_max]u8 = undefined;
 fn expect_request(request: []const u8, id: u64) !void {
     const received = try support.receive_copy(request);
     try testing.expectEqual(request.len, received.consumed);
-    try testing.expectEqual(id, received.event.?.request.id);
+    try testing.expectEqual(id, received.event.?.request.id.number);
 }
 
 /// A response's head and its chunked content, joined.

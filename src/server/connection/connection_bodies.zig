@@ -28,7 +28,7 @@ const connection_coding = @import("connection_coding.zig");
 const connection_sends = @import("connection_sends.zig");
 
 const Connection = connection_module.Connection;
-const Id = event.Id;
+const Number = event.Number;
 const Deadline = deadline.Deadline;
 
 /// RFC 9110 §15.5.9: 408 (Request Timeout).
@@ -37,7 +37,7 @@ const request_timeout: u16 = @intFromEnum(http.status.Code.request_timeout);
 /// One body the connection waits for.
 const Body = struct {
     /// The request, or 0 for a free entry.
-    id: Id = 0,
+    id: Number = 0,
     /// Whether the wait has started, at `since_ns`: a body owed a 100 (Continue) waits for it.
     started: bool = false,
     since_ns: u64 = 0,
@@ -51,7 +51,7 @@ pub const Bodies = struct {
     together: rate.Meter,
     /// The requests an h2 body deadline ended, oldest first, which `receive` reports before it
     /// reads more.
-    cancelled: [constants.bodies_max]event.Cancelled,
+    cancelled: [constants.bodies_max]Owed,
     cancelled_first: u32,
     cancelled_len: u32,
 
@@ -63,7 +63,7 @@ pub const Bodies = struct {
         bodies.cancelled_len = 0;
     }
 
-    fn find(bodies: *Bodies, id: Id) ?*Body {
+    fn find(bodies: *Bodies, id: Number) ?*Body {
         assert(id != 0);
         return bodies.find_id(id);
     }
@@ -72,7 +72,7 @@ pub const Bodies = struct {
         return bodies.find_id(0);
     }
 
-    fn find_id(bodies: *Bodies, id: Id) ?*Body {
+    fn find_id(bodies: *Bodies, id: Number) ?*Body {
         for (&bodies.entries) |*body| {
             if (body.id == id) return body;
         }
@@ -81,7 +81,7 @@ pub const Bodies = struct {
 };
 
 /// Request `id`'s head said a body follows.
-pub fn add(connection: *Connection, id: Id) void {
+pub fn add(connection: *Connection, id: Number) void {
     const bodies = &connection.bodies;
     assert(bodies.find(id) == null);
     // h11 reads one request at a time, and h2 holds `concurrent_streams_max` streams, so a body
@@ -91,7 +91,7 @@ pub fn add(connection: *Connection, id: Id) void {
 }
 
 /// Request `id`'s body ended, or the request did.
-pub fn remove(connection: *Connection, id: Id) void {
+pub fn remove(connection: *Connection, id: Number) void {
     const bodies = &connection.bodies;
     const body = bodies.find(id) orelse return;
     if (body.started) {
@@ -105,7 +105,7 @@ pub fn remove(connection: *Connection, id: Id) void {
 /// Counts `octets` of request `id`'s body, which arrived at the instant `fire` last moved the
 /// meters to. A body's own meter counts nothing before its wait starts, and the bodies' meter
 /// counts them while any body waits.
-pub fn count(connection: *Connection, id: Id, octets: usize) void {
+pub fn count(connection: *Connection, id: Number, octets: usize) void {
     const bodies = &connection.bodies;
     const body = bodies.find(id) orelse return;
     body.meter.count(octets);
@@ -192,7 +192,7 @@ fn passed_of(connection: *const Connection, body: *Body, now_ns: u64) ?Deadline 
 }
 
 /// Ends request `id`'s h2 stream for `passed`, and owes the caller its `cancelled` event.
-fn cancel_stream(connection: *Connection, id: Id, passed: Deadline) void {
+fn cancel_stream(connection: *Connection, id: Number, passed: Deadline) void {
     const session = &connection.session.h2;
     const stream_id: u32 = @intCast(id);
     // RFC 9110 §15.5.9: a server that did not receive a complete request in the time it was
@@ -219,8 +219,15 @@ fn write_timeout(connection: *Connection, stream_id: u32) bool {
     return true;
 }
 
+/// A `cancelled` event a deadline owes: the request's number, so the ring stays the size it was
+/// before ids named their connection (decision 119), and why.
+pub const Owed = struct {
+    id: Number,
+    reason: event.CancelReason,
+};
+
 /// Owes the caller `cancelled`, for a request a deadline ended.
-pub fn owe_cancelled(connection: *Connection, cancelled: event.Cancelled) void {
+pub fn owe_cancelled(connection: *Connection, cancelled: Owed) void {
     const bodies = &connection.bodies;
     // Each request is cancelled once, and the ring holds one for each h2 stream.
     assert(bodies.cancelled_len < bodies.cancelled.len);
@@ -233,8 +240,8 @@ pub fn owe_cancelled(connection: *Connection, cancelled: event.Cancelled) void {
 pub fn take_cancelled(connection: *Connection) ?event.Cancelled {
     const bodies = &connection.bodies;
     if (bodies.cancelled_len == 0) return null;
-    const cancelled = bodies.cancelled[bodies.cancelled_first];
+    const owed = bodies.cancelled[bodies.cancelled_first];
     bodies.cancelled_first = @intCast((bodies.cancelled_first + 1) % bodies.cancelled.len);
     bodies.cancelled_len -= 1;
-    return cancelled;
+    return .{ .id = event.id_of(owed.id), .reason = owed.reason };
 }

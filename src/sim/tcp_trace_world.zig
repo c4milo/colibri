@@ -42,7 +42,7 @@ pub const HeadKind = h2_trace_state.HeadKind;
 /// What the server's caller holds of the exchange on one stream.
 pub const Answer = struct {
     /// The request's identifier, once the server reported its head.
-    id: ?server.Id = null,
+    id: ?u64 = null,
     interims: u32 = 0,
     final_sent: bool = false,
     data: u32 = 0,
@@ -294,24 +294,26 @@ pub const World = struct {
     fn on_server_event(world: *World, event: server.Event, plan: *const Plan) void {
         switch (event) {
             .request => |head| {
-                const index = h2_trace_pair.index_of(@intCast(head.id));
-                world.answers[index].id = head.id;
+                const index = h2_trace_pair.index_of(@intCast(head.id.number));
+                world.answers[index].id = head.id.number;
                 world.request_read[index] = if (head.end) .ended else .head;
                 // A caller may answer a request the moment it reads it, before the server reads
                 // on, which is when e3126a9's server wrote a response ahead of its SETTINGS.
                 if (plan.answer_at_once[index]) world.server_final(.{ .stream = @intCast(index + 1), .end = true });
             },
             .body => |body| if (body.end) {
-                world.request_read[h2_trace_pair.index_of(@intCast(body.id))] = .ended;
+                world.request_read[h2_trace_pair.index_of(@intCast(body.id.number))] = .ended;
             },
-            .trailers => |section| world.request_read[h2_trace_pair.index_of(@intCast(section.id))] = .ended,
+            .trailers => |section| world.request_read[h2_trace_pair.index_of(@intCast(section.id.number))] = .ended,
             .cancelled => |cancelled| {
-                world.answers[h2_trace_pair.index_of(@intCast(cancelled.id))].cancelled = true;
+                world.answers[h2_trace_pair.index_of(@intCast(cancelled.id.number))].cancelled = true;
                 // RFC 9113 §8.1.1: colibri refuses a malformed request, which an honest client
                 // never sends; a client's reset is the one cancel the run expects.
                 if (cancelled.reason != .peer_reset) world.malformed = true;
             },
             .done => {},
+            // A connection reports none of these: the endpoint does (decision 119).
+            .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 
