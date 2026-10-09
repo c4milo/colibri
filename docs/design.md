@@ -6524,6 +6524,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `set_deadlines`, for a server short of connections that shortens the deadlines of the ones
     it holds, and `close_reason`, for an operator's log that tells an attack from a limit set
     too tight. `examples/h3_exchange.zig` calls both.
+  - **20d**, a TLA+ model of the h3 deadlines, `spec/tla/h3_deadlines`, which the owner asked for
+    on 2026-10-08. It models one `server.QuicConnection`, an honest client and the application,
+    with QUIC's flow control and congestion window, and checks two things:
+    - what the server tells the client when it ends the connection on its own: at the close,
+      the client knows which requests below the GOAWAY's identifier the server did not take,
+      the close waits for the GOAWAY's acknowledgment until the drain deadline passes, and the
+      server never counts a reset it asked for;
+    - decision 110's rule 2 over QUIC, as `spec/tla/server_deadlines` states it for h2: each
+      deadline runs only while the client holds the connection up, checked in the states where
+      colibri has no step of its own left.
+
+    **Check:** TLC finds colibri's rules holding, and each earlier rule, and each rule turned
+    off, violated. It lands in two parts:
+    - the model and its configurations;
+    - the simulator's h3 deadline run written as traces of the model, which TLC checks are
+      behaviors of it, as `tools/deadline_trace.sh` does for h2.
 
   **Rapid Reset, 2026-09-29.** h2 counts a RST_STREAM that closes a stream the peer opened, in the
   period its instant falls in, beside the count of the resets colibri sends. What was checked, on
@@ -7301,6 +7317,46 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - The mutations ran in copies of this tree with `zig build sim -- --h3-deadline-check`. One
     is caught when the command fails or prints another CRC, which is what the module's test
     compares.
+
+  **The h3 deadline model, 2026-10-08.** The first part of 20d. `spec/tla/h3_deadlines` models
+  one `server.QuicConnection`, an honest client and the application, with QUIC's credit and
+  congestion window. Its header says what it leaves out.
+  - `zig build tla -- spec/tla/h3_deadlines/*.cfg`, on macOS arm64: the fourteen configurations
+    give their verdicts in two to three and a half minutes. colibri's rules hold GoawayBeforeClose,
+    RejectedUnprocessed and OnlyChosenCounted over 3,304,818 states with two streams and over
+    372,018 with bodies and the client's cancels, and SendWaitsOnPeer over 370,167.
+  - Each earlier rule, and each rule turned off, is violated: a shutdown that leaves an unread
+    head unanswered, as before 4b4749c (NothingUnsaid); a close that does not wait for the
+    GOAWAY's acknowledgment, as before 76545f7 (GoawayBeforeClose); and a reset on a stream
+    colibri abandoned counted toward the limit (OnlyChosenCounted).
+  - Two findings, each kept as configurations TLC must find violated until it is ruled on:
+    - `rejection_lost`: colibri closes once the client acknowledged the GOAWAY, while the
+      rejection of a request whose head it had not read is still owed. Once a close is owed,
+      colibri's QUIC sends nothing else, so the client never learns that it may send that
+      request again. One datagram most often carries the GOAWAY and the rejections together,
+      and a datagram that fills, or a lost packet, splits them. With the close also waiting
+      for the client's acknowledgment of every RESET_STREAM colibri sent, NothingUnsaid holds
+      (`close_after_resets` over 3,125,954 states, and `close_after_resets_cancels`).
+    - `credit_held_body`, `credit_held_head` and `credit_held_idle`: a body's clock, a head's
+      and the idle clock run while the credit the client needs waits in colibri behind its
+      congestion window, which the client's next acknowledgment frees. It is the QUIC form of
+      what `spec/tla/server_deadlines` found for h2
+      ([#89](https://github.com/c4milo/colibri/issues/89)). With the head, body and idle clocks
+      waiting while colibri holds credit, every rule-2 invariant holds (`pause_for_credit`, and
+      `pause_for_credit_three` over 2,183,812 states with three streams).
+  - The first runs let colibri's packets reach the client in any order: 80 million states in
+    ten minutes, and still growing. In order, with the close free to pass every packet sent
+    before it, each scope finishes in seconds and keeps every case the invariants need.
+  - Three counterexamples were the model's own, and are fixed. A credit packet carried one
+    limit, so the connection's credit took the window from the stream's, where colibri writes
+    every limit in one packet. And the head and idle invariants judged a head already on its
+    way to colibri.
+  - Each invariant constrains states the model reaches. A module that extends the model named
+    one such state for each, and TLC reached every one. An idle client whose next request
+    needs held connection credit is reached only with three streams, which `credit_held_idle`
+    runs.
+  - Next: the simulator's h3 deadline run written as traces of the model, the second part of
+    20d.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
