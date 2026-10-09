@@ -19,7 +19,8 @@ pub fn should_close(connection: *const Connection) bool {
     if (connection.clock.lingered) return true;
     if (connection.output_len > 0) return false;
     return switch (connection.phase) {
-        .handshake => false,
+        // Nothing is said before a protocol serves the connection, and a deadline closes it.
+        .handshake, .choosing => false,
         .closed => true,
         .open => finished(connection) and
             (connection.config.tls == null or connection.close_sent or failure_sent(connection)),

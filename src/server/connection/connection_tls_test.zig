@@ -259,3 +259,18 @@ test "RFC 9846 §5.2: records open while a frame waits for its last octets, so c
     try testing.expectEqual(upload_frames * h2.constants.frame_size_max, received_len);
     try testing.expect(ended);
 }
+
+test "RFC 9113 §6.8: a shutdown asked for during the handshake reaches the protocol ALPN opens" {
+    try support.begin_tls(&support.protocols_both, &support.protocols_both);
+    connection.shutdown();
+    try support.run_handshake();
+    try testing.expectEqual(.h2, connection.protocol().?);
+    // h2 owes its GOAWAY, naming no stream, since the peer opened none.
+    try testing.expectEqual(0, connection.session.h2.streams.goaway_sent_last_id.?);
+    // RFC 9112 §9.6: h11, with no request open, ends at once.
+    try support.begin_tls(&support.protocols_h11, &support.protocols_h11);
+    connection.shutdown();
+    try support.run_handshake();
+    try testing.expectEqual(.h11, connection.protocol().?);
+    try testing.expect(connection.stopped);
+}

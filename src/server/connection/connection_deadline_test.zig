@@ -223,7 +223,7 @@ test "decision 110: a caller changes one connection's limits, null turns one off
     // A shorter limit counts from the start the deadline already has.
     try connection.set_deadlines(.{ .first_request_ns = early_ns });
     try testing.expectEqual(early_ns, connection.deadline_ns().?);
-    support.config = .{ .cleartext = .h11, .deadlines = .{ .head_ns = 0 } };
+    support.config = .{ .versions = support.only(.h11), .deadlines = .{ .head_ns = 0 } };
     try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
 }
 
@@ -233,7 +233,11 @@ test "decision 110 as amended: where bodies arrive in units, a rate an honest pe
     try support.start_cleartext(.h2);
     try testing.expectError(error.DeadlineInvalid, connection.set_deadlines(.{ .body_rate_min = 819 }));
     try connection.set_deadlines(.{ .body_rate_min = 820 });
-    support.config = .{ .cleartext = .h2, .deadlines = .{ .body_rate_min = 819 } };
+    support.config = .{ .versions = support.only(.h2), .deadlines = .{ .body_rate_min = 819 } };
+    try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
+    // Decision 117: a connection in cleartext that may speak both chooses by its first octets,
+    // which may choose h2, so it refuses the rate as well.
+    support.config = .{ .deadlines = .{ .body_rate_min = 819 } };
     try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
     // h11 in cleartext reads a body octet by octet, so any rate stands.
     try support.start_cleartext(.h11);
@@ -244,7 +248,7 @@ test "decision 110 as amended: where bodies arrive in units, a rate an honest pe
 }
 
 test "decision 110: the configuration's limits apply from the instant init is given" {
-    support.config = .{ .cleartext = .h11, .deadlines = .{ .first_request_ns = early_ns } };
+    support.config = .{ .versions = support.only(.h11), .deadlines = .{ .first_request_ns = early_ns } };
     try connection.init(&support.config, support.stream.random(), 0, idle_ns);
     try testing.expectEqual(idle_ns + early_ns, connection.deadline_ns().?);
 }
@@ -333,5 +337,18 @@ test "decision 110: a shutdown whose requests finish in time closes without a de
     _ = try receive_at(whole_request, early_ns);
     connection.shutdown();
     _ = send_at(early_ns + 1);
+    try testing.expectEqual(null, connection.deadline_ns());
+}
+
+test "decision 110: a drain that passes before a protocol serves the connection closes it" {
+    try support.begin_tls(&support.protocols_both, &support.protocols_both);
+    // No first-request deadline, so the drain alone ends a handshake that never completes.
+    try connection.set_deadlines(.{ .first_request_ns = null, .drain_ns = early_ns });
+    connection.shutdown();
+    connection.on_instant(0);
+    try testing.expectEqual(early_ns, connection.deadline_ns().?);
+    connection.on_instant(early_ns);
+    try testing.expectEqual(.drain, connection.close_reason().?.deadline);
+    try testing.expect(connection.should_close());
     try testing.expectEqual(null, connection.deadline_ns());
 }

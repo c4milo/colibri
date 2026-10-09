@@ -6,8 +6,8 @@
 //!
 //! Over TLS, `receive` runs the handshake through `tls.record.Client`, and the protocol ALPN
 //! selected serves the connection: h2 for "h2" (RFC 9113 §3.2), and h11 for "http/1.1" or for no
-//! selection (decision 88). In cleartext, `Config.cleartext` names the protocol: h11, or h2 with
-//! prior knowledge (RFC 9113 §3.3).
+//! selection (decision 88). In cleartext, the connection speaks h11 when `Config.versions` allows
+//! it, and h2 with prior knowledge when it does not (RFC 9113 §3.3, decision 117).
 //!
 //! The caller loops over `receive` until it returns nothing consumed and no event, calls `send`
 //! whenever the transport can take octets, and closes the transport once `should_close` says so.
@@ -33,6 +33,7 @@ const connection_tls = @import("connection_tls.zig");
 const connection_request = @import("connection_request.zig");
 const internal = @import("connection_internal.zig");
 const alt_svc = @import("../alt_svc.zig");
+const versions_module = @import("../versions.zig");
 
 pub const Id = event.Id;
 pub const Protocol = event.Protocol;
@@ -48,9 +49,10 @@ pub const Config = struct {
     /// The TLS configuration, or null for cleartext. Its ALPN list names what the client offers,
     /// `h2` and `http/1.1` in the order it prefers them (RFC 7301 §3.1).
     tls: ?*const tls.record.ClientConfig = null,
-    /// The protocol a cleartext connection speaks: h11, or h2 with prior knowledge (RFC 9113
-    /// §3.3). Over TLS, ALPN chooses (decision 88). Never h3, which runs over QUIC.
-    cleartext: Protocol = .h11,
+    /// The versions the client speaks (decision 117). A connection in cleartext speaks h11 when it
+    /// allows h11, and h2 with prior knowledge when it does not (RFC 9113 §3.3). Over TLS, ALPN
+    /// chooses (decision 88).
+    versions: versions_module.Versions = .{},
     /// The authority every request names: `:authority` in h2 (RFC 9113 §8.3.1) and Host in h11
     /// (RFC 9112 §3.2).
     authority: []const u8,
@@ -68,6 +70,9 @@ pub const Config = struct {
 pub const StartError = error{
     /// chapulin refused the TLS configuration or the ticket (`tls.record.Error.Refused`).
     TlsRefused,
+    /// `Config.versions` allows neither h11 nor h2, which leaves a TCP connection nothing to speak
+    /// (RFC 9114 §3.1, decision 117).
+    NoVersion,
 };
 
 pub const RequestError = connection_request.RequestError;
@@ -134,7 +139,8 @@ pub const Connection = struct {
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, resumption: ?tls.Resumption) StartError!void {
         assert(coding.codings_valid(config.codings, .of(config)));
         assert(config.authority.len > 0);
-        assert(config.cleartext != .h3);
+        // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
+        const cleartext = versions_module.cleartext(config.versions) orelse return error.NoVersion;
         connection.config = config;
         connection.session = .none;
         connection.plain_in_len = 0;
@@ -155,7 +161,7 @@ pub const Connection = struct {
             // RFC 9846 §4.7.1: chapulin refuses values it cannot run and a ticket too old.
             connection.tls_client.start(tls_config, random, now_seconds, resumption) catch return error.TlsRefused;
         } else {
-            internal.open_session(connection, config.cleartext);
+            internal.open_session(connection, cleartext);
         }
         assert(connection.output_len == 0 and connection.plain_in_len == 0);
     }

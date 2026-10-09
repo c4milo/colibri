@@ -64,11 +64,24 @@ pub var input: [input_len]u8 = undefined;
 pub const output_len: usize = 65_536;
 pub const input_len: usize = 65_536;
 
-/// A cleartext connection speaking `protocol`, with nothing read or written.
+/// A cleartext connection speaking `protocol`, with nothing read or written: its configuration
+/// allows that version alone, so the connection speaks it from the start (decision 117).
 pub fn start_cleartext(protocol: connection_module.Protocol) !void {
-    config = .{ .cleartext = protocol, .h3_alternative = alternative };
+    config = .{ .versions = only(protocol), .h3_alternative = alternative };
     try connection.init(&config, stream.random(), 0, 0);
 }
+
+/// The versions that allow `protocol` alone among those a TCP connection speaks.
+pub fn only(protocol: connection_module.Protocol) Versions {
+    return switch (protocol) {
+        .h11 => .{ .h2 = false },
+        .h2 => .{ .h11 = false },
+        // RFC 9114 §3.1: a TCP connection never speaks h3.
+        .h3 => unreachable,
+    };
+}
+
+pub const Versions = @import("../versions.zig").Versions;
 
 /// The encoder pool the coding tests give a connection, and the codings it applies, gzip first
 /// (decision 101).
@@ -81,7 +94,7 @@ const pool_level: u4 = 1;
 /// A cleartext connection speaking `protocol` that codes content with `pool`, every encoder free.
 pub fn start_coding(protocol: connection_module.Protocol) !void {
     pool.reset(.none());
-    config = .{ .cleartext = protocol, .codings = &codings, .encoders = pool.encoders() };
+    config = .{ .versions = only(protocol), .codings = &codings, .encoders = pool.encoders() };
     try connection.init(&config, stream.random(), 0, 0);
 }
 
@@ -216,7 +229,7 @@ pub fn begin_tls(server_protocols: []const []const u8, client_protocols: []const
 }
 
 /// Moves the flights between the client and the connection until the client completes.
-fn run_handshake() !void {
+pub fn run_handshake() !void {
     var to_server_len: usize = 0;
     for (0..handshake_rounds_max) |_| {
         if (!client.state.completed) {

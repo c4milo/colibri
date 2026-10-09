@@ -1,10 +1,10 @@
 //! The socket around `server_session.zig`: the server of design §9, which `tools/h2spec.sh` runs
 //! the pinned h2spec against and h2load measures. Each connection is a connection of colibri's
 //! `server` module (design §8 step 17a). `zig build http-server -- --port <port>` runs it in
-//! cleartext, speaking h2 with prior knowledge (RFC 9113 §3.3), or h11 with `--h11` (design §8
-//! step 15d). With `--tls <identity-prefix>` it serves TLS instead, and `server` runs each
-//! handshake through `tls.record.Server`. Over TLS it offers `h2` and `http/1.1` through ALPN, or
-//! `http/1.1` alone with `--h11`, and each connection speaks what its handshake selected (decision
+//! cleartext, where a connection speaks h2 when its first octets are h2's preface and h11 otherwise
+//! (decision 117), or one alone with `--h11` or `--h2`. With `--tls <identity-prefix>` it serves
+//! TLS instead, through `tls.record.Server`: it offers `h2` and `http/1.1` through ALPN, or one
+//! alone with `--h11` or `--h2`, and each connection speaks what its handshake selected (decision
 //! 88).
 //!
 //! One worker per core, sharing nothing. Each worker has its own Rotor loop and its own listening
@@ -188,10 +188,7 @@ fn run_worker(index: usize) !void {
     worker.decoders.storage().reset(h11.coding.Features.detect());
     worker.config = .{
         .tls = tls_shared,
-        .cleartext = switch (cleartext_protocol) {
-            .h2 => .h2,
-            .h11 => .h11,
-        },
+        .versions = versions,
         .decoders = worker.decoders.storage(),
         .decoded = &worker.decoded,
         .h3_alternative = h3_alternative,
@@ -398,7 +395,9 @@ fn consume(connection: *Connection, consumed: usize) void {
 }
 
 /// What the command line asked for, which `main` sets before any worker starts.
-var cleartext_protocol: Protocol align(@alignOf(Protocol)) = .h2;
+/// The versions the server speaks: h11 and h2, which a connection in cleartext chooses between by
+/// its first octets, or one alone with `--h11` or `--h2` (decision 117).
+var versions: server.Versions align(@alignOf(server.Versions)) = .{};
 var listen_address: [server_options.ipv4_octets]u8 = server_options.loopback_octets;
 var echo_mode: bool = false;
 /// Whether responses are coded (`--coded`), in gzip or deflate, gzip first.
@@ -420,20 +419,32 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.debug.print(server_options.usage, .{});
         std.process.exit(exit_usage);
     };
-    cleartext_protocol = options.protocol;
+    versions = versions_of(options.alone);
     listen_address = options.address;
     echo_mode = options.echo;
     coded_mode = options.coded;
     if (options.h3_port) |port| h3_alternative = .{ .port = port };
-    if (options.identity_prefix) |prefix| try load_tls(prefix, options.protocol);
+    if (options.identity_prefix) |prefix| try load_tls(prefix, options.alone);
     try listen_and_serve(options.port);
 }
 
+/// The versions the server speaks: `alone` by itself, or h11 and h2 when it is null (decision 117).
+fn versions_of(alone: ?Protocol) server.Versions {
+    const protocol = alone orelse return .{};
+    return switch (protocol) {
+        .h11 => .{ .h2 = false },
+        .h2 => .{ .h11 = false },
+    };
+}
+
 /// Loads the identity, converts what every TLS connection borrows, and runs chapulin's check on
-/// the identity once. With `--h11` the server offers `http/1.1` alone.
-fn load_tls(prefix: []const u8, protocol: Protocol) !void {
+/// the identity once. With `--h11` the server offers `http/1.1` alone, and with `--h2` `h2` alone.
+fn load_tls(prefix: []const u8, alone: ?Protocol) !void {
     server_identity.seed(&tls_identity);
-    const protocols: []const []const u8 = if (protocol == .h11) &alpn.alpn_h11 else &alpn.alpn_both;
+    const protocols: []const []const u8 = if (alone) |protocol| switch (protocol) {
+        .h11 => &alpn.alpn_h11,
+        .h2 => &alpn.alpn_h2,
+    } else &alpn.alpn_both;
     try tls_config.init(try server_identity.load(prefix, &tls_identity, protocols));
     try tls_config.check(entropy.random());
     tls_shared = &tls_config;

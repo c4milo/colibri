@@ -108,20 +108,21 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     storage.encoders.reset(.none());
     const decoders = storage.decoders.storage();
     decoders.reset(.none());
-    const server_protocol: server.Protocol = switch (plan.protocol) {
-        .h11 => .h11,
-        .h2 => .h2,
+    // Decision 117: each side allows the plan's version alone, so each speaks it from the start.
+    const server_versions: server.Versions = switch (plan.protocol) {
+        .h11 => .{ .h2 = false },
+        .h2 => .{ .h11 = false },
     };
-    const client_protocol: client.Protocol = switch (plan.protocol) {
-        .h11 => .h11,
-        .h2 => .h2,
+    const client_versions: client.Versions = switch (plan.protocol) {
+        .h11 => .{ .h2 = false },
+        .h2 => .{ .h11 = false },
     };
-    storage.server_config = .{ .cleartext = server_protocol };
+    storage.server_config = .{ .versions = server_versions };
     if (plan.server_codings_len > 0) {
         storage.server_config.codings = plan.server_offers();
         storage.server_config.encoders = storage.encoders.encoders();
     }
-    storage.client_config = .{ .authority = "a.example", .cleartext = client_protocol };
+    storage.client_config = .{ .authority = "a.example", .versions = client_versions };
     if (plan.client_codings_len > 0) {
         storage.client_config.codings = plan.client_offers();
         storage.client_config.decoders = decoders;

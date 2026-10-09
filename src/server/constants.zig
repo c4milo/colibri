@@ -174,10 +174,10 @@ pub const honest_rate_factor: u64 = 2;
 /// have before the connection closes.
 pub const drain_timeout_ns: u64 = 30 * nanoseconds_per_second;
 
-/// The h2 streams a client may have open at once, which the server advertises (decision 110):
-/// each is a request the application works on. h2's stream table holds more, and a configuration
-/// may lower it.
-pub const h2_streams_max: u32 = 100;
+/// The requests a connection holds at once by default (`Limits.requests_max`), which h2 advertises
+/// (decision 110): each is a request the application works on. h2's stream table holds more, and a
+/// configuration may lower it.
+pub const requests_max: u32 = 100;
 
 /// The longest deadline a caller may set: a day. A deadline starts at an instant the caller
 /// passed, and this keeps the start plus the limit inside a `u64`.
@@ -211,6 +211,6 @@ comptime {
     assert(data_frame_len_min <= h2.constants.max_frame_size_initial and close_linger_ns > 0);
     // The largest DATA frame a peer may send colibri is a record's plaintext too.
     assert(body_unit_len == h2.constants.max_frame_size_initial and honest_rate_factor > 1);
-    assert(h2_streams_max > 0 and h2_streams_max <= h2.constants.concurrent_streams_max);
+    assert(requests_max > 0 and requests_max <= h2.constants.concurrent_streams_max);
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
 }

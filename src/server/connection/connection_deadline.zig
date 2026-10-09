@@ -260,14 +260,15 @@ fn end(connection: *Connection, passed: Deadline) void {
     const body = passed == .body_rate or passed == .body;
     const send = passed == .send_rate;
     connection.stopped = true;
-    // Decision 110: a drain that passes closes the connection. h2's GOAWAY went out with the
-    // shutdown (RFC 9113 §6.8), and h11 says nothing more.
-    if (passed == .drain) return;
     if (wait == .handshake) {
-        // The TLS handshake had not completed: the connection closes with nothing more written.
+        // No protocol serves the connection: its TLS handshake had not completed, or its first
+        // octets had not chosen. It closes with nothing more written, whichever deadline passed.
         connection.phase = .closed;
         return;
     }
+    // Decision 110: a drain that passes closes the connection. h2's GOAWAY went out with the
+    // shutdown (RFC 9113 §6.8), and h11 says nothing more.
+    if (passed == .drain) return;
     switch (connection.session) {
         .h11 => |*session| {
             // RFC 9110 §15.5.9: 408 says the server did not receive a complete request in the time

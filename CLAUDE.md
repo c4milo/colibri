@@ -320,9 +320,11 @@ Everything below exists. Change this section when a step adds or renames a comma
   checks have no command line of their own: `zig build test-sim-run-quic` runs them, in a module
   with no HTTP module in its graph (decision 5), and each one's census is pinned in its test.
 - Conformance: `tools/h2spec.sh [--tls]`, `tools/h3spec.sh`, `tools/interop.sh` —
-  each starts the test-only endpoint of design §9 and runs the pinned suite version. With `--tls`,
-  `tools/h2spec.sh` also runs `h2spec -t -k` against the h2 server's `--tls` mode, which needs Go
-  to mint the identity. `tools/h3spec.sh` fetches
+  each starts the test-only endpoint of design §9 and runs the pinned suite version.
+  `tools/h2spec.sh` runs the suite in cleartext twice: against the server with `--h2`, which
+  speaks h2 alone, and against the server naming no version (decision 117), which reads the case
+  that sends an invalid preface as h11 (RFC 9113 §3.3). With `--tls` it also runs `h2spec -t -k`
+  against the h2 server's `--tls` mode, which needs Go to mint the identity. `tools/h3spec.sh` fetches
   h3spec once and checks it against a pinned SHA-256. It needs the `SUITE=aesgcm` object, because
   h3spec offers AES suites alone, and runs the server with `no-ecn`, because h3spec's client does
   not parse an ACK frame that carries ECN counts. `tools/h3load.sh [requests] [port]` runs `h2load --h3`
@@ -336,6 +338,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   pinning another root and a Go client offering TLS 1.2 alone to the server, and requires Go to
   read colibri's alert. Both endpoints take `--h11`: in cleartext it makes them speak h11,
   and over TLS it makes them offer `http/1.1` alone instead of `h2` and then `http/1.1`. The
+  server takes `--h2` for h2 alone the same way. With neither, the server in cleartext names no
+  version and speaks h2 when a connection's first octets are h2's preface and h11 otherwise
+  (decision 117), as the h11 and h2 server scripts run it. The
   server takes `--h3-port <port>`, the UDP port each TLS connection advertises h3 on, and nghttp
   must read one ALTSVC frame naming it over TLS and none in cleartext (design §8 step 17b).
   `tools/h11_interop.sh [--tls] [go] [h2o] [caddy]` and `tools/h11_server_interop.sh [--tls] [curl]

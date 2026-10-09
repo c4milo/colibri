@@ -173,8 +173,9 @@ fn test_run() u32 {
 test "h2: every exchange of the plan shares the connection, and content past the window goes out" {
     client_exchange.fill_content();
     test_server_now_ns = 0;
-    try test_server.init(&.{ .cleartext = .h2 }, entropy.random(), null, test_server_now_ns);
-    test_config = .{ .authority = "localhost", .cleartext = .h2 };
+    // Decision 117: the server names no version and reads h2 from the client's preface.
+    try test_server.init(&.{}, entropy.random(), null, test_server_now_ns);
+    test_config = .{ .authority = "localhost", .versions = .{ .h11 = false } };
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
     const content_len = 3 * 65_535;
     try test_client.init(&test_config, entropy.random(), 0, &.{
@@ -194,8 +195,9 @@ test "h2: every exchange of the plan shares the connection, and content past the
 test "h11: the exchanges go out in order, and the connection ends after the last" {
     client_exchange.fill_content();
     test_server_now_ns = 0;
-    try test_server.init(&.{ .cleartext = .h11 }, entropy.random(), null, test_server_now_ns);
-    test_config = .{ .authority = "localhost", .cleartext = .h11 };
+    // Decision 117: the server names no version and reads h11 from the client's first octets.
+    try test_server.init(&.{}, entropy.random(), null, test_server_now_ns);
+    test_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
     try test_client.init(&test_config, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
         .{ .method = "GET", .path = "/index.html", .content_len = 0 },

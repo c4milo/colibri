@@ -4,13 +4,11 @@ const std = @import("std");
 const http = @import("http");
 const h11 = @import("h11");
 const tls = @import("tls");
-const event = @import("../event.zig");
 const alt_svc = @import("../alt_svc.zig");
 const coding_pool = @import("../coding/coding_pool.zig");
 const deadline = @import("../deadline.zig");
-const constants = @import("../constants.zig");
-
-const Protocol = event.Protocol;
+const versions_module = @import("../versions.zig");
+const limits_module = @import("../limits.zig");
 
 /// What every connection of a server borrows. The caller keeps it alive while any connection
 /// holds it.
@@ -18,9 +16,10 @@ pub const Config = struct {
     /// The TLS configuration, or null for cleartext. Its ALPN list names what the server offers,
     /// `h2` and `http/1.1` in the order it prefers them (RFC 7301 §3.2).
     tls: ?*const tls.record.ServerConfig = null,
-    /// The protocol a cleartext connection speaks: h11, or h2 with prior knowledge (RFC 9113
-    /// §3.3). Over TLS, ALPN chooses (decision 88).
-    cleartext: Protocol = .h11,
+    /// The versions the server speaks (decision 117). A connection in cleartext that may speak
+    /// both h11 and h2 chooses by its first octets (RFC 9113 §3.3). Over TLS, ALPN chooses
+    /// (decision 88).
+    versions: versions_module.Versions = .{},
     /// h11's decoders of the `gzip` and `deflate` transfer codings, which connections may share
     /// (decision 91). With none, h11 answers a request carrying either coding 501.
     decoders: ?h11.coding.Storage = null,
@@ -38,17 +37,13 @@ pub const Config = struct {
     /// The limits of decision 110's deadlines. A connection copies them when it starts, and
     /// `Connection.set_deadlines` changes one connection's.
     deadlines: deadline.Deadlines = .{},
-    /// The shortest DATA frame h2 sends when a window, not the content, decides its length
-    /// (decision 110).
-    data_frame_len_min: u32 = constants.data_frame_len_min,
-    /// The h2 streams a client may have open at once, from 1 to h2's `concurrent_streams_max`
-    /// (decision 110).
-    h2_streams_max: u32 = constants.h2_streams_max,
-
-    /// Whether a request body arrives in units, which decision 110 as amended bounds the body rate
-    /// by: over TLS a record at a time, and in h2 a DATA frame at a time. h11 in cleartext reads a
-    /// body octet by octet.
-    pub fn whole_units(config: *const Config) bool {
-        return config.tls != null or config.cleartext == .h2;
-    }
+    /// The bounds of each connection (decision 117).
+    limits: limits_module.Limits = .{},
 };
+
+/// Whether a request body may arrive in units, which decision 110 as amended bounds the body rate
+/// by: over TLS a record at a time, and in h2 a DATA frame at a time, which a connection in
+/// cleartext speaks when `versions` allows h2. h11 in cleartext reads a body octet by octet.
+pub fn whole_units(config: *const Config) bool {
+    return config.tls != null or config.versions.h2;
+}

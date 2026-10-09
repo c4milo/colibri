@@ -98,8 +98,9 @@ pub const World = struct {
         world.now_ns = 0;
         world.tls = over_tls;
         if (over_tls) try world.configure_tls() else {
-            world.server_config = .{ .cleartext = .h2 };
-            world.client_config = .{ .authority = identity.authority, .cleartext = .h2 };
+            // Decision 117: h2 alone, which each side speaks from the start.
+            world.server_config = .{ .versions = .{ .h11 = false } };
+            world.client_config = .{ .authority = identity.authority, .versions = .{ .h11 = false } };
         }
         world.tls_random = Random.init(seed);
         const source = tls.Random.init(&world.tls_random, fill);

@@ -52,7 +52,7 @@ pub fn write_config(writer: *Writer, plan: *const Plan, world: *const World, ste
     try print(writer, "    ProduceStep = {d}\n    ConnectionWindow = {d}\n", .{ plan.produce_step, h2.constants.initial_window_size_initial });
     try print(writer, "    LocalWindow = {d}\n    LocalThreshold = {d}\n", .{ world.server.session.h2.local.initial_window_size, h2.constants.window_update_threshold });
     try print(writer, "    PeerWindow = {d}\n    PeerThreshold = {d}\n", .{ world.client.local.initial_window_size, h2.constants.window_update_threshold });
-    try print(writer, "    Floor = {d}\n    FrameMax = {d}\n", .{ world.server_config.data_frame_len_min, h2.constants.max_frame_size_initial });
+    try print(writer, "    Floor = {d}\n    FrameMax = {d}\n", .{ world.server_config.limits.data_frame_len_min, h2.constants.max_frame_size_initial });
     try print(writer, "    HeaderLen = {d}\n    SettingsLen = {d}\n", .{ h2.constants.frame_header_len, world.settings_len });
     try print(writer, "    UpdateLen = {d}\n    PrefaceLen = {d}\n", .{ h2.constants.window_update_len, world.preface_len });
     try print(writer, "    RequestHeadLen = {d}\n    ResponseHeadLen = {d}\n", .{ world.request_head_len orelse 0, world.response_head_len orelse 0 });

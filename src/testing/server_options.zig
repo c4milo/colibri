@@ -1,13 +1,16 @@
 //! The command line of the test-only server (`server.zig`), as `tools/h2spec.sh` and the interop
 //! scripts pass it. Split off the server for length.
 //!
-//!     http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--coded]
+//!     http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded]
 //!         [--tls <identity-prefix>] [--h3-port <port>]
 //!
 //! A `--port` of 0 takes the port the kernel chooses, which the server's `listening on port` line
-//! names (https://github.com/c4milo/colibri/issues/94). `--h11`, `--echo` and `--coded` take no value. `--coded` codes each response in gzip or
-//! deflate when its request accepts one (decision 101). `--h11` makes a cleartext connection speak h11, or a TLS
-//! server offer `http/1.1` alone. `--echo` answers every h11 request with what h11 read of it
+//! names (https://github.com/c4milo/colibri/issues/94). `--h11`, `--h2`, `--echo` and `--coded` take no
+//! value. `--coded` codes each response in gzip or deflate when its request accepts one (decision
+//! 101). `--h11` makes the server speak h11 alone and `--h2` h2 alone: a cleartext connection speaks
+//! it from the start, and a TLS server offers it alone. With neither, a cleartext connection speaks
+//! h2 when its first octets are h2's connection preface and h11 otherwise (decision 117), and a TLS
+//! server offers both. `--echo` answers every h11 request with what h11 read of it
 //! (`h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
 //! the UDP port each TLS connection advertises h3 on (design §8 step 17b): an Alt-Svc line on each
 //! final h11 response, and one ALTSVC frame per h2 connection.
@@ -29,6 +32,7 @@ const port_option = "--port";
 const address_option = "--address";
 const tls_option = "--tls";
 const h11_option = "--h11";
+const h2_option = "--h2";
 const echo_option = "--echo";
 const h3_port_option = "--h3-port";
 const coded_option = "--coded";
@@ -40,7 +44,9 @@ pub const Options = struct {
     /// The prefix of the identity files `tools/h2_interop/tls_identity.go` wrote, which turns the
     /// TLS mode on.
     identity_prefix: ?[]const u8 = null,
-    protocol: Protocol = .h2,
+    /// The one version the server speaks, `.h11` with `--h11` and `.h2` with `--h2`, or null for
+    /// both.
+    alone: ?Protocol = null,
     echo: bool = false,
     /// Whether responses are coded in a coding their request accepts (decision 101).
     coded: bool = false,
@@ -55,24 +61,33 @@ pub fn read(arguments: anytype) ?Options {
     var options: Options = .{};
     for (0..constants.arguments_max) |_| {
         const argument = arguments.next() orelse break;
-        if (std.mem.eql(u8, argument, h11_option)) {
-            options.protocol = .h11;
-            continue;
-        }
-        if (std.mem.eql(u8, argument, echo_option)) {
-            options.echo = true;
-            continue;
-        }
-        if (std.mem.eql(u8, argument, coded_option)) {
-            options.coded = true;
-            continue;
-        }
+        const flag = read_flag(&options, argument) orelse return null;
+        if (flag == .taken) continue;
         const value = arguments.next() orelse return null;
         read_setting(&options, argument, value) orelse return null;
     }
     // The echo is h11's, and the Garden reaches its origins in cleartext.
-    const echo_ok = !options.echo or (options.protocol == .h11 and options.identity_prefix == null);
+    const echo_ok = !options.echo or (options.alone == .h11 and options.identity_prefix == null);
     return if (echo_ok) options else null;
+}
+
+/// Whether `read_flag` took an argument as a flag, or left it for `read_setting`.
+const Flag = enum { taken, not_a_flag };
+
+/// Applies `argument` when it is a flag, an option that takes no value, or returns null when it
+/// names a second version alone: `--h11` and `--h2` together name none.
+fn read_flag(options: *Options, argument: []const u8) ?Flag {
+    const eql = std.mem.eql;
+    if (eql(u8, argument, h11_option) or eql(u8, argument, h2_option)) {
+        const chosen: Protocol = if (eql(u8, argument, h11_option)) .h11 else .h2;
+        if (options.alone != null and options.alone != chosen) return null;
+        options.alone = chosen;
+    } else if (eql(u8, argument, echo_option)) {
+        options.echo = true;
+    } else if (eql(u8, argument, coded_option)) {
+        options.coded = true;
+    } else return .not_a_flag;
+    return .taken;
 }
 
 /// Applies one option and its value, or returns null when it is not one or its value is
@@ -91,7 +106,7 @@ fn read_setting(options: *Options, option: []const u8, value: []const u8) ?void 
     } else return null;
 }
 
-pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11] [--echo] [--coded] [--tls <identity-prefix>] [--h3-port <port>]\n";
+pub const usage = "usage: http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded] [--tls <identity-prefix>] [--h3-port <port>]\n";
 
 const testing = std.testing;
 
@@ -116,10 +131,12 @@ test "the options read into what the server runs, and unreadable ones are refuse
     const echo = test_read(&.{ "--port", "8081", "--address", "0.0.0.0", "--h11", "--echo" }).?;
     try testing.expectEqual(8081, echo.port);
     try testing.expectEqualSlices(u8, &.{ 0, 0, 0, 0 }, &echo.address);
-    try testing.expect(echo.echo and echo.protocol == .h11 and echo.identity_prefix == null);
+    try testing.expect(echo.echo and echo.alone == .h11 and echo.identity_prefix == null);
     const defaults = test_read(&.{}).?;
     try testing.expectEqualSlices(u8, &loopback_octets, &defaults.address);
-    try testing.expectEqual(Protocol.h2, defaults.protocol);
+    try testing.expectEqual(null, defaults.alone);
+    try testing.expectEqual(Protocol.h2, test_read(&.{"--h2"}).?.alone.?);
+    try testing.expectEqual(null, test_read(&.{ "--h11", "--h2" }));
     try testing.expectEqualStrings("id", test_read(&.{ "--tls", "id" }).?.identity_prefix.?);
     try testing.expectEqual(8443, test_read(&.{ "--h3-port", "8443" }).?.h3_port.?);
     try testing.expectEqual(null, defaults.h3_port);

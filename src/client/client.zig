@@ -21,12 +21,14 @@ const connection = @import("connection/connection.zig");
 const quic_connection = @import("quic/quic_connection.zig");
 const channel = @import("channel/channel.zig");
 const alt_svc = @import("alt_svc.zig");
+const versions = @import("versions.zig");
 
 /// The module's named limits and sizes (decision 35). It is the one file the root exports whole:
 /// every other name below is a type a program names (design §8 step 17f).
 pub const constants = @import("constants.zig");
 
 pub const Config = connection.Config;
+pub const Versions = versions.Versions;
 pub const Connection = connection.Connection;
 pub const StartError = connection.StartError;
 pub const RequestError = connection.RequestError;
@@ -106,21 +108,22 @@ pub const Features = coding_pool.Features;
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",             "Connection",      "StartError",     "RequestError",
-        "Field",              "Id",                 "Protocol",        "HttpExchange",   "Wanted",
-        "Outcome",            "Event",              "Finished",        "Received",       "Advert",
-        "QuicConnection",     "QuicConfig",         "QuicStart",       "QuicStartError", "Sent",
-        "Address",            "Ecn",                "Channel",         "ChannelConfig",  "ChannelValues",
-        "Https",              "Alternative",        "ChannelInput",    "Datagram",       "ChannelReceived",
-        "ChannelEvent",       "ChannelOpen",        "Transport",       "ChannelPhase",   "ChannelEntry",
-        "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",         "DecoderPool",
-        "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool",
-        "BrotliDecoders",     "Features",
+        "constants",         "Config",             "Versions",           "Connection",      "StartError",
+        "RequestError",      "Field",              "Id",                 "Protocol",        "HttpExchange",
+        "Wanted",            "Outcome",            "Event",              "Finished",        "Received",
+        "Advert",            "QuicConnection",     "QuicConfig",         "QuicStart",       "QuicStartError",
+        "Sent",              "Address",            "Ecn",                "Channel",         "ChannelConfig",
+        "ChannelValues",     "Https",              "Alternative",        "ChannelInput",    "Datagram",
+        "ChannelReceived",   "ChannelEvent",       "ChannelOpen",        "Transport",       "ChannelPhase",
+        "ChannelEntry",      "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",
+        "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",
+        "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("versions.zig");
     _ = @import("slots.zig");
     _ = @import("response.zig");
     _ = @import("coding.zig");

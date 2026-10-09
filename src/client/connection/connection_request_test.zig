@@ -133,3 +133,16 @@ test "RFC 9110 §8.6: h2 names the content's length, and a GET's none" {
     _ = h2;
     _ = event;
 }
+
+test "decision 117: a configuration whose versions leave a TCP connection nothing to speak is refused" {
+    // RFC 9114 §3.1: h3 runs over QUIC alone, so a TCP connection needs h11 or h2.
+    support.config = .{ .authority = support.authority, .versions = .{ .h11 = false, .h2 = false } };
+    try testing.expectError(error.NoVersion, connection.init(&support.config, support.stream.random(), 0, null));
+    // With h11 off, a connection in cleartext speaks h2 with prior knowledge from the start.
+    support.config = .{ .authority = support.authority, .versions = .{ .h11 = false } };
+    try connection.init(&support.config, support.stream.random(), 0, null);
+    try testing.expectEqual(.h2, connection.protocol().?);
+    support.config = .{ .authority = support.authority };
+    try connection.init(&support.config, support.stream.random(), 0, null);
+    try testing.expectEqual(.h11, connection.protocol().?);
+}

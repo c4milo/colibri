@@ -5,8 +5,9 @@
 //!
 //! Over TLS, `receive` runs the handshake through `tls.record.Server`, and the protocol ALPN
 //! selected serves the connection: h2 for "h2" (RFC 9113 §3.2), and h11 for "http/1.1" or for no
-//! selection (decision 88). In cleartext, `Config.cleartext` names the protocol: h11, or h2 with
-//! prior knowledge (RFC 9113 §3.3).
+//! selection (decision 88). In cleartext, the connection speaks the version `Config.versions`
+//! allows. When it allows both h11 and h2, the connection preface chooses h2 and any other first
+//! octets h11 (RFC 9113 §3.3, `connection_cleartext.zig`).
 //!
 //! What the connection writes waits in `output` until `send` takes it, sealed into records over
 //! TLS. A call that finds no room fails with `error.NoSpaceLeft`, or `write_body` with
@@ -48,7 +49,9 @@ const connection_bodies = @import("connection_bodies.zig");
 const connection_sends = @import("connection_sends.zig");
 const connection_events = @import("connection_events.zig");
 const connection_close = @import("connection_close.zig");
+const connection_cleartext = @import("connection_cleartext.zig");
 const internal = @import("connection_internal.zig");
+const versions_module = @import("../versions.zig");
 const deadline = @import("../deadline.zig");
 const close_reason_module = @import("../close_reason.zig");
 const done = @import("../done.zig");
@@ -75,6 +78,8 @@ const continue_status: u16 = @intFromEnum(http.status.Code.@"continue");
 const Phase = enum {
     /// The TLS handshake has not completed.
     handshake,
+    /// In cleartext, the first octets have not chosen between h11 and h2 (RFC 9113 §3.3).
+    choosing,
     /// The protocol is serving the connection.
     open,
     /// Nothing more is read.
@@ -82,7 +87,8 @@ const Phase = enum {
 };
 
 pub const Session = union(enum) {
-    /// No protocol serves the connection: its TLS handshake has not completed, or it failed.
+    /// No protocol serves the connection: its TLS handshake has not completed or failed, or in
+    /// cleartext its first octets have not chosen one.
     none,
     h11: h11.Connection,
     h2: h2.Connection,
@@ -91,8 +97,8 @@ pub const Session = union(enum) {
 pub const Connection = struct {
     config: *const Config,
     phase: Phase,
-    /// The protocol serving the connection, from the start in cleartext and over TLS once the
-    /// handshake completes.
+    /// The protocol serving the connection: in cleartext from the start or once the first octets
+    /// chose it, and over TLS once the handshake completes.
     session: Session,
     tls_server: tls.record.Server,
     /// The protocol's octets opened from records and not yet read. Its first `plain_in_read`
@@ -149,14 +155,14 @@ pub const Connection = struct {
     /// TLS, every draw the handshake makes comes from `random`, and `now_seconds` is the clock its
     /// tickets are issued at, or 0 for none.
     pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
-        // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3.
-        assert(config.cleartext != .h3);
+        // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
+        const choice = versions_module.tcp_choice(config.versions) orelse return error.NoVersion;
         assert((config.codings.len == 0) == (config.encoders == null));
         for (config.codings) |coding| assert(coding_pool.encodes(coding));
-        assert(config.data_frame_len_min <= h2.constants.max_frame_size_initial);
-        assert(config.h2_streams_max > 0 and config.h2_streams_max <= h2.constants.concurrent_streams_max);
+        assert(config.limits.data_frame_len_min <= h2.constants.max_frame_size_initial);
+        assert(config.limits.requests_max > 0 and config.limits.requests_max <= h2.constants.concurrent_streams_max);
         try config.deadlines.validate();
-        if (config.whole_units()) try config.deadlines.validate_units();
+        if (connection_config.whole_units(config)) try config.deadlines.validate_units();
         connection.deadlines = config.deadlines;
         connection.clock = .init(now_ns);
         connection.bodies.init();
@@ -186,8 +192,9 @@ pub const Connection = struct {
             connection.phase = .handshake;
             // RFC 9846 §9.2: chapulin refuses values it cannot serve a handshake from.
             connection.tls_server.start(tls_config, random, now_seconds) catch return error.TlsRefused;
-        } else {
-            internal.open_session(connection, config.cleartext);
+        } else switch (choice) {
+            .speak => |chosen| internal.open_session(connection, chosen),
+            .read_preface => connection.phase = .choosing,
         }
         assert(connection.output_len == 0 and connection.plain_in_len == 0);
     }
@@ -213,6 +220,7 @@ pub const Connection = struct {
         const received = try switch (connection.phase) {
             .closed => Received{ .consumed = 0, .event = null },
             .handshake => connection_tls.handshake(connection, input, now_ns),
+            .choosing => connection_cleartext.choose(connection, input, now_ns),
             .open => if (connection.config.tls == null)
                 internal.read_protocol(connection, input, now_ns)
             else
@@ -266,14 +274,20 @@ pub const Connection = struct {
     }
 
     /// Ends the connection once the requests it holds are answered: h2 sends GOAWAY (RFC 9113
-    /// §6.8), and h11 closes after the current response (RFC 9112 §9.6).
+    /// §6.8), and h11 closes after the current response (RFC 9112 §9.6). A connection whose
+    /// protocol is not open yet holds no request: in cleartext it ends at once, and over TLS the
+    /// protocol the handshake opens takes the shutdown then (`internal.open_session`).
     pub fn shutdown(connection: *Connection) void {
         connection.shutting_down = true;
-        if (connection.phase != .open) return;
-        switch (connection.session) {
-            .h2 => connection.session.h2.shutdown(h2.constants.error_no_error),
-            .h11 => connection_h11.shutdown(connection),
-            .none => {},
+        switch (connection.phase) {
+            .open => internal.shut_session(connection),
+            // As an idle h11 connection does, one that has said nothing and holds no request ends
+            // at once.
+            .choosing => {
+                connection.phase = .closed;
+                connection.stopped = true;
+            },
+            .handshake, .closed => {},
         }
     }
 
@@ -319,7 +333,7 @@ pub const Connection = struct {
     /// its start.
     pub fn set_deadlines(connection: *Connection, deadlines: Deadlines) error{DeadlineInvalid}!void {
         try deadlines.validate();
-        if (connection.config.whole_units()) try deadlines.validate_units();
+        if (internal.whole_units(connection)) try deadlines.validate_units();
         connection.deadlines = deadlines;
     }
 
@@ -352,7 +366,8 @@ pub const Connection = struct {
         if (connection.config.tls != null) connection.tls_server.close();
     }
 
-    /// The protocol serving the connection, or null while the TLS handshake runs or after it failed.
+    /// The protocol serving the connection, or null while the TLS handshake runs or after it failed,
+    /// and in cleartext until the first octets choose it.
     pub fn protocol(connection: *const Connection) ?Protocol {
         return switch (connection.session) {
             .none => null,
@@ -386,6 +401,8 @@ test "design §8 step 17f: the connection's public functions are the calls a pro
 }
 
 test {
+    _ = @import("connection_cleartext.zig");
+    _ = @import("connection_cleartext_test.zig");
     _ = @import("connection_h11_test.zig");
     _ = @import("connection_h2_test.zig");
     _ = @import("connection_tls_test.zig");

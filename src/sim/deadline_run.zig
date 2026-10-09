@@ -144,11 +144,12 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
 }
 
 fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
-    const protocol: server.Protocol = switch (plan.protocol) {
-        .h11 => .h11,
-        .h2 => .h2,
+    // Decision 117: each side allows the plan's version alone, so each speaks it from the start.
+    const versions: server.Versions = switch (plan.protocol) {
+        .h11 => .{ .h2 = false },
+        .h2 => .{ .h11 = false },
     };
-    storage.server_config = .{ .cleartext = protocol, .deadlines = plan.deadlines };
+    storage.server_config = .{ .versions = versions, .deadlines = plan.deadlines };
     storage.tls_random = Random.init(seed);
     const source = tls.Random.init(&storage.tls_random, fill);
     try storage.server_connection.init(&storage.server_config, source, 0, ns_of(plan, 0));
@@ -175,11 +176,11 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     for (&storage.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     for (&storage.upload, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
     if (!plan.honest()) return storage.hostile.start(plan);
-    const client_protocol: client.Protocol = switch (plan.protocol) {
-        .h11 => .h11,
-        .h2 => .h2,
+    const client_versions: client.Versions = switch (plan.protocol) {
+        .h11 => .{ .h2 = false },
+        .h2 => .{ .h11 = false },
     };
-    storage.client_config = .{ .authority = "a.example", .cleartext = client_protocol };
+    storage.client_config = .{ .authority = "a.example", .versions = client_versions };
     try storage.client_connection.init(&storage.client_config, source, 0, null);
     for (storage.exchanges[0..plan.exchanges_len], 0..) |*exchange, index| {
         exchange.* = .{ .method = "GET", .path = "/", .body = &storage.bodies[index] };

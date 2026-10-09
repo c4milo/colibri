@@ -301,7 +301,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     };
     client_exchange.fill_content();
-    client_config = .{ .authority = run.authority, .cleartext = protocol_of(run.protocol) };
+    client_config = .{ .authority = run.authority, .versions = versions_of(run.protocol) };
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
         const features = h11.coding.Features.detect();
@@ -337,16 +337,18 @@ fn protocol_name(protocol: ?client.Protocol) []const u8 {
 }
 
 /// The module's name for the protocol the command line chose.
-fn protocol_of(chosen: alpn.Protocol) client.Protocol {
+/// The versions a connection allows: `chosen` alone, which a connection in cleartext speaks from
+/// the start (decision 117). Over TLS, ALPN chooses.
+fn versions_of(chosen: alpn.Protocol) client.Versions {
     return switch (chosen) {
-        .h2 => .h2,
-        .h11 => .h11,
+        .h2 => .{ .h11 = false },
+        .h11 => .{ .h2 = false },
     };
 }
 
 const testing = std.testing;
 
-test "the command line's protocol is the module's" {
-    try testing.expectEqual(client.Protocol.h2, protocol_of(.h2));
-    try testing.expectEqual(client.Protocol.h11, protocol_of(.h11));
+test "the command line's protocol is the one version a connection allows" {
+    try testing.expectEqual(client.Versions{ .h11 = false }, versions_of(.h2));
+    try testing.expectEqual(client.Versions{ .h2 = false }, versions_of(.h11));
 }

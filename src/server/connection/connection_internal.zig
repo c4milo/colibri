@@ -9,6 +9,8 @@ const connection_module = @import("connection.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 const connection_bodies = @import("connection_bodies.zig");
+const connection_config = @import("connection_config.zig");
+const h2 = @import("h2");
 
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
@@ -21,8 +23,8 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
         .h2 => {
             connection.session = .{ .h2 = undefined };
             connection.session.h2.init(.server);
-            connection.session.h2.data_frame_len_min = connection.config.data_frame_len_min;
-            connection.session.h2.limit_peer_streams(connection.config.h2_streams_max);
+            connection.session.h2.data_frame_len_min = connection.config.limits.data_frame_len_min;
+            connection.session.h2.limit_peer_streams(connection.config.limits.requests_max);
         },
         .h11 => {
             connection.session = .{ .h11 = undefined };
@@ -33,6 +35,32 @@ pub fn open_session(connection: *Connection, chosen: Protocol) void {
     }
     connection.phase = .open;
     assert(connection.protocol().? == chosen);
+    // A shutdown the caller asked for while the TLS handshake ran reaches the protocol now.
+    if (connection.shutting_down) shut_session(connection);
+}
+
+/// Has the open protocol end the connection once its requests are answered: h2 sends GOAWAY (RFC
+/// 9113 §6.8), and h11 closes after the current response (RFC 9112 §9.6).
+pub fn shut_session(connection: *Connection) void {
+    assert(connection.phase == .open);
+    switch (connection.session) {
+        .h2 => connection.session.h2.shutdown(h2.constants.error_no_error),
+        .h11 => connection_h11.shutdown(connection),
+        // An open connection has a protocol.
+        .none => unreachable,
+    }
+}
+
+/// Whether this connection's request bodies may arrive in units, which decision 110 as amended
+/// bounds the body rate by: over TLS, in h2, or while its first octets may still choose h2. h11 in
+/// cleartext reads a body octet by octet, so a connection that chose it keeps any rate.
+pub fn whole_units(connection: *const Connection) bool {
+    if (connection.config.tls != null) return true;
+    return switch (connection.session) {
+        .h2 => true,
+        .h11 => false,
+        .none => connection_config.whole_units(connection.config),
+    };
 }
 
 /// Reads at most one event from the protocol's octets, and the octets before it that mean

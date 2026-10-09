@@ -10,6 +10,9 @@ pub const StartError = error{
     TlsRefused,
     /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
     DeadlineInvalid,
+    /// `Config.versions` allows neither h11 nor h2, which leaves a TCP connection nothing to speak
+    /// (RFC 9114 §3.1, decision 117).
+    NoVersion,
 };
 
 pub const SendError = error{

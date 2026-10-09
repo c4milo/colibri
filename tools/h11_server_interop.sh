@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # The server half of the h11 interop check of docs/design.md §8 step 15d: run other
 # implementations' HTTP/1.1 clients against colibri's test-only server (§9) and require every
-# request to end with 200 and the body the server always sends, over HTTP/1.1. Cleartext with
-# `--h11`, and with --tls also over TLS 1.3 through chapulin's record-mode server, where the server
-# offers "h2" and "http/1.1" and the client's offer decides.
+# request to end with 200 and the body the server always sends, over HTTP/1.1. In cleartext the
+# server names no version and reads h11 from each client's first octets (decision 117), and with
+# --tls also over TLS 1.3 through chapulin's record-mode server, where the server offers "h2" and
+# "http/1.1" and the client's offer decides.
 #
 # The peers are Go's net/http client, built with `go build`, and Debian's curl, run in the
 # container tools/h2_interop/Dockerfile builds, the same peers tools/h2_server_interop.sh runs.
@@ -78,11 +79,11 @@ in_container() {
     "${image}" "$@"
 }
 
-# in_both_modes <plan>: runs the plan against the cleartext h11 server, then against the TLS one,
-# which offers both protocols, when --tls was given. The plan reads ${mode}.
+# in_both_modes <plan>: runs the plan against the cleartext server, then against the TLS one, which
+# offers both protocols, when --tls was given. The plan reads ${mode}.
 in_both_modes() {
   mode=cleartext
-  start_server --h11 --h3-port "${h3_port}"
+  start_server --h3-port "${h3_port}"
   "$1"
   if [ -n "${tls}" ]; then
     mode=tls
@@ -181,7 +182,7 @@ plan_go() {
 # --tls, over TLS (decision 101). The plan reads ${mode}.
 coded_round() {
   mode=cleartext
-  start_server --h11 --coded
+  start_server --coded
   "$1"
   if [ -n "${tls}" ]; then
     mode=tls

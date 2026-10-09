@@ -1,6 +1,6 @@
 //! colibri's server (decision 100, design §8 step 17): HTTP responses behind one set of calls for
-//! h11 and h2 over TCP, the version chosen by ALPN over TLS and named in cleartext. Step 17b adds
-//! h3 over QUIC behind the same calls.
+//! h11 and h2 over TCP, the version chosen by ALPN over TLS and by a connection's first octets in
+//! cleartext (decision 117). Step 17b adds h3 over QUIC behind the same calls.
 //!
 //! A program makes one `Config`, then a `Connection` for each TCP connection it accepts, in
 //! storage it owns. It passes the octets it read to `receive`, which returns at most one event: a
@@ -27,12 +27,16 @@ const alt_svc = @import("alt_svc.zig");
 const coding_pool = @import("coding/coding_pool.zig");
 const deadline = @import("deadline.zig");
 const close_reason = @import("close_reason.zig");
+const versions = @import("versions.zig");
+const limits = @import("limits.zig");
 
 /// The module's named limits and sizes (decision 35). It is the one file the root exports whole:
 /// every other name below is a type a program names (design §8 step 17f).
 pub const constants = @import("constants.zig");
 
 pub const Config = connection.Config;
+pub const Versions = versions.Versions;
+pub const Limits = limits.Limits;
 pub const Deadline = deadline.Deadline;
 pub const Deadlines = deadline.Deadlines;
 pub const CloseReason = close_reason.CloseReason;
@@ -86,22 +90,24 @@ pub const Decoders = h11.coding.Storage;
 pub const Features = coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
+    // Design §8 step 21a adds `Versions` and `Limits` (decision 117).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",         "Deadline",           "Deadlines",  "CloseReason",
-        "Limit",              "Connection",     "QuicConnection",     "QuicConfig", "Endpoint",
-        "EndpointOf",         "EndpointConfig", "LogProvider",        "Sent",       "Address",
-        "Ecn",                "Error",          "StartError",         "SendError",  "Field",
-        "Id",                 "Protocol",       "Version",            "Fields",     "Event",
-        "Request",            "Body",           "Trailers",           "Cancelled",  "CancelReason",
-        "Done",               "Response",       "Content",            "Received",   "Alternative",
-        "Coding",             "EncoderPool",    "DefaultEncoderPool", "Encoders",   "DecoderPool",
-        "DefaultDecoderPool", "Decoders",       "Features",
+        "constants",  "Config",       "Versions",           "Limits",         "Deadline",
+        "Deadlines",  "CloseReason",  "Limit",              "Connection",     "QuicConnection",
+        "QuicConfig", "Endpoint",     "EndpointOf",         "EndpointConfig", "LogProvider",
+        "Sent",       "Address",      "Ecn",                "Error",          "StartError",
+        "SendError",  "Field",        "Id",                 "Protocol",       "Version",
+        "Fields",     "Event",        "Request",            "Body",           "Trailers",
+        "Cancelled",  "CancelReason", "Done",               "Response",       "Content",
+        "Received",   "Alternative",  "Coding",             "EncoderPool",    "DefaultEncoderPool",
+        "Encoders",   "DecoderPool",  "DefaultDecoderPool", "Decoders",       "Features",
     });
 }
 
 test {
     std.testing.refAllDecls(@This());
+    _ = @import("versions.zig");
     _ = @import("reason.zig");
     _ = @import("expect.zig");
     _ = @import("done.zig");

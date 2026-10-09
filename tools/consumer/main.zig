@@ -101,9 +101,11 @@ pub fn main() !void {
     if (!std.mem.eql(u8, output[0..decoded.written], "colibri")) return error.CodingWrong;
 
     // The `server` and `client` modules (decision 100), in cleartext h2: the client's request and
-    // the server's 204 move between the two in memory, at one instant.
-    const server_config: server_module.Config = .{ .cleartext = .h2 };
-    const client_config: client_module.Config = .{ .cleartext = .h2, .authority = "example.test" };
+    // the server's 204 move between the two in memory, at one instant. The client allows h2 alone,
+    // so it speaks h2 with prior knowledge, and the server, which names no version, reads h2 from
+    // the client's connection preface (decision 117).
+    const server_config: server_module.Config = .{};
+    const client_config: client_module.Config = .{ .versions = .{ .h11 = false }, .authority = "example.test" };
     try served.init(&server_config, entropy, 0, 0);
     try asked.init(&client_config, entropy, 0, null);
     _ = try asked.request(&exchange);

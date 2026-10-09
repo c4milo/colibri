@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # The h2spec check of docs/design.md §8 steps 4 and 5: run the pinned suite against the test-only
 # h2 server of §9 and require every case to pass but the ones named below. It runs in cleartext
-# with prior knowledge, and, with --tls, over TLS as well (`h2spec -t -k`), through the server's
+# twice: against the server with `--h2`, which speaks h2 alone with prior knowledge, and against
+# the server naming no version, which reads h2's connection preface from each connection's first
+# octets (decision 117). With --tls it runs over TLS as well (`h2spec -t -k`), through the server's
 # record-mode chapulin (https://github.com/c4milo/colibri/issues/20). The TLS run also needs a Go
 # toolchain, which mints the identity the server presents.
 #
@@ -31,6 +33,15 @@ readonly skipped_cases=(
   "Sends HEADERS frame that depends on itself"
   "Sends PRIORITY frame that depend on itself"
 )
+readonly skipped_reason="RFC 7540 §5.3.1, dropped by RFC 9113 §5.3.2"
+
+# The case the server naming no version does not pass in cleartext, and why. It sends octets that
+# are not the connection preface, and RFC 9113 §3.3 has a server that speaks both versions tell an
+# h2 connection by its preface, so the server reads them as h11, which answers 400. RFC 9113 §3.4
+# lets a server omit the GOAWAY, "since an invalid preface indicates that the peer is not using
+# HTTP/2". The run with `--h2`, and the run over TLS, where ALPN chose h2, must pass it.
+readonly preface_case="Sends invalid connection preface"
+readonly preface_reason="RFC 9113 §3.3: a server speaking both reads what is not the preface as h11"
 
 fail() {
   echo "h2spec.sh: $*" >&2
@@ -57,10 +68,11 @@ echo "h2spec.sh: building the test-only server"
 [ -x "${server}" ] || fail "the server was not built at ${server}"
 
 # Runs the suite once against a server started with the given arguments, and checks the report.
-# The first argument names the run; the h2spec flags follow the server's arguments after "--".
+# The first argument names the run, and the second says whether the preface case is expected to
+# fail in it; the h2spec flags follow the server's arguments after "--".
 run_suite() {
-  local label="$1"
-  shift
+  local label="$1" preface_fails="$2"
+  shift 2
   local server_arguments=()
   while [ "$1" != "--" ]; do
     server_arguments+=("$1")
@@ -89,27 +101,39 @@ run_suite() {
   failed="$(grep -Eo '[0-9]+ failed' "${report}" | awk '{ total += $1 } END { print total + 0 }')"
   passed="$(grep -Eo '[0-9]+ passed' "${report}" | awk '{ total += $1 } END { print total + 0 }')"
 
-  for skipped in "${skipped_cases[@]}"; do
-    grep -qF "${skipped}" "${report}" || fail "the case named as skipped did not run (${label}): ${skipped}"
+  # The cases expected to fail in this run, each with its reason.
+  local expected=("${skipped_cases[@]}") reasons=()
+  for _ in "${skipped_cases[@]}"; do reasons+=("${skipped_reason}"); done
+  if [ "${preface_fails}" = yes ]; then
+    expected+=("${preface_case}")
+    reasons+=("${preface_reason}")
+  fi
+  # h2spec lists each failed case under "Failures:", so a name found there failed.
+  local failures
+  failures="$(sed -n '/^Failures:/,$p' "${report}")"
+  for skipped in "${expected[@]}"; do
+    grep -qF "${skipped}" <<<"${failures}" || fail "the case named as skipped did not fail (${label}): ${skipped}"
   done
 
-  if [ "${failed}" -ne "${#skipped_cases[@]}" ]; then
-    sed -n '/^Failures:/,$p' "${report}"
-    fail "${failed} cases failed (${label}); ${#skipped_cases[@]} are named in this script as skipped"
+  if [ "${failed}" -ne "${#expected[@]}" ]; then
+    echo "${failures}"
+    fail "${failed} cases failed (${label}); ${#expected[@]} are named in this script as skipped"
   fi
 
   echo "h2spec.sh: ${label}: ${passed} passed, ${failed} skipped by name:"
-  for skipped in "${skipped_cases[@]}"; do
-    echo "h2spec.sh:   ${skipped} (RFC 7540 §5.3.1, dropped by RFC 9113 §5.3.2)"
+  local index
+  for index in "${!expected[@]}"; do
+    echo "h2spec.sh:   ${expected[${index}]} (${reasons[${index}]})"
   done
 }
 
-run_suite cleartext --
+run_suite cleartext-h2 no --h2 --
+run_suite cleartext yes --
 
 if [ -n "${tls}" ]; then
   command -v go >/dev/null 2>&1 || fail "the TLS run needs a Go toolchain to mint the identity"
   # The identity the server presents: the leaf, the root that signed it, and the P-256 scalar and
   # point chapulin's ecdsa_p256 slot takes. -k tells h2spec not to verify it.
   (cd "${repository_root}" && go run tools/h2_interop/tls_identity.go "${scratch}/identity" >/dev/null)
-  run_suite tls --tls "${scratch}/identity" -- -t -k
+  run_suite tls no --tls "${scratch}/identity" -- -t -k
 fi

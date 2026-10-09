@@ -98,8 +98,11 @@ plaintext writes the alert the provider owes (RFC 9846 §5.2).
 The `server` module answers requests behind one set of calls, whichever version the connection
 speaks ([decision 100](decisions.md)). A program makes one `server.Config`, and one
 `server.Connection` for each TCP connection its listener accepts. Over TLS the connection runs the
-handshake itself, and ALPN picks h2 or h11 during it. In cleartext, `Config.cleartext` names the
-version.
+handshake itself, and ALPN picks h2 or h11 during it. In cleartext, a connection speaks h2 when its
+first octets are h2's connection preface and h11 otherwise (RFC 9113 §3.3,
+[decision 117](decisions.md)). `Config.versions` turns either version off in cleartext. Over TLS
+the TLS configuration's ALPN list still names the versions the server offers, until design §8
+step 21b builds that list from `versions`.
 
 The code in this section and the next is from
 [`examples/tls_exchange.zig`](../examples/tls_exchange.zig), where `link` stands in for a
@@ -237,7 +240,7 @@ connection whose peer is late ends. `receive` and `send` fire a deadline that pa
 names the deadline that ended a connection, or the limit its peer passed. A program that wakes
 only when octets arrive never ends a silent peer.
 
-Three more things a server sets or watches:
+Four more things a server sets or watches:
 
 - **The end.** `should_close` says when to close the transport: the connection is over and `send`
   has written everything. The program then calls `transport_closed`, which wipes the TLS
@@ -249,11 +252,17 @@ Three more things a server sets or watches:
   `server.Features.detect()` or `.target()`, and gives its `encoders()` to the configuration.
 - **h3.** `Config.h3_alternative` makes each TLS connection advertise the server's h3 endpoint
   (RFC 7838).
+- **Bounds.** `Config.limits` holds the bounds of each connection, named by what they bound:
+  `requests_max`, the requests a connection holds at once, and `data_frame_len_min`, the shortest
+  DATA frame h2 sends when a window, not the content, decides its length
+  ([decision 110](decisions.md)).
 
 ## The client
 
 The `client` module sends requests behind one set of calls too. A program makes one
 `client.Config` for an origin, and one `client.Connection` for each TCP connection it opens to it.
+In cleartext a connection speaks h11, or h2 with prior knowledge when `Config.versions` turns h11
+off ([decision 117](decisions.md)). Over TLS, ALPN picks.
 For each request it places an `HttpExchange` in its own memory: the request, and where the
 response goes.
 

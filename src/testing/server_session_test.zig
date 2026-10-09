@@ -30,9 +30,10 @@ const test_small_output_len: usize = 128;
 const response = "HTTP/1.1 200 OK\r\ncontent-type: " ++ constants.response_content_type ++
     "\r\ncontent-length: " ++ constants.response_content_length ++ "\r\n\r\n";
 
-/// A session speaking `protocol` in cleartext, with nothing read or written. Test-only.
+/// A session speaking `protocol` in cleartext, with nothing read or written: its configuration
+/// allows that version alone (decision 117). Test-only.
 fn fresh_session(protocol: server.Protocol, echo: ?*h11_echo.Echo) !*Session {
-    test_config = .{ .cleartext = protocol };
+    test_config = .{ .versions = if (protocol == .h2) .{ .h11 = false } else .{ .h2 = false } };
     // Cleartext draws nothing from the source.
     test_now_ns = 0;
     try test_session.init(&test_config, entropy.random(), echo, test_now_ns);

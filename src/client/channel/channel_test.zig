@@ -47,7 +47,7 @@ fn start_tcp_only() void {
 }
 
 fn start_at(to: []const channel_module.Address) void {
-    tcp_config = .{ .authority = support.authority, .cleartext = .h2 };
+    tcp_config = .{ .authority = support.authority, .versions = support.only(.h2) };
     config = .{ .tcp = &tcp_config, .fallback_delay_ns = fallback_delay_ns };
     // Every octet 1, so each flag of a connection the channel never started reads as set, and a
     // read of one shows.

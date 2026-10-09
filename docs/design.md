@@ -7495,11 +7495,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       configurations and holds a TCP connection only from 21b on. Until then the program's ALPN
       lists choose over TLS, and `versions` governs cleartext alone.
     - Public names: the server's root adds `Versions` and `Limits`, and the client's root adds
-      `Versions`. No function is added or removed.
-    - **Check:** h2spec in cleartext, and the h11 and h2 interop scripts in cleartext, pass with
-      the test-only server naming no version. Tests show the preface choosing h2, other first
-      octets choosing h11, a partial preface waiting for more, and each version `versions` turns
-      off refused. Each rule has a mutation a test catches.
+      `Versions`. `Config.whole_units`, which only the connection called, leaves `server.Config`
+      for a function its files share, and `server.constants.h2_streams_max` becomes
+      `requests_max`.
+    - **Check:** the h11 and h2 server interop scripts pass in cleartext with the test-only server
+      naming no version. h2spec runs twice in cleartext: with the server's `--h2`, which speaks
+      h2 alone, every case passes but the two RFC 7540 cases named before; with no version named,
+      the case that sends an invalid preface fails too, because RFC 9113 §3.3 has a server that
+      speaks both read octets that are not the preface as h11. Tests show the preface choosing
+      h2, other first octets choosing h11, a partial preface waiting for more, and each version
+      `versions` turns off refused. Each rule has a mutation a test catches.
   - **21b, one endpoint.** `server.Endpoint` takes TCP connections too.
     - `accept` gives a TCP connection the program accepted a slot. One `receive` takes a TCP
       connection's octets or a datagram. A request's id names its connection, and each request
@@ -7537,6 +7542,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   *Large.*
 
+  **21a, 2026-10-08.** `server.Versions`, `server.Limits` and `client.Versions`, and a server
+  connection in cleartext that reads h2's preface to choose its version. Run on macOS 26 on an
+  Apple M1 Pro, on 590d457, whose seven commits of step 20's h3 deadlines are not on main yet.
+  - `zig build test` and `zig build test -Drelease`: 131 of 131 steps and 2658 of 2658 tests
+    passed in each.
+  - `tools/h2spec.sh --tls`: with `--h2` in cleartext, and over TLS, 144 of 146 cases, the 2 RFC
+    7540 cases named before; with no version named in cleartext, 143, and the invalid-preface
+    case as the script names it.
+  - `tools/h11_server_interop.sh --tls` (curl, Go) and `tools/h2_server_interop.sh --tls` (curl,
+    nghttp, Go), each in cleartext with the server naming no version, and over TLS;
+    `tools/h11_interop.sh --tls` and `tools/h2_interop.sh --tls` for the client;
+    `tools/deadlines.sh`, `tools/tls_accept.sh`, `tools/tcp_trace.sh` (64 of 64 traces) and
+    `tools/deadline_trace.sh` (32 of 32); `zig build examples`, `tools/doc_snippets.sh` and
+    `tools/consumer_check.sh`, whose consumer's server names no version: each passed.
+  - A review of the change found two defects, each fixed with a test. A `shutdown` before the
+    first octets was lost: the connection now ends at once, as an idle h11 connection does, and
+    a shutdown asked for during a TLS handshake, lost the same way before this step, now reaches
+    the protocol the handshake opens. A drain that passed before any protocol served a
+    connection stopped it without closing it: it now closes.
+  - 21 mutations, each **CAUGHT**:
+    - the whole preface choosing h11; a four-octet prefix choosing h2; a differing octet
+      choosing nothing; the octets that chose not read;
+    - both versions speaking h11 at once; h11 spoken when `versions` turns it off; no version
+      speaking h11; a connection allowing both never choosing;
+    - a choosing connection closing at once; a shutdown while choosing doing nothing; a shutdown
+      during the handshake never reaching the protocol; a drain before a protocol serves
+      leaving the connection open;
+    - units not judged when cleartext may choose h2, judged for a connection that chose h11, or
+      not judged while it chooses;
+    - `requests_max`, the configured DATA frame floor, or any floor not reaching h2;
+    - the client preferring h2 in cleartext, or speaking h11 with no version allowed;
+    - the test-only server ignoring `--h2`, which h2spec's run with it catches.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
@@ -7556,9 +7594,11 @@ only place in the tree permitted to touch a socket
    exchanges against another implementation's server and reports how each ended. For h2spec,
    h2load and `tools/h2_interop.sh`. They landed as `h2-server` and `h2-client` with step 4
    (cleartext) and step 5 (TLS), and the owner renamed them on 2026-09-25, when step 15d gave
-   them h11 as well. In cleartext, `--h11` makes either speak h11 instead of h2 with prior
-   knowledge. Over TLS, both offer `h2` and then `http/1.1` through ALPN, or `http/1.1` alone
-   with `--h11`, and each connection speaks what the handshake selected: h2 for `h2`, and h11
+   them h11 as well. In cleartext the client speaks h2 with prior knowledge, or h11 with `--h11`.
+   The server in cleartext names no version and speaks h2 when a connection's first octets are
+   h2's preface and h11 otherwise (decision 117, step 21a), or one alone with `--h11` or `--h2`.
+   Over TLS, both offer `h2` and then `http/1.1` through ALPN, or one alone with `--h11` and, for
+   the server, `--h2`, and each connection speaks what the handshake selected: h2 for `h2`, and h11
    for `http/1.1` or for no selection (decision 88). With `--channel` and `--tls` the client hands
    its plan to one `client.Channel` instead, which tries h3 over QUIC first and falls back to TCP
    (step 17d), and `tools/channel_interop.sh` runs it.
