@@ -7716,6 +7716,48 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     stops before it ends, and a stopped one gives each open request its `cancelled` first, so the
     condition became INV-30's assertion.
 
+  **21b.4, 2026-10-09.** TCP connections in the endpoint. Run on macOS 26 on an Apple M1 Pro, on
+  main cfd7e8a.
+  - `server.Endpoint` holds `Capacity.tcp_connections` TCP slots, 16 by default, beside its QUIC
+    slots. `accept`, `receive(.stream)`, `send_stream` and `transport_closed` serve them, with
+    the `send`, `close` and `ended` events and `writable` over h11 and h2. The endpoint builds
+    the TCP TLS configuration from the one identity, with the ALPN list `versions` gives. Root
+    names added: `Security` and `StreamOctets`; constants `tcp_connections_default`,
+    `tcp_requests_max` and `tcp_events_per_poll_max`; `h2.Connection.sendable_len`. Decision 119
+    records what this part decided.
+  - The map of the code before the part found a defect: a TLS record that failed to open left
+    the queued plaintext behind the alert, and `should_close` stayed false until the linger
+    passed. A record failure now drops it.
+  - `zig build test` and `zig build test -Drelease`: 131 of 131 steps and 2735 of 2735 tests
+    passed in each. `zig build examples`, `tools/doc_snippets.sh`, `tools/consumer_check.sh`,
+    `tools/h2spec.sh --tls`, `tools/tls_accept.sh` and `tools/deadlines.sh` passed.
+  - A review, three reviewers and a verifier, confirmed fourteen findings, seven defects. A
+    pipelined h11 request the program held got no signal to be passed again when the response
+    before it ended with no octet: the program now passes held octets again after each event
+    that names the connection, and a test shows it. `accept` read the TCP configuration before
+    it checked that the endpoint serves TCP. Five were errors in docs.
+  - Mutations, each **CAUGHT**:
+    - `sendable_len`: a closed stream, the stream's state, the final head, or the windows not
+      asked;
+    - a TLS record failure keeping the queued octets;
+    - `owes_octets`: each of the flight's records, the output, the protocol's own octets, a
+      KeyUpdate's reply, a coded ring and the close_notify dropped, the last four after a test
+      was written;
+    - `send` re-armed by every `send_stream`, or never; the `done` owed dropped at a close; a
+      cleartext slot given TLS; no ALPN served h11 whatever `versions` says; the ALPN list not
+      from `versions`; the TCP identity never checked; the TCP configurations missing h11's
+      decoders and Alt-Svc; units judged for h11 in cleartext;
+    - `writable` over h2 ignoring the window; a read, or a `send_stream`, moving no room;
+    - TCP slots in the datagram ring; datagrams served with no QUIC; a failed read not noted;
+      the program's cancel reported after the input; `accept` after `shutdown`, with no TCP
+      served, or asserting before it checks; requests open at a stop never ended; input kept
+      after h11 closed, after a test was written.
+  - Three mutants were equivalent: a 100 (Continue) term in `owes_octets`, now removed, because
+    the poll's `receive` writes the 100 into the output first; `close` before `send`, because the
+    linger that lets `should_close` hold with octets owed starts only while a `send` waits; and
+    the alert alone after a record failure, kept as a guard, because every other term is false
+    then.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
