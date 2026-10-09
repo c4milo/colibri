@@ -532,6 +532,19 @@ Three things differ from TCP:
 §8.1.2), and `EndpointConfig.logs` gives each connection a qlog log
 ([decision 102](decisions.md)).
 
+The same endpoint holds TCP connections, `Capacity.tcp_connections` of them, 16 by default. A
+program that accepts a socket calls `accept` with whether it runs TLS, and gets the handle that
+names the connection, or null when it should close the socket. It passes what the socket reads to
+`receive` as `.stream`. A connection may consume less than it was given, such as a pipelined h11
+request while the one before it is answered: the program holds the rest, and passes it again with
+the socket's next read and after each event that names the connection. The endpoint reports
+`send` when a connection owes octets: the program calls `send_stream` for it until a call leaves
+room in its buffer, `server.constants.output_len` octets, and writes them to the socket. It
+reports `close` when the program is to close the socket, and the program calls
+`transport_closed` when the peer closed it first. Over TLS, ALPN chooses h2 or h11 from the list `versions` gives, and in cleartext
+a connection's first octets choose (RFC 9113 §3.3). A program that serves QUIC alone sets
+`.tcp_connections = 0`.
+
 ### The client's channel
 
 A `client.Channel` carries a program's exchanges to one origin over QUIC or over TCP, and tells

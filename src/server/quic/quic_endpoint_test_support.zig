@@ -14,7 +14,7 @@ const QuicConnection = quic_connection.QuicConnection;
 
 /// Two QUIC connections, each with the default receive pool, as the test's own connection has.
 /// Test-only.
-pub const TestEndpoint = endpoint_module.EndpointOf(.{ .quic_connections = connections });
+pub const TestEndpoint = endpoint_module.EndpointOf(.{ .tcp_connections = 0, .quic_connections = connections });
 const connections: usize = 2;
 pub var endpoint: TestEndpoint align(@alignOf(TestEndpoint)) = undefined;
 pub var endpoint_config: endpoint_module.Config align(@alignOf(endpoint_module.Config)) = undefined;

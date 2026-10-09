@@ -37,6 +37,9 @@ pub const Datagram = struct {
 /// Takes a datagram, which the connection its first packet names takes, or which starts one. A
 /// datagram is taken whole.
 pub fn take_datagram(held: *Held, datagram: Datagram, now_ns: u64) usize {
+    assert(held.quic_tables.len > 0);
+    // An endpoint with no identity, or with h3 turned off, serves no QUIC connection.
+    if (!held.served.quic) return datagram.octets.len;
     const accepting = !held.shutting_down;
     const slot = held.connections.receive(datagram.octets, datagram.ecn, datagram.from, now_ns, accepting) orelse return datagram.octets.len;
     held.room[slot] +%= 1;

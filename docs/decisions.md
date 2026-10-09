@@ -3947,3 +3947,26 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - Copying every TCP octet into the endpoint. It costs a copy per octet and 33 KB per slot.
      - No event for the program's own `cancel`, as `client.Channel.cancel` does. A program would
        then need a second rule for when to free a request's memory.
+
+     Amended on 2026-10-09 by design §8 step 21b.4, which met five things the text above left
+     open:
+     - `sendable_len` takes the payload's length too: `sendable_len(stream_id, room_len,
+       payload_len)`. The floor holds a frame only when the window is shorter than the payload,
+       so without it a window under the floor that holds the rest of a response would get no
+       `writable` and no `send`, and the stream would wait until `send_rate` cancelled it. A
+       request's table entry keeps the octets its program waits to write for this.
+     - The transport's close keeps the `done` of each response written whole, and the endpoint
+       reports them before the connection's `ended`. `Connection.transport_closed`, which a
+       program that drives a TCP connection itself calls, still drops them.
+     - A TLS client that selects no protocol is served h11 while `versions` allows it (decision
+       88). With h11 off its handshake completes and the connection closes with `Ended.failed`,
+       with no alert: chapulin has no call that refuses a handshake for its ALPN, and colibri
+       works around none (RFC 9113 §3.3).
+     - `shutdown` takes no instant on a TCP connection, so the endpoint calls its `on_instant`
+       after it, and its drain starts at the endpoint's `shutdown`.
+     - A program that serves QUIC alone sizes its endpoint with `.tcp_connections = 0`, which
+       draws and builds nothing for TCP. The examples and checks that serve QUIC alone do so.
+     - A TCP connection may leave input unconsumed until an event of its own: an h11 connection
+       reads a pipelined request only once the response before it ends, which may write no octet
+       and so bring no `send`. The program therefore passes held octets again after each event
+       that names the connection, beside its next read and its `send_stream`.

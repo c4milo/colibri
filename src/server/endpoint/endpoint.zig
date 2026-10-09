@@ -30,6 +30,7 @@ const endpoint_config = @import("endpoint_config.zig");
 const endpoint_held = @import("endpoint_held.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
+const Connection = @import("../connection/connection.zig").Connection;
 const ReceiveStorage = quic_connection.ReceiveStorage;
 const Sent = quic_connection.Sent;
 const Id = event.Id;
@@ -41,10 +42,14 @@ pub const Config = endpoint_config.Config;
 pub const LogProvider = endpoint_connections.LogProvider;
 pub const Input = endpoint_held.Input;
 pub const Datagram = endpoint_held.Datagram;
+pub const Security = endpoint_held.Security;
+pub const StreamOctets = endpoint_held.StreamOctets;
 
-/// How many connections an endpoint holds, fixed at build time (decision 35): its QUIC
-/// connections, and the octets each holds that it has not read (decision 61).
+/// How many connections an endpoint holds, fixed at build time (decision 35): its TCP and its
+/// QUIC connections, either of which may be 0, and the octets each QUIC connection holds that it
+/// has not read (decision 61).
 pub const Capacity = struct {
+    tcp_connections: usize = constants.tcp_connections_default,
     quic_connections: usize = constants.quic_connections_default,
     receive_pool_len: usize = quic.constants.receive_pool_len_default,
 };
@@ -54,17 +59,23 @@ pub const Endpoint = EndpointOf(.{});
 
 /// An endpoint that holds the connections `capacity` names.
 pub fn EndpointOf(comptime capacity: Capacity) type {
-    comptime assert(capacity.quic_connections > 0);
-    const slots_max = capacity.quic_connections;
+    comptime assert(capacity.tcp_connections + capacity.quic_connections > 0);
+    const slots_max = capacity.tcp_connections + capacity.quic_connections;
     return struct {
         const Self = @This();
         const Pool = quic.stream.stream_incoming.Pool(capacity.receive_pool_len);
 
         held: endpoint_held.Held,
-        /// The TLS configuration of the QUIC connections, and what each borrows, which `init`
-        /// builds from `Config`.
+        /// The TLS configuration of each transport, and what each connection borrows, which
+        /// `init` builds from `Config`.
         quic_tls: tls.quic.ServerConfig,
         quic_config: quic_connection.Config,
+        tcp_tls: tls.record.ServerConfig,
+        tcp_configs: endpoint_config.TcpConfigs,
+        tcp: [capacity.tcp_connections]Connection,
+        tcp_tables: [capacity.tcp_connections]endpoint_held.TcpTable,
+        transports: [capacity.tcp_connections]endpoint_held.Transport,
+        send_outstanding: [capacity.tcp_connections]bool,
         quic: [capacity.quic_connections]QuicConnection,
         pools: [capacity.quic_connections]Pool,
         storages: [capacity.quic_connections]ReceiveStorage,
@@ -86,18 +97,30 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
 
         /// Prepares an endpoint that holds no connection. Every value it draws comes from
         /// `random`. `now_seconds` is the Unix time at `now_ns`, which the server's tickets are
-        /// issued at, or 0 for none. It builds the TLS configuration of its QUIC connections from
-        /// `config.tls` and checks that its key signs. `error.NoVersion` says the endpoint has no
-        /// identity, or `versions` turns h3 off, and `error.DeadlineInvalid` that
+        /// issued at, or 0 for none. It builds the TLS configuration of each transport it serves
+        /// from `config.tls` and checks that its key signs. `error.NoVersion` says no slot it
+        /// holds serves a version `versions` allows: its TCP slots no h11 or h2, and its QUIC
+        /// slots no h3 or no identity. `error.DeadlineInvalid` says that
         /// `config.deadlines` holds a limit `Deadlines.validate` or `validate_units` refuses
         /// (decision 110 as amended). `error.IdentityRefused`, `TooManyCertificates`,
         /// `TooManySuites` and `SuitesUnavailable` say the TLS configuration refused the
         /// identity. The endpoint reads `config` while it runs.
         pub fn init(endpoint: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
-            try endpoint_config.build(config, &endpoint.quic_tls, &endpoint.quic_config, random);
+            const counts: endpoint_config.Counts = .{ .tcp = capacity.tcp_connections, .quic = capacity.quic_connections };
+            const served = try endpoint_config.build(config, counts, .{
+                .quic_tls = &endpoint.quic_tls,
+                .quic = &endpoint.quic_config,
+                .tcp_tls = &endpoint.tcp_tls,
+                .tcp = &endpoint.tcp_configs,
+            }, random);
             for (&endpoint.pools, &endpoint.storages) |*pool, *storage| storage.* = pool.storage();
             for (&endpoint.quic_tables) |*table| table.init();
-            endpoint.held.init(config, &endpoint.quic_config, .{
+            const built: endpoint_held.Built = .{ .quic = &endpoint.quic_config, .tcp = &endpoint.tcp_configs, .served = served };
+            endpoint.held.init(config, built, .{
+                .tcp = &endpoint.tcp,
+                .tcp_tables = &endpoint.tcp_tables,
+                .transports = &endpoint.transports,
+                .send_outstanding = &endpoint.send_outstanding,
                 .quic = &endpoint.quic,
                 .pools = &endpoint.storages,
                 .quic_tables = &endpoint.quic_tables,
@@ -118,10 +141,23 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
             }, random, now_seconds, now_ns);
         }
 
+        /// Starts a connection on a TCP socket the program accepted, in cleartext or over TLS,
+        /// and returns the handle that names it. Null when no TCP slot is free, after `shutdown`,
+        /// when `versions` allows no TCP version, or when chapulin refuses to start its session:
+        /// the program closes the socket then.
+        pub fn accept(endpoint: *Self, security: Security, now_ns: u64) ?ConnectionHandle {
+            return endpoint.held.accept(security, now_ns);
+        }
+
         /// Takes what `input` brings, then reports the next event any connection owes. The
-        /// caller passes each datagram the socket read, and calls with `.none` after it answers
-        /// and after `on_instant`, until a call reports nothing. An event's slices stay valid
-        /// until the next `receive`, `on_instant`, `send_datagram` or `shutdown`.
+        /// caller passes the octets each TCP socket read and each datagram the UDP socket read,
+        /// and calls with `.none` after it answers, after `send_stream` and after `on_instant`,
+        /// until a call reports nothing. A TCP connection may consume less than it was given: the
+        /// caller holds the rest and passes it again, with what the socket reads next, and after
+        /// each event that names the connection, which may say it reads again, such as the `done`
+        /// of an h11 response a pipelined request waited for. An event's slices stay
+        /// valid until the next `receive`, `on_instant`, `send_stream`, `send_datagram`, `accept`,
+        /// `transport_closed` or `shutdown`.
         pub fn receive(endpoint: *Self, input: Input, now_ns: u64) event.Received {
             return endpoint.held.receive(input, now_ns);
         }
@@ -166,6 +202,22 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
             endpoint.held.shutdown(now_ns);
         }
 
+        /// Writes into `output` what the TCP connection `connection` owes its socket, after the
+        /// endpoint reported a `send` for it, and returns the octets written: 0 for a handle that
+        /// names no connection. A call that fills `output` leaves more owed, and the caller calls
+        /// again. One that leaves room ends the `send`: the endpoint reports another once the
+        /// connection owes more, at once when a record's overhead did not fit the room left.
+        pub fn send_stream(endpoint: *Self, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
+            return endpoint.held.send_stream(connection, output, now_ns);
+        }
+
+        /// The socket of the TCP connection `connection` closed: the peer closed it, the caller
+        /// closed it after a `close`, or it failed. The `done` of each response written whole,
+        /// the `cancelled` of each other request, and the connection's `ended` follow.
+        pub fn transport_closed(endpoint: *Self, connection: ConnectionHandle) void {
+            endpoint.held.transport_closed(connection);
+        }
+
         /// Writes into `output` the next datagram the endpoint owes, and names where it goes. Null
         /// when it owes none.
         pub fn send_datagram(endpoint: *Self, output: []u8, now_ns: u64) ?Sent {
@@ -198,9 +250,11 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
 test "design §8 step 17f: the endpoint's public functions are the calls a program makes" {
     const public_names = @import("core").public_names;
     // Design §8 step 21b.3 (decision 119): the endpoint answers requests by id.
+    // Design §8 step 21b.4 adds `accept`, `send_stream` and `transport_closed` (decision 119).
     try public_names.expect(Endpoint, &.{
-        "init",           "receive",       "set_user_data", "respond",       "write_body",
-        "write_trailers", "cancel",        "shutdown",      "send_datagram", "deadline_ns",
-        "on_instant",     "set_deadlines", "server_name",
+        "init",             "accept",         "receive",     "set_user_data", "respond",
+        "write_body",       "write_trailers", "cancel",      "shutdown",      "send_stream",
+        "transport_closed", "send_datagram",  "deadline_ns", "on_instant",    "set_deadlines",
+        "server_name",
     });
 }

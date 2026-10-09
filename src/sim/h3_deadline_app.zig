@@ -14,7 +14,7 @@ const limits = sim.constants.h3_deadline;
 const Plan = plan_module.Plan;
 
 /// The server's endpoint, which holds the run's one QUIC connection.
-pub const Endpoint = server.EndpointOf(.{ .quic_connections = 1 });
+pub const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 });
 
 pub const Error = error{
     /// The server refused an answer to an honest peer.

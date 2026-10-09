@@ -48,7 +48,7 @@ const actions_per_request: usize = 2;
 const actions_besides_requests: usize = 5;
 pub const allowed_max: usize = actions_per_request * limits.requests_max + actions_besides_requests;
 
-const Endpoint = server.EndpointOf(.{ .quic_connections = 1 });
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 });
 const datagram_len = limits.datagram_len;
 /// Where the client sends from, which the endpoint reads off each datagram (decision 72).
 const ipv4_len: usize = 4;

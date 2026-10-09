@@ -25,6 +25,9 @@ pub const Entry = struct {
     /// request waits for no room (`writable`), and what that write was.
     waiting_since: ?u32 = null,
     waiting_for: Wait = .content,
+    /// The octets of content the program waits to write, which an h2 stream's window may hold only
+    /// whole when it is shorter than decision 110's floor.
+    waiting_len: u32 = 0,
 };
 
 /// A table of `capacity` open requests, which a mask of the entries in use lets a lookup skip.

@@ -173,7 +173,7 @@ pub fn idle(connection: *const Connection) bool {
 
 /// The stream an id names, or `RequestUnknown` for one no stream can have. h2 refuses a stream
 /// the client did not open.
-fn stream_of(id: Number) SendError!u32 {
+pub fn stream_of(id: Number) SendError!u32 {
     // RFC 9113 §5.1.1: a stream identifier is 31 bits, and 0 names the connection.
     if (id == 0 or id > h2.constants.stream_id_max) return error.RequestUnknown;
     return @intCast(id);

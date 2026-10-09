@@ -9,6 +9,7 @@ const tls_provider = @import("tls_provider");
 const support = @import("connection_test_support.zig");
 const plain_support = @import("../plain_provider_test_support.zig");
 const connection_tls = @import("connection_tls.zig");
+const connection_owed = @import("connection_owed.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -49,8 +50,11 @@ test "RFC 9846 §4.7.3: a peer's KeyUpdate is answered before the next record op
     var received = try connection.receive(support.input[0 .. update_len + request_len], support.now_ns);
     try testing.expectEqual(update_len, received.consumed);
     try testing.expectEqual(null, received.event);
+    // Decision 119: the reply is octets `send` owes, which a server's endpoint reports as `send`.
+    try testing.expect(connection_owed.owes_octets(connection));
     // The reply goes out alone, and the next record opens after it.
     const sent = support.drain();
+    try testing.expect(!connection_owed.owes_octets(connection));
     const reply = plain_support.open(sent).?;
     try testing.expectEqual(plain_support.content_handshake, reply.content_type);
     try testing.expectEqualSlices(u8, &plain_support.key_update_not_requested, reply.content);

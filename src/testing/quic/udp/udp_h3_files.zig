@@ -16,6 +16,7 @@ const hq_file = @import("../hq/hq_file.zig");
 /// The endpoint the `h3` mode serves through: as many connections as the UDP server holds, each
 /// with its receive pool.
 pub const Endpoint = server.EndpointOf(.{
+    .tcp_connections = 0,
     .quic_connections = constants.quic_connections_max,
     .receive_pool_len = constants.h3_receive_pool_len,
 });

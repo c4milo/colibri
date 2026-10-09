@@ -4,8 +4,9 @@
 //! `respond`, `write_body` and `write_trailers`, in h11 and h2 alike.
 //!
 //! Over TLS, `receive` runs the handshake through `tls.record.Server`, and the protocol ALPN
-//! selected serves the connection: h2 for "h2" (RFC 9113 §3.2), and h11 for "http/1.1" or for no
-//! selection (decision 88). In cleartext, the connection speaks the version `Config.versions`
+//! selected serves the connection: h2 for "h2" (RFC 9113 §3.2), and h11 for "http/1.1", or for no
+//! selection while `Config.versions` allows h11 (decision 88); with h11 off, no selection is
+//! refused (RFC 9113 §3.3, decision 117). In cleartext, the connection speaks the version `Config.versions`
 //! allows. When it allows both h11 and h2, the connection preface chooses h2 and any other first
 //! octets h11 (RFC 9113 §3.3, `connection_cleartext.zig`).
 //!
@@ -357,16 +358,8 @@ pub const Connection = struct {
     /// or it failed. Nothing more is read or written, and over TLS the session's secrets are wiped.
     /// It is idempotent: a second call changes nothing.
     pub fn transport_closed(connection: *Connection) void {
-        if (connection.phase == .open and connection.session == .h11) _ = connection.session.h11.transport_closed();
-        connection.phase = .closed;
-        connection.stopped = true;
-        connection.output_len = 0;
-        connection.records_len = 0;
-        connection.update_held_len = 0;
+        internal.close_transport(connection);
         connection.done_owed.clear();
-        connection_coding.forget_all(connection);
-        // chapulin's close wipes every secret, and is safe on a session that closed or failed.
-        if (connection.config.tls != null) connection.tls_server.close();
     }
 
     /// The protocol serving the connection, or null while the TLS handshake runs or after it failed,

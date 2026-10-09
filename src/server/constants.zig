@@ -106,6 +106,18 @@ pub const quic_idle_timeout_ms_default: u64 = 30_000;
 /// another.
 pub const quic_connections_default: usize = 16;
 
+/// TCP connections `Endpoint` holds at once, the default size (decision 119). `EndpointOf` takes
+/// another, 0 included.
+pub const tcp_connections_default: usize = 16;
+
+/// The requests a TCP slot of an endpoint holds at once: as many as an h2 connection may hold,
+/// which `Limits.requests_max` reaches at most (decision 119).
+pub const tcp_requests_max: usize = h2.constants.concurrent_streams_max;
+
+/// Events one poll of a TCP slot reads at most before it asks the slot again: the endings the
+/// connection owes, and one event for each frame its plaintext holds.
+pub const tcp_events_per_poll_max: usize = done_owed_max + bodies_max + frames_per_receive_max + 1;
+
 /// Version Negotiation and Retry packets an endpoint owes at once. One more is dropped, and its
 /// client sends again.
 pub const quic_replies_max: usize = 8;
@@ -207,6 +219,7 @@ comptime {
     // Every chunk the output holds leaves room for the last one.
     assert(output_len > chunk_framing_len_max + last_chunk_len);
     assert(done_owed_max > 0);
+    assert(tcp_connections_default > 0 and tcp_requests_max >= requests_max);
     assert(bodies_max > 0 and body_rate_min > 0 and send_rate_min > 0);
     assert(data_frame_len_min <= h2.constants.max_frame_size_initial and close_linger_ns > 0);
     // The largest DATA frame a peer may send colibri is a record's plaintext too.

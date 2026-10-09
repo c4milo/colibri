@@ -85,7 +85,7 @@ var output: [link_module.datagram_len_max]u8 = undefined;
 // The server: the TLS configuration of its QUIC connections, and the endpoint that holds them.
 // colibri's test identity stands in for the certificate and the key a program loads.
 /// The QUIC connections the endpoint holds at once, and the octets each holds unread.
-const Endpoint = server.EndpointOf(.{ .quic_connections = 2, .receive_pool_len = 64 * 1024 });
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 2, .receive_pool_len = 64 * 1024 });
 const chain = [_][]const u8{ identity.leaf, identity.root };
 var cookie_key: [tls.constants.server_key_len]u8 = undefined;
 var endpoint_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;

@@ -10,12 +10,29 @@ const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
 const connection_bodies = @import("connection_bodies.zig");
 const connection_config = @import("connection_config.zig");
+const connection_coding = @import("connection_coding.zig");
 const h2 = @import("h2");
 
 const Connection = connection_module.Connection;
 const Error = connection_module.Error;
 const Protocol = event.Protocol;
 const Received = event.Received;
+
+/// The transport closed: nothing more is read or written, and over TLS the session's secrets are
+/// wiped. The `done` of each response written whole stays owed, which a server's endpoint reports
+/// before the connection's `ended` (INV-30); `Connection.transport_closed` drops them too. A
+/// second call changes nothing.
+pub fn close_transport(connection: *Connection) void {
+    if (connection.phase == .open and connection.session == .h11) _ = connection.session.h11.transport_closed();
+    connection.phase = .closed;
+    connection.stopped = true;
+    connection.output_len = 0;
+    connection.records_len = 0;
+    connection.update_held_len = 0;
+    connection_coding.forget_all(connection);
+    // chapulin's close wipes every secret, and is safe on a session that closed or failed.
+    if (connection.config.tls != null) connection.tls_server.close();
+}
 
 /// Makes the protocol's connection, which then serves this one.
 pub fn open_session(connection: *Connection, chosen: Protocol) void {

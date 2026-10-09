@@ -21,6 +21,7 @@ const Connection = connection_module.Connection;
 const Error = connection_module.Error;
 const Received = event.Received;
 const Protocol = event.Protocol;
+const Versions = @import("../versions.zig").Versions;
 
 /// Why a record did not open or go out, in either protocol. Both name the same five.
 const RecordError = h2.connection_tls.RecordError || h11.connection_tls.RecordError;
@@ -50,9 +51,8 @@ pub fn handshake(connection: *Connection, input: []u8, now_ns: u64) Error!Receiv
 /// Opens the protocol ALPN selected over the handshake `provider` finished, after that
 /// protocol's checks.
 pub fn attach(connection: *Connection, provider: tls_provider.Provider) Error!void {
-    // RFC 7301 §3.2: the protocol ALPN selected is definitive for the connection, and a selection
-    // of none is h11 (decision 88).
-    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context)));
+    // RFC 7301 §3.2: the protocol ALPN selected is definitive for the connection.
+    internal.open_session(connection, protocol_of(provider.vtable.negotiated_alpn(provider.context), connection.config.versions));
     // RFC 9113 §3.2, §9.2 and decision 88: the handshake is checked before any HTTP octet moves.
     const attached = switch (connection.session) {
         .h2 => |*session| session.attach_tls(provider),
@@ -66,9 +66,11 @@ pub fn attach(connection: *Connection, provider: tls_provider.Provider) Error!vo
 }
 
 /// The protocol a finished handshake runs: h2 when ALPN selected "h2" (RFC 9113 §3.2), and h11
-/// when it selected "http/1.1" or nothing (decision 88).
-pub fn protocol_of(selected: ?[]const u8) Protocol {
-    const name = selected orelse return .h11;
+/// when it selected "http/1.1". A selection of none is h11 while `versions` allows it (decision
+/// 88), and otherwise h2, whose own check then refuses the handshake: RFC 9113 §3.3 has h2 over
+/// TLS "use protocol negotiation in TLS" (decision 117).
+pub fn protocol_of(selected: ?[]const u8, versions: Versions) Protocol {
+    const name = selected orelse return if (versions.h11) .h11 else .h2;
     return if (std.mem.eql(u8, name, &tls_provider.constants.alpn_h2)) .h2 else .h11;
 }
 

@@ -19,6 +19,7 @@ const coding_response = @import("../coding/coding_response.zig");
 const connection_module = @import("connection.zig");
 const connection_h11 = @import("connection_h11.zig");
 const connection_h2 = @import("connection_h2.zig");
+const internal = @import("connection_internal.zig");
 
 const Connection = connection_module.Connection;
 const SendError = connection_module.SendError;
@@ -163,6 +164,45 @@ pub fn drain(connection: *Connection) void {
         // The protocol refused the response's content: its stream ended, so nothing reads it.
         advance(connection, entry) catch release(connection, entry);
     }
+}
+
+/// The coded response of request `id`, or null for one not coded.
+pub fn coded_of(connection: *Connection, id: Number) ?*const Coded {
+    const entry = connection.coding.find(id) orelse return null;
+    return if (entry.coded) |*coded| coded else null;
+}
+
+/// Whether `drain` would write octets now: a coded response whose ring holds octets the protocol
+/// takes, h11 at once and h2 as far as the stream's windows allow (RFC 9113 §6.9.1), or one whose
+/// encoder has its last octets to write. The output is empty when the endpoint asks.
+pub fn ring_owed(connection: *Connection) bool {
+    const table = &connection.coding;
+    // RFC 9113 §5.4.1, RFC 9112 §9.6: a connection that failed or was stopped sends no more
+    // content, and `drain` writes none.
+    if (table.used == 0 or connection.stopped) return false;
+    for (&table.entries) |*entry| {
+        if (entry.id != 0 and entry_owed(connection, entry)) return true;
+    }
+    return false;
+}
+
+/// Whether `drain` would write octets of `entry`'s coded response now.
+fn entry_owed(connection: *Connection, entry: *const Entry) bool {
+    const coded = if (entry.coded) |*coded| coded else return false;
+    const held = coded.ring.oldest(connection.config.encoders.?.ring(coded.slot));
+    // An encoder whose content ended writes its last octets at the next `drain`.
+    if (held.len == 0) return coded.finishing and !coded.finished;
+    return takes_content(connection, entry.id, held.len);
+}
+
+/// Whether the protocol takes content of request `id` now, of `len` octets the ring holds.
+fn takes_content(connection: *Connection, id: Number, len: usize) bool {
+    return switch (connection.session) {
+        // h11 frames a chunk of what the output holds, and the output is empty.
+        .h11 => true,
+        .h2 => connection.session.h2.sendable_len(connection_h2.stream_of(id) catch return false, internal.room(connection).len, len) > 0,
+        .none => false,
+    };
 }
 
 /// Copies what the ring holds into the output, finishes the encoder once the content ended, and

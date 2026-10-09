@@ -47,9 +47,13 @@ pub const Endpoint = endpoint.Endpoint;
 pub const EndpointOf = endpoint.EndpointOf;
 pub const Capacity = endpoint.Capacity;
 pub const EndpointConfig = endpoint.Config;
-/// What `Endpoint.receive` takes: `.none`, or a `Datagram` the program's UDP socket read.
+/// What `Endpoint.receive` takes: `.none`, the `StreamOctets` a program's TCP socket read, or a
+/// `Datagram` its UDP socket read.
 pub const Input = endpoint.Input;
 pub const Datagram = endpoint.Datagram;
+/// Whether a TCP connection `Endpoint.accept` takes runs TLS.
+pub const Security = endpoint.Security;
+pub const StreamOctets = endpoint.StreamOctets;
 pub const LogProvider = endpoint.LogProvider;
 /// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = quic_connection.Sent;
@@ -101,16 +105,17 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // into `EndpointConfig` (decision 119).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",        "Config",      "Versions",           "Limits",         "Deadline",
-        "Deadlines",        "CloseReason", "Limit",              "Connection",     "QuicConnection",
-        "Endpoint",         "EndpointOf",  "Capacity",           "EndpointConfig", "Input",
-        "Datagram",         "LogProvider", "Sent",               "Address",        "Ecn",
-        "Error",            "StartError",  "SendError",          "Field",          "Id",
-        "ConnectionHandle", "Protocol",    "Version",            "Fields",         "Event",
-        "Request",          "Body",        "Trailers",           "Cancelled",      "CancelReason",
-        "Done",             "Writable",    "Ended",              "Response",       "Content",
-        "Received",         "Alternative", "Coding",             "EncoderPool",    "DefaultEncoderPool",
-        "Encoders",         "DecoderPool", "DefaultDecoderPool", "Decoders",       "Features",
+        "constants",   "Config",             "Versions",         "Limits",         "Deadline",
+        "Deadlines",   "CloseReason",        "Limit",            "Connection",     "QuicConnection",
+        "Endpoint",    "EndpointOf",         "Capacity",         "EndpointConfig", "Input",
+        "Datagram",    "Security",           "StreamOctets",     "LogProvider",    "Sent",
+        "Address",     "Ecn",                "Error",            "StartError",     "SendError",
+        "Field",       "Id",                 "ConnectionHandle", "Protocol",       "Version",
+        "Fields",      "Event",              "Request",          "Body",           "Trailers",
+        "Cancelled",   "CancelReason",       "Done",             "Writable",       "Ended",
+        "Response",    "Content",            "Received",         "Alternative",    "Coding",
+        "EncoderPool", "DefaultEncoderPool", "Encoders",         "DecoderPool",    "DefaultDecoderPool",
+        "Decoders",    "Features",
     });
 }
 
@@ -142,6 +147,9 @@ test {
     _ = @import("endpoint/endpoint_held_test.zig");
     _ = @import("endpoint/endpoint_config.zig");
     _ = @import("endpoint/endpoint_writable_test.zig");
+    _ = @import("endpoint/endpoint_tcp_test.zig");
+    _ = @import("endpoint/endpoint_tcp_send_test.zig");
+    _ = @import("endpoint/endpoint_tcp_writable_test.zig");
     _ = @import("quic/quic_connection_h3_room.zig");
     _ = @import("coding/coding_ring.zig");
     _ = @import("coding/coding_rules.zig");
