@@ -7612,7 +7612,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 21b.3 moved the endpoint's QUIC calls to ids, `Capacity`, `Input` and `Datagram`, with the
     endings of INV-30 and the deadline heap of INV-31. It then folded `QuicConfig` into
     `EndpointConfig`, which takes one `tls.Server` whose `alpn` stays empty, and `requests_max`
-    came to bound h3's request streams. `writable` over h3 comes next, as the last part of 21b.3.
+    came to bound h3's request streams. Last, `writable` over h3: a response that found no room
+    for its head, its content or its trailer section is reported once a datagram moves its
+    slot's room counter and its connection can take the write. Only acknowledgments free room
+    over QUIC (RFC 9000 §3.1), so a deadline that fires moves no counter.
   - `zig build test` and `zig build test -Drelease`: 131 of 131 steps and 2676 of 2676 tests
     passed in each.
   - `zig build sim -- --h3-deadline-check`, 256 seeds in Debug and in ReleaseSafe: the event CRC
@@ -7623,11 +7626,22 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/h3spec.sh` (49 cases, none failed), `tools/quic_udp.sh`, `tools/quic_aioquic.sh`
     (aioquic 1.3.0), `tools/h3_deadlines.sh`, `zig build examples`, `tools/doc_snippets.sh` and
     `tools/consumer_check.sh`: each passed. Each passed again with the folded configuration,
-    and `zig build test` passed 2679 of 2679 tests.
+    and again with `writable` and the review's fixes, when `zig build test` and `zig build test
+    -Drelease` passed 131 of 131 steps and 2688 of 2688 tests in each.
   - Two defects, each fixed with a test. A first Initial whose Destination Connection ID was
     shorter than 8 octets reached an assertion (INV-24). A poll that read an event moved its
     connection's deadline without marking the slot, so `deadline_ns` read before it kept the old
     instant (INV-31).
+  - A review of 21b.3, three reviewers and a verifier, made fourteen findings. The verifier
+    refuted six, and the other eight name six defects, each fixed:
+    - a write that found room on a retry kept its wait, so a false `writable` followed;
+    - a head or trailer section larger than the kept frames' room got a `writable` on every
+      datagram: it now waits for every run acknowledged;
+    - `send_datagram` asked every slot on each call: it now asks only the slots a call changed
+      since they last sent nothing;
+    - three errors in docs: a citation of RFC 9846 §4.4.2 for the server's certificate, a doc
+      comment left above `LogProvider`, and `Sent` naming the old `send`. `StartError`'s new
+      members and `init`'s doc also gained the docs a refuted finding asked for.
   - Mutations, each **CAUGHT**:
     - 21b.1: no length check; an 8-octet ID refused; a 7-octet one taken, which the test first
       missed and now derives from the ID's length;
@@ -7644,7 +7658,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       it was; a stopped connection's send not polled, which a test then had to be written for;
     - 21b.3, the folded configuration: an endpoint with no identity, or with h3 turned off,
       starting; an identity never checked; `requests_max` not passed, not clamped, or not
-      advertised; deadlines not validated; no h3 named in the handshake.
+      advertised; deadlines not validated; no h3 named in the handshake;
+    - 21b.3, `writable`: a datagram moving no room; a blocked or partial write, a head with no
+      room, or trailers with no room or no run, waiting for nothing; `writable` before room
+      moves, or never cleared; trailers before the encoder finished; a head never taken;
+      content that ignores the runs or the ring, and trailers that ignore the runs, three which
+      a test then had to be written for, with room that moves and frees nothing;
+    - 21b.3, the review's fixes: content that fit on a retry keeping its wait, and a head or
+      trailers that fit keeping theirs, two which a test then had to be written for; a large
+      head waiting for a run alone; an empty response never awaited; a slot that sent not asked
+      again, and an answer that queues no send, two which a test then had to be written for; a
+      poll that queues no send; an ended slot left in the send ring.
+  - One more was equivalent, and the code no longer has it: a `writable` checked while its
+    connection stops, which empties its table first.
   - One mutant was equivalent: `ended` reported with requests still open. A connection always
     stops before it ends, and a stopped one gives each open request its `cancelled` first, so the
     condition became INV-30's assertion.

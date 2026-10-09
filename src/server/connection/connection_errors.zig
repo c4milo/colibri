@@ -17,11 +17,12 @@ pub const StartError = error{
     /// The endpoint's TLS identity: its key does not sign, or its signature does not verify (RFC
     /// 9846 §4.5.2).
     IdentityRefused,
-    /// The endpoint's TLS identity holds a longer chain than `certificate_chain_len_max`, more
-    /// suites than `cipher_suites_max`, or an order of suites a build without AES-GCM cannot keep
-    /// (decision 97).
+    /// The endpoint's TLS identity holds a longer chain than `certificate_chain_len_max`.
     TooManyCertificates,
+    /// The endpoint's TLS identity orders more suites than `cipher_suites_max`.
     TooManySuites,
+    /// The endpoint's TLS identity orders suites, which a build without AES-GCM cannot keep
+    /// (decision 97).
     SuitesUnavailable,
 };
 

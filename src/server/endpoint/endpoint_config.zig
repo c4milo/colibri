@@ -20,9 +20,11 @@ const endpoint_connections = @import("endpoint_connections.zig");
 
 const StartError = connection_errors.StartError;
 
+/// The endpoint reads it while it runs, so the caller keeps it alive and in place after `init`.
 pub const Config = struct {
-    /// The server's identity and keys, given once (RFC 9846 §4.4.2). Its `alpn` stays empty: the
-    /// endpoint names the protocol `versions` allows, "h3" over QUIC (RFC 9114 §3.1).
+    /// The server's certificate chain and key, given once (RFC 9846 §4.5.1, §4.5.2). Its `alpn`
+    /// stays empty: the endpoint names the protocol `versions` allows, "h3" over QUIC (RFC 9114
+    /// §3.1).
     tls: ?tls.Server = null,
     /// The HTTP versions the endpoint serves (decision 117). A QUIC connection serves h3 alone.
     versions: versions_module.Versions = .{},
@@ -68,8 +70,8 @@ pub fn build(config: *const Config, quic_tls: *tls.quic.ServerConfig, held: *qui
     // RFC 9001 §3: QUIC's keys come from a TLS handshake, so an endpoint with no identity starts
     // no QUIC connection.
     const identity = config.tls orelse return error.NoVersion;
-    // RFC 9114 §3.1: a QUIC connection serves h3 alone, which `versions` may turn off (decision
-    // 117).
+    // RFC 9114 §3.1: the endpoint's QUIC connections speak h3, under the token the handshake
+    // names, and `versions` may turn h3 off (decision 117).
     if (!config.versions.h3) return error.NoVersion;
     assert(identity.alpn.len == 0);
     // A connection refuses limits `validate` refuses. An endpoint whose every connection refused

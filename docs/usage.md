@@ -504,6 +504,13 @@ of a request carries back, so a program finds its own state for the request with
 `program`. A connection that stops with requests open ends each with `cancelled` and the reason
 `closed`.
 
+A response can find no room. `write_body` takes less than it was given, or returns
+`error.Blocked`. `respond` or `write_trailers` returns `error.NoSpaceLeft`, or `write_trailers`
+returns `error.Blocked` while a coded response's last octets wait. Over QUIC, room comes back only
+as the client acknowledges what was sent (RFC 9000 §3.1). The endpoint then reports `writable` for
+the request, once, and the program writes again. A head or a trailer section larger than the room
+the response's earlier frames leave waits until the client has acknowledged all of them.
+
 Three things differ from TCP:
 
 - **Content is not copied.** QUIC reads the program's octets again whenever it sends them again.

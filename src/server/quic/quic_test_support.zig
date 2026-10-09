@@ -356,9 +356,12 @@ fn client_to_server() !void {
 /// Passes one of the client's datagrams to the endpoint, and keeps the event it reports.
 fn to_endpoint(octets: []u8) void {
     if (routes_only) {
-        // The connection takes the datagram, and the endpoint reads none of its events.
+        // The connection takes the datagram, as the endpoint's `receive` has it do, and the
+        // endpoint reads none of its events.
         const slot = endpoint.held.connections.receive(octets, .not_ect, client_address(), now_ns, true) orelse return;
+        endpoint.held.room[slot] +%= 1;
         endpoint.held.ready.touch(slot);
+        endpoint.held.heap.mark_stale(slot);
         return;
     }
     const taken = endpoint.receive(.{ .datagram = .{ .octets = octets, .from = client_address() } }, now_ns);

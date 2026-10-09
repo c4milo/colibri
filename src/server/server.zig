@@ -51,7 +51,7 @@ pub const EndpointConfig = endpoint.Config;
 pub const Input = endpoint.Input;
 pub const Datagram = endpoint.Datagram;
 pub const LogProvider = endpoint.LogProvider;
-/// A datagram `Endpoint.send` wrote, with its ECN codepoint and the address it goes to.
+/// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = quic_connection.PeerAddress;
@@ -141,6 +141,8 @@ test {
     _ = @import("endpoint/endpoint_test.zig");
     _ = @import("endpoint/endpoint_held_test.zig");
     _ = @import("endpoint/endpoint_config.zig");
+    _ = @import("endpoint/endpoint_writable_test.zig");
+    _ = @import("quic/quic_connection_h3_room.zig");
     _ = @import("coding/coding_ring.zig");
     _ = @import("coding/coding_rules.zig");
     _ = @import("coding/coding_fields.zig");

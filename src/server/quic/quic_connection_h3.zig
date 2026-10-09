@@ -248,7 +248,7 @@ fn stop_waiting(connection: *QuicConnection, stream_id: u64) void {
 }
 
 /// The record of a request the caller still hears of, or null.
-fn live(connection: *QuicConnection, stream_id: u64) ?*Request {
+pub fn live(connection: *QuicConnection, stream_id: u64) ?*Request {
     const record = connection.requests.of(stream_id) orelse return null;
     return if (record.over) null else record;
 }
@@ -308,7 +308,7 @@ pub fn write_body(connection: *QuicConnection, id: Number, content: event.Conten
 }
 
 /// The runs one DATA frame takes.
-const data_runs: usize = 2;
+pub const data_runs: usize = 2;
 
 pub fn write_trailers(connection: *QuicConnection, id: Number, fields: []const Field) SendError!void {
     const record = try writable(connection, id);

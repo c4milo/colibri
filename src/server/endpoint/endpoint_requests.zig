@@ -8,6 +8,12 @@ const event = @import("../event.zig");
 
 const Number = event.Number;
 
+/// What a request's response found no room for: its head, more of its content, or its trailer
+/// section, or a head or trailer section larger than the room its earlier frames leave, which
+/// waits for the response to hold nothing unacknowledged. The endpoint reports `writable` once
+/// the connection can take it.
+pub const Wait = enum { head, content, trailers, empty };
+
 /// One open request.
 pub const Entry = struct {
     number: Number,
@@ -16,8 +22,9 @@ pub const Entry = struct {
     /// request.
     cancel_owed: bool = false,
     /// The value of the slot's room counter when the last write found no room, or null when the
-    /// request waits for no room (`writable`).
+    /// request waits for no room (`writable`), and what that write was.
     waiting_since: ?u32 = null,
+    waiting_for: Wait = .content,
 };
 
 /// A table of `capacity` open requests, which a mask of the entries in use lets a lookup skip.

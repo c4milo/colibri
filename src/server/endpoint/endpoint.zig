@@ -73,8 +73,11 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         live: [slots_max]bool,
         free: [slots_max]u32,
         failed: [slots_max]bool,
+        room: [slots_max]u32,
         ready_numbers: [slots_max]u32,
         ready_queued: [slots_max]bool,
+        send_numbers: [slots_max]u32,
+        send_queued: [slots_max]bool,
         cached: [slots_max]u64,
         position: [slots_max]u32,
         order: [slots_max]u32,
@@ -87,7 +90,9 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         /// `config.tls` and checks that its key signs. `error.NoVersion` says the endpoint has no
         /// identity, or `versions` turns h3 off, and `error.DeadlineInvalid` that
         /// `config.deadlines` holds a limit `Deadlines.validate` or `validate_units` refuses
-        /// (decision 110 as amended).
+        /// (decision 110 as amended). `error.IdentityRefused`, `TooManyCertificates`,
+        /// `TooManySuites` and `SuitesUnavailable` say the TLS configuration refused the
+        /// identity. The endpoint reads `config` while it runs.
         pub fn init(endpoint: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
             try endpoint_config.build(config, &endpoint.quic_tls, &endpoint.quic_config, random);
             for (&endpoint.pools, &endpoint.storages) |*pool, *storage| storage.* = pool.storage();
@@ -100,8 +105,11 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
                 .live = &endpoint.live,
                 .free = &endpoint.free,
                 .failed = &endpoint.failed,
+                .room = &endpoint.room,
                 .ready_numbers = &endpoint.ready_numbers,
                 .ready_queued = &endpoint.ready_queued,
+                .send_numbers = &endpoint.send_numbers,
+                .send_queued = &endpoint.send_queued,
                 .cached = &endpoint.cached,
                 .position = &endpoint.position,
                 .order = &endpoint.order,
@@ -125,19 +133,23 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         }
 
         /// Writes the head of the response to request `id`: an interim one (1xx) or the final
-        /// one. With `end`, the final response carries no content.
+        /// one. With `end`, the final response carries no content. `error.NoSpaceLeft` says the
+        /// response has no room for it: its `writable` comes once it has.
         pub fn respond(endpoint: *Self, id: Id, response: event.Response) SendError!void {
             return endpoint.held.respond(id, response);
         }
 
         /// Takes content of the response to request `id`, and returns the octets taken. Nothing is
         /// copied over QUIC: the octets stay the caller's until the request is `done` or
-        /// `cancelled` (decision 103).
+        /// `cancelled` (decision 103). A take of less than `content`, or `error.Blocked`, says the
+        /// response has no room for more: its `writable` comes once it has.
         pub fn write_body(endpoint: *Self, id: Id, content: event.Content) SendError!usize {
             return endpoint.held.write_body(id, content);
         }
 
         /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
+        /// `error.NoSpaceLeft`, or `error.Blocked` while a coded response's last octets wait, says
+        /// the response has no room for it: its `writable` comes once it has.
         pub fn write_trailers(endpoint: *Self, id: Id, fields: []const http.Field) SendError!void {
             return endpoint.held.write_trailers(id, fields);
         }

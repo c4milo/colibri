@@ -61,7 +61,7 @@ test "RFC 9000 §8.1.2: with Retry set, the Initial that returns the Retry's tok
         try testing.expectEqual(version, support.served.transport.versions.original);
         const fetch = try support.request("GET", "/", "");
         try support.pump(support.rounds_default);
-        try support.served.respond(fetch.id, .{ .status = ok, .end = true });
+        try endpoint.respond(endpoint_support.id_of(fetch.id), .{ .status = ok, .end = true });
         try support.pump(support.rounds_default);
         try testing.expectEqual(ok, fetch.status);
     }
@@ -107,7 +107,7 @@ test "decision 111: a server switches a client of version 1 that lists version 2
     try testing.expectEqual(0x6b33_43cf, support.client.peer_parameters.?.version_information.?.chosen_version);
     const fetch = try support.request("GET", "/", "");
     try support.pump(support.rounds_default);
-    try support.served.respond(fetch.id, .{ .status = ok, .end = true });
+    try endpoint.respond(endpoint_support.id_of(fetch.id), .{ .status = ok, .end = true });
     try support.pump(support.rounds_default);
     try testing.expectEqual(ok, fetch.status);
 }

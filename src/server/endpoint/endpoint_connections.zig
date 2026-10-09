@@ -20,7 +20,6 @@ const ReceiveStorage = quic_connection.ReceiveStorage;
 const Sent = quic_connection.Sent;
 const Ecn = quic.connection_receive.Datagram.Ecn;
 
-/// What an endpoint borrows. The caller keeps it alive while the endpoint runs.
 /// The caller's source of qlog logs, a provider the endpoint asks once for each connection it
 /// starts (decision 102 as amended). colibri writes the connection's QUIC and h3 events into the
 /// log the caller returns. The caller takes the records after each call it makes, and gets the

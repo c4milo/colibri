@@ -14,6 +14,7 @@ const event = @import("../event.zig");
 const deadline = @import("../deadline.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
+const quic_connection_h3_room = @import("../quic/quic_connection_h3_room.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const endpoint_connections = @import("endpoint_connections.zig");
 const endpoint_config = @import("endpoint_config.zig");
@@ -32,6 +33,7 @@ const Id = event.Id;
 const ConnectionHandle = event.ConnectionHandle;
 const SendError = connection_errors.SendError;
 const Entry = endpoint_requests.Entry;
+const Wait = endpoint_requests.Wait;
 
 /// A QUIC slot's open requests: as many as a QUIC connection holds at once.
 pub const QuicTable = endpoint_requests.Table(constants.quic_requests_max);
@@ -60,8 +62,11 @@ pub const Storage = struct {
     live: []bool,
     free: []u32,
     failed: []bool,
+    room: []u32,
     ready_numbers: []u32,
     ready_queued: []bool,
+    send_numbers: []u32,
+    send_queued: []bool,
     cached: []u64,
     position: []u32,
     order: []u32,
@@ -73,31 +78,38 @@ pub const Held = struct {
     connections: endpoint_connections.Connections,
     slots: endpoint_slots.Slots,
     ready: endpoint_ready.Ready,
+    /// The slots a call changed since `send_datagram` last found them owing no datagram: only a
+    /// call changes what a connection owes.
+    sendable: endpoint_ready.Ready,
     heap: endpoint_deadline_heap.DeadlineHeap,
     quic_tables: []QuicTable,
     /// Whether colibri closed each slot's connection because its peer broke a protocol rule.
     failed: []bool,
+    /// Each slot's room counter, which moves with each datagram its connection takes: only the
+    /// peer's acknowledgments free a response's runs and its ring (RFC 9000 §3.1). A request that
+    /// found no room waits for the counter to move (`writable`).
+    room: []u32,
     /// The program asked every connection to end, so no new one starts.
     shutting_down: bool,
     /// `closed` was reported once every connection had ended.
     closed_reported: bool,
-    /// The QUIC slot `send_datagram` asks first, which moves round each call.
-    cursor: u32,
 
     /// Holds no connection. The endpoint stays where it is: the slots' table and the connections
     /// hold pointers into it.
     pub fn init(held: *Held, config: *const endpoint_config.Config, quic_config: *const quic_connection.Config, storage: Storage, random: tls.Random, now_seconds: u64, now_ns: u64) void {
         assert(storage.quic.len == storage.quic_tables.len and storage.quic.len == storage.generations.len);
-        assert(storage.generations.len == storage.failed.len);
+        assert(storage.generations.len == storage.failed.len and storage.failed.len == storage.room.len);
         held.slots.init(storage.generations, storage.live, storage.free, 0);
         held.connections.init(config, quic_config, storage.quic, storage.pools, &held.slots, random, now_seconds, now_ns);
         held.ready.init(storage.ready_numbers, storage.ready_queued);
+        held.sendable.init(storage.send_numbers, storage.send_queued);
         held.heap.init(storage.cached, storage.position, storage.order, storage.stale_numbers, storage.stale_queued);
         held.quic_tables = storage.quic_tables;
         held.failed = storage.failed;
+        held.room = storage.room;
+        @memset(storage.room, 0);
         held.shutting_down = false;
         held.closed_reported = false;
-        held.cursor = 0;
         @memset(storage.failed, false);
     }
 
@@ -112,7 +124,9 @@ pub const Held = struct {
 
     fn take_datagram(held: *Held, datagram: Datagram, now_ns: u64) usize {
         const accepting = !held.shutting_down;
-        if (held.connections.receive(datagram.octets, datagram.ecn, datagram.from, now_ns, accepting)) |slot| held.touch(slot);
+        const slot = held.connections.receive(datagram.octets, datagram.ecn, datagram.from, now_ns, accepting) orelse return datagram.octets.len;
+        held.room[slot] +%= 1;
+        held.touch(slot);
         return datagram.octets.len;
     }
 
@@ -144,8 +158,8 @@ pub const Held = struct {
     fn poll(held: *Held, slot: u32, now_ns: u64) ?Event {
         assert(held.slots.live[slot]);
         // INV-31: the connection's `receive` fires and observes its deadlines (decision 110), which
-        // can move them, so the heap reads this slot again.
-        held.heap.mark_stale(slot);
+        // can move them, and a read can owe the peer more credit.
+        held.changed(slot);
         const handle = held.slots.handle_of(slot);
         const table = held.table_of(slot);
         if (owed_cancel(table)) |number| return ending(handle, table, number, .program);
@@ -154,6 +168,9 @@ pub const Held = struct {
         if (connection.stopped) {
             // INV-30: a request the connection ended without an ending of its own ends here.
             if (table.first()) |entry| return ending(handle, table, entry.number, .closed);
+        }
+        if (held.writable_of(slot, table)) |entry| {
+            return .{ .writable = .{ .id = .{ .connection = handle, .number = entry.number }, .user_data = entry.user_data } };
         }
         if (internal.ended(connection)) return held.end(slot, connection);
         return null;
@@ -228,30 +245,89 @@ pub const Held = struct {
         held.connections.close_log(connection);
         held.heap.forget(slot);
         held.ready.remove(slot);
+        held.sendable.remove(slot);
         held.failed[slot] = false;
         held.slots.release(handle);
         return .{ .ended = ended };
     }
 
-    /// Writes the head of the response to request `id`.
+    /// Writes the head of the response to request `id`. One with no room waits for `writable`.
     pub fn respond(held: *Held, id: Id, response: event.Response) SendError!void {
         const slot = try held.request_slot(id);
         defer held.touch(slot);
-        return held.connections.at(slot).respond(id.number, response);
+        held.connections.at(slot).respond(id.number, response) catch |failure| {
+            if (failure == error.NoSpaceLeft) held.arm(slot, id.number, held.wait_for_head(slot, id.number, .head));
+            return failure;
+        };
+        held.unarm(slot, id.number);
     }
 
-    /// Takes content of the response to request `id`.
+    /// Takes content of the response to request `id`. A take of less than the whole waits for
+    /// `writable`.
     pub fn write_body(held: *Held, id: Id, content: event.Content) SendError!usize {
         const slot = try held.request_slot(id);
         defer held.touch(slot);
-        return held.connections.at(slot).write_body(id.number, content);
+        const taken = held.connections.at(slot).write_body(id.number, content) catch |failure| {
+            if (failure == error.Blocked) held.arm(slot, id.number, .content);
+            return failure;
+        };
+        if (taken < content.octets.len) held.arm(slot, id.number, .content) else held.unarm(slot, id.number);
+        return taken;
     }
 
-    /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5).
+    /// Ends the response to request `id` with a trailer section (RFC 9110 §6.5). One with no room
+    /// for its frame, or that waits for a coded response's last octets, waits for `writable`.
     pub fn write_trailers(held: *Held, id: Id, fields: []const http.Field) SendError!void {
         const slot = try held.request_slot(id);
         defer held.touch(slot);
-        return held.connections.at(slot).write_trailers(id.number, fields);
+        held.connections.at(slot).write_trailers(id.number, fields) catch |failure| {
+            if (failure == error.Blocked) held.arm(slot, id.number, .trailers);
+            if (failure == error.NoSpaceLeft) held.arm(slot, id.number, held.wait_for_head(slot, id.number, .trailers));
+            return failure;
+        };
+        held.unarm(slot, id.number);
+    }
+
+    /// Notes that request `number` found no room for `wait`: its `writable` comes once the slot's
+    /// room counter moves and the connection takes it.
+    fn arm(held: *Held, slot: u32, number: event.Number, wait: Wait) void {
+        const entry = held.table_of(slot).find(number).?;
+        entry.waiting_since = held.room[slot];
+        entry.waiting_for = wait;
+    }
+
+    /// A write of request `number` found room, so the request waits for none.
+    fn unarm(held: *Held, slot: u32, number: event.Number) void {
+        held.table_of(slot).find(number).?.waiting_since = null;
+    }
+
+    /// What a head or a trailer section that found no room waits for: a run, when its response
+    /// held as many as it can, or else every run acknowledged, when the section was larger than
+    /// the room its kept frames left, so that it either fits or is refused as too large.
+    fn wait_for_head(held: *Held, slot: u32, number: event.Number, wait: Wait) Wait {
+        return if (quic_connection_h3_room.takes_head(held.connections.at(slot), number)) .empty else wait;
+    }
+
+    /// The first request of `slot` whose wait the connection now takes, which waits no more. A
+    /// request whose room counter moved and which the connection still cannot take waits for the
+    /// next move, so `writable` comes once for each move of room at most.
+    fn writable_of(held: *Held, slot: u32, table: *QuicTable) ?*Entry {
+        const room = held.room[slot];
+        const connection = held.connections.at(slot);
+        var open = table.in_use.iterator(.{});
+        // Bounded by the table's capacity.
+        while (open.next()) |index| {
+            const entry = &table.entries[index];
+            const since = entry.waiting_since orelse continue;
+            if (since == room) continue;
+            if (!takes(connection, entry)) {
+                entry.waiting_since = room;
+                continue;
+            }
+            entry.waiting_since = null;
+            return entry;
+        }
+        return null;
     }
 
     /// Ends request `id` before its response is whole. Its `cancelled` follows, and nothing more of
@@ -297,22 +373,24 @@ pub const Held = struct {
     }
 
     /// Writes into `output` the next datagram the endpoint owes: a Version Negotiation or Retry
-    /// packet first, then each connection's in turn. Null when it owes none.
+    /// packet first, then those of the connections a call changed, in turn. Null when it owes none.
     pub fn send_datagram(held: *Held, output: []u8, now_ns: u64) ?Sent {
         if (held.connections.replies.take(output)) |reply| return reply;
-        const quic_count: u32 = @intCast(held.quic_tables.len);
-        // Bounded: each pass asks one QUIC slot.
-        for (0..quic_count) |_| {
-            const slot = held.slots.tcp_count + held.cursor;
-            held.cursor = (held.cursor + 1) % quic_count;
-            if (!held.slots.live[slot]) continue;
+        // Bounded: each slot queued now is asked once.
+        for (0..held.sendable.len) |_| {
+            const slot = held.sendable.take() orelse break;
+            // A slot leaves the ring when its connection ends.
+            assert(held.slots.live[slot]);
             const connection = held.connections.at(slot);
             const sent = internal.send(connection, output, now_ns);
             // INV-31: a send moves the connection's timers, and may write a 100 (Continue) it
             // owed even when it sends nothing. One that failed owes the program its endings.
             held.heap.mark_stale(slot);
             if (connection.stopped) held.ready.touch(slot);
-            if (sent) |datagram| return datagram;
+            const datagram = sent orelse continue;
+            // A connection that sent may owe more: it is asked again after the others.
+            held.sendable.touch(slot);
+            return datagram;
         }
         return null;
     }
@@ -346,11 +424,18 @@ pub const Held = struct {
         return internal.deadline_ns(held.connections.at(slot));
     }
 
-    /// Notes that a call changed `slot`: it may owe the program an event, and its deadline may
-    /// have moved.
+    /// Notes that a call changed `slot`: it may owe the program an event, it may owe a datagram,
+    /// and its deadline may have moved.
     fn touch(held: *Held, slot: u32) void {
         held.ready.touch(slot);
+        held.changed(slot);
+    }
+
+    /// Notes that the connection in `slot` may owe a datagram, and that its deadline may have
+    /// moved.
+    fn changed(held: *Held, slot: u32) void {
         held.heap.mark_stale(slot);
+        held.sendable.touch(slot);
     }
 
     /// The slot of the connection that holds request `id`, when the request is open and not
@@ -372,6 +457,16 @@ pub const Held = struct {
         return &held.quic_tables[slot - held.slots.tcp_count];
     }
 };
+
+/// Whether `connection` now takes what request `entry` waits to write.
+fn takes(connection: *QuicConnection, entry: *const Entry) bool {
+    return switch (entry.waiting_for) {
+        .head => quic_connection_h3_room.takes_head(connection, entry.number),
+        .content => quic_connection_h3_room.takes_content(connection, entry.number),
+        .trailers => quic_connection_h3_room.takes_trailers(connection, entry.number),
+        .empty => quic_connection_h3_room.takes_any(connection, entry.number),
+    };
+}
 
 /// The number of a request whose `cancelled` the program's own `cancel` owes, or null.
 fn owed_cancel(table: *QuicTable) ?event.Number {
