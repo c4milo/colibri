@@ -130,6 +130,10 @@ test {
     _ = @import("quic/quic_coding_test.zig");
     _ = @import("quic/quic_continue_test.zig");
     _ = @import("endpoint/endpoint_stateless.zig");
+    _ = @import("endpoint/endpoint_slots.zig");
+    _ = @import("endpoint/endpoint_ready.zig");
+    _ = @import("endpoint/endpoint_deadline_heap.zig");
+    _ = @import("endpoint/endpoint_requests.zig");
     _ = @import("endpoint/endpoint_test.zig");
     _ = @import("coding/coding_ring.zig");
     _ = @import("coding/coding_rules.zig");
