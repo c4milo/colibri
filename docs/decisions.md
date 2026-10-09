@@ -400,7 +400,7 @@ correct a premise: a piece that looked shared and is not, or looked unshared and
 
 ## What colibri does not build
 
-Each of the seven is a no with a reason, and each records what saying no still costs on the wire,
+Each of the eight is a no with a reason, and each records what saying no still costs on the wire,
 because a refused feature still imposes obligations on the wire.
 
 17. **Server push: no.** It is optional in both protocols. Cost of refusing, h2: a client must send
@@ -518,6 +518,20 @@ because a refused feature still imposes obligations on the wire.
     conformance cost of saying no is zero. The one related obligation is to ignore reserved
     transport-parameter identifiers of the form 31*N+27 (§18.1), which exist to exercise
     that ignore path — and colibri tests it rather than assuming it.
+
+118. **Middleware: no.** Ruled by the owner on 2026-10-04 in
+     [#96](https://github.com/c4milo/colibri/issues/96), beside decision 117. Middleware is a
+     chain of functions a library calls for each request, before or after the program's own
+     code. colibri calls no function of its program's: events are polled (decision 100), so the
+     program's own `switch` is where a check before a route, or a log line on `done`, goes.
+     colibri covers what middleware usually carries another way: content codings are
+     configuration (decision 101), deadlines and limits are configuration (decision 110), and
+     qlog is a provider (decision 102). A framework with handlers, middleware and its own loop
+     owns sockets and threads, which colibri does not (non-negotiable 1), so it belongs in a
+     package built on colibri.
+
+     Cost of refusing: nothing on the wire. A program writes in its own loop what it would have
+     put in middleware.
 
 ## Correctness
 
@@ -3802,3 +3816,60 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
 
      Cost: 8 octets for each request a QUIC connection holds, 256 for a connection, and a branch
      for each request each time the connection settles them.
+
+117. **A program names no HTTP version outside `versions`, and one endpoint serves every
+     connection.** Ruled by the owner on 2026-10-04 in
+     [#96](https://github.com/c4milo/colibri/issues/96); design §8 step 21 carries it.
+
+     Decision 100 put h11, h2 and h3 behind one set of calls. A program still named a version in
+     five places:
+     - `cleartext`, `.h11` or `.h2`, in the server's and the client's configurations;
+     - the ALPN lists of its two TLS configurations, one for TCP and one for QUIC;
+     - `h2_streams_max`, `data_frame_len_min` and `QuicConfig.switch_to`, which bound or choose
+       something of one version alone;
+     - three types named after a transport: `QuicConnection`, `QuicConfig` and `QuicStart`;
+     - two shapes of server: a `server.Connection` the program places for each TCP connection,
+       and a `server.Endpoint` for its UDP socket.
+
+     The rulings:
+     1. One `server.Endpoint` holds the TCP connections a program accepts as well as the QUIC
+        connections of its UDP socket. One `receive` takes a TCP connection's octets or a
+        datagram. A request's id names its connection, so `respond`, `write_body`,
+        `write_trailers` and `cancel` are calls on the endpoint. One deadline covers every
+        connection. `close` and `ended` are events, in place of polling `should_close`,
+        `close_reason` and `ended`.
+     2. Each request carries one word of `user_data`, which the program sets at the request's
+        head and each later event of the request brings back. A `writable` event says that a
+        response whose last `write_body` took fewer octets than it was given can take more.
+     3. `server.Connection`, `server.QuicConnection`, `client.Connection` and
+        `client.QuicConnection` leave the public API. `client.Channel` is the one client object.
+     4. An optional `versions` field says which of h11, h2 and h3 a server or a client speaks,
+        each true by default. It is the one place a program names a version. colibri derives the
+        ALPN lists from it. A server in cleartext tells h2 from h11 by the connection preface
+        (RFC 9113 §3.3). A client in cleartext speaks h11 when `versions` allows it, and h2 with
+        prior knowledge when it does not.
+     5. The bounds that named a version move into a `limits` field, named by what they bound.
+        `versions` stays out of it, because a choice of version bounds nothing.
+     6. A router, `server.routes`: a table of methods and paths the program declares at compile
+        time, which matches and captures and does nothing more (design §8 step 21e).
+     7. No middleware (decision 118).
+
+     `protocol()`, `Request.version` and the close reasons still name a version. They say what
+     happened, and a program logs them without acting on them.
+
+     The alternatives refused:
+     - A `server.Connection` for each TCP connection beside an endpoint for QUIC, with only the
+       configuration changed. It is smaller, but the server would not match the client, and a
+       program would keep two loops.
+     - The per-connection types kept public for a program that drives one TCP connection
+       itself. Two ways to serve would each need documenting, testing and keeping compatible.
+     - `versions` inside `limits`.
+     - A handler the program registers, which colibri calls for each request. Decision 100 has
+       events polled, so the program keeps its loop.
+     - colibri opening the sockets, which would hide the transport too. Non-negotiable 1
+       refuses it.
+
+     Cost: a second breaking change to `server`, after decision 115's. Every test-only endpoint,
+     simulator check, benchmark and example moves to the endpoint and the channel. The endpoint
+     must find its soonest deadline among all its connections without reading each one on
+     every call.

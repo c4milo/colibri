@@ -7475,6 +7475,68 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test`: 131 of 131 steps and 2654 of 2654 tests passed, the trace run's test among
     them.
 
+- **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
+  `client` name no HTTP version outside `versions`, and serve every connection through one
+  endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
+  tests that list its public names, beside each type it changes and beside each root (CLAUDE.md,
+  "The public API is written first").
+  - **21a, the configuration.** `versions` and `limits`, and cleartext detected.
+    - `server.Versions` and `client.Versions`: `h11`, `h2` and `h3`, each true by default.
+      `server.Config.versions` and `client.Config.versions` replace `cleartext`.
+    - A server connection in cleartext reads its first octets before it chooses a version: the
+      24 octets of the connection preface (RFC 9113 §3.3) choose h2, and any other octets h11,
+      among the versions `versions` allows. It consumes nothing until it has chosen. A client in
+      cleartext speaks h11 when `versions.h11` is set, and h2 with prior knowledge when it is not.
+    - `server.Limits` holds `requests_max`, the requests a connection holds at once, which was
+      `h2_streams_max`, and `data_frame_len_min`, which leaves the configuration's top level.
+      `server.Config.limits` holds them. From 21b, `requests_max` bounds an h3 connection's
+      requests too, up to the `quic_requests_max` its table holds.
+    - #96 put one TLS value in this part. It comes with 21b, because the endpoint builds both TLS
+      configurations and holds a TCP connection only from 21b on. Until then the program's ALPN
+      lists choose over TLS, and `versions` governs cleartext alone.
+    - Public names: the server's root adds `Versions` and `Limits`, and the client's root adds
+      `Versions`. No function is added or removed.
+    - **Check:** h2spec in cleartext, and the h11 and h2 interop scripts in cleartext, pass with
+      the test-only server naming no version. Tests show the preface choosing h2, other first
+      octets choosing h11, a partial preface waiting for more, and each version `versions` turns
+      off refused. Each rule has a mutation a test catches.
+  - **21b, one endpoint.** `server.Endpoint` takes TCP connections too.
+    - `accept` gives a TCP connection the program accepted a slot. One `receive` takes a TCP
+      connection's octets or a datagram. A request's id names its connection, and each request
+      carries a word of `user_data`. `send_stream` and `send_datagram` write what is owed. The
+      `close`, `ended` and `writable` events, and one deadline for every connection.
+    - One TLS value: `server.Config.tls` is a `tls.values.Server`, and the endpoint builds the TCP
+      and the QUIC TLS configurations from it, with the ALPN lists `versions` gives.
+      `QuicConfig` and `EndpointConfig` fold into `Config`.
+    - The endpoint's functions: `init`, `accept`, `receive`, `respond`, `write_body`,
+      `write_trailers`, `cancel`, `shutdown`, `send_stream`, `send_datagram`, `deadline_ns`,
+      `on_instant`, `set_deadlines`, `transport_closed` and `server_name`.
+    - It keeps what step 20 added for h3: a shutdown, or the idle deadline, resets each request
+      stream whose head is unread with H3_REQUEST_REJECTED (RFC 9114 §4.1.1).
+    - **Check:** the simulator runs TCP and QUIC connections through one endpoint over seeds,
+      and every request is answered once. The TCP, deadline and h3 trace checks pass through it.
+      h2spec, h3spec and the interop scripts pass on the rebuilt endpoints.
+  - **21c, the client.** One TLS value, with the ALPN lists filled in. The channel draws its
+    QUIC connection IDs and h3's grease value from the source `start_quic` is given, so
+    `QuicStart` leaves the API. The test-only clients use channels with TCP alone in place of
+    `client.Connection`. **Check:** `tools/channel_interop.sh` and the h11 and h2 client interop
+    scripts pass through the channel.
+  - **21d, the roots.** They stop exporting `server.Connection`, `server.QuicConnection`,
+    `client.Connection` and `client.QuicConnection`. One server example and one client example
+    replace the four, and the guide follows them. **Check:** `zig build examples`,
+    `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass, and no root's list holds a
+    connection type.
+  - **21e, the router.** `server.routes`, a table of methods and paths the program declares at
+    compile time, matched through a trie of path segments as #96 describes. **Check:** tests for
+    literal segments, captures, a trailing wildcard, precedence whatever the table's order, 404,
+    405 with its Allow list, and a path with an encoded octet, a dot segment or an empty segment
+    matching nothing. Each malformed or conflicting table fails to compile. An example routes
+    with it. Each rule has a mutation a test catches.
+  - **21f, the package.** Whether `h11`, `h2`, `h3` and `quic` stay exported (decision 86).
+    **Check:** the owner's ruling, once the dependent that uses `h11` directly can use `client`.
+
+  *Large.*
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
