@@ -3873,3 +3873,51 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      simulator check, benchmark and example moves to the endpoint and the channel. The endpoint
      must find its soonest deadline among all its connections without reading each one on
      every call.
+
+119. **How one endpoint serves TCP and QUIC.** Adopted on 2026-10-09 for design §8 step 21b,
+     which decision 117 rules; the owner may overrule any part of it.
+     - A request's `Id` is a packed struct: a `ConnectionHandle` and the request's number on
+       that connection. A QUIC stream ID takes 62 bits, so a slot does not fit beside it in a
+       `u64`. The handle holds the slot and a 32-bit generation that advances when the slot's
+       `ended` is reported, so a stale handle or id names nothing.
+     - `set_user_data(id, word)` is the one way to set a request's word, at its head. Each later
+       event of the request carries it.
+     - Every request ends with exactly one `done` or `cancelled`. The program's own `cancel`
+       reports `cancelled` with the reason `program`, and a connection that stops first reports
+       `cancelled` with the reason `closed` for each request still open. So "free on `done` or
+       `cancelled`" is the whole rule a program follows.
+     - `send` says a TCP connection owes octets, so a program calls `send_stream` for that
+       connection alone. It is reported once for each debt, and again only after a
+       `send_stream` that wrote fewer octets than its buffer held. QUIC needs none: one socket
+       carries every QUIC connection.
+     - `closed` says, after `shutdown`, that every connection has ended, as `client.Channel`'s
+       `closed` says it for a channel.
+     - `writable` also follows a `respond` that returned `NoSpaceLeft` and a coded
+       `write_trailers` that returned `Blocked`. Over h3 nothing else tells a program that a
+       response's runs freed.
+     - h2's `Connection` adds `sendable_len(stream_id, room_len)`, the octets of DATA a stream
+       can send now: both windows, decision 110's floor and the room for a frame header.
+       `writable` and `send` read it. h2's send window alone is not exact, because the floor can
+       hold a frame while both windows are open.
+     - What a TCP connection did not consume stays with the program, which passes it again with
+       its next read and after a `send_stream` for that connection, as with `client.Channel`.
+     - `accept(security, now_ns)` takes whether the connection runs TLS, so one endpoint serves
+       a cleartext port and a TLS port. It takes no address, which colibri never reads over TCP.
+     - `Ended.failed` says colibri closed the connection because its peer broke a protocol rule
+       or its record layer failed, which `error.ConnectionFailed` said before.
+     - `constants.tcp_connections_default` is 16, so the default `Endpoint` holds 16 TCP and 16
+       QUIC connections. A program sizes its own with `EndpointOf`.
+
+     The alternatives refused:
+     - A `u64` id with the slot in its high bits. A QUIC stream ID does not leave room.
+     - A table index with a generation as the id. It is a second number beside the protocol's,
+       and events would still need a lookup by number.
+     - `user_data` in a per-connection record. It changes the sizes `docs/performance.md` pins
+       and touches one transport only.
+     - A queue of events. Their slices would go stale.
+     - Scanning every slot for events, owed octets or deadlines on each call, as before.
+       Decision 117's cost refuses it.
+     - A timer wheel for the deadlines. It needs a granularity, and the heap is exact.
+     - Copying every TCP octet into the endpoint. It costs a copy per octet and 33 KB per slot.
+     - No event for the program's own `cancel`, as `client.Channel.cancel` does. A program would
+       then need a second rule for when to free a request's memory.

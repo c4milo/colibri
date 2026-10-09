@@ -7505,22 +7505,54 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       speaks both read octets that are not the preface as h11. Tests show the preface choosing
       h2, other first octets choosing h11, a partial preface waiting for more, and each version
       `versions` turns off refused. Each rule has a mutation a test catches.
-  - **21b, one endpoint.** `server.Endpoint` takes TCP connections too.
-    - `accept` gives a TCP connection the program accepted a slot. One `receive` takes a TCP
-      connection's octets or a datagram. A request's id names its connection, and each request
-      carries a word of `user_data`. `send_stream` and `send_datagram` write what is owed. The
-      `close`, `ended` and `writable` events, and one deadline for every connection.
-    - One TLS value: `server.Config.tls` is a `tls.values.Server`, and the endpoint builds the TCP
-      and the QUIC TLS configurations from it, with the ALPN lists `versions` gives.
-      `QuicConfig` and `EndpointConfig` fold into `Config`.
-    - The endpoint's functions: `init`, `accept`, `receive`, `respond`, `write_body`,
-      `write_trailers`, `cancel`, `shutdown`, `send_stream`, `send_datagram`, `deadline_ns`,
-      `on_instant`, `set_deadlines`, `transport_closed` and `server_name`.
+  - **21b, one endpoint.** `server.Endpoint` takes TCP connections too, and a program answers
+    every request through it (decision 119 records the choices this part made).
+    - Types the root adds: `ConnectionHandle` (a slot and its generation, so a handle or an id
+      of an ended connection names nothing), `Capacity` (the TCP slots, the QUIC slots and each
+      QUIC connection's receive pool, fixed at build time; either count may be 0), `Security`
+      (`cleartext` or `tls`, which `accept` takes), `Input` (`none`, `stream` or `datagram`),
+      `StreamOctets`, `Datagram`, `Writable` and `Ended`. `Id` becomes a packed struct: the
+      connection's handle and the request's number there, which is the h2 or QUIC stream ID, or
+      for h11 its place on the connection. `QuicConfig` and `EndpointConfig` fold into `Config`.
+    - Events: `Body`, `Trailers`, `Cancelled` and `Done` carry the request's `user_data`, and
+      `Event` gains `writable`, `send` (a TCP connection owes octets), `close` (close its
+      socket), `ended` (with the close reason and whether colibri closed it for a protocol
+      failure) and `closed` (after `shutdown`, every connection has ended). `CancelReason` gains
+      `closed` (the connection stopped first) and `program` (the program's own `cancel`).
+    - The endpoint's functions: `init`, `accept`, `receive`, `set_user_data`, `respond`,
+      `write_body`, `write_trailers`, `cancel`, `shutdown`, `send_stream`, `send_datagram`,
+      `deadline_ns`, `on_instant`, `set_deadlines`, `transport_closed` and `server_name`. h2's
+      `Connection` adds `sendable_len`, which `writable` and `send` read.
+    - Every request ends with exactly one `done` or `cancelled`, and a connection's `ended`
+      comes after them (INV-30). The endpoint keeps a ready ring of the slots that changed, so
+      no call scans every slot, and a heap of the slots' deadlines, recomputed lazily for the
+      slots a call changed (INV-31). One TLS value: `Config.tls` is a `tls.Server`, whose `alpn`
+      stays empty, and the endpoint builds and checks the TCP and the QUIC TLS configurations,
+      with the ALPN lists `versions` gives. A TLS client that selects no protocol is served h11
+      only while `versions` allows it. `limits.requests_max` bounds h3 too, up to
+      `quic_requests_max`.
     - It keeps what step 20 added for h3: a shutdown, or the idle deadline, resets each request
       stream whose head is unread with H3_REQUEST_REJECTED (RFC 9114 §4.1.1).
-    - **Check:** the simulator runs TCP and QUIC connections through one endpoint over seeds,
-      and every request is answered once. The TCP, deadline and h3 trace checks pass through it.
-      h2spec, h3spec and the interop scripts pass on the rebuilt endpoints.
+    - Seven sub-steps, each leaving every check passing:
+      - 21b.1: a first Initial whose Destination Connection ID is shorter than RFC 9000 §7.2's
+        8 octets starts no connection. Today a 0-octet one reaches an assertion (INV-24).
+      - 21b.2: the id and event types, with each per-connection type's events filled in at the
+        endpoint later.
+      - 21b.3: the endpoint answers QUIC requests by id: the ready ring, the deadline heap,
+        `user_data`, the endings, `writable` over h3, and the QUIC callers moved.
+      - 21b.4: TCP slots: `accept`, the `stream` input, `send_stream` and `send`, `close`, and
+        `writable` over h11 and h2.
+      - 21b.5: `zig build sim -- --endpoint-check`, which runs TCP and QUIC peers through one
+        endpoint with fewer slots than connections, and checks each request's one ending, its
+        `user_data`, stale ids refused, the heap's deadline against every slot's, and that no
+        `send` or `writable` repeats without progress.
+      - 21b.6: the TCP callers move, one commit each: the test-only server, the content-coding
+        and deadline runs, the two trace runs, the TLS example and the consumer.
+      - 21b.7: `Config` names the folded configuration.
+    - **Check:** 21b.5's check over seeds. h2spec, h3spec, the h11 and h2 server interop
+      scripts, `tools/quic_udp.sh`, `tools/quic_aioquic.sh`, `tools/h3_deadlines.sh` and
+      `tools/deadlines.sh` pass on the rebuilt endpoints. The TCP and deadline trace checks pass
+      through the endpoint, and the content-coding and deadline CRCs stay as pinned.
   - **21c, the client.** One TLS value, with the ALPN lists filled in. The channel draws its
     QUIC connection IDs and h3's grease value from the source `start_quic` is given, so
     `QuicStart` leaves the API. The test-only clients use channels with TCP alone in place of
