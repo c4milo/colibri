@@ -7610,8 +7610,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   **21b.1 to 21b.3, 2026-10-09.** QUIC through one endpoint that answers by id. Run on macOS 26
   on an Apple M1 Pro, on 590d457.
   - 21b.3 moved the endpoint's QUIC calls to ids, `Capacity`, `Input` and `Datagram`, with the
-    endings of INV-30 and the deadline heap of INV-31. The folded configuration and `writable`
-    over h3 come next, as the last part of 21b.3.
+    endings of INV-30 and the deadline heap of INV-31. It then folded `QuicConfig` into
+    `EndpointConfig`, which takes one `tls.Server` whose `alpn` stays empty, and `requests_max`
+    came to bound h3's request streams. `writable` over h3 comes next, as the last part of 21b.3.
   - `zig build test` and `zig build test -Drelease`: 131 of 131 steps and 2676 of 2676 tests
     passed in each.
   - `zig build sim -- --h3-deadline-check`, 256 seeds in Debug and in ReleaseSafe: the event CRC
@@ -7621,7 +7622,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     application read to end before the run does.
   - `tools/h3spec.sh` (49 cases, none failed), `tools/quic_udp.sh`, `tools/quic_aioquic.sh`
     (aioquic 1.3.0), `tools/h3_deadlines.sh`, `zig build examples`, `tools/doc_snippets.sh` and
-    `tools/consumer_check.sh`: each passed.
+    `tools/consumer_check.sh`: each passed. Each passed again with the folded configuration,
+    and `zig build test` passed 2679 of 2679 tests.
   - Two defects, each fixed with a test. A first Initial whose Destination Connection ID was
     shorter than 8 octets reached an assertion (INV-24). A poll that read an event moved its
     connection's deadline without marking the slot, so `deadline_ns` read before it kept the old
@@ -7639,7 +7641,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       usable; no `cancelled` at a stop, which the simulator's check also catches; `stop`
       clearing its owed endings, which a test then had to be written for; `failed` never set,
       or never reported; a slot never released; a poll or a send leaving its slot's deadline as
-      it was; a stopped connection's send not polled, which a test then had to be written for.
+      it was; a stopped connection's send not polled, which a test then had to be written for;
+    - 21b.3, the folded configuration: an endpoint with no identity, or with h3 turned off,
+      starting; an identity never checked; `requests_max` not passed, not clamped, or not
+      advertised; deadlines not validated; no h3 named in the handshake.
   - One mutant was equivalent: `ended` reported with requests still open. A connection always
     stops before it ends, and a stopped one gives each open request its `cancelled` first, so the
     condition became INV-30's assertion.

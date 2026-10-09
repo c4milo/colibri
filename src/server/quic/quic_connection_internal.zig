@@ -291,7 +291,10 @@ fn parameters(config: *const Config, capacity: u64) Parameters {
     held.initial_max_data = capacity;
     held.initial_max_stream_data_bidi_remote = @min(constants.quic_stream_window, capacity);
     held.initial_max_stream_data_uni = @min(constants.quic_stream_window, capacity);
-    held.initial_max_streams_bidi = constants.quic_requests_max;
+    // RFC 9000 §4.6: the client opens no more request streams at once than the server allows,
+    // and a connection holds a record for each.
+    assert(config.requests_max > 0 and config.requests_max <= constants.quic_requests_max);
+    held.initial_max_streams_bidi = config.requests_max;
     held.initial_max_streams_uni = h3.constants.uni_streams_max;
     held.max_idle_timeout_ms = config.idle_timeout_ms;
     return held;

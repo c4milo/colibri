@@ -11,8 +11,18 @@ pub const StartError = error{
     /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
     DeadlineInvalid,
     /// `Config.versions` allows neither h11 nor h2, which leaves a TCP connection nothing to speak
-    /// (RFC 9114 §3.1, decision 117).
+    /// (RFC 9114 §3.1, decision 117). Or an endpoint has no TLS identity, or `versions` turns h3
+    /// off, which leaves its QUIC connections nothing to speak.
     NoVersion,
+    /// The endpoint's TLS identity: its key does not sign, or its signature does not verify (RFC
+    /// 9846 §4.5.2).
+    IdentityRefused,
+    /// The endpoint's TLS identity holds a longer chain than `certificate_chain_len_max`, more
+    /// suites than `cipher_suites_max`, or an order of suites a build without AES-GCM cannot keep
+    /// (decision 97).
+    TooManyCertificates,
+    TooManySuites,
+    SuitesUnavailable,
 };
 
 pub const SendError = error{

@@ -28,7 +28,6 @@ const udp_qlog = @import("udp_qlog.zig");
 const Endpoint = udp_h3_files.Endpoint;
 
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
-var quic_config: server.QuicConfig align(@alignOf(server.QuicConfig)) = undefined;
 var endpoint_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;
 /// The files each connection serves, at its slot in the endpoint.
 var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;
@@ -53,15 +52,12 @@ const log_vtable: server.LogProvider.VTable = .{ .open = open_log, .close = clos
 /// Serves until the run is over: with `once`, the first connection's end; without it, the ticks
 /// running out.
 pub fn serve(asked: udp_arguments.Server, socket: *udp.Endpoint, started_ns: u64) void {
-    quic_config = .{
-        .tls = udp_identity.server_tls(),
+    qlog_directory = asked.qlogdir;
+    endpoint_config = .{
+        .tls = udp_identity.server_identity(),
         .ecn = asked.ecn,
         .idle_timeout_ms = constants.quic_idle_timeout_ms,
         .switch_to = asked.switch_to,
-    };
-    qlog_directory = asked.qlogdir;
-    endpoint_config = .{
-        .quic = &quic_config,
         .retry = if (asked.retry) udp_identity.retry_config() else null,
         .logs = if (asked.qlogdir != null) .{ .context = &log_context, .vtable = &log_vtable } else null,
     };

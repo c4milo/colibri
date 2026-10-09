@@ -43,7 +43,6 @@ pub const CloseReason = close_reason.CloseReason;
 pub const Limit = close_reason.Limit;
 pub const Connection = connection.Connection;
 pub const QuicConnection = quic_connection.QuicConnection;
-pub const QuicConfig = quic_connection.Config;
 pub const Endpoint = endpoint.Endpoint;
 pub const EndpointOf = endpoint.EndpointOf;
 pub const Capacity = endpoint.Capacity;
@@ -57,7 +56,7 @@ pub const Sent = quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = quic_connection.PeerAddress;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
-/// sets when `QuicConfig.ecn` is set (decision 68).
+/// sets when `EndpointConfig.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
 pub const Error = connection.Error;
 pub const StartError = connection.StartError;
@@ -98,20 +97,20 @@ pub const Features = coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21a adds `Versions` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
-    // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram` (decision 119).
+    // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram`, and folds `QuicConfig`
+    // into `EndpointConfig` (decision 119).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",           "Versions",    "Limits",             "Deadline",
-        "Deadlines",          "CloseReason",      "Limit",       "Connection",         "QuicConnection",
-        "QuicConfig",         "Endpoint",         "EndpointOf",  "Capacity",           "EndpointConfig",
-        "Input",              "Datagram",         "LogProvider", "Sent",               "Address",
-        "Ecn",                "Error",            "StartError",  "SendError",          "Field",
-        "Id",                 "ConnectionHandle", "Protocol",    "Version",            "Fields",
-        "Event",              "Request",          "Body",        "Trailers",           "Cancelled",
-        "CancelReason",       "Done",             "Writable",    "Ended",              "Response",
-        "Content",            "Received",         "Alternative", "Coding",             "EncoderPool",
-        "DefaultEncoderPool", "Encoders",         "DecoderPool", "DefaultDecoderPool", "Decoders",
-        "Features",
+        "constants",        "Config",      "Versions",           "Limits",         "Deadline",
+        "Deadlines",        "CloseReason", "Limit",              "Connection",     "QuicConnection",
+        "Endpoint",         "EndpointOf",  "Capacity",           "EndpointConfig", "Input",
+        "Datagram",         "LogProvider", "Sent",               "Address",        "Ecn",
+        "Error",            "StartError",  "SendError",          "Field",          "Id",
+        "ConnectionHandle", "Protocol",    "Version",            "Fields",         "Event",
+        "Request",          "Body",        "Trailers",           "Cancelled",      "CancelReason",
+        "Done",             "Writable",    "Ended",              "Response",       "Content",
+        "Received",         "Alternative", "Coding",             "EncoderPool",    "DefaultEncoderPool",
+        "Encoders",         "DecoderPool", "DefaultDecoderPool", "Decoders",       "Features",
     });
 }
 
@@ -141,6 +140,7 @@ test {
     _ = @import("endpoint/endpoint_requests.zig");
     _ = @import("endpoint/endpoint_test.zig");
     _ = @import("endpoint/endpoint_held_test.zig");
+    _ = @import("endpoint/endpoint_config.zig");
     _ = @import("coding/coding_ring.zig");
     _ = @import("coding/coding_rules.zig");
     _ = @import("coding/coding_fields.zig");

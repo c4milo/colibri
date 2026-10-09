@@ -33,6 +33,8 @@ var cookie_storage: [tls.constants.server_key_len]u8 = undefined;
 var ticket_key_storage: [tls.constants.server_key_len]u8 = undefined;
 var chain_storage: [constants.quic_chain_len_max][constants.tls_der_len_max]u8 = undefined;
 var chain: [constants.quic_chain_len_max][]const u8 = undefined;
+/// The server's chain, read once into `chain`.
+var server_chain: []const []const u8 = &.{};
 var private_storage: [tls.constants.p256_private_key_len]u8 = undefined;
 var public_storage: [tls.constants.p256_public_key_len]u8 = undefined;
 var name_storage: [constants.tls_der_len_max]u8 = undefined;
@@ -131,10 +133,15 @@ pub fn server_ids(destination: []const u8, source: []const u8) udp_peer.Identity
     return .{ .local_source = &local_id, .original_destination = destination, .peer_source = source };
 }
 
-/// The configuration every server session borrows, which the `h3` mode hands `server` (design §8
-/// step 17b).
-pub fn server_tls() *const tls.quic.ServerConfig {
-    return &server_config;
+/// The server's identity, which names no protocol: what the `h3` mode's endpoint takes, which
+/// names h3 itself (decision 119).
+pub fn server_identity() tls.Server {
+    return .{
+        .ecdsa_p256 = .{ .chain = server_chain, .public_key = &public_storage, .private_key = &private_storage },
+        .cookie_key = &cookie_storage,
+        .ticket_key = &ticket_key_storage,
+        .cpu = cpu.probe(),
+    };
 }
 
 /// The Retry token key and lifetime, which the `h3` mode's endpoint answers Retry with.
@@ -195,14 +202,10 @@ fn configure_server(asked: udp_arguments.Server) !void {
     const prefix = asked.identity_prefix;
     try read_key(prefix, ".priv", &private_storage);
     try read_key(prefix, ".pub", &public_storage);
-    try server_config.init(.{
-        .ecdsa_p256 = .{ .chain = try read_chain(prefix), .public_key = &public_storage, .private_key = &private_storage },
-        .cookie_key = &cookie_storage,
-        .ticket_key = &ticket_key_storage,
-        // The `h3` mode serves h3 alone, which is all `server` speaks over QUIC.
-        .alpn = if (asked.h3) &client_alpn_h3 else &server_alpn,
-        .cpu = cpu.probe(),
-    });
+    server_chain = try read_chain(prefix);
+    var values = server_identity();
+    values.alpn = &server_alpn;
+    try server_config.init(values);
     try server_config.check(entropy.random());
 }
 

@@ -49,7 +49,6 @@ const actions_besides_requests: usize = 5;
 pub const allowed_max: usize = actions_per_request * limits.requests_max + actions_besides_requests;
 
 const Endpoint = server.EndpointOf(.{ .quic_connections = 1 });
-const alpn_h3 = [_][]const u8{"h3"};
 const datagram_len = limits.datagram_len;
 /// Where the client sends from, which the endpoint reads off each datagram (decision 72).
 const ipv4_len: usize = 4;
@@ -91,8 +90,6 @@ const Queue = struct {
 };
 
 pub const World = struct {
-    server_tls: tls.quic.ServerConfig,
-    quic_config: server.QuicConfig,
     endpoint_config: server.EndpointConfig,
     endpoint: Endpoint,
     /// The endpoint's one QUIC connection, read as a program does not, and the handle naming it.
@@ -126,15 +123,16 @@ pub const World = struct {
     /// Starts both endpoints at the run's first instant and completes the handshake, with no
     /// request yet.
     pub fn init(world: *World, seed: u64) Error!void {
-        world.server_tls.init(.{
-            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
-            .cookie_key = &identity.cookie_key,
-            .ticket_key = null,
-            .alpn = &alpn_h3,
-            .cpu = identity.cpu,
-        }) catch return error.ServerRefused;
-        world.quic_config = .{ .tls = &world.server_tls, .idle_timeout_ms = run_limits.quic_idle_timeout_ms, .deadlines = deadlines() };
-        world.endpoint_config = .{ .quic = &world.quic_config };
+        world.endpoint_config = .{
+            .tls = .{
+                .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+                .cookie_key = &identity.cookie_key,
+                .ticket_key = null,
+                .cpu = identity.cpu,
+            },
+            .idle_timeout_ms = run_limits.quic_idle_timeout_ms,
+            .deadlines = deadlines(),
+        };
         world.server_random = Random.init(seed);
         world.peer_random = Random.init(~seed);
         world.now_ns = limits.start_ns;

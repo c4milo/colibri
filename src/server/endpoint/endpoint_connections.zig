@@ -12,6 +12,7 @@ const quic_connection = @import("../quic/quic_connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const endpoint_stateless = @import("endpoint_stateless.zig");
 const endpoint_slots = @import("endpoint_slots.zig");
+const endpoint_config = @import("endpoint_config.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
 const PeerAddress = quic_connection.PeerAddress;
@@ -20,16 +21,6 @@ const Sent = quic_connection.Sent;
 const Ecn = quic.connection_receive.Datagram.Ecn;
 
 /// What an endpoint borrows. The caller keeps it alive while the endpoint runs.
-pub const Config = struct {
-    /// What each connection borrows.
-    quic: *const quic_connection.Config,
-    /// When set, every client proves its address with a Retry token before a connection starts
-    /// (RFC 9000 §8.1.2), which the endpoint seals and opens under this key (decision 55).
-    retry: ?*const tls.quic.Retry = null,
-    /// Where each connection's qlog log comes from (decision 102 as amended), or null for none.
-    logs: ?LogProvider = null,
-};
-
 /// The caller's source of qlog logs, a provider the endpoint asks once for each connection it
 /// starts (decision 102 as amended). colibri writes the connection's QUIC and h3 events into the
 /// log the caller returns. The caller takes the records after each call it makes, and gets the
@@ -58,7 +49,9 @@ pub const LogProvider = struct {
 };
 
 pub const Connections = struct {
-    config: *const Config,
+    config: *const endpoint_config.Config,
+    /// What each QUIC connection borrows, which `endpoint_config.build` filled.
+    quic: *const quic_connection.Config,
     random: tls.Random,
     /// Unix seconds at `base_ns`, from which each connection's tickets count, or 0 for none.
     base_seconds: u64,
@@ -70,18 +63,12 @@ pub const Connections = struct {
     slots: *endpoint_slots.Slots,
     replies: Replies,
 
-    /// Holds no connection. Every value the endpoint draws comes from `random`. It refuses
-    /// limits in `config.quic.deadlines` that `Deadlines.validate` or `validate_units` refuses, as
-    /// `Connection.init` does over TCP (decision 110 as amended).
-    pub fn init(held: *Connections, config: *const Config, connections: []QuicConnection, pools: []const ReceiveStorage, slots: *endpoint_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
+    /// Holds no connection. Every value the endpoint draws comes from `random`.
+    pub fn init(held: *Connections, config: *const endpoint_config.Config, quic_config: *const quic_connection.Config, connections: []QuicConnection, pools: []const ReceiveStorage, slots: *endpoint_slots.Slots, random: tls.Random, now_seconds: u64, now_ns: u64) void {
         assert(connections.len == pools.len and slots.tcp_count + connections.len == slots.live.len);
-        // A connection refuses limits `validate` refuses. An endpoint whose every connection
-        // refused to start would answer no client and tell its program nothing, so the endpoint
-        // refuses them here, once, where its program reads the error.
-        try config.quic.deadlines.validate();
-        try config.quic.deadlines.validate_units();
         held.* = .{
             .config = config,
+            .quic = quic_config,
             .random = random,
             .base_seconds = now_seconds,
             .base_ns = now_ns,
@@ -201,7 +188,7 @@ pub const Connections = struct {
         held.random.bytes(&how.local_id);
         const connection = held.at(handle.slot);
         const pool = held.pools[handle.slot - held.slots.tcp_count];
-        internal.start(connection, held.config.quic, pool, how, held.random, held.seconds_at(now_ns), now_ns) catch {
+        internal.start(connection, held.quic, pool, how, held.random, held.seconds_at(now_ns), now_ns) catch {
             held.slots.release(handle);
             return null;
         };

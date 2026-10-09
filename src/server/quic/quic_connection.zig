@@ -65,6 +65,9 @@ pub const Config = struct {
     /// off. `Endpoint.init` refuses limits `Deadlines.validate` or `validate_units` refuses,
     /// with `error.DeadlineInvalid`.
     deadlines: deadline.Deadlines = .{},
+    /// The request streams the client may open at once (RFC 9000 §4.6), up to the records a
+    /// connection holds: the endpoint's `limits.requests_max` (decision 119).
+    requests_max: u32 = constants.quic_requests_max,
 };
 
 /// What a connection starts from, which the endpoint read off the client's first Initial or drew

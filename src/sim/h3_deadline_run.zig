@@ -83,7 +83,6 @@ pub const Record = struct {
 };
 
 const Endpoint = app_module.Endpoint;
-const alpn_h3 = [_][]const u8{"h3"};
 /// Where the peer sends from, which the endpoint reads off each datagram (decision 72).
 const ipv4_len: usize = 4;
 const peer_octet: u8 = 0xc1;
@@ -91,8 +90,6 @@ const peer_octets: [ipv4_len]u8 = @splat(peer_octet);
 const peer_port: u16 = 50_000;
 
 pub const Storage = struct {
-    server_tls: tls.quic.ServerConfig,
-    quic_config: server.QuicConfig,
     endpoint_config: server.EndpointConfig,
     endpoint: Endpoint,
     /// The connection's `ended`, once the endpoint reported it.
@@ -125,23 +122,21 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
 }
 
 fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
-    storage.server_tls.init(.{
-        .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
-        .cookie_key = &identity.cookie_key,
-        .ticket_key = null,
-        .alpn = &alpn_h3,
-        .cpu = identity.cpu,
-    }) catch return error.ServerRefused;
-    storage.quic_config = .{
-        .tls = &storage.server_tls,
+    storage.endpoint_config = .{
+        .tls = .{
+            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+            .cookie_key = &identity.cookie_key,
+            .ticket_key = null,
+            .cpu = identity.cpu,
+        },
         .idle_timeout_ms = limits.quic_idle_timeout_ms,
         .deadlines = plan.deadlines,
     };
-    storage.endpoint_config = .{ .quic = &storage.quic_config };
     storage.server_random = Random.init(seed);
     storage.peer_random = Random.init(~seed);
     const now_ns = ns_of(plan, 0);
-    // Decision 110 as amended: an endpoint refuses limits a connection would refuse.
+    // Decision 110 as amended: an endpoint refuses limits a connection would refuse, and an
+    // identity whose key does not sign.
     storage.endpoint.init(&storage.endpoint_config, tls.Random.init(&storage.server_random, fill), identity.now_seconds, now_ns) catch return error.ServerRefused;
     storage.ended = null;
     storage.link.init(plan.link_rate);

@@ -399,27 +399,35 @@ UDP sockets.
 A `server.Endpoint` holds every QUIC connection behind one UDP socket
 ([decision 103](decisions.md)), each in a slot of its own. `server.EndpointOf(capacity)` makes one
 of another size: its `server.Capacity` names the connections it holds at once and the octets each
-holds unread. Its TLS configuration names "h3" in its ALPN list:
+holds unread. A `server.EndpointConfig` gives the server's TLS identity once, with no protocol
+named: the endpoint names h3 itself (RFC 9114 §3.1). `init` builds each connection's TLS
+configuration from it and checks that the key signs, so a program learns of a bad identity before
+it serves:
 
 ```zig
-try server_tls.init(.{
-    .ecdsa_p256 = .{
-        .chain = &chain,
-        .public_key = identity.public_key,
-        .private_key = identity.private_key,
+endpoint_config = .{
+    // The identity names no protocol: the endpoint names h3 for its QUIC connections.
+    .tls = .{
+        .ecdsa_p256 = .{
+            .chain = &chain,
+            .public_key = identity.public_key,
+            .private_key = identity.private_key,
+        },
+        .cookie_key = &cookie_key,
+        .cpu = cpu,
     },
-    .cookie_key = &cookie_key,
-    .alpn = &.{"h3"},
-    .cpu = cpu,
-});
-// Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit a
-// server, and this one ends an idle connection sooner.
-server_quic = .{ .tls = &server_tls, .deadlines = .{ .idle_ns = idle_ns } };
-endpoint_config = .{ .quic = &server_quic };
-// One endpoint for the program's UDP socket. It starts a connection from each client's first
-// datagram, in a slot of its own.
+    // Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit
+    // a server, and this one ends an idle connection sooner.
+    .deadlines = .{ .idle_ns = idle_ns },
+};
+// One endpoint for the program's UDP socket. It checks that the key signs, and starts a
+// connection from each client's first datagram, in a slot of its own.
 try endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
 ```
+
+`versions` and `limits` mean what they mean over TCP. With h3 turned off, or with no identity,
+`init` returns `error.NoVersion`. `limits.requests_max` bounds the request streams a client opens
+at once, up to `server.constants.quic_requests_max`.
 
 The program passes the endpoint each datagram with the address it came from, as a
 `server.Input`. The endpoint finds the connection the datagram's connection ID names, or starts
@@ -504,10 +512,10 @@ Three things differ from TCP:
 - **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`: for loss
   recovery, acknowledgments and idle timeouts, and for the deadlines of
   [decision 110](decisions.md), which bound an h3 connection as they bound a TCP one. A program
-  sleeps until then when no datagram arrives. `QuicConfig.deadlines` sets the limits, and
+  sleeps until then when no datagram arrives. `EndpointConfig.deadlines` sets the limits, and
   `Endpoint.init` refuses limits a connection would refuse, with `error.DeadlineInvalid`.
-  `set_deadlines` changes one connection's limits, by its handle. `QuicConfig.idle_timeout_ms` is
-  QUIC's own idle timeout, which ends a peer that sends nothing at all.
+  `set_deadlines` changes one connection's limits, by its handle. `EndpointConfig.idle_timeout_ms`
+  is QUIC's own idle timeout, which ends a peer that sends nothing at all.
 - **The end.** `ended` names each connection that is over, once. Its `reason` names the deadline
   that ended the connection, or the limit its client passed, and `failed` says colibri closed it
   because its client broke a rule of the protocol. A later client then takes its slot, and every id

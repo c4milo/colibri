@@ -16,6 +16,7 @@ const quic_connection = @import("../quic/quic_connection.zig");
 const internal = @import("../quic/quic_connection_internal.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const endpoint_connections = @import("endpoint_connections.zig");
+const endpoint_config = @import("endpoint_config.zig");
 const endpoint_slots = @import("endpoint_slots.zig");
 const endpoint_ready = @import("endpoint_ready.zig");
 const endpoint_deadline_heap = @import("endpoint_deadline_heap.zig");
@@ -85,11 +86,11 @@ pub const Held = struct {
 
     /// Holds no connection. The endpoint stays where it is: the slots' table and the connections
     /// hold pointers into it.
-    pub fn init(held: *Held, config: *const endpoint_connections.Config, storage: Storage, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
+    pub fn init(held: *Held, config: *const endpoint_config.Config, quic_config: *const quic_connection.Config, storage: Storage, random: tls.Random, now_seconds: u64, now_ns: u64) void {
         assert(storage.quic.len == storage.quic_tables.len and storage.quic.len == storage.generations.len);
         assert(storage.generations.len == storage.failed.len);
         held.slots.init(storage.generations, storage.live, storage.free, 0);
-        try held.connections.init(config, storage.quic, storage.pools, &held.slots, random, now_seconds, now_ns);
+        held.connections.init(config, quic_config, storage.quic, storage.pools, &held.slots, random, now_seconds, now_ns);
         held.ready.init(storage.ready_numbers, storage.ready_queued);
         held.heap.init(storage.cached, storage.position, storage.order, storage.stale_numbers, storage.stale_queued);
         held.quic_tables = storage.quic_tables;

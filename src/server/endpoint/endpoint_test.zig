@@ -114,7 +114,8 @@ test "decision 111: a server switches a client of version 1 that lists version 2
 
 test "decision 111: a server whose configuration names no version to switch to keeps the client" {
     try support.start_endpoint(null);
-    support.config.switch_to = null;
+    endpoint_support.endpoint_config.switch_to = null;
+    try endpoint_support.restart();
     try support.connect();
     try testing.expectEqual(.v1, support.served.transport.versions.negotiated);
     try testing.expectEqual(.v1, support.client.versions.negotiated);
@@ -349,14 +350,15 @@ test "decision 102: a connection the provider gives no log writes none, and hand
 
 test "decision 110 as amended: an endpoint refuses, when it starts, deadlines a connection would refuse" {
     try support.start_endpoint(null);
+    const config = &endpoint_support.endpoint_config;
     // A limit of 0 is one `Deadlines.validate` refuses: null says no limit.
-    support.config.deadlines.idle_ns = 0;
-    try testing.expectError(error.DeadlineInvalid, endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
+    config.deadlines.idle_ns = 0;
+    try testing.expectError(error.DeadlineInvalid, endpoint_support.restart());
     // A body rate of one octet a second is one `validate_units` refuses: twice that rate over a
     // window brings less than a unit.
-    support.config.deadlines = .{ .body_rate_min = 1 };
-    try testing.expectError(error.DeadlineInvalid, endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns));
+    config.deadlines = .{ .body_rate_min = 1 };
+    try testing.expectError(error.DeadlineInvalid, endpoint_support.restart());
     // The default limits are ones an endpoint takes.
-    support.config.deadlines = .{};
-    try endpoint.init(&endpoint_support.endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
+    config.deadlines = .{};
+    try endpoint_support.restart();
 }

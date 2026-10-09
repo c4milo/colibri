@@ -123,8 +123,9 @@ pub const Server = struct {
     cookie_key: *const [constants.server_key_len]u8,
     /// The key tickets are sealed under, or null to issue none.
     ticket_key: ?*const [constants.server_key_len]u8 = null,
-    /// Protocols this server selects from, in its order (RFC 7301 §3.2).
-    alpn: []const []const u8,
+    /// Protocols this server selects from, in its order (RFC 7301 §3.2). Empty for a server's
+    /// endpoint, which names the protocols its versions allow (decision 119).
+    alpn: []const []const u8 = &.{},
     /// The program's probe of its CPU; there is no default.
     cpu: Cpu,
     /// Refuse a ClientHello with no server_name (RFC 9846 §9.2).

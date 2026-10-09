@@ -32,7 +32,12 @@ pub fn start_endpoint(retry: ?*const tls.quic.Retry) !void {
     support.through_endpoint = true;
     ended_len = 0;
     closed = false;
-    endpoint_config = .{ .quic = &support.config, .retry = retry };
+    endpoint_config = .{ .tls = support.server_values(), .retry = retry };
+    try restart();
+}
+
+/// Starts `endpoint` again from `endpoint_config`, which a test changed, holding no connection.
+pub fn restart() !void {
     try endpoint.init(&endpoint_config, tcp_support.stream.random(), 0, support.now_ns);
 }
 

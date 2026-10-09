@@ -134,12 +134,9 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
     client_port_now = client_port;
     through_endpoint = false;
     served = &connection;
-    try server_tls.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
-        .cookie_key = &support.cookie_key,
-        .alpn = &alpn_h3,
-        .cpu = support.cpu,
-    });
+    var values = server_values();
+    values.alpn = &alpn_h3;
+    try server_tls.init(values);
     try client_tls.init(.{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = "localhost" } }, .alpn = &alpn_h3, .cpu = support.cpu });
     config = .{ .tls = &server_tls };
     now_ns = start_ns;
@@ -156,6 +153,15 @@ pub fn start_with_pool(receive_pool: quic_connection.ReceiveStorage) !void {
 }
 
 const alpn_h3 = [_][]const u8{"h3"};
+
+/// The server's identity, which names no protocol: what an endpoint takes.
+pub fn server_values() tls.Server {
+    return .{
+        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .cpu = support.cpu,
+    };
+}
 
 pub const start_endpoint = endpoint_support.start_endpoint;
 

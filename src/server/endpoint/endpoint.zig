@@ -26,6 +26,7 @@ const deadline = @import("../deadline.zig");
 const connection_errors = @import("../connection/connection_errors.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const endpoint_connections = @import("endpoint_connections.zig");
+const endpoint_config = @import("endpoint_config.zig");
 const endpoint_held = @import("endpoint_held.zig");
 
 const QuicConnection = quic_connection.QuicConnection;
@@ -34,8 +35,9 @@ const Sent = quic_connection.Sent;
 const Id = event.Id;
 const ConnectionHandle = event.ConnectionHandle;
 const SendError = connection_errors.SendError;
+const StartError = connection_errors.StartError;
 
-pub const Config = endpoint_connections.Config;
+pub const Config = endpoint_config.Config;
 pub const LogProvider = endpoint_connections.LogProvider;
 pub const Input = endpoint_held.Input;
 pub const Datagram = endpoint_held.Datagram;
@@ -59,6 +61,10 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
         const Pool = quic.stream.stream_incoming.Pool(capacity.receive_pool_len);
 
         held: endpoint_held.Held,
+        /// The TLS configuration of the QUIC connections, and what each borrows, which `init`
+        /// builds from `Config`.
+        quic_tls: tls.quic.ServerConfig,
+        quic_config: quic_connection.Config,
         quic: [capacity.quic_connections]QuicConnection,
         pools: [capacity.quic_connections]Pool,
         storages: [capacity.quic_connections]ReceiveStorage,
@@ -77,12 +83,16 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
 
         /// Prepares an endpoint that holds no connection. Every value it draws comes from
         /// `random`. `now_seconds` is the Unix time at `now_ns`, which the server's tickets are
-        /// issued at, or 0 for none. `error.DeadlineInvalid` says `config.quic.deadlines` holds a
-        /// limit `Deadlines.validate` or `validate_units` refuses (decision 110 as amended).
-        pub fn init(endpoint: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) error{DeadlineInvalid}!void {
+        /// issued at, or 0 for none. It builds the TLS configuration of its QUIC connections from
+        /// `config.tls` and checks that its key signs. `error.NoVersion` says the endpoint has no
+        /// identity, or `versions` turns h3 off, and `error.DeadlineInvalid` that
+        /// `config.deadlines` holds a limit `Deadlines.validate` or `validate_units` refuses
+        /// (decision 110 as amended).
+        pub fn init(endpoint: *Self, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
+            try endpoint_config.build(config, &endpoint.quic_tls, &endpoint.quic_config, random);
             for (&endpoint.pools, &endpoint.storages) |*pool, *storage| storage.* = pool.storage();
             for (&endpoint.quic_tables) |*table| table.init();
-            try endpoint.held.init(config, .{
+            endpoint.held.init(config, &endpoint.quic_config, .{
                 .quic = &endpoint.quic,
                 .pools = &endpoint.storages,
                 .quic_tables = &endpoint.quic_tables,
