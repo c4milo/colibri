@@ -45,7 +45,11 @@ const path_empty = "/";
 /// octets of none at times, such as an empty line before a request (RFC 9112 §2.2).
 pub fn receive(connection: *Connection, plaintext: []const u8) Error!Received {
     const session = &connection.session.h11;
+    // h11 requires each call's octets to start with every octet it left unconsumed. The caller
+    // passes them again (decision 119 as amended), so a call with none waits for that one.
+    if (plaintext.len == 0 and connection.unread_len > 0) return .{ .consumed = 0, .event = null };
     var consumed: usize = 0;
+    defer connection.unread_len = plaintext.len - consumed;
     // Bounded: a pass that reports nothing takes an octet at least, or ends the loop.
     for (0..plaintext.len + 1) |_| {
         const received = session.receive(plaintext[consumed..], connection.config.decoded) catch return internal.fail(connection);

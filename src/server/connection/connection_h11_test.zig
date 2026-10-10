@@ -22,6 +22,13 @@ fn expect_request(request: []const u8, id: u64) !support.Request {
     return head;
 }
 
+/// A call with no octets, as the endpoint makes to poll a slot, reads nothing.
+fn expect_nothing() !void {
+    const polled = try connection.receive(&.{}, support.now_ns);
+    try testing.expectEqual(0, polled.consumed);
+    try testing.expectEqual(null, polled.event);
+}
+
 test "RFC 9112 §3.3: a request's head arrives with its target URI's parts and its fields" {
     try support.start_cleartext(.h11);
     const head = try expect_request(get_request, 1);
@@ -31,6 +38,23 @@ test "RFC 9112 §3.3: a request's head arrives with its target URI's parts and i
     try testing.expectEqualStrings("/index.html", head.path.?);
     try testing.expectEqualStrings("example.test", head.fields.find("host").?.value);
     try testing.expect(head.end);
+}
+
+test "decision 119 as amended: a call with no octets waits for half a head or chunk-size line" {
+    try support.start_cleartext(.h11);
+    // h11 reads half a head again from its first octet, once the caller passes it with the rest.
+    const head = "POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n";
+    const half = try support.receive_copy(head[0.."POST / H".len]);
+    try testing.expectEqual(0, half.consumed);
+    try testing.expectEqual(null, half.event);
+    try expect_nothing();
+    _ = try expect_request(head, 1);
+    // A chunk-size line is read the same way (RFC 9112 §7.1).
+    const size_line = try support.receive_copy("5");
+    try testing.expectEqual(0, size_line.consumed);
+    try expect_nothing();
+    const body = try support.receive_copy("5\r\nhello\r\n");
+    try testing.expectEqualStrings("hello", body.event.?.body.octets);
 }
 
 test "RFC 9112 §7.1: content of unknown length goes out chunked to an HTTP/1.1 request" {

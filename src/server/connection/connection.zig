@@ -141,6 +141,11 @@ pub const Connection = struct {
     chunked_allowed: bool,
     /// h11: the request being answered is a HEAD (RFC 9110 §9.3.2).
     head_request: bool,
+    /// h11: the octets of the last call's input that h11 did not consume, such as half a head or
+    /// half a chunk-size line. h11 needs them again at the start of the next call's input, so a
+    /// call with no octets, as the endpoint makes to poll a slot, reads nothing from h11 while any
+    /// remain, not even the end of a body it owes.
+    unread_len: usize,
     /// The responses made whole whose `done` event `receive` has not reported (decision 103).
     done_owed: done.Owed,
     /// h11: the last request whose `done` event is owed, so its response owes no second one.
@@ -174,6 +179,7 @@ pub const Connection = struct {
         connection.config = config;
         connection.plain_in_len = 0;
         connection.plain_in_read = 0;
+        connection.unread_len = 0;
         connection.output_len = 0;
         connection.records_len = 0;
         connection.update_held_len = 0;

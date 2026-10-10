@@ -92,7 +92,7 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Connection` | 306280 | one TCP connection: h11 or h2, in cleartext or over TLS |
+| `server.Connection` | 306288 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `server.QuicConnection` | 721416 | one h3 connection, without its receive pool |
 | `client.Connection` | 289064 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `client.QuicConnection` | 703712 | one h3 connection, without its receive pool |

@@ -31,6 +31,17 @@ test "RFC 9112 §9.6: an h11 request in cleartext is answered, done, sent, close
     try testing.expect(!support.nth(.ended, 0).?.failed);
 }
 
+test "decision 119 as amended: an h11 head in cleartext that two reads carry is read once whole" {
+    try support.start(null, .{});
+    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    // The endpoint polls the slot with no octets between the program's two passes.
+    const first = get_h11[0.."GET / HT".len];
+    try testing.expectEqual(first.len, support.give(handle, first));
+    try testing.expectEqual(null, support.nth(.request, 0));
+    try testing.expectEqual(0, support.give(handle, get_h11));
+    try testing.expectEqual(handle, support.nth(.request, 0).?.connection);
+}
+
 test "RFC 9113 §3.3: an h2 preface in cleartext chooses h2, and a request on stream 1 is answered" {
     try support.start(null, .{});
     const handle = endpoint.accept(.cleartext, support.now_ns).?;
