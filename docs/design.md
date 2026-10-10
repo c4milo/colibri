@@ -7771,6 +7771,71 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     the alert alone after a record failure, kept as a guard, because every other term is false
     then.
 
+  **21b.5, 2026-10-09.** The endpoint check. Run on macOS 26 on an Apple M1 Pro, on main a5d35f2.
+  - `zig build sim -- --endpoint-check [seeds]` and `--endpoint-seed <hex>` run three TCP and
+    three QUIC peers through one endpoint with two slots of each kind, so slots are taken again.
+    The TCP peers are the deadline check's: colibri's client for the honest ones, in cleartext or
+    over TLS, and the hostile scripts in cleartext. The QUIC peers are the h3 deadline check's,
+    each with connection IDs of its own. A peer may reset a request or close early. The program
+    sets drawn words, writes drawn pieces after a drawn delay, cancels some requests and makes
+    stale calls. P1 to P8 are checked while each seed runs twice, and the census, pinned in its
+    test and diffed by `tools/ci.sh` in both build modes, is P9.
+  - The census, the same in Debug and ReleaseSafe: `seeds=128 connections=767 reused=255
+    requests=1577 done=509 cancelled_peer_reset=14 cancelled_deadline=902 cancelled_closed=112
+    cancelled_program=37 writable=476 sends=1965 closes=373 stale_calls=13318
+    waiting_probes=33358 accept_waits=97 shutdowns=17 unserved=1 failed=0 trace_octets=143625
+    crc32=0x560d5625 wire_crc32=0x5ec49f44`. 16,384 seeds passed in ReleaseSafe.
+  - The check found two defects of 21b.4, fixed first, and decision 119 records them: an h11
+    head that two reads carried in cleartext reached an assertion, and a peer that opened its
+    window an octet at a time was never cut by `send_rate`.
+  - It found a third, which waits for the owner: decision 110's stream send meter waits while the
+    output holds octets, and colibri's PING acknowledgments are octets. An h2 peer that keeps a
+    stream's window closed and pings every few seconds is never cut, through the endpoint or a
+    connection alone; only the drain after `shutdown` ends it. Seeds 0x4b and 0x5d show it, and
+    the run lets that peer's connection alone outlast the 600 s horizon.
+  - An honest peer is never cut by a deadline but the drain after `shutdown`, nor its connection
+    by one but idle and drain. Peers whose drawn pace would miss decision 110's deadlines for a
+    reason of the run's own are kept out: TLS runs only for honest peers at full pace and silent
+    ones, since a paced client seals a head into a record that arrives late, and a peer resets a
+    request only once the endpoint read it.
+  - Readings of the properties:
+    - P5's oracle is `endpoint.held.deadline_of(slot)`, called through the field `held`, as the
+      server's fixtures call it.
+    - P8 is read once a pass moves nothing, before P6's probes, which fire TCP deadlines
+      themselves. A QUIC connection's acknowledgment and pacing deadlines stay due until
+      `send_datagram` sends, so P8 is not read straight after `on_instant`.
+    - P6 asks the endpoint's rings and does not poll every QUIC slot: a connection that shuts
+      down sends its CONNECTION_CLOSE at its own next timer, within `max_ack_delay` of the
+      GOAWAY, as step 20d's check pins. A slot left out of the rings never ends, which the
+      horizon check refuses.
+    - The socket takes every octet at once, so P7 is exact. A slow reader's unread octets wait in
+      the socket, never in the endpoint's output, so its h2 streams' meters never wait, and the
+      send rate may cut an honest slow reader over TCP.
+  - Not covered: hostile TCP peers over TLS, TCP Rapid Reset, a full socket and a KeyUpdate.
+  - `zig build test-sim-run` took 3 min 31 s in Debug, against 2 min 54 s to 3 min 15 s before
+    the check, and the h3 deadline census stayed 0x9050e8bf and 0x942c7916.
+  - A review, three reviewers and a verifier, confirmed twenty findings. The check now refuses an
+    honest peer cut and a connection left at the horizon, reads P8 before the probes, probes
+    `accept` after `shutdown`, and names a stale `receive` that a slot's holder read.
+  - Mutations, each **CAUGHT**, with what caught it:
+    - P4: a generation not advanced at release, or not compared; `done` keeping its entry;
+      `transport_closed` without the generation; a stale handle's octets read by the slot's
+      holder.
+    - P2: a body without its word; `set_user_data` writing nothing. P3: the program's cancel not
+      owed.
+    - P5: `set_deadlines` without touching the slot; `on_instant` touching no QUIC slot. P6:
+      `write_body` without touching the slot; `owes_octets` without the output; `takes` always
+      false. P7: `send` with no octets owed. P8: QUIC's `on_instant` dropped. P1: `accept` after
+      `shutdown`.
+    - An honest peer failed when every input was consumed, and was cut when a blocked stream
+      was never released.
+    - Their unit tests: the ledger's word compare skipped, and P5 comparing nothing.
+    - The census alone: `on_instant` firing no TCP slot, because the poll its touch brings fires
+      the deadline at the same instant.
+  - The server fixes: the empty-call rule dropped, and its count never kept; the `send` asked
+    first dropped from `poll`, or from `take_stream`. Asking `owes_octets` there too was
+    equivalent, so the term is gone.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

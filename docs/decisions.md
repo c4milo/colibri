@@ -3981,3 +3981,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        reads a pipelined request only once the response before it ends, which may write no octet
        and so bring no `send`. The program therefore passes held octets again after each event
        that names the connection, beside its next read and its `send_stream`.
+
+     Amended again on 2026-10-09 by design §8 step 21b.5, whose check found two defects of 21b.4:
+     - An h11 connection in cleartext that had read half a head, or half a chunk-size line,
+       reached an assertion when the endpoint polled it with no octets: h11 needs the octets it
+       left unconsumed at the start of the next call's input. A call with no octets now reads
+       nothing from h11 while any remain, and waits for the program to pass them again.
+     - The endpoint read a TCP connection between a write and the `send` it owed. Each read
+       observes the connection's deadlines, and an h2 stream's send meter waits while the output
+       holds octets (decision 110 as amended). So the meter waited after each write and started
+       again with a grace period, and a peer that opened its window an octet at a time was never
+       cut. The endpoint now reports the `send` of octets the output holds before it reads the
+       connection again, so `send` comes before the `done` of a response that write ended.
