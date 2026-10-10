@@ -30,11 +30,19 @@ pub const Error = error{
 };
 
 /// The connection IDs the peer starts from, and the value its h3 draws reserved codes from.
-const id_len: usize = 8;
+pub const id_len: usize = 8;
 const client_octet: u8 = 0xc1;
 const original_octet: u8 = 0x0d;
 const client_id: [id_len]u8 = @splat(client_octet);
 const original_id: [id_len]u8 = @splat(original_octet);
+
+/// The peer's own first Source Connection ID and the first Destination Connection ID it sends
+/// (RFC 9000 §7.2). Two peers of one endpoint each need their own, or the endpoint hands the second
+/// peer's Initial to the first peer's connection (RFC 9000 §5.2).
+pub const Ids = struct { client: [id_len]u8, original: [id_len]u8 };
+
+/// The IDs of a run that has one peer.
+pub const ids_default: Ids = .{ .client = client_id, .original = original_id };
 const grease: u64 = 0x1f2e_3d4c;
 const parameters_len_max: usize = 1024;
 const alpn_h3 = [_][]const u8{"h3"};
@@ -107,9 +115,17 @@ pub const Peer = struct {
     next_act_ms: ?u64,
     next_read_ms: u64,
     pings: u32,
+    /// The connection IDs the peer started from, which its connection reads while it runs.
+    ids: Ids,
 
     /// Starts the peer's connection at `now_ns`, with the credit its plan gives its streams.
     pub fn start(peer: *Peer, plan: *const Plan, random: tls.Random, now_ns: u64) Error!void {
+        return peer.start_with(plan, random, now_ns, ids_default);
+    }
+
+    /// As `start`, from the connection IDs `ids`.
+    pub fn start_with(peer: *Peer, plan: *const Plan, random: tls.Random, now_ns: u64, ids: Ids) Error!void {
+        peer.ids = ids;
         peer.config.init(.{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
             .alpn = &alpn_h3,
@@ -120,7 +136,7 @@ pub const Peer = struct {
             .version = .v1,
             .local_parameters = parameters(plan),
             .now_ns = now_ns,
-            .identity = .{ .local_initial_source = &client_id, .original_destination = &original_id },
+            .identity = .{ .local_initial_source = &peer.ids.client, .original_destination = &peer.ids.original },
             .receive = peer.pool.storage(),
         });
         peer.send_scratch = .{};
@@ -132,7 +148,7 @@ pub const Peer = struct {
         quic.transport_parameters.write(&writer, &peer.connection.local_parameters, .client) catch return error.PeerFailed;
         peer.session.provider().set_transport_params(writer.written()) catch return error.PeerFailed;
         const suite = peer.session.suite();
-        suite.vtable.install_initial_keys(suite.context, .client, &original_id) catch return error.PeerFailed;
+        suite.vtable.install_initial_keys(suite.context, .client, &peer.ids.original) catch return error.PeerFailed;
         for (&peer.content, 0..) |*octet, index| octet.* = content_letters[index % content_letters.len];
         peer.fetches_len = 0;
         peer.h3_started = false;

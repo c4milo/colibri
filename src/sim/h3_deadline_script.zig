@@ -33,6 +33,19 @@ pub fn act(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool 
     };
 }
 
+/// What a peer that read a GOAWAY does: it opens no more requests and finishes those it began
+/// (RFC 9114 §5.2): an upload's content and a late head's last octet. A hostile body keeps its
+/// pace. The endpoint check's peers read one at its shutdown while they still act.
+pub fn finish_begun(peer: *Peer, plan: *const Plan, now_ms: u64) bool {
+    if (!peer.h3_started or !peer.active()) return false;
+    return switch (plan.peer) {
+        .upload => send_piece(peer, plan, true, now_ms),
+        .slow_body, .long_body => send_piece(peer, plan, false, now_ms),
+        .slow_honest => finish_head(peer, now_ms),
+        else => false,
+    };
+}
+
 /// Opens every exchange of the plan at once, each a GET whose stream ends with its head. A deaf
 /// peer is muted once this instant's datagrams have left.
 fn begin_all(peer: *Peer, plan: *const Plan, now_ns: u64) Error!bool {
@@ -62,19 +75,23 @@ fn begin_next(peer: *Peer, plan: *const Plan, content_len: usize, now_ns: u64) E
 /// An honest peer whose heads arrive late: one exchange at a time, each request's head without
 /// its last octet, and that octet a gap after.
 fn late_heads(peer: *Peer, plan: *const Plan, now_ns: u64, now_ms: u64) Error!bool {
-    if (peer.next_act_ms) |due_ms| {
-        if (now_ms < due_ms) return false;
-        const fetch = &peer.fetches[peer.fetches_len - 1];
-        peer.supply(fetch, fetch.prefix_len, true);
-        peer.next_act_ms = null;
-        return true;
-    }
+    if (peer.next_act_ms != null) return finish_head(peer, now_ms);
     if (peer.exchanges_begun == plan.exchanges_len) return false;
     if (peer.exchanges_begun > 0 and peer.fetches[peer.exchanges_begun - 1].ended_ms == null) return false;
     const fetch = try peer.stage("GET", 0, now_ns) orelse return error.PeerFailed;
     peer.supply(fetch, fetch.prefix_len - 1, false);
     peer.exchanges_begun += 1;
     peer.next_act_ms = now_ms + plan.gap_ms;
+    return true;
+}
+
+/// Sends the last octet of the latest request's head once it is due.
+fn finish_head(peer: *Peer, now_ms: u64) bool {
+    const due_ms = peer.next_act_ms orelse return false;
+    if (now_ms < due_ms) return false;
+    const fetch = &peer.fetches[peer.fetches_len - 1];
+    peer.supply(fetch, fetch.prefix_len, true);
+    peer.next_act_ms = null;
     return true;
 }
 
