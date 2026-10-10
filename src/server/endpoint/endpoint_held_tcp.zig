@@ -66,8 +66,10 @@ pub fn accept(held: *Held, security: Security, now_ns: u64) ?ConnectionHandle {
 }
 
 /// Hands octets a socket read to the slot's connection, and returns what it consumed with the
-/// event it reported, if any. Octets of a handle that names no connection, or of a connection that
-/// reads no more, are consumed and dropped, as a read that finished after `close` is.
+/// event it reported, if any. The program's own cancels, then the `send` of octets the output
+/// holds, come first, with nothing consumed. Octets of a handle that names no connection, or of a
+/// connection that reads no more, are consumed and dropped, as a read that finished after `close`
+/// is.
 pub fn take_stream(held: *Held, input: StreamOctets, now_ns: u64) event.Received {
     assert(input.connection.slot < held.slots.tcp_count);
     const dropped: event.Received = .{ .consumed = input.octets.len, .event = null };
@@ -80,6 +82,7 @@ pub fn take_stream(held: *Held, input: StreamOctets, now_ns: u64) event.Received
         endpoint_held.touch(held, slot);
         return .{ .consumed = 0, .event = endpoint_held_events.ending(input.connection, table, number, .program) };
     }
+    if (send_first(held, slot)) |reported| return .{ .consumed = 0, .event = reported };
     const connection = &held.tcp[slot];
     defer endpoint_held.touch(held, slot);
     const received = connection.receive(input.octets, now_ns) catch {
@@ -94,15 +97,17 @@ pub fn take_stream(held: *Held, input: StreamOctets, now_ns: u64) event.Received
     return .{ .consumed = consumed, .event = endpoint_held_events.pass(held, slot, table, reported, @This()) };
 }
 
-/// The next event TCP slot `slot` owes the program: the program's own cancels first, then what its
-/// connection reports, then a `cancelled` for each request a stopped connection left open, then a
-/// `writable`, then `send` or `close`, and last its `ended`.
+/// The next event TCP slot `slot` owes the program: the program's own cancels first, then the
+/// `send` of octets its output holds, then what its connection reports, then a `cancelled` for each
+/// request a stopped connection left open, then a `writable`, then `send` or `close`, and last its
+/// `ended`.
 pub fn poll(held: *Held, slot: u32, now_ns: u64) ?Event {
     // INV-31: the connection's `receive` fires and observes its deadlines (decision 110).
     endpoint_held.changed(held, slot);
     const handle = held.slots.handle_of(slot);
     const table = table_of(held, slot);
     if (endpoint_held_events.owed_cancel(table)) |number| return endpoint_held_events.ending(handle, table, number, .program);
+    if (send_first(held, slot)) |reported| return reported;
     const connection = &held.tcp[slot];
     if (connection_event(held, slot, connection, table, now_ns)) |reported| return reported;
     if (connection_owed.stops_requests(connection)) {
@@ -129,6 +134,18 @@ fn connection_event(held: *Held, slot: u32, connection: *Connection, table: *Tcp
     // More events than one call reads: the slot comes back for the rest.
     held.ready.touch(slot);
     return null;
+}
+
+/// The `send` of octets the output of the connection in `slot` holds, which the endpoint reports
+/// before it reads the connection. A read observes the connection's deadlines, and an h2 stream's
+/// send meter waits while the output holds octets (decision 110 as amended), so octets a write left
+/// there for the program would pause the meter after each write, which then starts again with a
+/// grace period, and a peer that opens its window an octet at a time would never be cut.
+fn send_first(held: *Held, slot: u32) ?Event {
+    if (held.transports[slot] != .open or held.send_outstanding[slot]) return null;
+    if (held.tcp[slot].output_len == 0) return null;
+    held.send_outstanding[slot] = true;
+    return .{ .send = held.slots.handle_of(slot) };
 }
 
 /// The slot's `send`, once for each debt, while the socket is open; its `close` once the

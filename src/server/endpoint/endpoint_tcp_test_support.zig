@@ -50,6 +50,9 @@ pub var client_saw_alert: bool = false;
 var input: [support.input_len]u8 = undefined;
 
 pub const now_ns = support.now_ns;
+/// The instant `give`, `collect` and `flush` pass the endpoint: `now_ns` from `start`, later in a
+/// test that moves time.
+pub var instant_ns: u64 = now_ns;
 const rounds_max: usize = 64;
 
 /// The server's identity, which names no protocol. Test-only.
@@ -70,6 +73,7 @@ pub fn start(with: ?tls.Server, versions: versions_module.Versions) !void {
     closed = @splat(false);
     flushing = true;
     client_saw_alert = false;
+    instant_ns = now_ns;
     try endpoint.init(&config, support.stream.random(), support.now_seconds, now_ns);
 }
 
@@ -80,7 +84,7 @@ pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
     var rest = input[0..octets.len];
     // Bounded: each pass consumes octets or reports an event, or ends the loop.
     for (0..rounds_max) |_| {
-        const received = endpoint.receive(.{ .stream = .{ .connection = handle, .octets = rest } }, now_ns);
+        const received = endpoint.receive(.{ .stream = .{ .connection = handle, .octets = rest } }, instant_ns);
         check_deadline();
         rest = rest[received.consumed..];
         if (received.event) |reported| note(reported);
@@ -94,7 +98,7 @@ pub fn give(handle: ConnectionHandle, octets: []const u8) usize {
 pub fn collect() void {
     // Bounded: the log holds `seen_max` events.
     for (0..seen_max) |_| {
-        const reported = endpoint.receive(.none, now_ns).event;
+        const reported = endpoint.receive(.none, instant_ns).event;
         check_deadline();
         note(reported orelse return);
     }
@@ -149,7 +153,7 @@ pub fn flush(handle: ConnectionHandle) void {
     // Bounded: each pass fills the room it had, or ends the loop.
     for (0..rounds_max) |_| {
         const room = sent[slot][sent_len[slot]..];
-        const written = endpoint.send_stream(handle, room, now_ns);
+        const written = endpoint.send_stream(handle, room, instant_ns);
         sent_len[slot] += written;
         if (written < room.len) return;
     }

@@ -7,6 +7,8 @@ const support = @import("endpoint_tcp_test_support.zig");
 const h2_support = @import("../connection/connection_h2_test_support.zig");
 const server_constants = @import("../constants.zig");
 
+const event = @import("../event.zig");
+
 const testing = std.testing;
 const endpoint = &support.endpoint;
 
@@ -63,4 +65,48 @@ test "RFC 9113 §6.9.1: h2 content a stream's window holds is writable once a WI
     support.collect();
     try testing.expectEqual(word, support.nth(.writable, 0).?.user_data);
     try testing.expectEqual(content.len - taken, try endpoint.write_body(id, .{ .octets = content[taken..], .end = true }));
+}
+
+/// The client preface with a SETTINGS_INITIAL_WINDOW_SIZE of 0, so a stream's window opens only by
+/// WINDOW_UPDATE (RFC 9113 §6.9.2), then the acknowledgment of the server's SETTINGS.
+const preface_no_window = h2.constants.client_preface ++ "\x00\x00\x06\x04\x00\x00\x00\x00\x00" ++
+    "\x00\x04\x00\x00\x00\x00" ++ h2_support.settings_ack;
+
+/// The seconds the peer below opens its window for at most: past decision 110's default grace
+/// period and window, 10 s each.
+const seconds_max: u64 = 40;
+
+/// A program writes each octet a peer's window opens, an octet a second, and the stream is cut at
+/// the send rate (decision 110 as amended). The endpoint asks for each octet's `send` before it
+/// reads the connection again, so the stream's send meter never waits on the output: whether the
+/// program writes before it passes the peer's WINDOW_UPDATE, or after.
+fn expect_cut_at_send_rate(writes_first: bool) !void {
+    try support.start(null, .{});
+    const handle = endpoint.accept(.cleartext, support.now_ns).?;
+    _ = support.give(handle, preface_no_window);
+    _ = support.give(handle, try h2_support.request_frame(1, "/", true));
+    const id = support.id_of(handle, 1);
+    try endpoint.respond(id, .{ .status = ok, .end = false });
+    var update: [h2.constants.frame_header_len + h2.constants.window_update_len]u8 = undefined;
+    var writer = h2.core.Writer.init(&update);
+    try h2.frame.write_window_update(&writer, 1, 1);
+    var taken: usize = 0;
+    for (1..seconds_max) |second| {
+        support.instant_ns = support.now_ns + second * server_constants.nanoseconds_per_second;
+        endpoint.on_instant(support.instant_ns);
+        support.collect();
+        if (support.nth(.cancelled, 0) != null) break;
+        if (writes_first) taken += endpoint.write_body(id, .{ .octets = long_content[taken..], .end = true }) catch 0;
+        _ = support.give(handle, &update);
+        if (!writes_first) taken += endpoint.write_body(id, .{ .octets = long_content[taken..], .end = true }) catch 0;
+        support.collect();
+    }
+    const cancelled = support.nth(.cancelled, 0).?;
+    try testing.expectEqual(event.CancelReason{ .deadline = .send_rate }, cancelled.reason.?);
+    try testing.expect(taken > 0);
+}
+
+test "decision 110 as amended: a stream whose window opens an octet a second is cut at the send rate" {
+    try expect_cut_at_send_rate(false);
+    try expect_cut_at_send_rate(true);
 }

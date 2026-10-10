@@ -140,7 +140,7 @@ pub const Held = struct {
     pub fn receive(held: *Held, input: Input, now_ns: u64) event.Received {
         const consumed: usize = switch (input) {
             .none => 0,
-            // A TCP connection reads its own octets first, and an event they bring comes first.
+            // The event `take_stream` reports comes first: the slot's own, or one its octets bring.
             .stream => |octets| taken: {
                 const taken = endpoint_held_tcp.take_stream(held, octets, now_ns);
                 if (taken.event != null) return taken;

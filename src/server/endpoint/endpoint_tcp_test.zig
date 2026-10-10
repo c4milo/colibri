@@ -14,7 +14,7 @@ const endpoint = &support.endpoint;
 const ok: u16 = 200;
 const get_h11 = "GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
 
-test "RFC 9112 §9.6: an h11 request in cleartext is answered, done, sent, closed, and ended" {
+test "RFC 9112 §9.6: an h11 request in cleartext is answered, sent, done, closed, and ended" {
     try support.start(null, .{});
     const handle = endpoint.accept(.cleartext, support.now_ns).?;
     try testing.expectEqual(0, support.give(handle, get_h11));
@@ -23,10 +23,11 @@ test "RFC 9112 §9.6: an h11 request in cleartext is answered, done, sent, close
     try endpoint.respond(support.id_of(handle, request.number), .{ .status = ok, .end = true });
     support.collect();
     try testing.expect(std.mem.startsWith(u8, support.sent_of(handle.slot), "HTTP/1.1 200"));
-    // INV-30: the request ends first, then its octets go out, and then the connection closes.
+    // The response's octets go out before the endpoint reads the connection again, then the
+    // request ends, and INV-30: then the connection closes and ends.
     const done = support.index_of(.done).?;
-    try testing.expect(done < support.index_of(.send).?);
-    try testing.expect(support.index_of(.send).? < support.index_of(.close).?);
+    try testing.expect(support.index_of(.send).? < done);
+    try testing.expect(done < support.index_of(.close).?);
     try testing.expect(support.index_of(.close).? < support.index_of(.ended).?);
     try testing.expect(!support.nth(.ended, 0).?.failed);
 }
