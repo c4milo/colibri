@@ -39,6 +39,8 @@
 //!     sim --h2-stall-check [seeds]
 //!     sim --tcp-trace-check [seeds]    a client and a server connection in the h2 model's terms (#79)
 //!     sim --tcp-trace-write <directory> each seed's trace as TLA+, for tools/tcp_trace.sh
+//!     sim --endpoint-seed <hex>        one seed's TCP and QUIC peers through one endpoint
+//!     sim --endpoint-check [seeds]     (design §8 step 21b.5)
 //!
 //! `run_main.zig` runs the command `parse` returns.
 const std = @import("std");
@@ -68,7 +70,8 @@ pub const usage = "usage: sim --chunk-seed <hex> | --chunk-check [seeds]" ++
     " | --h3-deadline-seed <hex> | --h3-deadline-check [seeds]" ++
     " | --h3-deadline-trace-check [seeds] | --h3-deadline-trace-write <directory>" ++
     " | --h2-stall-seed <hex> | --h2-stall-check [seeds]" ++
-    " | --tcp-trace-check [seeds] | --tcp-trace-write <directory>\n";
+    " | --tcp-trace-check [seeds] | --tcp-trace-write <directory>" ++
+    " | --endpoint-seed <hex> | --endpoint-check [seeds]\n";
 
 pub const Command = union(enum) {
     chunk_seed: u64,
@@ -109,6 +112,8 @@ pub const Command = union(enum) {
     h2_stall_check: u64,
     tcp_trace_check: u64,
     tcp_trace_write: []const u8,
+    endpoint_seed: u64,
+    endpoint_check: u64,
 };
 
 /// The command `arguments`, the program name left out, asks for.
@@ -200,6 +205,13 @@ fn parse_h2_stall(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
 fn parse_tcp_trace(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
     if (std.mem.eql(u8, flag, "--tcp-trace-check")) return .{ .tcp_trace_check = if (value == null) constants.tcp_trace.written_seeds else try parse_seeds(value) };
     if (std.mem.eql(u8, flag, "--tcp-trace-write")) return .{ .tcp_trace_write = value orelse return error.Usage };
+    return parse_endpoint(flag, value);
+}
+
+/// The commands of the endpoint check, decision 119 (design §8 step 21b.5).
+fn parse_endpoint(flag: []const u8, value: ?[]const u8) error{Usage}!Command {
+    if (std.mem.eql(u8, flag, "--endpoint-seed")) return .{ .endpoint_seed = try parse_seed(value) };
+    if (std.mem.eql(u8, flag, "--endpoint-check")) return .{ .endpoint_check = if (value == null) constants.endpoint.check_seeds_default else try parse_seeds(value) };
     return error.Usage;
 }
 
@@ -247,6 +259,13 @@ test "the deadline check runs the seeds its census test pins when given no count
     try testing.expectEqual(default, try parse(&.{"--deadline-check"}));
     const default_h3: Command = .{ .h3_deadline_check = constants.h3_deadline.check_seeds_default };
     try testing.expectEqual(default_h3, try parse(&.{"--h3-deadline-check"}));
+}
+
+test "the endpoint check runs the seeds its census test pins when given no count" {
+    const default: Command = .{ .endpoint_check = constants.endpoint.check_seeds_default };
+    try testing.expectEqual(default, try parse(&.{"--endpoint-check"}));
+    try testing.expectEqual(Command{ .endpoint_seed = 0x2a }, try parse(&.{ "--endpoint-seed", "0x2a" }));
+    try testing.expectEqual(Command{ .endpoint_check = 4 }, try parse(&.{ "--endpoint-check", "4" }));
 }
 
 test "anything else is a usage error" {

@@ -366,7 +366,7 @@ pub const h3_check_sends_per_step_max: u32 = 64;
 pub const h3_check_drop_max: u64 = 100;
 pub const h3_check_duplicate_max: u64 = 100;
 
-/// Nine checks' limits, each in a file of its own whose header names its check.
+/// Twelve checks' limits, each in a file of its own whose header names its check.
 pub const h11_coding = @import("constants_h11.zig");
 pub const tcp_trace = @import("constants_tcp_trace.zig");
 pub const h3_trace = @import("constants_h3_trace.zig");
@@ -378,6 +378,7 @@ pub const deadline = @import("constants_deadline.zig");
 pub const deadline_trace = @import("constants_deadline_trace.zig");
 pub const h3_deadline = @import("constants_h3_deadline.zig");
 pub const h3_deadline_trace = @import("constants_h3_deadline_trace.zig");
+pub const endpoint = @import("constants_endpoint.zig");
 
 /// The h11 split check (design §8 step 15a): the messages one seed pipelines, the field lines a
 /// message carries besides Host and its framing, the longest fixed body, the chunks of a chunked

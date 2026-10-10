@@ -48,6 +48,7 @@ pub const h3_deadline_check = @import("h3_deadline_check.zig");
 pub const h3_deadline_trace_check = @import("h3_deadline_trace_check.zig");
 pub const tcp_trace_check = @import("tcp_trace_check.zig");
 pub const h2_stall_check = @import("h2_stall_check.zig");
+pub const endpoint_check = @import("endpoint/endpoint_check.zig");
 const run_main = @import("run_main.zig");
 
 comptime {
@@ -101,6 +102,10 @@ test {
     _ = @import("tcp_trace_direction.zig");
     _ = h2_stall_check;
     _ = @import("h2_stall_plan.zig");
+    _ = endpoint_check;
+    _ = @import("endpoint/endpoint_plan.zig");
+    _ = @import("endpoint/endpoint_ledger.zig");
+    _ = @import("endpoint/endpoint_program.zig");
     _ = h3_trace_tla;
     _ = client_trace_plan;
     _ = client_trace_ledger;

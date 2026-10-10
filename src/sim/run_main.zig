@@ -23,6 +23,7 @@ const run_main_h3_deadline_trace = @import("run_main_h3_deadline_trace.zig");
 const run_main_h2_stall = @import("run_main_h2_stall.zig");
 const run_main_client_trace = @import("run_main_client_trace.zig");
 const run_main_tcp_trace = @import("run_main_tcp_trace.zig");
+const run_main_endpoint = @import("run_main_endpoint.zig");
 const connection_check = @import("connection_check.zig");
 const tls_check = @import("tls_check.zig");
 const h2_input_check = @import("h2_input_check.zig");
@@ -97,6 +98,8 @@ pub fn main(init: std.process.Init) !void {
         .h2_stall_check => |seeds| try run_main_h2_stall.check(seeds),
         .tcp_trace_check => |seeds| try run_main_tcp_trace.check(seeds),
         .tcp_trace_write => |directory| try tcp_trace_write(init.io, directory),
+        .endpoint_seed => |seed| try run_main_endpoint.seed(seed),
+        .endpoint_check => |seeds| try run_main_endpoint.check(seeds),
     }
 }
 
