@@ -2806,6 +2806,17 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
     - Test programs that state nothing on x86-64, which run ChaCha20 alone there, so h3spec could
       not pass in CI's x86-64 job.
 
+    **Amended again by the owner on 2026-10-09.** The judge's runner, a virtual Neoverse N2, most
+    likely hides FEAT_DIT from its guest. Its test server then stated no mode and held ChaCha20
+    alone, and the bench's h2load, which offers AES-256-GCM alone, got no answer on the TLS inputs.
+    The test programs now state the mode on every arm64 core too. They set PSTATE.DIT first where
+    the probe finds FEAT_DIT, and state it unchecked where it does not, as on x86-64. The test server
+    names the CPU it described when it starts in TLS mode, so a log shows what its sessions hold.
+
+    The alternatives refused: the bench offering ChaCha20 too, which measures another suite on that
+    runner than on the competitors and the recorded baselines; and a judge run that only confirms
+    the cause before the change.
+
 98. **h11 decodes a coded body into a buffer the caller passes to `receive`.** Ruled by the owner
     on 2026-09-26, for design §8 step 15c. It settles how decision 91's decoded octets reach the
     application.

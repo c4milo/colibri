@@ -420,8 +420,9 @@ Everything below exists. Change this section when a step adds or renames a comma
   configuration its `tls.Cpu`: the probe it takes once, at start, and its thread's timing. Each
   image of `src/testing/` defines the hook (`src/testing/tls/hooks.zig`), passes `getentropy`'s
   octets (`src/testing/entropy.zig`) and the `tls.Cpu` `src/testing/cpu.zig` builds from stdx's
-  probe, taken once: it sets PSTATE.DIT on arm64 and states the timing on x86-64, where no program
-  can read DOITM. A QUIC image defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests
+  probe, taken once: it sets PSTATE.DIT on arm64 where the core has FEAT_DIT, and states the timing
+  on every arm64 and x86-64 core, though a virtual machine may hide FEAT_DIT and no program can
+  read DOITM. A QUIC image defines `ch_keylog` too (`src/testing/quic/keylog.zig`). The tests
   describe the build target's probe with the timing stated, and run every description where the
   target has the instructions. `zig build
   test-tls test-tls-keylog -Dcpu=<model>` runs the `tls` tests on a CPU model without the AES

@@ -104,12 +104,10 @@ const Worker = struct {
     accepting: bool,
     connections: [constants.connections_per_worker_max]Connection,
     events: [loop_options.operations]rotor.Event,
-    /// The decoders the worker's h11 connections share, and the buffer they decode into
-    /// (decisions 91 and 98).
+    /// The h11 decoders the worker's connections share, and their buffer (decisions 91 and 98).
     decoders: h11.coding.Pool(constants.h11_decoders_per_worker),
     decoded: [constants.h11_decoded_len]u8,
-    /// The encoders the worker's connections code responses with in the `--coded` mode (decision
-    /// 101).
+    /// The encoders the worker's connections code responses with under `--coded` (decision 101).
     encoders: server.EncoderPool(constants.encoders_per_worker, server.constants.encoder_level_default),
     /// What every connection of the worker borrows: the TLS configuration or none, the protocol a
     /// cleartext connection speaks, and the decoders.
@@ -448,6 +446,8 @@ fn load_tls(prefix: []const u8, alone: ?Protocol) !void {
     try tls_config.init(try server_identity.load(prefix, &tls_identity, protocols));
     try tls_config.check(entropy.random());
     tls_shared = &tls_config;
+    // A log names what the sessions were told of the CPU, which decides the suites they hold.
+    cpu.print("http-server");
 }
 
 /// The exit status of a run asked for something this build cannot do.

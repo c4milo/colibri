@@ -5430,6 +5430,19 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     setting PSTATE.DIT, or stating none on arm64.
   - `zig build test`: 131 of 131 steps and 2662 of 2662 tests passed, the memory table unchanged.
 
+  **16f on the judge's runner, 2026-10-09.** The first judge run after the bump,
+  [38015272566](https://github.com/c4milo/colibri/actions/runs/38015272566), stopped in both jobs
+  at `h2-tls-many`: the test server answered none of h2load's 100 readiness requests. The same
+  server build answered them in an arm64 Linux container on an M1, whose kernel reports `dit`, with
+  epoll and with io_uring. The runner's VM most likely hides FEAT_DIT, so the server stated no mode
+  and held ChaCha20 alone, which h2load's AES-256-GCM offer cannot meet. At the owner's ruling the
+  test programs state the mode on every arm64 core, and the server names the CPU it described when
+  it starts in TLS mode ([decision 97](decisions.md) as amended again on 2026-10-09).
+  - A test hands the mode's choice a probe with no FEAT_DIT, which an M1 never gives.
+  - 2 mutations, each **CAUGHT** by `src/testing/cpu.zig`'s tests: an arm64 core that states the
+    mode without setting PSTATE.DIT, and one without FEAT_DIT that states no mode.
+  - `zig build test`: 131 of 131 steps and 2743 of 2743 tests passed.
+
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
   [#70](https://github.com/c4milo/colibri/issues/70). Nine parts. The owner ruled on 2026-09-27
