@@ -184,19 +184,62 @@ fn write_size_update(output: *Writer, capacity: u64) Error!void {
     try prefixed_integer.encode(constants.size_update_prefix_bits, output, constants.size_update_pattern, capacity);
 }
 
-/// The lowest static indices holding the line and its name (RFC 7541 Appendix A).
+/// The lowest static indices holding the line and its name (RFC 7541 Appendix A). The name finds
+/// its run of entries through `static_names`, which compares it only with names of its length, and
+/// the value is compared within the run alone.
 fn find_static(name: []const u8, value: []const u8) Match {
-    var match: Match = .{};
-    for (static_table.entries, 1..) |entry, index| {
-        if (!std.mem.eql(u8, entry.name, name)) continue;
-        if (match.name == null) match.name = @intCast(index);
-        if (std.mem.eql(u8, entry.value, value)) {
-            match.exact = @intCast(index);
-            return match;
-        }
+    const run = static_names.get(name) orelse return .{};
+    const match: Match = .{ .name = run.first };
+    // Bounded by the run, at most the table's 61 entries.
+    for (static_table.entries[run.first - 1 ..][0..run.len], run.first..) |entry, index| {
+        if (std.mem.eql(u8, entry.value, value)) return .{ .exact = @intCast(index), .name = run.first };
     }
     return match;
 }
+
+/// The entries of the static table that share one name: the index of the first, and how many.
+const Run = struct {
+    first: u32,
+    len: u32,
+};
+
+/// Each name of the static table and its run, computed when colibri is built ("Precompute what
+/// cannot change", CLAUDE.md). The table is one list of names in the order Appendix A gives, so
+/// each name's entries are adjacent, which the build checks.
+const static_names = std.StaticStringMap(Run).initComptime(static_runs());
+
+fn static_runs() [static_names_len]struct { []const u8, Run } {
+    @setEvalBranchQuota(static_quota);
+    var runs: [static_names_len]struct { []const u8, Run } = undefined;
+    var len: usize = 0;
+    for (static_table.entries, 1..) |entry, index| {
+        if (len > 0 and std.mem.eql(u8, runs[len - 1][0], entry.name)) {
+            runs[len - 1][1].len += 1;
+            continue;
+        }
+        for (runs[0..len]) |earlier| {
+            // A name whose entries were not adjacent would find its first run alone.
+            if (std.mem.eql(u8, earlier[0], entry.name)) @compileError("a static table name's entries are not adjacent");
+        }
+        runs[len] = .{ entry.name, .{ .first = index, .len = 1 } };
+        len += 1;
+    }
+    assert(len == static_names_len);
+    return runs;
+}
+
+/// The distinct names of the static table.
+const static_names_len: usize = count: {
+    @setEvalBranchQuota(static_quota);
+    var len: usize = 0;
+    for (static_table.entries, 0..) |entry, index| {
+        if (index == 0 or !std.mem.eql(u8, static_table.entries[index - 1].name, entry.name)) len += 1;
+    }
+    break :count len;
+};
+
+/// The evaluation the build spends comparing the table's names with one another.
+const static_quota: u32 = 100_000;
 
 const testing = std.testing;
 const Field = dynamic_table.Field;
@@ -393,4 +436,57 @@ test "a block the caller abandons owes its size update again" {
     try test_encoder.begin_block(&output);
     test_encoder.commit_block();
     try testing.expectEqual(0, output.offset);
+}
+
+/// The scan `find_static` replaced, kept as the reference its index must agree with. Test-only.
+fn find_static_scan(name: []const u8, value: []const u8) Match {
+    var match: Match = .{};
+    for (static_table.entries, 1..) |entry, index| {
+        if (!std.mem.eql(u8, entry.name, name)) continue;
+        if (match.name == null) match.name = @intCast(index);
+        if (std.mem.eql(u8, entry.value, value)) {
+            match.exact = @intCast(index);
+            return match;
+        }
+    }
+    return match;
+}
+
+/// Fails, naming the line, when the index and the scan differ on it. Test-only.
+fn expect_same_match(name: []const u8, value: []const u8) !void {
+    const indexed = find_static(name, value);
+    const scanned = find_static_scan(name, value);
+    if (std.meta.eql(indexed, scanned)) return;
+    std.debug.print("first difference: name \"{s}\" value \"{s}\": index {any}, scan {any}\n", .{ name, value, indexed, scanned });
+    return error.TestUnexpectedResult;
+}
+
+/// The longest name or value a test varies. Test-only.
+const varied_len_max: usize = 64;
+
+test "RFC 7541 Appendix A: the static index finds what the scan finds, for every name and value the table holds" {
+    // Every name of the table with every value of the table, the empty value among them.
+    for (static_table.entries) |named| {
+        for (static_table.entries) |valued| try expect_same_match(named.name, valued.value);
+        try expect_same_match(named.name, "not in the table");
+    }
+}
+
+test "RFC 7541 Appendix A: the static index finds nothing for a name one octet away from the table's" {
+    try expect_same_match("", "");
+    try expect_same_match("x-forwarded-for", "");
+    var varied: [varied_len_max + 1]u8 = undefined;
+    for (static_table.entries) |entry| {
+        const name = entry.name;
+        // The name one octet shorter, one octet longer, and with each octet changed.
+        if (name.len > 0) try expect_same_match(name[0 .. name.len - 1], entry.value);
+        @memcpy(varied[0..name.len], name);
+        varied[name.len] = 'x';
+        try expect_same_match(varied[0 .. name.len + 1], entry.value);
+        for (0..name.len) |position| {
+            @memcpy(varied[0..name.len], name);
+            varied[position] ^= 0x20;
+            try expect_same_match(varied[0..name.len], entry.value);
+        }
+    }
 }
