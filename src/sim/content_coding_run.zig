@@ -185,6 +185,8 @@ fn server_read(storage: *Storage) Error!void {
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + limits.exchanges_max * events_per_exchange) |_| {
         const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .octets = stream.held() } }, now_ns);
+        // The endpoint keeps a failed read to itself until the connection ends: the run reads it.
+        if (storage.endpoint.failed[storage.accepted.slot]) return error.ExchangeRefused;
         stream.consumed += received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;

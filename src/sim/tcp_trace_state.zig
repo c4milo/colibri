@@ -107,11 +107,21 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     const no_goaway: u32 = plan.streams + 1;
     state.goaway_sent = if (server_h2) |connection| last_of(connection.streams.goaway_sent_last_id, no_goaway) else no_goaway;
     state.goaway_read = if (client_h2) |connection| last_of(connection.streams.goaway_received_last_id, no_goaway) else no_goaway;
-    state.malformed = world.malformed;
+    // Nor does it report the `cancelled` of such a request. The server resets a stream whose
+    // response ended only for a request it refuses, which an honest client never sends.
+    state.malformed = world.malformed or reset_after_done(state.server_closed[0..n], world.done[0..n]);
     state.broken = world.broken or has_failed(client_h2) or has_failed(server_h2);
     state.late_open = if (world.open_at_goaway) |open| world.client_streams_open() > open else false;
     note_prefaces(client_h2, server_h2, &state);
     return state;
+}
+
+/// Whether the server reset a stream whose response the endpoint had reported `done`.
+fn reset_after_done(closed: []const h2_trace_state.Closing, done: []const bool) bool {
+    for (closed, done) |how, ended| {
+        if (ended and how == .rst_sent) return true;
+    }
+    return false;
 }
 
 /// Each stream's state at each endpoint, idle at one with no h2 connection yet.

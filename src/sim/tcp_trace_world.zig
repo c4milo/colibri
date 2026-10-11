@@ -97,8 +97,10 @@ pub const World = struct {
     shut_down: bool,
     /// The client's streams that were open when it first read a GOAWAY.
     open_at_goaway: ?u32,
-    /// A receiver read a message out of §8.1's order, and an event two colibri endpoints never
-    /// cause: a call that failed, or a request cancelled for another reason than its peer's reset.
+    /// A receiver read a message out of §8.1's order, or a request was cancelled for another
+    /// reason than its peer's reset or its caller's own cancel. And an event two colibri endpoints
+    /// never cause: a failed connection, a `close` before the shutdown, or an end with a reason or
+    /// a failure.
     malformed: bool,
     broken: bool,
     /// Calls a connection refused, which two honest callers seldom make.

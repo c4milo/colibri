@@ -209,8 +209,8 @@ pub const World = struct {
             if (part.* != .head or !done) continue;
             const ended = switch (streams.lookup(id_of(@intCast(index)))) {
                 .live => |record| if (record.closed) |how| how == .end_stream else false,
-                // The table dropped the record of a stream that closed without a reset.
-                .forgotten => true,
+                // Each run opens fewer streams than a table drops records for.
+                .forgotten => unreachable,
                 .idle, .reset_and_dropped => false,
             };
             if (ended) part.* = .ended;
