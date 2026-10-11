@@ -118,13 +118,14 @@ exchange ends in one `finished` event:
 },
 ```
 
-A server gets one event from each `receive`, and answers a request by its id:
+A server holds its connections in one endpoint, and calls `accept` for each socket it accepts. It
+gets one event from each `receive`, and answers a request by its id:
 
 ```zig
 fn answer(id: server.Id, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try server_connection.respond(id.number, .{
+    try endpoint.respond(id, .{
         .status = 200,
         .fields = &.{
             .{ .name = "content-type", .value = content_type },
@@ -133,8 +134,9 @@ fn answer(id: server.Id, content: []const u8) !void {
         .end = false,
     });
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
-    // the peer's window runs out, and a program then calls it again with the rest after `send`.
-    const taken = try server_connection.write_body(id.number, .{ .octets = content, .end = true });
+    // the peer's window runs out, and the request's `writable` event then says when to write the
+    // rest.
+    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
     assert(taken == content.len);
 }
 ```

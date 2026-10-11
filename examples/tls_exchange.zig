@@ -6,15 +6,26 @@
 //! The program never names h2 again: the server answers a request by its id, and the client gets
 //! one outcome for each exchange it placed, in memory it owns.
 //!
-//! Each side does three things in a turn. It hands colibri the octets that arrived and takes one
-//! event from each `receive`. It acts on the event. It sends what `send` writes. The server also
-//! keeps time: it sleeps no longer than its connection's `deadline_ns`, and then calls
-//! `on_instant` (decision 110). Both run over `link.zig`, which stands where a program's sockets
-//! would be, and `tls_program.zig` holds what any program that links `tls` defines once.
+//! The server is one `server.Endpoint`, which holds every connection the program accepts (decision
+//! 119). The program calls `accept` for each socket, and the handle it gets names the connection
+//! from then on. In a turn the server passes the endpoint the octets a socket read and takes one
+//! event from each `receive`. An event is a request to answer, or it names a connection: `send`
+//! says the connection owes its socket octets, which `send_stream` writes, `close` says to close
+//! the socket, and `ended` says the connection is over. The server also keeps time: it sleeps no
+//! longer than the endpoint's `deadline_ns`, and then calls `on_instant` (decision 110).
+//!
+//! The server accepts a second socket, which its peer closes before it sends an octet. That is
+//! when a program calls `transport_closed`: the peer closed the socket first.
+//!
+//! The client is one `client.Connection`. In a turn it hands the connection the octets that
+//! arrived, takes one event from each `receive`, and sends what `send` writes. Both sides run over
+//! `link.zig`, which stands where a program's sockets would be, and `tls_program.zig` holds what
+//! any program that links `tls` defines once.
 //!
 //! The program checks what arrived: the client must see 200 twice, the greeting, the note it
-//! posted and the content type, octet for octet. Anything else exits with an error, which is how
-//! `zig build examples` and CI know the example still works.
+//! posted and the content type, octet for octet. The server must see each response end, one
+//! `close`, and both connections end. Anything else exits with an error, which is how `zig build
+//! examples` and CI know the example still works.
 //!
 //! Run it with `zig build example-tls_exchange`, or every example with `zig build examples`.
 const std = @import("std");
@@ -38,6 +49,9 @@ const turns_max = 32;
 /// Events one side takes in one turn, at most.
 const events_per_turn_max = 64;
 
+/// Calls to `send_stream` that one `send` event takes, at most.
+const sends_per_event_max = 8;
+
 /// The longest the server sleeps when no octet waits, in nanoseconds: 100 ms.
 const wait_ns_max: u64 = 100_000_000;
 
@@ -48,7 +62,9 @@ const content_type = "text/plain; charset=utf-8";
 /// The name the server's certificate carries, which the client asks for and judges it by.
 const origin = "localhost";
 
-/// The versions each side offers through ALPN, most preferred first (RFC 7301 §3.1).
+/// The versions the client offers through ALPN, most preferred first (RFC 7301 §3.1). The server
+/// names none: its endpoint offers the versions its configuration's `versions` allows, which are
+/// these two unless the program turns one off.
 const protocols = [_][]const u8{ "h2", "http/1.1" };
 
 /// Unix seconds. A program reads them from its clock; colibri reads no clock. The client judges
@@ -56,28 +72,37 @@ const protocols = [_][]const u8{ "h2", "http/1.1" };
 const now_seconds = identity.now_seconds;
 
 pub const Error = error{
-    /// The connections had not both ended within `turns_max` turns.
+    /// The connections had not all ended within `turns_max` turns.
     ExchangeUnfinished,
     /// What arrived is not what was sent.
     ExchangeWrong,
+    /// A connection still owed octets after `sends_per_event_max` calls to `send_stream`.
+    SendUnfinished,
 };
 
-// The link and the connections hold hundreds of kilobytes, so they live outside the stack.
+// The link, the endpoint and the client's connection hold hundreds of kilobytes, so they live
+// outside the stack.
 var link: Link align(@alignOf(Link)) = undefined;
 var output: [output_len]u8 = undefined;
 
-// The server: its TLS configuration, which every connection borrows, and one connection.
-// colibri's test identity stands in for the certificate and the key a program loads.
+// The server: its configuration, which holds the TLS identity, and the endpoint that holds its
+// connections. colibri's test identity stands in for the certificate and the key a program loads.
+/// The TCP connections the endpoint holds at once. This server has no UDP socket, so it holds no
+/// QUIC connection.
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 0 });
 const chain = [_][]const u8{ identity.leaf, identity.root };
 var cookie_key: [tls.constants.server_key_len]u8 = undefined;
-var server_tls: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
-var server_config: server.Config align(@alignOf(server.Config)) = undefined;
-var server_connection: server.Connection align(@alignOf(server.Connection)) = undefined;
+var endpoint_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;
+var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
+/// The connection of the socket the client opened, which `accept` named.
+var accepted: server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = undefined;
 /// The content of the POST the server is reading, which it sends back once the request ends.
 var posted: [note.len]u8 = undefined;
 var posted_len: usize = 0;
-/// Responses the peer has in full.
+/// Responses that are whole, sockets the endpoint said to close, and connections that are over.
 var answered: u32 = 0;
+var closes: u32 = 0;
+var connections_ended: u32 = 0;
 
 // The client: its TLS configuration, one connection, and an exchange for each request. An exchange
 // holds the request and the memory its response goes into.
@@ -117,38 +142,59 @@ pub fn main() !void {
     const cpu: tls.Cpu = .{ .probe = platform.probe(), .timing = .not_stated };
     try start_server(cpu);
     try start_client(cpu);
+    try accept_closed();
     for (0..turns_max) |_| {
         try client_turn();
         try server_turn();
-        if (client_connection.should_close() and server_connection.should_close()) break;
-        // No octet waits for either side. A program sleeps here until its socket has octets or
-        // its connection's next deadline passes, whichever comes first.
+        if (client_connection.should_close() and connections_ended == connections_count) break;
+        // No octet waits for either side. A program sleeps here until a socket has octets or the
+        // endpoint's next deadline passes, whichever comes first.
         if (!link.pending()) try link.wait(.server, server_wait_ns());
     } else return error.ExchangeUnfinished;
-    // `should_close` says when to close the transport: the connection is over and `send` has
-    // written everything, the TLS close_notify too. `transport_closed` then wipes the session's
-    // secrets.
+    // The client's `should_close` says when to close its transport: the connection is over and
+    // `send` has written everything, the TLS close_notify too. `transport_closed` then wipes the
+    // session's secrets.
     client_connection.transport_closed();
-    server_connection.transport_closed();
     return check();
 }
+
+/// The sockets the server accepts: the client's, and one its peer closes at once.
+const connections_count = 2;
 
 fn start_server(cpu: tls.Cpu) !void {
     // RFC 9846 §4.3.2's cookie key, which a server draws once.
     program.fill(&cookie_key);
-    try server_tls.init(.{
-        .ecdsa_p256 = .{
-            .chain = &chain,
-            .public_key = identity.public_key,
-            .private_key = identity.private_key,
+    endpoint_config = .{
+        // The identity names no protocol: the endpoint offers h2 and h11 through ALPN, as
+        // `versions` allows by default.
+        .tls = .{
+            .ecdsa_p256 = .{
+                .chain = &chain,
+                .public_key = identity.public_key,
+                .private_key = identity.private_key,
+            },
+            .cookie_key = &cookie_key,
+            .cpu = cpu,
         },
-        .cookie_key = &cookie_key,
-        .alpn = &protocols,
-        .cpu = cpu,
-    });
-    server_config = .{ .tls = &server_tls };
-    // One call for each connection the listener accepts, in storage the program owns.
-    try server_connection.init(&server_config, program.random(), now_seconds, link.now_ns(.server));
+    };
+    const now_ns = link.now_ns(.server);
+    // One endpoint for every socket the program accepts, in storage the program owns. `init`
+    // checks that the key signs.
+    try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
+    // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
+    // names the connection in every later call and event. Null says the endpoint starts no
+    // connection, and a program then closes the socket.
+    accepted = endpoint.accept(.tls, now_ns) orelse return error.ExchangeWrong;
+}
+
+/// Accepts a second socket, which its peer closes before it sends an octet, as a port scan does.
+/// This example has no link for it: only the calls a program makes for such a socket are here.
+fn accept_closed() !void {
+    const closed = endpoint.accept(.tls, link.now_ns(.server)) orelse return error.ExchangeWrong;
+    // The peer closed the socket first, so the program closes its own end and tells the endpoint.
+    // A program calls `transport_closed` then, and when a socket fails. The connection's `ended`
+    // follows, with no `close`.
+    endpoint.transport_closed(closed);
 }
 
 fn start_client(cpu: tls.Cpu) !void {
@@ -165,44 +211,49 @@ fn start_client(cpu: tls.Cpu) !void {
     _ = try client_connection.request(&post);
 }
 
-/// One turn of the server: read every event that arrived, answer, and send.
+/// One turn of the server: fire the deadlines that passed, pass the endpoint the octets the socket
+/// read, and act on every event the endpoint reports.
 fn server_turn() !void {
     const input = try link.receive(.server);
     const now_ns = link.now_ns(.server);
+    // Decision 110: a deadline bounds how long a peer may hold a connection. `on_instant` ends
+    // each connection whose peer is late, at the instant the program woke at, and the `receive`
+    // calls below report what that leaves the program to do.
+    endpoint.on_instant(now_ns);
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
-        const received = try server_connection.receive(input[consumed..], now_ns);
+        // The handle says which connection's socket read the octets.
+        const read: server.StreamOctets = .{ .connection = accepted, .octets = input[consumed..] };
+        const received = endpoint.receive(.{ .stream = read }, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
             if (received.consumed == 0) break;
             continue;
         };
-        try serve(event);
+        try serve(event, now_ns);
     }
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.server, consumed);
-    try link.send(.server, output[0..server_connection.send(&output, now_ns)]);
-    // Decision 110: a deadline bounds how long a peer may hold the connection. `on_instant` ends
-    // a connection whose peer is late, at the instant the program woke at.
-    server_connection.on_instant(now_ns);
 }
 
-/// How long the server may sleep: until its connection's next deadline (decision 110), which
-/// `deadline_ns` names, and never longer than `wait_ns_max`. `server_turn` then calls `on_instant`.
+/// How long the server may sleep: until the soonest deadline of any connection the endpoint holds
+/// (decision 110), which `deadline_ns` names, and never longer than `wait_ns_max`. `server_turn`
+/// then calls `on_instant`.
 fn server_wait_ns() u64 {
-    const deadline_ns = server_connection.deadline_ns() orelse return wait_ns_max;
+    const deadline_ns = endpoint.deadline_ns() orelse return wait_ns_max;
     return @min(wait_ns_max, deadline_ns -| link.now_ns(.server));
 }
 
-/// Acts on one event of the server. A request is answered by its id, in h11 and h2 alike.
-fn serve(event: server.Event) !void {
+/// Acts on one event of the server. A request is answered by its id, in h11 and h2 alike, and the
+/// id names the request's connection too.
+fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
         .request => |request| {
             std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
             if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
             // The POST's content follows in `body` events, and the answer waits for its end.
             if (is(request, "POST", "/echo")) return;
-            try server_connection.respond(request.id.number, .{ .status = 404, .end = true });
+            try endpoint.respond(request.id, .{ .status = 404, .end = true });
         },
         .body => |body| {
             if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
@@ -210,12 +261,42 @@ fn serve(event: server.Event) !void {
             posted_len += body.octets.len;
             if (body.end) try answer(body.id, posted[0..posted_len]);
         },
-        // The peer has the whole response to this request.
+        // The response to this request is whole: colibri reads none of the program's octets for
+        // it again.
         .done => answered += 1,
-        .trailers, .cancelled => {},
-        // A connection reports none of these: an endpoint does (decision 119).
-        .writable, .send, .close, .ended, .closed => unreachable,
+        // The connection owes its socket octets.
+        .send => |connection| try flush(connection, now_ns),
+        // colibri reads and writes nothing more on this connection. A program closes the socket
+        // here and owes the endpoint no call: the connection's `ended` follows by itself.
+        .close => closes += 1,
+        // The connection is over, and its slot takes a later socket.
+        .ended => |over| try count_ended(over),
+        .trailers, .cancelled, .writable => {},
+        // Only a shutdown ends in `closed`.
+        .closed => unreachable,
     }
+}
+
+/// Sends what `connection` owes its socket, after its `send` event. A call that fills the buffer
+/// leaves more owed, so the program calls again, and a call that leaves room ends the `send`. A
+/// program whose socket is full stops here, and calls again when the socket takes more.
+fn flush(connection: server.ConnectionHandle, now_ns: u64) !void {
+    // This example has one link, so only the connection it carries may owe octets.
+    if (connection != accepted) return error.ExchangeWrong;
+    for (0..sends_per_event_max) |_| {
+        const written = endpoint.send_stream(connection, &output, now_ns);
+        try link.send(.server, output[0..written]);
+        if (written < output.len) return;
+    }
+    return error.SendUnfinished;
+}
+
+/// Counts a connection that is over. `failed` says colibri closed it because its peer broke a
+/// protocol rule or its record layer failed, and `reason` names the deadline or the limit colibri
+/// closed it for. Neither happens in this exchange, so the example refuses both.
+fn count_ended(over: server.Ended) !void {
+    if (over.failed or over.reason != null) return error.ExchangeWrong;
+    connections_ended += 1;
 }
 
 fn is(request: server.Request, method: []const u8, path: []const u8) bool {
@@ -228,7 +309,7 @@ fn is(request: server.Request, method: []const u8, path: []const u8) bool {
 fn answer(id: server.Id, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try server_connection.respond(id.number, .{
+    try endpoint.respond(id, .{
         .status = 200,
         .fields = &.{
             .{ .name = "content-type", .value = content_type },
@@ -237,8 +318,9 @@ fn answer(id: server.Id, content: []const u8) !void {
         .end = false,
     });
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
-    // the peer's window runs out, and a program then calls it again with the rest after `send`.
-    const taken = try server_connection.write_body(id.number, .{ .octets = content, .end = true });
+    // the peer's window runs out, and the request's `writable` event then says when to write the
+    // rest.
+    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
     assert(taken == content.len);
 }
 
@@ -289,18 +371,21 @@ fn report(event: client.Event) void {
 /// The exchanges `start_client` requested.
 const exchanges_count = 2;
 
-/// The client saw what the server sent, and the server heard that each response arrived.
+/// The client saw what the server sent. The server saw each response end, one `close` and both
+/// connections end: the socket its peer closed first gets no `close`.
 fn check() Error!void {
     const greeted = arrived(&get, greeting);
     const typed = std.mem.eql(u8, wanted[0].value orelse "", content_type);
     const echoed = arrived(&post, note);
-    if (spoken == .h2 and greeted and typed and echoed and answered == exchanges_count) {
+    const over = closes == 1 and connections_ended == connections_count;
+    if (spoken == .h2 and greeted and typed and echoed and answered == exchanges_count and over) {
         std.debug.print("tls_exchange: every octet arrived as sent\n", .{});
         return;
     }
     std.debug.print("tls_exchange: greeting {}, content type {}, echo {}, answered {d}\n", .{
         greeted, typed, echoed, answered,
     });
+    std.debug.print("tls_exchange: closes {d}, connections ended {d}\n", .{ closes, connections_ended });
     return error.ExchangeWrong;
 }
 

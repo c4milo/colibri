@@ -42,7 +42,7 @@ The library is fifteen modules, each exported by name:
 | `h11` | HTTP/1.1 (RFC 9112) |
 | `h2` | HTTP/2 (RFC 9113) |
 | `h3` | HTTP/3 (RFC 9114) over `quic` |
-| `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). A `Connection` serves h11 or h2 over one TCP connection, and an `Endpoint` holds the QUIC connections that serve h3 behind one UDP socket you own ([decision 103](decisions.md)). |
+| `server` | Responses to h11, h2 and h3 requests behind one set of calls, with each TLS handshake run inside it ([decision 100](decisions.md)). An `Endpoint` holds the TCP connections you accept, which serve h11 or h2, and the QUIC connections that serve h3 behind one UDP socket you own ([decision 119](decisions.md)). |
 | `client` | Requests over h11, h2 and h3 behind one set of calls, each ending in one outcome in memory you own, with each TLS handshake run inside it ([decision 100](decisions.md)). A `Channel` carries them to one origin over the QUIC and TCP connections it chooses between, and tells you which transport to open. |
 
 The package also exports stdx's codecs, `codec`, `gzip`, `zlib`, `zstd` and `brotli`, from the stdx
@@ -96,78 +96,110 @@ plaintext writes the alert the provider owes (RFC 9846 §5.2).
 ## The server
 
 The `server` module answers requests behind one set of calls, whichever version the connection
-speaks ([decision 100](decisions.md)). A program makes one `server.Config`, and one
-`server.Connection` for each TCP connection its listener accepts. Over TLS the connection runs the
-handshake itself, and ALPN picks h2 or h11 during it. In cleartext, a connection speaks h2 when its
-first octets are h2's connection preface and h11 otherwise (RFC 9113 §3.3,
-[decision 117](decisions.md)). `Config.versions` turns either version off in cleartext. Over TLS
-the TLS configuration's ALPN list still names the versions the server offers, until design §8
-step 21b builds that list from `versions`.
+speaks ([decision 100](decisions.md)). A program makes one configuration and one endpoint, and
+calls `accept` for each TCP socket its listener accepts ([decision 119](decisions.md)). The
+endpoint holds every connection, and a `server.ConnectionHandle` names one. Over TLS the
+connection runs the handshake itself, and ALPN picks h2 or h11 during it. In cleartext, a
+connection speaks h2 when its first octets are h2's connection preface and h11 otherwise (RFC 9113
+§3.3, [decision 117](decisions.md)). The configuration's `versions` turns either version off, in
+cleartext and over TLS: the endpoint builds its ALPN list from `versions`, so the TLS identity
+names no protocol.
 
 The code in this section and the next is from
 [`examples/tls_exchange.zig`](../examples/tls_exchange.zig), where `link` stands in for a
-program's sockets. The server converts its TLS values once into a configuration every connection
-borrows. It starts each connection with the source the connection draws from and the instants it
-starts at:
+program's sockets. An endpoint's size is fixed at build time. `server.Endpoint` holds 16 TCP
+connections and 16 QUIC connections, and `server.EndpointOf` makes one of another size. This
+server has no UDP socket, so its endpoint holds no QUIC connection:
 
 ```zig
-try server_tls.init(.{
-    .ecdsa_p256 = .{
-        .chain = &chain,
-        .public_key = identity.public_key,
-        .private_key = identity.private_key,
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 0 });
+```
+
+The configuration holds the server's TLS identity. `init` builds the endpoint's TLS configuration
+from it and checks that the key signs, so a program learns of a bad identity before it serves. The
+program then calls `accept` for each socket, with whether the socket runs TLS:
+
+```zig
+endpoint_config = .{
+    // The identity names no protocol: the endpoint offers h2 and h11 through ALPN, as
+    // `versions` allows by default.
+    .tls = .{
+        .ecdsa_p256 = .{
+            .chain = &chain,
+            .public_key = identity.public_key,
+            .private_key = identity.private_key,
+        },
+        .cookie_key = &cookie_key,
+        .cpu = cpu,
     },
-    .cookie_key = &cookie_key,
-    .alpn = &protocols,
-    .cpu = cpu,
-});
-server_config = .{ .tls = &server_tls };
-// One call for each connection the listener accepts, in storage the program owns.
-try server_connection.init(&server_config, program.random(), now_seconds, link.now_ns(.server));
+};
+const now_ns = link.now_ns(.server);
+// One endpoint for every socket the program accepts, in storage the program owns. `init`
+// checks that the key signs.
+try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
+// One call for each socket the listener accepts, with whether the socket runs TLS. The handle
+// names the connection in every later call and event. Null says the endpoint starts no
+// connection, and a program then closes the socket.
+accepted = endpoint.accept(.tls, now_ns) orelse return error.ExchangeWrong;
 ```
 
 `now_seconds` is Unix time, which the server's tickets are issued at. `now_ns` is the instant on
-the clock every later call passes, and the connection's deadlines count from it.
+the clock every later call passes, and a connection's deadlines count from the instant its
+`accept` is given. `accept` returns null when no slot is free, after `shutdown`, when `versions`
+allows neither h11 nor h2, or when the TLS stack refuses to start a session. The program closes
+the socket then. A program passes `.tls` only when its configuration holds an identity. The
+endpoint reads the configuration while it runs and keeps pointers into itself, so the program
+keeps both where `init` found them.
 
-Each turn of the program's loop reads every event that arrived, answers, and sends what the
-connection owes:
+Each turn of the program's loop fires the deadlines that passed, passes the endpoint the octets a
+socket read, and acts on every event the endpoint reports:
 
 ```zig
 const input = try link.receive(.server);
 const now_ns = link.now_ns(.server);
+// Decision 110: a deadline bounds how long a peer may hold a connection. `on_instant` ends
+// each connection whose peer is late, at the instant the program woke at, and the `receive`
+// calls below report what that leaves the program to do.
+endpoint.on_instant(now_ns);
 var consumed: usize = 0;
 for (0..events_per_turn_max) |_| {
-    const received = try server_connection.receive(input[consumed..], now_ns);
+    // The handle says which connection's socket read the octets.
+    const read: server.StreamOctets = .{ .connection = accepted, .octets = input[consumed..] };
+    const received = endpoint.receive(.{ .stream = read }, now_ns);
     consumed += received.consumed;
     const event = received.event orelse {
         if (received.consumed == 0) break;
         continue;
     };
-    try serve(event);
+    try serve(event, now_ns);
 }
 // What an event carried points into the queue, so the queue is consumed only now.
 link.consume(.server, consumed);
-try link.send(.server, output[0..server_connection.send(&output, now_ns)]);
-// Decision 110: a deadline bounds how long a peer may hold the connection. `on_instant` ends
-// a connection whose peer is late, at the instant the program woke at.
-server_connection.on_instant(now_ns);
 ```
 
-`receive` returns at most one event a call. A program loops over it until it consumes nothing and
-returns no event, and loops again after each `send`. What an event carries points into the octets
-the program passed, so the program keeps them until the next call.
+`receive` returns at most one event a call, of any connection the endpoint holds. A program loops
+over it until it consumes nothing and returns no event. It loops again after it answers a request,
+after `send_stream` and after `on_instant`. The program passes `.stream` with the octets a socket
+read and the handle of that socket's connection, and `.none` when no socket read any. A connection
+may consume fewer octets than it was given, such as a pipelined h11 request while the one before
+it is answered. The program holds the rest, and passes it again with the socket's next read and
+after each event that names the connection. The turn above passes what is left after every event.
+What an event carries points into the octets the program passed or into the connection, and stays
+valid until the next `receive`, `on_instant`, `send_stream`, `accept`, `transport_closed` or
+`shutdown`.
 
-Every event names its request by id, in h11 and h2 alike:
+An event names a request by its id, in h11 and h2 alike, or a connection by its handle. The id
+names the request's connection too, so the program answers by the id alone:
 
 ```zig
-fn serve(event: server.Event) !void {
+fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
         .request => |request| {
             std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
             if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
             // The POST's content follows in `body` events, and the answer waits for its end.
             if (is(request, "POST", "/echo")) return;
-            try server_connection.respond(request.id.number, .{ .status = 404, .end = true });
+            try endpoint.respond(request.id, .{ .status = 404, .end = true });
         },
         .body => |body| {
             if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
@@ -175,11 +207,19 @@ fn serve(event: server.Event) !void {
             posted_len += body.octets.len;
             if (body.end) try answer(body.id, posted[0..posted_len]);
         },
-        // The peer has the whole response to this request.
+        // The response to this request is whole: colibri reads none of the program's octets for
+        // it again.
         .done => answered += 1,
-        .trailers, .cancelled => {},
-        // A connection reports none of these: an endpoint does (decision 119).
-        .writable, .send, .close, .ended, .closed => unreachable,
+        // The connection owes its socket octets.
+        .send => |connection| try flush(connection, now_ns),
+        // colibri reads and writes nothing more on this connection. A program closes the socket
+        // here and owes the endpoint no call: the connection's `ended` follows by itself.
+        .close => closes += 1,
+        // The connection is over, and its slot takes a later socket.
+        .ended => |over| try count_ended(over),
+        .trailers, .cancelled, .writable => {},
+        // Only a shutdown ends in `closed`.
+        .closed => unreachable,
     }
 }
 ```
@@ -189,15 +229,20 @@ fn serve(event: server.Event) !void {
 - `body` carries octets of the request's content, and its `end` marks the last of them. A request
   with no content may end this way too, in a `body` event with no octets, as a GET over h3 often
   does. A program that waits for a request's end reads `end` in both events.
-- `trailers` carries the request's trailer section, and `cancelled` says the peer gave the request
-  up.
-- `done` says the peer has the whole response.
+- `trailers` carries the request's trailer section.
+- `done` says the response is whole, and colibri reads none of the program's octets for it again.
+  `cancelled` says the request ended before its response did, and its `reason` says why. Every
+  request ends with one of the two.
+- `writable` says a response whose last write found no room can take more.
+- `send` says a connection owes its socket octets, `close` says the program closes a connection's
+  socket, and `ended` says a connection is over. Each is described below.
 
 A client that puts `100-continue` in a request's `Expect` field waits for a 100 (Continue) before
-it sends the content (RFC 9110 §10.1.1). The connection writes that 100 at the next `receive` or
-`send`, in every version, unless the program answered the request first. A program that refuses
-such a request therefore answers it before its next call: a final response, the program's own
-100, or `cancel` takes the place of the 100 the connection owes.
+it sends the content (RFC 9110 §10.1.1). The connection writes that 100 when the endpoint next
+reads the connection or writes its octets, which may be at the program's next call, in every
+version, unless the program answered the request first. A program that refuses such a request
+therefore answers it before its next call: a final response, the program's own 100, or `cancel`
+takes the place of the 100 the connection owes.
 
 The program answers with a head, then content:
 
@@ -205,7 +250,7 @@ The program answers with a head, then content:
 fn answer(id: server.Id, content: []const u8) !void {
     var digits: [8]u8 = undefined;
     const length = std.fmt.bufPrint(&digits, "{d}", .{content.len}) catch unreachable;
-    try server_connection.respond(id.number, .{
+    try endpoint.respond(id, .{
         .status = 200,
         .fields = &.{
             .{ .name = "content-type", .value = content_type },
@@ -214,49 +259,95 @@ fn answer(id: server.Id, content: []const u8) !void {
         .end = false,
     });
     // `write_body` returns the octets it took. It takes fewer than it was given when the room or
-    // the peer's window runs out, and a program then calls it again with the rest after `send`.
-    const taken = try server_connection.write_body(id.number, .{ .octets = content, .end = true });
+    // the peer's window runs out, and the request's `writable` event then says when to write the
+    // rest.
+    const taken = try endpoint.write_body(id, .{ .octets = content, .end = true });
     assert(taken == content.len);
 }
 ```
 
 A response with no content sets `end` in `respond`, and `write_trailers` ends a response with a
-trailer section. `cancel` ends one request before its response is whole. `shutdown` ends the
-connection once the requests it holds are answered.
+trailer section. A write can find no room: `write_body` takes fewer octets than it was given or
+returns `error.Blocked`, and `respond` or `write_trailers` returns `error.NoSpaceLeft`. The
+endpoint reports `writable` for the request once the response has room, and the program writes
+again. `cancel` ends one request before its response is whole, and its `cancelled` follows with
+the reason `program`. `shutdown` ends every connection once the requests it holds are answered,
+and the `closed` event follows once every connection has ended.
+
+The endpoint reports `send` when a connection owes its socket octets. The program calls
+`send_stream` for that connection until a call leaves room in the buffer, and writes what each
+call returns to the connection's socket:
+
+```zig
+for (0..sends_per_event_max) |_| {
+    const written = endpoint.send_stream(connection, &output, now_ns);
+    try link.send(.server, output[0..written]);
+    if (written < output.len) return;
+}
+return error.SendUnfinished;
+```
+
+A call that fills the buffer leaves more owed. A call that leaves room ends the `send`, and the
+endpoint reports another once the connection owes more. A program whose socket is full stops
+calling, and calls again when the socket takes more.
 
 A peer may hold a connection only so long ([decision 110](decisions.md)). Deadlines bound the
 wait for a first request, the time between requests, a request's head and its content, and how
-slowly the peer may take the response. `deadline_ns` names the soonest instant one passes, and
-the program waits for octets no longer than that:
+slowly the peer may take the response. The endpoint's `deadline_ns` names the soonest instant one
+passes, on any connection it holds, and the program waits for octets no longer than that:
 
 ```zig
 fn server_wait_ns() u64 {
-    const deadline_ns = server_connection.deadline_ns() orelse return wait_ns_max;
+    const deadline_ns = endpoint.deadline_ns() orelse return wait_ns_max;
     return @min(wait_ns_max, deadline_ns -| link.now_ns(.server));
 }
 ```
 
 The program then calls `on_instant` with the instant it woke at, as the turn above does, and a
-connection whose peer is late ends. `receive` and `send` fire a deadline that passed too.
-`Config.deadlines` sets the limits, `set_deadlines` changes one connection's, and `close_reason`
-names the deadline that ended a connection, or the limit its peer passed. A program that wakes
-only when octets arrive never ends a silent peer.
+connection whose peer is late ends. Over h2, a request whose content is late may end by itself,
+with a `cancelled` whose reason names the deadline. `receive` and `send_stream` fire a deadline
+that passed too, on the connection they read or write. The configuration's `deadlines` sets the
+limits, and `set_deadlines` changes one connection's, by its handle. A program that wakes only
+when octets arrive never ends a silent peer.
 
-Four more things a server sets or watches:
+A connection's socket closes in one of two ways. The endpoint reports `close` once the connection
+has finished and `send_stream` has written every octet it owed, the TLS close_notify too, or once
+the `linger_ns` deadline passes with octets still owed. The program closes the socket then, and
+owes the endpoint no call. Or the peer closes the socket first, or the socket fails, and the
+program tells the endpoint with `transport_closed`. The example accepts a second socket to show
+that call, a socket its peer closes before it sends an octet:
 
-- **The end.** `should_close` says when to close the transport: the connection is over and `send`
-  has written everything. The program then calls `transport_closed`, which wipes the TLS
-  session's secrets. When `receive` fails with `error.ConnectionFailed`, the octets colibri owes
-  the peer wait for `send`, and `should_close` follows.
-- **Content codings.** With `Config.codings` and an `EncoderPool` the program places, a response
-  marked `codable` goes out in the coding its request accepts, gzip or deflate
+```zig
+const closed = endpoint.accept(.tls, link.now_ns(.server)) orelse return error.ExchangeWrong;
+// The peer closed the socket first, so the program closes its own end and tells the endpoint.
+// A program calls `transport_closed` then, and when a socket fails. The connection's `ended`
+// follows, with no `close`.
+endpoint.transport_closed(closed);
+```
+
+Either way colibri reads and writes nothing more on the connection, and wipes its TLS session's
+secrets. The endpoint then reports the `done` of each response written whole, the `cancelled` of
+each other request with the reason `closed`, and last the connection's `ended`, once. A later
+socket takes the connection's slot, and the ended connection's handle and every id on it name
+nothing from then on. `ended` carries two more fields:
+
+- `reason` names the deadline that passed, or the limit the peer passed, when colibri closed the
+  connection for one. It is null otherwise.
+- `failed` says colibri closed the connection because its peer broke a protocol rule or its record
+  layer failed. What colibri owes that peer, such as h2's GOAWAY or an h11 server's 400, is
+  reported as a `send` before the `close`.
+
+Three more things a server sets:
+
+- **Content codings.** With the configuration's `codings` and an `EncoderPool` the program places,
+  a response marked `codable` goes out in the coding its request accepts, gzip or deflate
   ([decision 101](decisions.md)). The program calls the pool's `reset` once, with
   `server.Features.detect()` or `.target()`, and gives its `encoders()` to the configuration.
-- **h3.** `Config.h3_alternative` makes each TLS connection advertise the server's h3 endpoint
-  (RFC 7838).
-- **Bounds.** `Config.limits` holds the bounds of each connection, named by what they bound:
-  `requests_max`, the requests a connection holds at once, and `data_frame_len_min`, the shortest
-  DATA frame h2 sends when a window, not the content, decides its length
+- **h3.** The configuration's `h3_alternative` makes each TLS connection advertise the server's h3
+  endpoint (RFC 7838).
+- **Bounds.** The configuration's `limits` holds the bounds of each connection, named by what they
+  bound: `requests_max`, the requests a connection holds at once, and `data_frame_len_min`, the
+  shortest DATA frame h2 sends when a window, not the content, decides its length
   ([decision 110](decisions.md)).
 
 ## The client
@@ -373,14 +464,13 @@ The exchange's `outcome` says what happened:
 `draining` says the server takes no new request on this connection, and `closed` that the
 connection is over.
 
-Both sides end the same way:
+The client closes its transport once `should_close` says so, and then tells its connection:
 
 ```zig
-// `should_close` says when to close the transport: the connection is over and `send` has
-// written everything, the TLS close_notify too. `transport_closed` then wipes the session's
-// secrets.
+// The client's `should_close` says when to close its transport: the connection is over and
+// `send` has written everything, the TLS close_notify too. `transport_closed` then wipes the
+// session's secrets.
 client_connection.transport_closed();
-server_connection.transport_closed();
 ```
 
 A client that decodes content codings names them in `Config.codings`, and places the pool of
@@ -396,13 +486,13 @@ UDP sockets.
 
 ### The server's endpoint
 
-A `server.Endpoint` holds every QUIC connection behind one UDP socket
-([decision 103](decisions.md)), each in a slot of its own. `server.EndpointOf(capacity)` makes one
-of another size: its `server.Capacity` names the connections it holds at once and the octets each
-holds unread. A `server.EndpointConfig` gives the server's TLS identity once, with no protocol
-named: the endpoint names h3 itself (RFC 9114 §3.1). `init` builds each connection's TLS
-configuration from it and checks that the key signs, so a program learns of a bad identity before
-it serves:
+The endpoint of [The server](#the-server) holds QUIC connections too, all of them behind one UDP
+socket ([decision 103](decisions.md)), each in a slot of its own. The `server.Capacity` that
+`server.EndpointOf` takes names the TCP and the QUIC connections the endpoint holds at once, and
+the octets each QUIC connection holds unread. A `server.EndpointConfig` gives the server's TLS
+identity once, with no protocol named: the endpoint names h3 itself for its QUIC connections (RFC
+9114 §3.1). `init` builds the TLS configuration of each transport from it and checks that the key
+signs, so a program learns of a bad identity before it serves:
 
 ```zig
 endpoint_config = .{
@@ -511,7 +601,7 @@ as the client acknowledges what was sent (RFC 9000 §3.1). The endpoint then rep
 the request, once, and the program writes again. A head or a trailer section larger than the room
 the response's earlier frames leave waits until the client has acknowledged all of them.
 
-Three things differ from TCP:
+Two things differ from TCP:
 
 - **Content is not copied.** QUIC reads the program's octets again whenever it sends them again.
   They stay the program's until the request is `done` or `cancelled`. `done` comes once the peer
@@ -523,27 +613,20 @@ Three things differ from TCP:
   `Endpoint.init` refuses limits a connection would refuse, with `error.DeadlineInvalid`.
   `set_deadlines` changes one connection's limits, by its handle. `EndpointConfig.idle_timeout_ms`
   is QUIC's own idle timeout, which ends a peer that sends nothing at all.
-- **The end.** `ended` names each connection that is over, once. Its `reason` names the deadline
-  that ended the connection, or the limit its client passed, and `failed` says colibri closed it
-  because its client broke a rule of the protocol. A later client then takes its slot, and every id
-  of the ended connection names nothing.
+
+`ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
+or the limit its client passed, and `failed` says colibri closed it because its client broke a rule
+of the protocol. A later client then takes its slot, and every id of the ended connection names
+nothing. A QUIC connection has no socket of its own, so the endpoint reports no `send` and no
+`close` for one.
 
 `EndpointConfig.retry` makes every client prove its address before a connection starts (RFC 9000
 §8.1.2), and `EndpointConfig.logs` gives each connection a qlog log
 ([decision 102](decisions.md)).
 
-The same endpoint holds TCP connections, `Capacity.tcp_connections` of them, 16 by default. A
-program that accepts a socket calls `accept` with whether it runs TLS, and gets the handle that
-names the connection, or null when it should close the socket. It passes what the socket reads to
-`receive` as `.stream`. A connection may consume less than it was given, such as a pipelined h11
-request while the one before it is answered: the program holds the rest, and passes it again with
-the socket's next read and after each event that names the connection. The endpoint reports
-`send` when a connection owes octets: the program calls `send_stream` for it until a call leaves
-room in its buffer, `server.constants.output_len` octets, and writes them to the socket. It
-reports `close` when the program is to close the socket, and the program calls
-`transport_closed` when the peer closed it first. Over TLS, ALPN chooses h2 or h11 from the list `versions` gives, and in cleartext
-a connection's first octets choose (RFC 9113 §3.3). A program that serves QUIC alone sets
-`.tcp_connections = 0`.
+The same endpoint holds TCP connections, `Capacity.tcp_connections` of them, 16 by default, and
+[The server](#the-server) shows the calls a program makes for them. A program that serves QUIC
+alone sets `.tcp_connections = 0`.
 
 ### The client's channel
 

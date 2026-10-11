@@ -6,7 +6,7 @@ server against each other.
 
 | Example | What it shows |
 | --- | --- |
-| [`tls_exchange.zig`](tls_exchange.zig) | The `server` and `client` modules over TLS, which most programs use. ALPN picks h2. The client places an exchange for a GET and one for a POST, the server answers each request by its id, and each exchange ends in one outcome. |
+| [`tls_exchange.zig`](tls_exchange.zig) | The `server` and `client` modules over TLS, which most programs use. ALPN picks h2. The client places an exchange for a GET and one for a POST, the server answers each request by its id, and each exchange ends in one outcome. The server holds its connections in a `server.Endpoint`: it calls `accept` for each socket, `send_stream` at each `send` event, and `transport_closed` for a socket its peer closed first, and it reads `close` and `ended`. |
 | [`h3_exchange.zig`](h3_exchange.zig) | h3 through `server.Endpoint` and `client.Channel`. The endpoint passes each datagram to its connection, the channel opens QUIC and carries the exchange, and both sides sleep until their next deadline. |
 | [`h11_exchange.zig`](h11_exchange.zig) | The `h11` module by itself. A client pipelines a GET and a PUT, and sends the PUT's body from its own buffer with `count_body`. The server reads one request at a time and answers each. |
 | [`h2_exchange.zig`](h2_exchange.zig) | The `h2` module by itself. A client and a server exchange their prefaces and SETTINGS, and the server answers a GET with HEADERS and DATA. Each side runs the loop every h2 program runs: `receive` one frame at a time, then `write_pending`. |
@@ -22,8 +22,9 @@ zig build example-tls_exchange
 
 Each example checks what arrived against what was sent, octet for octet, and exits with an error
 when anything differs. `tools/ci.sh` runs them on every push, so an example that stops working fails
-CI. Nineteen deliberate breaks each made `zig build examples` fail: in colibri's h11 and h2
-writers, in its server, client and endpoint, in the TLS setup, and in the links.
+CI. Twenty-four deliberate breaks each made `zig build examples` fail: in colibri's h11 and h2
+writers, in its server, client and endpoint, in the TLS setup, in the links, and in the calls the
+TLS example's server makes on its endpoint.
 
 The code in README.md and docs/usage.md is quoted from these programs, and `tools/doc_snippets.sh`
 fails when a quote no longer matches them.
