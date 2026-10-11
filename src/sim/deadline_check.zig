@@ -213,7 +213,7 @@ fn expect(plan: *const Plan, record: *const Record) ?Expected {
 }
 
 /// The streams the server accepts at once, decision 110's default, which the run leaves in its
-/// `server.Config`. It refuses those past it with REFUSED_STREAM (RFC 9113 §5.1.2).
+/// endpoint's configuration. It refuses those past it with REFUSED_STREAM (RFC 9113 §5.1.2).
 const streams_limit: u32 = server.constants.requests_max;
 
 /// A peer that opens many streams has those past the server's limit refused, and each of the

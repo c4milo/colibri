@@ -3997,3 +3997,16 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        again with a grace period, and a peer that opened its window an octet at a time was never
        cut. The endpoint now reports the `send` of octets the output holds before it reads the
        connection again, so `send` comes before the `done` of a response that write ended.
+
+     Amended again on 2026-10-11 by design §8 step 21b.6, when every TCP caller moved to the
+     endpoint. No rule changed. The step met three consequences of the rules above, which the
+     comments and docs/usage.md now state:
+     - A slot is free at `ended`, which follows `close` with no call from the program, the
+       alternative refused above. So a later connection may take a slot while the program's
+       socket for the last one still closes, and a program whose sockets outlive `ended` keeps
+       entries of its own and maps a slot to the entry of the connection the slot holds now.
+     - `transport_closed` is for a socket its peer closed first, or one that failed. After a
+       `close` it changes nothing.
+     - The endpoint reports nothing of a request after its ending, a later `body` included. A
+       check that needs a request's end after its response is `done` reads it from h2's stream
+       table, as the two trace runs do.

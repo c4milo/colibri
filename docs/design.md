@@ -7986,6 +7986,132 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     first dropped from `poll`, or from `take_stream`. Asking `owes_octets` there too was
     equivalent, so the term is gone.
 
+  **21b.6, 2026-10-11.** The TCP callers move to the endpoint. Run on macOS 26 on an Apple M1
+  Pro, on main 5954c39.
+  - Nothing outside `src/server` places a `server.Connection` now. The content-coding run, the
+    deadline run, both trace runs, the test-only server, the TLS example and the consumer each
+    hold their connections in a `server.Endpoint`.
+  - **The content-coding run and the deadline run.** Each holds an endpoint with one TCP slot.
+    Each pass still reads, answers and then calls `send_stream` once, so nothing is read between
+    a write and its send. Neither census line changed, in Debug or ReleaseSafe: `content-coding:
+    seeds=32 exchanges=82 decoded=19 passed_on=4 too_large=8 trace_octets=8470 crc32=0x69460a6e`
+    and `deadline: seeds=256 exchanges=142 first_request=37 idle=114 head=17 body_rate=10 body=7
+    send_rate=71 settings=0 drain=0 streams_cut=37 streams_refused=60 held=0 trace_octets=104013
+    crc32=0x9369abbc`. A checksum of the octets each seed moved each way, taken before and after
+    the move, is the same for every seed of both. One deadline seed wrote 77 octets fewer into
+    its socket: a slow reader whose linger passed in an instant it also read in. The run before
+    still wrote them in that instant, the endpoint had closed the connection, and the peer read
+    them in neither. Over 65,536 seeds the deadline check prints `crc32=0x4878c63a` before the
+    move and after it.
+  - **The deadline trace run.** After each action it reads `receive(.none)` until the endpoint
+    reports nothing, as a program does once it has answered, where it called `on_instant`: the
+    endpoint has no call that hands one connection an instant when no deadline is due. That read
+    also writes what h2 owes, one action sooner than before, so the logs differ:
+    `deadline-trace: seeds=32 states=3837 requests=69 responses=69 bodies_timed=798
+    sends_timed=21`, where the run before printed `states=3864` and `bodies_timed=731`.
+    `tools/deadline_trace.sh`: 32 of 32 traces are behaviors of the model.
+  - **The TCP trace run.** Its server moved and its client did not. The 64 modules it writes are
+    octet for octet those it wrote before, and `tools/tcp_trace.sh` finds 64 of 64 behaviors of
+    the model: `tcp-trace: seeds=64 tls=38 states=563 requests=129 responses=83 refused=3
+    shut_down=25`.
+  - **What the trace runs read from h2.** The endpoint reports nothing of a request after its
+    `done` or `cancelled` (INV-30), so the end of a request whose response ended first reaches
+    no program. Each trace run reads the end of such a request, and of no other, from the
+    server's stream table: its stream closed with END_STREAM both ways (RFC 9113 §5.1). The TCP
+    trace run reads a stream the server reset after its `done` as a malformed request the same
+    way.
+  - **Each trace run's test now holds its census.** TLC finds the log of a server that answers
+    nothing a behavior of the model, and each test required only that some counts were above
+    zero.
+  - **The test-only server.** `src/testing/server.zig` was at 500 lines, so it was split first,
+    into `src/testing/server/`, with the same 26 and 29 tests. Each worker then serves its
+    sockets through one endpoint of `connections_per_worker_max` TCP slots. A step for one
+    socket passes its input, writes its owed responses, calls `send_stream` once and reads the
+    endpoint's events until it reports none, so the responses to one read leave in one send.
+    `test-testing` has 44 tests and `test-testing-client` 37. `tools/h2spec.sh --tls` passes
+    144, 143 and 144 cases in its three runs, as before, and `tools/h2_server_interop.sh --tls`,
+    `tools/h11_server_interop.sh --tls` and `tools/deadlines.sh` pass. In cleartext with `--h2`
+    the server's SETTINGS now leaves at the accept, before the client's first octets, which RFC
+    9113 §3.4 allows.
+  - **A slot is free before the program's socket is.** The endpoint reports a connection's
+    `ended` straight after its `close`, with no call from the program (decision 119 refused
+    waiting for one), and a later connection may take the slot while the socket still sends its
+    last octets or closes. So the test-only server keeps socket entries of its own and a map
+    from a slot to the entry of the connection the slot holds now. docs/usage.md and the comment
+    on `ConnectionHandle` say so; they and the header of `endpoint_slots.zig` had said a slot
+    indexes a program's own array of sockets.
+  - **The TLS wipe.** The test-only server's test that a TLS session is wiped when its socket
+    closes moved to the server module, where the duty now is: the endpoint wipes the session at
+    `close` and at `transport_closed`. `test-server` has 380 tests.
+  - **The example, the guide and the consumer.** `examples/tls_exchange.zig` serves through an
+    endpoint and shows `accept`, `send` with `send_stream`, `close`, `ended`, and
+    `transport_closed` for a second socket whose peer closes first. In its own exchange the
+    endpoint reports `close` itself, after which `transport_closed` changes nothing; the comment
+    on `Endpoint.transport_closed` said otherwise. docs/usage.md's section on a server over TCP
+    is written for the endpoint, and `tools/consumer/` answers through one.
+  - **Memory.** docs/performance.md lists the default endpoint, 40,625,232 octets with its 16
+    QUIC receive pools, an endpoint of one TCP slot, 323,136, and one of one QUIC slot,
+    2,240,512. Each holds the endpoint's fixed part, about 12.7 KB.
+  - **Owed, and left as it was.**
+    - `bench/run.sh --base main` on the judge for the test-only server, which a person starts.
+      The endpoint hands out the slot freed longest ago and the server before reused the lowest
+      free one, so the judge is also where a cost of first touch would show.
+    - A peer that stops reading keeps its socket at the test-only server after the endpoint's
+      `close`: the server waits for its own output to leave before it closes, as it did before
+      the step. `tools/deadlines.sh` has no such peer.
+    - The test-only server still runs one worker over TLS. Its header gave chapulin's
+      process-wide generator as the reason, which `RAND=session` removed.
+  - A review, three readers and a verifier, confirmed eighteen findings, none a defect of the
+    library. Twelve were comments or sentences of the guide the source contradicts, the three
+    above among them, and they are corrected. Two were checks the move had made weaker: a
+    failed read in the content-coding run's last round passed, and the TCP trace run no longer
+    saw a `cancelled` after a request's `done`. Both read the fact from the endpoint's fields
+    now.
+  - Mutations, each **CAUGHT** unless it says otherwise:
+    - Content-coding: the run never calling `send_stream`; an answer naming another generation
+      of its connection; octets consumed with a `send` event passed again; the endpoint handing
+      its TCP connections no codings.
+    - Deadline: a drain noted after a linger closed the connection; `close` ignored; the reason
+      `ended` names dropped; `send_stream` given more than the socket's room, or called only
+      after a `send` event; a held stream's send meter running while the output holds octets;
+      the idle clock starting before the output empties.
+    - Deadline trace: a request's end not read from h2 after `done`, unfinished at seed 1; and
+      four of colibri's clock rules broken, with 17, 1, 13 and 23 of 32 traces left behaviors,
+      the counts of 2026-09-30.
+    - TCP trace: a request's end not read from h2, 53 of 64; the caller's own cancel read as
+      malformed; a TLS connection accepted in cleartext; a cancel's RST_STREAM not written in
+      its action, 53; the endpoint passing no body's end, 39; h2 refusing DATA on a stream
+      whose response ended.
+    - The census pins, where TLC found every trace a behavior: the server answering with an id
+      of another generation; its caller writing no interim response; the deadline trace run
+      reading nothing after an action.
+    - The test-only server: a `send` ignored; `send_stream` not called again after a call that
+      filled its room; held input not passed again after `done`; `close` ignored; a peer's close
+      not passed to `transport_closed`; events routed by `handle.slot` with no map; the echo
+      taken from another socket's entry; an entry taken again keeping its flags; `.cleartext`
+      with an identity loaded, by `tools/h2spec.sh --tls`; `on_instant` never called, by
+      `tools/deadlines.sh`. Twenty-six more of its own, six of them **NOT CAUGHT** at first:
+      five got a test, and the sixth was a rule no test could reach, which is gone.
+    - The TLS wipe: `close_transport` leaving the session open; the wipe moved from `close`, or
+      from `transport_closed`, to `ended`.
+    - The example, by `zig build examples`: a `send` ignored; `.none` passed for `.stream`;
+      `transport_closed` not called; `accept` given `.cleartext`; a response to another
+      connection's id; one `send_stream` for a `send`, with a 1,024-octet buffer. The consumer,
+      by `tools/consumer_check.sh`: a `send` ignored; a response to a stale id.
+    - The memory table: one endpoint row's size changed in docs/performance.md.
+    - The endpoint, by the server's tests and not by the deadline check, which sends in every
+      pass: `close` reported before what the connection owes; `send` asked again after a
+      `send_stream` that filled its room; `send` never asked again.
+  - **NOT CAUGHT**, and why each has no test:
+    - The deadline trace run reading nothing after an action, or reading before it offers
+      content: TLC finds all 32 traces behaviors either way. The census pin catches the first.
+    - 21b.5's `send` asked before a read, removed: the deadline trace run ignores `send`, and
+      21b.5's check is what catches it.
+    - The example's `ended` accepting a failed connection, or one closed for a reason: its run
+      has neither. A second socket given a record that does not authenticate showed the arm
+      refuses a failure. The consumer writing the server's octets into the buffer its input
+      arrives in: its one exchange never has both at once.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
