@@ -51,11 +51,41 @@ pub fn Table(comptime capacity: usize, comptime step: Number) type {
         /// The open requests that hold no place: another request held theirs when they opened.
         /// While there is none, a number is open only at its place, and no lookup scans.
         placeless: u32,
+        /// The open requests whose `cancel_owed` is set, and those that wait for room. A poll
+        /// reads the table for either only while it counts one.
+        cancels_owed: u32,
+        waiting: u32,
 
         pub fn init(table: *Self) void {
             table.in_use = .initEmpty();
             table.places = @splat(none);
             table.placeless = 0;
+            table.cancels_owed = 0;
+            table.waiting = 0;
+        }
+
+        /// The program cancelled request `number`, which is open: its `cancelled` is owed.
+        pub fn owe_cancel(table: *Self, number: Number) void {
+            const entry = table.find(number).?;
+            table.cancels_owed += @intFromBool(!entry.cancel_owed);
+            entry.cancel_owed = true;
+        }
+
+        /// A write of request `number`, which is open, found no room when the slot's room counter
+        /// read `since`.
+        pub fn wait(table: *Self, number: Number, since: u32, waiting_for: Wait, waiting_len: u32) void {
+            const entry = table.find(number).?;
+            table.waiting += @intFromBool(entry.waiting_since == null);
+            entry.waiting_since = since;
+            entry.waiting_for = waiting_for;
+            entry.waiting_len = waiting_len;
+        }
+
+        /// The request at `entry` waits for no room.
+        pub fn stop_waiting(table: *Self, entry: *Entry) void {
+            assert(table.waiting >= @intFromBool(entry.waiting_since != null));
+            table.waiting -= @intFromBool(entry.waiting_since != null);
+            entry.waiting_since = null;
         }
 
         /// The place `number` names.
@@ -101,6 +131,10 @@ pub fn Table(comptime capacity: usize, comptime step: Number) type {
             const index = table.index_of(number).?;
             assert(table.in_use.isSet(index));
             table.in_use.unset(index);
+            const entry = &table.entries[index];
+            assert(table.cancels_owed >= @intFromBool(entry.cancel_owed));
+            table.cancels_owed -= @intFromBool(entry.cancel_owed);
+            table.stop_waiting(entry);
             leave_place(table, place_of(number), index);
             assert(table.index_of(number) == null);
         }
@@ -267,4 +301,34 @@ test "the table holds each request where a table that scans holds it, over many 
     // The walk reaches both lookups, and a table that refuses a request.
     try testing.expect(visits_placeless > 0 and visits_placeless < visits);
     try testing.expect(visits_full > 0);
+}
+
+test "the table counts the cancels it owes and the requests that wait, until each ends" {
+    var table: Table(test_capacity, test_step) = undefined;
+    table.init();
+    _ = table.add(1).?;
+    _ = table.add(2).?;
+    // A second cancel of one request, and a second wait, count once.
+    table.owe_cancel(1);
+    table.owe_cancel(1);
+    try testing.expectEqual(1, table.cancels_owed);
+    table.wait(2, 5, .content, 9);
+    table.wait(2, 6, .head, 0);
+    try testing.expectEqual(1, table.waiting);
+    try testing.expectEqual(6, table.find(2).?.waiting_since.?);
+    try testing.expectEqual(.head, table.find(2).?.waiting_for);
+    // A request that found room waits no more, and one that never waited changes no count.
+    table.stop_waiting(table.find(2).?);
+    table.stop_waiting(table.find(1).?);
+    try testing.expectEqual(0, table.waiting);
+    try testing.expectEqual(null, table.find(2).?.waiting_since);
+    // A request that ends takes what it counted with it.
+    table.wait(2, 7, .content, 1);
+    table.remove(2);
+    table.remove(1);
+    try testing.expectEqual(0, table.waiting);
+    try testing.expectEqual(0, table.cancels_owed);
+    // The entries a later request takes start with neither.
+    _ = table.add(3).?;
+    try testing.expect(!table.find(3).?.cancel_owed and table.find(3).?.waiting_since == null);
 }

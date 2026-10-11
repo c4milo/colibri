@@ -55,6 +55,7 @@ pub fn pass(held: *Held, slot: u32, table: anytype, reported: Event, comptime Si
 /// no more. A request whose room counter moved and which the connection still cannot take waits for
 /// the next move, so `writable` comes once for each move of room at most.
 pub fn writable_of(held: *Held, slot: u32, table: anytype, comptime Side: type) ?Event {
+    if (table.waiting == 0) return null;
     const room = held.room[slot];
     var open = table.in_use.iterator(.{});
     // Bounded by the table's capacity.
@@ -66,7 +67,7 @@ pub fn writable_of(held: *Held, slot: u32, table: anytype, comptime Side: type) 
             entry.waiting_since = room;
             continue;
         }
-        entry.waiting_since = null;
+        table.stop_waiting(entry);
         const id: Id = .{ .connection = held.slots.handle_of(slot), .number = entry.number };
         return .{ .writable = .{ .id = id, .user_data = entry.user_data } };
     }
@@ -75,6 +76,7 @@ pub fn writable_of(held: *Held, slot: u32, table: anytype, comptime Side: type) 
 
 /// The number of a request whose `cancelled` the program's own `cancel` owes, or null.
 pub fn owed_cancel(table: anytype) ?event.Number {
+    if (table.cancels_owed == 0) return null;
     var open = table.in_use.iterator(.{});
     // Bounded by the table's capacity.
     while (open.next()) |index| {

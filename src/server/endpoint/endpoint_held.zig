@@ -240,10 +240,13 @@ pub const Held = struct {
     /// Notes that request `number` found no room for `wait`: its `writable` comes once the slot's
     /// room counter moves and the connection takes it.
     fn arm(held: *Held, slot: u32, number: event.Number, wait: Wait, waiting_len: usize) void {
-        const entry = held.entry_of(slot, number).?;
-        entry.waiting_since = held.room[slot];
-        entry.waiting_for = wait;
-        entry.waiting_len = std.math.cast(u32, waiting_len) orelse std.math.maxInt(u32);
+        const len = std.math.cast(u32, waiting_len) orelse std.math.maxInt(u32);
+        const since = held.room[slot];
+        if (held.is_tcp(slot)) {
+            endpoint_held_tcp.table_of(held, slot).wait(number, since, wait, len);
+        } else {
+            endpoint_held_quic.table_of(held, slot).wait(number, since, wait, len);
+        }
     }
 
     /// What a head or a trailer section that found no room waits for. A TCP connection writes it
@@ -255,7 +258,13 @@ pub const Held = struct {
 
     /// A write of request `number` found room, so the request waits for none.
     fn unarm(held: *Held, slot: u32, number: event.Number) void {
-        held.entry_of(slot, number).?.waiting_since = null;
+        if (held.is_tcp(slot)) {
+            const table = endpoint_held_tcp.table_of(held, slot);
+            table.stop_waiting(table.find(number).?);
+        } else {
+            const table = endpoint_held_quic.table_of(held, slot);
+            table.stop_waiting(table.find(number).?);
+        }
     }
 
     /// Ends request `id` before its response is whole. Its `cancelled` follows, and nothing more of
@@ -263,7 +272,7 @@ pub const Held = struct {
     pub fn cancel(held: *Held, id: Id) void {
         const slot = held.request_slot(id) catch return;
         if (held.is_tcp(slot)) held.tcp[slot].cancel(id.number) else held.connections.at(slot).cancel(id.number);
-        held.entry_of(slot, id.number).?.cancel_owed = true;
+        if (held.is_tcp(slot)) endpoint_held_tcp.table_of(held, slot).owe_cancel(id.number) else endpoint_held_quic.table_of(held, slot).owe_cancel(id.number);
         touch(held, slot);
     }
 
