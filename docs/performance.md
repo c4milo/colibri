@@ -95,9 +95,9 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 40627408 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323280 | an endpoint that holds one TCP connection |
-| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240512 | an endpoint that holds one QUIC connection, with its receive pool |
+| `server.Endpoint` | 40630224 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323424 | an endpoint that holds one TCP connection |
+| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240544 | an endpoint that holds one QUIC connection, with its receive pool |
 | `server.Connection` | 306432 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `server.QuicConnection` | 721416 | one h3 connection, without its receive pool |
 | `client.Connection` | 289200 | one TCP connection: h11 or h2, in cleartext or over TLS |

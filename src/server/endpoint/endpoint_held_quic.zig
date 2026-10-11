@@ -24,7 +24,7 @@ const Entry = endpoint_requests.Entry;
 const Wait = endpoint_requests.Wait;
 
 /// A QUIC slot's open requests: as many as a QUIC connection holds at once.
-pub const QuicTable = endpoint_requests.Table(constants.quic_requests_max);
+pub const QuicTable = endpoint_requests.Table(constants.quic_requests_max, constants.quic_request_number_step);
 
 /// A datagram the UDP socket read, which the suite opens in place, with its ECN codepoint and the
 /// address it came from (decision 72).

@@ -28,7 +28,7 @@ pub const Security = enum { cleartext, tls };
 pub const StreamOctets = struct { connection: ConnectionHandle, octets: []u8 };
 
 /// A TCP slot's open requests: as many as an h2 connection holds at once.
-pub const TcpTable = endpoint_requests.Table(constants.tcp_requests_max);
+pub const TcpTable = endpoint_requests.Table(constants.tcp_requests_max, constants.tcp_request_number_step);
 
 /// Whether a TCP slot's socket is open, or who closed it: the endpoint, with a `close` event, or
 /// the program, with `transport_closed`.

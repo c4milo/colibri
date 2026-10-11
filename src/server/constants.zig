@@ -67,6 +67,10 @@ pub const last_chunk_len: usize = 5;
 /// responses. h3 tracks more (`h3.constants.request_streams_max`).
 pub const quic_requests_max: u32 = 32;
 
+/// How far apart a QUIC connection's request numbers are: a stream ID's two low bits name its
+/// type (RFC 9000 §2.1), so a client's request streams are 4 apart.
+pub const quic_request_number_step: u64 = 1 << quic.constants.stream_id_type_bits;
+
 /// Most request streams a QUIC client opens and then cancels in one
 /// `quic_peer_reset_rate_period_ns`, after which the connection closes with H3_EXCESSIVE_LOAD
 /// (RFC 9114 §10.5). The stream limit above bounds how many are open at once, not how fast they
@@ -113,6 +117,10 @@ pub const tcp_connections_default: usize = 16;
 /// The requests a TCP slot of an endpoint holds at once: as many as an h2 connection may hold,
 /// which `Limits.requests_max` reaches at most (decision 119).
 pub const tcp_requests_max: usize = h2.constants.concurrent_streams_max;
+
+/// How far apart a TCP connection's request numbers are at least: a client's h2 streams are 2
+/// apart (RFC 9113 §5.1.1), and h11's requests, which count from 0, are one at a time.
+pub const tcp_request_number_step: u64 = h2.constants.stream_id_step;
 
 /// Events one poll of a TCP slot reads at most before it asks the slot again: the endings the
 /// connection owes, and one event for each frame its plaintext holds.
