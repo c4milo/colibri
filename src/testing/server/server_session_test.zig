@@ -4,10 +4,10 @@
 const std = @import("std");
 const server = @import("server");
 const h2 = @import("h2");
-const constants = @import("constants.zig");
-const h11_echo = @import("h11/h11_echo.zig");
+const constants = @import("../constants.zig");
+const h11_echo = @import("../h11/h11_echo.zig");
 const session_module = @import("server_session.zig");
-const entropy = @import("entropy.zig");
+const entropy = @import("../entropy.zig");
 
 const testing = std.testing;
 const Session = session_module.Session;

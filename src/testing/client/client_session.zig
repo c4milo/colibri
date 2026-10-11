@@ -129,7 +129,7 @@ pub const Session = struct {
 };
 
 const testing = std.testing;
-const server_session = @import("../server_session.zig");
+const server_session = @import("../server/server_session.zig");
 const entropy = @import("../entropy.zig");
 
 /// The two sessions the tests run, their bodies, and the octets each has written that the other

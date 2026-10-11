@@ -1,7 +1,7 @@
 //! One connection of design §9's server, over colibri's `server` module (design §8 step 17a): the
 //! octets the socket read go in, the octets it sends come out, and every request is answered with
-//! 200 and `response_body` once it is read whole. `server.zig` is the socket around it. In the
-//! `--echo` mode, an h11 request is answered with its echo (`h11/h11_echo.zig`) instead. The
+//! 200 and `response_body` once it is read whole. `../server.zig` is the socket around it. In the
+//! `--echo` mode, an h11 request is answered with its echo (`../h11/h11_echo.zig`) instead. The
 //! server opens no tunnel, so a CONNECT is answered 501 in every mode.
 //!
 //! `step` repeats three things until none moves, each bounded by the caller's buffers:
@@ -21,8 +21,8 @@ const std = @import("std");
 const assert = std.debug.assert;
 pub const server = @import("server");
 const h2 = @import("h2");
-const constants = @import("constants.zig");
-const h11_echo = @import("h11/h11_echo.zig");
+const constants = @import("../constants.zig");
+const h11_echo = @import("../h11/h11_echo.zig");
 
 const http = h2.http;
 

@@ -24,10 +24,10 @@ comptime {
 
 pub const alpn = @import("alpn.zig");
 pub const h11_echo = @import("h11/h11_echo.zig");
-pub const server_session = @import("server_session.zig");
+pub const server_session = @import("server/server_session.zig");
 pub const Session = server_session.Session;
 pub const server = @import("server.zig");
-pub const server_options = @import("server_options.zig");
+pub const server_options = @import("server/server_options.zig");
 
 /// The entry point of `zig build http-server`, which is this module's executable form.
 pub const main = server.main;

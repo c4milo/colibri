@@ -1,4 +1,4 @@
-//! The command line of the test-only server (`server.zig`), as `tools/h2spec.sh` and the interop
+//! The command line of the test-only server (`../server.zig`), as `tools/h2spec.sh` and the interop
 //! scripts pass it. Split off the server for length.
 //!
 //!     http-server [--port <port>] [--address <ipv4>] [--h11 | --h2] [--echo] [--coded]
@@ -11,12 +11,12 @@
 //! it from the start, and a TLS server offers it alone. With neither, a cleartext connection speaks
 //! h2 when its first octets are h2's connection preface and h11 otherwise (decision 117), and a TLS
 //! server offers both. `--echo` answers every h11 request with what h11 read of it
-//! (`h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
+//! (`../h11/h11_echo.zig`), for the HTTP Garden, and needs `--h11` in cleartext. `--h3-port` names
 //! the UDP port each TLS connection advertises h3 on (design §8 step 17b): an Alt-Svc line on each
 //! final h11 response, and one ALTSVC frame per h2 connection.
 const std = @import("std");
-const constants = @import("constants.zig");
-const alpn = @import("alpn.zig");
+const constants = @import("../constants.zig");
+const alpn = @import("../alpn.zig");
 
 const Protocol = alpn.Protocol;
 
