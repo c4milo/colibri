@@ -1,5 +1,5 @@
 //! The limits of the TCP trace run (https://github.com/c4milo/colibri/issues/79): a
-//! `client.Connection` and a `server.Connection` over h2, logged in `spec/tla/h2_connection`'s
+//! `client.Connection` and a `server.Endpoint` over h2, logged in `spec/tla/h2_connection`'s
 //! terms. Split off `constants.zig` because a hand-written source file stays at or under 500 lines
 //! (CLAUDE.md). `constants.zig` exports them as `tcp_trace`.
 const std = @import("std");

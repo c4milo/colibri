@@ -1,6 +1,7 @@
 //! The endpoints of the TCP trace run (https://github.com/c4milo/colibri/issues/79): a
-//! `client.Connection` and a `server.Connection` over h2, in cleartext or over TLS, every octet
-//! each has handed the other, and the server's caller, which answers each request as the plan says.
+//! `client.Connection` and a `server.Endpoint` that holds one connection (design §8 step 21b.6),
+//! over h2, in cleartext or over TLS, every octet each has handed the other, and the server's
+//! caller, which answers each request as the plan says.
 //!
 //! The h2 trace drives two `h2.Connection` endpoints a frame at a time. Here each side is what a
 //! caller holds: the client takes whole requests, and each side writes into its own output until
@@ -10,13 +11,17 @@
 //!
 //! A cancel or a shutdown decides a RST_STREAM or a GOAWAY that h2 owes and writes later, at the
 //! caller's next `send`. The model sends either frame in the step that decides it, so after each
-//! the run calls `send` with no room: the connection writes what it owes into its output at once
-//! and hands out nothing. The client's call also writes the requests that wait, as any `send` of
-//! its does.
+//! the run calls `send` with no room, the server's through the endpoint's `send_stream`: the
+//! connection writes what it owes into its output at once and hands out nothing. The client's call
+//! also writes the requests that wait, as any `send` of its does.
 //!
 //! Over TLS a send seals the protocol's octets into records, so the run calls `send` twice. The
 //! first, with no room, writes what the connection owes and seals nothing; the run copies the
 //! plaintext the connection then holds, and the second call seals it (`tcp_trace_direction.zig`).
+//!
+//! The endpoint reports nothing of a request once its response is `done` (decision 119), so
+//! `tcp_trace_state.zig` reads the end of such a request from h2's stream table. After its
+//! shutdown the endpoint closes the connection once no request is open, and reads nothing more.
 const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");
@@ -42,7 +47,7 @@ pub const HeadKind = h2_trace_state.HeadKind;
 /// What the server's caller holds of the exchange on one stream.
 pub const Answer = struct {
     /// The request's identifier, once the server reported its head.
-    id: ?u64 = null,
+    id: ?server.Id = null,
     interims: u32 = 0,
     final_sent: bool = false,
     data: u32 = 0,
@@ -59,16 +64,23 @@ const final_status: u16 = 200;
 const content: [limits.request_content_len]u8 = @splat('x');
 /// The octets of a response's content the client keeps: every piece a plan writes.
 const body_len_max: usize = limits.content_max * limits.piece_len;
-/// RFC 9113 §3.2: over TLS both sides offer h2 alone, which ALPN selects.
+/// RFC 9113 §3.2: over TLS both sides offer h2 alone, which ALPN selects. The endpoint names it
+/// from `versions`.
 const alpn_h2 = [_][]const u8{"h2"};
 
+/// The server: one connection, in cleartext or over TLS, and no QUIC.
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+/// The connection a TCP slot holds, whose fields the run and its state read.
+pub const Connection = std.meta.Elem(@FieldType(Endpoint, "tcp"));
+
 pub const World = struct {
-    server_tls: tls.record.ServerConfig,
     client_tls: tls.record.ClientConfig,
-    server_config: server.Config,
+    endpoint_config: server.EndpointConfig,
     client_config: client.Config,
     tls: bool,
-    server: server.Connection,
+    endpoint: Endpoint,
+    /// The one connection the endpoint holds.
+    accepted: server.ConnectionHandle,
     client: client.Connection,
     to_server: Direction,
     to_client: Direction,
@@ -79,6 +91,8 @@ pub const World = struct {
     answers: [limits.streams_max]Answer,
     /// What the server read of each request, from the events it reported (RFC 9113 §8.1).
     request_read: [limits.streams_max]RequestPhase,
+    /// The requests whose response the endpoint reported `done`.
+    done: [limits.streams_max]bool,
     requested: u32,
     shut_down: bool,
     /// The client's streams that were open when it first read a GOAWAY.
@@ -99,19 +113,23 @@ pub const World = struct {
         world.tls = over_tls;
         if (over_tls) try world.configure_tls() else {
             // Decision 117: h2 alone, which each side speaks from the start.
-            world.server_config = .{ .versions = .{ .h11 = false } };
+            world.endpoint_config = .{ .versions = .{ .h11 = false } };
             world.client_config = .{ .authority = identity.authority, .versions = .{ .h11 = false } };
         }
         world.tls_random = Random.init(seed);
         const source = tls.Random.init(&world.tls_random, fill);
-        // Every handshake judges the chain at the identity's instant, so no run reads a clock.
-        try world.server.init(&world.server_config, source, identity.now_seconds, world.now_ns);
+        // Every handshake judges the chain at the identity's instant, so no run reads a clock. The
+        // server's connection starts before the client's, so each draws what it drew before.
+        try world.endpoint.init(&world.endpoint_config, source, identity.now_seconds, world.now_ns);
+        const security: server.Security = if (over_tls) .tls else .cleartext;
+        world.accepted = world.endpoint.accept(security, world.now_ns) orelse return error.StartRefused;
         try world.client.init(&world.client_config, source, identity.now_seconds, null);
         world.to_server = .{};
         world.to_client = .{};
         world.client_ids = @splat(null);
         world.answers = @splat(.{});
         world.request_read = @splat(.none);
+        world.done = @splat(false);
         world.requested = 0;
         world.shut_down = false;
         world.open_at_goaway = null;
@@ -123,20 +141,27 @@ pub const World = struct {
     /// The server presents the test identity of `src/testing/testdata/`, and the client trusts its
     /// root and names the host it covers.
     fn configure_tls(world: *World) !void {
-        try world.server_tls.init(.{
-            .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
-            .cookie_key = &identity.cookie_key,
-            .ticket_key = null,
-            .alpn = &alpn_h2,
-            .cpu = identity.cpu,
-        });
+        world.endpoint_config = .{
+            .tls = .{
+                .ecdsa_p256 = .{ .chain = &identity.chain, .public_key = identity.public_key, .private_key = identity.private_key },
+                .cookie_key = &identity.cookie_key,
+                .ticket_key = null,
+                .cpu = identity.cpu,
+            },
+            // Decision 117: h2 alone, the one protocol the server's ALPN list then names.
+            .versions = .{ .h11 = false },
+        };
         try world.client_tls.init(.{
             .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
             .alpn = &alpn_h2,
             .cpu = identity.cpu,
         });
-        world.server_config = .{ .tls = &world.server_tls };
         world.client_config = .{ .authority = identity.authority, .tls = &world.client_tls };
+    }
+
+    /// The connection the endpoint holds, for the fields a program has no call for.
+    pub fn server_connection(world: *World) *Connection {
+        return &world.endpoint.tcp[world.accepted.slot];
     }
 
     /// Acts out one action. One the plan's constants leave out, or that finds nothing to do,
@@ -171,11 +196,11 @@ pub const World = struct {
 
     /// The server's caller hands the socket what the server wrote, as `client_send` does.
     fn server_send(world: *World) void {
-        const connection = &world.server;
-        _ = connection.send(&.{}, world.now_ns);
+        const connection = world.server_connection();
+        _ = world.endpoint.send_stream(world.accepted, &.{}, world.now_ns);
         const staged = connection.output[connection.records_len..connection.output_len];
         world.to_client.stage(staged);
-        const written = connection.send(world.to_client.room(), world.now_ns);
+        const written = world.endpoint.send_stream(world.accepted, world.to_client.room(), world.now_ns);
         world.to_client.note_send(staged.len, written, connection.output[connection.records_len..connection.output_len]);
     }
 
@@ -215,7 +240,7 @@ pub const World = struct {
     fn server_interim(world: *World, stream: u32, plan: *const Plan) void {
         const answer = world.answer_of(stream) orelse return;
         if (answer.final_sent or answer.interims == plan.interims) return;
-        world.server.respond(answer.id.?, .{ .status = interim_status, .end = false }) catch {
+        world.endpoint.respond(answer.id.?, .{ .status = interim_status, .end = false }) catch {
             world.refused += 1;
             return;
         };
@@ -226,7 +251,7 @@ pub const World = struct {
     fn server_final(world: *World, target: Target) void {
         const answer = world.answer_of(target.stream) orelse return;
         if (answer.final_sent) return;
-        world.server.respond(answer.id.?, .{ .status = final_status, .end = target.end }) catch {
+        world.endpoint.respond(answer.id.?, .{ .status = final_status, .end = target.end }) catch {
             world.refused += 1;
             return;
         };
@@ -239,7 +264,7 @@ pub const World = struct {
         const answer = world.answer_of(target.stream) orelse return;
         if (!answer.final_sent or answer.data == plan.content) return;
         const piece = content[0..limits.piece_len];
-        const taken = world.server.write_body(answer.id.?, .{ .octets = piece, .end = target.end }) catch {
+        const taken = world.endpoint.write_body(answer.id.?, .{ .octets = piece, .end = target.end }) catch {
             world.refused += 1;
             return;
         };
@@ -255,7 +280,7 @@ pub const World = struct {
     fn server_trailers(world: *World, stream: u32) void {
         const answer = world.answer_of(stream) orelse return;
         if (!answer.final_sent) return;
-        world.server.write_trailers(answer.id.?, &trailers) catch {
+        world.endpoint.write_trailers(answer.id.?, &trailers) catch {
             world.refused += 1;
             return;
         };
@@ -265,25 +290,26 @@ pub const World = struct {
 
     fn server_cancel(world: *World, stream: u32) void {
         const answer = world.answer_of(stream) orelse return;
-        world.server.cancel(answer.id.?);
+        world.endpoint.cancel(answer.id.?);
         answer.cancelled = true;
-        _ = world.server.send(&.{}, world.now_ns);
+        _ = world.endpoint.send_stream(world.accepted, &.{}, world.now_ns);
     }
 
     fn server_shutdown(world: *World) void {
         if (world.shut_down) return;
-        world.server.shutdown();
+        world.endpoint.shutdown(world.now_ns);
         world.shut_down = true;
-        _ = world.server.send(&.{}, world.now_ns);
+        _ = world.endpoint.send_stream(world.accepted, &.{}, world.now_ns);
     }
 
     /// The server reads every octet the client handed out, and its caller notes each request.
     fn deliver_to_server(world: *World, plan: *const Plan) void {
         for (0..limits.receives_per_delivery_max) |_| {
-            const received = world.server.receive(world.to_server.unread(), world.now_ns) catch {
+            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .octets = world.to_server.unread() } }, world.now_ns);
+            if (world.endpoint.failed[world.accepted.slot]) {
                 world.broken = true;
                 return;
-            };
+            }
             world.to_server.consumed += received.consumed;
             if (received.event) |event| world.on_server_event(event, plan);
             if (received.consumed == 0 and received.event == null) return;
@@ -295,7 +321,7 @@ pub const World = struct {
         switch (event) {
             .request => |head| {
                 const index = h2_trace_pair.index_of(@intCast(head.id.number));
-                world.answers[index].id = head.id.number;
+                world.answers[index].id = head.id;
                 world.request_read[index] = if (head.end) .ended else .head;
                 // A caller may answer a request the moment it reads it, before the server reads
                 // on, which is when e3126a9's server wrote a response ahead of its SETTINGS.
@@ -308,12 +334,18 @@ pub const World = struct {
             .cancelled => |cancelled| {
                 world.answers[h2_trace_pair.index_of(@intCast(cancelled.id.number))].cancelled = true;
                 // RFC 9113 §8.1.1: colibri refuses a malformed request, which an honest client
-                // never sends; a client's reset is the one cancel the run expects.
-                if (cancelled.reason != .peer_reset) world.malformed = true;
+                // never sends; a client's reset and the caller's own cancel are the cancels the
+                // run expects.
+                if (cancelled.reason != .peer_reset and cancelled.reason != .program) world.malformed = true;
             },
-            .done => {},
-            // A connection reports none of these: the endpoint does (decision 119).
-            .writable, .send, .close, .ended, .closed => unreachable,
+            .done => |done| world.done[h2_trace_pair.index_of(@intCast(done.id.number))] = true,
+            // The run hands octets out and writes each response in actions of its own.
+            .send, .writable => {},
+            // The endpoint closes the connection once its caller shut it down and no request is
+            // open, and not before.
+            .close => world.broken = world.broken or !world.shut_down,
+            .ended => |over| world.broken = world.broken or over.failed or over.reason != null,
+            .closed => {},
         }
     }
 

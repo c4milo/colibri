@@ -5,7 +5,8 @@
 //! side wrote is parsed out of the protocol's octets it handed out and those its output still
 //! holds, after its preface; the server's HEADERS frames are of the kinds its caller's calls wrote.
 //! What each side read comes from the events the server reported and the exchanges the client
-//! filled. The frames in flight are the ones the writer wrote and the reader has not read: what the
+//! filled; the end of a request whose response is done, which the endpoint no longer reports, comes
+//! from the server's stream table. The frames in flight are the ones the writer wrote and the reader has not read: what the
 //! reader left of what was handed out, then the writer's output.
 //!
 //! Over TLS the protocol's octets are the plaintext of the records (`tcp_trace_direction.zig`), and
@@ -80,19 +81,25 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     var state: State = .{};
     const n: usize = plan.streams;
     const client_h2 = world_module.h2_of(&world.client.session);
-    const server_h2 = world_module.h2_of(&world.server.session);
+    const held = world.server_connection();
+    const server_h2 = world_module.h2_of(&held.session);
     note_streams(client_h2, server_h2, n, &state);
     const from_client = Written.of(&world.to_server, pending(&world.client), h2.constants.client_preface_len);
-    const from_server = Written.of(&world.to_client, pending(&world.server), 0);
+    const from_server = Written.of(&world.to_client, pending(held), 0);
     try note_client_writes(from_client, &state);
     try note_server_writes(from_server, world.to_client.heads[0..world.to_client.heads_written], &state);
     @memcpy(state.request_read[0..n], world.request_read[0..n]);
+    // The endpoint reports nothing of a request once its response is done (decision 119). Such a
+    // request ended once its stream closed with END_STREAM both ways (RFC 9113 §5.1).
+    for (state.request_read[0..n], state.server_closed[0..n], world.done[0..n]) |*read, closed, done| {
+        if (done and read.* == .head and closed == .end_stream) read.* = .ended;
+    }
     for (world.exchanges[0..world.requested], 0..) |*exchange, index| {
         state.response_read[index] = response_read_of(exchange.outcome, exchange.status, exchange.interims);
     }
     // The client drops the plaintext it read at once, so all it holds is unread. The server holds
     // what its last event pointed into, `plain_in_read` octets, until its next call.
-    const server_read = try read_of(&world.to_server, world.tls, world.server.plain_in_len - world.server.plain_in_read);
+    const server_read = try read_of(&world.to_server, world.tls, held.plain_in_len - held.plain_in_read);
     const client_read = try read_of(&world.to_client, world.tls, world.client.plain_in_len);
     state.to_server_len = drop_goaways(&state.to_server, try in_flight(from_client, server_read, .preface, null, &state.to_server));
     const heads = world.to_client.heads[0..world.to_client.heads_written];

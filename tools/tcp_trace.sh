@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Trace validation of spec/tla/h2_connection against colibri's server and client connections
 # (https://github.com/c4milo/colibri/issues/79). The simulator's TCP trace run has a
-# `client.Connection` and a `server.Connection` act out a seed's plan over h2, in cleartext or over
+# `client.Connection` and a `server.Endpoint` act out a seed's plan over h2, in cleartext or over
 # TLS, the client's first flight carrying its preface, its SETTINGS and requests the server reads
 # in one delivery, over TLS with the client's Finished. It logs the model's state after each
 # action, and TLC then checks every seed's log is a behavior of the model
