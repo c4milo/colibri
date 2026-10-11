@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Trace validation of spec/tla/server_deadlines against colibri
 # (https://github.com/c4milo/colibri/issues/86). The simulator's deadline trace run acts out a
-# seed's plan with colibri's h2 client and a `server.Connection`, and logs the model's state and
-# three of colibri's clocks after each action; TLC then checks every seed's log is a behavior of
-# the model, each clock running as decision 110's rules say
+# seed's plan with colibri's h2 client and a `server.Endpoint` that holds one connection, and logs
+# the model's state and three of colibri's clocks after each action; TLC then checks every seed's
+# log is a behavior of the model, each clock running as decision 110's rules say
 # (spec/tla/server_deadlines/ServerDeadlinesTrace.tla).
 #
 # It writes `sim --deadline-trace-write`'s modules into a scratch directory beside copies of the

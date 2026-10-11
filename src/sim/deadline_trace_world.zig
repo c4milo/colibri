@@ -1,15 +1,20 @@
 //! The endpoints of the deadline trace run (https://github.com/c4milo/colibri/issues/86): a colibri
-//! server connection over h2 in cleartext, with decision 110's deadlines, a colibri h2 client, a
-//! queue of octets each way, and an application that answers each request. The run keeps what
-//! each side wrote and read in the model's terms, which `deadline_trace_state.zig` reads.
+//! server endpoint that holds one h2 connection in cleartext (design §8 step 21b.6), with decision
+//! 110's deadlines, a colibri h2 client, a queue of octets each way, and an application that
+//! answers each request. The run keeps what each side wrote and read in the model's terms, which
+//! `deadline_trace_state.zig` reads.
 //!
 //! Only whole frames move between the endpoints, as the model's frames do: an arrival hands colibri
 //! the oldest one, and a hand-out gives the socket the oldest one colibri's output holds. colibri
 //! writes what it owes, and takes content write_body offered, in the calls the model's colibri
 //! steps stand for. After each action write_body is offered what the application offered and
 //! colibri has not taken, until colibri takes no more, as the model's colibri takes content the
-//! moment it can. Then colibri is called once more with the instant, so its clocks see what the
-//! action changed.
+//! moment it can. Then the run reads what the endpoint owes until it reports nothing, as a program
+//! does after it answers: each read hands colibri the instant, so its clocks see what the action
+//! changed, and colibri writes what h2 owes into its output.
+//!
+//! The endpoint reports nothing of a request once its response is `done` (decision 119), so the
+//! run reads the end of such a request from h2's stream table.
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
@@ -74,14 +79,21 @@ const ok_status: u16 = 200;
 /// The octets every body is made of.
 const content: [limits.body_len_max]u8 = @splat('x');
 
+/// The server: one connection in cleartext, and no QUIC.
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+/// The connection a TCP slot holds, whose fields the run and its state read.
+pub const Connection = std.meta.Elem(@FieldType(Endpoint, "tcp"));
+
 comptime {
     // One offer can write a DATA frame of one octet into every part of colibri's output.
     assert(limits.writes_per_offer_max * (h2.constants.frame_header_len + 1) >= server.constants.output_len);
 }
 
 pub const World = struct {
-    server_config: server.Config,
-    server: server.Connection,
+    endpoint_config: server.EndpointConfig,
+    endpoint: Endpoint,
+    /// The one connection the endpoint holds.
+    accepted: server.ConnectionHandle,
     client: h2.Connection,
     to_server: Queue,
     to_client: Queue,
@@ -90,6 +102,8 @@ pub const World = struct {
     /// What colibri read of each request and wrote of each response, what the application offered
     /// write_body, and what the client sent and read, in the model's terms. Index 0 is stream 1.
     req_read: [limits.streams_max]Part,
+    /// The requests whose response the endpoint reported `done`.
+    done: [limits.streams_max]bool,
     resp: [limits.streams_max]Part,
     resp_written: [limits.streams_max]u32,
     produced: [limits.streams_max]u32,
@@ -114,14 +128,17 @@ pub const World = struct {
     pub fn init(world: *World, seed: u64) !void {
         world.now_ns = limits.start_ns;
         // Decision 117: h2 alone, which the server speaks from the start.
-        world.server_config = .{ .versions = .{ .h11 = false } };
+        world.endpoint_config = .{ .versions = .{ .h11 = false } };
         world.tls_random = Random.init(seed);
         const source = tls.Random.init(&world.tls_random, fill);
-        try world.server.init(&world.server_config, source, 0, world.now_ns);
+        try world.endpoint.init(&world.endpoint_config, source, 0, world.now_ns);
+        // A new endpoint has its one slot free.
+        world.accepted = world.endpoint.accept(.cleartext, world.now_ns) orelse return error.StartRefused;
         world.client.init(.client);
         world.to_server = .{};
         world.to_client = .{};
         world.req_read = @splat(.none);
+        world.done = @splat(false);
         world.resp = @splat(.none);
         world.resp_written = @splat(0);
         world.produced = @splat(0);
@@ -140,10 +157,21 @@ pub const World = struct {
         world.to_server.preface_len = world.to_server.len;
         world.preface_len = @intCast(world.to_server.len);
         var none: [0]u8 = .{};
-        assert(world.server.send(&none, world.now_ns) == 0);
-        const settings_frame_len = frame_len(world.server.output[0..world.server.output_len]);
-        assert(settings_frame_len == world.server.output_len);
+        assert(world.endpoint.send_stream(world.accepted, &none, world.now_ns) == 0);
+        const held = world.server_connection();
+        const settings_frame_len = frame_len(held.output[0..held.output_len]);
+        assert(settings_frame_len == held.output_len);
         world.settings_len = @intCast(settings_frame_len - h2.constants.frame_header_len);
+    }
+
+    /// The connection the endpoint holds, for the fields a program has no call for.
+    pub fn server_connection(world: *World) *Connection {
+        return &world.endpoint.tcp[world.accepted.slot];
+    }
+
+    /// The id the endpoint gives the request on stream `index`.
+    fn request_id(world: *const World, index: u32) server.Id {
+        return .{ .connection = world.accepted, .number = id_of(index) };
     }
 
     /// Acts out one action, then lets colibri take what the windows held back and see the instant.
@@ -160,7 +188,33 @@ pub const World = struct {
             .produce => |stream| world.produce(stream, plan),
         }
         world.offer_all(plan);
-        world.server.on_instant(world.now_ns);
+        world.drain();
+        world.note_ends();
+    }
+
+    /// Reads what the endpoint owes until it reports nothing.
+    fn drain(world: *World) void {
+        for (0..limits.events_per_action_max) |_| {
+            const reported = world.endpoint.receive(.none, world.now_ns).event orelse return;
+            world.on_server_event(reported);
+        }
+        world.broken = true;
+    }
+
+    /// Notes the end of each request whose response is done, which the endpoint no longer
+    /// reports: its stream closed with END_STREAM both ways (RFC 9113 §5.1).
+    fn note_ends(world: *World) void {
+        const streams = &world.server_connection().session.h2.streams;
+        for (&world.req_read, world.done, 0..) |*part, done, index| {
+            if (part.* != .head or !done) continue;
+            const ended = switch (streams.lookup(id_of(@intCast(index)))) {
+                .live => |record| if (record.closed) |how| how == .end_stream else false,
+                // The table dropped the record of a stream that closed without a reset.
+                .forgotten => true,
+                .idle, .reset_and_dropped => false,
+            };
+            if (ended) part.* = .ended;
+        }
     }
 
     /// Whether the client owes the server a frame it has not written (RFC 9113 §6.5.3, §6.9).
@@ -244,10 +298,11 @@ pub const World = struct {
         var taken: usize = 0;
         for (0..limits.receives_per_frame_max) |_| {
             if (taken == len) break;
-            const received = world.server.receive(world.to_server.octets[taken..len], world.now_ns) catch {
+            const received = world.endpoint.receive(.{ .stream = .{ .connection = world.accepted, .octets = world.to_server.octets[taken..len] } }, world.now_ns);
+            if (world.endpoint.failed[world.accepted.slot]) {
                 world.broken = true;
                 return;
-            };
+            }
             if (received.event) |event| world.on_server_event(event);
             if (received.consumed == 0 and received.event == null) break;
             taken += received.consumed;
@@ -267,21 +322,22 @@ pub const World = struct {
             .body => |body| if (body.end) {
                 world.req_read[index_of(@intCast(body.id.number))] = .ended;
             },
-            .done => {},
-            .trailers, .cancelled => world.broken = true,
-            // A connection reports none of these: the endpoint does (decision 119).
-            .writable, .send, .close, .ended, .closed => unreachable,
+            .done => |done| world.done[index_of(@intCast(done.id.number))] = true,
+            // The run hands octets out and offers content in actions of its own.
+            .send, .writable => {},
+            // Two honest endpoints cause none of these, and the run never shuts the endpoint down.
+            .trailers, .cancelled, .close, .ended, .closed => world.broken = true,
         }
     }
 
     /// colibri's caller hands the socket the oldest frame colibri's output holds, once the socket
     /// has room for it. colibri writes what it owes into its output first.
     fn hand_out(world: *World, plan: *const Plan) void {
-        const output = world.server.output[0..world.server.output_len];
-        const len = frame_len(output);
+        const held = world.server_connection();
+        const len = frame_len(held.output[0..held.output_len]);
         const room = world.to_client.room(plan.channel_len);
         const given = if (len > 0 and len <= room.len) len else 0;
-        const written = world.server.send(room[0..given], world.now_ns);
+        const written = world.endpoint.send_stream(world.accepted, room[0..given], world.now_ns);
         assert(written == given);
         world.to_client.len += written;
         world.handed_out += @intFromBool(written > 0);
@@ -290,10 +346,11 @@ pub const World = struct {
     fn respond(world: *World, stream: u32, plan: *const Plan) void {
         const index = stream - 1;
         if (world.req_read[index] == .none or world.resp[index] != .none) return;
-        const before = world.server.output_len;
+        const held = world.server_connection();
+        const before = held.output_len;
         const end = plan.response_body == 0;
-        world.server.respond(id_of(index), .{ .status = ok_status, .end = end }) catch return;
-        world.note_head_len(&world.response_head_len, world.server.output_len - before);
+        world.endpoint.respond(world.request_id(index), .{ .status = ok_status, .end = end }) catch return;
+        world.note_head_len(&world.response_head_len, held.output_len - before);
         world.resp[index] = if (end) .ended else .head;
     }
 
@@ -318,7 +375,7 @@ pub const World = struct {
         if (world.resp[index] != .head or world.resp_written[index] == world.produced[index]) return false;
         const offered = content[world.resp_written[index]..world.produced[index]];
         const end = world.produced[index] == plan.response_body;
-        const taken = world.server.write_body(id_of(index), .{ .octets = offered, .end = end }) catch 0;
+        const taken = world.endpoint.write_body(world.request_id(index), .{ .octets = offered, .end = end }) catch 0;
         world.resp_written[index] += @intCast(taken);
         if (end and taken == offered.len) world.resp[index] = .ended;
         return taken > 0;

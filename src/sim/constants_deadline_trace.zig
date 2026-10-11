@@ -35,6 +35,10 @@ pub const frames_max: u32 = 48;
 pub const stream_owed_max: u32 = 8;
 /// Calls to `receive` that one frame's arrival takes at most, and to `write_body` one retry takes.
 pub const receives_per_frame_max: u32 = 8;
+/// Events the endpoint owes after one action at most: each stream's `done` and `writable`, and the
+/// connection's `send`.
+const events_per_stream: u32 = 2;
+pub const events_per_action_max: u32 = events_per_stream * streams_max + 1;
 /// Calls to `write_body` one offer of a response's content makes at most. Each call writes one DATA
 /// frame, of one octet and its header at least, into colibri's output of `output_len` octets, which
 /// `deadline_trace_world.zig` asserts this covers.

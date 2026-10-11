@@ -12,7 +12,6 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const h2 = @import("h2");
-const server = @import("server");
 const sim = @import("sim");
 const world_module = @import("deadline_trace_world.zig");
 
@@ -125,23 +124,24 @@ pub fn compute(world: *World, plan_streams: u32, previous: ?*const State) Error!
     @memcpy(state.cli_req[0..n], world.cli_req[0..n]);
     @memcpy(state.cli_sent[0..n], world.cli_sent[0..n]);
     @memcpy(state.cli_resp[0..n], world.cli_resp[0..n]);
-    const session = &world.server.session.h2;
+    const held = world.server_connection();
+    const session = &held.session.h2;
     state.colibri = try side_of(session, n, &world.req_read, if (previous) |before| &before.colibri else null);
     state.client = try side_of(&world.client, n, &world.cli_resp, if (previous) |before| &before.client else null);
-    state.out = try frames_of(world.server.output[0..world.server.output_len], 0);
+    state.out = try frames_of(held.output[0..held.output_len], 0);
     state.to_client = try frames_of(world.to_client.held(), world.to_client.preface_len);
     state.to_server = try frames_of(world.to_server.held(), world.to_server.preface_len);
     state.arrived = world.arrived;
     state.handed_out = world.handed_out;
-    state.first_request_read = world.server.clock.first_request_read;
-    state.idle_started = world.server.clock.idle_since_ns != null;
+    state.first_request_read = held.clock.first_request_read;
+    state.idle_started = held.clock.idle_since_ns != null;
     state.settings_acked = session.settings_deadline_ns() == null;
     state.small_increment = session.tiny_update_read;
-    state.settings_runs = !state.settings_acked and world.server.clock.settings_pause_since_ns == null;
+    state.settings_runs = !state.settings_acked and held.clock.settings_pause_since_ns == null;
     for (0..n) |index| {
         const id: u64 = world_module.id_of(@intCast(index));
-        state.body_runs[index] = body_runs(&world.server, id);
-        state.send_runs[index] = send_runs(&world.server, id);
+        state.body_runs[index] = body_runs(held, id);
+        state.send_runs[index] = send_runs(held, id);
     }
     return state;
 }
@@ -182,7 +182,7 @@ fn stream_of(connection: *h2.Connection, index: u32, ended: bool, last: ?i64, si
 }
 
 /// Whether colibri's meter of the body on stream `id` runs.
-fn body_runs(connection: *const server.Connection, id: u64) bool {
+fn body_runs(connection: *const world_module.Connection, id: u64) bool {
     for (&connection.bodies.entries) |*body| {
         if (body.id == id) return body.started and body.meter.running();
     }
@@ -190,7 +190,7 @@ fn body_runs(connection: *const server.Connection, id: u64) bool {
 }
 
 /// Whether colibri's meter of the send on stream `id` runs, a window holding it.
-fn send_runs(connection: *const server.Connection, id: u64) bool {
+fn send_runs(connection: *const world_module.Connection, id: u64) bool {
     for (&connection.sends.entries) |*blocked| {
         if (blocked.id == id) return blocked.meter.running();
     }
