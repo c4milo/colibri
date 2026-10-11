@@ -10,11 +10,15 @@
 //! the connection the slot holds now, every event is routed through it, and an entry keeps its
 //! connection's whole handle, whose generation a later connection in the slot does not share.
 //!
-//! `step` serves one socket. It repeats four things until none moves:
+//! `step` serves one socket. It repeats four things until none of the first three moves:
 //!   1. passes the socket's input to the endpoint and routes every event it reports;
 //!   2. writes as much of the owed responses as the connection takes, oldest first;
 //!   3. calls `send_stream` once, into the socket's room;
 //!   4. reads the endpoint's events until it reports none.
+//! An event the last pass's fourth thing reads for this socket's connection needs no pass of its
+//! own. It is a `close` or an `ended`, which the caller reads from the entry, or a `send` whose
+//! record did not fit the room left: the socket then has a send in flight, and the step that
+//! follows it has the room.
 //! So the responses to the requests one read carried leave in one `send_stream`, and nothing is
 //! read between a response's write and its send, which would pause an h2 stream's send meter
 //! (decision 119 as amended). h11 reads a pipelined request only once the response before it is
@@ -198,6 +202,7 @@ fn step_entry(session: anytype, index: usize, input: []u8, output: []u8, now_ns:
         written += sent;
         drain(session);
         if (taken.moved or finished > 0 or sent > 0) continue;
+        // See the header for what the drain above may have read for this entry.
         session.pending.unset(index);
         break;
     } else session.pending.set(index);

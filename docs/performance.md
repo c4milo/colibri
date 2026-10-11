@@ -88,8 +88,8 @@ chapulin builds: x86-64 and arm64 build its host objects (decision 97 as amended
 serves both. Any other target builds its device objects, prints another heading, and its test
 fails until this section holds its table. An endpoint holds each QUIC connection's receive pool.
 The QUIC connections listed by themselves hold none: a client's caller passes one, whose default
-the table lists. The two endpoints of one slot say what one more connection of a kind costs a
-server.
+the table lists. The two endpoints of one slot each hold one connection and the endpoint's fixed
+part, about 12.7 KB of TLS and connection configuration, which every endpoint holds once.
 
 With chapulin's host objects:
 

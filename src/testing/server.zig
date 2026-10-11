@@ -33,8 +33,10 @@
 //! `server_session.zig` the worker's endpoint and the connections it serves, with no socket in
 //! them, and `server_session_answer.zig` the responses one connection owes.
 //!
-//! The TLS mode runs one worker. chapulin's generator is one process-wide state with no lock
-//! (its `drbg.h`), so two threads must not run handshakes at once.
+//! The TLS mode runs one worker, as it has since chapulin's generator was one process-wide state.
+//! chapulin is now built `RAND=session`, and each session draws from the source its `start` is
+//! given (`entropy.zig`), so that reason is gone. More workers over TLS wait for a step of their
+//! own, with its measurement.
 const std = @import("std");
 const cpu = @import("cpu.zig");
 const rotor = @import("rotor");

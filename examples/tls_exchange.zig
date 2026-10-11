@@ -267,7 +267,8 @@ fn serve(event: server.Event, now_ns: u64) !void {
         // The connection owes its socket octets.
         .send => |connection| try flush(connection, now_ns),
         // colibri reads and writes nothing more on this connection. A program closes the socket
-        // here and owes the endpoint no call: the connection's `ended` follows by itself.
+        // once the socket has taken the octets `send_stream` returned, and owes the endpoint no
+        // call: the connection's `ended` follows by itself.
         .close => closes += 1,
         // The connection is over, and its slot takes a later socket.
         .ended => |over| try count_ended(over),

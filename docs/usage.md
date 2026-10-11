@@ -178,8 +178,10 @@ link.consume(.server, consumed);
 ```
 
 `receive` returns at most one event a call, of any connection the endpoint holds. A program loops
-over it until it consumes nothing and returns no event. It loops again after it answers a request,
-after `send_stream` and after `on_instant`. The program passes `.stream` with the octets a socket
+over it until it consumes nothing and returns no event. It loops again after every call that
+changes a connection: an answer, `cancel`, `send_stream`, `transport_closed`, `shutdown` and
+`on_instant`. Each leaves what follows it to the next `receive`, the release of a closed
+connection's slot included. The program passes `.stream` with the octets a socket
 read and the handle of that socket's connection, and `.none` when no socket read any. A connection
 may consume fewer octets than it was given, such as a pipelined h11 request while the one before
 it is answered. The program holds the rest, and passes it again with the socket's next read and
@@ -213,7 +215,8 @@ fn serve(event: server.Event, now_ns: u64) !void {
         // The connection owes its socket octets.
         .send => |connection| try flush(connection, now_ns),
         // colibri reads and writes nothing more on this connection. A program closes the socket
-        // here and owes the endpoint no call: the connection's `ended` follows by itself.
+        // once the socket has taken the octets `send_stream` returned, and owes the endpoint no
+        // call: the connection's `ended` follows by itself.
         .close => closes += 1,
         // The connection is over, and its slot takes a later socket.
         .ended => |over| try count_ended(over),
@@ -235,13 +238,13 @@ fn serve(event: server.Event, now_ns: u64) !void {
   request ends with one of the two.
 - `writable` says a response whose last write found no room can take more.
 - `send` says a connection owes its socket octets, `close` says the program closes a connection's
-  socket, and `ended` says a connection is over. Each is described below.
+  socket, and `ended` says a connection is over. The paragraphs below describe each.
 
 A client that puts `100-continue` in a request's `Expect` field waits for a 100 (Continue) before
 it sends the content (RFC 9110 §10.1.1). The connection writes that 100 when the endpoint next
-reads the connection or writes its octets, which may be at the program's next call, in every
-version, unless the program answered the request first. A program that refuses such a request
-therefore answers it before its next call: a final response, the program's own 100, or `cancel`
+reads the connection or writes its octets, in every version. That may be at the program's next
+call. An answer the program gives first takes the place of the 100. A program that refuses such a
+request therefore answers it before its next call: a final response, the program's own 100, or `cancel`
 takes the place of the 100 the connection owes.
 
 The program answers with a head, then content:
@@ -267,10 +270,10 @@ fn answer(id: server.Id, content: []const u8) !void {
 ```
 
 A response with no content sets `end` in `respond`, and `write_trailers` ends a response with a
-trailer section. A write can find no room: `write_body` takes fewer octets than it was given or
-returns `error.Blocked`, and `respond` or `write_trailers` returns `error.NoSpaceLeft`. The
-endpoint reports `writable` for the request once the response has room, and the program writes
-again. `cancel` ends one request before its response is whole, and its `cancelled` follows with
+trailer section. A write can find no room: `write_body` takes fewer octets than it was given, or any
+of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often returns
+`error.Blocked`, and `respond` and `write_trailers` `error.NoSpaceLeft`. Either way the endpoint
+reports `writable` for the request once the response has room, and the program writes again. `cancel` ends one request before its response is whole, and its `cancelled` follows with
 the reason `program`. `shutdown` ends every connection once the requests it holds are answered,
 and the `closed` event follows once every connection has ended.
 
@@ -289,7 +292,8 @@ return error.SendUnfinished;
 
 A call that fills the buffer leaves more owed. A call that leaves room ends the `send`, and the
 endpoint reports another once the connection owes more. A program whose socket is full stops
-calling, and calls again when the socket takes more.
+calling, and calls again when the socket takes more. A program may also call `send_stream` for an
+open connection without waiting for a `send`, such as straight after it writes a response.
 
 A peer may hold a connection only so long ([decision 110](decisions.md)). Deadlines bound the
 wait for a first request, the time between requests, a request's head and its content, and how
@@ -312,8 +316,9 @@ when octets arrive never ends a silent peer.
 
 A connection's socket closes in one of two ways. The endpoint reports `close` once the connection
 has finished and `send_stream` has written every octet it owed, the TLS close_notify too, or once
-the `linger_ns` deadline passes with octets still owed. The program closes the socket then, and
-owes the endpoint no call. Or the peer closes the socket first, or the socket fails, and the
+the `linger_ns` deadline passes with octets still owed. The program closes the socket once
+the socket has taken the octets `send_stream` returned, and owes the endpoint no call. After a
+linger there are none to wait for: colibri dropped what it still owed. Or the peer closes the socket first, or the socket fails, and the
 program tells the endpoint with `transport_closed`. The example accepts a second socket to show
 that call, a socket its peer closes before it sends an octet:
 
@@ -334,8 +339,14 @@ nothing from then on. `ended` carries two more fields:
 - `reason` names the deadline that passed, or the limit the peer passed, when colibri closed the
   connection for one. It is null otherwise.
 - `failed` says colibri closed the connection because its peer broke a protocol rule or its record
-  layer failed. What colibri owes that peer, such as h2's GOAWAY or an h11 server's 400, is
-  reported as a `send` before the `close`.
+  layer failed. The endpoint reports a `send` for what colibri owes that peer, such as h2's
+  GOAWAY or an h11 server's 400, before the `close`.
+
+`ended` follows a `close` with no call from the program, so it may come while the program's socket
+still writes its last octets or waits for its close to complete. A later connection may then take
+the slot while that socket is still open. A program that keeps state for each socket therefore
+keeps the connection's whole handle with it, and does not index the state by the handle's `slot`
+alone: it maps a slot to the state of the connection the slot holds now.
 
 Three more things a server sets:
 
@@ -516,7 +527,8 @@ try endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.
 ```
 
 `versions` and `limits` mean what they mean over TCP. With h3 turned off, or with no identity,
-`init` returns `error.NoVersion`. `limits.requests_max` bounds the request streams a client opens
+an endpoint that serves no TCP version returns `error.NoVersion` from `init`, and one that also
+serves TCP starts no QUIC connection. `limits.requests_max` bounds the request streams a client opens
 at once, up to `server.constants.quic_requests_max`.
 
 The program passes the endpoint each datagram with the address it came from, as a

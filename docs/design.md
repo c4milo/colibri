@@ -5626,7 +5626,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 70 tests, handshakes against colibri's own client among them, and 83 mutations, each CAUGHT.
     The tests found that h2's `write_data` sent a server's DATA before any response head, which
     RFC 9113 §8.1 forbids; `write_data` now refuses it.
-  - §9's h11 and h2 server runs each connection on `server` (`src/testing/server_session.zig`),
+  - §9's h11 and h2 server runs each connection on `server` (`src/testing/server/server_session.zig`),
     in place of its own record half and protocol sessions.
 
   **17a check,** run on macOS 26.6.2 arm64 on 2026-09-27, the peers in Docker where the scripts

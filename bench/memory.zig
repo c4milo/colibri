@@ -28,8 +28,8 @@ const Row = struct {
     holds: []const u8,
 };
 
-/// An endpoint with one slot of each kind, whose size is what one more connection costs a server
-/// beside the endpoint's own few octets.
+/// The endpoints of one TCP slot and of one QUIC slot. Each holds one connection and the
+/// endpoint's fixed part: its TLS configurations and what its connections borrow.
 const one_tcp: server.Capacity = .{ .tcp_connections = 1, .quic_connections = 0 };
 const one_quic: server.Capacity = .{ .tcp_connections = 0, .quic_connections = 1 };
 
