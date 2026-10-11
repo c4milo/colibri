@@ -181,8 +181,7 @@ test "RFC 9846 §5.2: a forged record over TLS sends the alert once, closes, and
     try support.start_client(&tcp_support.protocols_both);
     try testing.expect(try support.handshake(handle));
     const sends_before = count(.send);
-    // An application_data header over octets no key sealed (RFC 9846 §5.2).
-    _ = support.give(handle, "\x17\x03\x03\x00\x20" ++ "\x00" ** 32);
+    _ = support.give(handle, forged_record);
     support.collect();
     try testing.expectEqual(sends_before + 1, count(.send));
     try testing.expect(support.index_of(.close).? < support.index_of(.ended).?);
@@ -206,4 +205,52 @@ test "RFC 9846 §6.1: a TLS connection shut down with no request sends its close
     try testing.expect(support.nth(.close, 0) != null);
     _ = try support.open_sent(handle.slot);
     try testing.expect(support.client_saw_alert);
+}
+
+/// An application_data header over octets no key sealed (RFC 9846 §5.2). Test-only.
+const forged_record = "\x17\x03\x03\x00" ++ [_]u8{forged_len} ++ "\x00" ** forged_len;
+const forged_len: u8 = 32;
+
+/// Passes `octets` as what the socket of `handle` read, then reads the endpoint's events,
+/// answering each `send` as a program does, until it reports a `close`. Returns whether it did,
+/// with no call made after the `close`. Test-only.
+fn close_follows(handle: @import("../event.zig").ConnectionHandle, octets: []u8) bool {
+    var input: @import("endpoint.zig").Input = .{ .stream = .{ .connection = handle, .octets = octets } };
+    // Bounded: the fixture's log holds as many events.
+    for (0..support.seen_max) |_| {
+        const reported = endpoint.receive(input, support.now_ns).event;
+        const first = input == .stream;
+        input = .none;
+        switch (reported orelse if (first) continue else return false) {
+            .send => |owing| support.flush(owing),
+            .close => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
+test "RFC 9846 §6: a TLS slot's session is wiped at the endpoint's close, and at the program's" {
+    // The endpoint closes: a record that does not authenticate fails the record layer, which
+    // sends its alert and no close_notify. The program hears `close` and makes no call before it
+    // closes the socket, so the endpoint has wiped the session by then.
+    try support.start(support.identity(), .{ .h2 = false });
+    const closed = endpoint.accept(.tls, support.now_ns).?;
+    try support.start_client(&tcp_support.protocols_both);
+    try testing.expect(try support.handshake(closed));
+    try testing.expectEqual(.connected, endpoint.tcp[closed.slot].tls_server.session.recordState());
+    var forged = forged_record.*;
+    try testing.expect(close_follows(closed, &forged));
+    try testing.expectEqual(.closed, endpoint.tcp[closed.slot].tls_server.session.recordState());
+    // The program closes: the peer left first, and `transport_closed` wipes with no `close`.
+    try support.start(support.identity(), .{ .h2 = false });
+    const left = endpoint.accept(.tls, support.now_ns).?;
+    try support.start_client(&tcp_support.protocols_both);
+    try testing.expect(try support.handshake(left));
+    try testing.expectEqual(.connected, endpoint.tcp[left.slot].tls_server.session.recordState());
+    endpoint.transport_closed(left);
+    try testing.expectEqual(.closed, endpoint.tcp[left.slot].tls_server.session.recordState());
+    support.collect();
+    try testing.expectEqual(null, support.nth(.close, 0));
+    try testing.expectEqual(left, support.nth(.ended, 0).?.connection);
 }
