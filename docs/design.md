@@ -1339,6 +1339,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   The run's base is the commit before design §8 step 21b.6, which moved the test-only server onto
   `server.Endpoint` and changed nothing under `src/h2`.
 
+  **The pool reads the slot it found last, 2026-10-11.** A frame and its answer look one stream
+  up several times in a row: `finish`, `sendable` twice, and `transition`'s own assertion three
+  times. Each `get` scanned the pool from its first slot, and with every slot live a record is
+  64 slots in on average. The pool of decision 14 now keeps the slot `get` last found or `open`
+  last wrote, and reads it before it scans. No two live entries hold one identifier, so the slot
+  is the one the scan would find. QUIC's stream pool is the same type and reads the same way.
+  No struct grew: the field fits where the pool had padding. The pool's tests moved to
+  `src/core/slots_test.zig`, because the field took `slots.zig` past the file limit.
+
+  What each check printed:
+  - Two tests hold `get` to a scan from the first slot, for every identifier the test uses and
+    with the slot read first on each entry in turn, as entries open and close; and they pin
+    which slot is read first after a `get`, an `open`, a `get` that finds nothing and an `init`.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change: 128, 128, 64 and 128
+    files.
+  - 5 mutations, each **CAUGHT**: the slot read first answering for any identifier; a dead slot
+    read first still answering; `get`, and `open`, not moving the slot read first; and `init`
+    leaving it where the entries before left it.
+
+  The judge, [run 38180215123](https://github.com/c4milo/colibri/actions/runs/38180215123),
+  measured it against `1c80d6b`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 27,727 | 25,371 | 0.9150 | 0.9149 | wins in both |
+  | h2-tls-many | 35,548 | 33,190 | 0.9337 | 0.9337 | wins in both |
+  | h2-one | 223,176 | 224,262 | 1.0049 | 1.0039 | within the noise |
+  | h2-tls-one | 7,325,644 | 7,325,198 | 0.9999 | 1.0000 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 2,355 in each
+  job. This run's base counts 27,727 instructions a request where run 38167448104 counted 24,783
+  for the same h2 code: between them step 21b.6 moved the test-only server onto
+  `server.Endpoint`. The two counts are from different runs, so the difference is not a judged
+  ratio, and no run has measured that step.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
