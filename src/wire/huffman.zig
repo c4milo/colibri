@@ -174,36 +174,56 @@ pub fn decode(encoded: []const u8, output: *Writer) DecodeError!void {
     output.* = cursor;
 }
 
-/// Most whole octets ready to write after one symbol. At most seven bits remain between symbols and
-/// a code is at most thirty, so no more than four octets are ever ready at once.
-const ready_octets_max = (constants.huffman_padding_bits_max + constants.huffman_code_bits_max) /
-    @bitSizeOf(u8);
+/// What `encode` writes at a time: the oldest thirty-two bits of code, in network byte order.
+const Word = u32;
+const word_bits = @bitSizeOf(Word);
+/// Most octets left once the last word is written: fewer than `word_bits` bits, padded to an octet.
+const tail_octets_max = word_bits / @bitSizeOf(u8);
+
+comptime {
+    // Fewer than `word_bits` bits wait between symbols and a code is at most thirty, so the u64
+    // `encode` assembles them in holds both.
+    assert(word_bits - 1 + constants.huffman_code_bits_max <= @bitSizeOf(u64));
+}
 
 /// Encodes `bytes` into `output`, padded with the most significant bits of EOS (RFC 7541 §5.2).
-/// All of the octets are written, or none.
+/// When the octets do not fit, the output cursor does not move: it moves once, when the whole
+/// string is written, and octets past it are scratch.
 pub fn encode(bytes: []const u8, output: *Writer) core.writer.Error!void {
-    if (encoded_len(bytes) > output.remaining_len()) return error.NoSpaceLeft;
+    var cursor = output.*;
+    // The low `pending_bits` bits of `pending` are code not yet written. The bits above them are
+    // written, and each shift moves them toward the top, where they fall off.
     var pending: u64 = 0;
-    var pending_bits: u8 = 0;
+    var pending_bits: u32 = 0;
     for (bytes) |byte| {
         const row = table.codes[byte];
-        pending = (pending << @intCast(row.bit_count)) | row.code;
+        // The comptime block above holds every row to thirty bits, so the amount needs no check
+        // here, in the loop that runs for every octet.
+        pending = (pending << @truncate(row.bit_count)) | row.code;
         pending_bits += row.bit_count;
-        for (0..ready_octets_max) |_| {
-            if (pending_bits < @bitSizeOf(u8)) break;
-            pending_bits -= @bitSizeOf(u8);
-            output.write_byte(@truncate(pending >> @intCast(pending_bits))) catch unreachable;
-        }
-        assert(pending_bits < @bitSizeOf(u8));
-        pending &= (@as(u64, 1) << @intCast(pending_bits)) - 1;
+        if (pending_bits < word_bits) continue;
+        pending_bits -= word_bits;
+        try cursor.write_int(Word, @truncate(pending >> @intCast(pending_bits)));
     }
-    if (pending_bits == 0) return;
-    const padding_bits: u8 = @bitSizeOf(u8) - pending_bits;
-    const padding: u64 = (@as(u64, 1) << @intCast(padding_bits)) - 1;
-    output.write_byte(@truncate((pending << @intCast(padding_bits)) | padding)) catch unreachable;
+    assert(pending_bits < word_bits);
+    // RFC 7541 §5.2: the last octet is padded with the most significant bits of EOS, all ones.
+    const padding_bits: u32 = (@bitSizeOf(u8) - pending_bits % @bitSizeOf(u8)) % @bitSizeOf(u8);
+    pending = (pending << @intCast(padding_bits)) | ((@as(u64, 1) << @intCast(padding_bits)) - 1);
+    pending_bits += padding_bits;
+    for (0..tail_octets_max) |_| {
+        if (pending_bits == 0) break;
+        pending_bits -= @bitSizeOf(u8);
+        try cursor.write_byte(@truncate(pending >> @intCast(pending_bits)));
+    }
+    assert(pending_bits == 0);
+    output.* = cursor;
 }
 
 const testing = std.testing;
+
+test {
+    _ = @import("huffman_test.zig");
+}
 
 /// Octets of output the test helpers decode or encode into. Test-only.
 const expect_buffer_len = 256;

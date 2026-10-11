@@ -744,6 +744,45 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     and `zig build lean` refuses it for the vectors it changes.
   - 1 edit to the vector file, which `zig build lean` refuses.
 
+  **The encoder writes a word at a time, 2026-10-11.** For
+  [#57](https://github.com/c4milo/colibri/issues/57), `huffman.encode` gathers code in a 64-bit
+  value and writes its oldest thirty-two bits at one call. Before it, the encoder measured the
+  string and then wrote one octet at a time, with up to four writes for a symbol. A string that
+  does not fit now leaves the output cursor where it was, as a failed decode does, and the octets
+  past the cursor are scratch. No name changed.
+
+  What each check printed:
+  - The encoder it replaced stays in `huffman_test.zig` as the reference. Three tests require
+    `encode` to return what the reference returns and to leave the same octets written: for
+    strings of every length up to 40, in every room from none to one octet past the code; for
+    every pair of octets; and for the strings the judge's exchange carries. The first also
+    requires its strings to leave each count of waiting bits, 0 to 31.
+  - The vectors `spec/lean/Colibri/Wire/Huffman.lean` gives, `zig build hpack-vectors`,
+    `zig build qpack-vectors` and `zig build golden-check` passed with the new encoder. Zig 0.16
+    cannot run the fuzzer ([#53](https://github.com/c4milo/colibri/issues/53)).
+  - 13 mutations, each **CAUGHT**: a word taken one bit too high, or from the newest bits; a word
+    or a tail octet that does not fit, dropped; the count keeping a written word's bits; padding
+    of zeros, or an octet of padding after a code that ends on an octet; a tail of three octets at
+    most; a tail octet taken before the count moves; the cursor moved before the tail is written,
+    or never; a shift one bit short; and a full word that waits for one more symbol, which the
+    encoder's own assertion stops.
+
+  The judge, [run 38144224156](https://github.com/c4milo/colibri/actions/runs/38144224156),
+  measured it against `e880e60`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 36,934 | 36,349 | 0.9841 | 0.9841 | wins in both |
+  | h2-tls-many | 44,755 | 44,170 | 0.9869 | 0.9871 | wins in both |
+  | h2-one | 301,639 | 301,666 | 1.0001 | 0.9978 | within the noise |
+  | h2-tls-one | 7,564,746 | 7,560,839 | 0.9995 | 0.9985 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 586 in the first
+  job and by 587 in the second. The server still measures a string twice before it codes it: once
+  to choose Huffman, in the HPACK encoder's `write_string`, and once for the literal's length, in
+  `string_literal.encode`.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
