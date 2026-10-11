@@ -442,6 +442,21 @@ test "decision 110: an h11 body has no window to update, and its rate never star
     try std.testing.expectEqual(server.Deadline.body_rate, result.record.deadline_passed().?);
 }
 
+test "a peer that reads nothing has read nothing when the server closes" {
+    // The first seed of such a peer.
+    for (0..limits.check_seeds_default) |seed| {
+        var random = Random.init(seed);
+        const plan = deadline_plan.draw(&random);
+        if (plan.peer != .reads_nothing) continue;
+        try deadline_run.run(&check_storage.run, &plan, seed);
+        const socket = &check_storage.run.to_client;
+        try std.testing.expect(socket.written > 0);
+        try std.testing.expectEqual(0, socket.delivered);
+        return;
+    }
+    return error.TestUnexpectedResult;
+}
+
 /// The first seed whose honest peer reads so slowly that the server's output has no room for a
 /// second answer's head when it is due, and the seed's exchanges.
 const no_room_seed: u64 = 0x1f4c;
@@ -456,4 +471,15 @@ test "an answer whose head finds no room is written once the peer has read, and 
     try std.testing.expectEqual([_]bool{ false, true, false }, [_]bool{
         answers[0].waited_for_room, answers[1].waited_for_room, answers[2].waited_for_room,
     });
+}
+
+/// The first seed whose honest peer still has octets of its last response to read from the socket
+/// when the idle deadline closes the connection, and the seed's exchanges.
+const unread_seed: u64 = 0x3be9;
+const unread_seed_exchanges: u8 = 3;
+
+test "decision 110: a slow reader reads what the socket holds after the idle deadline closes the connection" {
+    const result = try run_seed(&check_storage, unread_seed);
+    try std.testing.expectEqual(unread_seed_exchanges, result.record.exchanges_done);
+    try std.testing.expectEqual(server.Deadline.idle, result.record.deadline_passed().?);
 }

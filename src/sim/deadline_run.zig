@@ -134,7 +134,10 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     // Bounded: each pass goes to a later instant, or ends the run.
     for (0..limits.instants_max) |_| {
         try settle(storage, plan, now_ms);
-        if (storage.server_connection.should_close()) return finish(storage, plan, .closed, now_ms);
+        if (storage.server_connection.should_close()) {
+            try read_rest(storage, plan, now_ms);
+            return finish(storage, plan, .closed, now_ms);
+        }
         const next_ms = next_instant(storage, plan) orelse return finish(storage, plan, .held, limits.horizon_ms);
         if (next_ms >= limits.horizon_ms) return finish(storage, plan, .held, limits.horizon_ms);
         assert(next_ms > now_ms);
@@ -290,6 +293,17 @@ fn read_socket(storage: *Storage, plan: *const Plan, now_ms: u64) bool {
     if (now_ms < storage.next_read_ms or stream.written == stream.delivered) return false;
     storage.next_read_ms = now_ms + plan.read_gap_ms;
     return stream.deliver(plan.read_len);
+}
+
+/// An honest peer reads what the socket still holds once the server has closed. The server
+/// closes after the last octet it wrote, so a peer that reads slowly still reads them all, and
+/// the run counts the exchanges they finish. A hostile peer reads no more than it had.
+fn read_rest(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
+    if (!plan.honest()) return;
+    const stream = &storage.to_client;
+    _ = stream.deliver(stream.written);
+    assert(stream.delivered == stream.written);
+    _ = try peer_read(storage, plan, now_ms);
 }
 
 /// The peer reads what the server sent: colibri's client reads its responses, and a hostile peer
