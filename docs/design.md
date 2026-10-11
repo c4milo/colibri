@@ -7640,6 +7640,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   same I/O. The likely cause is a server that ends each tick sooner and so takes more ticks for
   the same octets. No run has checked that.
 
+  **The deadline check past its pinned seeds, 2026-10-11.** The check pins seeds `[0, 256)`. Run
+  over 8,192 seeds it failed at seed `0xffe`, and two more seeds failed after that one was
+  answered. Each showed the check wrong and colibri right:
+  - Seed `0xffe`: a slow h2 body brought the octets that make colibri owe a WINDOW_UPDATE, and
+    colibri started the body's rate again with a grace period, as decision 110 says since its
+    amendment for a held WINDOW_UPDATE. The check's oracle now does the same.
+  - Seed `0x1f4c`: a slow reader left the server's output full when a second answer was due.
+    `respond` returned `NoSpaceLeft`, which `SendError` answers with "`send`, then call again",
+    and the run's application took it for a refusal. It now writes the head once the peer has
+    read.
+  - Seed `0x3be9`: the idle deadline closed the connection while the peer still had octets of its
+    last response to read from the socket, and the run counted the exchange lost. An honest peer
+    now reads what the server wrote before it closed.
+
+  What each check printed, on macOS arm64:
+  - `zig build sim -Drelease -- --deadline-check 65536`: every seed passed, with `exchanges=33054
+    first_request=11683 idle=28620 head=4650 body_rate=4105 body=2111 send_rate=14367
+    streams_cut=8033 streams_refused=20690 held=0` and `crc32=0x4878c63a`. The pinned CRC-32 of
+    seeds `[0, 256)` did not change.
+  - Seven tests pin what no pinned seed reaches: the three seeds; seed `0x16ec`, an h11 body that
+    brings as many octets, whose rate runs on; a window that ends as the update's piece arrives,
+    which colibri judges first; a piece due as the body stops, which is never sent; and a peer
+    that reads nothing, which has read nothing when the server closes.
+  - 11 mutations, each **CAUGHT** by a test. Of the oracle: a rate that never starts again, that
+    starts again without its grace period, that counts the piece that brought the update, that
+    takes the update a piece early, that takes one from a piece due as the body stops, that
+    starts again before a window ending at the update is judged, and that starts again in h11.
+    Of the application: a head with no room taken for a refusal, and an answer that waits for
+    room and still names its due instant, which the run's own assertion stops. Of the run: an
+    honest peer that reads nothing after the close, and a hostile peer that reads the rest.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the
