@@ -1305,6 +1305,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/tcp_trace.sh`: 64 of 64 traces are behaviors of the model.
   - The six mutations are each still **CAUGHT**, the third by TLC with 25 of 64.
 
+  **A lookup reads the watermark first, 2026-10-11.** The table keeps closed streams' records, so
+  once a connection has carried `concurrent_streams_max` streams all 128 slots of its pool are
+  live. `lookup` scanned them for a record before it read the watermark, for every stream a peer
+  opened, and a new stream's identifier is above its parity's watermark, where the pool holds no
+  record (invariant 13). `lookup` reads the watermark first now. It moved to `streams_slot.zig`,
+  because `streams.zig` was at the file limit.
+
+  What each check printed:
+  - The lookup it replaced stays in the tests as the reference. Two tests require `lookup` to
+    find what the reference finds for each identifier of either parity, as a server's table
+    fills, refuses a stream, closes and drops records, and in a client's table with a promised
+    stream.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write` and `--deadline-trace-write` wrote
+    the same octets before and after the change: 128, 128 and 64 files.
+  - 4 mutations, each **CAUGHT**: the identifier at its watermark read as idle; an idle
+    identifier that names the wrong initiator; an identifier with no record read as idle
+    whatever its watermark; and a record at or below the watermark not looked for. A fifth, the
+    scan first again, changes no answer, and only the judge sees it.
+
+  The judge, [run 38167448104](https://github.com/c4milo/colibri/actions/runs/38167448104),
+  measured it against `5954c39`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 25,701 | 24,783 | 0.9643 | 0.9643 | wins in both |
+  | h2-tls-many | 33,456 | 32,530 | 0.9723 | 0.9731 | wins in both |
+  | h2-one | 212,851 | 213,322 | 1.0022 | 0.9981 | within the noise |
+  | h2-tls-one | 7,336,367 | 7,338,780 | 1.0003 | 1.0000 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 917 in each job.
+  The run's base is the commit before design §8 step 21b.6, which moved the test-only server onto
+  `server.Endpoint` and changed nothing under `src/h2`.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

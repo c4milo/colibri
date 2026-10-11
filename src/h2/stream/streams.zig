@@ -39,6 +39,7 @@ const Role = @import("../role.zig").Role;
 const stream = @import("stream.zig");
 const window = @import("../window.zig");
 const open = @import("streams_open.zig");
+const slot = @import("streams_slot.zig");
 const goaway = @import("streams_goaway.zig");
 const window_adjust = @import("streams_window.zig");
 const resets = @import("streams_reset.zig");
@@ -191,11 +192,7 @@ pub const Streams = struct {
     /// and 31 bits hold at most `stream_id_max`. `.live` is valid until the record leaves the pool.
     /// A peer identifier above `goaway_sent_last_id` is idle here, and ignored (RFC 9113 §6.8).
     pub fn lookup(streams: *Streams, id: u32) Lookup {
-        assert(id != constants.connection_stream_id);
-        assert(id <= constants.stream_id_max);
-        if (streams.pool.get(id)) |record| return .{ .live = record };
-        if (streams.pool.is_above_watermark(id)) return .{ .idle = open.initiated_by_peer(streams, id) };
-        return if (was_reset_and_dropped(streams, id)) .reset_and_dropped else .forgotten;
+        return slot.lookup(streams, id);
     }
 
     /// Opens a stream, at a server, for a HEADERS the peer sent on an idle identifier, with a send
@@ -307,14 +304,6 @@ pub const Streams = struct {
         // the oldest closed record when an open needs the slot.
     }
 };
-
-/// Whether an identifier at or below its watermark with no record names a stream colibri reset and
-/// the table dropped, as `Lookup.reset_and_dropped` describes it.
-fn was_reset_and_dropped(streams: *const Streams, id: u32) bool {
-    assert(!streams.pool.is_above_watermark(id));
-    const highest = streams.highest_forgotten_reset_id[open.class_of(id)] orelse return false;
-    return id <= highest;
-}
 
 /// Whether a stream in `state` counts toward SETTINGS_MAX_CONCURRENT_STREAMS: open and both
 /// half-closed states do, and reserved ones do not (RFC 9113 §5.1.2).

@@ -1,6 +1,6 @@
-//! The pool slots of the table in `streams.zig`, split off `streams_open.zig` for length: which
-//! record an open drops when the pool is full, and what the table remembers of an identifier whose
-//! record is gone.
+//! The pool slots of the table in `streams.zig`, split off `streams_open.zig` for length: what an
+//! identifier finds in the table, which record an open drops when the pool is full, and what the
+//! table remembers of an identifier whose record is gone.
 //!
 //! The pool holds `concurrent_streams_max` records, live and closed alike, because RFC 9113 §5.1
 //! decides a frame on a closed stream by how that stream closed. An open into a full pool drops
@@ -17,6 +17,26 @@ const open = @import("streams_open.zig");
 
 const Stream = table.Stream;
 const Streams = table.Streams;
+const Lookup = table.Lookup;
+
+/// What the identifier of a frame the peer sent finds, as `Streams.lookup` says. An identifier
+/// above its parity's watermark was never opened, so the pool holds no record of it (invariant
+/// 13). That answer comes first, because it reads no record and every new stream gets it.
+pub fn lookup(streams: *Streams, id: u32) Lookup {
+    assert(id != constants.connection_stream_id);
+    assert(id <= constants.stream_id_max);
+    if (streams.pool.is_above_watermark(id)) return .{ .idle = open.initiated_by_peer(streams, id) };
+    if (streams.pool.get(id)) |record| return .{ .live = record };
+    return if (was_reset_and_dropped(streams, id)) .reset_and_dropped else .forgotten;
+}
+
+/// Whether an identifier at or below its watermark with no record names a stream colibri reset and
+/// the table dropped, as `Lookup.reset_and_dropped` describes it.
+fn was_reset_and_dropped(streams: *const Streams, id: u32) bool {
+    assert(!streams.pool.is_above_watermark(id));
+    const highest = streams.highest_forgotten_reset_id[open.class_of(id)] orelse return false;
+    return id <= highest;
+}
 
 /// Moves the watermark of `id`'s parity to `id`, which the peer used for a stream colibri resets
 /// without a record, and records the reset for `lookup`.
@@ -69,7 +89,64 @@ fn drop_oldest_closed(streams: *Streams) bool {
 // Tests. `streams_open.zig` holds the table these run on, and its test helpers.
 
 const testing = std.testing;
-const Lookup = table.Lookup;
+
+/// The lookup `lookup` replaced, which scanned the pool for a record before it read the watermark:
+/// the reference `lookup` must agree with. Test-only.
+fn lookup_scan_first(streams: *Streams, id: u32) Lookup {
+    if (streams.pool.get(id)) |record| return .{ .live = record };
+    if (streams.pool.is_above_watermark(id)) return .{ .idle = open.initiated_by_peer(streams, id) };
+    return if (was_reset_and_dropped(streams, id)) .reset_and_dropped else .forgotten;
+}
+
+/// The identifiers the comparison asks for: every one a full table has seen, and some past them.
+/// Test-only.
+const compared_ids: u32 = open.client_id(constants.concurrent_streams_max + compared_ids_past);
+const compared_ids_past: u32 = 8;
+
+/// Requires `lookup` to find what the reference finds in the tests' table, for each identifier of
+/// either parity, and names the first that differs. Test-only.
+fn expect_same_lookups() !void {
+    for (1..compared_ids) |id| {
+        const found = lookup(&open.test_table, @intCast(id));
+        const scanned = lookup_scan_first(&open.test_table, @intCast(id));
+        if (std.meta.eql(found, scanned)) continue;
+        std.debug.print("first difference: identifier {d}: lookup {any}, scan first {any}\n", .{ id, found, scanned });
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "lookup finds what a scan of the pool before the watermark finds, as a server's table fills, closes and drops" {
+    open.test_table.init(.server);
+    try expect_same_lookups();
+    _ = try open.test_table.open_peer(open.client_id(0), open.test_send_window);
+    _ = try open.test_table.open_peer(open.client_id(2), open.test_send_window);
+    try expect_same_lookups();
+    try finish(try open.expect_live(open.client_id(0)));
+    try open.reset(try open.expect_live(open.client_id(2)));
+    try expect_same_lookups();
+    open.test_table.init(.server);
+    try open.fill_with_peer_streams();
+    try expect_same_lookups();
+    // A stream past the limit is refused, and the watermark moves past it with no record.
+    const refused = open.client_id(constants.concurrent_streams_max);
+    try testing.expectError(error.Refused, open.test_table.open_peer(refused, open.test_send_window));
+    try expect_same_lookups();
+    // Two closes give way to two opens: one record is forgotten, and one reset is remembered.
+    try finish(try open.expect_live(open.client_id(0)));
+    try open.reset(try open.expect_live(open.client_id(1)));
+    _ = try open.test_table.open_peer(open.client_id(constants.concurrent_streams_max + 1), open.test_send_window);
+    _ = try open.test_table.open_peer(open.client_id(constants.concurrent_streams_max + 2), open.test_send_window);
+    try expect_same_lookups();
+}
+
+test "lookup finds what a scan of the pool before the watermark finds in a client's table, with a promised stream" {
+    open.test_table.init(.client);
+    try expect_same_lookups();
+    _ = try open.test_table.open_local(null, open.test_send_window);
+    _ = try open.test_table.open_local(null, open.test_send_window);
+    try open.test_table.reserve_peer(constants.stream_id_server_first + constants.stream_id_step);
+    try expect_same_lookups();
+}
 
 test "an identifier at or below the highest reset colibri dropped is reset_and_dropped, and a record still held answers for its own" {
     open.test_table.init(.server);
