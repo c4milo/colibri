@@ -1,7 +1,11 @@
 //! The endpoint's slots (decision 119): which hold a connection, the generation each is in, and
 //! the free ones, which a new connection takes oldest first. TCP slots come first, then QUIC
-//! slots, so a TCP connection's slot indexes a program's own array of sockets. `server.zig` does
-//! not export this file.
+//! slots, so a TCP connection's slot is below the count of TCP slots. A slot is free again at its
+//! connection's `ended`, which follows a `close` with no call from the program, so a later
+//! connection may take the slot while the program's socket still closes. A program whose sockets
+//! outlive `ended` keeps entries of its own and a map from a slot to the entry of the connection
+//! the slot holds now, as the test-only server does (design §8 step 21b.6). `server.zig` does not
+//! export this file.
 const std = @import("std");
 const assert = std.debug.assert;
 const event = @import("../event.zig");

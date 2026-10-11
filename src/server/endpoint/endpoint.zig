@@ -211,9 +211,11 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
             return endpoint.held.send_stream(connection, output, now_ns);
         }
 
-        /// The socket of the TCP connection `connection` closed: the peer closed it, the caller
-        /// closed it after a `close`, or it failed. The `done` of each response written whole,
-        /// the `cancelled` of each other request, and the connection's `ended` follow.
+        /// The socket of the TCP connection `connection` closed before the endpoint reported its
+        /// `close`: the peer closed it, or it failed. The `done` of each response written whole,
+        /// the `cancelled` of each other request, and the connection's `ended` follow. After a
+        /// `close` the program closes the socket and owes no call: `ended` follows by itself, and
+        /// this call changes nothing.
         pub fn transport_closed(endpoint: *Self, connection: ConnectionHandle) void {
             endpoint.held.transport_closed(connection);
         }
