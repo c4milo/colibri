@@ -175,6 +175,27 @@ const testing = std.testing;
 /// The storage the check test runs in, outside any stack frame.
 var test_storage: Storage align(@alignOf(Storage)) = undefined;
 
+/// What the written seeds count, the same in Debug and ReleaseSafe (design §8 step 21b.6). TLC
+/// finds a log of a server that answers nothing a behavior of the model, so the counts say what
+/// the runs did: they read responses whole, some shut the server down, and some run over TLS.
+const expected = struct {
+    const states: u64 = 563;
+    const requests: u64 = 129;
+    const responses: u64 = 83;
+    const refused: u64 = 3;
+    const shut_down: u64 = 25;
+    const tls: u64 = 38;
+};
+const census_expected: Census = .{
+    .seeds = limits.written_seeds,
+    .states = expected.states,
+    .requests = expected.requests,
+    .responses = expected.responses,
+    .refused = expected.refused,
+    .shut_down = expected.shut_down,
+    .tls = expected.tls,
+};
+
 test "TCP trace run: a client's first flight and every exchange after it, with no error, and replayed" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -182,7 +203,5 @@ test "TCP trace run: a client's first flight and every exchange after it, with n
         std.debug.print("tcp-trace: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
-    // The runs read responses whole, some shut the server down, and some run over TLS.
-    try testing.expect(census.requests > 0 and census.responses > 0 and census.shut_down > 0);
-    try testing.expect(census.tls > 0 and census.tls < census.seeds);
+    try testing.expectEqual(census_expected, census);
 }

@@ -205,6 +205,24 @@ const testing = std.testing;
 /// The storage the check test runs in, outside any stack frame.
 var test_storage: Storage align(@alignOf(Storage)) = undefined;
 
+/// What the written seeds count, the same in Debug and ReleaseSafe (design §8 step 21b.6). Every
+/// seed finished each exchange, so each stream counts one request and one response, and the runs
+/// reach the states the clocks' rules are about.
+const expected = struct {
+    const states: u64 = 3837;
+    const exchanges: u64 = 69;
+    const bodies_timed: u64 = 798;
+    const sends_timed: u64 = 21;
+};
+const census_expected: Census = .{
+    .seeds = limits.written_seeds,
+    .states = expected.states,
+    .requests = expected.exchanges,
+    .responses = expected.exchanges,
+    .bodies_timed = expected.bodies_timed,
+    .sends_timed = expected.sends_timed,
+};
+
 test "deadline trace run: honest endpoints finish their exchanges, replay, and time bodies and sends" {
     var census: Census = .{};
     var failed_seed: ?u64 = null;
@@ -212,8 +230,5 @@ test "deadline trace run: honest endpoints finish their exchanges, replay, and t
         std.debug.print("deadline-trace: seed 0x{x} failed: {t}\n", .{ failed_seed.?, failure });
         return failure;
     };
-    // Every seed finished each exchange, so each stream counts one request and one response.
-    try testing.expect(census.responses > 0 and census.requests == census.responses);
-    // The runs reach the states the clocks' rules are about.
-    try testing.expect(census.bodies_timed > 0 and census.sends_timed > 0);
+    try testing.expectEqual(census_expected, census);
 }
