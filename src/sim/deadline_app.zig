@@ -1,6 +1,6 @@
 //! The application of a deadline run (`deadline_run.zig`, decision 110): it notes each request the
-//! server reads and when its body ends, answers it once its delay has passed, and writes the
-//! answer's content as the server takes it, a piece at a time when the peer reads slowly.
+//! server reads and when its body ends, answers it by its id once its delay has passed, and writes
+//! the answer's content as the server takes it, a piece at a time when the peer reads slowly.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -10,6 +10,9 @@ const plan_module = @import("deadline_plan.zig");
 const limits = sim.constants.deadline;
 const Plan = plan_module.Plan;
 
+/// The server of a deadline run (design §8 step 21b.6): one connection in cleartext, and no QUIC.
+pub const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+
 pub const Error = error{
     /// The server refused an answer to an honest peer.
     ExchangeRefused,
@@ -18,7 +21,7 @@ pub const Error = error{
 /// A request the application read: when its body ended, when the application answered it, the
 /// octets of its content the server took, and when the last of them left the server's output.
 pub const Answer = struct {
-    id: u64,
+    id: server.Id,
     read_ms: u64,
     body_end_ms: ?u64,
     answered_ms: ?u64,
@@ -47,19 +50,20 @@ pub const Application = struct {
     /// cancelled one.
     pub fn note_event(app: *Application, reported: server.Event, now_ms: u64) void {
         switch (reported) {
-            .request => |request| app.note_request(request.id.number, now_ms, request.end),
-            .body => |body| if (body.end) app.note_body_end(body.id.number, now_ms),
-            .trailers => |trailers| app.note_body_end(trailers.id.number, now_ms),
+            .request => |request| app.note_request(request.id, now_ms, request.end),
+            .body => |body| if (body.end) app.note_body_end(body.id, now_ms),
+            .trailers => |trailers| app.note_body_end(trailers.id, now_ms),
             .cancelled => |cancelled| if (cancelled.reason == .deadline) {
                 app.cancelled = cancelled.reason.deadline;
             },
             .done => {},
-            // A connection reports none of these: the endpoint does (decision 119).
+            // The run keeps these: the application writes each answer again in every pass, and
+            // the rest name the connection and no request.
             .writable, .send, .close, .ended, .closed => unreachable,
         }
     }
 
-    fn note_request(app: *Application, id: u64, now_ms: u64, ended: bool) void {
+    fn note_request(app: *Application, id: server.Id, now_ms: u64, ended: bool) void {
         // The application answers as many requests as a peer makes whole.
         if (app.answers_len == limits.exchanges_max) return;
         app.answers[app.answers_len] = .{
@@ -74,7 +78,7 @@ pub const Application = struct {
         app.answers_len += 1;
     }
 
-    fn note_body_end(app: *Application, id: u64, now_ms: u64) void {
+    fn note_body_end(app: *Application, id: server.Id, now_ms: u64) void {
         for (app.answers[0..app.answers_len]) |*pending| {
             if (pending.id == id) pending.body_end_ms = now_ms;
         }
@@ -82,20 +86,20 @@ pub const Application = struct {
 
     /// Answers each request whose body has ended and whose delay has passed since, and writes as
     /// much of each answer's `content` as the server takes. Returns whether anything moved.
-    pub fn answer(app: *Application, connection: *server.Connection, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
+    pub fn answer(app: *Application, endpoint: *Endpoint, plan: *const Plan, content: []const u8, now_ms: u64) Error!bool {
         var moved = false;
         for (app.answers[0..app.answers_len], 0..) |*pending, index| {
             const body_end_ms = pending.body_end_ms orelse continue;
             if (now_ms < body_end_ms + plan.answer_delay_ms[index]) continue;
-            moved = try write_answer(connection, plan, pending, content[0..plan.content_len[index]], now_ms) or moved;
+            moved = try write_answer(endpoint, plan, pending, content[0..plan.content_len[index]], now_ms) or moved;
         }
         return moved;
     }
 
-    /// Notes when each answer whose content the server took whole has left its output: the
-    /// instant the idle deadline counts from (decision 110).
-    pub fn note_drained(app: *Application, connection: *const server.Connection, plan: *const Plan, now_ms: u64) void {
-        if (connection.output_len > 0) return;
+    /// Notes when each answer whose content the server took whole has left its output, which
+    /// holds `output_len` octets: the instant the idle deadline counts from (decision 110).
+    pub fn note_drained(app: *Application, output_len: usize, plan: *const Plan, now_ms: u64) void {
+        if (output_len > 0) return;
         for (app.answers[0..app.answers_len], 0..) |*pending, index| {
             if (pending.drained_ms != null or pending.answered_ms == null) continue;
             if (pending.content_sent < plan.content_len[index]) continue;
@@ -125,9 +129,9 @@ pub const Application = struct {
 
 /// Writes the answer's head, then as much of its content as the server takes. A server that ends
 /// a hostile peer's request or connection takes nothing more, and the application stops.
-fn write_answer(connection: *server.Connection, plan: *const Plan, pending: *Answer, content: []const u8, now_ms: u64) Error!bool {
+fn write_answer(endpoint: *Endpoint, plan: *const Plan, pending: *Answer, content: []const u8, now_ms: u64) Error!bool {
     if (pending.answered_ms == null) {
-        connection.respond(pending.id, .{ .status = answer_status, .end = content.len == 0 }) catch |failure| {
+        endpoint.respond(pending.id, .{ .status = answer_status, .end = content.len == 0 }) catch |failure| {
             if (failure != error.NoSpaceLeft) return give_up(plan, pending, content, now_ms);
             // `SendError.NoSpaceLeft`: the output has no room for the head, and the caller writes
             // it again once the peer has taken octets.
@@ -139,7 +143,7 @@ fn write_answer(connection: *server.Connection, plan: *const Plan, pending: *Ans
     }
     if (pending.content_sent == content.len) return false;
     const rest = content[pending.content_sent..];
-    const taken = connection.write_body(pending.id, .{ .octets = rest, .end = true }) catch |failure| {
+    const taken = endpoint.write_body(pending.id, .{ .octets = rest, .end = true }) catch |failure| {
         // The output or the peer's window has no room, and the application writes again later.
         if (failure == error.Blocked) return false;
         return give_up(plan, pending, content, now_ms);
