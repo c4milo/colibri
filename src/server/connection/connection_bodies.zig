@@ -46,6 +46,10 @@ const Body = struct {
 
 pub const Bodies = struct {
     entries: [constants.bodies_max]Body,
+    /// The entries in use: those whose `id` is not 0. While it is 0 a lookup or a sweep reads no
+    /// entry, which is how most calls find the table: `receive` fires and observes the deadlines
+    /// around every event it reads.
+    used: u32,
     /// The bodies whose wait has started, and in h2 the meter of their octets together.
     waiting: u32,
     together: rate.Meter,
@@ -57,6 +61,7 @@ pub const Bodies = struct {
 
     pub fn init(bodies: *Bodies) void {
         bodies.entries = @splat(.{});
+        bodies.used = 0;
         bodies.waiting = 0;
         bodies.together = .{};
         bodies.cancelled_first = 0;
@@ -65,6 +70,9 @@ pub const Bodies = struct {
 
     fn find(bodies: *Bodies, id: Number) ?*Body {
         assert(id != 0);
+        assert(bodies.waiting <= bodies.used and bodies.used <= bodies.entries.len);
+        // A request with no body has no entry, so most calls find the table empty.
+        if (bodies.used == 0) return null;
         return bodies.find_id(id);
     }
 
@@ -88,6 +96,7 @@ pub fn add(connection: *Connection, id: Number) void {
     // always finds a free entry.
     const free = bodies.find_free() orelse unreachable;
     free.* = .{ .id = id };
+    bodies.used += 1;
 }
 
 /// Request `id`'s body ended, or the request did.
@@ -100,6 +109,8 @@ pub fn remove(connection: *Connection, id: Number) void {
         if (bodies.waiting == 0) bodies.together.stop();
     }
     body.* = .{};
+    assert(bodies.used > bodies.waiting);
+    bodies.used -= 1;
 }
 
 /// Counts `octets` of request `id`'s body, which arrived at the instant `fire` last moved the
@@ -117,6 +128,20 @@ pub fn count(connection: *Connection, id: Number, octets: usize) void {
 pub fn observe(connection: *Connection, now_ns: u64) void {
     const bodies = &connection.bodies;
     const limits = &connection.deadlines;
+    assert(bodies.waiting <= bodies.used);
+    // A wait can start only for a body in use that does not wait yet.
+    if (bodies.used > bodies.waiting) start_waits(connection, now_ns);
+    if (bodies.waiting == 0) return;
+    const rates_run = !update_held(connection);
+    for (&bodies.entries) |*body| {
+        if (body.started) connection_sends.start_or_stop(&body.meter, rates_run, now_ns, limits);
+    }
+    if (connection.session == .h2) connection_sends.start_or_stop(&bodies.together, rates_run, now_ns, limits);
+}
+
+/// Starts the wait of each body that has none and owes no 100 (Continue), at `now_ns`.
+fn start_waits(connection: *Connection, now_ns: u64) void {
+    const bodies = &connection.bodies;
     for (&bodies.entries) |*body| {
         if (body.id == 0 or body.started) continue;
         // RFC 9110 §10.1.1: a client that expects 100 (Continue) waits for it before it sends the
@@ -126,12 +151,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
         body.since_ns = now_ns;
         bodies.waiting += 1;
     }
-    if (bodies.waiting == 0) return;
-    const rates_run = !update_held(connection);
-    for (&bodies.entries) |*body| {
-        if (body.started) connection_sends.start_or_stop(&body.meter, rates_run, now_ns, limits);
-    }
-    if (connection.session == .h2) connection_sends.start_or_stop(&bodies.together, rates_run, now_ns, limits);
+    assert(bodies.waiting <= bodies.used);
 }
 
 /// Whether colibri holds a WINDOW_UPDATE its h2 peer has not been handed: owed, or in the output.
@@ -144,6 +164,9 @@ fn update_held(connection: *const Connection) bool {
 pub fn soonest(connection: *const Connection, current: ?u64) ?u64 {
     const bodies = &connection.bodies;
     const limits = &connection.deadlines;
+    // The bodies' meter runs only while a body waits, so with none waiting no deadline runs.
+    assert(bodies.waiting > 0 or !bodies.together.running());
+    if (bodies.waiting == 0) return current;
     var at = current;
     for (&bodies.entries) |*body| {
         if (!body.started) continue;
@@ -166,6 +189,9 @@ fn earlier(current: ?u64, candidate: u64) u64 {
 /// the connection: an h11 body's, or in h2 the bodies' together. Null when none does.
 pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
     const bodies = &connection.bodies;
+    // The bodies' meter runs only while a body waits, so with none waiting no deadline passes.
+    assert(bodies.waiting > 0 or !bodies.together.running());
+    if (bodies.waiting == 0) return null;
     for (&bodies.entries) |*body| {
         if (!body.started) continue;
         const passed = passed_of(connection, body, now_ns) orelse continue;

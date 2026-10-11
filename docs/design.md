@@ -7603,6 +7603,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `zig build test`: 131 of 131 steps and 2654 of 2654 tests passed, the trace run's test among
     them.
 
+  **The deadline tables of 20b, read only while in use, 2026-10-11.**
+  `server.Connection.receive` reads one event a call, and fires the deadlines before it and
+  observes them after it. Each of the two swept the send table and the body table, 128 entries
+  each, and each write and each end of a request searched them. A request with no body, whose
+  response no window holds, has an entry in neither. `Sends` and `Bodies` now count their entries
+  in use, and a lookup or a sweep that finds none reads no entry. No name or behaviour changed,
+  and `server.Connection` holds 8 octets more.
+
+  What each check printed:
+  - The deadline tests read and send through two helpers, and each now requires both tables'
+    counts to be what a scan of the entries gives.
+  - `zig build sim -- --deadline-trace-write` and `--tcp-trace-write` wrote the same octets
+    before and after the change: 64 and 128 files.
+  - 12 mutations, each **CAUGHT**. In each table: an entry taken but not counted; an entry freed
+    but still counted, which only the scan in the tests' helpers sees; and a lookup that reads no
+    entry while one is in use. For the bodies: no wait started, no soonest instant named and no
+    deadline passed while one body alone waits. For the sends: no meter started, no soonest
+    instant named and no deadline passed while one stream alone is held.
+
+  The judge, [run 38148866370](https://github.com/c4milo/colibri/actions/runs/38148866370),
+  measured it against `58e1c20`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 36,336 | 25,697 | 0.7072 | 0.7071 | wins in both |
+  | h2-tls-many | 44,163 | 33,434 | 0.7571 | 0.7570 | wins in both |
+  | h2-one | 301,430 | 213,404 | 0.7080 | 0.7046 | wins in both |
+  | h2-tls-one | 7,580,207 | 7,336,792 | 0.9679 | 0.9687 | wins in both |
+
+  The server's user instructions fell by 10,629 a request on h2-many and by 89,328 a connection on
+  h2-one, in the first job. Its system calls rose on the inputs that open many connections: from
+  16.8 to 21.4 a connection on h2-tls-one in the first job and from 16.4 to 21.6 in the second,
+  and from 4.5 to 4.7 on h2-one. The simulator's traces did not change, so colibri asks for the
+  same I/O. The likely cause is a server that ends each tick sooner and so takes more ticks for
+  the same octets. No run has checked that.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the

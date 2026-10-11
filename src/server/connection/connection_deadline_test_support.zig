@@ -19,13 +19,32 @@ pub const no_content: u16 = 204;
 /// Reads `octets` at `now_ns`.
 pub fn receive_at(octets: []const u8, now_ns: u64) !support.Received {
     @memcpy(support.input[0..octets.len], octets);
-    return connection.receive(support.input[0..octets.len], now_ns);
+    const received = connection.receive(support.input[0..octets.len], now_ns);
+    try expect_counts();
+    return received;
 }
 
 /// What the connection sends at `now_ns`.
 pub fn send_at(now_ns: u64) []const u8 {
     const written = connection.send(&support.output, now_ns);
+    expect_counts() catch |failure| std.debug.panic("a deadline table's count differs from a scan: {t}", .{failure});
     return support.output[0..written];
+}
+
+/// Requires each deadline table's counts to be what a scan of its entries gives. A sweep or a
+/// lookup trusts a count of zero and reads no entry, so every read and send of a test checks them.
+pub fn expect_counts() !void {
+    var sends_used: u32 = 0;
+    for (&connection.sends.entries) |*blocked| sends_used += @intFromBool(blocked.id != 0);
+    try testing.expectEqual(sends_used, connection.sends.used);
+    var bodies_used: u32 = 0;
+    var bodies_waiting: u32 = 0;
+    for (&connection.bodies.entries) |*body| {
+        bodies_used += @intFromBool(body.id != 0);
+        bodies_waiting += @intFromBool(body.started);
+    }
+    try testing.expectEqual(bodies_used, connection.bodies.used);
+    try testing.expectEqual(bodies_waiting, connection.bodies.waiting);
 }
 
 /// Answers the request `receive_at` read with a 204, sends the answer at `now_ns`, and reads the

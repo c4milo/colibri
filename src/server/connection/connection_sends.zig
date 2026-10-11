@@ -38,13 +38,34 @@ pub const Sends = struct {
     /// What the peer took of the connection's octets.
     meter: rate.Meter,
     entries: [constants.bodies_max]Blocked,
+    /// The entries in use: those whose `id` is not 0. While it is 0 a lookup or a sweep reads no
+    /// entry, which is how most calls find the table: `receive` fires and observes the deadlines
+    /// around every event it reads.
+    used: u32,
 
     pub fn init(sends: *Sends) void {
         sends.meter = .{};
         sends.entries = @splat(.{});
+        sends.used = 0;
     }
 
     fn find(sends: *Sends, id: Number) ?*Blocked {
+        assert(id != 0);
+        assert(sends.used <= sends.entries.len);
+        // A response no window holds has no entry, so most calls find the table empty.
+        if (sends.used == 0) return null;
+        return sends.find_id(id);
+    }
+
+    /// A free entry, which the call takes for a stream. h2 holds `concurrent_streams_max` streams,
+    /// and the table one entry for each.
+    fn take_free(sends: *Sends) *Blocked {
+        assert(sends.used < sends.entries.len);
+        sends.used += 1;
+        return sends.find_id(0) orelse unreachable;
+    }
+
+    fn find_id(sends: *Sends, id: Number) ?*Blocked {
         for (&sends.entries) |*blocked| {
             if (blocked.id == id) return blocked;
         }
@@ -61,8 +82,7 @@ pub fn on_write(connection: *Connection, id: Number, offered: usize, sent: h2.co
     if (found) |blocked| blocked.meter.count(sent.consumed);
     const held = sent.short_by == .stream_window or sent.short_by == .connection_window;
     if (held and sent.consumed < offered) {
-        // h2 holds `concurrent_streams_max` streams, and the table one entry for each.
-        const blocked = found orelse sends.find(0) orelse unreachable;
+        const blocked = found orelse sends.take_free();
         blocked.id = id;
         blocked.connection_window = sent.short_by == .connection_window;
         return;
@@ -73,8 +93,11 @@ pub fn on_write(connection: *Connection, id: Number, offered: usize, sent: h2.co
 
 /// Request `id`'s response ended, or the request did.
 pub fn remove(connection: *Connection, id: Number) void {
-    const blocked = connection.sends.find(id) orelse return;
+    const sends = &connection.sends;
+    const blocked = sends.find(id) orelse return;
     blocked.* = .{};
+    assert(sends.used > 0);
+    sends.used -= 1;
 }
 
 /// Starts or stops each meter as the connection's output holds octets or not, at `now_ns`.
@@ -83,6 +106,7 @@ pub fn observe(connection: *Connection, now_ns: u64) void {
     const limits = &connection.deadlines;
     const holding = connection.output_len > 0;
     start_or_stop(&sends.meter, holding, now_ns, limits);
+    if (sends.used == 0) return;
     for (&sends.entries) |*blocked| {
         if (blocked.id == 0) continue;
         start_or_stop(&blocked.meter, !holding, now_ns, limits);
@@ -108,6 +132,7 @@ pub fn soonest(connection: *const Connection, current: ?u64) ?u64 {
     const window_ns = connection.deadlines.rate_window_ns;
     var at = current;
     if (sends.meter.check_ns(quota, window_ns)) |check_ns| at = @min(at orelse check_ns, check_ns);
+    if (sends.used == 0) return at;
     for (&sends.entries) |*blocked| {
         const check_ns = blocked.meter.check_ns(quota, window_ns) orelse continue;
         at = @min(at orelse check_ns, check_ns);
@@ -123,6 +148,7 @@ pub fn fire(connection: *Connection, now_ns: u64) ?Deadline {
     const quota = connection.deadlines.send_quota() orelse return null;
     const window_ns = connection.deadlines.rate_window_ns;
     if (sends.meter.short(now_ns, quota, window_ns)) return .send_rate;
+    if (sends.used == 0) return null;
     for (&sends.entries) |*blocked| {
         if (!blocked.meter.short(now_ns, quota, window_ns)) continue;
         if (blocked.connection_window) return .send_rate;
