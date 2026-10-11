@@ -1,7 +1,7 @@
 //! The program the consumer project builds: it reaches h11, h2, tls, server, client and stdx's
 //! gzip through the modules colibri exports, writes a request, reads a response, starts a TLS
-//! handshake, codes content and moves a request through the server and the client, which shows the
-//! modules link and run for a project that depends on colibri.
+//! handshake, codes content and moves a request through the client and the server's endpoint,
+//! which shows the modules link and run for a project that depends on colibri.
 const std = @import("std");
 const h11 = @import("h11");
 const h2 = @import("h2");
@@ -19,12 +19,18 @@ var output: [4096]u8 = undefined;
 var gzip_encoder: gzip.Encoder(.{ .level = 6 }) align(@alignOf(gzip.Encoder(.{ .level = 6 }))) = undefined;
 var gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
 var coded: [256]u8 = undefined;
-// The server's and the client's connections hold hundreds of kilobytes, so they live outside the
-// stack, as every connection does.
-var served: server_module.Connection align(@alignOf(server_module.Connection)) = undefined;
+// The server's endpoint and the client's connection hold hundreds of kilobytes, so they live
+// outside the stack. The endpoint holds the one TCP connection this program accepts, and no QUIC
+// connection.
+const Endpoint = server_module.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 var asked: client_module.Connection align(@alignOf(client_module.Connection)) = undefined;
 var exchange: client_module.HttpExchange align(@alignOf(client_module.HttpExchange)) = .{ .method = "GET", .path = "/" };
+// The octets the client wrote, which the server reads, and the octets the server wrote, which the
+// client reads. The endpoint reports a `send` while `wire` may still hold octets the server has
+// not read, so the server's octets go into a buffer of their own.
 var wire: [4096]u8 = undefined;
+var server_output: [4096]u8 = undefined;
 
 /// Rounds of moving octets between the client and the server before the exchange must have ended.
 const exchange_rounds_max = 8;
@@ -102,40 +108,58 @@ pub fn main() !void {
 
     // The `server` and `client` modules (decision 100), in cleartext h2: the client's request and
     // the server's 204 move between the two in memory, at one instant. The client allows h2 alone,
-    // so it speaks h2 with prior knowledge, and the server, which names no version, reads h2 from
-    // the client's connection preface (decision 117).
-    const server_config: server_module.Config = .{};
+    // so it speaks h2 with prior knowledge. The server's endpoint names no version, and the
+    // connection it accepts reads h2 from the client's connection preface (decision 117).
+    const endpoint_config: server_module.EndpointConfig = .{};
     const client_config: client_module.Config = .{ .versions = .{ .h11 = false }, .authority = "example.test" };
-    try served.init(&server_config, entropy, 0, 0);
+    try endpoint.init(&endpoint_config, entropy, 0, 0);
+    // One call for the socket a program accepted, in cleartext here. The handle names the
+    // connection from then on.
+    const accepted = endpoint.accept(.cleartext, 0) orelse return error.ExchangeWrong;
     try asked.init(&client_config, entropy, 0, null);
     _ = try asked.request(&exchange);
     for (0..exchange_rounds_max) |_| {
-        try serve(asked.send(&wire, 0));
-        hear(served.send(&wire, 0));
+        try serve(accepted, asked.send(&wire, 0));
     }
     if (exchange.outcome != .response or exchange.status != 204) return error.ExchangeWrong;
     std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
 }
 
-/// The server reads the first `len` octets of `wire` and answers each request with 204.
-fn serve(len: usize) !void {
+/// The server reads the first `len` octets of `wire`, which the socket of `accepted` read. It
+/// answers each request with 204, by the request's id, and sends what its connection owes at each
+/// `send` event.
+fn serve(accepted: server_module.ConnectionHandle, len: usize) !void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
-        const received = try served.receive(wire[consumed..len], 0);
+        const read: server_module.StreamOctets = .{ .connection = accepted, .octets = wire[consumed..len] };
+        const received = endpoint.receive(.{ .stream = read }, 0);
         consumed += received.consumed;
         const event = received.event orelse {
             if (received.consumed == 0) return;
             continue;
         };
-        if (event == .request) try served.respond(event.request.id.number, .{ .status = 204, .end = true });
+        switch (event) {
+            .request => |request| try endpoint.respond(request.id, .{ .status = 204, .end = true }),
+            .send => |connection| try send(connection),
+            else => {},
+        }
     }
 }
 
-/// The client reads the first `len` octets of `wire`, and its exchange holds what they say.
-fn hear(len: usize) void {
+/// Writes what `connection` owes its socket into `server_output`, which the client then reads.
+/// One call takes all this exchange owes. A call that filled the buffer would leave more owed,
+/// and a program then calls again.
+fn send(connection: server_module.ConnectionHandle) !void {
+    const written = endpoint.send_stream(connection, &server_output, 0);
+    if (written == server_output.len) return error.ExchangeWrong;
+    hear(server_output[0..written]);
+}
+
+/// The client reads `octets`, which the server wrote, and its exchange holds what they say.
+fn hear(octets: []u8) void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
-        const received = asked.receive(wire[consumed..len], 0);
+        const received = asked.receive(octets[consumed..], 0);
         consumed += received.consumed;
         if (received.event == null and received.consumed == 0) return;
     }
