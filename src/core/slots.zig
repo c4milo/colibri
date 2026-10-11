@@ -158,6 +158,35 @@ pub fn Pool(
             assert(pool.slot_of(id) == null);
         }
 
+        /// The slot that holds `entry`, a live entry of this pool. Where the entry lies in the
+        /// pool's storage gives it, so no slot is read to find it.
+        pub fn index_of(pool: *const Self, entry: *const Entry) u32 {
+            const first: [*]const Entry = &pool.entries;
+            const index = @as([*]const Entry, @ptrCast(entry)) - first;
+            assert(index < capacity);
+            assert(pool.live[index] and &pool.entries[index] == entry);
+            return @intCast(index);
+        }
+
+        /// The live entry in slot `index`, which `index_of` gave. Valid until the entry is closed.
+        pub fn at(pool: *Self, index: u32) *Entry {
+            assert(index < capacity);
+            assert(pool.live[index]);
+            return &pool.entries[index];
+        }
+
+        /// Closes the live entry in slot `index`, as `close` closes the entry of an identifier.
+        /// The caller names the slot, so no scan finds it, and every assertion reads that slot
+        /// alone.
+        pub fn close_at(pool: *Self, index: u32) void {
+            assert(index < capacity);
+            assert(pool.live[index]);
+            assert(pool.count > 0);
+            pool.live[index] = false;
+            pool.count -= 1;
+            assert(!pool.is_above_watermark(pool.entries[index].id));
+        }
+
         /// The live entries in slot order, for a sweep over every one of them (invariant 15).
         pub fn iterator(pool: *Self) Iterator {
             assert(pool.count <= capacity);

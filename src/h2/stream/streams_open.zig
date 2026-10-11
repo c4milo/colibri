@@ -205,6 +205,7 @@ pub fn assert_counts(streams: *const Streams) void {
     assert(streams.role == .server or streams.peer_active == 0);
     assert(streams.role == .client or streams.local_active == 0);
     resets.assert_counts(streams);
+    slot.assert_closed_count(streams);
 }
 
 /// Gives a fresh record the state open, its initiator and both windows.

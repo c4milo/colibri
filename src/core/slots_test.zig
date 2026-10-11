@@ -113,6 +113,26 @@ test "get finds what a scan from the first slot finds, whichever slot it read la
     try testing.expectEqual(0, pool.len());
 }
 
+test "index_of names an entry's slot, at gives a slot's entry, and close_at frees that slot alone" {
+    var pool: TestPool = undefined;
+    pool.init();
+    const first = try pool.open(1);
+    const second = try pool.open(3);
+    const third = try pool.open(5);
+    try testing.expectEqual([_]u32{ 0, 1, 2 }, [_]u32{ pool.index_of(first), pool.index_of(second), pool.index_of(third) });
+    try testing.expectEqual(second, pool.at(1));
+    pool.close_at(1);
+    try testing.expectEqual(2, pool.len());
+    try testing.expectEqual(null, pool.get(3));
+    try testing.expectEqual(first, pool.get(1).?);
+    try testing.expectEqual(third, pool.get(5).?);
+    // The identifier stays at or below its watermark: closed, never new.
+    try testing.expect(!pool.is_above_watermark(3));
+    // The freed slot is the lowest free one, and the next open takes it.
+    try testing.expectEqual(1, pool.index_of(try pool.open(7)));
+    try expect_gets_as_scanned(&pool);
+}
+
 test "the slot read first is the one get last found or open last wrote" {
     var pool: TestPool = undefined;
     pool.init();

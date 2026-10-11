@@ -155,6 +155,11 @@ pub const Streams = struct {
     sequence: u64,
     /// The records whose `reset_owed` is set (`streams_reset.zig`).
     resets_owed: u32,
+    /// The slots of the closed records the pool holds, oldest close first: a ring read from
+    /// `closed_first`, `closed_len` long (`streams_slot.zig`).
+    closed_slots: [constants.concurrent_streams_max]u8,
+    closed_first: u32,
+    closed_len: u32,
 
     /// Empties the table for an endpoint in `role`.
     pub fn init(streams: *Streams, role: Role) void {
@@ -171,6 +176,7 @@ pub const Streams = struct {
         streams.goaway_received_last_id = null;
         streams.sequence = 0;
         streams.resets_owed = 0;
+        slot.forget_all_closed(streams);
         assert(streams.len() == 0);
         assert(!open.initiated_by_peer(streams, streams.next_local_id));
     }
@@ -300,8 +306,9 @@ pub const Streams = struct {
         record.closed_at = streams.sequence;
         streams.sequence += 1;
         // The record stays in the pool: RFC 9113 §5.1 decides a frame on a closed stream by how the
-        // stream closed, and the state machine reads the record to do it. `streams_open.zig` drops
+        // stream closed, and the state machine reads the record to do it. `streams_slot.zig` drops
         // the oldest closed record when an open needs the slot.
+        slot.note_closed(streams, record);
     }
 };
 

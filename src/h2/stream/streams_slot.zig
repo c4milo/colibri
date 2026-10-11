@@ -65,25 +65,76 @@ pub fn ensure_free_slot(streams: *Streams) bool {
 
 /// Drops the record with the lowest `closed_at` among the closed streams the pool holds that owe no
 /// RST_STREAM, and, when colibri reset that stream, records the reset for `lookup`. False when the
-/// pool holds no such stream.
+/// pool holds no such stream. The closed records wait in close order, so the oldest is the first
+/// of them that owes nothing, and the pool closes it at its slot: no record is searched for.
 fn drop_oldest_closed(streams: *Streams) bool {
-    var oldest: ?*Stream = null;
-    var records = streams.pool.iterator();
-    while (records.next()) |record| {
-        if (record.state != .closed) continue;
-        assert(record.closed != null);
+    // Bounded by the closed records, and it passes one only when that one owes a RST_STREAM.
+    for (0..streams.closed_len) |position| {
+        const index = closed_slot(streams, @intCast(position));
+        const record = streams.pool.at(index);
+        assert(record.state == .closed and record.closed != null);
         assert(record.closed_at < streams.sequence);
         // Decision 113: the record holds the RST_STREAM the caller asked for until it is written.
         if (record.reset_owed != null) continue;
-        if (oldest == null or record.closed_at < oldest.?.closed_at) oldest = record;
+        assert(record.id <= constants.stream_id_max);
+        // RFC 9113 §5.1: frames are discarded after the record is gone only for a stream colibri
+        // reset.
+        if (record.closed == .rst_stream_sent) record_forgotten_reset(streams, @intCast(record.id));
+        forget_closed(streams, @intCast(position));
+        streams.pool.close_at(index);
+        assert(streams.pool.len() < constants.concurrent_streams_max);
+        return true;
     }
-    const dropped = oldest orelse return false;
-    assert(dropped.id <= constants.stream_id_max);
-    // RFC 9113 §5.1: frames are discarded after the record is gone only for a stream colibri reset.
-    if (dropped.closed == .rst_stream_sent) record_forgotten_reset(streams, @intCast(dropped.id));
-    streams.pool.close(dropped.id);
-    assert(streams.pool.len() < constants.concurrent_streams_max);
-    return true;
+    return false;
+}
+
+comptime {
+    // A slot's number fits one octet of `closed_slots`.
+    assert(constants.concurrent_streams_max <= std.math.maxInt(u8) + 1);
+}
+
+/// Empties the closed records, for a table that holds no record.
+pub fn forget_all_closed(streams: *Streams) void {
+    streams.closed_slots = @splat(0);
+    streams.closed_first = 0;
+    streams.closed_len = 0;
+}
+
+/// Adds `record`, which has just closed, after the closed records: `sequence` orders the closes,
+/// and so does this.
+pub fn note_closed(streams: *Streams, record: *const Stream) void {
+    assert(record.state == .closed and record.closed != null);
+    assert(streams.closed_len < constants.concurrent_streams_max);
+    const place = (streams.closed_first + streams.closed_len) % constants.concurrent_streams_max;
+    streams.closed_slots[place] = @intCast(streams.pool.index_of(record));
+    streams.closed_len += 1;
+}
+
+/// The closed records are the records that are neither open nor half-closed, each once.
+pub fn assert_closed_count(streams: *const Streams) void {
+    const active = streams.peer_active + streams.local_active;
+    assert(streams.closed_len == streams.pool.len() - active);
+}
+
+/// The slot of the closed record `position` places after the oldest.
+fn closed_slot(streams: *const Streams, position: u32) u32 {
+    assert(position < streams.closed_len);
+    return streams.closed_slots[(streams.closed_first + position) % constants.concurrent_streams_max];
+}
+
+/// Takes the record `position` places after the oldest out of the closed records. Each older one
+/// moves a place toward it, so the rest keep their order.
+fn forget_closed(streams: *Streams, position: u32) void {
+    assert(position < streams.closed_len);
+    const capacity = constants.concurrent_streams_max;
+    // Bounded by `position`: the older records, each of which owes a RST_STREAM.
+    for (0..position) |step| {
+        const to = (streams.closed_first + position - @as(u32, @intCast(step))) % capacity;
+        const from = (to + capacity - 1) % capacity;
+        streams.closed_slots[to] = streams.closed_slots[from];
+    }
+    streams.closed_first = (streams.closed_first + 1) % capacity;
+    streams.closed_len -= 1;
 }
 
 // Tests. `streams_open.zig` holds the table these run on, and its test helpers.
@@ -146,6 +197,82 @@ test "lookup finds what a scan of the pool before the watermark finds in a clien
     _ = try open.test_table.open_local(null, open.test_send_window);
     try open.test_table.reserve_peer(constants.stream_id_server_first + constants.stream_id_step);
     try expect_same_lookups();
+}
+
+/// The record the sweep `drop_oldest_closed` replaced would drop: the lowest `closed_at` among the
+/// closed records that owe no RST_STREAM, or null. Test-only.
+fn oldest_closed_by_sweep(streams: *Streams) ?*Stream {
+    var oldest: ?*Stream = null;
+    var records = streams.pool.iterator();
+    while (records.next()) |record| {
+        if (record.state != .closed or record.reset_owed != null) continue;
+        if (oldest == null or record.closed_at < oldest.?.closed_at) oldest = record;
+    }
+    return oldest;
+}
+
+/// Requires the closed records to be every closed record the pool holds, in the order they
+/// closed, and the first of them that owes no RST_STREAM to be the one the sweep would drop.
+/// Test-only.
+fn expect_closed_as_swept() !void {
+    const streams = &open.test_table;
+    var last_closed_at: ?u64 = null;
+    var first_droppable: ?*Stream = null;
+    for (0..streams.closed_len) |position| {
+        const record = streams.pool.at(closed_slot(streams, @intCast(position)));
+        try testing.expectEqual(stream.State.closed, record.state);
+        if (last_closed_at) |last| try testing.expect(record.closed_at > last);
+        last_closed_at = record.closed_at;
+        if (first_droppable == null and record.reset_owed == null) first_droppable = record;
+    }
+    var closed_in_pool: u32 = 0;
+    var records = streams.pool.iterator();
+    while (records.next()) |record| closed_in_pool += @intFromBool(record.state == .closed);
+    try testing.expectEqual(closed_in_pool, streams.closed_len);
+    try testing.expectEqual(oldest_closed_by_sweep(streams), first_droppable);
+}
+
+test "the closed records keep the order of their closes, around the ring's end, and an open drops the one a sweep would" {
+    const max = constants.concurrent_streams_max;
+    open.test_table.init(.server);
+    try expect_closed_as_swept();
+    try open.fill_with_peer_streams();
+    // From the highest identifier down, so the order of the closes is not the order of the slots:
+    // one stream in three ends, one is reset, and one stays open.
+    for (0..max) |index| {
+        const record = try open.expect_live(open.client_id(@intCast(max - 1 - index)));
+        switch (index % 3) {
+            0 => try finish(record),
+            1 => try open.reset(record),
+            else => {},
+        }
+        try expect_closed_as_swept();
+    }
+    // The second and the fourth close were resets, and each now owes its RST_STREAM (decision
+    // 113): an open drops neither, and passes over them for the oldest that owes nothing.
+    const second_closed = try open.expect_live(open.client_id(max - 2));
+    const fourth_closed = try open.expect_live(open.client_id(max - 5));
+    open.test_table.owe_reset(second_closed, constants.error_cancel);
+    open.test_table.owe_reset(fourth_closed, constants.error_cancel);
+    try expect_closed_as_swept();
+    // Each open drops one closed record, and each new stream's own close goes after the rest:
+    // more closes than the ring has places, so they go around its end.
+    for (0..max + max / 2) |index| {
+        const record = try open.test_table.open_peer(open.client_id(@intCast(max + index)), open.test_send_window);
+        try expect_closed_as_swept();
+        try finish(record);
+        try expect_closed_as_swept();
+    }
+    // The two that owe a frame are still held, the oldest two of the closed records.
+    try testing.expectEqual(second_closed, open.test_table.pool.at(closed_slot(&open.test_table, 0)));
+    try testing.expectEqual(fourth_closed, open.test_table.pool.at(closed_slot(&open.test_table, 1)));
+    // Once its frame is written, the oldest gives way to the next open, and its reset is remembered.
+    open.test_table.reset_written(second_closed);
+    try expect_closed_as_swept();
+    _ = try open.test_table.open_peer(open.client_id(@intCast(max + max + max)), open.test_send_window);
+    try testing.expectEqual(Lookup.reset_and_dropped, open.test_table.lookup(open.client_id(max - 2)));
+    try testing.expectEqual(fourth_closed, open.test_table.pool.at(closed_slot(&open.test_table, 0)));
+    try expect_closed_as_swept();
 }
 
 test "an identifier at or below the highest reset colibri dropped is reset_and_dropped, and a record still held answers for its own" {

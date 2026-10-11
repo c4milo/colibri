@@ -1376,6 +1376,53 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   `server.Endpoint`. The two counts are from different runs, so the difference is not a judged
   ratio, and no run has measured that step.
 
+  **The closed records wait in close order, 2026-10-11.** The owner ruled for it on 2026-10-11.
+  An open into a full pool dropped the oldest closed record by sweeping all 128 for the lowest
+  `closed_at`, and the pool then scanned for that record to close it and scanned again to assert
+  it gone. A connection that has carried `concurrent_streams_max` streams has a full pool, so
+  each new stream paid for the three. The table now keeps the slots of its closed records in a
+  ring, in the order `sequence` gives their closes. `Streams.close` adds a record's slot after
+  the rest, and `drop_oldest_closed` takes the first record that owes no RST_STREAM (decision
+  113) and has the pool close it at its slot. The record it drops is the one the sweep chose.
+  - `core.Pool` gains three calls for h2's table: `index_of`, the slot of an entry; `at`, the
+    entry in a slot; and `close_at`, which closes the entry in a slot and asserts on that slot
+    alone. `close` keeps its scan and its assertion: QUIC's table still calls it, and the judge
+    has no h3 input to measure a change there.
+  - `assert_counts` now also requires as many closed records in the ring as the pool holds
+    records that are neither open nor half-closed.
+  - `h2.Connection` holds 136 octets more, the ring's 128 and its two counts, and
+    `docs/performance.md` has the six rows that follow from it.
+
+  What each check printed:
+  - The sweep stays in the tests as the reference. One test requires the ring to hold every
+    closed record of the pool in close order, and its first record that owes nothing to be the
+    one the sweep would drop, through 320 closes: streams closed from the highest identifier
+    down, two that owe a RST_STREAM and are passed over, and more closes than the ring has
+    places.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change.
+  - 12 mutations, each **CAUGHT**. Of the ring: a close not added; places that do not go around
+    its end; an open that drops the newest; a record that owes a RST_STREAM dropped; the oldest
+    forgotten in place of a later one; a dropped record left in the ring; a dropped reset not
+    remembered; the first place not moved on; and a table that starts again with the closed
+    records it had. Of the pool: `close_at` leaving the slot live, or not counting the entry
+    out, and `index_of` naming the next slot.
+
+  The judge, [run 38186227224](https://github.com/c4milo/colibri/actions/runs/38186227224),
+  measured it against `bf3096a`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 25,367 | 19,471 | 0.7675 | 0.7676 | wins in both |
+  | h2-tls-many | 33,187 | 27,295 | 0.8225 | 0.8225 | wins in both |
+  | h2-one | 223,129 | 223,296 | 1.0007 | 1.0045 | within the noise |
+  | h2-tls-one | 7,327,870 | 7,328,398 | 1.0001 | 1.0001 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 5,890 in the
+  first job and by 5,888 in the second. On h2-one they rose by 107 and by 117 a connection: the
+  ring is emptied when a connection starts, and each close adds to it.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
