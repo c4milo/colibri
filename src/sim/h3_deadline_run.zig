@@ -90,7 +90,7 @@ const peer_octets: [ipv4_len]u8 = @splat(peer_octet);
 const peer_port: u16 = 50_000;
 
 pub const Storage = struct {
-    endpoint_config: server.EndpointConfig,
+    endpoint_config: server.Config,
     endpoint: Endpoint,
     /// The connection's `ended`, once the endpoint reported it.
     ended: ?server.Ended,

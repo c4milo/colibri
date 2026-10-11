@@ -110,7 +110,7 @@ pub fn main() !void {
     // the server's 204 move between the two in memory, at one instant. The client allows h2 alone,
     // so it speaks h2 with prior knowledge. The server's endpoint names no version, and the
     // connection it accepts reads h2 from the client's connection preface (decision 117).
-    const endpoint_config: server_module.EndpointConfig = .{};
+    const endpoint_config: server_module.Config = .{};
     const client_config: client_module.Config = .{ .versions = .{ .h11 = false }, .authority = "example.test" };
     try endpoint.init(&endpoint_config, entropy, 0, 0);
     // One call for the socket a program accepted, in cleartext here. The handle names the

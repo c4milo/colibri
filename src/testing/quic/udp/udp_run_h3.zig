@@ -28,7 +28,7 @@ const udp_qlog = @import("udp_qlog.zig");
 const Endpoint = udp_h3_files.Endpoint;
 
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
-var endpoint_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;
+var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
 /// The files each connection serves, at its slot in the endpoint.
 var files: [constants.quic_connections_max]udp_h3_files.Files align(@alignOf(udp_h3_files.Files)) = undefined;
 var events: [constants.udp_operations_max]udp.Event align(@alignOf(udp.Event)) = undefined;

@@ -75,7 +75,7 @@ pub const Record = struct {
 };
 
 pub const Storage = struct {
-    endpoint_config: server.EndpointConfig,
+    endpoint_config: server.Config,
     endpoint: Endpoint,
     ledger: ledger_module.Ledger,
     program: Program,

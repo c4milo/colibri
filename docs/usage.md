@@ -64,31 +64,39 @@ assertions stay on in production.
 
 colibri makes no system call, holds no allocator, and reads no clock. Four things follow:
 
-- **Your program owns every struct and buffer.** Declare a connection where you like: in a
-  static, in an array of connections, or inside a larger struct. Nothing points at the heap.
-  Place large connections outside the stack.
+- **Your program owns every struct and buffer.** Declare a connection, or a server's endpoint,
+  where you like: in a static, in an array, or inside a larger struct. Nothing points at the
+  heap. Place large ones outside the stack.
 - **Your program does the I/O.** Read octets from the socket, hand them to `receive`, and send
-  the octets the `write_*` calls put in your buffer. colibri never waits: when it needs more
+  the octets colibri puts in your buffer: a protocol module's `write_*` calls, and a server
+  endpoint's `send_stream` and `send_datagram`. colibri never waits: when it needs more
   octets, `receive` consumes none and returns no event.
 - **Your program passes the time.** A call that needs the current instant takes `now_ns`, in
   nanoseconds from any fixed origin. The same instants and the same octets give the same output,
   which is what lets the simulator replay a connection.
-- **Your program configures TLS.** Convert your values once into a configuration:
+- **Your program configures TLS.** The `server` module takes the server's identity in its
+  `server.Config`, builds the TLS configuration of each transport from it, and runs each
+  handshake itself. Elsewhere, convert your values once into a configuration:
   `tls.record.ClientConfig` or `ServerConfig` over TCP, `tls.quic.ClientConfig` or `ServerConfig`
-  for QUIC. The `server` and `client` modules take the configuration and run each handshake
-  themselves. A program that drives a protocol module by itself starts a session of the matching
+  for QUIC. The `client` module takes the configuration and runs each handshake itself. A program
+  that drives a protocol module by itself starts a session of the matching
   kind for each connection: h11 and h2 take a `tls_provider.Provider`, and QUIC takes a
   `tls_provider.QuicProvider` and a `crypto.Suite`, and the `tls` module fills all three from
   chapulin. Over TCP, hand the session's `provider()` to the connection's `attach_tls` once
   `handshake` completes. For QUIC, hand `provider()` and `suite()` to the connection, which starts
   chapulin's session when it sets its transport parameters. A server that sends Retry packets
   checks their tokens with a `tls.quic.Retry` under a key it draws once. A program that links
-  `tls` defines chapulin's one hook, `ch_assert_fail`, and passes each connection the source it
-  draws from. A program without TLS never links chapulin.
+  `tls` defines chapulin's one hook, `ch_assert_fail`, and passes the source each session draws
+  from: once to `Endpoint.init` for a server, and to each client connection or session it starts.
+  A program that imports none of `tls`, `server` and `client` never links chapulin.
 
-A peer that breaks a protocol rule never crashes colibri. `receive` returns
+A peer that breaks a protocol rule never crashes colibri. A connection's `receive` returns
 `error.ConnectionFailed`, the connection names the failure, and the octets colibri owes the peer,
-such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A QUIC connection error
+such as h2's GOAWAY or an h11 server's 400, are waiting to be written. A server's endpoint returns
+no error. For a TCP connection it reports a `send` for the octets it owes, then `close`, then the
+connection's `ended` with `failed` set. For a QUIC connection its `send_datagram` writes the
+CONNECTION_CLOSE, and `ended` follows with `failed` set once the closing period ends. A QUIC
+connection error
 from `receive` or `send` leaves the CONNECTION_CLOSE owed, and the next `send` writes it (RFC 9000
 §10.2). Over TLS, a record that does not open ends the connection, and `encrypt` called with no
 plaintext writes the alert the provider owes (RFC 9846 §5.2).
@@ -96,9 +104,12 @@ plaintext writes the alert the provider owes (RFC 9846 §5.2).
 ## The server
 
 The `server` module answers requests behind one set of calls, whichever version the connection
-speaks ([decision 100](decisions.md)). A program makes one configuration and one endpoint, and
-calls `accept` for each TCP socket its listener accepts ([decision 119](decisions.md)). The
-endpoint holds every connection, and a `server.ConnectionHandle` names one. Over TLS the
+speaks ([decision 100](decisions.md)). An endpoint is the server side of every connection one
+thread serves: RFC 9000 §1.2 and RFC 9113 §2.2 give the word to the client or the server of a
+connection, and a server has many connections. A program makes one `server.Config` and one
+endpoint for each thread that serves, and calls `accept` for each TCP socket its listener accepts
+([decision 119](decisions.md)). The endpoint holds every connection, and a
+`server.ConnectionHandle` names one. Over TLS the
 connection runs the handshake itself, and ALPN picks h2 or h11 during it. In cleartext, a
 connection speaks h2 when its first octets are h2's connection preface and h11 otherwise (RFC 9113
 §3.3, [decision 117](decisions.md)). The configuration's `versions` turns either version off, in
@@ -187,8 +198,8 @@ may consume fewer octets than it was given, such as a pipelined h11 request whil
 it is answered. The program holds the rest, and passes it again with the socket's next read and
 after each event that names the connection. The turn above passes what is left after every event.
 What an event carries points into the octets the program passed or into the connection, and stays
-valid until the next `receive`, `on_instant`, `send_stream`, `accept`, `transport_closed` or
-`shutdown`.
+valid until the next `receive`, `on_instant`, `send_stream`, `send_datagram`, `accept`,
+`transport_closed` or `shutdown`.
 
 An event names a request by its id, in h11 and h2 alike, or a connection by its handle. The id
 names the request's connection too, so the program answers by the id alone:
@@ -500,7 +511,7 @@ UDP sockets.
 The endpoint of [The server](#the-server) holds QUIC connections too, all of them behind one UDP
 socket ([decision 103](decisions.md)), each in a slot of its own. The `server.Capacity` that
 `server.EndpointOf` takes names the TCP and the QUIC connections the endpoint holds at once, and
-the octets each QUIC connection holds unread. A `server.EndpointConfig` gives the server's TLS
+the octets each QUIC connection holds unread. The `server.Config` gives the server's TLS
 identity once, with no protocol named: the endpoint names h3 itself for its QUIC connections (RFC
 9114 §3.1). `init` builds the TLS configuration of each transport from it and checks that the key
 signs, so a program learns of a bad identity before it serves:
@@ -621,9 +632,9 @@ Two things differ from TCP:
 - **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`: for loss
   recovery, acknowledgments and idle timeouts, and for the deadlines of
   [decision 110](decisions.md), which bound an h3 connection as they bound a TCP one. A program
-  sleeps until then when no datagram arrives. `EndpointConfig.deadlines` sets the limits, and
+  sleeps until then when no datagram arrives. `Config.deadlines` sets the limits, and
   `Endpoint.init` refuses limits a connection would refuse, with `error.DeadlineInvalid`.
-  `set_deadlines` changes one connection's limits, by its handle. `EndpointConfig.idle_timeout_ms`
+  `set_deadlines` changes one connection's limits, by its handle. `Config.idle_timeout_ms`
   is QUIC's own idle timeout, which ends a peer that sends nothing at all.
 
 `ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
@@ -632,8 +643,8 @@ of the protocol. A later client then takes its slot, and every id of the ended c
 nothing. A QUIC connection has no socket of its own, so the endpoint reports no `send` and no
 `close` for one.
 
-`EndpointConfig.retry` makes every client prove its address before a connection starts (RFC 9000
-§8.1.2), and `EndpointConfig.logs` gives each connection a qlog log
+`Config.retry` makes every client prove its address before a connection starts (RFC 9000
+§8.1.2), and `Config.logs` gives each connection a qlog log
 ([decision 102](decisions.md)).
 
 The same endpoint holds TCP connections, `Capacity.tcp_connections` of them, 16 by default, and

@@ -92,7 +92,7 @@ var output: [output_len]u8 = undefined;
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 0 });
 const chain = [_][]const u8{ identity.leaf, identity.root };
 var cookie_key: [tls.constants.server_key_len]u8 = undefined;
-var endpoint_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;
+var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 /// The connection of the socket the client opened, which `accept` named.
 var accepted: server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = undefined;

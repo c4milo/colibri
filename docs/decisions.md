@@ -4010,3 +4010,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      - The endpoint reports nothing of a request after its ending, a later `body` included. A
        check that needs a request's end after its response is `done` reads it from h2's stream
        table, as the two trace runs do.
+
+     Amended again on 2026-10-11 by design §8 step 21b.7: `server.Config` names the type
+     `EndpointConfig` named, which `QuicConfig` folded into in 21b.3, and `EndpointConfig` leaves
+     the root. A TCP connection's own configuration is internal. `Connection` and
+     `QuicConnection` stay exported until step 21d, and a program is to place neither: the root
+     exports no name for the configuration either takes.

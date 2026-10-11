@@ -62,7 +62,7 @@ pub const Worker = struct {
     encoders: server.EncoderPool(constants.encoders_per_worker, server.constants.encoder_level_default),
     /// What the worker's endpoint serves under: the identity or none, the versions, and the
     /// decoders.
-    config: server.EndpointConfig,
+    config: server.Config,
     /// The endpoint and what each socket's connection owes. It stays where `start` found it.
     session: server_session.Session,
 };

@@ -20,7 +20,7 @@ const test_connections: usize = 2;
 
 /// The session, its configuration and buffers, outside any stack frame. Test-only.
 var test_session: Session align(@alignOf(Session)) = undefined;
-var test_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = .{};
+var test_config: server.Config align(@alignOf(server.Config)) = .{};
 var test_input: [test_input_len]u8 = undefined;
 var test_output: [test_output_len]u8 = undefined;
 var test_other_output: [test_output_len]u8 = undefined;

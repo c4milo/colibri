@@ -8146,6 +8146,34 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       refuses a failure. The consumer writing the server's octets into the buffer its input
       arrives in: its one exchange never has both at once.
 
+  **21b.7, 2026-10-11.** `Config` names the endpoint's configuration. Run on macOS 26 on an Apple
+  M1 Pro, on main 66d91e4.
+  - `server.Config` is the type `server.EndpointConfig` named, and `EndpointConfig` leaves the
+    root, which exports 51 names where it exported 52. A TCP connection's own configuration,
+    which `Config` named before, is internal to the module: every caller moved to the endpoint in
+    21b.6, so none named it. `Connection` and `QuicConnection` stay exported until 21d, and a
+    program is to place neither: the root exports no name for the configuration either takes.
+    `Connection.init` is still a public function until then.
+  - A dependent that wrote `server.EndpointConfig` writes `server.Config`. One that wrote
+    `server.Config` for a TCP connection has no type to name: the name still compiles, as the
+    endpoint's configuration, and `Connection.init` refuses a pointer to it. It serves through
+    the endpoint.
+  - The comments and the guide had described the endpoint as it was before it held TCP
+    connections. The headers of `server.zig` and `endpoint.zig` now describe one endpoint over
+    TCP and QUIC. The comment on `Endpoint` and docs/usage.md define the word: the server side
+    of every connection one thread serves. RFC 9000 §1.2 and RFC 9113 §2.2 give the word to the
+    client or the server of a connection, and a server has many. "What your program owns" in
+    docs/usage.md covers an endpoint, and INV-31 lists the TCP calls that mark a slot.
+  - `zig build test` and `zig build test -Drelease`: 131 of 131 steps and 2795 of 2795 tests
+    passed in each. `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh`
+    pass.
+  - A review, two readers and a verifier, confirmed twelve findings, all of comments and of the
+    guide, and they are corrected. One waits for 21d: `server.zig` and `client.zig` import their
+    files as top-level names and not through a private `files` struct.
+  - Mutations, each **CAUGHT**: the root still exporting `EndpointConfig`, by the test that lists
+    its names, in `zig build test-server`; `Config` naming a TCP connection's configuration, by
+    `zig build`, which no caller then passes.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

@@ -140,7 +140,7 @@ const ServerSession = server_session.SessionOf(1);
 var test_client: Session align(@alignOf(Session)) = undefined;
 var test_server: ServerSession align(@alignOf(ServerSession)) = undefined;
 /// Decision 117: the server names no version, and reads it from the client's first octets.
-var test_server_config: server_session.server.EndpointConfig align(@alignOf(server_session.server.EndpointConfig)) = .{};
+var test_server_config: server_session.server.Config align(@alignOf(server_session.server.Config)) = .{};
 var test_bodies: Bodies align(@alignOf(Bodies)) = undefined;
 var test_to_server: [constants.write_buffer_len]u8 = @splat(0);
 var test_to_client: [constants.write_buffer_len]u8 = @splat(0);

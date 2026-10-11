@@ -276,7 +276,7 @@ const identity = @import("../client_trace_identity.zig");
 
 /// The endpoint, the ledger and the program of the unit test: too large for a test's stack.
 var test_endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
-var test_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;
+var test_config: server.Config align(@alignOf(server.Config)) = undefined;
 var test_ledger: Ledger align(@alignOf(Ledger)) = undefined;
 var test_program: Program align(@alignOf(Program)) = undefined;
 var test_random: sim.Random align(@alignOf(sim.Random)) = undefined;

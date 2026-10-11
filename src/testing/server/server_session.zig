@@ -104,7 +104,7 @@ pub fn SessionOf(comptime connections_max: usize) type {
         /// Prepares a session that holds no connection, under `config`, which the endpoint reads
         /// while it runs. The server issues no ticket, so it judges none at a clock: chapulin's 0
         /// for none.
-        pub fn init(session: *Self, config: *const server.EndpointConfig, random: std.Random, now_ns: u64) server.StartError!void {
+        pub fn init(session: *Self, config: *const server.Config, random: std.Random, now_ns: u64) server.StartError!void {
             for (&session.entries) |*entry| {
                 entry.handle = no_connection;
                 entry.attached = false;

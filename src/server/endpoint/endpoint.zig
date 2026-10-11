@@ -1,20 +1,25 @@
-//! The server's endpoint (decision 103, decision 119): up to a build-time number of QUIC
-//! connections behind one UDP socket the caller owns, each in a slot of its own. The caller passes
-//! each datagram, with the address it came from, to `receive`; the endpoint hands it to the
-//! connection its first packet's Destination Connection ID names (RFC 9000 §5.2), starts a
-//! connection from a client's first Initial (§7.2), and answers Version Negotiation (§6.1) and
-//! Retry (§8.1.2) itself. `receive` then reports the next event any connection owes, its id naming
-//! the connection, and the caller answers a request by its id with `respond`, `write_body` and
-//! `write_trailers`.
+//! The server's endpoint (decision 103, decision 119): the server side of every connection one
+//! thread serves. It holds up to a build-time number of TCP connections, which the caller accepts
+//! and which serve h11 or h2, and of QUIC connections behind one UDP socket the caller owns, which
+//! serve h3, each in a slot of its own.
+//!
+//! The caller calls `accept` for each TCP socket, and passes what a socket read to `receive` with
+//! the handle `accept` returned. It passes each datagram, with the address it came from, to
+//! `receive` too: the endpoint hands it to the connection its first packet's Destination
+//! Connection ID names (RFC 9000 §5.2), starts a connection from a client's first Initial (§7.2),
+//! and answers Version Negotiation (§6.1) and Retry (§8.1.2) itself. `receive` then reports the
+//! next event any connection owes, its id naming the connection, and the caller answers a request
+//! by its id with `respond`, `write_body` and `write_trailers`.
 //!
 //! Every request ends with one `done` or `cancelled`, and a connection's `ended` comes after its
-//! requests' (INV-30); its slot then takes a later client, and the slot's generation makes every
-//! id of the ended connection name nothing. `send_datagram` writes the next datagram any
-//! connection owes, with the address it goes to, and `deadline_ns` is the soonest deadline of any
-//! connection, kept without reading every connection on each call (INV-31). Every connection ID the
-//! endpoint issues and every value a handshake draws come from the caller's source (invariant 5).
-//! colibri makes no system call and reads no clock (non-negotiable 3). The endpoint keeps pointers
-//! into itself, so it stays where `init` found it.
+//! requests' (INV-30); its slot then takes a later connection, and the slot's generation makes
+//! every id of the ended connection name nothing. `send_stream` writes what a TCP connection owes
+//! its socket, `send_datagram` writes the next datagram any QUIC connection owes, with the address
+//! it goes to, and `deadline_ns` is the soonest deadline of any connection, kept without reading
+//! every connection on each call (INV-31). Every connection ID the endpoint issues and every value
+//! a handshake draws come from the caller's source (invariant 5). colibri makes no system call and
+//! reads no clock (non-negotiable 3). The endpoint keeps pointers into itself, so it stays where
+//! `init` found it.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -54,7 +59,8 @@ pub const Capacity = struct {
     receive_pool_len: usize = quic.constants.receive_pool_len_default,
 };
 
-/// An endpoint of the default size.
+/// An endpoint of the default size: the server side of every connection one thread serves, over
+/// TCP and over QUIC. A program with several threads places one for each.
 pub const Endpoint = EndpointOf(.{});
 
 /// An endpoint that holds the connections `capacity` names.

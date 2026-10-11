@@ -11,7 +11,8 @@
 //! is `done`, once the peer has acknowledged every octet of the response (RFC 9000 §3.1), or
 //! `cancelled` (decision 103). The frames around them are the connection's (decision 79).
 //!
-//! `QuicConnection`'s functions are the calls a program makes. What the endpoint calls is in
+//! `QuicConnection`'s functions are the calls the endpoint passes on from a program. What else the
+//! endpoint calls is in
 //! `quic_connection_internal.zig`, which the module's root does not export (design §8 step 17f).
 const std = @import("std");
 const quic = @import("quic");

@@ -90,7 +90,7 @@ const Queue = struct {
 };
 
 pub const World = struct {
-    endpoint_config: server.EndpointConfig,
+    endpoint_config: server.Config,
     endpoint: Endpoint,
     /// The endpoint's one QUIC connection, read as a program does not, and the handle naming it.
     served: ?*server.QuicConnection,

@@ -1,7 +1,7 @@
 //! The endpoint's configuration (decision 119): one TLS identity, the versions and limits every
 //! connection serves under, and what TCP or QUIC connections alone take. `init` builds from it, in
 //! the endpoint's own storage, the TLS configuration of each transport the endpoint serves and the
-//! configurations its connections borrow. `server.zig` exports `Config` as `EndpointConfig`. Split out of
+//! configurations its connections borrow. `server.zig` exports `Config` under its own name. Split out of
 //! `endpoint_connections.zig` for length.
 const std = @import("std");
 const assert = std.debug.assert;

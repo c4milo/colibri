@@ -75,7 +75,7 @@ pub const Connection = std.meta.Elem(@FieldType(Endpoint, "tcp"));
 
 pub const World = struct {
     client_tls: tls.record.ClientConfig,
-    endpoint_config: server.EndpointConfig,
+    endpoint_config: server.Config,
     client_config: client.Config,
     tls: bool,
     endpoint: Endpoint,

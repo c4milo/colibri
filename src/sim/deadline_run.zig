@@ -108,7 +108,7 @@ const Stream = struct {
 };
 
 pub const Storage = struct {
-    endpoint_config: server.EndpointConfig,
+    endpoint_config: server.Config,
     endpoint: app_module.Endpoint,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,

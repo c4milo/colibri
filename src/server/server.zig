@@ -1,20 +1,29 @@
-//! colibri's server (decision 100, design §8 step 17): HTTP responses behind one set of calls for
-//! h11 and h2 over TCP, the version chosen by ALPN over TLS and by a connection's first octets in
-//! cleartext (decision 117). Step 17b adds h3 over QUIC behind the same calls.
+//! colibri's server (decision 100, design §8 steps 17 and 21): HTTP responses behind one set of
+//! calls for h11, h2 and h3. An `Endpoint` holds the connections one thread serves (decision 119):
+//! the TCP connections a program accepts, which serve h11 or h2, the version chosen by ALPN over TLS and
+//! by a connection's first octets in cleartext (decision 117), and the QUIC connections behind one
+//! UDP socket, which serve h3 (decision 103).
 //!
-//! A program makes one `Config`, then a `Connection` for each TCP connection it accepts, in
-//! storage it owns. It passes the octets it read to `receive`, which returns at most one event: a
-//! request's head, octets of its content, its trailer section, its cancellation, or that its
-//! response is done. It answers each request by its id with `respond`, `write_body` and
-//! `write_trailers`, and sends what `send` writes. colibri makes no system call and reads no
+//! A program makes one `Config` and one `Endpoint` for each thread that serves, in storage it
+//! owns. It calls `accept` for each TCP socket its listener accepts, and passes what each socket
+//! read, and each datagram its UDP socket read, to `receive`. `receive` returns at most one event:
+//! a request's head, octets of its content, its trailer section, its ending, or one of the
+//! endpoint's own events, which `event.zig` lists. The program answers each request by its id with `respond`, `write_body` and `write_trailers`, and
+//! sends what `send_stream` and `send_datagram` write. colibri makes no system call and reads no
 //! clock: time is a value the caller passes.
 //!
-//! Over TLS, the connection runs the handshake through `tls.record.Server` itself, so a program
-//! that uses this module links chapulin. One that wants no TLS uses `h11` or `h2` directly.
+//! The endpoint runs each TLS handshake itself, so a program that uses this module links chapulin,
+//! one that serves cleartext alone too. A program that wants no chapulin uses `h11` or `h2`
+//! directly.
 //!
 //! When `Config` names content codings and an `EncoderPool`, a final response the caller marks
 //! `codable` goes out coded in the coding its request's Accept-Encoding accepts (decision 101).
 //! The pool is storage the caller places, and connections share it.
+//!
+//! `Connection` and `QuicConnection` are what the endpoint holds in a TCP slot and in a QUIC slot.
+//! They stay exported until design §8 step 21d, and a program is to place neither: the root
+//! exports no name for the configuration either takes, which the endpoint builds (design §8 step
+//! 21b.7).
 const std = @import("std");
 const http = @import("http");
 const h11 = @import("h11");
@@ -34,7 +43,9 @@ const limits = @import("limits.zig");
 /// every other name below is a type a program names (design §8 step 17f).
 pub const constants = @import("constants.zig");
 
-pub const Config = connection.Config;
+/// What a program configures a server with, once: the endpoint reads it while it runs (decision
+/// 119).
+pub const Config = endpoint.Config;
 pub const Versions = versions.Versions;
 pub const Limits = limits.Limits;
 pub const Deadline = deadline.Deadline;
@@ -46,7 +57,6 @@ pub const QuicConnection = quic_connection.QuicConnection;
 pub const Endpoint = endpoint.Endpoint;
 pub const EndpointOf = endpoint.EndpointOf;
 pub const Capacity = endpoint.Capacity;
-pub const EndpointConfig = endpoint.Config;
 /// What `Endpoint.receive` takes: `.none`, the `StreamOctets` a program's TCP socket read, or a
 /// `Datagram` its UDP socket read.
 pub const Input = endpoint.Input;
@@ -60,7 +70,7 @@ pub const Sent = quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = quic_connection.PeerAddress;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
-/// sets when `EndpointConfig.ecn` is set (decision 68).
+/// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
 pub const Error = connection.Error;
 pub const StartError = connection.StartError;
@@ -101,21 +111,22 @@ pub const Features = coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21a adds `Versions` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
-    // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram`, and folds `QuicConfig`
-    // into `EndpointConfig` (decision 119).
+    // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram`. 21b.7 gives the name
+    // `Config` to the type `EndpointConfig` named, which `QuicConfig` folded into in 21b.3, and
+    // takes a TCP connection's own configuration out of the root (decision 119).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",   "Config",             "Versions",         "Limits",         "Deadline",
-        "Deadlines",   "CloseReason",        "Limit",            "Connection",     "QuicConnection",
-        "Endpoint",    "EndpointOf",         "Capacity",         "EndpointConfig", "Input",
-        "Datagram",    "Security",           "StreamOctets",     "LogProvider",    "Sent",
-        "Address",     "Ecn",                "Error",            "StartError",     "SendError",
-        "Field",       "Id",                 "ConnectionHandle", "Protocol",       "Version",
-        "Fields",      "Event",              "Request",          "Body",           "Trailers",
-        "Cancelled",   "CancelReason",       "Done",             "Writable",       "Ended",
-        "Response",    "Content",            "Received",         "Alternative",    "Coding",
-        "EncoderPool", "DefaultEncoderPool", "Encoders",         "DecoderPool",    "DefaultDecoderPool",
-        "Decoders",    "Features",
+        "constants",          "Config",           "Versions",    "Limits",             "Deadline",
+        "Deadlines",          "CloseReason",      "Limit",       "Connection",         "QuicConnection",
+        "Endpoint",           "EndpointOf",       "Capacity",    "Input",              "Datagram",
+        "Security",           "StreamOctets",     "LogProvider", "Sent",               "Address",
+        "Ecn",                "Error",            "StartError",  "SendError",          "Field",
+        "Id",                 "ConnectionHandle", "Protocol",    "Version",            "Fields",
+        "Event",              "Request",          "Body",        "Trailers",           "Cancelled",
+        "CancelReason",       "Done",             "Writable",    "Ended",              "Response",
+        "Content",            "Received",         "Alternative", "Coding",             "EncoderPool",
+        "DefaultEncoderPool", "Encoders",         "DecoderPool", "DefaultDecoderPool", "Decoders",
+        "Features",
     });
 }
 

@@ -2,7 +2,8 @@
 //! content, its trailer section, its end by cancellation, or that its response is done; and, from
 //! the endpoint (decision 119), that a response can take more, that a TCP connection owes octets or
 //! is to be closed, that a connection ended, or that every connection did. Every slice points into
-//! storage the connection or the caller holds, and stays valid until the next call to `receive`.
+//! storage the connection or the caller holds, and stays valid until the endpoint's next call that
+//! the comment on `Endpoint.receive` lists.
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");

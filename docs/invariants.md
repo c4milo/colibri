@@ -549,16 +549,18 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   `on_instant` at, and `on_instant` fires each connection whose instant has come, and no other.
   Neither reads every slot.
 - **Mechanism.** A binary min-heap holds each slot's deadline, ordered by the instant and then by
-  the slot. Every call that can change a slot marks it stale: input routed to it, an answer, a
-  cancel, a slot `receive` polls, each slot `send_datagram` asks, and a deadline it fires.
+  the slot. Every call that can change a slot marks it stale: an `accept`, input routed to it, an
+  answer, a cancel, `set_deadlines`, `send_stream`, `transport_closed`, `shutdown`, a slot
+  `receive` polls, each slot `send_datagram` asks, and a deadline it fires.
   `deadline_ns` and `on_instant` first read each stale slot's deadline from that slot's
   connection alone. A connection's deadlines move only inside a call to it, so a slot no call
   changed keeps the deadline the heap holds.
 - **Check.** Runtime assertion: `on_instant` asserts that each slot the heap gives it still wants
-  the instant the heap held. The QUIC tests that run through the endpoint compare `deadline_ns`
-  with the soonest deadline of every slot after each call to `receive`
-  (`quic_endpoint_test_support.check_deadline`). Step 21b.3, and 21b.5's check over seeds, which
-  compares the two after every call.
+  the instant the heap held. The tests that run through the endpoint compare `deadline_ns` with
+  the soonest deadline of every slot after each call to `receive` their fixtures make: the QUIC
+  ones in `quic_endpoint_test_support.check_deadline`, and the TCP ones in
+  `endpoint_tcp_test_support.check_deadline`. Step 21b.3 for QUIC, 21b.4 for TCP, and 21b.5's
+  check over seeds, which compares the two after every call.
 - **Violation.** A call that changes a connection and marks nothing, such as a poll that reads an
   event whose arrival starts a deadline. The program then sleeps past that deadline, and a peer
   holds the connection longer than decision 110 allows.

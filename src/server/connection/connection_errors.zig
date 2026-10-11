@@ -27,11 +27,13 @@ pub const StartError = error{
 };
 
 pub const SendError = error{
-    /// `output` has no room for what the call writes: `send`, then call again.
+    /// The output has no room for what the call writes. Through the endpoint, the request's
+    /// `writable` says when to call again. A connection alone: `send`, then call again.
     NoSpaceLeft,
     /// `write_body` wrote nothing: no room, h2's flow-control window is closed (RFC 9113 §6.9), or
     /// a coded response's ring is full. Or `write_trailers` found a coded response's octets not all
-    /// written. `send`, `receive`, then call again.
+    /// written. Through the endpoint, the request's `writable` says when to call again. A
+    /// connection alone: `send`, `receive`, then call again.
     Blocked,
     /// No request with this id waits for this call: it never arrived, is answered, or is cancelled.
     RequestUnknown,

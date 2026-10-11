@@ -90,7 +90,7 @@ comptime {
 }
 
 pub const World = struct {
-    endpoint_config: server.EndpointConfig,
+    endpoint_config: server.Config,
     endpoint: Endpoint,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,

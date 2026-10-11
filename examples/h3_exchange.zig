@@ -88,7 +88,7 @@ var output: [link_module.datagram_len_max]u8 = undefined;
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 2, .receive_pool_len = 64 * 1024 });
 const chain = [_][]const u8{ identity.leaf, identity.root };
 var cookie_key: [tls.constants.server_key_len]u8 = undefined;
-var endpoint_config: server.EndpointConfig align(@alignOf(server.EndpointConfig)) = undefined;
+var endpoint_config: server.Config align(@alignOf(server.Config)) = undefined;
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 /// Requests the server answered, and connections that are over.
 var answered: u32 = 0;
