@@ -17,8 +17,8 @@ pub const served_codings = [_]server.Coding{ .gzip, .deflate };
 /// The h3 endpoint each TLS connection advertises (`--h3-port`), or null.
 pub var h3_alternative: ?server.Alternative align(@alignOf(?server.Alternative)) = null;
 
-/// The TLS mode's configuration, which `main` converts once when `--tls` names an identity and
-/// every connection borrows, and the storage it points into.
-pub var tls_shared: ?*const tls.record.ServerConfig = null;
-pub var tls_config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
-pub var tls_identity: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;
+/// The TLS mode's identity (`--tls`), or null in cleartext, and the storage it points into. It
+/// names no protocol: each worker's endpoint builds its TLS configuration from it, checks that
+/// its key signs, and offers through ALPN the protocols `versions` allows (decision 119).
+pub var identity: ?tls.Server align(@alignOf(?tls.Server)) = null;
+pub var identity_storage: server_identity.Storage align(@alignOf(server_identity.Storage)) = undefined;

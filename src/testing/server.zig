@@ -1,45 +1,41 @@
-//! The socket around `server/server_session.zig`: the server of design §9, which `tools/h2spec.sh`
-//! runs the pinned h2spec against and h2load measures. Each connection is a connection of colibri's
-//! `server` module (design §8 step 17a). `zig build http-server -- --port <port>` runs it in
-//! cleartext, where a connection speaks h2 when its first octets are h2's preface and h11 otherwise
-//! (decision 117), or one alone with `--h11` or `--h2`. With `--tls <identity-prefix>` it serves
-//! TLS instead, through `tls.record.Server`: it offers `h2` and `http/1.1` through ALPN, or one
-//! alone with `--h11` or `--h2`, and each connection speaks what its handshake selected (decision
-//! 88).
+//! The server of design §9, which `tools/h2spec.sh` runs the pinned h2spec against and h2load
+//! measures. Every connection is served by colibri's `server` module, through one
+//! `server.Endpoint` for each worker (design §8 step 21b.6, decision 119). `zig build http-server
+//! -- --port <port>` runs it in cleartext, where a connection speaks h2 when its first octets are
+//! h2's preface and h11 otherwise (decision 117), or one alone with `--h11` or `--h2`. With `--tls
+//! <identity-prefix>` it serves TLS instead: the endpoint offers `h2` and `http/1.1` through ALPN,
+//! or one alone with `--h11` or `--h2`, and each connection speaks what its handshake selected
+//! (decision 88).
 //!
-//! One worker per core, sharing nothing. Each worker has its own Rotor loop and its own listening
-//! socket on the same port, bound with SO_REUSEPORT, so the kernel hands each new connection to
-//! one worker and no worker reads another's memory: no lock, no atomic and no queue between cores
-//! (CLAUDE.md, Performance). A worker holds its connections in a fixed array.
+//! One worker per core, sharing nothing. Each worker has its own Rotor loop, its own listening
+//! socket on the same port, bound with SO_REUSEPORT, and its own endpoint, so the kernel hands
+//! each new connection to one worker and no worker reads another's memory: no lock, no atomic and
+//! no queue between cores (CLAUDE.md, Performance). A worker holds its sockets in a fixed array.
 //!
 //! No call here waits but the loop's `tick`, one system call per turn (decisions 46 and 58). A
-//! worker keeps one accept in flight while it has a free slot, and each connection at most one
+//! worker keeps one accept in flight while it has a free socket, and each socket at most one
 //! receive, one send and, at its end, one close. A peer that stops reading holds up only its own
-//! connection: its octets wait in that connection's buffer.
+//! connection: its octets wait in that socket's buffer.
 //!
 //! Each connection runs on the instant the loop read at its last tick, which reads no clock of
-//! its own (decision 63), and a tick waits no longer than the soonest deadline of a connection
-//! (decision 110), which then gets the instant through `on_instant`.
+//! its own (decision 63), and a tick waits no longer than the endpoint's soonest deadline
+//! (decision 110), which the endpoint then gets through `on_instant`.
 //!
-//! A receive writes into `received`, and its octets are appended to `input` when its event
-//! arrives. The session consumes `input` from the front, which moves what is left, and Rotor owns
-//! a receive's buffer until its final event (its rule 3), so a receive never targets `input`.
-//! A send reads `output[output_sent..output_len]`, and the session only appends after that.
-//!
-//! The socket side holds no protocol rule: it reads octets into a buffer, hands them to a session,
-//! writes back what the session produced, and closes when the session says it is done (RFC 9113
-//! §5.4.1). Nothing here allocates: every worker, connection and buffer is in static storage
-//! sized by `constants.zig`, and each loop runs on memory its worker holds.
+//! The socket side holds no protocol rule: it reads octets into a buffer, hands them to the
+//! worker's session, writes back what the session produced, and closes a socket when the endpoint
+//! says so (RFC 9113 §5.4.1) or its peer left. Nothing here allocates: every worker, socket and
+//! buffer is in static storage sized by `constants.zig`, and each loop runs on memory its worker
+//! holds.
 //!
 //! This file reads the command line and starts the workers. Its pieces are in `server/`:
 //! `server_options.zig` reads the command line, `server_mode.zig` holds what it asked for,
-//! `server_worker.zig` is one worker and its loop, `server_socket.zig` one connection's socket and
-//! buffers, and `server_session.zig` one connection with no socket in it.
+//! `server_worker.zig` is one worker and its loop, `server_socket.zig` one socket and its buffers,
+//! `server_session.zig` the worker's endpoint and the connections it serves, with no socket in
+//! them, and `server_session_answer.zig` the responses one connection owes.
 //!
 //! The TLS mode runs one worker. chapulin's generator is one process-wide state with no lock
 //! (its `drbg.h`), so two threads must not run handshakes at once.
 const std = @import("std");
-const entropy = @import("entropy.zig");
 const cpu = @import("cpu.zig");
 const rotor = @import("rotor");
 const constants = @import("constants.zig");
@@ -57,7 +53,10 @@ const Protocol = alpn.Protocol;
 pub fn listen_and_serve(port: u16) !void {
     const cores = std.Thread.getCpuCount() catch 1;
     // One worker in the TLS mode: see the header.
-    const count = if (server_mode.tls_shared != null) 1 else @max(1, @min(cores, constants.workers_max));
+    const count = if (server_mode.identity != null) 1 else @max(1, @min(cores, constants.workers_max));
+    // Each endpoint builds its TLS configuration and checks that the identity's key signs. A
+    // refused identity ends the run here, before the line a script waits for.
+    for (0..count) |index| try server_worker.start(index);
     const bound = try server_worker.bind_listeners(port, count);
     // A script reads the port from this line, and connects once it is out: every listener is bound.
     std.debug.print("http-server: listening on port {d}, rotor backend {t}\n", .{ bound, rotor.backend() });
@@ -87,7 +86,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     server_mode.echo_mode = options.echo;
     server_mode.coded_mode = options.coded;
     if (options.h3_port) |port| server_mode.h3_alternative = .{ .port = port };
-    if (options.identity_prefix) |prefix| try load_tls(prefix, options.alone);
+    if (options.identity_prefix) |prefix| try load_tls(prefix);
     try listen_and_serve(options.port);
 }
 
@@ -100,17 +99,11 @@ fn versions_of(alone: ?Protocol) server.Versions {
     };
 }
 
-/// Loads the identity, converts what every TLS connection borrows, and runs chapulin's check on
-/// the identity once. With `--h11` the server offers `http/1.1` alone, and with `--h2` `h2` alone.
-fn load_tls(prefix: []const u8, alone: ?Protocol) !void {
-    server_identity.seed(&server_mode.tls_identity);
-    const protocols: []const []const u8 = if (alone) |protocol| switch (protocol) {
-        .h11 => &alpn.alpn_h11,
-        .h2 => &alpn.alpn_h2,
-    } else &alpn.alpn_both;
-    try server_mode.tls_config.init(try server_identity.load(prefix, &server_mode.tls_identity, protocols));
-    try server_mode.tls_config.check(entropy.random());
-    server_mode.tls_shared = &server_mode.tls_config;
+/// Loads the identity every worker's endpoint serves TLS with. It names no protocol: an endpoint
+/// offers what its versions allow, so `--h11` offers `http/1.1` alone and `--h2` `h2` alone.
+fn load_tls(prefix: []const u8) !void {
+    server_identity.seed(&server_mode.identity_storage);
+    server_mode.identity = try server_identity.load(prefix, &server_mode.identity_storage, &.{});
     // A log names what the sessions were told of the CPU, which decides the suites they hold.
     cpu.print("http-server");
 }

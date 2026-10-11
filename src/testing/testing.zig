@@ -2,9 +2,10 @@
 //! imports this module, and it is the only place in the tree permitted to touch a socket
 //! (invariant 2 is scoped to `src/` outside it).
 //!
-//! `server_session` is one connection of the server, with no socket in it, over colibri's `server`
-//! module, which speaks h2 or h11 (design §8 step 17a), and `server` is the socket around it: `zig
-//! build http-server` runs the pair for h2spec and h2load (design §8 steps 4 and 15d).
+//! `server_session` is one worker's connections in the server, with no socket in them, over one
+//! endpoint of colibri's `server` module, which speaks h2 or h11 (design §8 steps 17a and 21b.6),
+//! and `server` is the socket side: `zig build http-server` runs the pair for h2spec and h2load
+//! (design §8 steps 4 and 15d).
 const std = @import("std");
 
 pub const hooks = @import("tls/hooks.zig");

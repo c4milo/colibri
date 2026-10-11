@@ -132,10 +132,15 @@ const testing = std.testing;
 const server_session = @import("../server/server_session.zig");
 const entropy = @import("../entropy.zig");
 
+/// The server's session, which holds the one connection the client opens. Test-only.
+const ServerSession = server_session.SessionOf(1);
+
 /// The two sessions the tests run, their bodies, and the octets each has written that the other
 /// has not read. Placed outside any stack frame. Test-only.
 var test_client: Session align(@alignOf(Session)) = undefined;
-var test_server: server_session.Session align(@alignOf(server_session.Session)) = undefined;
+var test_server: ServerSession align(@alignOf(ServerSession)) = undefined;
+/// Decision 117: the server names no version, and reads it from the client's first octets.
+var test_server_config: server_session.server.EndpointConfig align(@alignOf(server_session.server.EndpointConfig)) = .{};
 var test_bodies: Bodies align(@alignOf(Bodies)) = undefined;
 var test_to_server: [constants.write_buffer_len]u8 = @splat(0);
 var test_to_client: [constants.write_buffer_len]u8 = @splat(0);
@@ -152,6 +157,13 @@ fn test_drop(buffer: []u8, len: usize, consumed: usize) usize {
     return len - consumed;
 }
 
+/// Starts the server's session with one connection accepted in cleartext. Test-only.
+fn test_start_server() !void {
+    test_server_now_ns = 0;
+    try test_server.init(&test_server_config, entropy.random(), test_server_now_ns);
+    try testing.expect(test_server.accept(0, .cleartext, null, test_server_now_ns));
+}
+
 /// Runs the client against the server until the client is done or neither moves. Test-only.
 fn test_run() u32 {
     var to_server_len: usize = 0;
@@ -161,7 +173,7 @@ fn test_run() u32 {
         to_client_len = test_drop(&test_to_client, to_client_len, stepped.consumed);
         to_server_len += stepped.written;
         test_server_now_ns += constants.tick_ns;
-        const served = test_server.step(test_to_server[0..to_server_len], test_to_client[to_client_len..], test_server_now_ns);
+        const served = test_server.step(0, test_to_server[0..to_server_len], test_to_client[to_client_len..], test_server_now_ns);
         to_server_len = test_drop(&test_to_server, to_server_len, served.consumed);
         to_client_len += served.written;
         const moved = stepped.consumed + stepped.written + served.consumed + served.written;
@@ -172,9 +184,8 @@ fn test_run() u32 {
 
 test "h2: every exchange of the plan shares the connection, and content past the window goes out" {
     client_exchange.fill_content();
-    test_server_now_ns = 0;
     // Decision 117: the server names no version and reads h2 from the client's preface.
-    try test_server.init(&.{}, entropy.random(), null, test_server_now_ns);
+    try test_start_server();
     test_config = .{ .authority = "localhost", .versions = .{ .h11 = false } };
     // RFC 9113 §6.9.2: a stream starts with 65,535 octets of window.
     const content_len = 3 * 65_535;
@@ -194,9 +205,8 @@ test "h2: every exchange of the plan shares the connection, and content past the
 
 test "h11: the exchanges go out in order, and the connection ends after the last" {
     client_exchange.fill_content();
-    test_server_now_ns = 0;
     // Decision 117: the server names no version and reads h11 from the client's first octets.
-    try test_server.init(&.{}, entropy.random(), null, test_server_now_ns);
+    try test_start_server();
     test_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
     try test_client.init(&test_config, entropy.random(), 0, &.{
         .{ .method = "GET", .path = "/", .content_len = 0 },
