@@ -1,7 +1,8 @@
 //! One run of the content-coding check (`content_coding_check.zig`, decision 101): a colibri
-//! client and a colibri server over two streams, delivered in seeded pieces or whole. The client
-//! makes every exchange of the plan, and the server's caller answers each as the plan says, marked
-//! codable or not, in writes of the content, until every exchange ended.
+//! client and a colibri server over two streams, delivered in seeded pieces or whole. The server
+//! is an endpoint with one TCP slot (design §8 step 21b.6). The client makes every exchange of the
+//! plan, and the server's caller answers each as the plan says, marked codable or not, in writes
+//! of the content, until every exchange ended.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -26,6 +27,9 @@ pub const Error = client.RequestError || client.StartError || server.StartError 
 pub const EncoderPool = server.EncoderPool(limits.exchanges_max, encoder_level);
 const encoder_level: u4 = 1;
 pub const DecoderPool = client.DecoderPool(limits.exchanges_max);
+
+/// The server: one connection in cleartext, and no QUIC.
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 
 /// One direction's octets: written at the back, delivered in pieces, consumed from the front.
 const Stream = struct {
@@ -59,7 +63,7 @@ const Stream = struct {
 /// What the server's caller holds of one request: the exchange of the plan it answers, and how
 /// far its answer has gone.
 const Answer = struct {
-    id: u64,
+    id: server.Id,
     index: u8,
     responded: bool,
     written: u32,
@@ -68,9 +72,11 @@ const Answer = struct {
 pub const Storage = struct {
     encoders: EncoderPool,
     decoders: DecoderPool,
-    server_config: server.Config,
+    endpoint_config: server.EndpointConfig,
     client_config: client.Config,
-    server_connection: server.Connection,
+    endpoint: Endpoint,
+    /// The one connection the endpoint holds.
+    accepted: server.ConnectionHandle,
     client_connection: client.Connection,
     to_server: Stream,
     to_client: Stream,
@@ -96,7 +102,8 @@ pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Ra
         storage.to_server.deliver(pieces);
         try server_read(storage);
         try server_write(storage, plan);
-        storage.to_client.written += storage.server_connection.send(storage.to_client.free(), now_ns);
+        // Once a round, where the connection's own `send` was: every octet leaves as it did.
+        storage.to_client.written += storage.endpoint.send_stream(storage.accepted, storage.to_client.free(), now_ns);
         storage.to_client.deliver(pieces);
         client_read(storage);
         if (storage.finished == plan.exchanges_len) return;
@@ -117,10 +124,10 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
         .h11 => .{ .h2 = false },
         .h2 => .{ .h11 = false },
     };
-    storage.server_config = .{ .versions = server_versions };
+    storage.endpoint_config = .{ .versions = server_versions };
     if (plan.server_codings_len > 0) {
-        storage.server_config.codings = plan.server_offers();
-        storage.server_config.encoders = storage.encoders.encoders();
+        storage.endpoint_config.codings = plan.server_offers();
+        storage.endpoint_config.encoders = storage.encoders.encoders();
     }
     storage.client_config = .{ .authority = "a.example", .versions = client_versions };
     if (plan.client_codings_len > 0) {
@@ -129,7 +136,9 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     }
     storage.tls_random = Random.init(content_seed);
     const source = tls.Random.init(&storage.tls_random, fill);
-    try storage.server_connection.init(&storage.server_config, source, 0, now_ns);
+    try storage.endpoint.init(&storage.endpoint_config, source, 0, now_ns);
+    // A new endpoint has its one slot free.
+    storage.accepted = storage.endpoint.accept(.cleartext, now_ns) orelse return error.ExchangeRefused;
     try storage.client_connection.init(&storage.client_config, source, 0, null);
     storage.to_server.reset();
     storage.to_client.reset();
@@ -175,7 +184,7 @@ fn server_read(storage: *Storage) Error!void {
     const stream = &storage.to_server;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + limits.exchanges_max * events_per_exchange) |_| {
-        const received = storage.server_connection.receive(stream.held(), now_ns) catch return error.ExchangeRefused;
+        const received = storage.endpoint.receive(.{ .stream = .{ .connection = storage.accepted, .octets = stream.held() } }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;
@@ -184,19 +193,23 @@ fn server_read(storage: *Storage) Error!void {
         switch (reported) {
             .request => |head| {
                 // Both protocols deliver the client's requests in the order it made them.
-                storage.answers[storage.answers_len] = .{ .id = head.id.number, .index = storage.answers_len, .responded = false, .written = 0 };
+                storage.answers[storage.answers_len] = .{ .id = head.id, .index = storage.answers_len, .responded = false, .written = 0 };
                 storage.answers_len += 1;
             },
             .body, .trailers, .done => {},
-            .cancelled => return error.ExchangeRefused,
-            // A connection reports none of these: the endpoint does (decision 119).
-            .writable, .send, .close, .ended, .closed => unreachable,
+            // The run writes every answer and sends once in each round, so it waits for neither.
+            .writable, .send => {},
+            // The server refused what the client wrote: it ended a request, or the connection.
+            .cancelled, .close => return error.ExchangeRefused,
+            // The run closes no socket and never shuts the endpoint down.
+            .ended, .closed => unreachable,
         }
     }
 }
 
-/// The events one exchange gives the server at most: its request, its end, and its `done`.
-const events_per_exchange: usize = 3;
+/// The events one exchange gives either side at most. The server's are the most: its request, its
+/// end, its `done`, a `writable`, and a `send`.
+const events_per_exchange: usize = 5;
 
 /// The server's caller answers each request it read, writing as much content as it takes.
 fn server_write(storage: *Storage, plan: *const Plan) Error!void {
@@ -210,7 +223,7 @@ fn server_write(storage: *Storage, plan: *const Plan) Error!void {
 /// Writes the head of the answer. Returns false when the output is full: `send`, then answer again.
 fn respond(storage: *Storage, answer: *Answer, planned: *const plan_module.Exchange) Error!bool {
     const end = planned.head or planned.content_len == 0;
-    storage.server_connection.respond(answer.id, .{ .status = planned.status, .end = end, .codable = planned.codable }) catch |failure| {
+    storage.endpoint.respond(answer.id, .{ .status = planned.status, .end = end, .codable = planned.codable }) catch |failure| {
         if (failure == error.NoSpaceLeft) return false;
         return error.ExchangeRefused;
     };
@@ -228,7 +241,7 @@ fn write_content(storage: *Storage, answer: *Answer, planned: *const plan_module
         if (answer.written == content.len) return true;
         const left = content[answer.written..];
         const octets = left[0..@min(left.len, limits.write_len_max)];
-        const taken = storage.server_connection.write_body(answer.id, .{ .octets = octets, .end = octets.len == left.len }) catch |failure| {
+        const taken = storage.endpoint.write_body(answer.id, .{ .octets = octets, .end = octets.len == left.len }) catch |failure| {
             // No room, or the ring or h2's window is full: `send`, `receive`, then write again.
             if (failure == error.Blocked) return false;
             return error.ExchangeRefused;
