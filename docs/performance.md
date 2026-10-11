@@ -80,18 +80,24 @@ Each one is set up so that the three do the same work:
 
 ## Memory per connection
 
-Each struct a caller holds for one connection, in bytes, from the code being built (design §8 step
-13b, §11.2). `zig build bench-memory` prints the table for the objects the build targets, and
+Each struct a caller holds for one connection, and the server's endpoint, which holds a server's
+connections (design §8 step 21b.6), in bytes, from the code being built (design §8 step 13b,
+§11.2). `zig build bench-memory` prints the table for the objects the build targets, and
 `zig build test` fails when the table here differs from it. The sizes depend on which object
 chapulin builds: x86-64 and arm64 build its host objects (decision 97 as amended), so one table
 serves both. Any other target builds its device objects, prints another heading, and its test
-fails until this section holds its table. The QUIC connections hold no receive pool: their caller passes one, whose default the table
-lists.
+fails until this section holds its table. An endpoint holds each QUIC connection's receive pool.
+The QUIC connections listed by themselves hold none: a client's caller passes one, whose default
+the table lists. The two endpoints of one slot say what one more connection of a kind costs a
+server.
 
 With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
+| `server.Endpoint` | 40625232 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323136 | an endpoint that holds one TCP connection |
+| `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240512 | an endpoint that holds one QUIC connection, with its receive pool |
 | `server.Connection` | 306296 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `server.QuicConnection` | 721416 | one h3 connection, without its receive pool |
 | `client.Connection` | 289064 | one TCP connection: h11 or h2, in cleartext or over TLS |
