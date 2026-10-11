@@ -22,6 +22,9 @@ pub const Answer = struct {
     read_ms: u64,
     body_end_ms: ?u64,
     answered_ms: ?u64,
+    /// Whether the server's output once had no room for the answer's head. The application then
+    /// writes it when the peer has taken octets, and no instant of its own is due for it.
+    waited_for_room: bool,
     content_sent: u32,
     drained_ms: ?u64,
 };
@@ -64,6 +67,7 @@ pub const Application = struct {
             .read_ms = now_ms,
             .body_end_ms = if (ended) now_ms else null,
             .answered_ms = null,
+            .waited_for_room = false,
             .content_sent = 0,
             .drained_ms = null,
         };
@@ -103,7 +107,7 @@ pub const Application = struct {
     pub fn next_ms(app: *const Application, plan: *const Plan, current: ?u64) ?u64 {
         var soonest = current;
         for (app.answers[0..app.answers_len], 0..) |pending, index| {
-            if (pending.answered_ms != null) continue;
+            if (pending.answered_ms != null or pending.waited_for_room) continue;
             const body_end_ms = pending.body_end_ms orelse continue;
             const due_ms = body_end_ms + plan.answer_delay_ms[index];
             soonest = @min(soonest orelse due_ms, due_ms);
@@ -123,8 +127,12 @@ pub const Application = struct {
 /// a hostile peer's request or connection takes nothing more, and the application stops.
 fn write_answer(connection: *server.Connection, plan: *const Plan, pending: *Answer, content: []const u8, now_ms: u64) Error!bool {
     if (pending.answered_ms == null) {
-        connection.respond(pending.id, .{ .status = answer_status, .end = content.len == 0 }) catch {
-            return give_up(plan, pending, content, now_ms);
+        connection.respond(pending.id, .{ .status = answer_status, .end = content.len == 0 }) catch |failure| {
+            if (failure != error.NoSpaceLeft) return give_up(plan, pending, content, now_ms);
+            // `SendError.NoSpaceLeft`: the output has no room for the head, and the caller writes
+            // it again once the peer has taken octets.
+            pending.waited_for_room = true;
+            return false;
         };
         pending.answered_ms = now_ms;
         return true;

@@ -441,3 +441,19 @@ test "decision 110: an h11 body has no window to update, and its rate never star
     const result = try run_seed(&check_storage, h11_body_seed);
     try std.testing.expectEqual(server.Deadline.body_rate, result.record.deadline_passed().?);
 }
+
+/// The first seed whose honest peer reads so slowly that the server's output has no room for a
+/// second answer's head when it is due, and the seed's exchanges.
+const no_room_seed: u64 = 0x1f4c;
+const no_room_seed_exchanges: u8 = 3;
+
+test "an answer whose head finds no room is written once the peer has read, and its exchange ends whole" {
+    const result = try run_seed(&check_storage, no_room_seed);
+    try std.testing.expectEqual(no_room_seed_exchanges, result.record.exchanges_done);
+    // The second answer waited for octets of the first to leave the output, and the others
+    // found room.
+    const answers = result.record.app.answers;
+    try std.testing.expectEqual([_]bool{ false, true, false }, [_]bool{
+        answers[0].waited_for_room, answers[1].waited_for_room, answers[2].waited_for_room,
+    });
+}
