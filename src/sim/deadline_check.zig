@@ -249,21 +249,48 @@ fn slow_body(plan: *const Plan) Expected {
 /// the end of the first window that brings less than the quota, or the cap, whichever comes first.
 /// The body's wait starts when its head arrives, at the start of the run, and a piece counts in the
 /// window it arrives in; a window ends at its instant, and the cap passes first at one instant.
+///
+/// In h2 the rate waits while colibri holds a WINDOW_UPDATE, and starts again with its grace
+/// period once the update is out (decision 110 as amended). The run's peer takes the update at
+/// the instant of the piece that brought it, so the rate starts again there, and counts the
+/// pieces after that one.
 fn body_cut(plan: *const Plan) Cut {
     const deadlines = &plan.deadlines;
     const window_ms = ms_of(deadlines.rate_window_ns);
+    const first_window_ms = ms_of(deadlines.rate_grace_ns) + window_ms;
     const cap_ms = ms_of(deadlines.body_ns.?);
     const quota = deadlines.body_quota().?;
     var start_ms: u64 = 0;
-    var end_ms = ms_of(deadlines.rate_grace_ns) + window_ms;
-    // Bounded: each pass moves a window on, and the cap ends them.
-    for (0..cap_ms / window_ms + 1) |_| {
+    var end_ms = first_window_ms;
+    // Bounded: each pass moves a window on, or starts the rate again at a later piece, and the cap
+    // ends them.
+    for (0..cap_ms / window_ms + limits.pieces_max + 1) |_| {
         if (end_ms >= cap_ms) break;
+        if (update_ms(plan, start_ms, end_ms)) |restart_ms| {
+            start_ms = restart_ms + 1;
+            end_ms = restart_ms + first_window_ms;
+            continue;
+        }
         if (body_octets(plan, start_ms, end_ms) < quota) return body_cut_at(.body_rate, end_ms);
         start_ms = end_ms;
         end_ms += window_ms;
     }
     return body_cut_at(.body, cap_ms);
+}
+
+/// The instant of the first piece from `start_ms` to before `end_ms` that makes colibri owe a
+/// WINDOW_UPDATE, or null when none does. h2 owes one once the octets it took since the last
+/// reach `window_update_threshold` (RFC 9113 §6.9.1), and each piece is one DATA frame, so every
+/// update takes the same count of pieces.
+fn update_ms(plan: *const Plan, start_ms: u64, end_ms: u64) ?u64 {
+    if (plan.protocol != .h2) return null;
+    assert(plan.piece_len > 0 and plan.gap_ms > 0);
+    const pieces = std.math.divCeil(u64, h2.constants.window_update_threshold, plan.piece_len) catch unreachable;
+    const every_ms = pieces * plan.gap_ms;
+    const at_ms = @max(1, std.math.divCeil(u64, start_ms, every_ms) catch unreachable) * every_ms;
+    // The body stops at its end, and a piece due then is never sent.
+    if (at_ms >= end_ms or at_ms >= deadline_plan.body_end_ms(plan)) return null;
+    return at_ms;
 }
 
 /// A body cut at `at_ms`: a 408, then RST_STREAM with NO_ERROR in h2.
@@ -366,4 +393,51 @@ test "decision 110: every seed replays, honest peers finish their exchanges, and
     };
     try std.testing.expect(census.exchanges > 0);
     try std.testing.expectEqual(census_crc32_expected, census.crc32.final());
+}
+
+/// The first seed whose slow h2 body lasts until colibri owes a WINDOW_UPDATE: its tenth piece
+/// brings one at 37,070 ms, inside a window that would have ended short at 40,000 ms.
+const update_seed: u64 = 0xffe;
+const update_seed_reset_ms: u64 = 67_070;
+
+test "decision 110 as amended: a slow h2 body's rate starts again at the WINDOW_UPDATE its octets bring" {
+    const result = try run_seed(&check_storage, update_seed);
+    // The rate starts again at 37,070 ms with its grace period, its second window ends at
+    // 67,070 ms with one piece in it, and the stream is cut there.
+    try std.testing.expectEqual(update_seed_reset_ms, result.record.reset_at_ms.?);
+    try std.testing.expectEqual(server.Deadline.body_rate, result.record.app.cancelled.?);
+}
+
+/// Runs a slow h2 body of `piece_len` octets every `gap_ms` under the limits of `update_seed`,
+/// checks how it ends as `run_seed` does, and returns the instant its stream was reset.
+fn slow_body_reset_ms(gap_ms: u64, piece_len: u32) !u64 {
+    var random = Random.init(update_seed);
+    var plan = deadline_plan.draw(&random);
+    assert(plan.protocol == .h2 and plan.peer == .slow_body);
+    plan.gap_ms = gap_ms;
+    plan.piece_len = piece_len;
+    try deadline_run.run(&check_storage.run, &plan, update_seed);
+    try verify(&check_storage, &plan, update_seed);
+    return check_storage.run.record.reset_at_ms.?;
+}
+
+test "decision 110 as amended: a window that ends as the update's piece arrives is judged before the rate starts again" {
+    // Pieces of 3,277 octets, of which the tenth brings a WINDOW_UPDATE, one every 3,000 ms: the
+    // window from 20,000 ms holds three, short of the quota, and the tenth arrives as it ends.
+    try std.testing.expectEqual(30_000, try slow_body_reset_ms(3_000, 3_277));
+}
+
+test "decision 110 as amended: a piece due as the body stops is never sent, and brings no update" {
+    // Pieces of 2,731 octets, of which the twelfth brings a WINDOW_UPDATE, one every 2,500 ms:
+    // the rate starts again at 30,000 ms, every window to 60,000 ms holds its quota, and the
+    // twenty-fourth piece is due at 60,000 ms, where the body stops.
+    try std.testing.expectEqual(70_000, try slow_body_reset_ms(2_500, 2_731));
+}
+
+/// The first seed whose slow h11 body brings as many octets as make h2 owe a WINDOW_UPDATE.
+const h11_body_seed: u64 = 0x16ec;
+
+test "decision 110: an h11 body has no window to update, and its rate never starts again" {
+    const result = try run_seed(&check_storage, h11_body_seed);
+    try std.testing.expectEqual(server.Deadline.body_rate, result.record.deadline_passed().?);
 }
