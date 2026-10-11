@@ -3888,7 +3888,11 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      5. The bounds that named a version move into a `limits` field, named by what they bound.
         `versions` stays out of it, because a choice of version bounds nothing.
      6. A router, `server.routes`: a table of methods and paths the program declares at compile
-        time, which matches and captures and does nothing more (design §8 step 21e).
+        time, which matches a path and returns its parameters, and does nothing more (design §8
+        step 21e). A parameter is the value a pattern's `:name` segment binds, and a program
+        reads them from a `server.PathParameters`. The owner named them on 2026-10-10: the first
+        draft called them captures, which names what a matcher does and not what a program
+        reads.
      7. No middleware (decision 118).
 
      `protocol()`, `Request.version` and the close reasons still name a version. They say what

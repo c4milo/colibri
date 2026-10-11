@@ -7612,8 +7612,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass, and no root's list holds a
     connection type.
   - **21e, the router.** `server.routes`, a table of methods and paths the program declares at
-    compile time, matched through a trie of path segments as #96 describes. **Check:** tests for
-    literal segments, captures, a trailing wildcard, precedence whatever the table's order, 404,
+    compile time, matched through a trie of path segments as #96 describes. A pattern's segment
+    is a literal, a parameter (`:id`) or a trailing wildcard (`*`), and a match returns the
+    path's parameters in a `server.PathParameters`. **Check:** tests for literal segments,
+    parameters, a trailing wildcard, precedence whatever the table's order, 404,
     405 with its Allow list, and a path with an encoded octet, a dot segment or an empty segment
     matching nothing. Each malformed or conflicting table fails to compile. An example routes
     with it. Each rule has a mutation a test catches.
