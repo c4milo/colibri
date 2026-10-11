@@ -151,8 +151,10 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
 
         /// Takes what `input` brings, then reports the next event any connection owes. The
         /// caller passes the octets each TCP socket read and each datagram the UDP socket read,
-        /// and calls with `.none` after it answers, after `send_stream` and after `on_instant`,
-        /// until a call reports nothing. A TCP connection may consume less than it was given: the
+        /// and calls with `.none` after every call that changes a connection, until a call reports
+        /// nothing: an answer, `cancel`, `send_stream`, `transport_closed`, `shutdown` and
+        /// `on_instant`. Each leaves what follows it, a slot's release included, to the next
+        /// `receive`. A TCP connection may consume less than it was given: the
         /// caller holds the rest and passes it again, with what the socket reads next, and after
         /// each event that names the connection, which may say it reads again, such as the `done`
         /// of an h11 response a pipelined request waited for. An event's slices stay
@@ -202,11 +204,14 @@ pub fn EndpointOf(comptime capacity: Capacity) type {
             endpoint.held.shutdown(now_ns);
         }
 
-        /// Writes into `output` what the TCP connection `connection` owes its socket, after the
-        /// endpoint reported a `send` for it, and returns the octets written: 0 for a handle that
-        /// names no connection. A call that fills `output` leaves more owed, and the caller calls
-        /// again. One that leaves room ends the `send`: the endpoint reports another once the
-        /// connection owes more, at once when a record's overhead did not fit the room left.
+        /// Writes into `output` what the TCP connection `connection` owes its socket, and returns
+        /// the octets written: 0 for a handle that names no connection. The endpoint reports a
+        /// `send` when a connection owes octets no call has taken. A program may also call this
+        /// for an open connection at any time, such as straight after it writes a response, which
+        /// sends before the connection is read again. A call that fills `output` leaves more
+        /// owed, and the caller calls again. One that leaves room ends the `send`: the endpoint
+        /// reports another once the connection owes more, at once when a record's overhead did
+        /// not fit the room left.
         pub fn send_stream(endpoint: *Self, connection: ConnectionHandle, output: []u8, now_ns: u64) usize {
             return endpoint.held.send_stream(connection, output, now_ns);
         }

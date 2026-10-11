@@ -14,7 +14,9 @@ const close_reason = @import("close_reason.zig");
 /// connection names nothing. Generation 0 names no connection.
 pub const ConnectionHandle = packed struct(u64) {
     /// Below the endpoint's TCP and QUIC slots together. TCP slots come first, so a TCP
-    /// connection's slot indexes a program's own array of sockets.
+    /// connection's slot is below the count of TCP slots. A slot is free again at its
+    /// connection's `ended`, so a program whose socket outlives `ended` maps a slot to the state
+    /// of the connection the slot holds now, and keeps the whole handle with that state.
     slot: u32,
     generation: u32,
 };
