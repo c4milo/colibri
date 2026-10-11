@@ -844,6 +844,38 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   static table's cannot be observed, because a line the static table holds is indexed and never
   inserted, so the mirror never holds one. The code now says so and prefers the static index.
 
+  **The static table's index, 2026-10-10.** For
+  [#57](https://github.com/c4milo/colibri/issues/57), `3c07e53` has the encoder find a static
+  entry through a map built at compile time. The map takes each name of RFC 7541 Appendix A to the
+  run of entries that carry it. A name is compared only with the table's names of its length, and
+  its value only within that run. Before it, the encoder compared each field line the table does
+  not hold whole with all 61 entries. The build refuses a table that does not keep one name's
+  entries together.
+
+  What each check printed:
+  - The scan stays in the encoder's tests as the reference. Two tests require the index to find
+    what the scan finds: for every name of the table with every value of the table, and for each
+    name one octet shorter, one octet longer, and with each of its octets changed.
+  - 7 mutations, each **CAUGHT**: the index never read; a run that starts one entry late; a run
+    without its last entry; an exact match without its name index; an exact index that counts
+    from 0; a name match that reports no name; and, by the build's own check, entries of one name
+    that each start a run.
+  - `tools/ci.sh` on macOS arm64: 33 of 33 sections passed, with 2745 of 2745 tests.
+
+  The judge, [run 38021801946](https://github.com/c4milo/colibri/actions/runs/38021801946),
+  measured it against `89ecb36`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 39,175 | 36,916 | 0.9423 | 0.9423 | wins in both |
+  | h2-tls-many | 47,000 | 44,746 | 0.9520 | 0.9519 | wins in both |
+  | h2-one | 305,317 | 302,511 | 0.9908 | 0.9912 | within the noise, then wins |
+  | h2-tls-one | 7,596,003 | 7,596,708 | 1.0001 | 0.9984 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 2,257 in the
+  first job and by 2,256 in the second.
+
 - **Step 4 — h2 connection and streams, cleartext, prior knowledge.** Frame reader and writer,
   the two prefaces, settings with the ACK discipline, the stream state machine, the signed send
   window and the retroactive settings sweep, GOAWAY, `RST_STREAM`, the field-block reassembly
@@ -5442,6 +5474,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - 2 mutations, each **CAUGHT** by `src/testing/cpu.zig`'s tests: an arm64 core that states the
     mode without setting PSTATE.DIT, and one without FEAT_DIT that states no mode.
   - `zig build test`: 131 of 131 steps and 2743 of 2743 tests passed.
+  - The rerun, [38021801946](https://github.com/c4milo/colibri/actions/runs/38021801946), on
+    `89ecb36`, ran TLS_AES_256_GCM_SHA384 on both TLS inputs in both jobs. `89ecb36` changes only
+    what the test programs state on a core whose probe does not answer `yes` for FEAT_DIT, so the
+    runner's probe does not.
+  - That run is the first to count a tree with chapulin 0.2.0 on the judge. Its first job counted
+    47,000 instructions per request on `h2-tls-many` and 7,596,003 per connection on
+    `h2-tls-one`. Step 13c's table holds 85,507 and 55,569,416 for those inputs on `cf7bcd2`. The
+    judge never compares two runs, so these are two counts and not a ratio, and no run has
+    measured the competitors since.
 
 - **Step 17 — the version-choosing client and server.** [Decision 100](decisions.md) has two
   library modules above h11, h2 and h3, for
