@@ -783,6 +783,43 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   to choose Huffman, in the HPACK encoder's `write_string`, and once for the literal's length, in
   `string_literal.encode`.
 
+  **`validate_value` reads one table, 2026-10-12.** The loop tested each octet of a field value
+  with compares and returned from inside itself at NUL, CR or LF, which kept the compiler to one
+  octet a pass: 14 instructions an octet, over the 70 octets of field values the judge's request
+  and response carry. A table now gives each octet its class: NUL, CR or LF; another control
+  octet; or neither. The loop ORs the classes and no octet ends it, and the two reasons are
+  tested after it, NUL, CR or LF first. Every value gets the verdict it got. A value that holds a
+  NUL is now read to its end, which `field_value_len_max` bounds.
+
+  What each check printed:
+  - The old loop stays in `field.zig`'s tests as the reference. `validate_value` must give its
+    verdict for every value of up to two octets; with every octet value at every position of
+    every length up to 40, over three backgrounds; with every pair of nine kinds of octet at
+    every pair of positions up to 20; at the longest value and one octet past it; and with each
+    kind at each power of two inside the longest value.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change.
+  - 14 mutations, each **CAUGHT**. Of the table: NUL, CR or LF admitted; a control octet reported
+    as one of those three, or admitted; and HTAB reported as a control octet. Of the loop: the
+    last octet's class kept alone; the first octet left out, or the last, or those past the
+    fortieth. Of the reasons: the two in the other order, either one left out, and both classes
+    on one bit.
+
+  The judge, [run 38201626617](https://github.com/c4milo/colibri/actions/runs/38201626617),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians. The judge measured the
+  commit before its review, which differs from this one in tests alone.
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 17,555 | 16,888 | 0.9620 | 0.9618 | wins in both |
+  | h2-tls-many | 25,404 | 24,748 | 0.9742 | 0.9759 | wins in both |
+  | h2-one | 222,749 | 222,232 | 0.9977 | 0.9966 | within the noise |
+  | h2-tls-one | 7,327,325 | 7,326,680 | 0.9999 | 0.9998 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 668 in both
+  jobs, where the disassembly gave about 620: the new loop runs 9 instructions for each 2 octets.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put

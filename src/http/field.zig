@@ -90,16 +90,14 @@ pub fn validate_name(name: []const u8) NameError!void {
 pub fn validate_value(value: []const u8) ValueError!void {
     // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
     if (value.len > limits.field_value_len_max) return error.FieldValueTooLong;
-    var control_seen = false;
-    for (value) |octet| {
-        const forbidden = octet == 0x00 or octet == '\r' or octet == '\n';
-        // RFC 9110 §5.5: a recipient of CR, LF or NUL must reject the message or replace them.
-        if (forbidden) return error.FieldValueNulCarriageReturnOrLineFeed;
-        // RFC 9110 §5.5: field-vchar is VCHAR or obs-text, with SP and HTAB between them.
-        if (is_control(octet)) control_seen = true;
-    }
+    // Every octet's class is read and no octet ends the loop, so a pass is a table read and an
+    // OR. Which octet held a class does not matter: NUL, CR or LF anywhere is reported first.
+    var classes: u8 = 0;
+    for (value) |octet| classes |= value_class_table[octet];
+    // RFC 9110 §5.5: a recipient of CR, LF or NUL must reject the message or replace them.
+    if (classes & class_nul_cr_lf != 0) return error.FieldValueNulCarriageReturnOrLineFeed;
     // RFC 9110 §5.5: field values containing other CTL characters are also invalid.
-    if (control_seen) return error.FieldValueControl;
+    if (classes & class_control != 0) return error.FieldValueControl;
     if (value.len == 0) return;
     // RFC 9113 §8.2.1: no leading SP or HTAB. h3 refuses it too (decision 15).
     if (is_whitespace(value[0])) return error.FieldValueLeadingWhitespace;
@@ -134,6 +132,28 @@ const list_whitespace = " \t";
 /// CTL, but RFC 9110 §5.5 admits it between field-vchars, so it is not reported here.
 fn is_control(octet: u8) bool {
     return std.ascii.isControl(octet) and octet != '\t';
+}
+
+/// One entry per octet value: what RFC 9110 §5.5 says of that octet in a field value. An entry is
+/// `class_nul_cr_lf`, `class_control` or 0, and `validate_value` ORs the entries of a value.
+const ValueClassTable = [std.math.maxInt(u8) + 1]u8;
+
+/// NUL, CR or LF.
+const class_nul_cr_lf: u8 = 1 << 1;
+/// A control octet other than those three and HTAB.
+const class_control: u8 = 1 << 0;
+
+const value_class_table: ValueClassTable = build_value_class_table();
+
+fn build_value_class_table() ValueClassTable {
+    var table: ValueClassTable = @splat(0);
+    for (&table, 0..) |*class, octet| {
+        // RFC 9110 §5.5: CR, LF and NUL are the octets a recipient must reject or replace.
+        const forbidden = octet == 0x00 or octet == '\r' or octet == '\n';
+        // RFC 9110 §5.5: field-vchar is VCHAR or obs-text, with SP and HTAB between them.
+        class.* = if (forbidden) class_nul_cr_lf else if (is_control(@intCast(octet))) class_control else 0;
+    }
+    return table;
 }
 
 fn is_whitespace(octet: u8) bool {
@@ -279,4 +299,143 @@ test "sweep: every value of up to two octets loses only whitespace beside an end
 
 test "sweep: every name or value of up to two octets that validates holds no forbidden octet" {
     try core.fuzz.sweep(fuzz_validate, null);
+}
+
+// The tests below hold `validate_value` to the loop it replaced. That loop tested each octet with
+// compares and returned from inside itself at NUL, CR or LF. It stays here as the reference:
+// `validate_value` must give every value the verdict the reference gives it.
+
+/// The reference: `validate_value` as it was, octet by octet.
+fn validate_value_by_octet(value: []const u8) ValueError!void {
+    // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
+    if (value.len > limits.field_value_len_max) return error.FieldValueTooLong;
+    var control_seen = false;
+    for (value) |octet| {
+        const forbidden = octet == 0x00 or octet == '\r' or octet == '\n';
+        // RFC 9110 §5.5: a recipient of CR, LF or NUL must reject the message or replace them.
+        if (forbidden) return error.FieldValueNulCarriageReturnOrLineFeed;
+        // RFC 9110 §5.5: field-vchar is VCHAR or obs-text, with SP and HTAB between them.
+        if (std.ascii.isControl(octet) and octet != '\t') control_seen = true;
+    }
+    // RFC 9110 §5.5: field values containing other CTL characters are also invalid.
+    if (control_seen) return error.FieldValueControl;
+    if (value.len == 0) return;
+    // RFC 9113 §8.2.1: no leading SP or HTAB. h3 refuses it too (decision 15).
+    if (value[0] == ' ' or value[0] == '\t') return error.FieldValueLeadingWhitespace;
+    const last = value[value.len - 1];
+    // RFC 9113 §8.2.1: no trailing SP or HTAB. h3 refuses it too (decision 15).
+    if (last == ' ' or last == '\t') return error.FieldValueTrailingWhitespace;
+}
+
+/// The error a validation returned, or null.
+fn reason_of(result: ValueError!void) ?ValueError {
+    result catch |reason| return reason;
+    return null;
+}
+
+/// Fails, printing both verdicts, when `validate_value` and the reference differ on `value`.
+fn expect_same(value: []const u8) !void {
+    const changed = reason_of(validate_value(value));
+    const reference = reason_of(validate_value_by_octet(value));
+    if (changed == reference) return;
+    std.debug.print("first difference: value {x}: validate_value {any}, reference {any}\n", .{ value, changed, reference });
+    return error.TestUnexpectedResult;
+}
+
+/// The octet values, 0 to 255.
+const octet_values = std.math.maxInt(u8) + 1;
+/// The longest value the tests vary one octet of.
+const varied_len_max = 40;
+/// The longest value the tests put two octets into.
+const paired_len_max = 20;
+/// The last control octet below SP, and DEL (RFC 5234 Appendix B.1).
+const control_last: u8 = 0x1f;
+const delete: u8 = 0x7f;
+/// The highest obs-text octet (RFC 9110 §5.5).
+const obs_text_last: u8 = 0xff;
+/// What the rest of a varied value holds: a field-vchar, whitespace, and obs-text.
+const backgrounds = [_]u8{ 'a', ' ', obs_text_last };
+/// One octet of each kind `validate_value` tells apart, and the first and last control octets.
+const kinds = [_]u8{ 0x00, '\r', '\n', 0x01, control_last, delete, '\t', ' ', 'a' };
+
+test "validate_value gives every value of up to two octets the reference's verdict" {
+    var value: [2]u8 = undefined;
+    try expect_same(value[0..0]);
+    for (0..octet_values) |first| {
+        value[0] = @intCast(first);
+        try expect_same(value[0..1]);
+        for (0..octet_values) |second| {
+            value[1] = @intCast(second);
+            try expect_same(&value);
+        }
+    }
+}
+
+/// Compares on `value` with each octet value in turn at `position`, then puts `background` back.
+fn expect_same_with_each_octet(value: []u8, position: usize, background: u8) !void {
+    for (0..octet_values) |octet| {
+        value[position] = @intCast(octet);
+        try expect_same(value);
+    }
+    value[position] = background;
+}
+
+test "validate_value gives the reference's verdict with every octet at every position" {
+    var buffer: [varied_len_max]u8 = undefined;
+    for (backgrounds) |background| {
+        @memset(&buffer, background);
+        for (0..buffer.len + 1) |len| {
+            try expect_same(buffer[0..len]);
+            for (0..len) |position| try expect_same_with_each_octet(buffer[0..len], position, background);
+        }
+    }
+}
+
+/// Compares on `value` with every pair of `kinds` at `first` and `second`, then restores it.
+fn expect_same_with_each_pair(value: []u8, first: usize, second: usize) !void {
+    for (kinds) |one| {
+        for (kinds) |other| {
+            value[first] = one;
+            value[second] = other;
+            try expect_same(value);
+        }
+    }
+    value[first] = 'a';
+    value[second] = 'a';
+}
+
+test "validate_value reports the reason the reference reports when two octets are at fault" {
+    var buffer: [paired_len_max]u8 = @splat('a');
+    for (1..buffer.len + 1) |len| {
+        for (0..len) |first| {
+            for (0..len) |second| try expect_same_with_each_pair(buffer[0..len], first, second);
+        }
+    }
+}
+
+test "validate_value gives the reference's verdict at the longest value and one octet past it" {
+    var buffer: [limits.field_value_len_max + 1]u8 = @splat('v');
+    try expect_same(&buffer);
+    const longest = buffer[0..limits.field_value_len_max];
+    try expect_same(longest);
+    // A control octet at the last place the loop reads, and NUL there.
+    longest[longest.len - 1] = 0x7f;
+    try expect_same(longest);
+    longest[longest.len - 1] = 0x00;
+    try expect_same(longest);
+    longest[0] = 0x01;
+    try expect_same(longest);
+}
+
+test "validate_value gives the reference's verdict for an octet far inside the longest value" {
+    var buffer: [limits.field_value_len_max]u8 = @splat('v');
+    // Places the sweeps above do not reach: each power of two below the length.
+    for (0..std.math.log2_int(usize, buffer.len)) |bit| {
+        const position = @as(usize, 1) << @intCast(bit);
+        for (kinds) |kind| {
+            buffer[position] = kind;
+            try expect_same(&buffer);
+        }
+        buffer[position] = 'v';
+    }
 }
