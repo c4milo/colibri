@@ -8258,6 +8258,46 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     its names, in `zig build test-server`; `Config` naming a TCP connection's configuration, by
     `zig build`, which no caller then passes.
 
+  **The endpoint's cost, 2026-10-11.** Step 21b.6 moved the test-only server, which the judge
+  measures, onto the endpoint, so the judge then counted what the endpoint costs a request.
+  - **The gap.** Run [38181560376](https://github.com/c4milo/colibri/actions/runs/38181560376),
+    66d91e4 against 5954c39, the commit before 21b.6, in both jobs: h2-many 1.1148 (25,699 to
+    28,649 instructions per request), h2-tls-many 1.0906, h2-one 1.050, and h2-tls-one within
+    the noise. CPU time per request on h2-many rose 17%.
+  - **Where it went.** A profile of the two servers under h2-many's load, sampled on a laptop
+    and so no published number, put 83% of the added time in the endpoint's own functions. The
+    search of a slot's open requests came first: the endpoint walked the table eight times for
+    each request, for each event and answer and twice in assertions.
+  - **Two changes,** each judged alone against the commit before it, on main 291138f:
+    - A table keeps, for a request's number, the entry it is open at, so a lookup reads one
+      entry (`endpoint_requests.zig`). Run
+      [38192700910](https://github.com/c4milo/colibri/actions/runs/38192700910): h2-many 0.9729
+      and 0.9728 (19,488 to 18,959), h2-tls-many 0.9805 and 0.9811. It adds 144 octets to a TCP
+      slot.
+    - A table counts the cancels it owes and its waiting requests, and a poll scans for either
+      only while it counts one. Run
+      [38192702985](https://github.com/c4milo/colibri/actions/runs/38192702985): h2-many 0.9894
+      in both jobs (18,940 to 18,740), h2-tls-many 0.9924 and 0.9929.
+    - h2-one and h2-tls-one stayed within the noise in every job.
+  - **The proof that nothing else moved.** With both changes, the census lines of the
+    content-coding, deadline, endpoint and h3 deadline checks, and the 256 modules the deadline
+    trace, the TCP trace and the h3 deadline trace write, are octet for octet what main writes.
+    The table's tests keep a table that scans as their reference.
+  - **What is left.** The two changes take back about 730 of the 2,950 instructions. About
+    2,200 remain, by subtraction across runs, which no one run measured. The requests that
+    main's h2 changes of the same day made cheaper make that a larger share: about a ninth of
+    an h2-many request. It is spread over each call of the endpoint, of which a request makes
+    about four and a half: the handle resolved, the slot marked in the ready ring and the
+    deadline heap, the event passed on under the connection's handle, and a 176-octet result
+    returned through three functions. An endpoint does that work and a connection alone did
+    not.
+  - Mutations, each **CAUGHT** by `zig build test-server`:
+    - The places: a place kept after its request ended; a placeless request not counted, or
+      never counted out; the step ignored; a lookup that reads no number; a lookup that never
+      scans.
+    - The counts: a cancel or a wait not counted, or counted twice; a request that found room,
+      or that ended, still counted; either scan run only while its count is zero.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
