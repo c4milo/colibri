@@ -1,9 +1,10 @@
-//! The TCP peers of the endpoint check (design §8 step 21b.5, decision 119): colibri's client in
-//! cleartext or over TLS for an honest peer, and for every other a hostile peer of the deadline
-//! check (`deadline_peer.zig`), which writes its script in cleartext. Each peer has a socket of two
-//! directions. The peer writes into one at its plan's pace and reads the other at its plan's pace.
-//! The run passes the endpoint what the peer wrote, and writes what the endpoint owes the peer into
-//! the other at once, so the socket is never full (P7).
+//! The TCP peers of the endpoint check (design §8 step 21b.5, decision 119). Each honest peer is
+//! colibri's client: a `client.Channel` with TCP alone, in cleartext or over TLS (decision 120,
+//! design §8 step 21c). Every other is a hostile peer of the deadline check (`deadline_peer.zig`),
+//! which writes its script in cleartext. Each peer has a socket of two directions. The peer writes
+//! into one at its plan's pace and reads the other at its plan's pace. The run passes the endpoint
+//! what the peer wrote, and writes what the endpoint owes the peer into the other at once, so the
+//! socket is never full (P7).
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -65,13 +66,16 @@ pub fn Stream(comptime len: usize) type {
 /// after the endpoint shut down, or over, its connection ended.
 pub const State = enum { away, waiting, served, refused, over };
 
-/// The ALPN IDs of RFC 9113 §3.2 ("h2") and RFC 9112 §12.4 ("http/1.1"). Each peer offers its
-/// plan's protocol alone, so ALPN selects it (RFC 7301 §3.2).
-const alpn_h2 = [_][]const u8{"h2"};
-const alpn_h11 = [_][]const u8{"http/1.1"};
-
-/// The client configurations a peer starts from: one for each protocol in cleartext and over TLS.
+/// The channel configurations a peer starts from: one for each protocol in cleartext and over TLS.
+/// Each allows its plan's protocol alone, so over TLS the channel offers the ALPN ID of RFC 9113
+/// §3.2 ("h2") or of RFC 9112 §12.4 ("http/1.1") alone, and ALPN selects it (RFC 7301 §3.2).
 const Way = enum { cleartext_h11, cleartext_h2, tls_h11, tls_h2 };
+
+/// The endpoint's address and port, which each channel names when it asks for its socket. The run
+/// has no network, so nothing else reads them.
+const ipv4_len: usize = 4;
+const endpoint_octet: u8 = 0x0a;
+const endpoint_port: u16 = 443;
 
 pub const Peer = struct {
     state: State,
@@ -81,7 +85,10 @@ pub const Peer = struct {
     accepted_ms: ?u64,
     /// Whether the peer closes its socket no more: it closed it, or the endpoint did.
     closed: bool,
-    client: client.Connection,
+    /// colibri's client, a channel that opens TCP alone, and whether it reported `close`: its
+    /// connection is over and wrote what it owed, so the peer closes its socket.
+    client: client.Channel,
+    close_reported: bool,
     hostile: deadline_peer.Hostile,
     exchanges: [exchanges_max]client.HttpExchange,
     ids: [exchanges_max]?client.Id,
@@ -111,21 +118,26 @@ pub const Peer = struct {
 };
 
 pub const Peers = struct {
-    tls_h2: tls.record.ClientConfig,
-    tls_h11: tls.record.ClientConfig,
-    configs: [std.enums.values(Way).len]client.Config,
+    /// The one address each channel opens its socket to.
+    addresses: [1]client.Address,
+    configs: [std.enums.values(Way).len]client.ChannelConfig,
     /// The content an uploading peer's requests carry.
     upload: [sim.constants.deadline.upload_len_max]u8,
     peers: [limits.tcp_peers]Peer,
 
-    /// The client configurations, and every peer away.
-    pub fn init(peers: *Peers, seed: u64) Error!void {
-        peers.tls_h2.init(trust(&alpn_h2)) catch return error.PeerFailed;
-        peers.tls_h11.init(trust(&alpn_h11)) catch return error.PeerFailed;
+    /// The channel configurations, and every peer away.
+    pub fn init(peers: *Peers, seed: u64) void {
+        const octets: [ipv4_len]u8 = @splat(endpoint_octet);
+        peers.addresses = .{client.Address.of(&octets, 0)};
+        // One TLS value serves both protocols: the channel names the ALPN ID `versions` allows.
+        const trust: tls.Client = .{
+            .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
+            .cpu = identity.cpu,
+        };
         peers.configs[@intFromEnum(Way.cleartext_h11)] = .{ .authority = identity.authority, .versions = .{ .h2 = false } };
         peers.configs[@intFromEnum(Way.cleartext_h2)] = .{ .authority = identity.authority, .versions = .{ .h11 = false } };
-        peers.configs[@intFromEnum(Way.tls_h11)] = .{ .authority = identity.authority, .tls = &peers.tls_h11 };
-        peers.configs[@intFromEnum(Way.tls_h2)] = .{ .authority = identity.authority, .tls = &peers.tls_h2 };
+        peers.configs[@intFromEnum(Way.tls_h11)] = .{ .authority = identity.authority, .versions = .{ .h2 = false }, .tls = trust };
+        peers.configs[@intFromEnum(Way.tls_h2)] = .{ .authority = identity.authority, .versions = .{ .h11 = false }, .tls = trust };
         for (&peers.upload, 0..) |*octet, index| octet.* = letters[index % letters.len];
         for (&peers.peers, 0..) |*peer, index| {
             peer.state = .away;
@@ -137,8 +149,9 @@ pub const Peers = struct {
         }
     }
 
-    /// Starts the peer at `index`, which the endpoint accepted as `handle` at `now_ms`.
-    pub fn start(peers: *Peers, index: usize, plan: *const TcpPeer, handle: server.ConnectionHandle, now_ms: u64) Error!void {
+    /// Starts the peer at `index`, which the endpoint accepted as `handle` at `now_ms`, the instant
+    /// `now_ns` on the endpoint's clock.
+    pub fn start(peers: *Peers, index: usize, plan: *const TcpPeer, handle: server.ConnectionHandle, now_ns: u64, now_ms: u64) Error!void {
         const peer = &peers.peers[index];
         assert(peer.state == .waiting);
         peer.state = .served;
@@ -153,9 +166,11 @@ pub const Peers = struct {
         peer.reads = 0;
         peer.reset_done = false;
         peer.ids = @splat(null);
+        peer.close_reported = false;
         if (!Peer.played_by_client(plan)) return peer.hostile.start(&plan.behaviour);
         const config = &peers.configs[@intFromEnum(way_of(plan))];
-        peer.client.init(config, tls.Random.init(&peer.random, fill), identity.now_seconds, null) catch return error.PeerFailed;
+        // TCP alone: the channel is given no receive pool, so it offers no QUIC.
+        peer.client.init(config, .{ .addresses = &peers.addresses, .port = endpoint_port }, null) catch return error.PeerFailed;
         const behaviour = &plan.behaviour;
         for (peer.exchanges[0..behaviour.exchanges_len], 0..) |*exchange, exchange_index| {
             exchange.* = .{ .method = "GET", .path = "/", .body = &peer.bodies[exchange_index] };
@@ -165,21 +180,28 @@ pub const Peers = struct {
         }
         const at_once = if (one_at_a_time(plan)) 1 else behaviour.exchanges_len;
         for (0..at_once) |_| try request_next(peer);
+        try connect(peer, now_ns);
     }
 };
+
+/// The channel asks for its socket, which the endpoint accepted already, and the peer starts the
+/// connection on it. In cleartext the connection owes `connected` from its start, and the channel
+/// hands it the exchanges as it reports it, so the peer's first write carries them. Over TLS the
+/// read that completes the handshake reports it, in `read`.
+fn connect(peer: *Peer, now_ns: u64) Error!void {
+    const asked = peer.client.receive(.none, now_ns);
+    assert(asked.event.?.open.transport == .tcp);
+    peer.client.start_tcp(tls.Random.init(&peer.random, fill), identity.now_seconds, null) catch return error.PeerFailed;
+    const reported = peer.client.receive(.none, now_ns).event orelse return;
+    assert(reported == .connected);
+    const after = peer.client.receive(.none, now_ns);
+    assert(after.event == null);
+}
 
 /// Whether the peer's exchanges go one at a time: an upload's, so each request's body has the whole
 /// link.
 fn one_at_a_time(plan: *const TcpPeer) bool {
     return plan.behaviour.peer == .upload;
-}
-
-fn trust(alpn: []const []const u8) tls.Client {
-    return .{
-        .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
-        .alpn = alpn,
-        .cpu = identity.cpu,
-    };
 }
 
 /// How a peer's client speaks: in cleartext the plan's protocol alone, which the endpoint chooses
@@ -231,7 +253,7 @@ pub fn write(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64, wire: 
     const stream = &peer.to_server;
     const before = stream.written;
     if (Peer.played_by_client(plan)) {
-        stream.written += peer.client.send(stream.free(), now_ns);
+        stream.written += peer.client.send_stream(stream.free(), now_ns);
     } else {
         try write_script(peer, plan, now_ms);
     }
@@ -270,16 +292,40 @@ pub fn read(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64) Error!b
     }
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.to_client_len + limits.events_per_pass_max) |_| {
-        const received = peer.client.receive(stream.held(), now_ns);
+        const received = peer.client.receive(.{ .stream = stream.held() }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
-        moved = true;
-        if (reported != .finished) continue;
-        if (reported.finished.exchange.outcome == .response) peer.exchanges_done += 1;
-        const exchanges_left = one_at_a_time(plan) and peer.exchanges_requested < plan.behaviour.exchanges_len;
-        if (exchanges_left) try request_next(peer);
+        if (try on_event(peer, plan, reported)) moved = true;
     }
     return moved;
+}
+
+/// What the peer does with an event of its channel. Returns whether the event counts as something
+/// that moved: what the connection reports does, and what the channel says of the socket does not.
+fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.ChannelEvent) Error!bool {
+    switch (reported) {
+        // A peer has one socket, and `connect` started the one connection it carries. The peer
+        // opens no other, so each exchange that waits for one ends refused.
+        .open => |asked| {
+            assert(asked.transport == .tcp);
+            peer.client.transport_closed(.tcp);
+            return false;
+        },
+        .close => |transport| {
+            assert(transport == .tcp);
+            peer.close_reported = true;
+            return false;
+        },
+        .connected, .ticket => return true,
+        .finished => |finished| {
+            if (finished.exchange.outcome == .response) peer.exchanges_done += 1;
+            const exchanges_left = one_at_a_time(plan) and peer.exchanges_requested < plan.behaviour.exchanges_len;
+            if (exchanges_left) try request_next(peer);
+            return true;
+        },
+        // The peer never shuts its channel down.
+        .closed => unreachable,
+    }
 }
 
 /// What the socket delivers to the peer: all at once, a piece every gap when it reads slowly, or
@@ -316,10 +362,11 @@ fn reset_ms(peer: *const Peer, plan: *const TcpPeer) ?u64 {
 }
 
 /// Whether the peer closes its socket at `now_ms`: an early-closing peer once its delay passed,
-/// and colibri's client once it says so and the endpoint consumed every octet it wrote.
+/// and colibri's client once its channel reported `close` and the endpoint consumed every octet
+/// it wrote.
 pub fn closes(peer: *Peer, plan: *const TcpPeer, now_ms: u64) bool {
     if (plan.overlay == .early_closing and now_ms >= close_ms(peer, plan)) return true;
-    if (!Peer.played_by_client(plan) or !peer.client.should_close()) return false;
+    if (!Peer.played_by_client(plan) or !peer.close_reported) return false;
     return peer.to_server.consumed == peer.to_server.written;
 }
 

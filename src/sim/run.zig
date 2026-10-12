@@ -106,6 +106,7 @@ test {
     _ = @import("endpoint/endpoint_plan.zig");
     _ = @import("endpoint/endpoint_ledger.zig");
     _ = @import("endpoint/endpoint_program.zig");
+    _ = @import("endpoint/endpoint_tcp_test.zig");
     _ = h3_trace_tla;
     _ = client_trace_plan;
     _ = client_trace_ledger;

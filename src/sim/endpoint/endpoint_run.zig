@@ -125,7 +125,7 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     storage.endpoint.init(&storage.endpoint_config, source, identity.now_seconds, route_module.ns_of(plan, 0)) catch return error.ServerRefused;
     storage.ledger.init();
     storage.program.init(&storage.endpoint, &storage.ledger);
-    try storage.tcp.init(seed);
+    storage.tcp.init(seed);
     storage.quic.init(seed);
     storage.quic_known = @splat(null);
     storage.record = .{};
@@ -213,7 +213,7 @@ fn tcp_accept(storage: *Storage, plan: *const Plan, now_ns: u64, now_ms: u64) Er
         connection.reads_slowly = peer_plan.behaviour.peer == .slow_reader;
         if (handle.generation > 1) storage.record.reused += 1;
         try storage.program.set_deadlines(handle, peer_plan.behaviour.deadlines);
-        try storage.tcp.start(index, peer_plan, handle, now_ms);
+        try storage.tcp.start(index, peer_plan, handle, now_ns, now_ms);
         moved = true;
     }
     return moved;
