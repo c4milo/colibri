@@ -197,7 +197,11 @@ pub const Connection = struct {
         connection.done_id = 0;
         connection.advert.init(config.tls != null, config.h3_alternative);
         connection.coding.init();
-        connection.session = .none;
+        // This stores the tag alone. Zig 0.16 stores `.none`, written as a constant, over every
+        // octet of the union, which is as large as `h2.Connection`: a zero fill of all of it for
+        // each connection accepted. `.none` has no payload, and no code reads a union's octets
+        // under another tag.
+        connection.session = .{ .none = undefined };
         if (config.tls) |tls_config| {
             connection.phase = .handshake;
             // RFC 9846 §9.2: chapulin refuses values it cannot serve a handshake from.

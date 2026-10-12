@@ -128,6 +128,11 @@ With chapulin's host objects:
   array of `field_count_max` lines, 4,096 octets. Rule: read the caller's data where it is, and
   size a scratch array to its data, as pepegrillo's guide says under "Copies and fills". Design
   §8 step 17 has the judge's numbers.
+- **A union constant stored whole.** Symptom: each accepted connection cost 35,700 instructions
+  for a zero fill of 163,392 octets. Cause: Zig 0.16 stores a union constant such as `.none` over
+  every octet of the union, its largest payload's included. Rule: where a payload is large, store
+  the tag with `.{ .none = undefined }`, and read the disassembly for the fill again at each Zig
+  upgrade, because the language fixes the tag alone. Design §8 step 17 has the judge's numbers.
 - **h2load's exit status.** Symptom: one job of the first `bench.yml` run measured a server that
   had not started, and 0 of 20,000 requests succeeded. Cause: h2load exits 0 even when every
   request fails, so a readiness check on its status passes at once. Rule: read the count h2load

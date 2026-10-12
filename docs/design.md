@@ -6353,6 +6353,41 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   each 32 octets. A program that links compiler_rt's `memset` paid a store for each octet of the
   same fill (docs/performance.md, "Pitfalls this tree has paid for").
 
+  **A connection's start stores the session's tag alone, 2026-10-12.** `Connection.init` wrote
+  `connection.session = .none`, and Zig 0.16 stores a union constant over every octet of the
+  union: a zero fill of 163,392 octets, the size of `h2.Connection` and the tag, for each
+  connection accepted. `.{ .none = undefined }` stores the tag's octet. `.none` has no payload,
+  every read of the session goes through its tag, and `open_session` writes the payload it
+  switches to, so no read finds an octet the fill used to write. The octets under the union now
+  hold what the slot's last connection left until `open_session` writes over them, where each
+  accept zeroed them before. Nothing copies, compares or logs a whole connection.
+
+  What each check printed:
+  - The disassembly of the server `bench/run.sh` builds no longer calls `memset` over 163,392
+    octets where a connection starts.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change.
+  - 2 mutations, each **CAUGHT**: `init` leaving the session of the connection's last use, and
+    `init` opening h11 before a protocol is chosen.
+
+  The judge, [run 38201628405](https://github.com/c4milo/colibri/actions/runs/38201628405),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians. The judge measured the
+  commit before its review, which differs from this one in a comment alone.
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-one | 222,294 | 192,968 | 0.8681 | 0.8639 | wins in both |
+  | h2-tls-one | 7,323,135 | 7,288,921 | 0.9953 | 0.9951 | within the noise |
+  | h2-many | 16,886 | 16,857 | 0.9983 | 0.9983 | within the noise |
+  | h2-tls-many | 24,736 | 24,731 | 0.9998 | 1.0005 | within the noise |
+
+  No input loses. On h2-one the server's user instructions per connection fell by 35,740 in the
+  first job and by 35,773 in the second, where the disassembly gave 35,767. A connection over
+  TLS saves the same count, which is 0.47% of what it costs and under the floor. `open_session`
+  still fills the payload it switches to with 0xAA, 163,384 octets for h2: that is ReleaseSafe's
+  fill of `undefined`, and this change leaves it.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
