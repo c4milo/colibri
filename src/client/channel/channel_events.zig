@@ -126,13 +126,20 @@ fn handle(channel: *Channel, transport: Transport, reported: event.Event) ?Event
     }
 }
 
-/// A connection's handshake completed (the model's Handshake): it takes the waiting exchanges and
+/// A connection's handshake completed (the model's Handshake): it takes every waiting exchange and
 /// ends the attempt. One the client abandoned owes its close but has not sent it, so datagrams in
 /// flight may still complete its handshake, and it carries nothing.
 fn on_connected(channel: *Channel, transport: Transport, protocol: event.Protocol) ?Event {
     const link = channel.links.getPtr(transport);
-    link.connected = true;
     if (link.abandoned) return null;
+    // The connection failed, or takes no new exchange, in the call that completed its handshake,
+    // so it carries nothing. The attempt that opened it goes on (the model's FailHandshake): its
+    // transport stays in `tried`, and the exchanges go to the other transport or end refused.
+    const phase = channel.phase(transport);
+    if (phase != .handshake) {
+        if (phase == .draining) abandon(channel, transport);
+        return null;
+    }
     const other = choice.other(transport);
     // The client abandons a handshake the moment another connection is open, so none is.
     assert(channel.phase(other) != .open);
@@ -140,6 +147,9 @@ fn on_connected(channel: *Channel, transport: Transport, protocol: event.Protoco
     end_attempt(channel);
     if (channel.phase(other) == .handshake) abandon(channel, other);
     assign_waiting(channel);
+    // The connection that reports `connected` took every waiting exchange (the model's
+    // TakeAtHandshake).
+    assert(!any_waiting(channel));
     return .{ .connected = protocol };
 }
 
@@ -256,9 +266,10 @@ fn close_over(channel: *Channel, transport: Transport) void {
 }
 
 /// The transport's connection is over: its transport closes, and the `close` event is owed
-/// unless the caller closed it. An attempt whose handshake failed tries the next address.
+/// unless the caller closed it. A connection that took no exchange, and that the client did not
+/// abandon, is a failed attempt, and the next one tries the next address.
 fn finish_link(link: *Link) void {
-    const failed = !link.connected and !link.abandoned;
+    const failed = !link.won and !link.abandoned;
     link.* = .{
         .state = .closed,
         .opens = link.opens,

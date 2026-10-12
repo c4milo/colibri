@@ -261,6 +261,16 @@ pub fn server_receive(octets: []u8) !void {
     if (server_h3_started) try server_read();
 }
 
+/// Starts the server's h3 before its handshake completes, once its connection started. What h3
+/// then owes goes out in 1-RTT packets behind the server's Finished, which RFC 9001 §5.7 allows a
+/// server, so the client reads it in the call that completes its handshake.
+pub fn start_server_h3_early() !void {
+    assert(server_started and !server_h3_started);
+    server_h3.init(.{ .role = .server });
+    try server_h3.start(&server, now_ns);
+    server_h3_started = true;
+}
+
 fn start_server(first: []const u8) !void {
     const parsed = try quic.packet.header.read(first, id_len);
     const long = parsed.long;

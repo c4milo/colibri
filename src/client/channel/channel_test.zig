@@ -175,7 +175,7 @@ test "RFC 9113 §6.8: a shut-down channel asks for its transport's close once th
 }
 
 test "RFC 9113 §8.7: a transport the caller closed moves the exchange it had not written to a new connection" {
-    start_tcp_only();
+    start_at(&two_addresses);
     var exchange = get(&bodies[0]);
     _ = try channel.request(&exchange);
     try collect();
@@ -184,6 +184,11 @@ test "RFC 9113 §8.7: a transport the caller closed moves the exchange it had no
     try collect();
     try testing.expectEqual(null, find(.finished));
     try testing.expectEqual(2, count(.open));
+    // The connection that closed had taken the exchange, so it was no failed attempt, and the
+    // second one goes to the same address.
+    for (events[0..events_len]) |reported| {
+        if (reported == .open) try testing.expect(reported.open.to.same_host(&two_addresses[0]));
+    }
     try pump();
     try support.peer_h2_answer(1, ok, &.{}, "hello");
     try collect();

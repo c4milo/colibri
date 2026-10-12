@@ -1,5 +1,6 @@
 //! More tests of the channel to one origin with QUIC offered (`channel.zig`, `channel_events.zig`):
-//! what a cancel, a transport the caller closed, a second refusal, a ticket and a shutdown leave.
+//! what a cancel, a transport the caller closed, a second refusal, a ticket, a shutdown and a
+//! server that takes no request from its first datagram leave.
 //! Split out of `channel_quic_test.zig` for length.
 const std = @import("std");
 const quic = @import("quic");
@@ -252,4 +253,60 @@ test "RFC 9114 §5.1: a QUIC connection idle near its timeout closes, and the ne
     try pump(quic_support.rounds_default);
     try testing.expectEqual(.response, second.outcome);
     try testing.expectEqual(null, opened(2));
+}
+
+/// Passes the server each datagram the channel owes. Time stays where it is.
+fn to_server() !void {
+    for (0..datagrams_per_round_max) |_| {
+        const sent = channel.send_datagram(&fixture.datagram, quic_support.now_ns) orelse return;
+        @memcpy(fixture.crossing[0..sent.octets.len], sent.octets);
+        try quic_support.server_receive(fixture.crossing[0..sent.octets.len]);
+    }
+}
+
+/// Passes the channel each datagram the server owes.
+fn to_channel() !void {
+    for (0..datagrams_per_round_max) |_| {
+        const len = (try quic_support.server_send(&fixture.datagram)) orelse return;
+        @memcpy(fixture.crossing[0..len], fixture.datagram[0..len]);
+        try deliver(fixture.crossing[0..len]);
+    }
+}
+
+/// A second IPv4 host after the fixture's, its four octets alike. Test-only.
+const ipv4_len: usize = 4;
+const other_octet: u8 = 0x7e;
+const other_host: [ipv4_len]u8 = @splat(other_octet);
+const two_addresses = [_]channel_module.Address{ addresses[0], channel_module.Address.of(&other_host, 0) };
+
+test "RFC 9114 §5.2: a connection whose server says GOAWAY as h3 starts carries nothing, and its attempt goes on" {
+    try start(&quic_support.alpn_h3, .{ .addresses = &two_addresses, .port = https_port }, true);
+    var exchange = get(&bodies[0]);
+    _ = try channel.request(&exchange);
+    try collect();
+    try to_server();
+    // The server's SETTINGS and GOAWAY go out in 1-RTT packets behind its Finished (RFC 9001
+    // §5.7), so the datagram that completes the client's handshake also says the server takes no
+    // request.
+    try quic_support.start_server_h3_early();
+    try quic_support.server_h3.shutdown(&quic_support.server, quic_support.now_ns);
+    try to_channel();
+    try collect();
+    try testing.expect(channel.quic.started and channel.quic.draining);
+    try testing.expectEqual(null, nth(.connected, 0));
+    // The channel abandons the connection, and the attempt that opened it opens TCP.
+    try testing.expectEqual(channel_module.Phase.failed, channel.phase(.quic));
+    try testing.expectEqual(Transport.tcp, opened(1).?.transport);
+    // The caller's TCP connection fails before it starts, so the attempt has no transport left:
+    // QUIC stays counted in it, and the exchange ends refused with no third open.
+    channel.transport_closed(.tcp);
+    try pump(rounds_past_probe);
+    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(null, opened(2));
+    // The connection the channel abandoned was no failed attempt, so the next request's QUIC
+    // connection goes to the same address.
+    _ = try channel.request(&exchange);
+    try collect();
+    try testing.expectEqual(Transport.quic, opened(2).?.transport);
+    try testing.expect(opened(2).?.to.same_host(&two_addresses[0]));
 }

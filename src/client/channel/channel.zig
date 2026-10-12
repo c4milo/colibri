@@ -101,7 +101,9 @@ pub const Event = union(enum) {
     /// Close this transport: its connection is over, and the channel reads and writes nothing more
     /// on it.
     close: Transport,
-    /// The connection carrying the exchanges speaks `Protocol`.
+    /// The connection carrying the exchanges speaks `Protocol`. The event comes only for a
+    /// connection that takes the exchanges. A connection that failed, or that takes no new
+    /// exchange, in the call that completed its handshake carries nothing, and no event names it.
     connected: Protocol,
     /// A transport's server issued a resumption ticket, which `take_ticket` hands over.
     ticket: Transport,
@@ -164,8 +166,7 @@ pub const Link = struct {
     /// The `open` event is owed, and then the `close` event.
     open_owed: bool = false,
     close_owed: bool = false,
-    /// The connection reported `connected`, and took the exchanges when it did.
-    connected: bool = false,
+    /// The connection reported `connected` and took the exchanges when it did.
     won: bool = false,
     /// The client abandoned the connection before it was started.
     abandoned: bool = false,

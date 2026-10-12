@@ -19,8 +19,8 @@
 (* delay passed during QUIC's handshake, or when a QUIC connection is      *)
 (* still ending. The first connection whose handshake completes takes the  *)
 (* waiting exchanges, and the other closes. An attempt ends when a         *)
-(* handshake completes, or when every transport it may open failed, which  *)
-(* ends each waiting exchange refused.                                     *)
+(* connection takes the waiting exchanges, or when every transport it may  *)
+(* open failed, which ends each waiting exchange refused.                  *)
 (*                                                                         *)
 (* A QUIC connection holding no exchange can sit idle until near its idle  *)
 (* timeout, after which the client gives it no new exchange and it drains  *)
@@ -69,6 +69,15 @@
 (*   KeepAlive          a QUIC connection holding an exchange sends a PING *)
 (*                      before its idle timeout (RFC 9000 §10.1.2), so it  *)
 (*                      never goes quiet until the timeout.                *)
+(*   TakeAtHandshake    the connection whose handshake completes first     *)
+(*                      takes every waiting exchange in that step, so a    *)
+(*                      handshake ends an attempt only on a connection     *)
+(*                      that carries the exchanges it was opened for. One  *)
+(*                      that fails, or takes no new exchange, in the call  *)
+(*                      that completes its handshake is a failed           *)
+(*                      handshake, and its attempt goes on. colibri        *)
+(*                      reopened such a transport without bound until step *)
+(*                      21c.                                               *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -84,7 +93,7 @@ CONSTANTS
     Refusals,       \* the transports whose server may refuse a request it did not process
     Resets,         \* the transports whose server may reset a request
     ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases, SentFailsClosed,
-    MoveRefused, RetireStale, KeepAlive
+    MoveRefused, RetireStale, KeepAlive, TakeAtHandshake
 
 Transports == {"quic", "tcp"}
 
@@ -92,7 +101,8 @@ ASSUME N \in Nat \ {0} /\ Opens \in Nat \ {0} /\ MovesMax \in Nat /\ GoawaysMax 
 ASSUME QuicPolicy \in {"first", "learn", "never"}
 ASSUME \A set \in {HandshakeFails, Breaks, Goaways, Refusals, Resets} : set \subseteq Transports
 ASSUME \A rule \in {ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases,
-                    SentFailsClosed, MoveRefused, RetireStale, KeepAlive} : rule \in BOOLEAN
+                    SentFailsClosed, MoveRefused, RetireStale, KeepAlive,
+                    TakeAtHandshake} : rule \in BOOLEAN
 
 Exchanges == 1..N
 \* An exchange's stage: not made; held by the client, which no connection has given it to;
@@ -180,7 +190,9 @@ Make(e) ==
     /\ UNCHANGED <<carrier, holds, outcome, moved, seen, processed>>
     /\ UNCHANGED connectionVars
 
-(* The open connection takes a waiting exchange.                           *)
+(* The open connection takes an exchange made while it is open. Without    *)
+(* TakeAtHandshake it also takes, one step at a time, each exchange that   *)
+(* waited for its handshake.                                               *)
 Assign(e, t) ==
     /\ stage[e] = "waiting" /\ phase[t] = "open"
     /\ stage' = [stage EXCEPT ![e] = "queued"]
@@ -325,19 +337,22 @@ Fallback ==
     /\ UNCHANGED idleVars
     /\ UNCHANGED exchangeVars
 
-(* Connection t's handshake completes. The first one open takes the        *)
-(* waiting exchanges and ends the attempt, and one that completes after it *)
-(* drains at once.                                                         *)
+(* Connection t's handshake completes. The first one open ends the attempt *)
+(* and, with TakeAtHandshake, takes every waiting exchange in the same     *)
+(* step. One that completes after it drains at once.                       *)
 Handshake(t) ==
     /\ phase[t] = "handshake"
     /\ IF OpenOnes = {}
        THEN /\ phase' = [phase EXCEPT ![t] = "open"]
             /\ tried' = {} /\ fallback' = FALSE
+            /\ LET taken == IF TakeAtHandshake THEN Waiting ELSE {} IN
+               /\ stage' = [e \in Exchanges |-> IF e \in taken THEN "queued" ELSE stage[e]]
+               /\ carrier' = [e \in Exchanges |-> IF e \in taken THEN t ELSE carrier[e]]
        ELSE /\ phase' = [phase EXCEPT ![t] = "draining"]
-            /\ UNCHANGED <<tried, fallback>>
+            /\ UNCHANGED <<tried, fallback, stage, carrier>>
+    /\ UNCHANGED <<holds, outcome, moved, seen, processed>>
     /\ UNCHANGED <<opens, goaways, learned, shut>>
     /\ UNCHANGED idleVars
-    /\ UNCHANGED exchangeVars
 
 (* The client abandons a handshake another connection won, or one a client *)
 (* the caller shut down has no exchange left for.                          *)
@@ -350,7 +365,10 @@ Abandon(t) ==
     /\ UNCHANGED exchangeVars
 
 (* Connection t's handshake fails: the server does not answer, TLS refuses *)
-(* it, or ALPN selects no protocol the client offered (RFC 9114 §3.1).     *)
+(* it, or ALPN selects no protocol the client offered (RFC 9114 §3.1). It  *)
+(* also fails when the connection fails, or its server says it takes no    *)
+(* request, in the flight that completes the handshake: the connection     *)
+(* carried nothing, and its transport stays in the attempt.                *)
 FailHandshake(t) ==
     /\ t \in HandshakeFails /\ phase[t] = "handshake"
     /\ phase' = [phase EXCEPT ![t] = "failed"]
@@ -495,6 +513,13 @@ Safe ==
     /\ \A e \in Exchanges : processed[e] <= 1
     /\ \A t \in Transports : phase[t] = "closed" => Held(t) = {}
     /\ Cardinality(OpenOnes) <= 1
+
+(* Bounded: each transport opens at most once for each wait of an          *)
+(* exchange. `tried` is cleared only by Handshake, which with              *)
+(* TakeAtHandshake takes every waiting exchange, and by GiveUp, which      *)
+(* reports every one. So two opens of one transport never serve the same   *)
+(* wait, and an exchange waits once when made and once for each move.      *)
+Bounded == \A t \in Transports : opens[t] <= N * (MovesMax + 1)
 
 (* Every exchange made ends: the caller gets its event, or cancelled it.   *)
 Ends == \A e \in Exchanges : stage[e] = "waiting" ~> stage[e] \in {"reported", "cancelled"}
