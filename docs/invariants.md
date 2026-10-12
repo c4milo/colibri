@@ -90,14 +90,18 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   only pass the same value anyway".
 - See [decisions 7](decisions.md#what-the-caller-supplies).
 
-### INV-5 — no source reads randomness or uninitialised memory
+### INV-5 — colibri draws only from the source its caller passes, and reads no uninitialised memory
 
-- **Claim.** colibri draws no random bytes and reads no uninitialised memory. Where a protocol
-  needs unpredictable bytes — QUIC connection IDs, `PATH_CHALLENGE` payloads, stateless reset
-  tokens, a `PING` opaque payload — the caller supplies them.
-- **Mechanism.** No `std.Random` import. Every such value is a parameter or a field the caller
-  filled before the call. `undefined` appears only in a declaration immediately followed by a
-  full initialisation in the same function.
+- **Claim.** colibri holds no generator and reads no uninitialised memory. Each unpredictable
+  value comes from the `std.Random` its caller passed, at `init` or at the call that starts a
+  connection. The server's endpoint draws its grease values, connection IDs, stateless reset
+  tokens and `PATH_CHALLENGE` data from it. A TLS session draws from it. From design §8 step 21c
+  a client's channel draws its connection IDs and grease value from it.
+- **Mechanism.** No source file outside `src/testing/` names `std.Random`, `std.crypto.random`
+  or a clock, except `src/tls/values.zig`, which names the type once as `tls.Random`. A function
+  that draws takes the source as a parameter or reads the one `init` was given. `undefined`
+  appears only in a declaration immediately followed by a full initialisation in the same
+  function.
 - **Check.** Lint rule (`std.Random` denylist; `undefined` audited per site with a comment naming
   the initialiser), plus the simulator's replay check. Step 0.
 - **Violation.** A connection-ID generator inside `src/quic/`, which would make every QUIC seed

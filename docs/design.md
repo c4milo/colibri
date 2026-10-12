@@ -386,7 +386,7 @@ most are `H3_FRAME_UNEXPECTED` 0x0105, `H3_MESSAGE_ERROR` 0x010e, `H3_ID_ERROR` 
 Greasing is prescriptive rather than optional: RFC 9114 §7.2.4.1 says endpoints SHOULD send a
 reserved setting, and §8.1 says they SHOULD sometimes send a reserved error code in place of
 `H3_NO_ERROR`. colibri does both, and because it owns no randomness
-([invariant 5](invariants.md#inv-5--no-source-reads-randomness-or-uninitialised-memory)) the
+([invariant 5](invariants.md#inv-5--colibri-draws-only-from-the-source-its-caller-passes-and-reads-no-uninitialised-memory)) the
 reserved value it picks is derived from configuration the caller supplied, so a seed still
 replays.
 
@@ -8049,11 +8049,55 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       scripts, `tools/quic_udp.sh`, `tools/quic_aioquic.sh`, `tools/h3_deadlines.sh` and
       `tools/deadlines.sh` pass on the rebuilt endpoints. The TCP and deadline trace checks pass
       through the endpoint, and the content-coding and deadline CRCs stay as pinned.
-  - **21c, the client.** One TLS value, with the ALPN lists filled in. The channel draws its
-    QUIC connection IDs and h3's grease value from the source `start_quic` is given, so
-    `QuicStart` leaves the API. The test-only clients use channels with TCP alone in place of
-    `client.Connection`. **Check:** `tools/channel_interop.sh` and the h11 and h2 client interop
-    scripts pass through the channel.
+  - **21c, the client.** `client.Channel` carries every exchange a program makes, builds its
+    TLS configurations from one value, and draws what a QUIC connection starts from (decision
+    120 records the rulings).
+    - `client.Config` is the channel's configuration: `tls` (a `tls.Client`, whose `alpn` stays
+      empty), `versions`, `authority`, `codings`, `decoders`, `zstd_decoders`, `br_decoders`,
+      `quic_first`, `fallback_delay_ns`, `ecn` and `idle_timeout_ms`. `QuicConfig` and
+      `ChannelConfig` fold into it.
+    - Public names: the client's root loses `QuicConfig`, `QuicStart`, `QuicStartError` and
+      `ChannelConfig`, and exports 44 names where it exported 48. `Config` names the channel's
+      configuration, and `StartError` names `TlsRefused`, `NoVersion`, `TooManyAnchors`,
+      `TooManySuites` and `SuitesUnavailable`. No name arrives. `client.constants` gains
+      `fallback_delay_ns_default`.
+    - The channel's functions keep their 15 names: `init`, `request`, `cancel`, `shutdown`,
+      `receive`, `send_datagram`, `send_stream`, `deadline_ns`, `on_instant`, `start_quic`,
+      `start_tcp`, `transport_closed`, `take_ticket`, `alternative` and `phase`. `init` returns
+      `StartError`, and `start_quic` takes no start values: it draws the grease value, the
+      source connection ID and the original destination connection ID from its source.
+    - `versions` names what a channel offers over TLS as in cleartext, and a client that speaks
+      h3 alone opens no TCP connection. A handshake that selects no protocol runs h11 only
+      while `versions` allows it.
+    - An attempt ends when a connection takes the waiting exchanges, so an exchange no
+      connection carried opens each transport once. A channel closes a transport once its
+      connection wrote what it owes.
+    - Every caller of `client.Connection` moves to a channel with TCP alone.
+    - Eleven sub-steps, each leaving every check passing:
+      - 21c.1: decision 120, this text, and INV-5 restated.
+      - 21c.2: a CRC-32 of the client's octets pinned in the deadline, content-coding and TCP
+        trace runs, before any caller moves.
+      - 21c.3: an h11 connection in cleartext reads nothing on a call with no octets while it
+        left some unconsumed.
+      - 21c.4: the channel closes a transport after its connection wrote its alert, its
+        Finished, or h2's GOAWAY in cleartext.
+      - 21c.5: a connection that carried nothing stays counted in its attempt, and the model's
+        `TakeAtHandshake` states it.
+      - 21c.6: one TLS value, the ALPN lists from `versions`, TCP only when `versions` allows
+        it, with the model's `TcpAllowed`, and h11 on no selection only while allowed.
+      - 21c.7: the client trace run draws a QUIC connection's start values from its TLS source,
+        which changes its census once, and then `start_quic` draws them.
+      - 21c.8: the endpoint check's TCP peers run through channels.
+      - 21c.9: the test-only client's plain modes run through channels.
+      - 21c.10: the content-coding run, the deadline run, the TCP trace run, the TLS example
+        and the consumer move, one commit each.
+      - 21c.11: `Config` names the channel's configuration, and the step's entry is written.
+    - **Check:** `tools/channel_interop.sh` and the h11 and h2 client interop scripts pass
+      through the channel. The endpoint, content-coding, deadline and TCP trace checks keep
+      their pins, or the entry names each seed that differs and why. `zig build tla` finds the
+      new configurations as their first lines say, and `tools/client_trace.sh` and
+      `tools/tcp_trace.sh` find every trace a behavior of its model. Each rule has a mutation a
+      test catches.
   - **21d, the roots.** They stop exporting `server.Connection`, `server.QuicConnection`,
     `client.Connection` and `client.QuicConnection`. One server example and one client example
     replace the four, and the guide follows them. **Check:** `zig build examples`,
