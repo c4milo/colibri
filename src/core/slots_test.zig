@@ -1,6 +1,7 @@
 //! The tests of `slots.zig`, split off it for length. They open, find and close entries in a pool
 //! of four slots, in h2's two identifier classes and in QUIC's four, and they hold `get` to a scan
-//! of the slots from the first, whichever slot the pool read last.
+//! of the slots from the first, whichever slot the pool read last, and `open` to a scan for the
+//! lowest free slot from the first, wherever `free_from` is.
 const std = @import("std");
 const assert = std.debug.assert;
 const slots = @import("slots.zig");
@@ -131,6 +132,107 @@ test "index_of names an entry's slot, at gives a slot's entry, and close_at free
     // The freed slot is the lowest free one, and the next open takes it.
     try testing.expectEqual(1, pool.index_of(try pool.open(7)));
     try expect_gets_as_scanned(&pool);
+}
+
+/// The lowest slot whose flag is clear, by a scan from the first slot: where `open` looked before
+/// the pool kept `free_from`. Test-only.
+fn lowest_free_by_scan(pool: *const TestPool) ?u32 {
+    for (pool.live, 0..) |is_live, slot| {
+        if (!is_live) return @intCast(slot);
+    }
+    return null;
+}
+
+/// Opens `id` and requires it to take the slot the scan from the first slot names, printing both
+/// when they differ. Test-only.
+fn open_as_scanned(pool: *TestPool, id: u64) !void {
+    const scanned = lowest_free_by_scan(pool).?;
+    const free_from = pool.free_from;
+    const taken = pool.index_of(try pool.open(id));
+    if (taken == scanned) return;
+    std.debug.print("first difference: identifier {d}: open took slot {d}, the scan names {d}, free_from was {d}\n", .{ id, taken, scanned, free_from });
+    return error.TestUnexpectedResult;
+}
+
+test "open takes the slot a scan from the first slot names, wherever the closes before it were" {
+    var pool: TestPool = undefined;
+    pool.init();
+    for ([_]u64{ 1, 2, 3, 4 }) |id| try open_as_scanned(&pool, id);
+    // A full pool gives back its highest slot, then its lowest.
+    pool.close(4);
+    try open_as_scanned(&pool, 5);
+    pool.close(1);
+    try open_as_scanned(&pool, 6);
+    // Two slots are free, the higher one closed first, then the lower one closed first.
+    pool.close_at(2);
+    pool.close_at(1);
+    try open_as_scanned(&pool, 7);
+    try open_as_scanned(&pool, 8);
+    pool.close_at(0);
+    pool.close_at(3);
+    try open_as_scanned(&pool, 9);
+    try open_as_scanned(&pool, 10);
+    // A slot closes above the lowest free one, by its identifier, and then one closes below the
+    // slot an open took.
+    pool.close_at(1);
+    pool.close(10);
+    try open_as_scanned(&pool, 11);
+    pool.close_at(0);
+    try open_as_scanned(&pool, 12);
+    try open_as_scanned(&pool, 13);
+    try testing.expectEqual(test_capacity, pool.len());
+    // A pool emptied by `init` starts at its first slot again.
+    pool.init();
+    for ([_]u64{ 1, 2 }) |id| try open_as_scanned(&pool, id);
+    try expect_gets_as_scanned(&pool);
+}
+
+test "free_from is one past the slot an open took, and no higher than a slot a close freed" {
+    var pool: TestPool = undefined;
+    pool.init();
+    try testing.expectEqual(0, pool.free_from);
+    for ([_]u64{ 1, 2, 3 }, 1..) |id, opened| {
+        _ = try pool.open(id);
+        try testing.expectEqual(opened, pool.free_from);
+    }
+    pool.close_at(1);
+    try testing.expectEqual(1, pool.free_from);
+    // A close of a higher slot leaves it, by `close` and by `close_at`.
+    pool.close(3);
+    try testing.expectEqual(1, pool.free_from);
+    _ = try pool.open(4);
+    try testing.expectEqual(2, pool.free_from);
+    pool.close(1);
+    try testing.expectEqual(0, pool.free_from);
+    pool.close_at(1);
+    try testing.expectEqual(0, pool.free_from);
+    for ([_]u64{ 5, 6, 7, 8 }, 1..) |id, opened| {
+        _ = try pool.open(id);
+        try testing.expectEqual(opened, pool.free_from);
+    }
+    // A full pool has no free slot, and `init` starts it over.
+    try testing.expectEqual(test_capacity, pool.free_from);
+    pool.init();
+    try testing.expectEqual(0, pool.free_from);
+}
+
+test "free_from passes the live slots an open's scan passed" {
+    var pool: TestPool = undefined;
+    pool.init();
+    _ = try pool.open(1);
+    _ = try pool.open(2);
+    pool.close_at(0);
+    // The first slot is free and the second live: 3 takes the first, and 4 passes the second.
+    try testing.expectEqual(0, pool.index_of(try pool.open(3)));
+    try testing.expectEqual(1, pool.free_from);
+    try testing.expectEqual(2, pool.index_of(try pool.open(4)));
+    try testing.expectEqual(3, pool.free_from);
+    // A close above it leaves it, and the open that follows takes the slot at it.
+    pool.close_at(1);
+    pool.close_at(2);
+    try testing.expectEqual(1, pool.free_from);
+    try open_as_scanned(&pool, 5);
+    try testing.expectEqual(2, pool.free_from);
 }
 
 test "the slot read first is the one get last found or open last wrote" {

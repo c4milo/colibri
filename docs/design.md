@@ -1423,6 +1423,49 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   first job and by 5,888 in the second. On h2-one they rose by 107 and by 117 a connection: the
   ring is emptied when a connection starts, and each close adds to it.
 
+  **`open` scans for a free slot from a lower bound, 2026-10-12.** `Pool.open` looked for the
+  lowest free slot from the first slot. h2's pool is full once a connection has carried
+  `concurrent_streams_max` streams, so each new stream passed the live flag of every slot below
+  the one the table had just freed, 62 of the 128 on average in the judge's exchange. The pool
+  now keeps `free_from`, a slot no free slot is below. `open` scans from it and leaves it one
+  past the slot it took, and `close` and `close_at` lower it to the slot they free when that slot
+  is below it. An open takes the lowest free slot, as before, so the order `iterator` visits is
+  unchanged (invariant 15). `last_slot` and `free_from` are the narrowest integer that holds
+  `capacity`, and no struct grew.
+
+  What each check printed:
+  - The scan from the first slot stays in `slots_test.zig` as the reference. Each open of a
+    written walk must take the slot the scan names, after closes of the lowest slot, the highest,
+    and slots below and above `free_from`, by identifier and by slot. Two tests pin `free_from`
+    itself, because one left too low changes no slot.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change.
+  - 11 mutations, each **CAUGHT**. Of `open`: `free_from` left on the slot it took, moved two
+    past it, not moved, moved by one whichever slot it took, or moved only when it took the slot
+    there. Of `close` and of `close_at`: `free_from` not lowered, or moved to the freed slot when
+    that slot is higher. And `init` leaving it, and the scan starting one past it.
+  - 1 mutation **NOT CAUGHT**: the scan from the first slot, which is the code before the change.
+    It takes the same slots, and nothing a test reads tells the two apart.
+
+  The judge, [run 38201625077](https://github.com/c4milo/colibri/actions/runs/38201625077),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians. The judge measured the
+  commit before its review, which differs from this one in tests and comments alone.
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 17,805 | 17,561 | 0.9863 | 0.9862 | wins in both |
+  | h2-tls-many | 25,691 | 25,416 | 0.9893 | 0.9906 | wins in both |
+  | h2-one | 222,457 | 222,434 | 0.9999 | 0.9985 | within the noise |
+  | h2-tls-one | 7,330,709 | 7,330,565 | 1.0000 | 1.0001 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 243 in both
+  jobs. The estimate from the disassembly was 790: it counted 13 instructions for each flag
+  passed, and the judge's count is about 4. `free_from` stays one past the slot last taken while
+  the pool is full, so a table whose streams close out of slot order still passes the live flags
+  between that slot and the one freed. The judge's exchange closes streams in slot order and
+  does not measure that.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,

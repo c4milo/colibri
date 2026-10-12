@@ -14,6 +14,8 @@
 //! named, and a scan is deterministic (non-negotiable 5). `iterator` visits the live entries in
 //! the same order, which the settings sweep of invariant 15 requires. The three scans are
 //! in file-scope functions over the flag and entry slices, so each is scored on its own.
+//! Two slot numbers shorten two of them and choose nothing: `get` reads the slot it found last
+//! before it scans, and `open` starts its scan for the lowest free slot at `free_from`.
 //!
 //! Nothing here is a protocol rule. Which class an identifier is in, which identifiers a peer
 //! may open, and when a stream closes are h2's and QUIC's (decision 14). The protocol module
@@ -50,6 +52,9 @@ pub fn Pool(
     return struct {
         const Self = @This();
 
+        /// A slot's number, or `capacity`, in the narrowest integer that holds both.
+        const Slot = std.math.IntFittingRange(0, capacity);
+
         /// The live entries in slot order. Valid until the next `open` or `close`.
         pub const Iterator = struct {
             pool: *Self,
@@ -80,7 +85,12 @@ pub fn Pool(
         watermark: [class_count]?u64,
         /// The slot `get` last found an entry in, or `open` last wrote. `get` reads it before it
         /// scans, because a frame and its answer look one stream up several times in a row.
-        last_slot: u32,
+        last_slot: Slot,
+        /// No slot below this one is free. `open` scans for the lowest free slot from here and
+        /// leaves it one past the slot it took, and a close lowers it to the slot it frees when
+        /// that slot is below it. An `open` after a close at or below it then reads one flag,
+        /// where a scan from the first slot reads every live flag below the free slot.
+        free_from: Slot,
 
         /// Empties the pool and clears every watermark. `entries` is not written: see its
         /// comment.
@@ -89,6 +99,7 @@ pub fn Pool(
             pool.count = 0;
             pool.watermark = @splat(null);
             pool.last_slot = 0;
+            pool.free_from = 0;
             assert(pool.len() == 0);
             assert(pool.free_slot() == 0);
         }
@@ -105,7 +116,7 @@ pub fn Pool(
             const slot = pool.slot_of(id) orelse return null;
             assert(pool.live[slot]);
             assert(pool.entries[slot].id == id);
-            pool.last_slot = slot;
+            pool.last_slot = @intCast(slot);
             return &pool.entries[slot];
         }
 
@@ -136,7 +147,10 @@ pub fn Pool(
             pool.live[slot] = true;
             pool.count += 1;
             pool.watermark[class] = id;
-            pool.last_slot = slot;
+            pool.last_slot = @intCast(slot);
+            // No slot below `free_from` was free, the scan passed the rest below this one, and
+            // this one is live now.
+            pool.free_from = @intCast(slot + 1);
             // Invariant 13's runtime assertion: a watermark never decreases.
             assert(is_above(pool.watermark[class].?, previous));
             assert(pool.count <= capacity);
@@ -154,6 +168,7 @@ pub fn Pool(
             assert(pool.count > 0);
             pool.live[slot.?] = false;
             pool.count -= 1;
+            pool.free_from = @min(pool.free_from, @as(Slot, @intCast(slot.?)));
             assert(!pool.is_above_watermark(id));
             assert(pool.slot_of(id) == null);
         }
@@ -184,6 +199,7 @@ pub fn Pool(
             assert(pool.count > 0);
             pool.live[index] = false;
             pool.count -= 1;
+            pool.free_from = @min(pool.free_from, @as(Slot, @intCast(index)));
             assert(!pool.is_above_watermark(pool.entries[index].id));
         }
 
@@ -228,7 +244,8 @@ pub fn Pool(
         /// The lowest free slot. The caller has checked that one exists.
         fn free_slot(pool: *const Self) u32 {
             assert(pool.count < capacity);
-            const slot = first_slot_with_flag(&pool.live, 0, false);
+            assert(pool.free_from <= capacity);
+            const slot = first_slot_with_flag(&pool.live, pool.free_from, false);
             // `count` counts the set flags and is below `capacity`, so a clear flag exists.
             assert(slot != null);
             return slot.?;
