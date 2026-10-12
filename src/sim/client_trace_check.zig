@@ -237,15 +237,15 @@ test "client trace run: every seed closes the channel with each exchange reporte
     // in every build mode (invariant 5), so the census is pinned, as Debug and `-Drelease` both
     // give it.
     try testing.expectEqual(Result{
-        .states = 2570,
+        .states = 2569,
         .exchanges = 534,
         .responses = 342,
-        .refused = 83,
-        .failed = 61,
+        .refused = 85,
+        .failed = 59,
         .cancelled = 48,
-        .moved = 3,
+        .moved = 4,
         .quic_connections = 120,
-        .tcp_connections = 272,
+        .tcp_connections = 274,
         .goaways = 49,
         .learned = 60,
         .retired = 1,

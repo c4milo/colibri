@@ -5,9 +5,11 @@
 //! the world runs every receive and send until nothing moves, which is where the run logs the
 //! model's state.
 //!
-//! Every draw the handshakes make comes from the seed: the caller hands chapulin a `tls.Random`
-//! over the simulator's generator (decision 94 as amended), and the QUIC connection IDs are the
-//! caller's too (invariant 5). The run judges every certificate at the identity's instant.
+//! Every draw comes from the seed, through two generators. `random` gives the plan and the seed of
+//! each network. `tls_random` gives each QUIC connection's grease value and its two IDs, which the
+//! caller draws before it starts the connection (invariant 5), and every TLS session's draws: the
+//! caller hands chapulin a `tls.Random` over it (decision 94 as amended). The run judges every
+//! certificate at the identity's instant.
 const std = @import("std");
 const assert = std.debug.assert;
 const client = @import("client");
@@ -54,8 +56,9 @@ const content_octet: u8 = 'c';
 
 pub const World = struct {
     plan: Plan,
-    /// The caller's draws: each QUIC connection's IDs and grease, and every TLS session's.
+    /// The plan's draws, then one for the seed of each network.
     random: Random,
+    /// Each QUIC connection's grease value and IDs, and every TLS session's draws.
     tls_random: Random,
     now_ns: u64,
     channel: Channel,
@@ -427,12 +430,15 @@ pub const World = struct {
     fn open_quic(world: *World) void {
         world.network.init(world.random.next(), world.schedule());
         world.quic_server.reset(world.channel.links.get(.quic).opens);
+        // One source gives the grease value, then the two IDs, then the session's draws, in the
+        // order the server's endpoint draws its own.
+        const source = tls_source(&world.tls_random);
         var start: client.QuicStart = undefined;
-        fill(&world.random, &start.source_id);
-        fill(&world.random, &start.original_destination_id);
-        start.grease = world.random.next();
+        start.grease = source.int(u64);
+        source.bytes(&start.source_id);
+        source.bytes(&start.original_destination_id);
         // A start chapulin refuses is the channel's to report.
-        world.channel.start_quic(start, tls_source(&world.tls_random), identity.now_seconds, world.now_ns, null) catch {};
+        world.channel.start_quic(start, source, identity.now_seconds, world.now_ns, null) catch {};
     }
 
     fn open_tcp(world: *World) void {
