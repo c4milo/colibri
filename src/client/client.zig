@@ -47,8 +47,6 @@ pub const Received = event.Received;
 /// `Connection.take_alt_svc` returns.
 pub const Advert = alt_svc.Advert;
 pub const QuicConnection = quic_connection.QuicConnection;
-pub const QuicStart = quic_connection.Start;
-pub const QuicStartError = quic_connection.StartError;
 /// A datagram a QUIC connection or a channel wrote, with its ECN codepoint and the address it
 /// goes to.
 pub const Sent = quic_connection.Sent;
@@ -109,16 +107,15 @@ pub const Features = coding_pool.Features;
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",             "Versions",        "Connection",     "StartError",
-        "RequestError",       "Field",              "Id",              "Protocol",       "HttpExchange",
-        "Wanted",             "Outcome",            "Event",           "Finished",       "Received",
-        "Advert",             "QuicConnection",     "QuicStart",       "QuicStartError", "Sent",
-        "Address",            "Ecn",                "Channel",         "ChannelConfig",  "ChannelValues",
-        "Https",              "Alternative",        "ChannelInput",    "Datagram",       "ChannelReceived",
-        "ChannelEvent",       "ChannelOpen",        "Transport",       "ChannelPhase",   "ChannelEntry",
-        "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",         "DecoderPool",
-        "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool",
-        "BrotliDecoders",     "Features",
+        "constants",       "Config",         "Versions",          "Connection",         "StartError",
+        "RequestError",    "Field",          "Id",                "Protocol",           "HttpExchange",
+        "Wanted",          "Outcome",        "Event",             "Finished",           "Received",
+        "Advert",          "QuicConnection", "Sent",              "Address",            "Ecn",
+        "Channel",         "ChannelConfig",  "ChannelValues",     "Https",              "Alternative",
+        "ChannelInput",    "Datagram",       "ChannelReceived",   "ChannelEvent",       "ChannelOpen",
+        "Transport",       "ChannelPhase",   "ChannelEntry",      "ReceivePool",        "DefaultReceivePool",
+        "ReceiveStorage",  "Coding",         "DecoderPool",       "DefaultDecoderPool", "Decoders",
+        "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 

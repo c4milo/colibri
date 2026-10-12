@@ -792,16 +792,13 @@ again, with the TCP octets it still holds, or with `.none` when it holds none. T
 consume fewer octets than it was given: an h11 connection reads a held octet only once the
 response before it ends, and reads half a head again from its first octet.
 
-A program starts a QUIC connection with values it draws at random:
+A program starts a QUIC connection with the source its sessions draw from. The channel draws the
+connection's IDs and h3's grease value from that source, and the handshake draws the rest:
 
 ```zig
 fn start_quic(now_ns: u64) void {
-    var start: client.QuicStart = undefined;
-    program.fill(&start.source_id);
-    program.fill(&start.original_destination_id);
-    program.fill(std.mem.asBytes(&start.grease));
     // A start the TLS stack refuses ends the attempt, which the channel reports.
-    channel.start_quic(start, program.random(), now_seconds, now_ns, null) catch {};
+    channel.start_quic(program.random(), now_seconds, now_ns, null) catch {};
 }
 ```
 

@@ -303,15 +303,11 @@ fn report(event: client.ChannelEvent, now_ns: u64) void {
     }
 }
 
-/// Starts the QUIC connection the channel asked for. A program draws its connection IDs (RFC
-/// 9000 §7.2) and h3's grease value (RFC 9114 §7.2.4.1) at random.
+/// Starts the QUIC connection the channel asked for. The channel draws the connection's IDs (RFC
+/// 9000 §7.2) and h3's grease value (RFC 9114 §7.2.4.1) from the source the program passes.
 fn start_quic(now_ns: u64) void {
-    var start: client.QuicStart = undefined;
-    program.fill(&start.source_id);
-    program.fill(&start.original_destination_id);
-    program.fill(std.mem.asBytes(&start.grease));
     // A start the TLS stack refuses ends the attempt, which the channel reports.
-    channel.start_quic(start, program.random(), now_seconds, now_ns, null) catch {};
+    channel.start_quic(program.random(), now_seconds, now_ns, null) catch {};
 }
 
 /// How long both sides may sleep: until the sooner of their next deadlines, and never longer

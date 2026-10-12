@@ -204,15 +204,11 @@ fn handle(reported: client.ChannelEvent, now_ns: u64) void {
     }
 }
 
-/// Starts the QUIC connection the channel asked for, from values drawn at random (invariant 5): its
-/// connection IDs (RFC 9000 §7.2) and h3's grease (RFC 9114 §7.2.4.1).
+/// Starts the QUIC connection the channel asked for. The channel draws the connection's IDs (RFC
+/// 9000 §7.2) and h3's grease value (RFC 9114 §7.2.4.1) from the source it is given (decision 120).
 fn start_quic(now_ns: u64) void {
-    var start: client.QuicStart = undefined;
-    entropy.fill(&start.source_id);
-    entropy.fill(&start.original_destination_id);
-    entropy.fill(std.mem.asBytes(&start.grease));
     // A start chapulin refuses is the channel's to report: it ends the attempt, and TCP opens.
-    channel.start_quic(start, entropy.random(), now_seconds, now_ns, null) catch {};
+    channel.start_quic(entropy.random(), now_seconds, now_ns, null) catch {};
 }
 
 /// Marks exchange `id` finished, over the protocol of the connection that last connected.

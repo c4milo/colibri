@@ -7,9 +7,10 @@
 //! come. colibri makes no system call and reads no clock (non-negotiable 3). It does the duties of
 //! a QUIC caller itself (decisions 57 and 62): it hands the provider the transport parameters,
 //! derives the Initial keys, and supplies each request stream's octets, the HEADERS frame and DATA
-//! frame header it keeps (decision 79), then the exchange's content. The connection IDs, h3's
-//! grease value and the receive pool are the caller's (invariant 5, decision 61), and the pool's
-//! capacity sets every window the client advertises.
+//! frame header it keeps (decision 79), then the exchange's content. The channel draws the
+//! connection IDs and h3's grease value from the source its caller gives `start_quic` (decision
+//! 120, invariant 5). The receive pool is the caller's (decision 61), and its capacity sets every
+//! window the client advertises.
 //!
 //! The caller loops over `receive` as it does for the TCP connection, until it returns nothing
 //! consumed and no event; a datagram is consumed whole. After each `send` and `on_instant` it loops
@@ -74,7 +75,8 @@ pub const Config = struct {
     br_decoders: ?coding_pool.BrotliDecoders = null,
 };
 
-/// The unpredictable values one connection starts from, which the caller draws (invariant 5).
+/// The unpredictable values one connection starts from, which the channel draws in `start_quic`
+/// (decision 120, invariant 5).
 pub const Start = struct {
     /// The client's Source Connection ID, and the Destination Connection ID of its first Initial,
     /// which the Initial keys derive from (RFC 9000 §7.2, RFC 9001 §5.2).

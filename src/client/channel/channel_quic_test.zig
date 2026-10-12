@@ -6,11 +6,14 @@
 const std = @import("std");
 const quic = @import("quic");
 const h3 = @import("h3");
+const connection_support = @import("../connection/connection_test_support.zig");
 const quic_support = @import("../quic/quic_test_support.zig");
+const quic_connection = @import("../quic/quic_connection.zig");
 const fixture = @import("channel_quic_test_support.zig");
 const channel_module = @import("channel.zig");
 const channel_events = @import("channel_events.zig");
 const event = @import("../event.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 const Transport = channel_module.Transport;
@@ -199,4 +202,48 @@ test "decision 100: once every transport failed, each waiting exchange ends refu
     try pump(rounds_past_probe * 4);
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
     try testing.expectEqual(.refused, exchange.outcome);
+}
+
+/// The octets `start_quic` draws before the session's first draw: the grease value, then the two
+/// connection IDs.
+const grease_len: usize = @sizeOf(u64);
+const id_len: usize = constants.quic_id_len;
+const start_draw_len: usize = grease_len + id_len + id_len;
+
+/// Requires `held` to be the next octets of `twin`, in the order decision 120 rules: the grease
+/// value, its least significant octet first, then the source ID, then the original destination ID.
+fn expect_drawn(twin: *connection_support.Stream, held: quic_connection.Start) !void {
+    var drawn: [start_draw_len]u8 = undefined;
+    twin.random().bytes(&drawn);
+    try testing.expectEqual(std.mem.readInt(u64, drawn[0..grease_len], .little), held.grease);
+    try testing.expectEqualSlices(u8, drawn[grease_len..][0..id_len], &held.source_id);
+    try testing.expectEqualSlices(u8, drawn[grease_len + id_len ..], &held.original_destination_id);
+}
+
+test "decision 120: start_quic draws the grease value and the two IDs, anew for each connection" {
+    try start(&quic_support.alpn_h3, values_at(https_port), true);
+    var first = get(&bodies[0]);
+    _ = try channel.request(&first);
+    // A twin of the source the channel draws from, at the state its first draw starts from.
+    var twin: connection_support.Stream = .{ .state = connection_support.stream.state };
+    try collect();
+    const first_start = channel.quic.start_values;
+    try expect_drawn(&twin, first_start);
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.response, first.outcome);
+    // The caller's flow closed, so the next exchange opens a second QUIC connection.
+    channel.transport_closed(.quic);
+    try collect();
+    var second = get(&bodies[1]);
+    _ = try channel.request(&second);
+    twin.state = connection_support.stream.state;
+    try collect();
+    try testing.expectEqual(Transport.quic, opened(1).?.transport);
+    const second_start = channel.quic.start_values;
+    try expect_drawn(&twin, second_start);
+    // RFC 9000 §5.1: a connection ID is not issued twice, so each connection draws its own.
+    try testing.expect(!std.mem.eql(u8, &first_start.source_id, &second_start.source_id));
+    try testing.expect(!std.mem.eql(u8, &first_start.original_destination_id, &second_start.original_destination_id));
+    try pump(quic_support.rounds_default);
+    try testing.expectEqual(.response, second.outcome);
 }

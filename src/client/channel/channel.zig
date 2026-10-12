@@ -54,7 +54,6 @@ pub const StartError = channel_config.StartError;
 pub const ReceiveStorage = quic_connection.ReceiveStorage;
 pub const Address = quic.PeerAddress;
 pub const Sent = quic_connection.Sent;
-pub const QuicStart = quic_connection.Start;
 
 /// What DNS knows of the origin, which the caller looked up itself (decision 100).
 pub const Values = struct {
@@ -301,13 +300,23 @@ pub const Channel = struct {
         if (channel.links.get(.quic).state == .running) channel.quic.on_instant(now_ns);
     }
 
-    /// Starts the QUIC connection the `open` event asked for. Every draw its handshake makes comes
-    /// from `random`, and `resumption` offers a ticket an earlier QUIC connection took.
-    pub fn start_quic(channel: *Channel, start: QuicStart, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) quic_connection.StartError!void {
+    /// Starts the QUIC connection the `open` event asked for. The channel draws the connection's
+    /// grease value and its two IDs from `random` (decision 120), then every draw its handshake
+    /// makes comes from `random` too. `resumption` offers a ticket an earlier QUIC connection took.
+    pub fn start_quic(channel: *Channel, random: tls.Random, now_seconds: u64, now_ns: u64, resumption: ?tls.Resumption) StartError!void {
         const link = channel.links.getPtr(.quic);
         if (link.state != .opening) return;
         assert(!link.open_owed);
         channel.quic_config.server_address = link.to;
+        // Decision 120: the grease value, then the source ID, then the original destination ID,
+        // then the session's draws, in the order the server's endpoint draws its own.
+        var start: quic_connection.Start = undefined;
+        // RFC 9114 §7.2.4.1, §8.1: h3's reserved setting and error codes come from this value.
+        start.grease = random.int(u64);
+        // RFC 9000 §7.2: the client chooses its Source Connection ID, and its first Destination
+        // Connection ID is "an unpredictable value".
+        random.bytes(&start.source_id);
+        random.bytes(&start.original_destination_id);
         channel.quic.init(&channel.quic_config, channel.receive_pool.?, start, random, now_seconds, now_ns, resumption) catch |failure| {
             // The attempt ended before it began: the model's FailHandshake, then Close.
             channel_events.close_unstarted(channel, .quic);
