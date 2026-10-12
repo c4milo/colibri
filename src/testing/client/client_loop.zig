@@ -301,7 +301,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     };
     client_exchange.fill_content();
-    client_config = .{ .authority = run.authority, .versions = versions_of(run.protocol) };
+    client_config = .{ .authority = run.authority, .versions = versions_of(&run) };
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
         const features = h11.coding.Features.detect();
@@ -338,19 +338,36 @@ fn protocol_name(protocol: ?client.Protocol) []const u8 {
     return @tagName(spoken);
 }
 
-/// The module's name for the protocol the command line chose.
-/// The versions a connection allows: `chosen` alone, which a connection in cleartext speaks from
-/// the start (decision 117). Over TLS, ALPN chooses.
-fn versions_of(chosen: alpn.Protocol) client.Versions {
-    return switch (chosen) {
-        .h2 => .{ .h11 = false },
+/// The versions a connection of `run` allows. In cleartext it is the run's protocol alone, which
+/// the connection speaks from the start (decision 117). Over TLS with no `--h11` it is every
+/// version: the client offers `h2` and then `http/1.1`, ALPN chooses, and a server that selects no
+/// protocol is spoken to in h11 (decision 88), which a connection does only while its versions
+/// allow h11.
+fn versions_of(run: *const Run) client.Versions {
+    const over_tls = run.anchor_prefix != null;
+    return switch (run.protocol) {
+        .h2 => if (over_tls) .{} else .{ .h11 = false },
         .h11 => .{ .h2 = false },
     };
 }
 
 const testing = std.testing;
 
-test "the command line's protocol is the one version a connection allows" {
-    try testing.expectEqual(client.Versions{ .h11 = false }, versions_of(.h2));
-    try testing.expectEqual(client.Versions{ .h2 = false }, versions_of(.h11));
+/// The versions of a run that speaks `protocol`, over TLS when `anchor_prefix` names the root's
+/// files. Test-only.
+fn versions_for(protocol: alpn.Protocol, anchor_prefix: ?[]const u8) client.Versions {
+    var run: Run = undefined;
+    run.protocol = protocol;
+    run.anchor_prefix = anchor_prefix;
+    return versions_of(&run);
+}
+
+test "the command line's protocol is the one version a connection allows in cleartext" {
+    try testing.expectEqual(client.Versions{ .h11 = false }, versions_for(.h2, null));
+    try testing.expectEqual(client.Versions{ .h2 = false }, versions_for(.h11, null));
+}
+
+test "decision 88: over TLS with no --h11, a connection allows h11 for a server that selects nothing" {
+    try testing.expectEqual(client.Versions{}, versions_for(.h2, "root"));
+    try testing.expectEqual(client.Versions{ .h2 = false }, versions_for(.h11, "root"));
 }

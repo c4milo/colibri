@@ -5,9 +5,12 @@
 //! reported by its `finished` event, in h11 and h2 alike.
 //!
 //! Over TLS, `receive` runs the handshake through `tls.record.Client`, and the protocol ALPN
-//! selected serves the connection: h2 for "h2" (RFC 9113 §3.2), and h11 for "http/1.1" or for no
-//! selection (decision 88). In cleartext, the connection speaks h11 when `Config.versions` allows
-//! it, and h2 with prior knowledge when it does not (RFC 9113 §3.3, decision 117).
+//! selected serves the connection: h2 for "h2" (RFC 9113 §3.2), and h11 for "http/1.1". A
+//! handshake that selected no protocol runs h11 while `Config.versions` allows it (decision 88).
+//! With h11 off the connection closes, since h2 over TLS runs only where ALPN selected it (RFC
+//! 9113 §3.3), and each exchange it holds ends `refused`. In cleartext, the connection speaks h11
+//! when `Config.versions` allows it, and h2 with prior knowledge when it does not (RFC 9113 §3.3,
+//! decision 117).
 //!
 //! The caller loops over `receive` until it returns nothing consumed and no event, calls `send`
 //! whenever the transport can take octets, and closes the transport once `should_close` says so.
@@ -52,7 +55,8 @@ pub const Config = struct {
     tls: ?*const tls.record.ClientConfig = null,
     /// The versions the client speaks (decision 117). A connection in cleartext speaks h11 when it
     /// allows h11, and h2 with prior knowledge when it does not (RFC 9113 §3.3). Over TLS, ALPN
-    /// chooses (decision 88).
+    /// chooses, and a handshake that selected no protocol runs h11 only while `versions` allows h11
+    /// (decision 88).
     versions: versions_module.Versions = .{},
     /// The authority every request names: `:authority` in h2 (RFC 9113 §8.3.1) and Host in h11
     /// (RFC 9112 §3.2).

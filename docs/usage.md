@@ -683,6 +683,8 @@ The channel takes one `client.ChannelConfig` ([decision 120](decisions.md)):
 - `versions` names the HTTP versions the client speaks, each on by default. The channel offers
   them through ALPN: `h2` and then `http/1.1` over TCP, and `h3` over QUIC. It opens TCP only
   while `versions` allows h11 or h2, so a client that speaks h3 alone opens no TCP connection.
+  Over TLS, a TCP server that selects no protocol is spoken to in h11 while `versions` allows
+  h11. With h11 off, that connection closes, as one whose handshake failed does (RFC 9113 §3.3).
 - `authority`, the content codings and their decoder pools are given once, for both transports.
 - `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it. Its default
   is `client.constants.fallback_delay_ns_default`, 250 ms.

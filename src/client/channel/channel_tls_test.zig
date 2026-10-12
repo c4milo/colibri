@@ -282,3 +282,35 @@ test "decision 117: a channel whose versions turn h2 off runs h11 over TLS" {
     try testing.expectEqualStrings("hello", exchange.content_received());
     try testing.expectEqual(1, count(.open));
 }
+
+test "decision 88: a server that selects no protocol is spoken to in h11 while versions allows it" {
+    var exchange = get(&bodies[0]);
+    // The server holds no ALPN list, so it selects neither `h2` nor `http/1.1` of the client's.
+    _ = try start_with(.{}, &.{}, "localhost", &exchange);
+    send();
+    try testing.expectEqual(false, tls_support.server_flight().?);
+    try collect();
+    try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
+    try testing.expectEqual(null, find(.close));
+}
+
+test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol closes, and its exchange ends refused" {
+    var exchange = get(&bodies[0]);
+    _ = try start_with(.{ .h11 = false }, &.{}, "localhost", &exchange);
+    send();
+    try testing.expectEqual(false, tls_support.server_flight().?);
+    try collect();
+    // h2 over TLS runs only where ALPN selected it, so no protocol took the handshake.
+    try testing.expectEqual(null, find(.connected));
+    // The connection still holds the client's Finished, so the channel asks for no close yet.
+    try testing.expectEqual(null, find(.close));
+    send();
+    // The server reads the Finished, which completes its handshake, and no alert follows it.
+    try testing.expectEqual(true, tls_support.server_flight().?);
+    try testing.expectEqual(0, support.to_peer_len);
+    try collect();
+    try testing.expectEqual(Transport.tcp, find(.close).?.close);
+    // No connection carried the exchange, and the attempt has no other transport to open.
+    try testing.expectEqual(.refused, exchange.outcome);
+    try testing.expectEqual(1, count(.open));
+}

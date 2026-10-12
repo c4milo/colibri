@@ -219,6 +219,34 @@ test "RFC 9846 §6.2: a handshake the client refuses ends the connection, and it
     try testing.expect(connection.should_close());
 }
 
+test "decision 88: a handshake that selected no protocol runs h11 while versions allows it" {
+    // The server holds no ALPN list, so it selects neither `h2` nor `http/1.1` of the client's.
+    try start_tls(&.{}, &support.protocols_both, "localhost", false);
+    try testing.expectEqual(event.Protocol.h11, support.find(.connected).?.connected);
+    try testing.expectEqual(null, support.find(.closed));
+}
+
+test "RFC 9113 §3.3: with h11 off, a handshake that selected no protocol ends the connection" {
+    try tls_support.prepare_configs(&.{}, &support.protocols_h2, "localhost", false);
+    support.config = .{ .authority = support.authority, .tls = client_config, .versions = .{ .h11 = false } };
+    try connection.init(&support.config, support.stream.random(), support.now_seconds, null);
+    try tls_support.start_server();
+    var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
+    _ = try connection.request(&exchange);
+    try run_handshake();
+    // h2 over TLS runs only where ALPN selected it, so no protocol took the handshake.
+    try testing.expectEqual(null, support.find(.connected));
+    try testing.expect(support.find(.closed) != null);
+    // The server never saw the request, so it may go on another connection.
+    try testing.expectEqual(.refused, exchange.outcome);
+    // The client's Finished goes out before the caller closes, and no alert after it.
+    try testing.expect(!connection.should_close());
+    support.client_send();
+    try testing.expectEqual(true, tls_support.server_flight().?);
+    try testing.expectEqual(0, support.to_peer_len);
+    try testing.expect(connection.should_close());
+}
+
 test "RFC 9846 §5.2: a record that does not authenticate ends the connection with bad_record_mac" {
     try expect_forged_record_refused(&support.protocols_h2);
     try expect_forged_record_refused(&support.protocols_h11);
