@@ -765,7 +765,12 @@ fn report(event: client.ChannelEvent, now_ns: u64) void {
   the channel was shut down and every transport is closed.
 
 A program that opens TCP passes what its socket read as `.stream` input, and sends what
-`send_stream` writes. It starts a QUIC connection with values it draws at random:
+`send_stream` writes. After each send, each event and each `on_instant`, it reads the channel
+again, with the TCP octets it still holds, or with `.none` when it holds none. The channel may
+consume fewer octets than it was given: an h11 connection reads a held octet only once the
+response before it ends, and reads half a head again from its first octet.
+
+A program starts a QUIC connection with values it draws at random:
 
 ```zig
 fn start_quic(now_ns: u64) void {

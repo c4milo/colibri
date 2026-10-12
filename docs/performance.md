@@ -100,9 +100,9 @@ With chapulin's host objects:
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240560 | an endpoint that holds one QUIC connection, with its receive pool |
 | `server.Connection` | 306432 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `server.QuicConnection` | 721416 | one h3 connection, without its receive pool |
-| `client.Connection` | 289200 | one TCP connection: h11 or h2, in cleartext or over TLS |
+| `client.Connection` | 289208 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `client.QuicConnection` | 703712 | one h3 connection, without its receive pool |
-| `client.Channel` | 993840 | one server's connections, QUIC first and TCP after, without receive pools |
+| `client.Channel` | 993848 | one server's connections, QUIC first and TCP after, without receive pools |
 | `client.DefaultReceivePool` | 1505288 | the receive pool a QUIC connection's caller passes, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163384 | the h2 state inside a TCP connection |

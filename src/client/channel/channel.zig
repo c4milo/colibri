@@ -14,11 +14,13 @@
 //! The caller opens a transport when an `open` event says to, starts its connection with
 //! `start_quic` or `start_tcp`, and closes it when a `close` event says to. It passes what each
 //! transport reads to `receive`, and writes what `send_datagram` and `send_stream` return. It loops
-//! over `receive` as it does for one connection: until nothing is consumed and no event comes, and
-//! again with `.none` after each send and `on_instant`. colibri makes no system call and reads no
-//! clock: time is a value the caller passes (non-negotiable 3). A caller that offers h3 also places
-//! the receive pool each QUIC connection holds the server's octets in, one at a time (decision 61),
-//! and sizes it to the longest response it expects: `ReceivePool(capacity)`.
+//! over `receive` as it does for one connection: until nothing is consumed and no event comes.
+//! After each send, each event and each `on_instant` it reads again, with the TCP octets it still
+//! holds, or with `.none` when it holds none: an h11 connection reads a held octet only once the
+//! response before it ends. colibri makes no system call and reads no clock: time is a value the
+//! caller passes (non-negotiable 3). A caller that offers h3 also places the receive pool each
+//! QUIC connection holds the server's octets in, one at a time (decision 61), and sizes it to the
+//! longest response it expects: `ReceivePool(capacity)`.
 //!
 //! `Channel`'s functions are the calls a program makes, and `phase`, which the simulator's trace
 //! reads. The steps the channel takes on its own are in `channel_events.zig`, which the module's

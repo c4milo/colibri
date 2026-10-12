@@ -38,6 +38,45 @@ fn sent(text: []const u8) bool {
     return std.mem.indexOf(u8, support.to_peer[0..support.to_peer_len], text) != null;
 }
 
+/// Passes the client `octets` in one call, as a caller that read them from its socket.
+fn give(octets: []const u8) event.Received {
+    @memcpy(support.to_client[0..octets.len], octets);
+    return connection.receive(support.to_client[0..octets.len], support.now_ns);
+}
+
+/// A call with no octets, as the channel makes to read what the connection owes, reads nothing.
+fn expect_nothing() !void {
+    const polled = give("");
+    try testing.expectEqual(0, polled.consumed);
+    try testing.expectEqual(null, polled.event);
+}
+
+test "design §8 step 21c.3: a call with no octets waits for half a head or chunk-size line" {
+    try start();
+    var exchange = get(&bodies[0]);
+    _ = try connection.request(&exchange);
+    support.client_send();
+    // The connection reports `connected` before it reads an octet.
+    try support.client_receive();
+    // h11 reads half a head again from its first octet, once the caller passes it with the rest.
+    const head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+    const half = give(head[0.."HTTP/1.1 2".len]);
+    try testing.expectEqual(0, half.consumed);
+    try testing.expectEqual(null, half.event);
+    try expect_nothing();
+    const whole = give(head);
+    try testing.expectEqual(head.len, whole.consumed);
+    try testing.expectEqual(null, whole.event);
+    // A chunk-size line is read the same way (RFC 9112 §7.1).
+    const size_line = give("5");
+    try testing.expectEqual(0, size_line.consumed);
+    try expect_nothing();
+    const body = give("5\r\nhello\r\n0\r\n\r\n");
+    try testing.expectEqual(1, body.event.?.finished.id);
+    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqualStrings("hello", exchange.content_received());
+}
+
 test "RFC 9114 §3.1.2: a cleartext response's Alt-Svc names nothing, since h3 serves no http origin" {
     try start();
     var exchange = get(&bodies[0]);

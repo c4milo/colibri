@@ -104,6 +104,11 @@ pub const Connection = struct {
     /// The protocol's octets opened from records and not yet read.
     plain_in: [constants.plaintext_in_len]u8,
     plain_in_len: usize,
+    /// h11: the octets of the last call's input that h11 did not consume, such as half a head or
+    /// half a chunk-size line. h11 needs them again at the start of the next call's input, so a
+    /// call with no octets, as the channel makes to read what the connection owes, reads nothing
+    /// from h11 while any remain.
+    unread_len: usize,
     /// What the connection wrote that `send` has not taken: the TLS flight's records first,
     /// `records_len` octets of them, then the protocol's octets, which `send` seals over TLS.
     output: [constants.output_len]u8,
@@ -144,6 +149,7 @@ pub const Connection = struct {
         connection.config = config;
         connection.session = .none;
         connection.plain_in_len = 0;
+        connection.unread_len = 0;
         connection.output_len = 0;
         connection.records_len = 0;
         connection.reply_owed = false;

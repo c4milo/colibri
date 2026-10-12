@@ -30,7 +30,11 @@ const passes_per_octet: usize = 2;
 /// octets taken.
 pub fn receive(connection: *Connection, plaintext: []const u8) usize {
     const session = &connection.session.h11;
+    // h11 requires each call's octets to start with every octet it left unconsumed. The caller
+    // passes them again, so a call with none waits for that one.
+    if (plaintext.len == 0 and connection.unread_len > 0) return 0;
     var consumed: usize = 0;
+    defer connection.unread_len = plaintext.len - consumed;
     // Every pass consumes an octet or ends a response, and a response takes at least one octet,
     // so n octets take at most 2n passes, and one more finds them short.
     for (0..passes_per_octet * plaintext.len + 1) |_| {
