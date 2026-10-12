@@ -423,6 +423,21 @@ test "a rule of chapulin's is chapulin's to report, when a session starts or a s
     try testing.expectEqual(null, client.provider().vtable.negotiated_alpn(client.provider().context));
 }
 
+test "decision 117: a client's values that name no `alpn` convert to a list of no protocol" {
+    // A `client.Channel` names the protocols its versions allow, so its caller leaves `alpn` out.
+    try support.client_config.init(.{ .trust = support.web_pki.trust, .cpu = support.cpu });
+    try testing.expectEqual(0, support.client_config.values.alpn.len);
+    // A session starts from it, and a server that selects from a list selects none.
+    try support.server_config.init(.{
+        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
+        .cookie_key = &support.cookie_key,
+        .alpn = &support.protocols,
+        .cpu = support.cpu,
+    });
+    try support.handshake_both(null);
+    try testing.expectEqual(null, client.provider().vtable.negotiated_alpn(client.provider().context));
+}
+
 test "a server's identity passes chapulin's check, and a key that does not match fails it" {
     try support.configure(support.web_pki, .{});
     try support.server_config.check(support.random());
