@@ -215,7 +215,8 @@ pub const Connection = struct {
     /// stream it belongs to was refused, reset or never opened (`connection_headers.zig`).
     block_discarded: bool,
     /// Where a field section colibri sends is encoded before it is cut into frames
-    /// (`connection_send.zig`).
+    /// (`connection_send.zig`). Each use writes a block from the first octet and reads only what
+    /// it wrote, so `init` leaves these octets as they are.
     send_block: [constants.send_block_len_max]u8,
     /// The TLS provider this connection runs over, or null for the cleartext prior-knowledge
     /// endpoint of §3.3 (decision 44, `connection_tls.zig`).
@@ -271,7 +272,6 @@ pub const Connection = struct {
         connection.receive_window = window.Receiver.init(constants.initial_window_size_initial);
         connection.replies.init();
         connection.block_discarded = false;
-        connection.send_block = @splat(0);
         connection.provider = null;
         connection.records_without_data = 0;
         connection.handshake_owed = false;

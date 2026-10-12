@@ -1503,6 +1503,32 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   between that slot and the one freed. The judge's exchange closes streams in slot order and
   does not measure that.
 
+  **`init` leaves the send block's octets, 2026-10-12.** `Connection.init` zeroed `send_block`,
+  32,768 octets, for each connection. The block is scratch: `encode_response`, `encode_trailers`
+  and `encode_request` each start a writer at its first octet and read only what that writer
+  wrote. `init` no longer writes it.
+
+  What each check printed:
+  - The disassembly of the server `bench/run.sh` builds no longer calls `memset` over the block
+    where an h2 connection starts.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change.
+  - The change removes a store and alters no check, so no mutation applies to it.
+
+  The judge, [run 38201630221](https://github.com/c4milo/colibri/actions/runs/38201630221),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians.
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-one | 192,411 | 185,401 | 0.9636 | 0.9604 | wins in both |
+  | h2-tls-one | 7,293,475 | 7,286,634 | 0.9991 | 0.9990 | within the noise |
+  | h2-many | 16,863 | 16,853 | 0.9994 | 0.9997 | within the noise |
+  | h2-tls-many | 24,754 | 24,774 | 1.0008 | 1.0003 | within the noise |
+
+  No input loses. On h2-one the server's user instructions per connection fell by 7,165 in the
+  first job and by 7,220 in the second, where the disassembly gave 7,193.
+
 - **Step 5 — the TLS provider vtable and h2 over TLS.** The record-mode vtable, ALPN, the
   handshake-complete signal, `close_notify` as end of data. Still no implementation in the packaged
   library. **Check:** `h2spec -t -k` against the TLS entry point; interop against nghttp2, curl,
