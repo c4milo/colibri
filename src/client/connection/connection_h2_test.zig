@@ -13,6 +13,8 @@ const HttpExchange = support.HttpExchange;
 const ok: u16 = 200;
 /// RFC 9110 §15.2.4: 103 Early Hints, an interim response.
 const early_hints: u16 = 103;
+/// RFC 9113 §4.1: a frame's type follows its three octets of length.
+const frame_type_at: usize = 3;
 const content_type = [_]h2.hpack.Field{.{ .name = "content-type", .value = "application/dns-message" }};
 
 /// Where the tests' exchanges put their responses, outside any stack frame. Test-only.
@@ -230,6 +232,22 @@ test "RFC 9113 §6.8: a shut-down connection sends GOAWAY after its last exchang
     support.client_send();
     try support.peer_h2_read();
     try testing.expectEqual(.goaway, std.meta.activeTag(support.peer_events[0]));
+    try testing.expect(connection.should_close());
+}
+
+test "RFC 9113 §6.8: a connection shut down with no exchange closes once send wrote its GOAWAY" {
+    try start();
+    try support.pump_h2();
+    connection.shutdown();
+    try support.client_receive();
+    try testing.expect(support.find(.closed) != null);
+    // The connection is over and its output is empty, and h2 still holds the GOAWAY it owes: a
+    // caller that closed now would close without it.
+    try testing.expectEqual(0, connection.output_len);
+    try testing.expect(!connection.should_close());
+    support.to_peer_len = 0;
+    support.client_send();
+    try testing.expectEqual(h2.constants.frame_type_goaway, support.to_peer[frame_type_at]);
     try testing.expect(connection.should_close());
 }
 

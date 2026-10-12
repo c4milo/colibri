@@ -237,10 +237,14 @@ fn close_over(channel: *Channel, transport: Transport) void {
     const link = channel.links.getPtr(transport);
     if (link.state == .opening and link.abandoned) return finish_link(link);
     if (link.state != .running or !link.reported_closed) return;
-    // A transport the caller closed has its connection closed too.
+    // The TCP connection says when `send_stream` has written what it owes: the alert of a
+    // handshake it refused (RFC 9846 §6.2), the last flight of a handshake whose session the
+    // protocol then refused, and h2's GOAWAY (RFC 9113 §6.8). The transport closes after them. One
+    // the caller closed, and an abandoned one, have had `transport_closed`, which leaves nothing
+    // to write.
     const ready = switch (transport) {
         .quic => channel.quic.closed or channel.quic.should_close(),
-        .tcp => channel.tcp.phase == .closed or channel.tcp.should_close(),
+        .tcp => channel.tcp.should_close(),
     };
     if (!ready) return;
     // The connection's `transport_closed` wipes its secrets, and a second call changes nothing.

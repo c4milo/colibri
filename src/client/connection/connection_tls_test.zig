@@ -7,6 +7,7 @@ const h2 = @import("h2");
 const tls = @import("tls");
 const tls_provider = @import("tls_provider");
 const support = @import("connection_test_support.zig");
+const tls_support = @import("connection_tls_test_support.zig");
 const event = @import("../event.zig");
 const client_alt_svc = @import("../alt_svc.zig");
 
@@ -16,29 +17,23 @@ const HttpExchange = support.HttpExchange;
 
 const ok: u16 = 200;
 
-/// The server the tests run against, its configuration, and the client's, outside any stack
-/// frame. Test-only.
-var server: tls.record.Server align(@alignOf(tls.record.Server)) = undefined;
-var server_config: tls.record.ServerConfig align(@alignOf(tls.record.ServerConfig)) = undefined;
-var client_config: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
-/// The protocol's octets the server opened and has not read, and the ones it writes to seal.
-var peer_plain: [support.buffer_len]u8 = undefined;
-var peer_plain_len: usize = 0;
-var peer_out: [support.buffer_len]u8 = undefined;
+/// The server the tests run against and what it opened and writes, in
+/// `connection_tls_test_support.zig`, which the channel's tests share.
+const server = &tls_support.server;
+const client_config = &tls_support.client_config;
+const peer_plain = &tls_support.peer_plain;
+const peer_out = &tls_support.peer_out;
+const forged_record = tls_support.forged_record;
+const prepare_tls = tls_support.prepare_tls;
+const run_handshake = tls_support.run_handshake;
+const server_open = tls_support.server_open;
+const server_seal = tls_support.server_seal;
 var bodies: [bodies_count][body_len]u8 = undefined;
 const bodies_count: usize = 2;
 const body_len: usize = 1024;
 
-/// Rounds a handshake in memory takes at most. Test-only.
-const handshake_rounds_max: usize = 8;
 /// RFC 9846 §5.1: the content type of a plaintext handshake record. Test-only.
 const content_handshake: u8 = 22;
-/// The octets a forged record carries after its header: room for a content type and a 16-octet
-/// tag. Test-only.
-const forged_octets_len: usize = 32;
-/// Octets that are no record chapulin will open: an application_data header over octets no key
-/// sealed (RFC 9846 §5.2). Test-only.
-const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x00" ** forged_octets_len;
 
 /// A TLS connection whose client offers `client_protocols` to a server selecting from
 /// `server_protocols`, trusting the root for `server_name`, with the handshake run until both
@@ -46,78 +41,6 @@ const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x00" *
 fn start_tls(server_protocols: []const []const u8, client_protocols: []const []const u8, server_name: []const u8, tickets: bool) !void {
     try prepare_tls(server_protocols, client_protocols, server_name, tickets);
     try run_handshake();
-}
-
-/// The connection and the server of `start_tls`, before the handshake runs.
-fn prepare_tls(server_protocols: []const []const u8, client_protocols: []const []const u8, server_name: []const u8, tickets: bool) !void {
-    try server_config.init(.{
-        .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
-        .cookie_key = &support.cookie_key,
-        .ticket_key = if (tickets) &support.ticket_key else null,
-        .alpn = server_protocols,
-        .cpu = support.cpu,
-    });
-    try client_config.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = server_name } },
-        .alpn = client_protocols,
-        .cpu = support.cpu,
-    });
-    support.config = .{ .authority = support.authority, .tls = &client_config };
-    try connection.init(&support.config, support.stream.random(), support.now_seconds, null);
-    try server.start(&server_config, support.stream.random(), support.now_seconds);
-    support.to_peer_len = 0;
-    support.to_client_len = 0;
-    support.events_len = 0;
-    peer_plain_len = 0;
-}
-
-/// Moves the flights between the client and the server until the server completes, or the client
-/// gives up.
-fn run_handshake() !void {
-    var complete = false;
-    for (0..handshake_rounds_max) |_| {
-        support.client_send();
-        if (!complete) {
-            const progress = server.handshake(support.to_peer[0..support.to_peer_len], support.to_client[support.to_client_len..]) catch {
-                return;
-            };
-            take_to_peer(progress.consumed);
-            support.to_client_len += progress.written;
-            complete = progress.complete;
-        }
-        try support.client_receive();
-        if (complete and connection.protocol() != null) return;
-        if (support.find(.closed) != null) return;
-    }
-    return error.TestUnexpectedResult;
-}
-
-fn take_to_peer(consumed: usize) void {
-    std.mem.copyForwards(u8, &support.to_peer, support.to_peer[consumed..support.to_peer_len]);
-    support.to_peer_len -= consumed;
-}
-
-/// The server opens every whole record the client sent into `peer_plain`.
-fn server_open() !void {
-    const provider = server.provider();
-    for (0..support.buffer_len) |_| {
-        const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], peer_plain[peer_plain_len..]);
-        if (record.content == .incomplete) return;
-        take_to_peer(record.consumed);
-        if (record.content == .application_data) peer_plain_len += record.plaintext_len;
-    }
-}
-
-/// The server seals `plaintext` into records for the client.
-fn server_seal(plaintext: []const u8) !void {
-    const provider = server.provider();
-    var taken: usize = 0;
-    for (0..plaintext.len) |_| {
-        if (taken == plaintext.len) return;
-        const sealed = try provider.vtable.encrypt_record(provider.context, plaintext[taken..], support.to_client[support.to_client_len..]);
-        taken += sealed.consumed;
-        support.to_client_len += sealed.written;
-    }
 }
 
 /// The h2 peer reads what the server opened, and answers stream 1 with `content`.
@@ -134,14 +57,14 @@ fn peer_h2_answer_with(fields: []const h2.hpack.Field, content: []const u8) !?h2
 fn peer_h2_answer_after(before: []const u8, fields: []const h2.hpack.Field, content: []const u8) !?h2.connection.Request {
     var consumed: usize = 0;
     var request: ?h2.connection.Request = null;
-    for (0..peer_plain_len + 1) |_| {
-        const received = try support.peer_h2.receive(peer_plain[consumed..peer_plain_len], support.now_ns);
+    for (0..tls_support.peer_plain_len + 1) |_| {
+        const received = try support.peer_h2.receive(peer_plain[consumed..tls_support.peer_plain_len], support.now_ns);
         if (received.consumed == 0) break;
         consumed += received.consumed;
         const peer_event = received.event orelse continue;
         if (peer_event == .request) request = peer_event.request;
     }
-    var written = support.peer_h2.write_pending(&peer_out, support.now_ns);
+    var written = support.peer_h2.write_pending(peer_out, support.now_ns);
     @memcpy(peer_out[written..][0..before.len], before);
     written += before.len;
     written += try support.peer_h2.write_response(peer_out[written..], 1, ok, fields, false);
@@ -176,10 +99,10 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     _ = try connection.request(&exchange);
     support.client_send();
     try server_open();
-    const received = try support.peer_h11.receive(peer_plain[0..peer_plain_len], &.{});
+    const received = try support.peer_h11.receive(peer_plain[0..tls_support.peer_plain_len], &.{});
     try testing.expect(received.event.? == .request);
     const fields = [_]support.Field{ .{ .name = "Content-Length", .value = "2" }, .{ .name = "Connection", .value = "close" } };
-    var written = try support.peer_h11.write_response(&peer_out, ok, "", &fields);
+    var written = try support.peer_h11.write_response(peer_out, ok, "", &fields);
     written += try support.peer_h11.write_body(peer_out[written..], "hi");
     written += try support.peer_h11.write_end(peer_out[written..], &.{});
     try server_seal(peer_out[0..written]);
@@ -191,7 +114,7 @@ test "decision 88: ALPN's http/1.1 serves h11, and the client's close_notify fol
     // RFC 9846 §6.1: the client's close_notify goes out before it closes. RFC 9846 §5.2: the
     // record hides its type, so the server opens it to see an alert.
     const provider = server.provider();
-    const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], &peer_plain);
+    const record = try provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], peer_plain);
     try testing.expectEqual(tls_provider.provider.Content.alert, record.content);
     try testing.expect(connection.should_close());
 }
@@ -204,10 +127,10 @@ test "RFC 7838 §3: a final response's Alt-Svc over TLS names h3 once, for take_
     _ = try connection.request(&exchange);
     support.client_send();
     try server_open();
-    _ = try support.peer_h11.receive(peer_plain[0..peer_plain_len], &.{});
+    _ = try support.peer_h11.receive(peer_plain[0..tls_support.peer_plain_len], &.{});
     const fields = [_]support.Field{ .{ .name = "Content-Length", .value = "0" }, .{ .name = "Alt-Svc", .value = "h3=\":8443\"; ma=60" } };
     // A Content-Length of 0 ends the response with its head (RFC 9112 §6.3).
-    const written = try support.peer_h11.write_response(&peer_out, ok, "", &fields);
+    const written = try support.peer_h11.write_response(peer_out, ok, "", &fields);
     try server_seal(peer_out[0..written]);
     try support.client_receive();
     try testing.expectEqual(.response, exchange.outcome);
@@ -321,7 +244,7 @@ fn expect_forged_record_refused(server_protocols: []const []const u8) !void {
     try testing.expect(connection.should_close());
     // RFC 9846 §6.2: the server reads the error alert as the end of the connection, and names it.
     const provider = server.provider();
-    try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], &peer_plain));
+    try testing.expectError(error.TlsFailed, provider.vtable.decrypt_record(provider.context, support.to_peer[0..support.to_peer_len], peer_plain));
     const report = provider.vtable.take_alert(provider.context).?;
     try testing.expectEqual(.bad_record_mac, report.description);
     try testing.expectEqual(.peer, report.origin);
@@ -345,7 +268,7 @@ test "RFC 9846 §4.1.2: the ClientHello goes out on the first send, before any r
         .alpn = &support.protocols_both,
         .cpu = support.cpu,
     });
-    support.config = .{ .authority = support.authority, .tls = &client_config };
+    support.config = .{ .authority = support.authority, .tls = client_config };
     try connection.init(&support.config, support.stream.random(), support.now_seconds, null);
     support.to_peer_len = 0;
     support.client_send();

@@ -240,14 +240,21 @@ pub const Connection = struct {
         internal.start_draining(connection);
     }
 
-    /// Whether the caller closes the transport now: the connection is over and `send` has written
-    /// everything, over TLS the `close_notify` too (RFC 9846 §6.1), or the alert of a failure.
+    /// Whether the caller closes the transport now: the connection reported `closed`, and `send`
+    /// has written everything it owes. That is the octets its output holds, among them the alert
+    /// of a handshake it refused (RFC 9846 §6.2), and what the protocol queued: h2's GOAWAY (RFC
+    /// 9113 §6.8). Over TLS it is also the `close_notify` (RFC 9846 §6.1), or the alert of a record
+    /// that failed in place of it.
     pub fn should_close(connection: *const Connection) bool {
         if (connection.output_len > 0 or !connection.owed.closed_reported) return false;
         return switch (connection.phase) {
             .handshake => false,
             .closed => true,
-            .open => connection.config.tls == null or connection.close_sent or connection.failure_sent(),
+            // RFC 9113 §6.8: an endpoint "SHOULD always send a GOAWAY frame before closing a
+            // connection", and h2 holds the frame until a `send` writes it into the output. Over
+            // TLS, `send` seals the `close_notify` only once the protocol owes nothing.
+            .open => (connection.config.tls == null and !internal.protocol_pending(connection)) or
+                connection.close_sent or connection.failure_sent(),
         };
     }
 

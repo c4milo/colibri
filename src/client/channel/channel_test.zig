@@ -153,6 +153,27 @@ test "decision 100: a shut-down channel drains its connection, asks for its clos
     try testing.expect(!channel.tcp.failed);
 }
 
+test "RFC 9113 §6.8: a shut-down channel asks for its transport's close once the GOAWAY is written" {
+    start_tcp_only();
+    var exchange = get(&bodies[0]);
+    _ = try channel.request(&exchange);
+    try pump();
+    channel.shutdown();
+    try support.peer_h2_answer(1, ok, &.{}, "hello");
+    // The channel reads the response and its connection's `closed` in these calls, before any
+    // send: h2 holds its GOAWAY, and the connection's output is empty.
+    try collect();
+    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqual(null, find(.close));
+    support.peer_events_len = 0;
+    support.to_peer_len += channel.send_stream(support.to_peer[support.to_peer_len..], support.now_ns);
+    try support.peer_h2_read();
+    try testing.expectEqual(.goaway, std.meta.activeTag(support.peer_events[0]));
+    try collect();
+    try testing.expectEqual(channel_module.Transport.tcp, find(.close).?.close);
+    try testing.expectEqual(1, count(.closed));
+}
+
 test "RFC 9113 §8.7: a transport the caller closed moves the exchange it had not written to a new connection" {
     start_tcp_only();
     var exchange = get(&bodies[0]);
