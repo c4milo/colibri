@@ -6232,6 +6232,47 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - `tools/h3spec.sh`: h3spec 0.1.13 passed 49 of 49 against the `h3` mode.
   - `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` passed.
 
+  **h2 reads the caller's fields where they are, 2026-10-12.** The h2 half of `server.Connection`
+  copied the fields a caller passes to `respond` and `write_trailers` into an array of
+  `h2.hpack.Field`, a second type with the same two slices as `http.Field`. The array holds
+  `field_count_max` lines, 4,096 octets, and ReleaseSafe fills an `undefined` local with 0xAA on
+  every call, so each response paid for the whole fill whatever it carried. `hpack.Field` is now
+  `http.Field`. The module graph already gave `hpack` the `http` module, the name stays on
+  hpack's list, and a struct literal that built one still builds it. The h2 half checks the count
+  of lines against `field_count_max`, as the copy did, and gives h2 the caller's slice, which h2
+  does not keep past the call. The client's h2 half adds lines of its own to a request and still
+  builds its array. `qpack.Field`, which no other module names, is unchanged.
+
+  What each check printed:
+  - The copy stays in `connection_h2_fields_test.zig` as the reference. `respond` and
+    `write_trailers` must return what h2 returns for the copy and send the same octets, at every
+    count of lines from none to one past `field_count_max`. Two more tests hold the order of the
+    checks: an id that names no stream is refused before its lines are counted, and a section
+    refused for its count leaves the reply h2 owes unwritten.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change.
+  - 9 mutations, each **CAUGHT**: the limit one line low, or one line high; the count left out of
+    `respond`, or of `write_trailers`; a response without its last line, or a trailer section
+    without its first; the count taken before the id is judged, in each call; and what h2 owes
+    written before the count.
+
+  The judge, [run 38201623243](https://github.com/c4milo/colibri/actions/runs/38201623243),
+  measured it against `13558c2`, in instructions per request, or per connection for the two
+  `one` inputs. The base and the change are the first job's medians. The judge measured the
+  commit before its review, which differs from this one in tests and comments alone.
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 18,747 | 17,798 | 0.9494 | 0.9493 | wins in both |
+  | h2-tls-many | 26,585 | 25,658 | 0.9651 | 0.9648 | wins in both |
+  | h2-one | 222,772 | 222,005 | 0.9966 | 0.9974 | within the noise |
+  | h2-tls-one | 7,330,245 | 7,328,750 | 0.9998 | 1.0000 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 943 in both
+  jobs, where the disassembly gave about 940: the test server's `memset` runs 7 instructions for
+  each 32 octets. A program that links compiler_rt's `memset` paid a store for each octet of the
+  same fill (docs/performance.md, "Pitfalls this tree has paid for").
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

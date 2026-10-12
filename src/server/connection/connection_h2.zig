@@ -88,14 +88,13 @@ fn write_owed_first(connection: *Connection) void {
 
 pub fn respond(connection: *Connection, id: Number, status: u16, fields: []const Field, end: bool) SendError!void {
     const stream_id = try stream_of(id);
-    var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
-    const converted = try convert(fields, &lines);
+    try check_count(fields);
     write_owed_first(connection);
     // RFC 9113 §8.1: only the final response ends the stream, so an interim one carries no
     // END_STREAM whatever the caller asked.
     const interim = status >= http.constants.status_code_min and status < @intFromEnum(http.status.Code.ok);
     if (!interim) try advertise(connection, stream_id);
-    const written = connection.session.h2.write_response(internal.room(connection), stream_id, status, converted, end and !interim) catch |failure| {
+    const written = connection.session.h2.write_response(internal.room(connection), stream_id, status, fields, end and !interim) catch |failure| {
         return send_error(connection, failure);
     };
     connection.output_len += written;
@@ -145,10 +144,9 @@ pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: 
 
 pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
     const stream_id = try stream_of(id);
-    var lines: [core.constants.field_count_max]h2.hpack.Field = undefined;
-    const converted = try convert(fields, &lines);
+    try check_count(fields);
     write_owed_first(connection);
-    const written = connection.session.h2.write_trailers(internal.room(connection), stream_id, converted) catch |failure| {
+    const written = connection.session.h2.write_trailers(internal.room(connection), stream_id, fields) catch |failure| {
         return send_error(connection, failure);
     };
     connection.output_len += written;
@@ -179,12 +177,11 @@ pub fn stream_of(id: Number) SendError!u32 {
     return @intCast(id);
 }
 
-/// The caller's field lines as h2's encoder takes them.
-fn convert(fields: []const Field, lines: *[core.constants.field_count_max]h2.hpack.Field) SendError![]const h2.hpack.Field {
+/// Refuses a section of more lines than colibri sends. h2 reads the caller's fields where they are:
+/// `h2.hpack.Field` is `http.Field`, so nothing is copied.
+fn check_count(fields: []const Field) SendError!void {
     // RFC 9110 §5.4: a section has no predefined limit, so colibri's applies to what it sends.
-    if (fields.len > lines.len) return error.SectionTooLarge;
-    for (fields, lines[0..fields.len]) |field, *line| line.* = .{ .name = field.name, .value = field.value };
-    return lines[0..fields.len];
+    if (fields.len > core.constants.field_count_max) return error.SectionTooLarge;
 }
 
 fn send_error(connection: *const Connection, failure: h2.connection.SendError) SendError {

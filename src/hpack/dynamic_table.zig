@@ -16,15 +16,14 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const wire = @import("wire");
+const http = @import("http");
 const constants = @import("constants.zig");
 
 const entry_size = wire.table_size.entry_size;
 
-/// One field line: a name and a value, unencoded.
-pub const Field = struct {
-    name: []const u8,
-    value: []const u8,
-};
+/// One field line: a name and a value, unencoded. It is `http.Field`, so h2 reads the fields a
+/// caller holds where they are, and no caller copies them into a second type first.
+pub const Field = http.Field;
 
 /// Where an entry's octets are: its name, then its value, at `offset`.
 const Entry = struct {

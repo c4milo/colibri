@@ -122,6 +122,12 @@ With chapulin's host objects:
   programs colibri times export their own (`src/testing/memset.zig`), which brought the
   connection to 305,000 instructions. A program that links colibri should export one too, as
   pepegrillo's guide says.
+- **A scratch array as large as its limit.** Symptom: every h2 response cost about 940
+  instructions before it wrote an octet, whatever it carried. Cause: ReleaseSafe fills an
+  `undefined` local with 0xAA on every call, and `respond` copied the caller's fields into an
+  array of `field_count_max` lines, 4,096 octets. Rule: read the caller's data where it is, and
+  size a scratch array to its data, as pepegrillo's guide says under "Copies and fills". Design
+  §8 step 17 has the judge's numbers.
 - **h2load's exit status.** Symptom: one job of the first `bench.yml` run measured a server that
   had not started, and 0 of 20,000 requests succeeded. Cause: h2load exits 0 even when every
   request fails, so a readiness check on its status passes at once. Rule: read the count h2load
