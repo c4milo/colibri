@@ -44,6 +44,8 @@ pub const View = struct {
     waiting: bool,
     /// QUIC may carry the channel's exchanges: h3 is offered, and known or tried first.
     quic_allowed: bool,
+    /// TCP may carry them: the client speaks h11 or h2 (RFC 9114 §3.1, decision 117).
+    tcp_allowed: bool,
     /// The transports this attempt opened.
     tried: std.EnumArray(Transport, bool),
     /// The fallback delay passed while QUIC ran its handshake.
@@ -79,10 +81,13 @@ fn can_open_quic(view: *const View) bool {
     return view.phases.get(.quic).idle() and view.phases.get(.tcp) != .handshake;
 }
 
-/// TCP opens once an attempt: when QUIC is not allowed, when the fallback delay passed during
-/// QUIC's handshake, when this attempt's QUIC failed, or when a QUIC connection still ends. RFC
-/// 9114 §3.1: a client that cannot establish QUIC "SHOULD attempt to use TCP-based versions".
+/// TCP opens once an attempt, and only when it is allowed: when QUIC is not allowed, when the
+/// fallback delay passed during QUIC's handshake, when this attempt's QUIC failed, or when a QUIC
+/// connection still ends. RFC 9114 §3.1: a client that cannot establish QUIC "SHOULD attempt to
+/// use TCP-based versions", and a client that speaks h3 alone has none (the model's
+/// TcpWhenAllowed).
 fn can_open_tcp(view: *const View) bool {
+    if (!view.tcp_allowed) return false;
     if (view.tried.get(.tcp) or !view.phases.get(.tcp).idle()) return false;
     if (!view.quic_allowed) return true;
     const quic = view.phases.get(.quic);
@@ -92,12 +97,13 @@ fn can_open_tcp(view: *const View) bool {
 
 const testing = std.testing;
 
-/// A view with an exchange waiting, QUIC allowed, and nothing opened. Test-only.
+/// A view with an exchange waiting, both transports allowed, and nothing opened. Test-only.
 fn fresh() View {
     return .{
         .phases = .initFill(.none),
         .waiting = true,
         .quic_allowed = true,
+        .tcp_allowed = true,
         .tried = .initFill(false),
         .fallback = false,
     };
@@ -173,6 +179,29 @@ test "the client gives up once no connection is left and the attempt may open ne
     view.tried.set(.tcp, true);
     view.waiting = false;
     try testing.expect(!give_up(&view));
+}
+
+test "RFC 9114 §3.1: a client that speaks h3 alone opens no TCP, and gives up once QUIC failed" {
+    var view = fresh();
+    view.tcp_allowed = false;
+    try testing.expectEqual(Transport.quic, next_open(&view).?);
+    // Neither the fallback delay nor a failed QUIC connection opens TCP.
+    view.phases.set(.quic, .handshake);
+    view.tried.set(.quic, true);
+    view.fallback = true;
+    try testing.expectEqual(null, next_open(&view));
+    view.phases.set(.quic, .failed);
+    try testing.expectEqual(null, next_open(&view));
+    try testing.expect(!give_up(&view));
+    view.phases.set(.quic, .closed);
+    try testing.expectEqual(null, next_open(&view));
+    try testing.expect(give_up(&view));
+    // With QUIC not allowed either, the attempt opens nothing and ends at once.
+    view = fresh();
+    view.tcp_allowed = false;
+    view.quic_allowed = false;
+    try testing.expectEqual(null, next_open(&view));
+    try testing.expect(give_up(&view));
 }
 
 test "the other transport of each is the one it is not" {

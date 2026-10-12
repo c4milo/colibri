@@ -4,7 +4,6 @@
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const channel_module = @import("channel.zig");
-const connection_module = @import("../connection/connection.zig");
 const event = @import("../event.zig");
 const constants = @import("../constants.zig");
 
@@ -16,7 +15,6 @@ const Event = channel_module.Event;
 /// The channel the tests drive, its configuration and the events it reported, outside any stack
 /// frame. Test-only.
 var channel: Channel align(@alignOf(Channel)) = undefined;
-var tcp_config: connection_module.Config align(@alignOf(connection_module.Config)) = undefined;
 var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
@@ -26,7 +24,6 @@ const body_len: usize = 1024;
 
 const ok: u16 = 200;
 const https_port: u16 = 443;
-const fallback_delay_ns: u64 = 250_000_000;
 /// An IPv4 host, its four octets alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
@@ -42,17 +39,16 @@ const unstarted_octet: u8 = 0x01;
 const rounds: usize = 8;
 
 /// A channel with no QUIC configured, whose TCP connections speak h2 in cleartext.
-fn start_tcp_only() void {
-    start_at(&addresses);
+fn start_tcp_only() !void {
+    try start_at(&addresses);
 }
 
-fn start_at(to: []const channel_module.Address) void {
-    tcp_config = .{ .authority = support.authority, .versions = support.only(.h2) };
-    config = .{ .tcp = &tcp_config, .fallback_delay_ns = fallback_delay_ns };
+fn start_at(to: []const channel_module.Address) !void {
+    config = .{ .authority = support.authority, .versions = support.only(.h2) };
     // Every octet 1, so each flag of a connection the channel never started reads as set, and a
     // read of one shows.
     @memset(std.mem.asBytes(&channel), unstarted_octet);
-    channel.init(&config, .{ .addresses = to, .port = https_port }, null);
+    try channel.init(&config, .{ .addresses = to, .port = https_port }, null);
     starts = true;
     support.peer_h2.init(.server);
     support.to_peer_len = 0;
@@ -115,7 +111,7 @@ fn get(body: []u8) HttpExchange {
 }
 
 test "decision 100: with no QUIC configured, the channel opens TCP and carries an exchange on it" {
-    start_tcp_only();
+    try start_tcp_only();
     var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     const id = try channel.request(&exchange);
     try collect();
@@ -136,7 +132,7 @@ test "decision 100: with no QUIC configured, the channel opens TCP and carries a
 }
 
 test "decision 100: a shut-down channel drains its connection, asks for its close, and reports closed" {
-    start_tcp_only();
+    try start_tcp_only();
     var exchange: HttpExchange = .{ .method = "GET", .path = "/", .body = &bodies[0] };
     _ = try channel.request(&exchange);
     try pump();
@@ -154,7 +150,7 @@ test "decision 100: a shut-down channel drains its connection, asks for its clos
 }
 
 test "RFC 9113 §6.8: a shut-down channel asks for its transport's close once the GOAWAY is written" {
-    start_tcp_only();
+    try start_tcp_only();
     var exchange = get(&bodies[0]);
     _ = try channel.request(&exchange);
     try pump();
@@ -175,7 +171,7 @@ test "RFC 9113 §6.8: a shut-down channel asks for its transport's close once th
 }
 
 test "RFC 9113 §8.7: a transport the caller closed moves the exchange it had not written to a new connection" {
-    start_at(&two_addresses);
+    try start_at(&two_addresses);
     var exchange = get(&bodies[0]);
     _ = try channel.request(&exchange);
     try collect();
@@ -196,7 +192,7 @@ test "RFC 9113 §8.7: a transport the caller closed moves the exchange it had no
 }
 
 test "RFC 9113 §8.7: a transport the caller closed ends its written exchange closed, and asks for no close" {
-    start_tcp_only();
+    try start_tcp_only();
     var exchange = get(&bodies[0]);
     _ = try channel.request(&exchange);
     try pump();
@@ -209,14 +205,14 @@ test "RFC 9113 §8.7: a transport the caller closed ends its written exchange cl
 }
 
 test "a channel holds exchanges_max exchanges at once, and refuses one more" {
-    start_tcp_only();
+    try start_tcp_only();
     var exchanges: [constants.exchanges_max + 1]HttpExchange = @splat(get(&bodies[0]));
     for (exchanges[0..constants.exchanges_max]) |*exchange| _ = try channel.request(exchange);
     try testing.expectError(error.Full, channel.request(&exchanges[constants.exchanges_max]));
 }
 
 test "what a transport with no running connection read is dropped" {
-    start_tcp_only();
+    try start_tcp_only();
     var octets: [ipv4_len]u8 = @splat(host_octet);
     const datagram = channel.receive(.{ .datagram = .{ .octets = &octets } }, support.now_ns);
     try testing.expectEqual(octets.len, datagram.consumed);
@@ -227,7 +223,7 @@ test "what a transport with no running connection read is dropped" {
 }
 
 test "a transport that failed before its handshake completed tries the next address next time" {
-    start_at(&two_addresses);
+    try start_at(&two_addresses);
     starts = false;
     var exchange = get(&bodies[0]);
     _ = try channel.request(&exchange);

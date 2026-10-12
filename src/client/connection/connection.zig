@@ -47,7 +47,8 @@ const Slot = slots_module.Slot;
 /// holds it.
 pub const Config = struct {
     /// The TLS configuration, or null for cleartext. Its ALPN list names what the client offers,
-    /// `h2` and `http/1.1` in the order it prefers them (RFC 7301 §3.1).
+    /// most preferred first (RFC 7301 §3.1). A channel builds it from its one TLS value, and its
+    /// list names `h2` before `http/1.1`, each while `versions` allows it (decision 120).
     tls: ?*const tls.record.ClientConfig = null,
     /// The versions the client speaks (decision 117). A connection in cleartext speaks h11 when it
     /// allows h11, and h2 with prior knowledge when it does not (RFC 9113 §3.3). Over TLS, ALPN

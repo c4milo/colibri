@@ -94,14 +94,10 @@ var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 var answered: u32 = 0;
 var ended: u32 = 0;
 
-// The client: a TLS configuration for each transport, the channel, the pool its QUIC connection
-// holds the server's unread octets in, and one exchange.
+// The client: one configuration, the channel, the pool its QUIC connection holds the server's
+// unread octets in, and one exchange.
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
 const ReceivePool = client.ReceivePool(64 * 1024);
-var client_tls: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
-var client_quic_tls: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
-var client_tcp: client.Config align(@alignOf(client.Config)) = undefined;
-var client_quic: client.QuicConfig align(@alignOf(client.QuicConfig)) = undefined;
 var channel_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = undefined;
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
 var channel: client.Channel align(@alignOf(client.Channel)) = undefined;
@@ -163,26 +159,18 @@ fn start_server(cpu: tls.Cpu) !void {
 }
 
 fn start_client(cpu: tls.Cpu) !void {
-    try client_quic_tls.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } },
-        .alpn = &.{"h3"},
-        .cpu = cpu,
-    });
-    try client_tls.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } },
-        .alpn = &.{ "h2", "http/1.1" },
-        .cpu = cpu,
-    });
-    client_tcp = .{ .tls = &client_tls, .authority = origin };
-    client_quic = .{ .tls = &client_quic_tls, .authority = origin };
+    // One configuration serves both transports. Its TLS value names no protocol: the channel
+    // offers h3 over QUIC, and h2 then http/1.1 over TCP, as `versions` allows them.
     channel_config = .{
-        .tcp = &client_tcp,
-        .quic = &client_quic,
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+        .authority = origin,
         .fallback_delay_ns = fallback_delay_ns,
     };
     // The channel takes what DNS knows as values: the server's addresses and its port.
     const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
-    channel.init(&channel_config, known, receive_pool.storage());
+    // `init` builds the TLS configuration of each transport inside the channel, which stays in
+    // place from here on. The pool is what makes the channel offer QUIC.
+    try channel.init(&channel_config, known, receive_pool.storage());
     // `request` only takes an exchange. The channel sends it over the first connection that
     // completes its handshake.
     _ = try channel.request(&get);

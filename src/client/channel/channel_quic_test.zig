@@ -51,10 +51,8 @@ test "RFC 9114 §3.1: with h3 offered, QUIC opens first and carries the exchange
     try testing.expectEqual(null, opened(1));
 }
 
-test "RFC 9114 §3.1: a QUIC handshake that selects no h3 fails, and TCP opens" {
-    const offered = [_][]const u8{ "hq-interop", "h3" };
+test "RFC 9114 §3.1: a QUIC handshake whose server speaks no h3 fails, and TCP opens" {
     try start(&quic_support.alpn_other, values_at(https_port), true);
-    try quic_support.prepare(&offered, &quic_support.alpn_other, false);
     var exchange = get(&bodies[0]);
     _ = try channel.request(&exchange);
     try collect();
@@ -188,9 +186,7 @@ test "RFC 7838 §3.1: what Alt-Svc says replaces what the channel knew, fresh fo
 }
 
 test "decision 100: once every transport failed, each waiting exchange ends refused" {
-    const offered = [_][]const u8{ "hq-interop", "h3" };
     try start(&quic_support.alpn_other, values_at(https_port), true);
-    try quic_support.prepare(&offered, &quic_support.alpn_other, false);
     var exchange = get(&bodies[0]);
     const id = try channel.request(&exchange);
     try collect();
@@ -198,7 +194,9 @@ test "decision 100: once every transport failed, each waiting exchange ends refu
     try testing.expectEqual(Transport.tcp, opened(1).?.transport);
     // The caller's TCP connection failed before its handshake began.
     channel.transport_closed(.tcp);
-    try pump(quic_support.rounds_default);
+    // RFC 9000 §10.2: the QUIC connection's closing or draining period runs before its transport
+    // closes, and the channel gives up once both transports closed.
+    try pump(rounds_past_probe * 4);
     try testing.expectEqual(id, nth(.finished, 0).?.finished.id);
     try testing.expectEqual(.refused, exchange.outcome);
 }

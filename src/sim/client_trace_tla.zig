@@ -45,13 +45,15 @@ pub fn write_config(writer: *Writer, plan: *const Plan, last: *const State, goaw
     try writer.write_bytes("\\* expect: violated\nSPECIFICATION TraceSpec\nCONSTANTS\n");
     const opens = @max(1, @max(last.opens[0], last.opens[1]));
     try print(writer, "    N = {d}\n    Opens = {d}\n    MovesMax = {d}\n", .{ plan.exchanges, opens, client.constants.moves_max });
-    try print(writer, "    QuicPolicy = \"{t}\"\n", .{plan.policy});
+    // The run's client speaks h2 over TCP, so TCP is allowed in every seed.
+    try print(writer, "    QuicPolicy = \"{t}\"\n    TcpAllowed = TRUE\n", .{plan.policy});
     const all = "{\"quic\", \"tcp\"}";
     try print(writer, "    HandshakeFails = {s}\n    Breaks = {s}\n    Goaways = {s}\n", .{ all, all, all });
     try print(writer, "    GoawaysMax = {d}\n    Refusals = {s}\n    Resets = {s}\n", .{ goaways, all, all });
     try writer.write_bytes("    ReleaseOnFail = TRUE\n    CloseWhenDrained = TRUE\n    ReportWhenReleased = TRUE\n");
     try writer.write_bytes("    CancelReleases = TRUE\n    SentFailsClosed = TRUE\n    MoveRefused = TRUE\n");
     try writer.write_bytes("    RetireStale = TRUE\n    KeepAlive = TRUE\n    TakeAtHandshake = TRUE\n");
+    try writer.write_bytes("    TcpWhenAllowed = TRUE\n");
     try writer.write_bytes("    Trace <- SeedTrace\n    Goal <- SeedGoal\n");
     try print(writer, "    StepsMax = {d}\nCONSTRAINT Within\nINVARIANT Unfinished\nCHECK_DEADLOCK FALSE\n", .{steps_max});
 }

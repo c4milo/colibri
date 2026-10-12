@@ -111,6 +111,11 @@ const connection_events_max: usize = 4;
 /// Nanoseconds in a second, which an Alt-Svc freshness lifetime counts (RFC 7838 §3.1).
 pub const nanoseconds_per_second: u64 = 1_000 * quic.constants.nanoseconds_per_millisecond;
 
+/// How long a channel lets QUIC's handshake run before TCP opens beside it, unless the caller
+/// names another delay, in nanoseconds: 250 ms (decision 120). No RFC in docs/rfcs gives a value.
+/// It is the delay the test-only client used before the channel had a default.
+pub const fallback_delay_ns_default: u64 = 250 * quic.constants.nanoseconds_per_millisecond;
+
 /// The largest window a `br` decoder takes, as the bits RFC 7932 §9.1 names WBITS: 24, a window of
 /// 16 MiB less 16 octets, the largest §9.1 allows, as the owner ruled on 2026-09-30 (decision 101
 /// as amended). A `br` decoder holds this much.
@@ -133,4 +138,6 @@ comptime {
     // work in.
     assert(quic_idle_margin_ns_min < quic_idle_timeout_ms_default * quic.constants.nanoseconds_per_millisecond);
     assert(quic_idle_margin_timeout_divisor > 1);
+    // A fallback delay of zero would open TCP beside every QUIC handshake.
+    assert(fallback_delay_ns_default > 0);
 }

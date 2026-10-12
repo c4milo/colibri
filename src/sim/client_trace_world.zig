@@ -62,10 +62,6 @@ pub const World = struct {
     channel_config: client.ChannelConfig,
     /// The receive pool of the channel's QUIC connections (decision 61).
     receive_pool: client.DefaultReceivePool,
-    tcp_tls: tls.record.ClientConfig,
-    tcp_config: client.Config,
-    quic_tls: tls.quic.ClientConfig,
-    quic_config: client.QuicConfig,
     addresses: [1]client.Address,
     exchanges: [limits.exchanges_max]client.HttpExchange,
     bodies: [limits.exchanges_max][body_len]u8,
@@ -113,28 +109,19 @@ pub const World = struct {
         world.to_client.clear();
         world.network.init(seed, world.schedule());
         try world.configure();
-        const receive = if (world.channel_config.quic == null) null else world.receive_pool.storage();
-        world.channel.init(&world.channel_config, world.values(), receive);
+        // A plan whose policy is `never` gives no pool, so its channel offers no QUIC.
+        const receive = if (world.plan.policy == .never) null else world.receive_pool.storage();
+        try world.channel.init(&world.channel_config, world.values(), receive);
         world.quic_server.started = false;
         world.tcp_server.running = false;
     }
 
     fn configure(world: *World) !void {
-        try world.tcp_tls.init(.{
-            .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
-            .alpn = &alpn_tcp,
-            .cpu = identity.cpu,
-        });
-        world.tcp_config = .{ .authority = identity.authority, .tls = &world.tcp_tls };
-        try world.quic_tls.init(.{
-            .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } },
-            .alpn = &alpn_quic,
-            .cpu = identity.cpu,
-        });
-        world.quic_config = .{ .tls = &world.quic_tls, .authority = identity.authority };
         world.channel_config = .{
-            .tcp = &world.tcp_config,
-            .quic = if (world.plan.policy == .never) null else &world.quic_config,
+            .tls = .{ .trust = .{ .web_pki = .{ .anchors = &identity.anchors, .server_name = identity.authority } }, .cpu = identity.cpu },
+            // TCP offers "h2" alone, and QUIC "h3".
+            .versions = .{ .h11 = false },
+            .authority = identity.authority,
             .quic_first = world.plan.policy == .first,
             .fallback_delay_ns = limits.fallback_delay_ns,
         };
@@ -473,9 +460,6 @@ pub const World = struct {
 
 /// Marks the TLS draws' seed apart from the caller's, so the two sequences differ.
 const tls_seed_mark: u64 = 0x746c_735f_7365_6564;
-
-const alpn_tcp = [_][]const u8{"h2"};
-const alpn_quic = [_][]const u8{"h3"};
 
 fn earliest(at: ?u64, candidate: ?u64) ?u64 {
     const held = candidate orelse return at;

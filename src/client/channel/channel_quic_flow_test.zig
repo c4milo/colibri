@@ -122,10 +122,8 @@ test "RFC 9846 §4.6.1: a QUIC ticket is reported for its transport, and take_ti
 }
 
 test "RFC 7838 §3: TCP goes to the origin's port though QUIC went to the alternative's" {
-    const offered = [_][]const u8{ "hq-interop", "h3" };
     const fresh: channel_module.Values = .{ .addresses = &addresses, .port = https_port, .alternative = .{ .port = alternative_port, .fresh_until_ns = std.math.maxInt(u64) } };
     try start(&quic_support.alpn_other, fresh, false);
-    try quic_support.prepare(&offered, &quic_support.alpn_other, false);
     var exchange = get(&bodies[0]);
     _ = try channel.request(&exchange);
     try collect();

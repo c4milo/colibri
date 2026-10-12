@@ -313,11 +313,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
         client_config.zstd_decoders = zstd_decoders.storage();
         client_config.br_decoders = br_decoders.storage();
     }
-    if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
     if (run.channel) {
-        if (!try channel_loop.run_channel(&run, &client_config, &tls_anchors)) std.process.exit(exit_failed);
+        // The channel converts the TLS value itself, with the protocols its versions allow.
+        const values = try client_tls.read(&tls_anchors, run.anchor_prefix.?, run.authority);
+        if (!try channel_loop.run_channel(&run, &client_config, values)) std.process.exit(exit_failed);
         return;
     }
+    if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
     const succeeded = try run_connections(&run);
     report(&run, succeeded);
     if (succeeded != run.connections_count) std.process.exit(exit_failed);

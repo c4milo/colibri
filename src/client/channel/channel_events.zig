@@ -308,10 +308,10 @@ fn port_of(channel: *const Channel, transport: Transport, now_ns: u64) u16 {
     return https.port orelse channel.values.port;
 }
 
-/// Whether QUIC may carry the exchanges at `now_ns`: h3 is offered, and a fresh Alt-Svc
+/// Whether QUIC may carry the exchanges at `now_ns`: the channel offers it, and a fresh Alt-Svc
 /// alternative, an HTTPS record or the configuration says to try it.
 pub fn quic_allowed(channel: *const Channel, now_ns: u64) bool {
-    if (channel.config.quic == null) return false;
+    if (!channel.offered.quic) return false;
     if (fresh_alternative(channel, now_ns)) |_| return true;
     // RFC 9460 §7.1.2: a client uses the transports of the protocols the record names.
     if (channel.values.https) |https| return https.h3;
@@ -356,6 +356,7 @@ fn view_of(channel: *const Channel, now_ns: u64) choice.View {
         .phases = .init(.{ .quic = channel.phase(.quic), .tcp = channel.phase(.tcp) }),
         .waiting = any_waiting(channel),
         .quic_allowed = quic_allowed(channel, now_ns),
+        .tcp_allowed = channel.offered.tcp,
         .tried = channel.tried,
         .fallback = channel.fallback,
     };

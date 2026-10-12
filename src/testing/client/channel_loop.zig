@@ -25,7 +25,6 @@ const entropy = @import("../entropy.zig");
 const client_options = @import("client_options.zig");
 const client_session = @import("client_session.zig");
 const client_exchange = @import("client_exchange.zig");
-const client_tls = @import("../tls/client_tls.zig");
 const channel_tcp = @import("channel_tcp.zig");
 
 const Run = client_options.Run;
@@ -43,8 +42,6 @@ var tcp: channel_tcp.Socket align(@alignOf(channel_tcp.Socket)) = undefined;
 
 var channel: client.Channel align(@alignOf(client.Channel)) = undefined;
 var channel_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = undefined;
-var quic_config: client.QuicConfig align(@alignOf(client.QuicConfig)) = undefined;
-var quic_tls: tls.quic.ClientConfig align(@alignOf(tls.quic.ClientConfig)) = undefined;
 /// The receive pool of the channel's QUIC connections (decision 61).
 var receive_pool: client.DefaultReceivePool align(@alignOf(client.DefaultReceivePool)) = undefined;
 var addresses: [1]Address align(@alignOf(Address)) = undefined;
@@ -62,21 +59,26 @@ var now_seconds: u64 = 0;
 var closed: bool = false;
 
 /// Runs the plan of `run` through one channel and reports each exchange. True when every exchange
-/// ended the way a working peer ends one and the channel closed.
-pub fn run_channel(run: *const Run, tcp_config: *const client.Config, anchors: *const client_tls.Anchors) !bool {
+/// ended the way a working peer ends one and the channel closed. `values` is the TLS value the
+/// channel judges the server by, and `shared` holds the codings the run offers and their pools.
+pub fn run_channel(run: *const Run, shared: *const client.Config, values: tls.Client) !bool {
     assert(run.channel and run.anchor_prefix != null);
     assert(run.plans_count > 0 and run.plans_count <= constants.exchanges_max);
-    quic_config = .{
-        .tls = try client_tls.load_quic(&quic_tls, anchors, run.authority),
+    channel_config = .{
+        .tls = values,
+        // `--h11` turns h2 off, so TCP offers `http/1.1` alone, and QUIC still offers h3.
+        .versions = if (run.protocol == .h11) .{ .h2 = false } else .{},
         .authority = run.authority,
-        // Decision 101: both transports offer the codings, and share the decoders.
-        .codings = tcp_config.codings,
-        .decoders = tcp_config.decoders,
+        // Decision 101: both transports offer the codings, and share every pool.
+        .codings = shared.codings,
+        .decoders = shared.decoders,
+        .zstd_decoders = shared.zstd_decoders,
+        .br_decoders = shared.br_decoders,
+        .fallback_delay_ns = run.fallback_delay_ns,
     };
-    channel_config = .{ .tcp = tcp_config, .quic = &quic_config, .fallback_delay_ns = run.fallback_delay_ns };
     addresses[0] = Address.of(&run.address, 0);
     now_seconds = run.now_seconds;
-    channel.init(&channel_config, .{ .addresses = &addresses, .port = run.port }, receive_pool.storage());
+    try channel.init(&channel_config, .{ .addresses = &addresses, .port = run.port }, receive_pool.storage());
     try request_plan(run.plans[0..run.plans_count]);
     channel.shutdown();
     tcp.init();

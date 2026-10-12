@@ -9,7 +9,7 @@ const tls = @import("tls");
 const support = @import("../connection/connection_test_support.zig");
 const tls_support = @import("../connection/connection_tls_test_support.zig");
 const channel_module = @import("channel.zig");
-const connection_module = @import("../connection/connection.zig");
+const versions_module = @import("../versions.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
@@ -21,7 +21,6 @@ const Transport = channel_module.Transport;
 /// The channel the tests drive, its configuration and the events it reported, outside any stack
 /// frame. Test-only.
 var channel: Channel align(@alignOf(Channel)) = undefined;
-var tcp_config: connection_module.Config align(@alignOf(connection_module.Config)) = undefined;
 var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
@@ -31,7 +30,6 @@ const body_len: usize = 1024;
 
 const ok: u16 = 200;
 const https_port: u16 = 443;
-const fallback_delay_ns: u64 = 250_000_000;
 /// Two IPv4 hosts, the four octets of each alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
@@ -40,15 +38,20 @@ const other_octet: u8 = 0x7e;
 const other_host: [ipv4_len]u8 = @splat(other_octet);
 const addresses = [_]channel_module.Address{ channel_module.Address.of(&loopback, 0), channel_module.Address.of(&other_host, 0) };
 
-/// A channel with no QUIC configured, whose TCP connection runs over TLS and offers h2 and h11.
-/// Its client trusts the root for `server_name`, and the server's certificate names localhost.
-/// `exchange` waits, and the connection the channel asked for is started, to the first address,
-/// with nothing sent. Returns the exchange's id.
+/// A channel with no receive pool, whose TCP connection runs over TLS and offers h2 and h11, to
+/// a server that selects h2. Its client trusts the root for `server_name`, and the server's
+/// certificate names localhost. `exchange` waits, and the connection the channel asked for is
+/// started, to the first address, with nothing sent. Returns the exchange's id.
 fn start(server_name: []const u8, exchange: *HttpExchange) !channel_module.Id {
-    try tls_support.prepare_configs(&support.protocols_h2, &support.protocols_both, server_name, false);
-    tcp_config = .{ .authority = support.authority, .tls = &tls_support.client_config };
-    config = .{ .tcp = &tcp_config, .fallback_delay_ns = fallback_delay_ns };
-    channel.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
+    return start_with(.{}, &support.protocols_h2, server_name, exchange);
+}
+
+/// As `start`, with a client that speaks `versions` and a server that selects from
+/// `server_protocols`.
+fn start_with(versions: versions_module.Versions, server_protocols: []const []const u8, server_name: []const u8, exchange: *HttpExchange) !channel_module.Id {
+    try tls_support.prepare_server(server_protocols, false);
+    config = .{ .tls = tls_support.client_values(server_name), .versions = versions, .authority = support.authority };
+    try channel.init(&config, .{ .addresses = &addresses, .port = https_port }, null);
     try tls_support.start_server();
     events_len = 0;
     const id = try channel.request(exchange);
@@ -215,6 +218,65 @@ test "design §8 step 21c.5: a handshake that completes with no exchange waiting
     try collect();
     send();
     try answer("hello");
+    try collect();
+    try testing.expectEqual(.response, exchange.outcome);
+    try testing.expectEqualStrings("hello", exchange.content_received());
+    try testing.expectEqual(1, count(.open));
+}
+
+/// The ALPN extension of a ClientHello that offers `list`, each name behind its length: the
+/// extension's type, 16, its length and the list's, each in two octets (RFC 7301 §3.1).
+fn alpn_extension(comptime list: []const u8) []const u8 {
+    const lengths = [_]u8{ 0, alpn_extension_type, 0, @intCast(list.len + alpn_list_len_octets), 0, @intCast(list.len) };
+    return &lengths ++ list;
+}
+
+const alpn_extension_type: u8 = 16;
+const alpn_list_len_octets: usize = 2;
+const alpn_h2 = "\x02h2";
+const alpn_h11 = "\x08http/1.1";
+
+/// The ClientHello a channel that speaks `versions` writes first, which no key seals.
+fn client_hello(versions: versions_module.Versions) ![]const u8 {
+    var exchange = get(&bodies[0]);
+    _ = try start_with(versions, &support.protocols_both, "localhost", &exchange);
+    send();
+    return support.to_peer[0..support.to_peer_len];
+}
+
+test "decision 120: versions gives the ALPN list a channel offers over TCP, h2 before h11" {
+    // RFC 9113 §3.2 and decision 88: h2 goes first, which only the ClientHello's octets show,
+    // since the server selects in its own order.
+    const both = try client_hello(.{});
+    try testing.expect(std.mem.indexOf(u8, both, alpn_extension(alpn_h2 ++ alpn_h11)) != null);
+    const h2_alone = try client_hello(.{ .h11 = false });
+    try testing.expect(std.mem.indexOf(u8, h2_alone, alpn_extension(alpn_h2)) != null);
+    try testing.expectEqual(null, std.mem.indexOf(u8, h2_alone, alpn_h11));
+    const h11_alone = try client_hello(.{ .h2 = false });
+    try testing.expect(std.mem.indexOf(u8, h11_alone, alpn_extension(alpn_h11)) != null);
+    try testing.expectEqual(null, std.mem.indexOf(u8, h11_alone, alpn_extension(alpn_h2)));
+    // h3 is no protocol of a TCP connection (RFC 9114 §3.1), so turning it off changes nothing.
+    const without_h3 = try client_hello(.{ .h3 = false });
+    try testing.expect(std.mem.indexOf(u8, without_h3, alpn_extension(alpn_h2 ++ alpn_h11)) != null);
+}
+
+const h11_request = "GET / HTTP/1.1\r\n";
+const h11_response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello";
+
+test "decision 117: a channel whose versions turn h2 off runs h11 over TLS" {
+    var exchange = get(&bodies[0]);
+    // The server would select h2, and the client offers http/1.1 alone.
+    _ = try start_with(.{ .h2 = false }, &support.protocols_both, "localhost", &exchange);
+    send();
+    try testing.expectEqual(false, tls_support.server_flight().?);
+    try collect();
+    try testing.expectEqual(event.Protocol.h11, find(.connected).?.connected);
+    send();
+    try testing.expectEqual(true, tls_support.server_flight().?);
+    send();
+    try tls_support.server_open();
+    try testing.expect(std.mem.startsWith(u8, tls_support.peer_plain[0..tls_support.peer_plain_len], h11_request));
+    try tls_support.server_seal(h11_response);
     try collect();
     try testing.expectEqual(.response, exchange.outcome);
     try testing.expectEqualStrings("hello", exchange.content_received());

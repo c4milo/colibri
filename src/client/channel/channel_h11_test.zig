@@ -5,7 +5,6 @@
 const std = @import("std");
 const support = @import("../connection/connection_test_support.zig");
 const channel_module = @import("channel.zig");
-const connection_module = @import("../connection/connection.zig");
 const event = @import("../event.zig");
 
 const testing = std.testing;
@@ -16,7 +15,6 @@ const Event = channel_module.Event;
 /// The channel the tests drive, its configuration and the events it reported, outside any stack
 /// frame. Test-only.
 var channel: Channel align(@alignOf(Channel)) = undefined;
-var tcp_config: connection_module.Config align(@alignOf(connection_module.Config)) = undefined;
 var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
 var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 var events_len: usize = 0;
@@ -29,7 +27,6 @@ const ok: u16 = 200;
 const no_content: u16 = 204;
 /// RFC 9110 §4.2.1: the port of an "http" origin whose URI names none.
 const http_port: u16 = 80;
-const fallback_delay_ns: u64 = 250_000_000;
 /// An IPv4 host, its four octets alike. Test-only.
 const ipv4_len: usize = 4;
 const host_octet: u8 = 0x7f;
@@ -47,9 +44,8 @@ const half_size_line = chunked_body[0..1];
 /// A channel with no QUIC configured, whose TCP connection speaks h11 in cleartext, with one
 /// exchange written to the peer's buffer.
 fn start(exchange: *HttpExchange) !void {
-    tcp_config = .{ .authority = support.authority, .versions = support.only(.h11) };
-    config = .{ .tcp = &tcp_config, .fallback_delay_ns = fallback_delay_ns };
-    channel.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
+    config = .{ .authority = support.authority, .versions = support.only(.h11) };
+    try channel.init(&config, .{ .addresses = &addresses, .port = http_port }, null);
     support.peer_h11.init(.server, .{});
     support.peer_requests = 0;
     support.to_peer_len = 0;

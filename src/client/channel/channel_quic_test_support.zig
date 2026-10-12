@@ -8,7 +8,7 @@ const tls = @import("tls");
 const support = @import("../connection/connection_test_support.zig");
 const quic_support = @import("../quic/quic_test_support.zig");
 const channel_module = @import("channel.zig");
-const connection_module = @import("../connection/connection.zig");
+const tls_support = @import("../connection/connection_tls_test_support.zig");
 const event = @import("../event.zig");
 
 const Channel = channel_module.Channel;
@@ -18,9 +18,7 @@ const Event = channel_module.Event;
 /// The channel the tests drive, its configurations and the events it reported, outside any stack
 /// frame. Test-only.
 pub var channel: Channel align(@alignOf(Channel)) = undefined;
-var tcp_tls: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
-var tcp_config: connection_module.Config align(@alignOf(connection_module.Config)) = undefined;
-var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
+pub var config: channel_module.Config align(@alignOf(channel_module.Config)) = undefined;
 pub var events: [support.events_max]Event align(@alignOf(Event)) = undefined;
 pub var events_len: usize = 0;
 pub var bodies: [bodies_count][body_len]u8 = undefined;
@@ -32,7 +30,7 @@ pub var crossing: [quic.constants.datagram_len_max]u8 = undefined;
 /// Whether the datagrams the channel sends are lost, as on a network that blocks UDP.
 pub var blocked: bool = false;
 
-const unstarted_octet: u8 = 0x01;
+pub const unstarted_octet: u8 = 0x01;
 pub const https_port: u16 = 443;
 pub const other_port: u16 = 8443;
 pub const alternative_port: u16 = 50781;
@@ -54,20 +52,36 @@ pub const addresses = [_]channel_module.Address{channel_module.Address.of(&loopb
 /// The receive pool of the channel's QUIC connections (decision 61). Test-only.
 var receive_pool: quic.stream.stream_incoming.DefaultPool align(@alignOf(quic.stream.stream_incoming.DefaultPool)) = undefined;
 
-/// A channel offering h3 and h2 over TLS, whose QUIC server selects from `server_protocols`.
+/// A channel offering every version over TLS, with a receive pool, whose QUIC server selects from
+/// `server_protocols`.
 pub fn start(server_protocols: []const []const u8, values: channel_module.Values, quic_first: bool) !void {
+    try start_configured(server_protocols, values, configured(quic_first), receive_pool.storage());
+}
+
+/// The configuration `start` gives its channel, which a test changes before `start_configured`.
+pub fn configured(quic_first: bool) channel_module.Config {
+    return .{
+        .tls = tls_support.client_values(support.authority),
+        .authority = support.authority,
+        .quic_first = quic_first,
+        .fallback_delay_ns = fallback_delay_ns,
+    };
+}
+
+/// The storage of the fixture's receive pool, which `start` gives its channel.
+pub fn pool() channel_module.ReceiveStorage {
+    return receive_pool.storage();
+}
+
+/// As `start`, with the channel's configuration `given` and the receive pool `given_pool`, or
+/// none.
+pub fn start_configured(server_protocols: []const []const u8, values: channel_module.Values, given: channel_module.Config, given_pool: ?channel_module.ReceiveStorage) !void {
     try quic_support.prepare(&quic_support.alpn_h3, server_protocols, false);
-    try tcp_tls.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = support.authority } },
-        .alpn = &support.protocols_both,
-        .cpu = support.cpu,
-    });
-    tcp_config = .{ .authority = support.authority, .tls = &tcp_tls };
-    config = .{ .tcp = &tcp_config, .quic = &quic_support.config, .quic_first = quic_first, .fallback_delay_ns = fallback_delay_ns };
+    config = given;
     // Every octet 1, so each flag of a connection the channel never started reads as set, and a
-    // read of one shows.
+    // read of one shows. A configuration `init` leaves unwritten keeps the octet too.
     @memset(std.mem.asBytes(&channel), unstarted_octet);
-    channel.init(&config, values, receive_pool.storage());
+    try channel.init(&config, values, given_pool);
     events_len = 0;
     blocked = false;
 }

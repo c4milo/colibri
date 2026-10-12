@@ -28,6 +28,15 @@ pub const forged_record = "\x17\x03\x03\x00" ++ [1]u8{forged_octets_len} ++ "\x0
 /// `client_protocols` and trusts the root for `server_name`. With `tickets` the server issues
 /// resumption tickets (RFC 9846 §4.6.1).
 pub fn prepare_configs(server_protocols: []const []const u8, client_protocols: []const []const u8, server_name: []const u8, tickets: bool) !void {
+    try prepare_server(server_protocols, tickets);
+    var values = client_values(server_name);
+    values.alpn = client_protocols;
+    try client_config.init(values);
+}
+
+/// The configuration of a server that selects from `server_protocols`, as `prepare_configs` makes
+/// it, for a client that converts its own values, as a channel does.
+pub fn prepare_server(server_protocols: []const []const u8, tickets: bool) !void {
     try server_config.init(.{
         .ecdsa_p256 = .{ .chain = &support.chain, .public_key = support.public_key, .private_key = support.private_key },
         .cookie_key = &support.cookie_key,
@@ -35,11 +44,11 @@ pub fn prepare_configs(server_protocols: []const []const u8, client_protocols: [
         .alpn = server_protocols,
         .cpu = support.cpu,
     });
-    try client_config.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = server_name } },
-        .alpn = client_protocols,
-        .cpu = support.cpu,
-    });
+}
+
+/// The values of a client that trusts the root for `server_name` and names no protocol.
+pub fn client_values(server_name: []const u8) tls.Client {
+    return .{ .trust = .{ .web_pki = .{ .anchors = &support.anchors, .server_name = server_name } }, .cpu = support.cpu };
 }
 
 /// Starts the server over `server_config`, with nothing in flight either way.

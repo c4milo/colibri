@@ -18,9 +18,14 @@
 //! After each send, each event and each `on_instant` it reads again, with the TCP octets it still
 //! holds, or with `.none` when it holds none: an h11 connection reads a held octet only once the
 //! response before it ends. colibri makes no system call and reads no clock: time is a value the
-//! caller passes (non-negotiable 3). A caller that offers h3 also places the receive pool each
-//! QUIC connection holds the server's octets in, one at a time (decision 61), and sizes it to the
-//! longest response it expects: `ReceivePool(capacity)`.
+//! caller passes (non-negotiable 3).
+//!
+//! The caller gives one configuration with one TLS value, and `init` builds from it the TLS
+//! configuration of each transport the channel offers, with the ALPN list `versions` gives
+//! (decision 120). A caller that offers h3 also places the receive pool each QUIC connection holds
+//! the server's octets in, one at a time (decision 61), and sizes it to the longest response it
+//! expects: `ReceivePool(capacity)`. The channel stays in place after `init`: the TLS
+//! configurations it built point into it.
 //!
 //! `Channel`'s functions are the calls a program makes, and `phase`, which the simulator's trace
 //! reads. The steps the channel takes on its own are in `channel_events.zig`, which the module's
@@ -34,6 +39,7 @@ const event = @import("../event.zig");
 const connection_module = @import("../connection/connection.zig");
 const quic_connection = @import("../quic/quic_connection.zig");
 const choice = @import("channel_choice.zig");
+const channel_config = @import("channel_config.zig");
 const channel_events = @import("channel_events.zig");
 
 pub const Transport = choice.Transport;
@@ -43,7 +49,9 @@ pub const HttpExchange = event.HttpExchange;
 pub const Protocol = event.Protocol;
 pub const Finished = event.Finished;
 pub const RequestError = connection_module.RequestError;
-pub const StartError = connection_module.StartError;
+pub const Config = channel_config.Config;
+pub const StartError = channel_config.StartError;
+pub const ReceiveStorage = quic_connection.ReceiveStorage;
 pub const Address = quic.PeerAddress;
 pub const Sent = quic_connection.Sent;
 pub const QuicStart = quic_connection.Start;
@@ -73,20 +81,6 @@ pub const Https = struct {
 pub const Alternative = struct {
     port: u16,
     fresh_until_ns: u64,
-};
-
-pub const Config = struct {
-    /// The TCP connections' configuration. It is over TLS whenever `quic` is set: h3 serves only
-    /// "https" origins (RFC 9114 §3.1.2).
-    tcp: *const connection_module.Config,
-    /// The QUIC connections' configuration, or null when the caller offers no h3. The channel names
-    /// each connection's `server_address` itself.
-    quic: ?*const quic_connection.Config = null,
-    /// Whether QUIC goes first when neither an HTTPS record nor Alt-Svc says whether the origin
-    /// speaks h3 (RFC 9114 §3.1). When false, QUIC waits for a TCP response's Alt-Svc.
-    quic_first: bool = true,
-    /// How long QUIC's handshake runs before TCP opens beside it, in nanoseconds.
-    fallback_delay_ns: u64,
 };
 
 /// A transport the caller opens: a UDP flow for QUIC, a TCP connection for TCP.
@@ -188,7 +182,15 @@ pub const Link = struct {
 pub const Channel = struct {
     config: *const Config,
     values: Values,
-    /// The QUIC connections' configuration, with the address the current one sends to.
+    /// The transports the configuration offers (decision 120): TCP while `versions` allows h11 or
+    /// h2, and QUIC for h3 over TLS with a receive pool given.
+    offered: channel_config.Offered,
+    /// What `init` built from `config`, each written only when its transport is offered: the TLS
+    /// configuration of TCP's connections, when the channel runs over TLS, and of QUIC's, and the
+    /// configuration each connection borrows. QUIC's holds the address the current one sends to.
+    tcp_tls: tls.record.ClientConfig,
+    quic_tls: tls.quic.ClientConfig,
+    tcp_config: connection_module.Config,
     quic_config: quic_connection.Config,
     quic: quic_connection.QuicConnection,
     tcp: connection_module.Connection,
@@ -205,21 +207,21 @@ pub const Channel = struct {
     /// The caller shut the channel down, and the `closed` event went out.
     shut: bool,
     closed_reported: bool,
-    /// The receive pool of each QUIC connection, which the caller placed, or null when it offers
-    /// no h3.
-    receive_pool: ?quic_connection.ReceiveStorage,
+    /// The receive pool of each QUIC connection, which the caller placed, or null when it gave
+    /// none.
+    receive_pool: ?ReceiveStorage,
 
-    /// Prepares a channel with nothing opened. `receive_pool` is the pool its QUIC connections use
-    /// in turn when `config.quic` offers h3, and null when it does not.
-    pub fn init(channel: *Channel, config: *const Config, values: Values, receive_pool: ?quic_connection.ReceiveStorage) void {
+    /// Prepares a channel with nothing opened, and builds the TLS configurations of the transports
+    /// it offers, so the channel stays in place from here on. `receive_pool` is the pool its QUIC
+    /// connections use in turn, or null for a channel that opens no QUIC. `error.NoVersion` says
+    /// the configuration offers neither transport, and the other errors that the TLS value names
+    /// more than a TLS configuration holds.
+    pub fn init(channel: *Channel, config: *const Config, values: Values, receive_pool: ?ReceiveStorage) StartError!void {
         assert(values.addresses.len > 0);
-        // The pool is for QUIC's connections alone, and they need one.
-        assert((config.quic == null) == (receive_pool == null));
-        if (config.quic) |quic_config| {
-            // RFC 9114 §3.1.2: h3 cannot reach an "http" origin, so TCP runs over TLS here.
-            assert(config.tcp.tls != null);
-            assert(std.mem.eql(u8, quic_config.authority, config.tcp.authority));
-        }
+        const built: channel_config.Built = .{ .tcp_tls = &channel.tcp_tls, .quic_tls = &channel.quic_tls, .tcp = &channel.tcp_config, .quic = &channel.quic_config };
+        channel.offered = try channel_config.build(config, receive_pool != null, built);
+        // QUIC's connections need the pool, so the channel offers QUIC only with one.
+        assert(!channel.offered.quic or receive_pool != null);
         channel.receive_pool = receive_pool;
         channel.config = config;
         channel.values = values;
@@ -282,11 +284,11 @@ pub const Channel = struct {
     }
 
     /// The instant the channel next wants `on_instant` at: QUIC's next deadline, or the end of the
-    /// fallback delay. Null for none.
+    /// fallback delay while the channel offers TCP. Null for none.
     pub fn deadline_ns(channel: *Channel) ?u64 {
         var deadline: ?u64 = null;
         if (channel.links.get(.quic).state == .running) deadline = channel.quic.deadline_ns();
-        if (!channel.fallback and channel.phase(.quic) == .handshake) {
+        if (channel.offered.tcp and !channel.fallback and channel.phase(.quic) == .handshake) {
             const fallback_at = channel.fallback_at_ns orelse return deadline;
             deadline = @min(deadline orelse fallback_at, fallback_at);
         }
@@ -305,7 +307,6 @@ pub const Channel = struct {
         const link = channel.links.getPtr(.quic);
         if (link.state != .opening) return;
         assert(!link.open_owed);
-        channel.quic_config = channel.config.quic.?.*;
         channel.quic_config.server_address = link.to;
         channel.quic.init(&channel.quic_config, channel.receive_pool.?, start, random, now_seconds, now_ns, resumption) catch |failure| {
             // The attempt ended before it began: the model's FailHandshake, then Close.
@@ -321,7 +322,10 @@ pub const Channel = struct {
         const link = channel.links.getPtr(.tcp);
         if (link.state != .opening) return;
         assert(!link.open_owed);
-        channel.tcp.init(channel.config.tcp, random, now_seconds, resumption) catch |failure| {
+        channel.tcp.init(&channel.tcp_config, random, now_seconds, resumption) catch |failure| {
+            // The channel asks for TCP only while `versions` allows h11 or h2, so the TLS stack
+            // alone refuses a start.
+            assert(failure == error.TlsRefused);
             channel_events.close_unstarted(channel, .tcp);
             return failure;
         };

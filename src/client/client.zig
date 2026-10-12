@@ -30,7 +30,9 @@ pub const constants = @import("constants.zig");
 pub const Config = connection.Config;
 pub const Versions = versions.Versions;
 pub const Connection = connection.Connection;
-pub const StartError = connection.StartError;
+/// Why `Channel.init` or one of its starts refused (decision 120): `Connection.init` and
+/// `QuicConnection.init` return members of it.
+pub const StartError = channel.StartError;
 pub const RequestError = connection.RequestError;
 pub const Field = event.Field;
 pub const Id = event.Id;
@@ -45,7 +47,6 @@ pub const Received = event.Received;
 /// `Connection.take_alt_svc` returns.
 pub const Advert = alt_svc.Advert;
 pub const QuicConnection = quic_connection.QuicConnection;
-pub const QuicConfig = quic_connection.Config;
 pub const QuicStart = quic_connection.Start;
 pub const QuicStartError = quic_connection.StartError;
 /// A datagram a QUIC connection or a channel wrote, with its ECN codepoint and the address it
@@ -54,7 +55,7 @@ pub const Sent = quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = channel.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
-/// sets when `QuicConfig.ecn` is set (decision 68).
+/// sets when `ChannelConfig.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
 pub const Channel = channel.Channel;
 pub const ChannelConfig = channel.Config;
@@ -108,16 +109,16 @@ pub const Features = coding_pool.Features;
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",         "Config",             "Versions",           "Connection",      "StartError",
-        "RequestError",      "Field",              "Id",                 "Protocol",        "HttpExchange",
-        "Wanted",            "Outcome",            "Event",              "Finished",        "Received",
-        "Advert",            "QuicConnection",     "QuicConfig",         "QuicStart",       "QuicStartError",
-        "Sent",              "Address",            "Ecn",                "Channel",         "ChannelConfig",
-        "ChannelValues",     "Https",              "Alternative",        "ChannelInput",    "Datagram",
-        "ChannelReceived",   "ChannelEvent",       "ChannelOpen",        "Transport",       "ChannelPhase",
-        "ChannelEntry",      "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",
-        "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",
-        "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",          "Config",             "Versions",        "Connection",     "StartError",
+        "RequestError",       "Field",              "Id",              "Protocol",       "HttpExchange",
+        "Wanted",             "Outcome",            "Event",           "Finished",       "Received",
+        "Advert",             "QuicConnection",     "QuicStart",       "QuicStartError", "Sent",
+        "Address",            "Ecn",                "Channel",         "ChannelConfig",  "ChannelValues",
+        "Https",              "Alternative",        "ChannelInput",    "Datagram",       "ChannelReceived",
+        "ChannelEvent",       "ChannelOpen",        "Transport",       "ChannelPhase",   "ChannelEntry",
+        "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",         "DecoderPool",
+        "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool",
+        "BrotliDecoders",     "Features",
     });
 }
 
@@ -130,6 +131,7 @@ test {
     _ = @import("coding_pool.zig");
     _ = @import("owed.zig");
     _ = @import("channel/channel_choice.zig");
+    _ = @import("channel/channel_config_test.zig");
     _ = @import("channel/channel_test.zig");
     _ = @import("channel/channel_h11_test.zig");
     _ = @import("channel/channel_tls_test.zig");

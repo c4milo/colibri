@@ -659,24 +659,44 @@ knows as values: the server's addresses and its port, and an HTTPS record's `alp
 it has one.
 
 ```zig
-client_tcp = .{ .tls = &client_tls, .authority = origin };
-client_quic = .{ .tls = &client_quic_tls, .authority = origin };
+// One configuration serves both transports. Its TLS value names no protocol: the channel
+// offers h3 over QUIC, and h2 then http/1.1 over TCP, as `versions` allows them.
 channel_config = .{
-    .tcp = &client_tcp,
-    .quic = &client_quic,
+    .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+    .authority = origin,
     .fallback_delay_ns = fallback_delay_ns,
 };
 // The channel takes what DNS knows as values: the server's addresses and its port.
 const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
-channel.init(&channel_config, known, receive_pool.storage());
+// `init` builds the TLS configuration of each transport inside the channel, which stays in
+// place from here on. The pool is what makes the channel offer QUIC.
+try channel.init(&channel_config, known, receive_pool.storage());
 // `request` only takes an exchange. The channel sends it over the first connection that
 // completes its handshake.
 _ = try channel.request(&get);
 ```
 
-The channel takes a configuration for each transport, and the pool its QUIC connection holds the
-server's unread octets in: `client.ReceivePool(capacity)`, sized to the longest response the
-program expects.
+The channel takes one `client.ChannelConfig` ([decision 120](decisions.md)):
+
+- `tls` is one `tls.Client` value, which says how the client judges the server over TCP and over
+  QUIC. Its `alpn` list stays empty. A channel with no `tls` runs in cleartext, over TCP alone.
+- `versions` names the HTTP versions the client speaks, each on by default. The channel offers
+  them through ALPN: `h2` and then `http/1.1` over TCP, and `h3` over QUIC. It opens TCP only
+  while `versions` allows h11 or h2, so a client that speaks h3 alone opens no TCP connection.
+- `authority`, the content codings and their decoder pools are given once, for both transports.
+- `fallback_delay_ns` is how long QUIC's handshake runs before TCP opens beside it. Its default
+  is `client.constants.fallback_delay_ns_default`, 250 ms.
+- `ecn` and `idle_timeout_ms` are for QUIC connections alone.
+
+`init` also takes the pool the channel's QUIC connection holds the server's unread octets in:
+`client.ReceivePool(capacity)`, sized to the longest response the program expects. A channel
+offers QUIC only when it has a pool, a `tls` value and `versions.h3`. A program that passes
+`null` for the pool gets TCP alone.
+
+`init` builds the TLS configuration of each transport the channel offers, inside the channel, so
+the program does not move the channel after it. It returns `error.NoVersion` when the
+configuration offers neither transport, and `error.TooManyAnchors`, `error.TooManySuites` or
+`error.SuitesUnavailable` when the TLS value names more than a TLS configuration holds.
 
 Each turn passes the channel every datagram that arrived, fires its deadlines, and sends every
 datagram it owes:

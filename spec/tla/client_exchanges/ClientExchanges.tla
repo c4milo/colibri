@@ -17,7 +17,8 @@
 (* client opens QUIC first when its policy allows h3. It opens TCP when    *)
 (* QUIC is not allowed, when this attempt's QUIC failed, when the fallback *)
 (* delay passed during QUIC's handshake, or when a QUIC connection is      *)
-(* still ending. The first connection whose handshake completes takes the  *)
+(* still ending, and only when it speaks a version TCP carries (RFC 9114   *)
+(* §3.1). The first connection whose handshake completes takes the         *)
 (* waiting exchanges, and the other closes. An attempt ends when a         *)
 (* connection takes the waiting exchanges, or when every transport it may  *)
 (* open failed, which ends each waiting exchange refused.                  *)
@@ -78,6 +79,9 @@
 (*                      handshake, and its attempt goes on. colibri        *)
 (*                      reopened such a transport without bound until step *)
 (*                      21c.                                               *)
+(*   TcpWhenAllowed     TCP opens only when the client speaks h11 or h2    *)
+(*                      (RFC 9114 §3.1). Until step 21c a client that      *)
+(*                      spoke h3 alone still asked for TCP.                *)
 (***************************************************************************)
 EXTENDS Naturals, FiniteSets
 
@@ -86,6 +90,7 @@ CONSTANTS
     Opens,          \* connections each transport opens at most
     MovesMax,       \* times an exchange moves to another connection at most
     QuicPolicy,     \* "first": QUIC before TCP; "learn": QUIC once Alt-Svc named h3; "never"
+    TcpAllowed,     \* whether the client speaks a version TCP carries (decision 117)
     HandshakeFails, \* the transports whose handshake may fail
     Breaks,         \* the transports whose open connection may fail
     Goaways,        \* the transports whose server may send a GOAWAY
@@ -93,16 +98,17 @@ CONSTANTS
     Refusals,       \* the transports whose server may refuse a request it did not process
     Resets,         \* the transports whose server may reset a request
     ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases, SentFailsClosed,
-    MoveRefused, RetireStale, KeepAlive, TakeAtHandshake
+    MoveRefused, RetireStale, KeepAlive, TakeAtHandshake, TcpWhenAllowed
 
 Transports == {"quic", "tcp"}
 
 ASSUME N \in Nat \ {0} /\ Opens \in Nat \ {0} /\ MovesMax \in Nat /\ GoawaysMax \in Nat
 ASSUME QuicPolicy \in {"first", "learn", "never"}
+ASSUME TcpAllowed \in BOOLEAN
 ASSUME \A set \in {HandshakeFails, Breaks, Goaways, Refusals, Resets} : set \subseteq Transports
 ASSUME \A rule \in {ReleaseOnFail, CloseWhenDrained, ReportWhenReleased, CancelReleases,
                     SentFailsClosed, MoveRefused, RetireStale, KeepAlive,
-                    TakeAtHandshake} : rule \in BOOLEAN
+                    TakeAtHandshake, TcpWhenAllowed} : rule \in BOOLEAN
 
 Exchanges == 1..N
 \* An exchange's stage: not made; held by the client, which no connection has given it to;
@@ -314,6 +320,7 @@ CanOpenQuic ==
 
 CanOpenTcp ==
     /\ Wanted /\ "tcp" \notin tried /\ Free("tcp")
+    /\ (TcpWhenAllowed => TcpAllowed)
     /\ \/ ~QuicAllowed
        \/ "quic" \in tried /\ phase["quic"] # "handshake"
        \/ phase["quic"] = "handshake" /\ fallback
@@ -520,6 +527,10 @@ Safe ==
 (* reports every one. So two opens of one transport never serve the same   *)
 (* wait, and an exchange waits once when made and once for each move.      *)
 Bounded == \A t \in Transports : opens[t] <= N * (MovesMax + 1)
+
+(* NoTcp: a client that speaks no version TCP carries opens no TCP         *)
+(* connection (RFC 9114 §3.1), whatever becomes of QUIC.                   *)
+NoTcp == ~TcpAllowed => opens["tcp"] = 0
 
 (* Every exchange made ends: the caller gets its event, or cancelled it.   *)
 Ends == \A e \in Exchanges : stage[e] = "waiting" ~> stage[e] \in {"reported", "cancelled"}
