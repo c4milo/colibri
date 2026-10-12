@@ -333,11 +333,20 @@ fn reason_of(result: ValueError!void) ?ValueError {
     return null;
 }
 
+/// Whether two verdicts are the same: no error twice, or one error twice. It is written out
+/// because Zig 0.16's x86_64 backend, which builds Debug on x86_64 Linux, gives false for `==`
+/// between two optional errors that hold the same error.
+fn same_reason(first: ?ValueError, second: ?ValueError) bool {
+    const one = first orelse return second == null;
+    const other = second orelse return false;
+    return one == other;
+}
+
 /// Fails, printing both verdicts, when `validate_value` and the reference differ on `value`.
 fn expect_same(value: []const u8) !void {
     const changed = reason_of(validate_value(value));
     const reference = reason_of(validate_value_by_octet(value));
-    if (changed == reference) return;
+    if (same_reason(changed, reference)) return;
     std.debug.print("first difference: value {x}: validate_value {any}, reference {any}\n", .{ value, changed, reference });
     return error.TestUnexpectedResult;
 }

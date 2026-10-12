@@ -73,6 +73,15 @@ fn failure_of(result: anyerror!void) ?anyerror {
     return null;
 }
 
+/// Whether two outcomes are the same: no error twice, or one error twice. It is written out
+/// because Zig 0.16's x86_64 backend, which builds Debug on x86_64 Linux, gives false for `==`
+/// between two optional errors that hold the same error.
+fn same_failure(first: ?anyerror, second: ?anyerror) bool {
+    const one = first orelse return second == null;
+    const other = second orelse return false;
+    return one == other;
+}
+
 /// Sends what the connection holds into `octets` and returns how much that was.
 fn drain_into(octets: *[support.output_len]u8) usize {
     const sent = support.drain();
@@ -92,7 +101,7 @@ fn expect_same(call: Call, fields: []const support.Field) !void {
     try start(call);
     const reference = failure_of(call_by_copy(call, fields));
     const reference_sent = reference_octets[0..drain_into(&reference_octets)];
-    if (changed == reference and std.mem.eql(u8, changed_sent, reference_sent)) return;
+    if (same_failure(changed, reference) and std.mem.eql(u8, changed_sent, reference_sent)) return;
     std.debug.print("first difference: {t} with {d} lines: changed {any} {x}, reference {any} {x}\n", .{
         call, fields.len, changed, changed_sent, reference, reference_sent,
     });
