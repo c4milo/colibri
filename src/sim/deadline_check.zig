@@ -19,8 +19,8 @@
 //!      many streams has those past the server's limit refused, and the rest cut for their bodies.
 //!
 //! The census counts the runs each deadline ended and the runs the server held open until the
-//! horizon, and its test pins the CRC-32 of the traces of seeds `[0, check_seeds_default)`, in
-//! Debug and in ReleaseSafe alike.
+//! horizon. Its test pins the CRC-32 of the traces of seeds `[0, check_seeds_default)` and that of
+//! the octets their peers wrote, in Debug and in ReleaseSafe alike.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -38,10 +38,12 @@ const Record = deadline_run.Record;
 /// The name every deadline trace carries on its first line.
 pub const check_name = "deadline";
 
-/// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order. A
-/// change to the plan, to what the server does or to the trace format changes it, and is
-/// committed with the new value after the check passes in both build modes.
+/// The CRC-32 of the traces of seeds `[0, check_seeds_default)`, concatenated in seed order, and
+/// of the seeds' `Result.wire`. A change to the plan, to what the server does or to the trace
+/// format changes the first, and one to an octet a peer writes changes the second. Each is
+/// committed with its new value once the check passes in both build modes.
 pub const census_crc32_expected: u32 = 0x9369abbc;
+pub const census_wire_crc32_expected: u32 = 0xe6434a84;
 
 pub const Violation = deadline_run.Error || error{
     /// Two runs of one seed wrote different traces.
@@ -67,6 +69,8 @@ pub const Storage = struct {
 pub const Result = struct {
     trace: []const u8,
     record: Record,
+    /// The CRC-32 of every octet the peer wrote to the server in the first run.
+    wire: u32,
 };
 
 /// What `run_check` counted over its seeds.
@@ -88,6 +92,8 @@ pub const Census = struct {
     held: u64 = 0,
     trace_octets: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
+    /// The CRC-32 of each seed's `Result.wire`, least significant octet first, in seed order.
+    wire_crc32: std.hash.Crc32 = .init(),
 };
 
 /// Runs one seed twice, and returns the first run's trace.
@@ -98,14 +104,18 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     try verify(storage, &plan, seed);
     @memcpy(storage.first[0..storage.trace_len], storage.trace[0..storage.trace_len]);
     storage.first_len = storage.trace_len;
-    const record = storage.run.record;
+    const first: Result = .{ .trace = storage.first[0..storage.first_len], .record = storage.run.record, .wire = wire_of(storage) };
     try deadline_run.run(&storage.run, &plan, seed);
     try verify(storage, &plan, seed);
-    // Invariant 5: one seed replays byte for byte.
-    if (!std.mem.eql(u8, storage.first[0..storage.first_len], storage.trace[0..storage.trace_len])) {
-        return error.ReplayDiverged;
-    }
-    return .{ .trace = storage.first[0..storage.first_len], .record = record };
+    // Invariant 5: one seed replays byte for byte, in its trace and in what its peer wrote.
+    if (first.wire != wire_of(storage)) return error.ReplayDiverged;
+    if (!std.mem.eql(u8, first.trace, storage.trace[0..storage.trace_len])) return error.ReplayDiverged;
+    return first;
+}
+
+/// The CRC-32 of every octet the last run's peer wrote to the server.
+fn wire_of(storage: *const Storage) u32 {
+    return std.hash.Crc32.hash(storage.run.to_server.octets[0..storage.run.to_server.written]);
 }
 
 /// Runs seeds `[0, seeds)`, adding each to `census`, and names the seed that failed.
@@ -119,6 +129,9 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.exchanges += result.record.exchanges_done;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
+        var wire_octets: [@sizeOf(u32)]u8 = undefined;
+        std.mem.writeInt(u32, &wire_octets, result.wire, .little);
+        census.wire_crc32.update(&wire_octets);
         if (result.record.app.cancelled != null) census.streams_cut += 1;
         census.streams_refused += result.record.resets_refused;
         const passed = result.record.deadline_passed() orelse {
@@ -393,6 +406,7 @@ test "decision 110: every seed replays, honest peers finish their exchanges, and
     };
     try std.testing.expect(census.exchanges > 0);
     try std.testing.expectEqual(census_crc32_expected, census.crc32.final());
+    try std.testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }
 
 /// The first seed whose slow h2 body lasts until colibri owes a WINDOW_UPDATE: its tenth piece

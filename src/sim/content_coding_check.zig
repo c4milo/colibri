@@ -8,7 +8,8 @@
 //!      and every encoder and decoder must be back in its pool.
 //!
 //! The census hashes the traces of the first runs of seeds `[0, check_seeds_default)` with CRC-32,
-//! and the test requires the digest committed below, in Debug and in ReleaseSafe alike.
+//! and the octets their clients wrote, and the test requires the two digests committed below, in
+//! Debug and in ReleaseSafe alike.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -27,9 +28,11 @@ const Coding = client.Coding;
 pub const check_name = "content-coding";
 
 /// The CRC-32 of the first runs' traces of seeds `[0, check_seeds_default)`, concatenated in seed
-/// order. A change to the plan, to what the modules deliver or to the trace format changes it, and
-/// is committed with the new value after the check passes in both build modes.
+/// order, and of the seeds' `Result.wire`. A change to the plan, to what the modules deliver or to
+/// the trace format changes the first, and one to an octet the client writes changes the second.
+/// Each is committed with its new value once the check passes in both build modes.
 pub const census_crc32_expected: u32 = 0x69460a6e;
+pub const census_wire_crc32_expected: u32 = 0xc8625587;
 
 pub const Violation = content_coding_run.Error || error{
     /// Two runs in the same pieces wrote different traces or drew a different number of values.
@@ -66,6 +69,8 @@ const pieces_mark: u64 = 0x7069_6563_6573_2121;
 pub const Result = struct {
     trace: []const u8,
     exchanges: u32,
+    /// The CRC-32 of every octet the client wrote to the server in the first run.
+    wire: u32,
 };
 
 /// What `run_check` counted over its seeds.
@@ -77,6 +82,8 @@ pub const Census = struct {
     too_large: u64 = 0,
     trace_octets: u64 = 0,
     crc32: std.hash.Crc32 = .init(),
+    /// The CRC-32 of each seed's `Result.wire`, least significant octet first, in seed order.
+    wire_crc32: std.hash.Crc32 = .init(),
 };
 
 /// Runs one seed three times, and returns the first run's trace.
@@ -89,15 +96,23 @@ pub fn run_seed(storage: *Storage, seed: u64) Violation!Result {
     @memcpy(storage.first[0..storage.trace_len], storage.trace[0..storage.trace_len]);
     storage.first_len = storage.trace_len;
     const first_draws = pieces.draws;
+    const wire = wire_of(storage);
     var again = Random.init(seed ^ pieces_mark);
     try content_coding_run.run(&storage.run, &plan, seed, &again);
     try verify(storage, &plan, seed);
-    // Invariant 5: one seed replays byte for byte.
-    if (again.draws != first_draws or !same_trace(storage)) return error.ReplayDiverged;
+    // Invariant 5: one seed replays byte for byte, in its trace and in what its client wrote.
+    if (again.draws != first_draws or wire != wire_of(storage) or !same_trace(storage)) return error.ReplayDiverged;
+    // The whole run's octets are not compared: a split may change when the client writes a
+    // WINDOW_UPDATE.
     try content_coding_run.run(&storage.run, &plan, seed, null);
     try verify(storage, &plan, seed);
     if (!same_trace(storage)) return error.SplitChangedResult;
-    return .{ .trace = storage.first[0..storage.first_len], .exchanges = plan.exchanges_len };
+    return .{ .trace = storage.first[0..storage.first_len], .exchanges = plan.exchanges_len, .wire = wire };
+}
+
+/// The CRC-32 of every octet the last run's client wrote to the server.
+fn wire_of(storage: *const Storage) u32 {
+    return std.hash.Crc32.hash(storage.run.to_server.octets[0..storage.run.to_server.written]);
 }
 
 fn same_trace(storage: *const Storage) bool {
@@ -115,6 +130,9 @@ pub fn run_check(storage: *Storage, seeds: u64, census: *Census, failed_seed: *?
         census.exchanges += result.exchanges;
         census.trace_octets += result.trace.len;
         census.crc32.update(result.trace);
+        var wire_octets: [@sizeOf(u32)]u8 = undefined;
+        std.mem.writeInt(u32, &wire_octets, result.wire, .little);
+        census.wire_crc32.update(&wire_octets);
         count(storage, census, seed);
     }
 }
@@ -204,4 +222,5 @@ test "decision 101: every seed's exchanges end as its rules say, and the census 
     };
     try std.testing.expect(census.decoded > 0 and census.passed_on > 0 and census.too_large > 0);
     try std.testing.expectEqual(census_crc32_expected, census.crc32.final());
+    try std.testing.expectEqual(census_wire_crc32_expected, census.wire_crc32.final());
 }

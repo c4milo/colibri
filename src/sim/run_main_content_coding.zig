@@ -24,7 +24,7 @@ pub fn check(seeds: u64) !void {
         return failure;
     };
     const census_format = "content-coding: seeds={d} exchanges={d} decoded={d} passed_on={d} too_large={d}" ++
-        " trace_octets={d} crc32=0x{x:0>8}\n";
+        " trace_octets={d} crc32=0x{x:0>8} wire_crc32=0x{x:0>8}\n";
     std.debug.print(census_format, .{
         census.seeds,
         census.exchanges,
@@ -33,5 +33,6 @@ pub fn check(seeds: u64) !void {
         census.too_large,
         census.trace_octets,
         census.crc32.final(),
+        census.wire_crc32.final(),
     });
 }
