@@ -853,6 +853,44 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 354 in the first
   job and by 355 in the second, where the disassembly gave about 370.
 
+  **A one-octet or two-octet prefixed integer is written directly, 2026-10-13.** `encode` built
+  every integer in a zeroed array of ten octets and wrote it with one `write_bytes` of a length
+  known only at run time, which calls `memcpy`. A value under the prefix's maximum is now one
+  `write_byte`, and a remainder of seven bits or fewer one `write_bytes` of two octets. Longer
+  integers take the old array in `encode_continued`, which takes no prefix size and is compiled
+  once. Each call still writes all of its octets or none.
+
+  What each check printed:
+  - The old encoder stays in `prefixed_integer.zig`'s tests as the reference. `encode` must
+    return what it returns and leave the same octets written, at every prefix size, with the
+    caller's bits clear and set, for every value of up to 15 bits and the values at and beside
+    each length boundary above them, in every room from none to one octet past the longest
+    encoding.
+  - `zig build hpack-vectors`, `zig build qpack-vectors` and `zig build golden-check` passed, and
+    the four traces wrote the same octets before and after the change.
+  - 8 mutations, each **CAUGHT**: a value equal to the prefix's maximum written in the prefix;
+    the caller's bits dropped from the one-octet case; a remainder of 128 written in one octet;
+    the continuation flag on the last of two octets; the two octets in the other order; the
+    first of two written when the second does not fit; and the prefix's ones dropped in the
+    two-octet and the longer case.
+
+  The judge, [run 38342556593](https://github.com/c4milo/colibri/actions/runs/38342556593),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 16,028 | 15,905 | 0.9923 | 0.9922 | wins in both |
+  | h2-tls-many | 23,978 | 23,860 | 0.9951 | 0.9941 | within the noise in job 1, wins in job 2 |
+  | h2-one | 181,698 | 181,693 | 1.0000 | 0.9991 | within the noise |
+  | h2-tls-one | 7,277,535 | 7,277,189 | 1.0000 | 1.0000 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 122 in the first
+  job and by 121 in the second. The disassembly gave about 290, because it took the one-octet
+  case to compile to about 15 instructions. In the server `encode` stays out of line with a stack
+  canary, because the two-octet case keeps its pair on the stack and writes it through
+  `write_bytes`, which calls `memcpy`; the one-octet case runs about 40.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
