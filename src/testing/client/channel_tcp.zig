@@ -10,12 +10,10 @@ const assert = std.debug.assert;
 const rotor = @import("rotor");
 const constants = @import("../constants.zig");
 
-/// What an operation does. It rides in the operation's user data, above `user_data_base`.
+/// What an operation does. It rides in the operation's user data, above the socket's `base`.
 pub const Kind = enum(u8) { connect, receive, send, close };
 
-/// The user data of the socket's operations: just above the index of every UDP send slot, and far
-/// below the UDP receive's.
-pub const user_data_base: u64 = constants.channel_udp_send_slots;
+const kinds_count: u64 = @typeInfo(Kind).@"enum".fields.len;
 
 /// What an event meant, which the loop tells the channel.
 pub const Happened = enum {
@@ -31,6 +29,10 @@ pub const Happened = enum {
 };
 
 pub const Socket = struct {
+    /// The user data of the socket's first operation, which `init` takes. Each operation's user
+    /// data is `base` plus its `Kind`. The loop that runs the socket chooses `base`, so that no
+    /// other operation of the loop carries one of those values.
+    base: u64,
     state: State,
     descriptor: rotor.Descriptor,
     /// The peer, which the connect in flight reads until its event (Rotor's rule 3).
@@ -53,7 +55,9 @@ pub const Socket = struct {
 
     pub const State = enum { idle, connecting, open, closing };
 
-    pub fn init(socket: *Socket) void {
+    pub fn init(socket: *Socket, base: u64) void {
+        assert(base <= std.math.maxInt(u64) - kinds_count);
+        socket.base = base;
         socket.state = .idle;
         socket.open_pending = null;
         socket.reset();
@@ -80,7 +84,7 @@ pub const Socket = struct {
         socket.address = to;
         socket.descriptor = rotor.sync.open_socket(to.family) catch return false;
         socket.state = .connecting;
-        submit(loop, rotor.Operation.connect(user_data(.connect), socket.descriptor, &socket.address));
+        submit(loop, rotor.Operation.connect(socket.user_data(.connect), socket.descriptor, &socket.address));
         return true;
     }
 
@@ -104,7 +108,8 @@ pub const Socket = struct {
 
     /// Does what an event of the socket's asks, and says what it meant.
     pub fn on_event(socket: *Socket, loop: *rotor.Loop, event: rotor.Event) Happened {
-        const kind: Kind = @enumFromInt(event.user_data - user_data_base);
+        assert(socket.owns(event.user_data));
+        const kind: Kind = @enumFromInt(event.user_data - socket.base);
         return switch (kind) {
             .connect => socket.on_connected(loop, event),
             .receive => socket.on_received(loop, event),
@@ -164,7 +169,7 @@ pub const Socket = struct {
     fn end(socket: *Socket, loop: *rotor.Loop) Happened {
         assert(socket.state == .connecting or socket.state == .open);
         socket.state = .closing;
-        submit(loop, rotor.Operation.close(user_data(.close), socket.descriptor));
+        submit(loop, rotor.Operation.close(socket.user_data(.close), socket.descriptor));
         return if (socket.close_asked) .none else .failed;
     }
 
@@ -208,13 +213,13 @@ pub const Socket = struct {
         if (!socket.sending and socket.output_sent < socket.output_len) {
             socket.sending = true;
             const owed = socket.output[socket.output_sent..socket.output_len];
-            submit(loop, rotor.Operation.send(user_data(.send), socket.descriptor, owed));
+            submit(loop, rotor.Operation.send(socket.user_data(.send), socket.descriptor, owed));
         }
         const free = socket.input.len - socket.input_len;
         if (!socket.receiving and free > 0) {
             socket.receiving = true;
             const into = socket.received[0..@min(free, socket.received.len)];
-            submit(loop, rotor.Operation.receive(user_data(.receive), socket.descriptor, into));
+            submit(loop, rotor.Operation.receive(socket.user_data(.receive), socket.descriptor, into));
         }
     }
 
@@ -223,16 +228,16 @@ pub const Socket = struct {
         socket.open_pending = null;
         if (socket.state == .connecting or socket.state == .open) _ = socket.end(loop);
     }
+
+    /// Whether `user_data_value` is one of the socket's operations'.
+    pub fn owns(socket: *const Socket, user_data_value: u64) bool {
+        return user_data_value >= socket.base and user_data_value - socket.base < kinds_count;
+    }
+
+    fn user_data(socket: *const Socket, kind: Kind) u64 {
+        return socket.base + @intFromEnum(kind);
+    }
 };
-
-/// Whether `user_data` is one of the socket's operations'.
-pub fn owns(user_data_value: u64) bool {
-    return user_data_value >= user_data_base and user_data_value - user_data_base < @typeInfo(Kind).@"enum".fields.len;
-}
-
-fn user_data(kind: Kind) u64 {
-    return user_data_base + @intFromEnum(kind);
-}
 
 /// Submits one operation. The loop keeps `channel_tcp_operations_max` of its operations for the
 /// socket, so it always has room.
@@ -244,7 +249,12 @@ fn submit(loop: *rotor.Loop, operation: rotor.Operation) void {
 const testing = std.testing;
 
 test "the socket's user data lies between the UDP send slots' and the UDP receive's" {
-    try testing.expect(owns(user_data(.connect)) and owns(user_data(.close)));
-    try testing.expect(!owns(constants.channel_udp_send_slots - 1));
-    try testing.expect(!owns(std.math.maxInt(u64)));
+    var socket: Socket = undefined;
+    socket.init(constants.channel_udp_send_slots);
+    try testing.expectEqual(@as(u64, constants.channel_udp_send_slots), socket.user_data(.connect));
+    try testing.expect(socket.owns(socket.user_data(.connect)));
+    try testing.expect(socket.owns(socket.user_data(.close)));
+    try testing.expect(!socket.owns(constants.channel_udp_send_slots - 1));
+    try testing.expect(!socket.owns(socket.user_data(.close) + 1));
+    try testing.expect(!socket.owns(std.math.maxInt(u64)));
 }

@@ -81,7 +81,9 @@ pub fn run_channel(run: *const Run, shared: *const client.Config, values: tls.Cl
     try channel.init(&channel_config, .{ .addresses = &addresses, .port = run.port }, receive_pool.storage());
     try request_plan(run.plans[0..run.plans_count]);
     channel.shutdown();
-    tcp.init();
+    // The TCP socket's user data starts just above the index of every UDP send slot, and lies far
+    // below the UDP receive's.
+    tcp.init(constants.channel_udp_send_slots);
     try socket.open(&memory, udp.Address.ipv4(@splat(0), 0));
     try turn_until_closed();
     tcp.close_now(&socket.loop);
@@ -127,7 +129,7 @@ fn on_event(event: udp.Event, now_ns: u64) void {
         if (event.flags.buffer) on_datagram(socket.delivery(event), now_ns);
         return socket.finish_receive(event);
     }
-    if (channel_tcp.owns(event.user_data)) return on_tcp_event(event);
+    if (tcp.owns(event.user_data)) return on_tcp_event(event);
     // A send's event gives its slot back.
     slot_busy[@intCast(event.user_data)] = false;
 }
