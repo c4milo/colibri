@@ -8511,11 +8511,58 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       new configurations as their first lines say, and `tools/client_trace.sh` and
       `tools/tcp_trace.sh` find every trace a behavior of its model. Each rule has a mutation a
       test catches.
-  - **21d, the roots.** They stop exporting `server.Connection`, `server.QuicConnection`,
-    `client.Connection` and `client.QuicConnection`. One server example and one client example
-    replace the four, and the guide follows them. **Check:** `zig build examples`,
-    `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass, and no root's list holds a
-    connection type.
+  - **21d, the roots.** `server.zig` and `client.zig` stop exporting `server.Connection`,
+    `server.QuicConnection`, `client.Connection` and `client.QuicConnection`, and the names only
+    their calls took or returned (decision 121 records the rulings).
+    - The server's root exports 47 names: `constants`, `Config`, `Versions`, `Limits`,
+      `Deadline`, `Deadlines`, `CloseReason`, `Limit`, `Endpoint`, `EndpointOf`, `Capacity`,
+      `Input`, `Datagram`, `Security`, `StreamOctets`, `LogProvider`, `Sent`, `Address`, `Ecn`,
+      `StartError`, `SendError`, `Field`, `Id`, `ConnectionHandle`, `Version`, `Fields`, `Event`,
+      `Request`, `Body`, `Trailers`, `Cancelled`, `CancelReason`, `Done`, `Writable`, `Ended`,
+      `Response`, `Content`, `Received`, `Alternative`, `Coding`, `EncoderPool`,
+      `DefaultEncoderPool`, `Encoders`, `DecoderPool`, `DefaultDecoderPool`, `Decoders` and
+      `Features`. `Connection`, `QuicConnection`, `Error` and `Protocol` leave.
+    - The client's root exports 38 names: `constants`, `Config`, `Versions`, `StartError`,
+      `RequestError`, `Field`, `Id`, `Protocol`, `HttpExchange`, `Wanted`, `Outcome`, `Finished`,
+      `Sent`, `Address`, `Ecn`, `Channel`, `Values`, `Https`, `Alternative`, `Input`, `Datagram`,
+      `Received`, `Event`, `Open`, `Transport`, `Phase`, `ReceivePool`, `DefaultReceivePool`,
+      `ReceiveStorage`, `Coding`, `DecoderPool`, `DefaultDecoderPool`, `Decoders`,
+      `ZstdDecoderPool`, `ZstdDecoders`, `BrotliDecoderPool`, `BrotliDecoders` and `Features`.
+      `Connection`, `QuicConnection`, `Event`, `Received`, `Advert` and `ChannelEntry` leave, and
+      `ChannelValues`, `ChannelInput`, `ChannelReceived`, `ChannelEvent`, `ChannelOpen` and
+      `ChannelPhase` become `Values`, `Input`, `Received`, `Event`, `Open` and `Phase`. The
+      client trace names the entry through `Channel.entries`.
+    - `server.StartError` loses `TlsRefused`, and `client.RequestError` loses `Draining` and
+      `ConnectionClosed`: no program gets them.
+    - `Endpoint` keeps its 16 functions and `Channel` its 15. The four connection types keep
+      their methods, which the endpoint's and the channel's files call. Each root imports its
+      files through a private `files` struct, in CLAUDE.md's order.
+    - `examples/server_exchange.zig` serves TCP and QUIC through one endpoint, and
+      `examples/client_exchange.zig` falls back from QUIC to TCP in one channel, on a datagram
+      link that drops every datagram. Its run waits about 3 s of real time, while the channel
+      closes the QUIC connection it abandoned. The two replace `tls_exchange.zig` and
+      `h3_exchange.zig`, and the guide's server and client sections quote them. The h11 and h2
+      examples stay until 21f.
+    - The memory table measures each connection through the field that holds it, and the
+      simulator names the h3 deadline trace's connection the same way.
+    - Eleven sub-steps. After each one, every check passes:
+      - 21d.1: decision 121, this text, and decision 96 amended.
+      - 21d.2 and 21d.3: the simulator and the memory table name each connection through a
+        field.
+      - 21d.4 and 21d.5: each root imports its files through a private `files` struct.
+      - 21d.6 and 21d.7: the roots stop exporting the per-connection types and the names only
+        their calls took or returned.
+      - 21d.8: the channel's types lose their prefix, and `ChannelEntry` leaves the root.
+      - 21d.9: the two error sets name what a program gets, each with a test beside its root's
+        list.
+      - 21d.10: the datagram link runs on the stream link's loops, and the two examples replace
+        the two old ones, with the guide.
+      - 21d.11: the step's entry.
+    - **Check:** `zig build test`, `zig build examples`, `tools/doc_snippets.sh` and
+      `tools/consumer_check.sh` pass, and the lists in `src/server/server.zig` and
+      `src/client/client.zig` hold no connection type. The roots of `h11`, `h2`, `h3` and `quic`
+      keep `Connection` until 21f. The test counts stay through each `files` move. Each rule has
+      a mutation a test catches.
   - **21e, the router.** `server.routes`, a table of methods and paths the program declares at
     compile time, matched through a trie of path segments as #96 describes. A pattern's segment
     is a literal, a parameter (`:id`) or a trailing wildcard (`*`), and a match returns the
