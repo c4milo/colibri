@@ -34,6 +34,7 @@ const assert = std.debug.assert;
 const core = @import("core");
 
 const limits = core.constants;
+const field_value = @import("field_value.zig");
 
 pub const NameError = error{
     FieldNameEmpty,
@@ -91,10 +92,15 @@ pub fn validate_name(name: []const u8) NameError!void {
 pub fn validate_value(value: []const u8) ValueError!void {
     // RFC 9110 §5.4: no predefined limit, so colibri's limit applies and the peer is refused.
     if (value.len > limits.field_value_len_max) return error.FieldValueTooLong;
-    // Every octet's class is read and no octet ends the loop, so a pass is a table read and an
-    // OR. Which octet held a class does not matter: NUL, CR or LF anywhere is reported first.
+    // A value of `word_len` octets or more in which `field_value.has_control` finds no control
+    // octet holds no class, and the loop is skipped. Otherwise every octet's class is read and no
+    // octet ends the loop, so a pass is a table read and an OR. Which octet held a class does not
+    // matter: NUL, CR or LF anywhere is reported first.
     var classes: u8 = 0;
-    for (value) |octet| classes |= value_class_table[octet];
+    const clean = value.len >= field_value.word_len and !field_value.has_control(value);
+    if (!clean) {
+        for (value) |octet| classes |= value_class_table[octet];
+    }
     // RFC 9110 §5.5: a recipient of CR, LF or NUL must reject the message or replace them.
     if (classes & class_nul_cr_lf != 0) return error.FieldValueNulCarriageReturnOrLineFeed;
     // RFC 9110 §5.5: field values containing other CTL characters are also invalid.
@@ -446,6 +452,15 @@ test "validate_value gives the reference's verdict for an octet far inside the l
             buffer[position] = kind;
             try expect_same(&buffer);
         }
+        buffer[position] = 'v';
+    }
+}
+
+test "validate_value gives the reference's verdict for a control octet at every offset of the longest value" {
+    var buffer: [limits.field_value_len_max]u8 = @splat('v');
+    for (0..buffer.len) |position| {
+        buffer[position] = 0x01;
+        try expect_same(&buffer);
         buffer[position] = 'v';
     }
 }

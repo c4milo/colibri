@@ -993,6 +993,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 282 in the first
   job and by 280 in the second, where the disassembly gave about 300.
 
+  **A field value is checked for control octets eight at a time, 2026-10-13.**
+  `field.validate_value` read each octet's class from the table step 1 gave it. A value of eight
+  octets or more is now read a 64-bit word at a time by `field_value.has_control`: a few
+  operations on each word mark every octet below SP or equal to DEL (RFC 5234 Appendix B.1's
+  CTL), with no carry from one octet into the next, and the last word overlaps the steps before
+  it. A value with none holds no class, and the table is skipped; a value with one, HTAB
+  included, is read an octet at a time as before, which names the reason. Every value gets the
+  verdict it got.
+
+  What each check printed:
+  - `field_value.zig`'s tests require the word operations to mark each control octet in every
+    lane, beside four kinds of neighbour, and `has_control` to find a control octet at every
+    position of every length from 8 to 40. `field.zig`'s reference tests from step 1 now also put
+    a control octet at every offset of the longest value.
+  - The four traces wrote the same octets before and after the change.
+  - 9 mutations, each **CAUGHT**: the last word not read; one step fewer; DEL not wrapped; SP
+    counted as a control octet; obs-text counted as one; a clean value of seven octets skipping
+    the table; a value with a control octet skipping it; the steps past the thousandth not read;
+    and the sixth step's word not read.
+
+  The judge, [run 38427737018](https://github.com/c4milo/colibri/actions/runs/38427737018),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 14,548 | 14,461 | 0.9940 | 0.9936 | wins in both |
+  | h2-tls-many | 22,475 | 22,351 | 0.9945 | 0.9956 | wins in job 1, within the noise in job 2 |
+  | h2-one | 179,222 | 179,368 | 1.0008 | 1.0002 | within the noise |
+  | h2-tls-one | 7,275,292 | 7,276,176 | 1.0001 | 1.0000 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 91 in both jobs,
+  where the disassembly gave about 160.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
