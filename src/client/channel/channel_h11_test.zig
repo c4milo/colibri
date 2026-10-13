@@ -164,3 +164,31 @@ test "design §8 step 21c.3: a channel carries two h11 exchanges, the last answe
     try testing.expectEqual(0, last.content_received().len);
     try testing.expectEqual(last_id, events[events_len - 1].finished.id);
 }
+
+/// The index of the `n`th event of `tag` the channel reported, counted from 0, or null.
+fn index_of(tag: std.meta.Tag(Event), n: usize) ?usize {
+    var seen: usize = 0;
+    for (events[0..events_len], 0..) |reported, index| {
+        if (reported != tag) continue;
+        if (seen == n) return index;
+        seen += 1;
+    }
+    return null;
+}
+
+test "decision 100: a channel reports a closed connection's close before it asks for the next socket" {
+    var first = get(&bodies[0]);
+    var second = get(&bodies[1]);
+    try start(&first);
+    _ = try channel.request(&second);
+    // RFC 9112 §9.6: a response that says "close" ends the connection after it, so the second
+    // exchange waits for another connection, in the same call that reads the connection's end.
+    const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+    try testing.expectEqual(response.len, try give(response));
+    try testing.expectEqual(.response, first.outcome);
+    try testing.expectEqual(2, count(.open));
+    const closed_at = index_of(.close, 0) orelse return error.TestUnexpectedResult;
+    try testing.expectEqual(Event{ .close = .tcp }, events[closed_at]);
+    try testing.expect(closed_at < index_of(.open, 1).?);
+    try testing.expectEqual(2, count(.connected));
+}

@@ -156,8 +156,10 @@ pub const Link = struct {
     address_index: usize = 0,
     /// Where the current connection goes.
     to: Address = .{},
-    /// The `open` event is owed, and then the `close` event.
+    /// The `open` event of the current connection is owed.
     open_owed: bool = false,
+    /// The `close` event is owed: of the current connection once it is over, or of the one before
+    /// it when the pass that closed that one opened this one. It goes out before the `open`.
     close_owed: bool = false,
     /// The connection reported `connected` and took the exchanges when it did.
     won: bool = false,

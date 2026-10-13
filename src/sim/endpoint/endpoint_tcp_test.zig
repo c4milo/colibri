@@ -97,6 +97,8 @@ test "decision 120: a peer opens no second socket, and the exchange that waited 
     try testing.expectEqual(2, peer.exchanges_requested);
     // RFC 9113 §8.7: no server processed the request, so it ends refused.
     try testing.expectEqual(.refused, peer.exchanges[1].outcome);
+    // The channel reported the first connection's close before it asked for a second socket.
+    try testing.expect(peer.close_reported);
     // The peer started no second connection, so it writes nothing more into its one socket.
     try write_all(peer, &plan);
     try testing.expectEqual(written, peer.to_server.written);

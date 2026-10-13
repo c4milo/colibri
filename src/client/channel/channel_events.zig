@@ -40,13 +40,14 @@ pub fn plan(channel: *Channel, now_ns: u64) void {
 pub fn owed(channel: *Channel) ?Event {
     for (transports) |transport| {
         const link = channel.links.getPtr(transport);
-        if (link.open_owed) {
-            link.open_owed = false;
-            return .{ .open = .{ .transport = transport, .to = link.to } };
-        }
+        // The caller closes a transport's socket before it opens the next one.
         if (link.close_owed) {
             link.close_owed = false;
             return .{ .close = transport };
+        }
+        if (link.open_owed) {
+            link.open_owed = false;
+            return .{ .open = .{ .transport = transport, .to = link.to } };
         }
     }
     if (oldest(channel, .ended)) |entry| {
@@ -294,7 +295,10 @@ fn open_link(channel: *Channel, transport: Transport, now_ns: u64) void {
     const addresses = channel.values.addresses;
     var to = addresses[link.address_index % addresses.len];
     to.port = port_of(channel, transport, now_ns);
-    link.* = .{ .state = .opening, .opens = link.opens + 1, .address_index = link.address_index, .to = to, .open_owed = true };
+    // Only a connection that is over owes its `close`.
+    assert(!link.close_owed or link.state == .closed);
+    // The connection this pass closed still owes its `close`, which goes out before the `open`.
+    link.* = .{ .state = .opening, .opens = link.opens + 1, .address_index = link.address_index, .to = to, .open_owed = true, .close_owed = link.close_owed };
     channel.tried.set(transport, true);
 }
 
