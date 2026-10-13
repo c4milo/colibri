@@ -192,23 +192,28 @@ fn check_line(kind: Kind, line: Field) Error!void {
 pub fn check_name(name: []const u8) Error!void {
     assert(!is_pseudo_header(name));
     assert(name.len <= core.constants.field_name_len_max);
+    // RFC 9113 §8.2.1 and RFC 9114 §10.3 refer a recipient to RFC 9110 §5.1, and a token holds at
+    // least one tchar (RFC 9110 §5.6.2).
+    if (name.len == 0) return error.FieldNameInvalid;
     for (name) |octet| {
-        // RFC 9113 §8.2.1: a field name must not contain 0x41-0x5a, the uppercase letters.
-        // RFC 9114 §4.2: a response containing uppercase characters in field names is malformed.
-        if (std.ascii.isUpper(octet)) return error.FieldNameInvalid;
+        // RFC 9113 §8.2.1: a field name must not contain 0x41-0x5a, the uppercase letters, nor
+        // 0x00-0x20, 0x7f-0xff or a colon, and any other octet outside a token fails RFC 9110
+        // §5.1, which §8.2.1 asks a recipient to check. RFC 9114 §4.2 makes uppercase malformed,
+        // and §10.3: "Requests or responses containing invalid field names MUST be treated as
+        // malformed."
+        if (!lowercase_token_octets[octet]) return error.FieldNameInvalid;
     }
-    field.validate_name(name) catch |reason| switch (reason) {
-        // RFC 9113 §8.2.1: no octet in 0x00-0x20 or 0x7f-0xff and no colon, and none of them is a
-        // tchar. Any other octet outside a token fails RFC 9110 §5.1, which §8.2.1 asks a
-        // recipient to check. RFC 9114 §10.3 makes the same check a MUST: "Requests or responses
-        // containing invalid field names MUST be treated as malformed."
-        error.FieldNameNotToken => return error.FieldNameInvalid,
-        // Both reach RFC 9110 §5.1, and a token holds at least one tchar.
-        error.FieldNameEmpty => return error.FieldNameInvalid,
-        // `FieldSection.append` holds every name to `field_name_len_max`, asserted above.
-        error.FieldNameTooLong => unreachable,
-    };
 }
+
+/// One entry per octet value: whether a field name may hold it in h2 and h3. It is a tchar
+/// (RFC 9110 §5.6.2) and not an uppercase letter (RFC 9113 §8.2.1, RFC 9114 §4.2), so one read
+/// an octet checks both rules. h2's `connection_request.zig` builds the same table for what it
+/// sends, since sharing this one would add a public name.
+const lowercase_token_octets: [std.math.maxInt(u8) + 1]bool = build: {
+    var table: [std.math.maxInt(u8) + 1]bool = undefined;
+    for (&table, 0..) |*allowed, octet| allowed.* = field.is_tchar(octet) and !std.ascii.isUpper(octet);
+    break :build table;
+};
 
 /// A field value on any line (RFC 9113 §8.2.1, RFC 9114 §10.3). The two reasons are separate
 /// because only the first is a rule RFC 9114 states; see this file's header.
@@ -321,5 +326,69 @@ test "RFC 9113 §8.3: each defined name has its own slot, in its own kind alone"
         const other: Kind = if (definition.kind == .request) .response else .request;
         try std.testing.expectEqual(seen.slot(definition.pseudo), slot_of(&seen, definition.kind, definition.name).?);
         try std.testing.expectEqual(null, slot_of(&seen, other, definition.name));
+    }
+}
+
+// The tests below hold `check_name` to the two passes it replaced: one for uppercase letters, then
+// `field.validate_name`. They stay here as the reference.
+
+/// The reference: `check_name` as it was.
+fn check_name_by_two_passes(name: []const u8) Error!void {
+    for (name) |octet| {
+        // RFC 9113 §8.2.1: a field name must not contain 0x41-0x5a, the uppercase letters.
+        if (std.ascii.isUpper(octet)) return error.FieldNameInvalid;
+    }
+    // RFC 9113 §8.2.1 and RFC 9110 §5.1: a field name is a token.
+    field.validate_name(name) catch return error.FieldNameInvalid;
+}
+
+/// Fails, printing both verdicts, when `check_name` and the reference differ on `name`.
+fn expect_same_name_verdict(name: []const u8) !void {
+    const changed = if (check_name(name)) true else |_| false;
+    const reference = if (check_name_by_two_passes(name)) true else |_| false;
+    if (changed == reference) return;
+    std.debug.print("first difference: name {x}: check_name accepts {}, reference {}\n", .{ name, changed, reference });
+    return error.TestUnexpectedResult;
+}
+
+/// The longest name the tests vary one octet of.
+const varied_name_len_max = 40;
+
+test "check_name gives every name of up to two octets the reference's verdict" {
+    var name: [2]u8 = undefined;
+    try expect_same_name_verdict(name[0..0]);
+    for (0..octet_values) |first| {
+        name[0] = @intCast(first);
+        // A pseudo-header name is the first pass's, and `check_name` asserts it never sees one.
+        if (is_pseudo_header(name[0..1])) continue;
+        try expect_same_name_verdict(name[0..1]);
+        for (0..octet_values) |second| {
+            name[1] = @intCast(second);
+            try expect_same_name_verdict(&name);
+        }
+    }
+}
+
+test "check_name gives the reference's verdict with every octet at every position of a name" {
+    var name: [varied_name_len_max]u8 = @splat('a');
+    for (1..name.len + 1) |len| {
+        for (0..len) |position| {
+            for (0..octet_values) |octet| {
+                name[position] = @intCast(octet);
+                if (!is_pseudo_header(name[0..len])) try expect_same_name_verdict(name[0..len]);
+            }
+            name[position] = 'a';
+        }
+    }
+}
+
+test "check_name gives the reference's verdict with every octet at every position of the longest name" {
+    var name: [core.constants.field_name_len_max]u8 = @splat('a');
+    for (0..name.len) |position| {
+        for (0..octet_values) |octet| {
+            name[position] = @intCast(octet);
+            if (!is_pseudo_header(&name)) try expect_same_name_verdict(&name);
+        }
+        name[position] = 'a';
     }
 }

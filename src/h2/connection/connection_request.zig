@@ -189,10 +189,9 @@ fn validate_pseudo_value(value: []const u8) Error!void {
 /// them by: a request's, a response's and a trailer section's.
 pub fn validate_field_line(line: hpack.Field) Error!void {
     // RFC 9113 §8.2: field names are lowercase when an HTTP/2 message is constructed, and §8.2.1
-    // makes an uppercase name malformed on receipt, so colibri sends none.
-    if (!is_lowercase(line.name)) return error.FieldLineInvalid;
-    // RFC 9113 §8.2.1: a field name that is not a token is malformed, so colibri sends none.
-    http.field.validate_name(line.name) catch return error.FieldLineInvalid;
+    // makes an uppercase name or one that is not a token malformed on receipt, so colibri sends
+    // neither.
+    if (!is_lowercase_token(line.name)) return error.FieldLineInvalid;
     // RFC 9113 §8.2.1: a value carrying NUL, CR or LF, or surrounded by whitespace, is malformed,
     // and RFC 9110 §5.5 gives the octets a value admits.
     http.field.validate_value(line.value) catch return error.FieldLineInvalid;
@@ -205,14 +204,29 @@ pub fn validate_field_line(line: hpack.Field) Error!void {
     if (!http.connection_specific.te_is_trailers(line.value)) return error.FieldLineInvalid;
 }
 
-/// True when `name` holds no uppercase letter (RFC 9113 §8.2).
-fn is_lowercase(name: []const u8) bool {
+/// True when `name` is a token (RFC 9110 §5.6.2) of no uppercase letter (RFC 9113 §8.2), within
+/// the length colibri accepts. One read an octet checks both rules.
+fn is_lowercase_token(name: []const u8) bool {
+    // RFC 9110 §5.6.2: a token is one or more tchar.
+    if (name.len == 0) return false;
+    // RFC 9110 §5.4 sets no limit on a field line, so colibri's name limit applies to what it sends.
+    if (name.len > core.constants.field_name_len_max) return false;
     for (name) |octet| {
-        // RFC 9113 §8.2.1: a field name containing an octet in the range 0x41 to 0x5a is malformed.
-        if (octet >= 'A' and octet <= 'Z') return false;
+        // RFC 9113 §8.2.1: a field name containing 0x41-0x5a, or an octet outside a token, is
+        // malformed.
+        if (!lowercase_token_octets[octet]) return false;
     }
     return true;
 }
+
+/// One entry per octet value: whether a field name colibri sends may hold it. It is a tchar
+/// (RFC 9110 §5.6.2) and not an uppercase letter (RFC 9113 §8.2). http's `message_lines.zig`
+/// builds the same table for what h2 and h3 receive; sharing it would add a public name.
+const lowercase_token_octets: [std.math.maxInt(u8) + 1]bool = build: {
+    var table: [std.math.maxInt(u8) + 1]bool = undefined;
+    for (&table, 0..) |*allowed, octet| allowed.* = http.field.is_tchar(octet) and !std.ascii.isUpper(octet);
+    break :build table;
+};
 
 /// Encodes the request's field section into the connection's block buffer, the pseudo-header
 /// fields first (RFC 9113 §8.3). The caller declares the block once its frames are written.
@@ -478,4 +492,8 @@ test "RFC 7541 §4.2: a table-size change is declared once and not repeated on t
     _ = try write_request(test_connection, test_output, test_request, &.{}, &.{}, true);
     // The first block reached the peer, so the second owes nothing.
     try testing.expect(test_output[constants.frame_header_len] != 0x3f);
+}
+
+test {
+    _ = @import("connection_request_test.zig");
 }

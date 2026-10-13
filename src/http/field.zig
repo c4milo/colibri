@@ -1,10 +1,11 @@
 //! Field names and field values as RFC 9110 §5 defines them, for both h2 and h3 (decision 15).
 //!
-//! Each validator returns the reason a field is invalid, never a protocol verdict: h2 and h3 turn
-//! the same reason into different errors, so the protocol module names the error. This file omits
-//! two rules, and the protocol modules check both before they call here. The
-//! lowercase rule is RFC 9113 §8.2 and RFC 9114 §4.2, not RFC 9110. A pseudo-header name starts
-//! with a colon, which no token admits.
+//! Each validator returns the reason a field is invalid, never a protocol verdict: h2, h3 and h11
+//! turn the same reason into different errors, so the protocol module names the error. Two rules
+//! are not here. The lowercase rule is RFC 9113 §8.2 and RFC 9114 §4.2, not RFC 9110, and a
+//! pseudo-header name starts with a colon, which no token admits. h2 and h3 check a name against
+//! both at once, with `is_tchar` and a table of their own (`message_lines.check_name`, and
+//! `validate_field_line` in h2's `connection_request.zig`); `validate_name` serves h11.
 //!
 //! A field name is checked in this order (invariant 7):
 //!   1. not empty, or `error.FieldNameEmpty` (a token is one or more tchar, RFC 9110 §5.6.2);

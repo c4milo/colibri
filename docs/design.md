@@ -891,6 +891,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   canary, because the two-octet case keeps its pair on the stack and writes it through
   `write_bytes`, which calls `memcpy`; the one-octet case runs about 40.
 
+  **A field name is checked for case and token in one pass, 2026-10-13.** h2 and h3 read each
+  regular field name twice: once for uppercase letters (RFC 9113 §8.2.1, RFC 9114 §4.2), then
+  through `field.validate_name` for octets outside a token (RFC 9110 §5.1). A table of the octets
+  that are tchars and not uppercase letters now checks both rules in one read an octet, in
+  `message_lines.check_name` for what h2 and h3 receive and in h2's `validate_field_line` for
+  what it sends. Each module builds the table from `http.field.is_tchar`, since sharing one would
+  add a public name. `validate_name` serves h11.
+
+  What each check printed:
+  - The two passes stay in the tests as the reference, h2's in `connection_request_test.zig`,
+    split off `connection_request.zig` for length. Each check must give its verdict for every
+    name of up to two octets, with every octet value at every position of every length up to 40
+    and of the longest name, and at one octet past the longest.
+  - The four traces wrote the same octets before and after the change.
+  - 10 mutations, each **CAUGHT**. Of each table: an uppercase letter admitted, and on receive any
+    octet but an uppercase letter, and on send a colon. An empty name accepted, on each side; a
+    name past the limit accepted on send; the last octet left unread on receive; and the octets
+    past the fortieth left unread, on each side.
+
+  The judge, [run 38342559987](https://github.com/c4milo/colibri/actions/runs/38342559987),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 15,691 | 15,454 | 0.9849 | 0.9847 | wins in both |
+  | h2-tls-many | 23,645 | 23,489 | 0.9934 | 0.9909 | wins in both |
+  | h2-one | 181,661 | 181,551 | 0.9994 | 0.9982 | within the noise |
+  | h2-tls-one | 7,278,673 | 7,278,190 | 0.9999 | 1.0000 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 244 in both jobs,
+  where the disassembly gave about 250.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
