@@ -161,7 +161,10 @@ is added to the root and to the list in its test, which prints the name that dif
   per-byte path that parses hostile input.
 - Write all prose in active voice with plain words, following Google's Technical Writing One and
   Two: short sentences with one idea each, terms defined before use, lists for list-like content,
-  strong verbs, no rhetorical flourishes or metaphors.
+  strong verbs, no rhetorical flourishes or metaphors. Write it in ASD-STE100 Simplified Technical
+  English too: descriptive sentences of 25 words or fewer and procedural ones of 20 or fewer, one
+  topic in each sentence, simple tenses, one word for one meaning, no -ing form used as a noun or a
+  modifier, and no noun cluster of more than three words.
 - Name what literally happens. The failure mode is a vague spatial metaphor standing in for a
   plain verb: a value "reaches" a buffer instead of being written, a limit becomes a "seam"
   instead of the constant it is. Before an abstract word, ask what literally happens and write
