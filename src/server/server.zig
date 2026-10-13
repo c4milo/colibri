@@ -28,77 +28,81 @@ const std = @import("std");
 const http = @import("http");
 const h11 = @import("h11");
 const quic = @import("quic");
-const event = @import("event.zig");
-const connection = @import("connection/connection.zig");
-const quic_connection = @import("quic/quic_connection.zig");
-const endpoint = @import("endpoint/endpoint.zig");
-const alt_svc = @import("alt_svc.zig");
-const coding_pool = @import("coding/coding_pool.zig");
-const deadline = @import("deadline.zig");
-const close_reason = @import("close_reason.zig");
-const versions = @import("versions.zig");
-const limits = @import("limits.zig");
 
 /// The module's named limits and sizes (decision 35). It is the one file the root exports whole:
 /// every other name below is a type a program names (design §8 step 17f).
 pub const constants = @import("constants.zig");
 
+/// Every file a name below comes from. None of these is exported: the names below are.
+const files = struct {
+    pub const event = @import("event.zig");
+    pub const connection = @import("connection/connection.zig");
+    pub const quic_connection = @import("quic/quic_connection.zig");
+    pub const endpoint = @import("endpoint/endpoint.zig");
+    pub const alt_svc = @import("alt_svc.zig");
+    pub const coding_pool = @import("coding/coding_pool.zig");
+    pub const deadline = @import("deadline.zig");
+    pub const close_reason = @import("close_reason.zig");
+    pub const versions = @import("versions.zig");
+    pub const limits = @import("limits.zig");
+};
+
 /// What a program configures a server with, once: the endpoint reads it while it runs (decision
 /// 119).
-pub const Config = endpoint.Config;
-pub const Versions = versions.Versions;
-pub const Limits = limits.Limits;
-pub const Deadline = deadline.Deadline;
-pub const Deadlines = deadline.Deadlines;
-pub const CloseReason = close_reason.CloseReason;
-pub const Limit = close_reason.Limit;
-pub const Connection = connection.Connection;
-pub const QuicConnection = quic_connection.QuicConnection;
-pub const Endpoint = endpoint.Endpoint;
-pub const EndpointOf = endpoint.EndpointOf;
-pub const Capacity = endpoint.Capacity;
+pub const Config = files.endpoint.Config;
+pub const Versions = files.versions.Versions;
+pub const Limits = files.limits.Limits;
+pub const Deadline = files.deadline.Deadline;
+pub const Deadlines = files.deadline.Deadlines;
+pub const CloseReason = files.close_reason.CloseReason;
+pub const Limit = files.close_reason.Limit;
+pub const Connection = files.connection.Connection;
+pub const QuicConnection = files.quic_connection.QuicConnection;
+pub const Endpoint = files.endpoint.Endpoint;
+pub const EndpointOf = files.endpoint.EndpointOf;
+pub const Capacity = files.endpoint.Capacity;
 /// What `Endpoint.receive` takes: `.none`, the `StreamOctets` a program's TCP socket read, or a
 /// `Datagram` its UDP socket read.
-pub const Input = endpoint.Input;
-pub const Datagram = endpoint.Datagram;
+pub const Input = files.endpoint.Input;
+pub const Datagram = files.endpoint.Datagram;
 /// Whether a TCP connection `Endpoint.accept` takes runs TLS.
-pub const Security = endpoint.Security;
-pub const StreamOctets = endpoint.StreamOctets;
-pub const LogProvider = endpoint.LogProvider;
+pub const Security = files.endpoint.Security;
+pub const StreamOctets = files.endpoint.StreamOctets;
+pub const LogProvider = files.endpoint.LogProvider;
 /// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
-pub const Sent = quic_connection.Sent;
+pub const Sent = files.quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
-pub const Address = quic_connection.PeerAddress;
+pub const Address = files.quic_connection.PeerAddress;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
-pub const Error = connection.Error;
-pub const StartError = connection.StartError;
-pub const SendError = connection.SendError;
-pub const Field = connection.Field;
-pub const Id = event.Id;
-pub const ConnectionHandle = event.ConnectionHandle;
-pub const Protocol = event.Protocol;
-pub const Version = event.Version;
-pub const Fields = event.Fields;
-pub const Event = event.Event;
-pub const Request = event.Request;
-pub const Body = event.Body;
-pub const Trailers = event.Trailers;
-pub const Cancelled = event.Cancelled;
-pub const CancelReason = event.CancelReason;
-pub const Done = event.Done;
-pub const Writable = event.Writable;
-pub const Ended = event.Ended;
-pub const Response = event.Response;
-pub const Content = event.Content;
-pub const Received = event.Received;
-pub const Alternative = alt_svc.Alternative;
+pub const Error = files.connection.Error;
+pub const StartError = files.connection.StartError;
+pub const SendError = files.connection.SendError;
+pub const Field = files.connection.Field;
+pub const Id = files.event.Id;
+pub const ConnectionHandle = files.event.ConnectionHandle;
+pub const Protocol = files.event.Protocol;
+pub const Version = files.event.Version;
+pub const Fields = files.event.Fields;
+pub const Event = files.event.Event;
+pub const Request = files.event.Request;
+pub const Body = files.event.Body;
+pub const Trailers = files.event.Trailers;
+pub const Cancelled = files.event.Cancelled;
+pub const CancelReason = files.event.CancelReason;
+pub const Done = files.event.Done;
+pub const Writable = files.event.Writable;
+pub const Ended = files.event.Ended;
+pub const Response = files.event.Response;
+pub const Content = files.event.Content;
+pub const Received = files.event.Received;
+pub const Alternative = files.alt_svc.Alternative;
 /// The content codings a server applies (decision 101).
 pub const Coding = http.content_coding.Coding;
-pub const EncoderPool = coding_pool.EncoderPool;
-pub const DefaultEncoderPool = coding_pool.DefaultEncoderPool;
-pub const Encoders = coding_pool.Encoders;
+pub const EncoderPool = files.coding_pool.EncoderPool;
+pub const DefaultEncoderPool = files.coding_pool.DefaultEncoderPool;
+pub const Encoders = files.coding_pool.Encoders;
 /// The pool of decoders h11 removes the `gzip` and `deflate` transfer codings of a request with
 /// (decision 91), which the caller places: `DecoderPool(count)` for `count` decoders, or
 /// `DefaultDecoderPool`. A configuration holds it as `Decoders`, from `storage()` after `reset`.
@@ -107,7 +111,7 @@ pub const DefaultDecoderPool = h11.coding.DefaultPool;
 pub const Decoders = h11.coding.Storage;
 /// The CPU features a pool's codecs run on, which its `reset` takes: `Features.detect()` asks the
 /// CPU, as colibri never does itself, and `Features.target()` is what the build target guarantees.
-pub const Features = coding_pool.Features;
+pub const Features = files.coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21a adds `Versions` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
@@ -131,7 +135,10 @@ test "design §8 step 17f: the root exports its constants and the types a progra
 }
 
 test {
-    std.testing.refAllDecls(@This());
+    // Every file's tests run, whether or not the root exports a name of it.
+    std.testing.refAllDecls(files);
+    // Every name the root exports resolves.
+    _ = @import("core").public_names.reference(@This(), &.{});
     _ = @import("versions.zig");
     _ = @import("reason.zig");
     _ = @import("expect.zig");
