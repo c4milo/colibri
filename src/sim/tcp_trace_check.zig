@@ -1,4 +1,4 @@
-//! The TCP trace run (https://github.com/c4milo/colibri/issues/79): a `client.Connection` and a
+//! The TCP trace run (https://github.com/c4milo/colibri/issues/79): a `client.Channel` and a
 //! `server.Endpoint` act out a seed's `tcp_trace_plan.zig` over h2, in cleartext or over TLS, and
 //! after each action the run computes `spec/tla/h2_connection`'s state from both
 //! (`tcp_trace_state.zig`). It keeps each state that differs from the last one kept, which
@@ -217,14 +217,15 @@ test "TCP trace run: a client's first flight and every exchange after it, with n
 }
 
 test "TCP trace run: the wire CRC-32 covers the octets the server has not read" {
-    // The first seed, after the client's first send and before any delivery. Each written seed
-    // ends with all of its client's octets read, so only a run stopped here tells `handed` from
-    // `consumed`.
+    // The first seed, after the client's first request and send and before any delivery. Each
+    // written seed ends with all of its client's octets read, so only a run stopped here tells
+    // `handed` from `consumed`. The first request starts the client's connection.
     const seed: u64 = 0;
     var random = Random.init(seed);
     test_storage.plan.draw(&random);
     try test_storage.world.init(seed, test_storage.plan.tls);
     test_storage.states_len = 0;
+    try act(&test_storage, .request);
     try act(&test_storage, .client_send);
     const to_server = &test_storage.world.to_server;
     try testing.expect(to_server.handed > 0);

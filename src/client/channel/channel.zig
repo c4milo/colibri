@@ -377,7 +377,8 @@ pub const Channel = struct {
     }
 
     /// Where `transport`'s connection stands, as spec/tla/client_exchanges's `phase` names it. A
-    /// program reads the events and never this: the simulator's trace does (decision 105).
+    /// program reads the events and never this. The simulator's client trace run reads it (decision
+    /// 105), and its TCP trace run decides by it whether its one connection takes a request.
     pub fn phase(channel: *const Channel, transport: Transport) Phase {
         const link = channel.links.get(transport);
         return switch (link.state) {

@@ -80,11 +80,11 @@ const Parts = struct {
 pub fn compute(world: *World, plan: *const Plan) Error!State {
     var state: State = .{};
     const n: usize = plan.streams;
-    const client_h2 = world_module.h2_of(&world.client.session);
+    const client_h2 = world.client_h2();
     const held = world.server_connection();
     const server_h2 = world_module.h2_of(&held.session);
     note_streams(client_h2, server_h2, n, &state);
-    const from_client = Written.of(&world.to_server, pending(&world.client), h2.constants.client_preface_len);
+    const from_client = Written.of(&world.to_server, world.client_pending(), h2.constants.client_preface_len);
     const from_server = Written.of(&world.to_client, pending(held), 0);
     try note_client_writes(from_client, &state);
     try note_server_writes(from_server, world.to_client.heads[0..world.to_client.heads_written], &state);
@@ -100,7 +100,7 @@ pub fn compute(world: *World, plan: *const Plan) Error!State {
     // The client drops the plaintext it read at once, so all it holds is unread. The server holds
     // what its last event pointed into, `plain_in_read` octets, until its next call.
     const server_read = try read_of(&world.to_server, world.tls, held.plain_in_len - held.plain_in_read);
-    const client_read = try read_of(&world.to_client, world.tls, world.client.plain_in_len);
+    const client_read = try read_of(&world.to_client, world.tls, world.client_plain_in_len());
     state.to_server_len = drop_goaways(&state.to_server, try in_flight(from_client, server_read, .preface, null, &state.to_server));
     const heads = world.to_client.heads[0..world.to_client.heads_written];
     state.to_client_len = try in_flight(from_server, client_read, .settings, heads, &state.to_client);

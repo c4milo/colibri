@@ -512,7 +512,7 @@ Everything below exists. Change this section when a step adds or renames a comma
   `spec/tla/server_deadlines`, whose logs also say when three of colibri's clocks run
   (https://github.com/c4milo/colibri/issues/86), and `tools/tcp_trace.sh` for the TCP trace run,
   with `--tcp-trace-write` and `spec/tla/h2_connection`, through `server.Endpoint` and
-  `client.Connection` in cleartext and over TLS (https://github.com/c4milo/colibri/issues/79),
+  `client.Channel` in cleartext and over TLS (https://github.com/c4milo/colibri/issues/79),
   and `tools/h3_deadline_trace.sh` for the h3 deadline trace run, with
   `--h3-deadline-trace-write` and `spec/tla/h3_deadlines`, whose logs hold only the variables
   that map one to one onto colibri (design §8 step 20d). Each needs Java, and `tools/ci.sh` runs

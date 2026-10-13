@@ -1,5 +1,5 @@
 //! The limits of the TCP trace run (https://github.com/c4milo/colibri/issues/79): a
-//! `client.Connection` and a `server.Endpoint` over h2, logged in `spec/tla/h2_connection`'s
+//! `client.Channel` and a `server.Endpoint` over h2, logged in `spec/tla/h2_connection`'s
 //! terms. Split off `constants.zig` because a hand-written source file stays at or under 500 lines
 //! (CLAUDE.md). `constants.zig` exports them as `tcp_trace`.
 const std = @import("std");
@@ -40,6 +40,16 @@ pub const headers_max: u32 = streams_max * (interims_max + 1 + 1);
 /// Calls to `receive` one delivery makes at most. Each takes a frame or more, or reports an event,
 /// and a direction holds fewer frames than this.
 pub const receives_per_delivery_max: u32 = 256;
+/// The calls in a row that consume nothing and report nothing, after which the client's delivery
+/// ends: one may read a `draining` the channel keeps.
+pub const quiet_receives: u32 = 2;
+
+/// The one address the client's channel opens its socket to, which no socket reads, and the
+/// origin's port: 80 for "http" and 443 for "https" (RFC 9110 §4.2.1, §4.2.2).
+pub const ipv4_len: usize = 4;
+pub const address_octet: u8 = 0x0a;
+pub const http_port: u16 = 80;
+pub const https_port: u16 = 443;
 
 /// Rounds of the drain after the last action, each a send and a delivery one way and then the
 /// other. A round that changes nothing ends it.
