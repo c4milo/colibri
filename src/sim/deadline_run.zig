@@ -1,6 +1,7 @@
 //! One run of the deadline check (`deadline_check.zig`, decision 110): an endpoint that holds one
 //! TCP connection (design §8 step 21b.6), the application that answers its requests
-//! (`deadline_app.zig`), and the peer of the seed's plan, in simulated time. At each instant the
+//! (`deadline_app.zig`), and the peer of the seed's plan, in simulated time. An honest peer is
+//! colibri's client, a channel with TCP alone in cleartext (step 21c). At each instant the
 //! run moves octets both ways until nothing moves, then goes to the next instant something is due:
 //! a piece the peer writes or reads, an answer of the application's, or a deadline of the
 //! server's. A run ends when the endpoint says to close the connection's socket, or at the horizon
@@ -23,6 +24,12 @@ const Random = sim.Random;
 const limits = sim.constants.deadline;
 const Plan = plan_module.Plan;
 const Hostile = peer_module.Hostile;
+
+/// The one address the channel opens its socket to, which no socket reads, and the port of an
+/// "http" origin whose URI names none (RFC 9110 §4.2.1).
+const ipv4_len: usize = 4;
+const address_octet: u8 = 0x0a;
+const origin_port: u16 = 80;
 
 pub const Error = client.RequestError || client.StartError || server.StartError || peer_module.Error || app_module.Error || error{
     /// The server failed the connection on octets an honest peer sent.
@@ -117,8 +124,9 @@ pub const Storage = struct {
     closed: bool,
     lingered: bool,
     ended: ?server.Ended,
-    client_config: client.Config,
-    client_connection: client.Connection,
+    client_config: client.ChannelConfig,
+    addresses: [1]client.Address,
+    channel: client.Channel,
     hostile: Hostile,
     to_server: Stream,
     to_client: Stream,
@@ -155,7 +163,9 @@ pub fn run(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     return error.RunStalled;
 }
 
-fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
+/// Starts the run: the endpoint with one connection accepted, and the peer of the plan. The run's
+/// test calls it, as `run` does.
+pub fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     // Decision 117: each side allows the plan's version alone, so each speaks it from the start.
     const versions: server.Versions = switch (plan.protocol) {
         .h11 => .{ .h2 = false },
@@ -198,7 +208,10 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
         .h2 => .{ .h11 = false },
     };
     storage.client_config = .{ .authority = "a.example", .versions = client_versions };
-    try storage.client_connection.init(&storage.client_config, source, 0, null);
+    const octets: [ipv4_len]u8 = @splat(address_octet);
+    storage.addresses = .{client.Address.of(&octets, 0)};
+    // No receive pool, so the channel offers TCP alone.
+    try storage.channel.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
     for (storage.exchanges[0..plan.exchanges_len], 0..) |*exchange, index| {
         exchange.* = .{ .method = "GET", .path = "/", .body = &storage.bodies[index] };
         if (plan.peer == .upload) {
@@ -209,11 +222,24 @@ fn start(storage: *Storage, plan: *const Plan, seed: u64) Error!void {
     // An upload's exchanges go one at a time, so each request's body has the whole link.
     const at_once = if (plan.peer == .upload) 1 else plan.exchanges_len;
     for (0..at_once) |_| try request_next(storage);
+    try connect(storage, source, ns_of(plan, 0));
+}
+
+/// Reads the channel's `open`, and starts its connection on the socket it asked for. In cleartext
+/// the connection owes `connected` from its start, and the channel hands it the waiting exchanges
+/// as it reports it, so the peer's first write carries them.
+fn connect(storage: *Storage, source: tls.Random, now_ns: u64) Error!void {
+    const asked = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    assert(asked.open.transport == .tcp);
+    try storage.channel.start_tcp(source, 0, null);
+    const reported = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    assert(reported == .connected);
+    assert(storage.channel.receive(.none, now_ns).event == null);
 }
 
 /// Gives colibri's client its next exchange.
 fn request_next(storage: *Storage) Error!void {
-    _ = try storage.client_connection.request(&storage.exchanges[storage.exchanges_requested]);
+    _ = try storage.channel.request(&storage.exchanges[storage.exchanges_requested]);
     storage.exchanges_requested += 1;
 }
 
@@ -247,7 +273,7 @@ fn settle(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
 }
 
 /// The peer writes what is due, and the octets it wrote are delivered as its pace allows.
-fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
+pub fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     const stream = &storage.to_server;
     if (!plan.honest()) {
         var moved = false;
@@ -262,7 +288,7 @@ fn peer_write(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
         if (plan.peer != .silent) stream.written += try storage.hostile.write_acks(stream.free());
         return stream.deliver(stream.written) or moved;
     }
-    stream.written += storage.client_connection.send(stream.free(), ns_of(plan, now_ms));
+    stream.written += storage.channel.send_stream(stream.free(), ns_of(plan, now_ms));
     if (!plan.paced()) return stream.deliver(stream.written);
     if (now_ms < storage.next_piece_ms or stream.written == stream.delivered) return false;
     storage.next_piece_ms = now_ms + plan.gap_ms;
@@ -352,7 +378,7 @@ fn read_rest(storage: *Storage, plan: *const Plan, now_ms: u64) Error!void {
 
 /// The peer reads what the server sent: colibri's client reads its responses, and a hostile peer
 /// reads the frames it must acknowledge. An upload's next exchange starts when one finishes.
-fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
+pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     const stream = &storage.to_client;
     var moved = read_socket(storage, plan, now_ms);
     if (!plan.honest()) {
@@ -361,15 +387,33 @@ fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
     }
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + events_max) |_| {
-        const received = storage.client_connection.receive(stream.held(), ns_of(plan, now_ms));
+        const received = storage.channel.receive(.{ .stream = stream.held() }, ns_of(plan, now_ms));
         stream.consumed += received.consumed;
         const reported = received.event orelse return moved or received.consumed > 0;
         moved = true;
-        if (reported != .finished) continue;
-        if (reported.finished.exchange.outcome == .response) storage.record.exchanges_done += 1;
-        if (plan.peer == .upload and storage.exchanges_requested < plan.exchanges_len) try request_next(storage);
+        try on_event(storage, plan, reported);
     }
     return moved;
+}
+
+/// What an event of colibri's client means to the run. An upload's next exchange starts when one
+/// finishes. `connected` and `ticket` change nothing here, and the run ignores `close`: the server
+/// closes this socket, never the peer.
+fn on_event(storage: *Storage, plan: *const Plan, reported: client.ChannelEvent) Error!void {
+    switch (reported) {
+        .finished => |finished| {
+            if (finished.exchange.outcome == .response) storage.record.exchanges_done += 1;
+            if (plan.peer == .upload and storage.exchanges_requested < plan.exchanges_len) try request_next(storage);
+        },
+        // The peer has one socket, so an exchange that waits for another ends refused.
+        .open => |asked| {
+            assert(asked.transport == .tcp);
+            storage.channel.transport_closed(.tcp);
+        },
+        .connected, .ticket, .close => {},
+        // The peer never shuts its channel down.
+        .closed => unreachable,
+    }
 }
 
 /// The next instant something is due: a piece the peer writes or reads, an answer, or a deadline
