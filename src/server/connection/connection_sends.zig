@@ -39,8 +39,8 @@ pub const Sends = struct {
     meter: rate.Meter,
     entries: [constants.bodies_max]Blocked,
     /// The entries in use: those whose `id` is not 0. While it is 0 a lookup or a sweep reads no
-    /// entry, which is how most calls find the table: `receive` fires and observes the deadlines
-    /// around every event it reads.
+    /// entry, which is how most calls find the table: `receive` observes the deadlines after every
+    /// event it reads, and fires them at the first call at each instant.
     used: u32,
 
     pub fn init(sends: *Sends) void {

@@ -227,6 +227,16 @@ test "decision 110: a caller changes one connection's limits, null turns one off
     try testing.expectError(error.DeadlineInvalid, connection.init(&support.config, support.stream.random(), 0, 0));
 }
 
+test "decision 110: a limit shortened after a call passes at that call's instant, on the next call" {
+    try support.start_cleartext(.h11);
+    connection.on_instant(early_ns);
+    try testing.expectEqual(null, connection.close_reason());
+    // The connection was checked at this instant, and the shorter limit has passed by it.
+    try connection.set_deadlines(.{ .first_request_ns = early_ns });
+    connection.on_instant(early_ns);
+    try testing.expectEqual(.first_request, connection.close_reason().?.deadline);
+}
+
 test "decision 110 as amended: where bodies arrive in units, a rate an honest peer can fall short of is refused" {
     // Twice 819 octets a second over the default 10 s window is 16,380 octets, under a unit of
     // 16,384 (spec/lean/Colibri/Server/RateMeter.lean), and twice 820 is over it.

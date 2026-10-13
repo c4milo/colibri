@@ -349,6 +349,8 @@ pub const Connection = struct {
         try deadlines.validate();
         if (internal.whole_units(connection)) try deadlines.validate_units();
         connection.deadlines = deadlines;
+        // A shorter limit can pass at the instant `fire` last checked.
+        connection.clock.checked_ns = null;
     }
 
     /// Why colibri closed the connection on its own: the deadline that passed, or the limit the

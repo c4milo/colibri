@@ -46,6 +46,9 @@ pub const Clock = struct {
     settings_pause_since_ns: ?u64,
     /// The instant the first call after `shutdown` saw it, from which the drain runs.
     drain_since_ns: ?u64,
+    /// The instant `fire` last checked the deadlines at, or null before its first call and after
+    /// `set_deadlines`.
+    checked_ns: ?u64,
 
     pub fn init(now_ns: u64) Clock {
         return .{
@@ -59,6 +62,7 @@ pub const Clock = struct {
             .settings_paused_ns = 0,
             .settings_pause_since_ns = null,
             .drain_since_ns = null,
+            .checked_ns = null,
         };
     }
 };
@@ -240,6 +244,12 @@ fn is_past(since: u64, limit: ?u64, now_ns: u64) bool {
 /// Ends the connection when a deadline has passed at `now_ns`, and returns whether one had. An h2
 /// body's deadline ends its stream alone.
 pub fn fire(connection: *Connection, now_ns: u64) bool {
+    // A call at the instant of the last finds nothing to end. Each deadline that started since
+    // then started at this instant and passes after it, since every limit is above 0, and the last
+    // call checked each one that started before. The endpoint calls `receive` many times at one
+    // instant.
+    if (connection.clock.checked_ns == now_ns) return false;
+    connection.clock.checked_ns = now_ns;
     connection_sends.linger(connection, now_ns);
     if (!running(connection)) return false;
     const passed = due(connection, now_ns) orelse connection_bodies.fire(connection, now_ns) orelse

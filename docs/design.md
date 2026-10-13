@@ -8004,6 +8004,42 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     room and still names its due instant, which the run's own assertion stops. Of the run: an
     honest peer that reads nothing after the close, and a hostile peer that reads the rest.
 
+  **The deadlines are checked once at each instant, 2026-10-13.** The endpoint calls `receive`
+  several times at the instant it read, and each call ran `fire` first, which found nothing on
+  every call but the first. A deadline that starts at an instant passes after it, since every
+  limit is above 0, and the first call at that instant checked each deadline that started before.
+  `Clock.checked_ns` holds the instant `fire` last checked, `fire` returns at once at that
+  instant, and `set_deadlines` forgets it, since a shorter limit can pass at it.
+  `server.Connection` holds 16 octets more, and `docs/performance.md` has the three rows that
+  follow from it.
+
+  What each check printed:
+  - `zig build sim -Drelease -- --deadline-check 65536` printed crc32=0x4878c63a, as main does.
+  - A new test shortens a limit after a call so that it has passed at that call's instant, and
+    requires the next call at that instant to end the connection.
+  - The four traces wrote the same octets before and after the change.
+  - 4 mutations, each **CAUGHT**: `fire` returning at any instant once it has checked one,
+    `set_deadlines` keeping the instant, `fire` recording the instant after this one, and `init`
+    keeping the instant of the slot's last connection. 2 mutations **NOT CAUGHT**: the instant
+    never recorded, which is the old code, and the instant `init` is given recorded, at which no
+    deadline passes.
+
+  The judge, [run 38342554675](https://github.com/c4milo/colibri/actions/runs/38342554675),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 16,497 | 16,019 | 0.9710 | 0.9713 | wins in both |
+  | h2-tls-many | 24,416 | 24,028 | 0.9841 | 0.9821 | wins in both |
+  | h2-one | 184,383 | 181,885 | 0.9865 | 0.9836 | wins in both |
+  | h2-tls-one | 7,280,627 | 7,275,389 | 0.9993 | 0.9992 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 474 in both jobs,
+  where the disassembly gave about 480. h2-one wins as well: its user instructions per connection
+  fell by 2,791 and 2,799, because the endpoint calls a new connection several times at one
+  instant too.
+
 - **Step 21 — one HTTP API.** [Decision 117](decisions.md) has a program that uses `server` and
   `client` name no HTTP version outside `versions`, and serve every connection through one
   endpoint ([#96](https://github.com/c4milo/colibri/issues/96)). Six parts. Each starts with the

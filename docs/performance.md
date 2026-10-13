@@ -95,10 +95,10 @@ With chapulin's host objects:
 
 | Struct | Bytes | What it holds |
 | --- | ---: | --- |
-| `server.Endpoint` | 40630352 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
-| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323424 | an endpoint that holds one TCP connection |
+| `server.Endpoint` | 40630608 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
+| `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323440 | an endpoint that holds one TCP connection |
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240560 | an endpoint that holds one QUIC connection, with its receive pool |
-| `server.Connection` | 306432 | one TCP connection: h11 or h2, in cleartext or over TLS |
+| `server.Connection` | 306448 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `server.QuicConnection` | 721416 | one h3 connection, without its receive pool |
 | `client.Connection` | 289208 | one TCP connection: h11 or h2, in cleartext or over TLS |
 | `client.QuicConnection` | 703712 | one h3 connection, without its receive pool |
