@@ -600,8 +600,8 @@ sends what it owes, and reads again:
 fn client_turn() !void {
     const now_ns = link.now_ns(.client);
     try read_datagrams(now_ns);
-    // The fallback delay and QUIC's timers are deadlines: `on_instant` fires those that passed,
-    // and the reads after it report what that changed.
+    // `on_instant` fires QUIC's timers that passed. The reads after it count the end of the
+    // fallback delay, and report what changed.
     channel.on_instant(now_ns);
     try drain(now_ns);
     try link.send(.client, output[0..channel.send_stream(&output, now_ns)]);
@@ -714,13 +714,25 @@ The events:
   `fallback_delay_ns` passes. The first connection whose handshake completes takes the exchanges.
 - `connected` reports the version that carries the exchanges: h3 over QUIC, or the version ALPN
   picked over TCP.
-- `ticket` says the server issued a resumption ticket: `take_ticket` hands it over, and a later
-  connection offers it through the last argument of `start_tcp` or `start_quic`.
+- `ticket` says the server issued a resumption ticket. `Channel.take_ticket` hands it over, and a
+  later connection offers it through the last argument of `start_tcp` or `start_quic`.
 - `close` names a transport whose connection is over. Over TCP, `send_stream` wrote everything
   first, the TLS close_notify too. The program closes the socket, and drops the octets it read
   from it and still holds: they are that connection's, and the next connection must not get them.
 - After `shutdown`, `closed` says the channel is over: every exchange ended and every transport
   closed.
+
+The example opens no later connection, so its `take_ticket` wipes each ticket the channel hands
+over:
+
+```zig
+fn take_ticket(transport: client.Transport) void {
+    const ticket = channel.take_ticket(transport) orelse return;
+    var held = ticket;
+    held.wipe();
+    tickets += 1;
+}
+```
 
 A program starts each connection with the source its TLS session draws from. The channel draws a
 QUIC connection's IDs and h3's grease value from that source too, and the handshake draws the

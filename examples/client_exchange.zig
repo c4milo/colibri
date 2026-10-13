@@ -10,8 +10,9 @@
 //! The network drops every UDP datagram, as some networks do. The run goes in this order:
 //! 1. The channel says `open .quic`, and the program starts the QUIC connection. Each datagram it
 //!    sends is lost.
-//! 2. The fallback delay passes, which only `deadline_ns` and `on_instant` tell the channel. The
-//!    channel says `open .tcp`, and the program connects a socket and starts the TCP connection.
+//! 2. The fallback delay passes. `deadline_ns` names its end, and the first `receive` at or after
+//!    that instant tells the channel. The channel says `open .tcp`, and the program connects a
+//!    socket and starts the TCP connection.
 //! 3. ALPN picks h2. The channel reports `connected` and sends both requests, and each exchange
 //!    ends in one `finished` event.
 //! 4. The program calls `shutdown`. The channel says `close .tcp` once `send_stream` wrote the
@@ -188,8 +189,8 @@ fn start_client(cpu: tls.Cpu) !void {
 fn client_turn() !void {
     const now_ns = link.now_ns(.client);
     try read_datagrams(now_ns);
-    // The fallback delay and QUIC's timers are deadlines: `on_instant` fires those that passed,
-    // and the reads after it report what that changed.
+    // `on_instant` fires QUIC's timers that passed. The reads after it count the end of the
+    // fallback delay, and report what changed.
     channel.on_instant(now_ns);
     try drain(now_ns);
     try link.send(.client, output[0..channel.send_stream(&output, now_ns)]);

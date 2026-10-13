@@ -7,8 +7,9 @@
 //! is opened (decision 96).
 //!
 //! The link holds a pointer to its `Loops`, and does not start or stop them. A program that holds a
-//! `Link` too gives this link the `Link`'s loops. Then each side runs one loop and reads one clock,
-//! so the instants each side gives colibri never go back.
+//! `Link` too gives this link the `Link`'s loops. Then each side reads one clock. A program that
+//! reads it once in each turn, and passes that instant to each call of the turn, gives colibri
+//! instants that never go back (decision 121).
 //!
 //! QUIC runs on timers as well as datagrams. `wait` ticks a side's loop until a duration passes,
 //! which is how a side with nothing to read sleeps until its next deadline.
