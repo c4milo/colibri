@@ -63,3 +63,46 @@ test "fail queues one GOAWAY, records it against the streams and stands on the f
     try testing.expectEqualSlices(u8, expected, test_output[0..written]);
     try testing.expect(!test_connection.has_pending());
 }
+
+/// Requires a connection with nothing pending to write no reply, which is what lets a caller skip
+/// `write_replies` when `has_pending` is false. Test-only.
+fn expect_nothing_owed_when_none_pending() !void {
+    if (test_connection.has_pending()) return;
+    try testing.expectEqual(0, test_connection.write_replies(test_output));
+}
+
+test "a connection with nothing pending writes no reply, after each kind of reply goes out" {
+    try support.start_server();
+    try expect_nothing_owed_when_none_pending();
+    // RFC 9113 §6.7: a PING owes its acknowledgment.
+    const ping = try support.frame_bytes(&support.test_input, constants.frame_type_ping, 0, 0, "12345678");
+    _ = try support.feed(ping);
+    try testing.expect(test_connection.has_pending());
+    _ = support.write_queued();
+    try expect_nothing_owed_when_none_pending();
+    // RFC 9113 §6.5.3: a SETTINGS frame owes its acknowledgment.
+    _ = try support.feed(support.empty_settings);
+    try testing.expect(test_connection.has_pending());
+    _ = support.write_queued();
+    try expect_nothing_owed_when_none_pending();
+    // RFC 9113 §6.9: DATA owes WINDOW_UPDATEs once enough of it has been released.
+    _ = try support.feed_request(1, "/", false);
+    var payload: [constants.frame_size_max]u8 = @splat('d');
+    for (0..constants.initial_window_size_initial / payload.len) |_| {
+        _ = try support.feed(try support.frame_bytes(&support.test_input, constants.frame_type_data, 0, 1, &payload));
+        if (test_connection.has_pending()) _ = support.write_queued();
+        try expect_nothing_owed_when_none_pending();
+    }
+    // RFC 9113 §6.4: a stream colibri resets owes its RST_STREAM, alone.
+    _ = try support.feed_request(3, "/", false);
+    _ = support.write_queued();
+    try test_connection.reset_stream(3, constants.error_cancel);
+    try testing.expect(test_connection.has_pending());
+    _ = support.write_queued();
+    try expect_nothing_owed_when_none_pending();
+    // RFC 9113 §5.4.1: a connection error owes its GOAWAY.
+    try testing.expectEqual(error.ConnectionFailed, test_connection.fail(constants.error_protocol_error));
+    try testing.expect(test_connection.has_pending());
+    _ = support.write_queued();
+    try expect_nothing_owed_when_none_pending();
+}

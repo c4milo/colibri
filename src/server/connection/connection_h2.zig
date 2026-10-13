@@ -103,6 +103,8 @@ fn trailer_fields(section: *const http.FieldSection) event.Fields {
 /// https://github.com/c4milo/colibri/issues/85).
 fn write_owed_first(connection: *Connection) void {
     const session = &connection.session.h2;
+    // Most calls find nothing pending, and then `write_replies` writes nothing.
+    if (!session.has_pending()) return;
     const update_owed = session.owes_window_update();
     internal.take_owed(connection, session.write_replies(internal.room(connection)), update_owed);
 }

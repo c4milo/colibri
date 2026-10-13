@@ -6687,6 +6687,34 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 211 in both jobs,
   where the disassembly gave about 225.
 
+  **The server skips the replies h2 owes when it owes none, 2026-10-13.** `respond` and
+  `write_body` write what h2 owes ahead of their own frames (decision 39 as amended), and most
+  calls find nothing pending: `write_replies` still walked its five queues. When `has_pending` is
+  false, `write_replies` writes nothing and `take_owed` changes nothing, so `write_owed_first` now
+  returns first.
+
+  What each check printed:
+  - An h2 test requires a connection with nothing pending to write no reply, after each kind of
+    reply goes out: a PING's and a SETTINGS frame's acknowledgments, WINDOW_UPDATEs, a lone
+    RST_STREAM, and a GOAWAY.
+  - The four traces wrote the same octets before and after the change.
+  - 2 mutations, each **CAUGHT**: the replies skipped when something is pending, and always
+    skipped. 1 mutation **NOT CAUGHT**: nothing skipped, which is the old code.
+
+  The judge, [run 38427732415](https://github.com/c4milo/colibri/actions/runs/38427732415),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 14,644 | 14,529 | 0.9921 | 0.9917 | wins in both |
+  | h2-tls-many | 22,606 | 22,499 | 0.9953 | 0.9950 | within the noise in job 1, wins in job 2 |
+  | h2-one | 179,922 | 179,862 | 0.9997 | 0.9989 | within the noise |
+  | h2-tls-one | 7,272,536 | 7,272,524 | 1.0000 | 1.0001 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 132 in both jobs,
+  where the disassembly gave about 140.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
