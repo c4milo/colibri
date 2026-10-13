@@ -4258,3 +4258,164 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          and its connect fails. The program calls `transport_closed`, and the exchange ends
          `refused`. The first channel still shows the fallback delay, so this is not the
          alternative refused above.
+
+122. **`server.routes` matches a method and a path through a table the program declares at
+     compile time.** Ruled by the owner on 2026-10-13 in
+     [#96](https://github.com/c4milo/colibri/issues/96); design §8 step 21e carries it.
+
+     Decision 117 ruling 6 asks for a router that matches a path and returns its parameters. The
+     router does nothing more. Decision 118 refuses middleware, so colibri calls no function of
+     the program's.
+
+     What [#96](https://github.com/c4milo/colibri/issues/96) and decision 117 already settle:
+     - `server.routes(Value, table)` returns a table that the compiler builds. Each entry has a
+       method, a pattern and a value of any type that the program names: an enum, a function
+       pointer or a struct.
+     - A pattern is a path of segments. A segment is a literal, a parameter (`:name`) or a last
+       segment `*`, the wildcard.
+     - `match` reads the path as received, octet for octet and case-sensitive. It stops at the
+       first "?". A path that does not start with "/" matches nothing. A path with an empty
+       segment other than the root's, or with a "." or ".." segment, matches nothing.
+     - At each node the walk tries the literal, then the parameter, then the wildcard. It backs
+       up one level when a deeper level fails. The first leaf that the walk finds decides, and
+       the table's order changes nothing. The walk reads each node once at most (INV-32).
+     - At the leaf the method decides: `found` with the route's value, or `method_not_allowed`
+       with the leaf's Allow value. A walk that finds no leaf gives `not_found`.
+     - `found` writes the parameters into a `server.PathParameters`, which the program places and
+       reads with `get`. The values are slices of the path.
+     - A malformed or conflicting table does not compile, and the message names the entry and the
+       rule. `zig build routes-check` compiles each such table and requires the refusal.
+
+     The rulings:
+     1. HEAD finds the GET route at a leaf that names GET and no HEAD. The leaf's Allow value
+        lists HEAD after GET. RFC 9110 §9.1 tells every general-purpose server to support GET and
+        HEAD. The endpoint also writes no content in a response to HEAD, in h11, h2 and h3 alike
+        (RFC 9110 §9.3.2, RFC 9113 §8.1.1, RFC 9114 §4.1). `write_body` takes the octets and
+        writes none. So a program writes the same answer for GET and for HEAD. Before this step,
+        `write_body` on a response to HEAD returned `SectionOutOfOrder` over h11, and h2 and h3
+        sent the content. The endpoint keeps the Content-Length field that the program writes,
+        because a response to HEAD carries the fields of a response to GET (RFC 9110 §9.3.2).
+     2. `match` has a fourth result, `not_implemented`, for a method that no route of the table
+        names (RFC 9110 §9.1, §15.6.2). `match` checks the method before the path, and HEAD
+        counts as GET. So CONNECT gets 501. `OPTIONS *` gets 501 when no route names OPTIONS,
+        and `not_found` when a route names it.
+     3. `server.routes` is exported under its own name. CLAUDE.md's rule "No public name repeats
+        itself" gains one sentence: a function named after its file is exported under its own
+        name too. Each call of `routes` returns a value of a type of its own. The type has no
+        field and no name in the root. Its public declarations are `Match`, which `match`
+        returns, and `match`. `server.PathParameters` joins the root, and its one public
+        function is `get`. The server's root then exports 49 names.
+     4. An entry is a tuple: `.{ .get, "/users/:id", .user }`. Its method is an enum literal or a
+        value of `http.method.Standard`, or the token of a method outside RFC 9110's eight.
+        `http.method` exports `Standard` for it.
+     5. Two parameter names at one trie node do not compile: `GET /users/:id` beside
+        `PUT /users/:user`. A parameter node has one name.
+     6. The wildcard matches one segment or more, the rest of the path. A program reads it with
+        `get("*")`. So `/files/*` does not match `/files`.
+     7. A path that holds a "%" matches nothing (RFC 3986 §2.1). So no parameter holds a space, a
+        "/" or an octet above 0x7F.
+     8. A path with an octet outside RFC 3986's `pchar` matches nothing (RFC 3986 §3.3). h11
+        refuses such a target before the program reads it, so h2 and h3 route as h11 does.
+     9. `Request.method` stays text in this step, and `match` compares the text with the token of
+        each entry. [#96](https://github.com/c4milo/colibri/issues/96) says that a `request`
+        event carries its method as one of the eight or as the token.
+        [#101](https://github.com/c4milo/colibri/issues/101) holds that change.
+     10. `server.constants.path_parameters_max` is 8. It counts the parameters of one pattern,
+         the wildcard included. `PathParameters` then holds 264 octets on a 64-bit target. A
+         table that needs more does not compile, so the limit never fails at run time.
+     11. For a 405, `match` gives the leaf's Allow value. The build writes it: the leaf's
+         standard methods in RFC 9110 §9.1's order, then its tokens ordered by octets, joined
+         by ", ". The program writes the 405 and its "allow" field (RFC 9110 §15.5.6).
+     12. A route that the rules hide does not compile. `GET /users/me` beside `GET /users/:id`
+         hides nothing, because a GET of `/users/x` reaches the parameter. A route is hidden in
+         two cases:
+         - A path that the route matches ends at a more specific leaf with no entry for the
+           route's method. `GET /users/:id` beside `PUT /users/me` is one: a GET of `/users/me`
+           gets 405.
+         - Every path that the route matches ends at a more specific leaf. `GET /a/*` beside
+           `GET /a/:x` and `GET /a/:x/*` is one: no request reaches `GET /a/*`.
+     13. `server.constants.path_len_max` is the endpoint's own bound on a path:
+         `@max(h11.constants.start_line_len_max, core.constants.field_value_len_max)`, 8192
+         octets today. A comptime assert pins it. `match` gives `not_found` for a longer path
+         (INV-8). The check of the path reads each octet once, before the walk.
+
+     Adopted for this step, which the owner may overrule:
+     - A walk does not back up for a method. The leaf of a path is one resource, and RFC 9110
+       §15.5.6 asks for the methods of that resource. Ruling 12 refuses each table in which a
+       back-up for a method would find another route.
+     - `match` takes the method and the path, not a `server.Request`. A test of a table then
+       needs no request, and the sketch of
+       [#96](https://github.com/c4milo/colibri/issues/96) passes the two.
+     - The router is in `server`, not in `http`. Every protocol module imports `http`, and none
+       of them routes.
+     - The path "/" has no segment, and the pattern "/" matches it. RFC 3986 §3.3 reads "/" as
+       one empty segment, which the rule on empty segments refuses.
+     - A parameter name is `1*( ALPHA / DIGIT / "_" )`, and a parameter is a whole segment.
+     - A route's value has a type that exists at run time, because `match` reads the value at
+       run time. A `type` or a bare `fn` type cannot be a route's value.
+
+     Not in this step:
+     - The typed method on the `request` event:
+       [#101](https://github.com/c4milo/colibri/issues/101).
+     - The grammar of `:path` in h2 and h3, which check only its first octet:
+       [#102](https://github.com/c4milo/colibri/issues/102). Until then ruling 8 makes the
+       router match nothing for a path that h11 refuses.
+     - An absolute-form target with an empty path and a query, such as `GET http://a?x`. Its
+       path is "?x", so it matches nothing where "/" has a route:
+       [#103](https://github.com/c4milo/colibri/issues/103).
+
+     The alternatives refused:
+     - Ruling 1: a table that must name HEAD wherever it names GET. Every table then repeats its
+       GET routes.
+     - Ruling 1: no rule, so HEAD gets 405 where the table names no HEAD route.
+     - Ruling 1: the fallback with no change to the endpoint. Each GET arm of a program then ends
+       at the head for HEAD, and a program that forgets it sends content over h2 and h3.
+     - Ruling 2: three results, as the sketch of
+       [#96](https://github.com/c4milo/colibri/issues/96) has. A method that no route names then
+       gets 404 or 405, where RFC 9110 §9.1 asks for 501.
+     - Ruling 3: a file of another name, which makes the name `server.<file>.routes`. Decision
+       117 ruling 6 names it `server.routes`.
+     - Ruling 3: `server.Routes(Value)`, a type that a program names. It adds a root name,
+       follows a pointer for each array, and needs a limit on the segments of a pattern.
+     - Ruling 3: `Match` private. Decision 115 has a type export what its calls return.
+     - Ruling 4: named fields in an entry. The tuple of
+       [#96](https://github.com/c4milo/colibri/issues/96) is the form agreed.
+     - Ruling 5: two names at one node, which each route keeps. One segment of one resource has
+       one name.
+     - Ruling 6: a named wildcard, `*rest`, or a second function, `rest()`. `get("*")` needs
+       neither, because no parameter name can be "*".
+     - Ruling 6: a wildcard that matches zero segments. Each other segment of a pattern matches
+       one segment of the path, never none.
+     - Ruling 7: only an encoding of an unreserved octet matches nothing (RFC 3986 §2.3), and a
+       parameter binds each other encoding as received. No result for a path without "%"
+       depends on the choice, so a later step can relax the rule.
+     - Ruling 7: a path decoded, or its dot segments removed, before the match. A router that
+       decoded `/users/%6De` could route it past a check written for `/users/me`.
+     - Ruling 8: an octet outside `pchar` read like any other. h2 and h3 then route a path that
+       h11 refuses.
+     - Ruling 9: `Request.method` as a union of `Standard` and a token. It breaks each program
+       that reads `request.method`, and it needs a step of its own.
+     - Ruling 9: a second field beside the text, which holds one fact in two fields.
+     - Ruling 10: 4 or 16.
+     - Ruling 11: the leaf's methods as a set, from which the program builds the value. Each
+       program then writes RFC 9110 §5.6.1.1's list syntax.
+     - Ruling 11: an endpoint call that writes a 405. It adds a call to `Endpoint` for one
+       status, and the program writes every other answer.
+     - Ruling 12: a hidden route allowed, with the rule in the guide. A program then gets 405,
+       or no request, for a route that it declared, and the build does not tell it.
+     - Ruling 13: a comment that names the endpoint's bound, with no limit in the router.
+       `match` is a public call that takes any slice, and INV-8 asks for a named constant.
+     - A table built at run time. It needs storage that the program sizes, and a malformed table
+       fails when the server starts, not when it builds.
+
+     What this decision changes in [#96](https://github.com/c4milo/colibri/issues/96):
+     - The issue says that the work for one request depends on the table alone, never on what
+       the peer sent. The check of the path reads each of its octets once, up to `path_len_max`.
+       So the work depends on the table and on the path's length, and `path_len_max` bounds it.
+     - The issue's typed method on the `request` event is not built (ruling 9).
+
+     Cost: two names in the server's root, one in `http.method`, and two limits in
+     `server.constants`. No name leaves a list. A response to HEAD changes: over h2 and h3 the
+     endpoint sends no content, and over h11 `write_body` returns no error. Each table costs
+     compile time, which `zig build routes-check` shows. A parameter's slice stays valid only
+     until the endpoint's next call, so a program that answers later copies it.

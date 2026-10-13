@@ -568,3 +568,24 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
 - **Violation.** A call that changes a connection and marks nothing, such as a poll that reads an
   event whose arrival starts a deadline. The program then sleeps past that deadline, and a peer
   holds the connection longer than decision 110 allows.
+
+## The router
+
+### INV-32 — a match reads each node of its table at most once
+
+- **Claim.** `match` reads each node of its table's trie at most once. It reads each octet of the
+  path once, before the walk, and it reads no octet of a path longer than `path_len_max`. So the
+  table, which the program declares at compile time, and `path_len_max` bound its work. How the
+  segments of a path branch does not change the bound.
+- **Mechanism.** Each node has one parent. The walk keeps a stack of frames, one for each level,
+  and each frame records the child kind it tried last: the literal, the parameter or the
+  wildcard. A segment matches one literal edge at most. So the walk pushes each node once at
+  most, and backs up past each node once at most. The check of the path is one loop over its
+  octets, which `path_len_max` bounds (INV-8, [decision 122](decisions.md)).
+- **Check.** Runtime assertion: the walk's loop runs at most `walk_steps_max`, a bound that the
+  build computes from the node count. The code after the loop asserts that it is unreachable.
+  Tests in `src/server/routes/routes_test.zig` run every order of a table and a deep table whose
+  last level fails. The fuzz test runs paths of every shape. Step 21e.5 for the check of the
+  path and `path_len_max`, and step 21e.7 for the walk's bound.
+- **Violation.** A back-up that tries a child kind again. A path built to fail at the last level
+  then makes the walk exponential in the table's depth.

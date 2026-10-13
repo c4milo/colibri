@@ -8564,13 +8564,51 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       keep `Connection` until 21f. The test counts stay through each `files` move. Each rule has
       a mutation a test catches.
   - **21e, the router.** `server.routes`, a table of methods and paths the program declares at
-    compile time, matched through a trie of path segments as #96 describes. A pattern's segment
-    is a literal, a parameter (`:id`) or a trailing wildcard (`*`), and a match returns the
-    path's parameters in a `server.PathParameters`. **Check:** tests for literal segments,
-    parameters, a trailing wildcard, precedence whatever the table's order, 404,
-    405 with its Allow list, and a path with an encoded octet, a dot segment or an empty segment
-    matching nothing. Each malformed or conflicting table fails to compile. An example routes
-    with it. Each rule has a mutation a test catches.
+    compile time, matched through a trie of path segments as
+    [#96](https://github.com/c4milo/colibri/issues/96) describes (decision 122 records the
+    rulings).
+    - The server's root exports 49 names: the 47 of 21d, then `PathParameters` and `routes`.
+      `http.method` exports `Standard` beside `standard` and `validate`.
+    - Each table has a type of its own, whose public declarations are `Match` and `match`.
+      `PathParameters` has one public function, `get`. A test lists each.
+    - An entry is a tuple of a method, a pattern and a value: `.{ .get, "/users/:id", .user }`.
+      A pattern's segment is a literal, a parameter (`:id`) or a trailing wildcard (`*`), and a
+      match writes the path's parameters into a `server.PathParameters`.
+    - The walk tries a literal, then a parameter, then the wildcard, and backs up a level when a
+      deeper one fails (INV-32). The method is looked up at the leaf: `found`,
+      `method_not_allowed` with the Allow value, or `not_found`. A method that no route names
+      is `not_implemented`, and HEAD finds a GET route.
+    - The path is matched as received. A path with an empty segment, a dot segment, a "%", an
+      octet outside `pchar` or more than `path_len_max` octets matches nothing.
+    - A malformed or conflicting table does not compile. A route that the rules hide is a
+      conflict.
+    - The endpoint writes no content in a response to HEAD, in h11, h2 and h3 alike.
+    - `server.constants.path_parameters_max` is 8, and `server.constants.path_len_max` is the
+      endpoint's own bound on a path, 8192 octets.
+    - `examples/server_exchange.zig` routes its requests through a table, answers a 405 with its
+      Allow field, and reads a parameter. Its TCP peer also asks for a path that no route
+      names. `examples/client_peer.zig` routes through a table of functions. The guide shows
+      both.
+    - Twelve sub-steps. After each one, every check passes:
+      - 21e.1: decision 122, INV-32 and this text.
+      - 21e.2: `http.method.Standard`.
+      - 21e.3: literal routes, with every public name and its list.
+      - 21e.4: `zig build routes-check`.
+      - 21e.5: parameters, the checks of a path, and `path_len_max`.
+      - 21e.6: the trailing wildcard.
+      - 21e.7: the back-up (INV-32) and the refusal of a hidden route.
+      - 21e.8a: no content in a response to HEAD, in each version.
+      - 21e.8b: HEAD on a GET route.
+      - 21e.9: `not_implemented`.
+      - 21e.10: the examples and the guide.
+      - 21e.11: the step's entry.
+    - **Check:** tests for literal segments, parameters, a trailing wildcard, precedence whatever
+      the table's order, 404, 405 with its Allow list, 501, HEAD, and a path with an encoded
+      octet, a dot segment or an empty segment matching nothing. A test of each version shows
+      that a response to HEAD carries no content. `zig build routes-check` requires each
+      malformed or conflicting table to fail to compile, a hidden route too, and a valid one to
+      compile. `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh`
+      pass. Each rule has a mutation a test catches.
   - **21f, the package.** Whether `h11`, `h2`, `h3` and `quic` stay exported (decision 86).
     **Check:** the owner's ruling, once the dependent that uses `h11` directly can use `client`.
 
