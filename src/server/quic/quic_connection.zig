@@ -240,7 +240,7 @@ pub const QuicConnection = struct {
     }
 };
 
-test "design §8 step 17f: the QUIC connection's public functions are the calls a program makes" {
+test "design §8 step 17f: the QUIC connection's public functions are the calls the endpoint makes" {
     const public_names = @import("core").public_names;
     try public_names.expect(QuicConnection, &.{
         "receive",  "respond",       "write_body",   "write_trailers", "cancel",

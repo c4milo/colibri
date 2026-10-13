@@ -1,6 +1,6 @@
 //! The versions a server speaks (decision 117), and how a TCP connection in cleartext chooses
-//! among them. Once design §8 step 21b builds the ALPN lists from it, `versions` is the one place a
-//! program names a version. `server.zig` exports `Versions` alone.
+//! among them. Since design §8 step 21b the endpoint builds its ALPN lists from it, so `versions` is
+//! the one place a program names a version. `server.zig` exports `Versions` alone.
 const std = @import("std");
 const testing = std.testing;
 const event = @import("event.zig");
@@ -8,9 +8,9 @@ const event = @import("event.zig");
 const Protocol = event.Protocol;
 
 /// Which of h11, h2 and h3 the server speaks, each true by default (decision 117). A TCP
-/// connection speaks h11 or h2, and h3 runs over QUIC alone (RFC 9114 §3.1). Over TLS the ALPN
-/// list of the TLS configuration still chooses (design §8 step 21b), so `versions` governs a
-/// connection in cleartext.
+/// connection speaks h11 or h2, and h3 runs over QUIC alone (RFC 9114 §3.1). Over TLS the endpoint
+/// offers in ALPN only the versions `versions` allows (design §8 step 21b). In cleartext
+/// `tcp_choice` gives the choice `versions` leaves a connection.
 pub const Versions = struct {
     h11: bool = true,
     h2: bool = true,

@@ -47,8 +47,8 @@ pub const Plan = struct {
     writes_per_turn: u32,
     frames_per_turn: u32,
     /// Whether each endpoint's writing turn writes what its connection owes before its own frames,
-    /// as `client.Connection` does, or after them, as `server.Connection`'s `respond` and
-    /// `write_body` leave it to `send`.
+    /// or after them. The check runs each order on the h2 module itself: colibri's client and
+    /// server both write what h2 owes first.
     client_owed_first: bool,
     server_owed_first: bool,
 

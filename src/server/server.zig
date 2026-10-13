@@ -19,11 +19,6 @@
 //! When `Config` names content codings and an `EncoderPool`, a final response the caller marks
 //! `codable` goes out coded in the coding its request's Accept-Encoding accepts (decision 101).
 //! The pool is storage the caller places, and connections share it.
-//!
-//! `Connection` and `QuicConnection` are what the endpoint holds in a TCP slot and in a QUIC slot.
-//! They stay exported until design §8 step 21d, and a program is to place neither: the root
-//! exports no name for the configuration either takes, which the endpoint builds (design §8 step
-//! 21b.7).
 const std = @import("std");
 const http = @import("http");
 const h11 = @import("h11");
@@ -36,9 +31,9 @@ pub const constants = @import("constants.zig");
 /// Every file a name below comes from. None of these is exported: the names below are.
 const files = struct {
     pub const event = @import("event.zig");
-    pub const connection = @import("connection/connection.zig");
     pub const quic_connection = @import("quic/quic_connection.zig");
     pub const endpoint = @import("endpoint/endpoint.zig");
+    pub const connection_errors = @import("connection/connection_errors.zig");
     pub const alt_svc = @import("alt_svc.zig");
     pub const coding_pool = @import("coding/coding_pool.zig");
     pub const deadline = @import("deadline.zig");
@@ -56,8 +51,6 @@ pub const Deadline = files.deadline.Deadline;
 pub const Deadlines = files.deadline.Deadlines;
 pub const CloseReason = files.close_reason.CloseReason;
 pub const Limit = files.close_reason.Limit;
-pub const Connection = files.connection.Connection;
-pub const QuicConnection = files.quic_connection.QuicConnection;
 pub const Endpoint = files.endpoint.Endpoint;
 pub const EndpointOf = files.endpoint.EndpointOf;
 pub const Capacity = files.endpoint.Capacity;
@@ -72,17 +65,15 @@ pub const LogProvider = files.endpoint.LogProvider;
 /// A datagram `Endpoint.send_datagram` wrote, with its ECN codepoint and the address it goes to.
 pub const Sent = files.quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
-pub const Address = files.quic_connection.PeerAddress;
+pub const Address = quic.PeerAddress;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
-pub const Error = files.connection.Error;
-pub const StartError = files.connection.StartError;
-pub const SendError = files.connection.SendError;
-pub const Field = files.connection.Field;
+pub const StartError = files.connection_errors.StartError;
+pub const SendError = files.connection_errors.SendError;
+pub const Field = http.Field;
 pub const Id = files.event.Id;
 pub const ConnectionHandle = files.event.ConnectionHandle;
-pub const Protocol = files.event.Protocol;
 pub const Version = files.event.Version;
 pub const Fields = files.event.Fields;
 pub const Event = files.event.Event;
@@ -117,20 +108,21 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // Design §8 step 21a adds `Versions` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
     // `Writable` and `Ended`, and 21b.3 `Capacity`, `Input` and `Datagram`. 21b.7 gives the name
     // `Config` to the type `EndpointConfig` named, which `QuicConfig` folded into in 21b.3, and
-    // takes a TCP connection's own configuration out of the root (decision 119).
+    // takes a TCP connection's own configuration out of the root (decision 119). 21d takes out
+    // `Connection` and `QuicConnection`, which the endpoint holds, and `Error` and `Protocol`,
+    // which only their calls return (decision 121).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",          "Config",           "Versions",    "Limits",             "Deadline",
-        "Deadlines",          "CloseReason",      "Limit",       "Connection",         "QuicConnection",
-        "Endpoint",           "EndpointOf",       "Capacity",    "Input",              "Datagram",
-        "Security",           "StreamOctets",     "LogProvider", "Sent",               "Address",
-        "Ecn",                "Error",            "StartError",  "SendError",          "Field",
-        "Id",                 "ConnectionHandle", "Protocol",    "Version",            "Fields",
-        "Event",              "Request",          "Body",        "Trailers",           "Cancelled",
-        "CancelReason",       "Done",             "Writable",    "Ended",              "Response",
-        "Content",            "Received",         "Alternative", "Coding",             "EncoderPool",
-        "DefaultEncoderPool", "Encoders",         "DecoderPool", "DefaultDecoderPool", "Decoders",
-        "Features",
+        "constants",   "Config",             "Versions", "Limits",           "Deadline",
+        "Deadlines",   "CloseReason",        "Limit",    "Endpoint",         "EndpointOf",
+        "Capacity",    "Input",              "Datagram", "Security",         "StreamOctets",
+        "LogProvider", "Sent",               "Address",  "Ecn",              "StartError",
+        "SendError",   "Field",              "Id",       "ConnectionHandle", "Version",
+        "Fields",      "Event",              "Request",  "Body",             "Trailers",
+        "Cancelled",   "CancelReason",       "Done",     "Writable",         "Ended",
+        "Response",    "Content",            "Received", "Alternative",      "Coding",
+        "EncoderPool", "DefaultEncoderPool", "Encoders", "DecoderPool",      "DefaultDecoderPool",
+        "Decoders",    "Features",
     });
 }
 
@@ -139,6 +131,9 @@ test {
     std.testing.refAllDecls(files);
     // Every name the root exports resolves.
     _ = @import("core").public_names.reference(@This(), &.{});
+    // The TCP connection each slot of the endpoint holds. The root exports no name of it, and its
+    // own test block runs its test files.
+    _ = @import("connection/connection.zig");
     _ = @import("versions.zig");
     _ = @import("reason.zig");
     _ = @import("expect.zig");

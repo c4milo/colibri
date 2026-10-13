@@ -1,5 +1,5 @@
-//! The errors of a server connection over TCP (decision 100), which `connection.zig` exports and
-//! the QUIC connection shares.
+//! The errors of a server connection over TCP (decision 100), which the QUIC connection shares.
+//! `server.zig` exports `StartError` and `SendError`, which the endpoint's calls return.
 /// Why `receive` stopped reading for good: the peer broke the protocol, or TLS failed (RFC 9846
 /// §6). What the connection owes the peer, such as a GOAWAY, an error response or an alert, waits
 /// for `send`, and the caller closes once `should_close` says so.
@@ -27,13 +27,12 @@ pub const StartError = error{
 };
 
 pub const SendError = error{
-    /// The output has no room for what the call writes. Through the endpoint, the request's
-    /// `writable` says when to call again. A connection alone: `send`, then call again.
+    /// The output has no room for what the call writes. The request's `writable` says when to
+    /// call again.
     NoSpaceLeft,
     /// `write_body` wrote nothing: no room, h2's flow-control window is closed (RFC 9113 §6.9), or
     /// a coded response's ring is full. Or `write_trailers` found a coded response's octets not all
-    /// written. Through the endpoint, the request's `writable` says when to call again. A
-    /// connection alone: `send`, `receive`, then call again.
+    /// written. The request's `writable` says when to call again.
     Blocked,
     /// No request with this id waits for this call: it never arrived, is answered, or is cancelled.
     RequestUnknown,

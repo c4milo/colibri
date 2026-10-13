@@ -1,6 +1,5 @@
 //! Why colibri closed a server connection on its own (decision 110, design §8 steps 20b and
-//! 20c), which `Connection.close_reason` and `QuicConnection.close_reason` name: the deadline
-//! that passed, or the limit the peer passed. An
+//! 20c), which `Ended.reason` carries: the deadline that passed, or the limit the peer passed. An
 //! operator reads it to tell an attack from a limit set too tight. A connection that ended any
 //! other way has no close reason: the peer closed it or broke the protocol, TLS failed, or the
 //! caller ended it.

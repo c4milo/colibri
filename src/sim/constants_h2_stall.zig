@@ -58,8 +58,9 @@ pub const stalled_seed: u64 = 0x12c;
 /// One seed in this many is aligned; the rest are random.
 pub const aligned_one_in: u64 = 2;
 
-/// One endpoint in this many writes what its connection owes before its own frames, as
-/// `client.Connection` does; the rest write their own frames first, as `server.Connection` does.
+/// One endpoint in this many writes what its connection owes before its own frames; the rest write
+/// their own frames first. The check runs each order on the h2 module itself: colibri's client and
+/// server both write what h2 owes first.
 pub const owed_first_one_in: u64 = 2;
 
 comptime {

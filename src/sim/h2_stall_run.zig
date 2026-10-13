@@ -173,7 +173,7 @@ pub const Storage = struct {
         storage.server_replies_most = 0;
         storage.reads_stopped_full = 0;
         // RFC 9113 §3.4: each endpoint's preface goes first, before any frame of its caller's, as
-        // `server.Connection` writes it before it reads a frame. The smallest transport holds both.
+        // colibri's server writes it before it reads a frame. The smallest transport holds both.
         _ = write_owed(&storage.client, &storage.to_server);
         _ = write_owed(&storage.server, &storage.to_client);
         assert(storage.client.preface_done() and storage.server.preface_done());

@@ -17,6 +17,8 @@ const testing = std.testing;
 /// other connection. Test-only.
 const Session = session_module.SessionOf(test_connections);
 const test_connections: usize = 2;
+/// The TCP version a fresh session speaks. Test-only.
+const Protocol = enum { h11, h2 };
 
 /// The session, its configuration and buffers, outside any stack frame. Test-only.
 var test_session: Session align(@alignOf(Session)) = undefined;
@@ -40,7 +42,7 @@ const response = "HTTP/1.1 200 OK\r\ncontent-type: " ++ constants.response_conte
 
 /// A session speaking `protocol` in cleartext, whose entry 0 holds a connection with nothing read
 /// or written: its configuration allows that version alone (decision 117). Test-only.
-fn fresh_session(protocol: server.Protocol, echo: ?*h11_echo.Echo) !*Session {
+fn fresh_session(protocol: Protocol, echo: ?*h11_echo.Echo) !*Session {
     test_config = .{ .versions = if (protocol == .h2) .{ .h11 = false } else .{ .h2 = false } };
     // Cleartext draws nothing from the source.
     test_now_ns = 0;
