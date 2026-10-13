@@ -126,6 +126,30 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     });
 }
 
+test "decision 121: StartError names what Endpoint.init returns, and no other error" {
+    // A switch names each member of the set once. A member added to a set, or taken out of it,
+    // stops the test from compiling. The endpoint changes chapulin's refusal of a TCP connection's
+    // session into a null `accept`, so `init` never returns `TlsRefused`.
+    const names = struct {
+        fn of(comptime Set: type, failure: Set) []const u8 {
+            return switch (failure) {
+                error.DeadlineInvalid => "DeadlineInvalid",
+                error.NoVersion => "NoVersion",
+                error.IdentityRefused => "IdentityRefused",
+                error.TooManyCertificates => "TooManyCertificates",
+                error.TooManySuites => "TooManySuites",
+                error.SuitesUnavailable => "SuitesUnavailable",
+            };
+        }
+    };
+    const Returned = @typeInfo(@typeInfo(@TypeOf(Endpoint.init)).@"fn".return_type.?).error_union.error_set;
+    inline for (.{ StartError, Returned }) |Set| {
+        inline for (@typeInfo(Set).error_set.?) |member| {
+            try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));
+        }
+    }
+}
+
 test {
     // Every file's tests run, whether or not the root exports a name of it.
     std.testing.refAllDecls(files);

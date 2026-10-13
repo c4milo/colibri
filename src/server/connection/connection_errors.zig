@@ -5,9 +5,8 @@
 /// for `send`, and the caller closes once `should_close` says so.
 pub const Error = error{ConnectionFailed};
 
+/// What `Endpoint.init` returns (decision 121).
 pub const StartError = error{
-    /// chapulin refused the TLS configuration (`tls.record.Error.Refused`).
-    TlsRefused,
     /// A limit of `Config.deadlines` is 0 or past `timeout_ns_max` (decision 110).
     DeadlineInvalid,
     /// `Config.versions` allows neither h11 nor h2, which leaves a TCP connection nothing to speak
@@ -25,6 +24,11 @@ pub const StartError = error{
     /// (decision 97).
     SuitesUnavailable,
 };
+
+/// What a TCP connection's `init` returns: `StartError`, or `TlsRefused` when chapulin refuses
+/// the TLS configuration (`tls.record.Error.Refused`). The endpoint changes `TlsRefused` into a null
+/// `accept`, so `server.zig` does not export this set.
+pub const InitError = StartError || error{TlsRefused};
 
 pub const SendError = error{
     /// The output has no room for what the call writes. The request's `writable` says when to

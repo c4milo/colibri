@@ -73,7 +73,7 @@ pub const CloseReason = close_reason_module.CloseReason;
 pub const Config = connection_config.Config;
 
 pub const Error = connection_errors.Error;
-pub const StartError = connection_errors.StartError;
+pub const InitError = connection_errors.InitError;
 pub const SendError = connection_errors.SendError;
 
 /// RFC 9110 §15.2.1: 100 (Continue).
@@ -163,7 +163,7 @@ pub const Connection = struct {
     /// Prepares a connection the listener accepted at `now_ns`, with nothing read or written. Over
     /// TLS, every draw the handshake makes comes from `random`, and `now_seconds` is the clock its
     /// tickets are issued at, or 0 for none.
-    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) StartError!void {
+    pub fn init(connection: *Connection, config: *const Config, random: tls.Random, now_seconds: u64, now_ns: u64) InitError!void {
         // RFC 9114 §3.1: a TCP connection speaks h11 or h2, never h3, so `versions` allows one.
         const choice = versions_module.tcp_choice(config.versions) orelse return error.NoVersion;
         assert((config.codings.len == 0) == (config.encoders == null));
