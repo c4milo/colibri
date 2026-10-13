@@ -1,10 +1,13 @@
-//! The TCP connection of the test-only client's channel mode (`channel_loop.zig`): one socket at a
-//! time, on the loop the UDP flow runs on, opened and closed when `client.Channel` asks.
+//! The TCP connection of one `client.Channel` of the test-only client: one socket at a time, opened
+//! and closed when the channel asks. `client_loop.zig`'s plain modes hold one for each channel of a
+//! run, and `channel_loop.zig`'s channel mode one beside its UDP flow, each on its own Rotor loop.
 //!
-//! As in `client_loop.zig`, a receive writes into `received` and its octets are appended to `input`
-//! when its event arrives, and at most one receive and one send are in flight. A socket the channel
-//! asks to close sends what it owes first. An open the channel asks for while the last socket is
-//! still closing waits for that close's event, so the loop never holds two sockets.
+//! A receive writes into `received`, and its octets are appended to `input` when its event
+//! arrives, because the channel moves what is left of `input` and Rotor owns a receive's buffer
+//! until its final event. At most one receive and one send are in flight. A socket the channel asks
+//! to close sends what it owes first, and an open drops what the last socket read. An open the
+//! channel asks for while the last socket is still closing waits for that close's event, so the
+//! loop never holds two sockets for one channel.
 const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
@@ -239,8 +242,8 @@ pub const Socket = struct {
     }
 };
 
-/// Submits one operation. The loop keeps `channel_tcp_operations_max` of its operations for the
-/// socket, so it always has room.
+/// Submits one operation. The loop that runs the socket keeps room for the operations it has in
+/// flight at once, so it always has room.
 fn submit(loop: *rotor.Loop, operation: rotor.Operation) void {
     const taken = loop.submit(&.{operation}, &.{});
     assert(taken == 1);

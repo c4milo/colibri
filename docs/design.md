@@ -385,10 +385,10 @@ most are `H3_FRAME_UNEXPECTED` 0x0105, `H3_MESSAGE_ERROR` 0x010e, `H3_ID_ERROR` 
 
 Greasing is prescriptive rather than optional: RFC 9114 §7.2.4.1 says endpoints SHOULD send a
 reserved setting, and §8.1 says they SHOULD sometimes send a reserved error code in place of
-`H3_NO_ERROR`. colibri does both, and because it owns no randomness
-([invariant 5](invariants.md#inv-5--colibri-draws-only-from-the-source-its-caller-passes-and-reads-no-uninitialised-memory)) the
-reserved value it picks is derived from configuration the caller supplied, so a seed still
-replays.
+`H3_NO_ERROR`. colibri does both. It holds no generator of its own
+([invariant 5](invariants.md#inv-5--colibri-draws-only-from-the-source-its-caller-passes-and-reads-no-uninitialised-memory)):
+the server's endpoint and the client's channel draw the reserved value from the source the caller
+passes when a connection starts, so a seed still replays.
 
 ### 6.6 colibri's own formats
 
