@@ -9105,6 +9105,131 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       call: no state changes over 1,024 seeds. A moved exchange waits at the channel, and the
       connection reports `draining` in the call that reads the GOAWAY.
 
+  **21d, 2026-10-13.** The roots of `server` and `client` export what an endpoint and a channel
+  take and return (decision 121). Run on macOS 26 on an Apple M1 Pro, with Zig 0.16.0. The
+  sub-steps ran on the branch `roots-21d` over main 0228d20, which holds seven performance
+  commits of another session of the same day. The branch was then replayed over main bc79211,
+  which holds four more of them, and the review's fixes were made there. Before the push it was
+  replayed over main 70f77c1, one more commit of that session.
+  - **The base.** Before 21d.3, on main 0228d20 with 21d.1 and 21d.2: `zig build test` passed
+    2878 of 2878 tests, `zig build test-server` 393 and `zig build test-client` 192.
+  - **The lists.** The server's root exports 47 names, where it exported 51. The client's root
+    exports 39 names after 21d.7, where it exported 44, and 38 after 21d.8. Each root imports its
+    files through a private `files` struct. `Endpoint` keeps its 16 functions and `Channel` its
+    15.
+  - **The test counts.**
+    - After 21d.4 and 21d.5, `zig build test-server` passed 393 tests, `zig build test-client`
+      192 and `zig build test` 2878, as on the base. Thus each file's tests still run through
+      `files`.
+    - 21d.6, 21d.7 and 21d.8 kept the same counts.
+    - 21d.9a and 21d.9b each add one test beside the root's list. Then `zig build test-server`
+      passed 394 tests, `zig build test-client` 193 and `zig build test` 2880.
+    - From 21d.3 on, `zig build test -Drelease` passed the count of `zig build test` after each
+      sub-step.
+    - After the replay over bc79211, `zig build test` passed 2890 of 2890 tests: the 2888 of
+      main and the two of 21d.9.
+  - **What stayed.**
+    - After 21d.2, `zig build sim -- --h3-deadline-trace-check` printed the census line of the
+      base: `seeds=32 states=418 opened=61 responses=24 timeouts=2 rejected=26 cancelled=0
+      drained=21 drain_passed=11`. Before the branch moved onto 0228d20,
+      `tools/h3_deadline_trace.sh` found 32 of 32 traces behaviors of `spec/tla/h3_deadlines`.
+    - After 21d.3, `zig build bench-memory` printed the sizes of the base under the new names:
+      306,448 octets for the server's TCP connection, 721,416 for its QUIC connection, 289,208
+      for the channel's TCP connection and 703,712 for its QUIC connection. `zig build
+      test-bench` passed.
+    - No census, CRC or memory row changed in any sub-step.
+  - **The examples.** After 21d.10c, `zig build examples` prints "every octet arrived as sent"
+    for `h11_exchange`, `h2_exchange`, `server_exchange` and `client_exchange`, and for no other
+    example. The client example alone took 3.34 s and 38 of its 256 turns, while the abandoned
+    QUIC connection waited for its closing period. `git grep` finds `tls_exchange` and
+    `h3_exchange` only in docs/design.md and docs/decisions.md, which are history.
+    - `DatagramLink` holds a pointer to the loops of a `Link` and gains `blocked` and `dropped`.
+      While `blocked` is set, the link counts each datagram in `dropped` and queues none.
+    - `zig build lint` holds `examples/` to a cognitive complexity of 15 too. One function of
+      `server_peers.zig` became two to stay under it.
+    - After each sub-step, `tools/doc_snippets.sh`, `tools/consumer_check.sh` and `zig fmt
+      --check` passed.
+  - **The guide.** In docs/usage.md, "The server" now holds the endpoint over TCP and over QUIC,
+    and "The client" holds the channel. The sections "The server's endpoint", "The client's
+    channel" and "h3: the endpoint and the channel" are gone. "Sizes" points to the memory table
+    of docs/performance.md. It keeps the row of `h11.coding.DefaultPool`, 691,472 octets. Four
+    rows of the protocol modules differed from the pinned table, and they are gone.
+  - **CLAUDE.md.** The commit "docs: limit the pub-method rule to the types a root exports"
+    limits the rule on `pub` methods to the types that a root exports. The owner approved the
+    sentence on 2026-10-13. The commit "docs: write prose in ASD-STE100 beside Google's guides"
+    adds the rule on ASD-STE100 prose, which the owner asked for on the same day.
+  - **The review.** Two readers and a verifier confirmed six findings. Each is text that the
+    source does not support, and each is corrected:
+    - The four connection lists and two internal headers said that the endpoint or the channel
+      makes each call. No file of either calls `protocol`. The text now names the module's other
+      files, and the client QUIC connection's `protocol` is private.
+    - The client example said that `on_instant` tells the channel the fallback delay ended. The
+      next `receive` does.
+    - The datagram link's header said that one clock keeps the instants in order. That is true
+      only when a program reads the clock once in each turn.
+    - The guide quoted a call to the example's `take_ticket` helper, but not the helper. It now
+      quotes the helper.
+    - This entry named commits from before the replay. It now names them by subject.
+  - **Owed.** `tools/ci.sh`, on the exact tree before the push. It runs `zig build tla`, the six
+    trace scripts and the interop scripts. 21d.8 changed the names that the client trace run
+    uses, so `tools/client_trace.sh` runs there too.
+  - Mutations, each **CAUGHT** unless it says otherwise:
+    - 21d.3, by `zig build test-bench`: the server's TCP row read from `"quic"`; the client's
+      QUIC row read from `"tcp"`.
+    - 21d.6, by the root's list test in `zig build test-server`: `Connection` exported again;
+      `Protocol` exported again.
+    - 21d.7, by the root's list test in `zig build test-client`: `QuicConnection` exported
+      again; `Advert` exported again.
+    - 21d.8, by the same test: `ChannelEvent` exported beside `Event`; `ChannelEntry` exported
+      again; `Phase` exported as `ChannelPhase`.
+    - 21d.9a, by the new test in `zig build test-server`, whose `switch` then does not compile:
+      `TlsRefused` back in `StartError`; `Endpoint.init` declared to return the connection's
+      `InitError`; the root's `StartError` that names `InitError`.
+    - 21d.9b, by the new test in `zig build test-client`: `Draining` back in the channel's
+      `RequestError`; `Channel.request` declared to return the set of the connections; the
+      root's `RequestError` that names that set.
+    - The review's fix, by the list test in `zig build test-client`: the client QUIC
+      connection's `protocol` public again.
+    - The server example, 28 breaks, by `zig build example-server_exchange`:
+      - Step 17f's breaks: the server reports no `done`; it answers 201; the clients keep no
+        wanted field; a client's body has no room for its last octet; the stream link drops the
+        last octet of each send; the clients ask for another server name; the TCP client never
+        shuts its channel down; the `ended` events not counted; the datagram link changes an
+        octet of each datagram; the TCP client offers h11 alone.
+      - 21b.6's breaks: `send` ignored; `.none` passed for `.stream`; `transport_closed` not
+        called; `accept` given `.cleartext`; a response to the id of another connection; one
+        `send_stream` for each `send`, with a buffer of 1,024 octets.
+      - 21c's breaks, on the peers: the TCP client never calls `send_stream`; it passes `.none`
+        for `.stream`; `close` ignored; `start_tcp` not called.
+      - New: datagrams passed as `.none`; `send_datagram` never called; the TCP octets passed
+        under the handle of the closed socket; `set_user_data`, `shutdown`, `h3_alternative`,
+        `set_deadlines` or `take_ticket` not called.
+    - The client example, 24 of 25 breaks, by `zig build example-client_exchange`:
+      - Step 17f's breaks: the client keeps no wanted field; its body has no room for the last
+        octet; the stream link drops the last octet of each send; the client asks for another
+        server name; the client never shuts its channel down; the client offers h11 alone over
+        TCP; the server reports no `done`; the server answers another status.
+      - 21b.6's breaks, on the server: `send` ignored; `.none` passed for `.stream`; `accept`
+        given `.cleartext`.
+      - 21c's breaks: `send_stream` never called; `.none` passed for `.stream`; `close` ignored;
+        `start_tcp` not called.
+      - New: `on_instant` never called; `start_quic` not called; the datagram link not blocked;
+        `close .quic` not counted; `send_datagram` never called; the server's listener never
+        accepts; `transport_closed` not called; `take_ticket` not called; the refused channel
+        never shut down.
+      - Two breaks did not compile at first, for a parameter the break left unused: the server
+        that ignores `send`, and `start_quic` not called. Each ran again in a form that
+        compiles.
+  - **NOT CAUGHT**, or no mutation, and why:
+    - 21d.6: the test block without its line for `connection/connection.zig`. It is equivalent:
+      the endpoint imports the file, so `zig build test-server` still ran 393 tests.
+    - The client example that keeps the octets of a socket after its `close`: **NOT CAUGHT**.
+      The socket holds no octet at `close .tcp`, and no later TCP connection opens. No check of
+      an example can see it, as in 21c.
+    - 21d.10a: no check reads which link starts and stops the loops.
+    - 21d.1, 21d.2, 21d.4 and 21d.5 change no check. The test counts are the check of 21d.4 and
+      21d.5.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

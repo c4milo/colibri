@@ -4231,3 +4231,30 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      that it abandoned only after the closing period, three PTOs (RFC 9000 §10.2). With no RTT
      sample, each PTO is about 1 s (RFC 9002 §6.2.2). Step 21d accepts the wait: the example
      shows what a program sees on a network that drops UDP.
+
+     Amended on 2026-10-13 by design §8 step 21d, for what its sub-steps met that the rulings
+     left open:
+     - Each narrowed set has a test beside the list of its root. The test switches over the
+       exported set and over the error set of the call's return type. A member that one set
+       holds and the other does not then fails to compile.
+     - The server's `Connection.init` returns `InitError`, which is `StartError` with
+       `TlsRefused`. The channel's `RequestError` is the `CheckError` of the connections with
+       `Full`, and the connections keep the wider set. No root exports `InitError` or
+       `CheckError`.
+     - The program that holds the loops of the examples starts them once and stops them once.
+       `Link.init` and `Link.deinit` do this for a `Link`. A `DatagramLink` holds a pointer to
+       the loops and does not start or stop them.
+     - A program that serves TCP and QUIC through one endpoint reads its clock once in each
+       turn. It passes that instant to each call of the turn. The first server example read
+       the clock again for each datagram. An instant then went back, and the assertion on
+       QUIC's ack delay failed (`src/quic/space/space.zig`).
+     - How the examples keep each call of ruling 7:
+       - `Endpoint.set_deadlines`: when the h3 request arrives, the server gives its QUIC
+         connection an idle deadline of 100 ms. The check requires one `ended` at the idle
+         deadline, before the configured 10 s pass.
+       - `Channel.take_ticket`: a server issues a ticket only when its configuration holds a
+         `ticket_key`. The server of each example sets one, and each check requires a ticket.
+       - `Channel.transport_closed`: a second channel of the client example offers TCP alone,
+         and its connect fails. The program calls `transport_closed`, and the exchange ends
+         `refused`. The first channel still shows the fallback delay, so this is not the
+         alternative refused above.
