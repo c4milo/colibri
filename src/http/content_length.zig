@@ -63,7 +63,11 @@ const member_split_calls_past_len = 2;
 pub fn from_section(section: *const FieldSection) Error!?u64 {
     assert(section.len() <= core.constants.field_count_max);
     var first: ?[]const u8 = null;
-    for (0..section.len()) |index| {
+    for (section.lines[0..section.len()], 0..) |*record, index| {
+        // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case one octet
+        // to one octet, so a name of another length is not Content-Length: the line is skipped
+        // without reading its octets.
+        if (record.name_len != name.len) continue;
         const line = section.get(@intCast(index));
         if (!field.names_equal(line.name, name)) continue;
         try check_line(line.value, &first);
@@ -236,4 +240,65 @@ test "fuzz: a content-length this file accepts holds only digits and separators,
 
 test "sweep: every content-length of up to two octets this file accepts reads back" {
     try core.fuzz.sweep(fuzz_content_length, null);
+}
+
+// The test below holds `from_section` to the loop it was, which read every line's octets to
+// compare its name. It stays here as the reference.
+
+/// The reference: `from_section` as it was.
+fn from_section_by_loop(section: *const FieldSection) Error!?u64 {
+    var first: ?[]const u8 = null;
+    for (0..section.len()) |index| {
+        const line = section.get(@intCast(index));
+        if (!field.names_equal(line.name, name)) continue;
+        try check_line(line.value, &first);
+    }
+    const digits = first orelse return null;
+    return try parse_digits(digits);
+}
+
+/// What `from_section` returned, in a form two calls compare by.
+const Verdict = union(enum) { length: ?u64, refused: Error };
+
+fn verdict_of(result: Error!?u64) Verdict {
+    const length = result catch |reason| return .{ .refused = reason };
+    return .{ .length = length };
+}
+
+/// The names and values the test mixes: Content-Length in two cases, a name one octet longer, and
+/// other names; values that agree, differ, are not digits, or are empty. Test-only.
+const mixed_names = [_][]const u8{ "content-length", "CONTENT-LENGTH", "content-lengths", "host" };
+const mixed_values = [_][]const u8{ "4", "4, 4", "5", "x", "" };
+
+/// Fails, printing both, when `from_section` and the reference differ on `test_section`. `lines`
+/// names the section's lines, for the message.
+fn expect_same_verdict(lines: []const usize) !void {
+    const changed = verdict_of(from_section(&test_section));
+    const reference = verdict_of(from_section_by_loop(&test_section));
+    const same = switch (changed) {
+        .length => |length| reference == .length and reference.length == length,
+        .refused => |reason| reference == .refused and reference.refused == reason,
+    };
+    if (same) return;
+    std.debug.print("first difference: lines {any}: from_section {any}, reference {any}\n", .{ lines, changed, reference });
+    return error.TestUnexpectedResult;
+}
+
+/// The kinds of line the test mixes: each name with each value.
+const mixed_kinds = mixed_names.len * mixed_values.len;
+
+test "from_section gives every section of up to three lines the reference's verdict" {
+    var lines: [3]usize = undefined;
+    for (0..mixed_kinds * mixed_kinds * mixed_kinds) |combination| {
+        var rest = combination;
+        for (&lines) |*line| {
+            line.* = rest % mixed_kinds;
+            rest /= mixed_kinds;
+        }
+        for (0..lines.len + 1) |count| {
+            test_section.init();
+            for (lines[0..count]) |kind| try test_section.append(mixed_names[kind / mixed_values.len], mixed_values[kind % mixed_values.len]);
+            try expect_same_verdict(lines[0..count]);
+        }
+    }
 }

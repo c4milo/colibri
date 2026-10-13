@@ -924,6 +924,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 244 in both jobs,
   where the disassembly gave about 250.
 
+  **A field line of another name length is skipped without reading it, 2026-10-13.**
+  `FieldSection.find` and `content_length.from_section` read every line's octets to compare its
+  name, through `get`, which builds both slices. RFC 9110 §5.1 makes names case-insensitive, and
+  `names_equal` folds ASCII case one octet to one octet, so a name of another length never
+  matches. Both now compare the line's recorded name length first and skip a line of another
+  length. Neither returns anything it did not.
+
+  What each check printed:
+  - The two old loops stay in the tests as references. `find` must return the line the scan
+    returns, for nine names that share a length, differ in case, differ by one octet, or are
+    empty, in every section of up to three lines of them. `from_section` must give the
+    reference's length or refusal for every section of up to three lines mixing four names with
+    five values.
+  - The four traces wrote the same octets before and after the change.
+  - 5 mutations, each **CAUGHT**: `find` skipping the lines of the same length, or stopping at
+    the first of another; `from_section` skipping the lines of the same length, stopping at the
+    first of another, or reading the line after the record. 2 mutations **NOT CAUGHT**, which skip
+    fewer lines: `names_equal` refuses those lines anyway.
+
+  The judge, [run 38342563842](https://github.com/c4milo/colibri/actions/runs/38342563842),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 15,236 | 15,049 | 0.9877 | 0.9875 | wins in both |
+  | h2-tls-many | 23,201 | 23,013 | 0.9919 | 0.9904 | wins in both |
+  | h2-one | 180,671 | 181,213 | 1.0030 | 0.9979 | within the noise |
+  | h2-tls-one | 7,275,145 | 7,274,168 | 0.9999 | 0.9999 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 189 in both jobs,
+  where the disassembly gave about 200.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put

@@ -173,6 +173,10 @@ pub const FieldSection = struct {
     pub fn find(section: *const FieldSection, name: []const u8) ?Field {
         assert(section.count <= limits.field_count_max);
         for (section.lines[0..section.count]) |*line| {
+            // RFC 9110 §5.1 makes names case-insensitive, and `names_equal` folds ASCII case one
+            // octet to one octet, so names of two lengths never compare equal: the line is skipped
+            // without reading its octets.
+            if (line.name_len != name.len) continue;
             const candidate = section.field_at(line);
             if (field.names_equal(candidate.name, name)) return candidate;
         }
@@ -374,4 +378,59 @@ test "clear empties the section, and it accepts lines again" {
     try test_section.append("c", "3");
     try expect_state(1, 1 + 1 + limits.field_line_overhead, 2);
     try expect_line(0, "c", "3");
+}
+
+// The tests below hold `find` to the scan it replaced, which read every line's name. It stays here
+// as the reference.
+
+/// The reference: `find` as it was.
+fn find_by_scan(section: *const FieldSection, name: []const u8) ?Field {
+    for (section.lines[0..section.count]) |*line| {
+        const candidate = section.field_at(line);
+        if (field.names_equal(candidate.name, name)) return candidate;
+    }
+    return null;
+}
+
+/// Names that share a length, differ in case or length by one octet, or are empty. Test-only.
+const compared_names = [_][]const u8{ "content-length", "Content-Length", "content-lengtH", "content-lengths", "content-lengt", "host", "Host", "x", "" };
+
+/// Fails, printing both, when `find` and the scan return different lines of `test_section` for a
+/// name the tests compare. `lines` names the section's lines, for the message.
+fn expect_same_finds(lines: []const u8) !void {
+    for (compared_names) |name| {
+        const changed = test_section.find(name);
+        const reference = find_by_scan(&test_section, name);
+        const same = (changed == null and reference == null) or (changed != null and reference != null and
+            std.mem.eql(u8, changed.?.value, reference.?.value));
+        if (same) continue;
+        std.debug.print("first difference: lines {any}, name {s}: find {any}, scan {any}\n", .{ lines, name, changed, reference });
+        return error.TestUnexpectedResult;
+    }
+}
+
+/// The most lines a compared section holds.
+const compared_lines_max = 3;
+
+/// The names of the lines `combination` stands for, each an index into `compared_names`.
+fn compared_lines(combination: usize) [compared_lines_max]u8 {
+    var lines: [compared_lines_max]u8 = undefined;
+    var rest = combination;
+    for (&lines) |*line| {
+        line.* = @intCast(rest % compared_names.len);
+        rest /= compared_names.len;
+    }
+    return lines;
+}
+
+test "find returns the line the scan returns, for each name, in sections of up to three lines" {
+    for (0..compared_names.len * compared_names.len * compared_names.len) |combination| {
+        const lines = compared_lines(combination);
+        for (0..lines.len + 1) |count| {
+            test_section.init();
+            // Each line's value names its place, so that the line found is told apart.
+            for (lines[0..count], 0..) |which, place| try test_section.append(compared_names[which], &.{@intCast('0' + place)});
+            try expect_same_finds(lines[0..count]);
+        }
+    }
 }
