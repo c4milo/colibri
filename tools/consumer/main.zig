@@ -19,12 +19,12 @@ var output: [4096]u8 = undefined;
 var gzip_encoder: gzip.Encoder(.{ .level = 6 }) align(@alignOf(gzip.Encoder(.{ .level = 6 }))) = undefined;
 var gzip_decoder: gzip.Decoder align(@alignOf(gzip.Decoder)) = undefined;
 var coded: [256]u8 = undefined;
-// The server's endpoint and the client's connection hold hundreds of kilobytes, so they live
-// outside the stack. The endpoint holds the one TCP connection this program accepts, and no QUIC
+// The server's endpoint and the client's channel hold hundreds of kilobytes, so they live outside
+// the stack. The endpoint holds the one TCP connection this program accepts, and no QUIC
 // connection.
 const Endpoint = server_module.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
-var asked: client_module.Connection align(@alignOf(client_module.Connection)) = undefined;
+var asked: client_module.Channel align(@alignOf(client_module.Channel)) = undefined;
 var exchange: client_module.HttpExchange align(@alignOf(client_module.HttpExchange)) = .{ .method = "GET", .path = "/" };
 // The octets the client wrote, which the server reads, and the octets the server wrote, which the
 // client reads. The endpoint reports a `send` while `wire` may still hold octets the server has
@@ -69,6 +69,11 @@ const empty_sequence = [_]u8{ 0x30, 0 };
 const now_seconds: u64 = 1_800_000_000;
 /// RFC 9846 §5.1: a handshake record's content type.
 const handshake_record: u8 = 22;
+/// The server's address, which a DNS lookup returns, and the port of an "http" origin (RFC 9110
+/// §4.2.1). The octets move in memory, so no socket connects to them.
+const loopback = [_]u8{ 127, 0, 0, 1 };
+const server_addresses = [_]client_module.Address{.of(&loopback, 0)};
+const server_port: u16 = 80;
 
 pub fn main() !void {
     client.init(.client, .{});
@@ -107,19 +112,27 @@ pub fn main() !void {
     if (!std.mem.eql(u8, output[0..decoded.written], "colibri")) return error.CodingWrong;
 
     // The `server` and `client` modules (decision 100), in cleartext h2: the client's request and
-    // the server's 204 move between the two in memory, at one instant. The client allows h2 alone,
-    // so it speaks h2 with prior knowledge. The server's endpoint names no version, and the
-    // connection it accepts reads h2 from the client's connection preface (decision 117).
+    // the server's 204 move between the two in memory, at one instant. The client is a channel
+    // with TCP alone, which allows h2 alone, so it speaks h2 with prior knowledge. The server's
+    // endpoint names no version, and the connection it accepts reads h2 from the client's
+    // connection preface (decision 117).
     const endpoint_config: server_module.Config = .{};
-    const client_config: client_module.Config = .{ .versions = .{ .h11 = false }, .authority = "example.test" };
+    const client_config: client_module.ChannelConfig = .{ .versions = .{ .h11 = false }, .authority = "example.test" };
     try endpoint.init(&endpoint_config, entropy, 0, 0);
     // One call for the socket a program accepted, in cleartext here. The handle names the
     // connection from then on.
     const accepted = endpoint.accept(.cleartext, 0) orelse return error.ExchangeWrong;
-    try asked.init(&client_config, entropy, 0, null);
+    // The channel takes what DNS knows as values, and with no receive pool it offers TCP alone.
+    try asked.init(&client_config, .{ .addresses = &server_addresses, .port = server_port }, null);
     _ = try asked.request(&exchange);
+    // The channel asks for a socket. A program connects one, then starts the connection on it, and
+    // reads what the connection then owes: in cleartext, that it is connected.
+    const open = asked.receive(.none, 0).event orelse return error.ExchangeWrong;
+    if (open != .open) return error.ExchangeWrong;
+    try asked.start_tcp(entropy, 0, null);
+    hear(server_output[0..0]);
     for (0..exchange_rounds_max) |_| {
-        try serve(accepted, asked.send(&wire, 0));
+        try serve(accepted, asked.send_stream(&wire, 0));
     }
     if (exchange.outcome != .response or exchange.status != 204) return error.ExchangeWrong;
     std.debug.print("consumer: h11, h2, tls, gzip, server and client link and run as a dependency\n", .{});
@@ -155,11 +168,14 @@ fn send(connection: server_module.ConnectionHandle) !void {
     hear(server_output[0..written]);
 }
 
-/// The client reads `octets`, which the server wrote, and its exchange holds what they say.
+/// The client reads `octets`, which the server wrote, and its exchange holds what they say. Each
+/// call passes the octets it still holds, or `.none` when it holds none.
 fn hear(octets: []u8) void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
-        const received = asked.receive(octets[consumed..], 0);
+        const held = octets[consumed..];
+        const read: client_module.ChannelInput = if (held.len > 0) .{ .stream = held } else .none;
+        const received = asked.receive(read, 0);
         consumed += received.consumed;
         if (received.event == null and received.consumed == 0) return;
     }
