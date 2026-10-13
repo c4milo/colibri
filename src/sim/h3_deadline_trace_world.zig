@@ -49,6 +49,8 @@ const actions_besides_requests: usize = 5;
 pub const allowed_max: usize = actions_per_request * limits.requests_max + actions_besides_requests;
 
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 });
+/// The connection a QUIC slot holds, named through its field: the root exports no such type.
+pub const Connection = std.meta.Elem(@FieldType(Endpoint, "quic"));
 const datagram_len = limits.datagram_len;
 /// Where the client sends from, which the endpoint reads off each datagram (decision 72).
 const ipv4_len: usize = 4;
@@ -93,7 +95,7 @@ pub const World = struct {
     endpoint_config: server.Config,
     endpoint: Endpoint,
     /// The endpoint's one QUIC connection, read as a program does not, and the handle naming it.
-    served: ?*server.QuicConnection,
+    served: ?*Connection,
     handle: ?server.ConnectionHandle,
     peer: Peer,
     peer_plan: deadline_plan.Plan,
@@ -214,7 +216,7 @@ pub const World = struct {
         world.note(plan);
     }
 
-    pub fn connection(world: *const World) *server.QuicConnection {
+    pub fn connection(world: *const World) *Connection {
         return world.served.?;
     }
 

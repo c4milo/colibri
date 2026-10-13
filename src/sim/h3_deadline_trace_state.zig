@@ -105,14 +105,14 @@ fn timed_out_of(passed: ?server.Deadline) Error!TimedOut {
 }
 
 /// Whether the server waits for the content of request `index` (`quic_body.zig`).
-fn body_waits(connection: *server.QuicConnection, index: usize) bool {
+fn body_waits(connection: *world_module.Connection, index: usize) bool {
     const record = connection.requests.of(stream_of(index)) orelse return false;
     return connection.bodies.entries[connection.requests.index_of(record)].waiting;
 }
 
 /// Whether h3 waits for the head of request `index`, which the server's head deadline judges
 /// (`oldest_head_wait`).
-fn head_waits(connection: *server.QuicConnection, index: usize) bool {
+fn head_waits(connection: *world_module.Connection, index: usize) bool {
     if (!connection.started or !connection.h3.requests.head_wait_possible) return false;
     const request = connection.h3.requests.find(stream_of(index)) orelse return false;
     return request.phase == .head;
