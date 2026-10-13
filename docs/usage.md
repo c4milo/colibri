@@ -375,11 +375,12 @@ Three more things a server sets:
 ## The client
 
 The `client` module sends requests behind one set of calls too. A program makes one
-`client.Config` for an origin, and one `client.Connection` for each TCP connection it opens to it.
-In cleartext a connection speaks h11, or h2 with prior knowledge when `Config.versions` turns h11
-off ([decision 117](decisions.md)). Over TLS, ALPN picks.
-For each request it places an `HttpExchange` in its own memory: the request, and where the
-response goes.
+`client.ChannelConfig` for an origin, and a `client.Channel` that carries its exchanges there
+([decision 120](decisions.md)). A channel given no receive pool opens TCP alone, as the one in
+this section does; [The client's channel](#the-clients-channel) adds QUIC. In cleartext its
+connection speaks h11, or h2 with prior knowledge when `versions` turns h11 off ([decision
+117](decisions.md)). Over TLS, ALPN picks. For each request the program places an
+`HttpExchange` in its own memory: the request, and where the response goes.
 
 ```zig
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
@@ -406,46 +407,78 @@ var post: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
 the content into `body`; colibri keeps no other field. `content` is the request's own content,
 which stays the program's until the exchange ends.
 
-The client converts its TLS values once, starts the connection, and hands it the exchanges:
+The client gives one configuration with one TLS value, makes the channel, and hands it the
+exchanges:
 
 ```zig
-try client_tls.init(.{
-    .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } },
-    .alpn = &protocols,
-    .cpu = cpu,
-});
-client_config = .{ .tls = &client_tls, .authority = origin };
-try client_connection.init(&client_config, program.random(), now_seconds, null);
-// `request` only takes an exchange. `send` writes it once the handshake has picked the
-// version, so a program asks at once and never waits for the connection.
-_ = try client_connection.request(&get);
-_ = try client_connection.request(&post);
+// One configuration for the origin, with one TLS value. The value names no protocol: the
+// channel offers h2 and then http/1.1 through ALPN, as `versions` allows by default.
+client_config = .{
+    .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+    .authority = origin,
+};
+// The channel takes what DNS knows as values. With no receive pool it offers TCP alone. `init`
+// builds the TLS configuration inside the channel, which stays in place from here on.
+const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+try channel.init(&client_config, known, null);
+// `request` only takes an exchange. The channel asks for a socket, and sends the exchange
+// once the handshake has picked the version, so a program asks at once and never waits.
+_ = try channel.request(&get);
+_ = try channel.request(&post);
 ```
 
-Each turn reads every event that arrived and sends what the connection owes:
+Each turn reads every event that arrived, sends what the channel owes, and reads again:
 
 ```zig
-const input = try link.receive(.client);
-const now_ns = link.now_ns(.client);
-var consumed: usize = 0;
-for (0..events_per_turn_max) |_| {
-    const received = client_connection.receive(input[consumed..], now_ns);
-    consumed += received.consumed;
-    const event = received.event orelse {
-        if (received.consumed == 0) break;
-        continue;
-    };
-    report(event);
+fn client_turn() !void {
+    const now_ns = link.now_ns(.client);
+    try drain(now_ns);
+    try link.send(.client, output[0..channel.send_stream(&output, now_ns)]);
+    try drain(now_ns);
 }
-link.consume(.client, consumed);
-try link.send(.client, output[0..client_connection.send(&output, now_ns)]);
 ```
 
-An exchange ends in exactly one `finished` event, whatever happened to it:
+A read passes every octet the program still holds, or `.none` when it holds none, until the channel
+consumes nothing and reports nothing. The channel may consume fewer octets than it was given: an
+h11 connection reads a held octet only once the response before it ends.
 
 ```zig
-fn report(event: client.Event) void {
+fn drain(now_ns: u64) !void {
+    const input = try link.receive(.client);
+    var consumed: usize = 0;
+    for (0..events_per_turn_max) |_| {
+        const held = input[consumed..];
+        const read: client.ChannelInput = if (held.len > 0) .{ .stream = held } else .none;
+        const received = channel.receive(read, now_ns);
+        consumed += received.consumed;
+        const event = received.event orelse {
+            if (received.consumed == 0) break;
+            continue;
+        };
+        report(event);
+    }
+    // What an event carried points into the queue, so the queue is consumed only now.
+    link.consume(.client, consumed);
+}
+```
+
+The channel's events say what the program does next, and an exchange ends in exactly one
+`finished` event, whatever happened to it:
+
+```zig
+fn report(event: client.ChannelEvent) void {
     switch (event) {
+        // The channel asks for a socket to `open.to`. A program connects one there, then starts
+        // the connection on it. Here the link stands where the socket would be, and is connected
+        // from the start.
+        .open => |open| {
+            assert(open.transport == .tcp);
+            // A start the TLS stack refuses ends the attempt, which the channel reports.
+            channel.start_tcp(program.random(), now_seconds, null) catch {};
+        },
+        // The connection is over and `send_stream` wrote everything, the TLS close_notify too:
+        // the program closes the socket. The channel has wiped the session's secrets.
+        .close => socket_closed = true,
         .connected => |protocol| {
             std.debug.print("client: connected over {s}\n", .{@tagName(protocol)});
             spoken = protocol;
@@ -456,15 +489,16 @@ fn report(event: client.Event) void {
                 exchange.path, @tagName(exchange.outcome), exchange.status,
             });
             finished += 1;
-            // Every exchange has ended, so the client ends the connection.
-            if (finished == exchanges_count) client_connection.shutdown();
+            // Every exchange has ended, so the client shuts the channel down.
+            if (finished == exchanges_count) channel.shutdown();
         },
         // This client opens no second connection, so it wipes the ticket a server gives it.
-        .ticket => if (client_connection.take_ticket()) |ticket| {
+        .ticket => |transport| if (channel.take_ticket(transport)) |ticket| {
             var held = ticket;
             held.wipe();
         },
-        .draining, .closed => {},
+        // The shut-down channel is over: its connection ended and its socket closed.
+        .closed => channel_closed = true,
     }
 }
 ```
@@ -481,22 +515,23 @@ The exchange's `outcome` says what happened:
 | `invalid` | The request is one the protocol refuses to send. |
 | `too_large` | The content did not fit `body`, or a wanted value did not fit `values`. |
 
-`connected` reports the version ALPN picked. `ticket` says the server issued a resumption ticket:
-`take_ticket` hands it over, and a later connection offers it through `init`'s last argument.
-`draining` says the server takes no new request on this connection, and `closed` that the
-connection is over.
+- `open` asks for a socket to `open.to`. The program connects one there, then calls `start_tcp`
+  with the source its TLS session draws from. A connect that fails goes to
+  `transport_closed(.tcp)`.
+- `connected` reports the version ALPN picked.
+- `ticket` says the server issued a resumption ticket: `take_ticket(.tcp)` hands it over, and a
+  later connection offers it through `start_tcp`'s last argument.
+- `close` says the connection is over and `send_stream` wrote everything, the TLS close_notify
+  too. The program closes the socket. The channel has wiped the session's secrets.
+- After `shutdown`, `closed` says the channel is over.
 
-The client closes its transport once `should_close` says so, and then tells its connection:
+A channel asks for a second socket when an exchange the server refused unprocessed moves to
+another connection (RFC 9113 §8.7). It reports the first socket's `close` before it. A program
+that opens no second socket calls `transport_closed(.tcp)`, and the exchange ends `refused`. A
+socket the peer closed, or that failed, goes to `transport_closed(.tcp)` too.
 
-```zig
-// The client's `should_close` says when to close its transport: the connection is over and
-// `send` has written everything, the TLS close_notify too. `transport_closed` then wipes the
-// session's secrets.
-client_connection.transport_closed();
-```
-
-A client that decodes content codings names them in `Config.codings`, and places the pool of
-decoders each needs ([decision 101](decisions.md)).
+A client that decodes content codings names them in `ChannelConfig.codings`, and places the pool
+of decoders each needs ([decision 101](decisions.md)).
 
 ## h3: the endpoint and the channel
 

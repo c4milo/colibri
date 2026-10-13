@@ -92,19 +92,20 @@ var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
 };
 ```
 
-It hands the exchange to a connection, which sends it once the handshake has picked the version:
+It hands the exchange to a channel, which asks for a socket and sends the exchange once the
+handshake has picked the version:
 
 ```zig
-client_config = .{ .tls = &client_tls, .authority = origin };
-try client_connection.init(&client_config, program.random(), now_seconds, null);
-// `request` only takes an exchange. `send` writes it once the handshake has picked the
-// version, so a program asks at once and never waits for the connection.
-_ = try client_connection.request(&get);
-_ = try client_connection.request(&post);
+const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+try channel.init(&client_config, known, null);
+// `request` only takes an exchange. The channel asks for a socket, and sends the exchange
+// once the handshake has picked the version, so a program asks at once and never waits.
+_ = try channel.request(&get);
+_ = try channel.request(&post);
 ```
 
-The program moves octets between its socket and the connection's `send` and `receive`, and every
-exchange ends in one `finished` event:
+The program moves octets between its socket and the channel's `send_stream` and `receive`, and
+every exchange ends in one `finished` event:
 
 ```zig
 .finished => |ended| {
@@ -113,8 +114,8 @@ exchange ends in one `finished` event:
         exchange.path, @tagName(exchange.outcome), exchange.status,
     });
     finished += 1;
-    // Every exchange has ended, so the client ends the connection.
-    if (finished == exchanges_count) client_connection.shutdown();
+    // Every exchange has ended, so the client shuts the channel down.
+    if (finished == exchanges_count) channel.shutdown();
 },
 ```
 

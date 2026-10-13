@@ -17,10 +17,13 @@
 //! The server accepts a second socket, which its peer closes before it sends an octet. That is
 //! when a program calls `transport_closed`: the peer closed the socket first.
 //!
-//! The client is one `client.Connection`. In a turn it hands the connection the octets that
-//! arrived, takes one event from each `receive`, and sends what `send` writes. Both sides run over
-//! `link.zig`, which stands where a program's sockets would be, and `tls_program.zig` holds what
-//! any program that links `tls` defines once.
+//! The client is one `client.Channel` with TCP alone (decision 120): it holds no receive pool, so
+//! it opens no QUIC. The channel asks for a socket with an `open` event, and the program starts the
+//! channel's connection on it. In a turn the client hands the channel the octets that arrived,
+//! takes one event from each `receive`, sends what `send_stream` writes, and reads again. A `close`
+//! event says to close the socket, and `closed` that the shut-down channel is over. Both sides run
+//! over `link.zig`, which stands where a program's sockets would be, and `tls_program.zig` holds
+//! what any program that links `tls` defines once.
 //!
 //! The program checks what arrived: the client must see 200 twice, the greeting, the note it
 //! posted and the content type, octet for octet. The server must see each response end, one
@@ -62,10 +65,11 @@ const content_type = "text/plain; charset=utf-8";
 /// The name the server's certificate carries, which the client asks for and judges it by.
 const origin = "localhost";
 
-/// The versions the client offers through ALPN, most preferred first (RFC 7301 §3.1). The server
-/// names none: its endpoint offers the versions its configuration's `versions` allows, which are
-/// these two unless the program turns one off.
-const protocols = [_][]const u8{ "h2", "http/1.1" };
+/// The server's address, which the client's DNS lookup returned, and the port of an "https" origin
+/// (RFC 9110 §4.2.2). The link stands where the socket would be, so no socket connects to them.
+const loopback = [_]u8{ 127, 0, 0, 1 };
+const server_port = 443;
+const server_addresses = [_]client.Address{.of(&loopback, 0)};
 
 /// Unix seconds. A program reads them from its clock; colibri reads no clock. The client judges
 /// the server's certificates at this instant, which the test identity is valid at.
@@ -80,7 +84,7 @@ pub const Error = error{
     SendUnfinished,
 };
 
-// The link, the endpoint and the client's connection hold hundreds of kilobytes, so they live
+// The link, the endpoint and the client's channel hold hundreds of kilobytes, so they live
 // outside the stack.
 var link: Link align(@alignOf(Link)) = undefined;
 var output: [output_len]u8 = undefined;
@@ -104,12 +108,11 @@ var answered: u32 = 0;
 var closes: u32 = 0;
 var connections_ended: u32 = 0;
 
-// The client: its TLS configuration, one connection, and an exchange for each request. An exchange
-// holds the request and the memory its response goes into.
+// The client: one configuration for the origin, one channel, and an exchange for each request. An
+// exchange holds the request and the memory its response goes into.
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
-var client_tls: tls.record.ClientConfig align(@alignOf(tls.record.ClientConfig)) = undefined;
-var client_config: client.Config align(@alignOf(client.Config)) = undefined;
-var client_connection: client.Connection align(@alignOf(client.Connection)) = undefined;
+var client_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = undefined;
+var channel: client.Channel align(@alignOf(client.Channel)) = undefined;
 /// The fields of the response the client reads. colibri keeps no other field.
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
 var wanted_values: [content_type.len]u8 = undefined;
@@ -129,9 +132,12 @@ var post: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
     .content = note,
     .body = &post_body,
 };
-/// Exchanges that have ended, and the version ALPN picked.
+/// Exchanges that have ended, the version ALPN picked, whether the channel said to close the
+/// socket, and whether the shut-down channel is over.
 var finished: u32 = 0;
 var spoken: ?client.Protocol align(@alignOf(client.Protocol)) = null;
+var socket_closed: bool = false;
+var channel_closed: bool = false;
 
 pub fn main() !void {
     try link.init();
@@ -146,15 +152,11 @@ pub fn main() !void {
     for (0..turns_max) |_| {
         try client_turn();
         try server_turn();
-        if (client_connection.should_close() and connections_ended == connections_count) break;
+        if (channel_closed and connections_ended == connections_count) break;
         // No octet waits for either side. A program sleeps here until a socket has octets or the
         // endpoint's next deadline passes, whichever comes first.
         if (!link.pending()) try link.wait(.server, server_wait_ns());
     } else return error.ExchangeUnfinished;
-    // The client's `should_close` says when to close its transport: the connection is over and
-    // `send` has written everything, the TLS close_notify too. `transport_closed` then wipes the
-    // session's secrets.
-    client_connection.transport_closed();
     return check();
 }
 
@@ -198,17 +200,20 @@ fn accept_closed() !void {
 }
 
 fn start_client(cpu: tls.Cpu) !void {
-    try client_tls.init(.{
-        .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } },
-        .alpn = &protocols,
-        .cpu = cpu,
-    });
-    client_config = .{ .tls = &client_tls, .authority = origin };
-    try client_connection.init(&client_config, program.random(), now_seconds, null);
-    // `request` only takes an exchange. `send` writes it once the handshake has picked the
-    // version, so a program asks at once and never waits for the connection.
-    _ = try client_connection.request(&get);
-    _ = try client_connection.request(&post);
+    // One configuration for the origin, with one TLS value. The value names no protocol: the
+    // channel offers h2 and then http/1.1 through ALPN, as `versions` allows by default.
+    client_config = .{
+        .tls = .{ .trust = .{ .web_pki = .{ .anchors = &anchors, .server_name = origin } }, .cpu = cpu },
+        .authority = origin,
+    };
+    // The channel takes what DNS knows as values. With no receive pool it offers TCP alone. `init`
+    // builds the TLS configuration inside the channel, which stays in place from here on.
+    const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+    try channel.init(&client_config, known, null);
+    // `request` only takes an exchange. The channel asks for a socket, and sends the exchange
+    // once the handshake has picked the version, so a program asks at once and never waits.
+    _ = try channel.request(&get);
+    _ = try channel.request(&post);
 }
 
 /// One turn of the server: fire the deadlines that passed, pass the endpoint the octets the socket
@@ -325,13 +330,25 @@ fn answer(id: server.Id, content: []const u8) !void {
     assert(taken == content.len);
 }
 
-/// One turn of the client: read every event that arrived, then send what the connection owes.
+/// One turn of the client: read every event that arrived, send what the channel owes, and read
+/// again with the octets the socket still holds.
 fn client_turn() !void {
-    const input = try link.receive(.client);
     const now_ns = link.now_ns(.client);
+    try drain(now_ns);
+    try link.send(.client, output[0..channel.send_stream(&output, now_ns)]);
+    try drain(now_ns);
+}
+
+/// Passes the channel the octets the socket read, until it consumes nothing and reports nothing.
+/// Each call passes every octet the program still holds, or `.none` when it holds none: an h11
+/// connection reads a held octet only once the response before it ends.
+fn drain(now_ns: u64) !void {
+    const input = try link.receive(.client);
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
-        const received = client_connection.receive(input[consumed..], now_ns);
+        const held = input[consumed..];
+        const read: client.ChannelInput = if (held.len > 0) .{ .stream = held } else .none;
+        const received = channel.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
             if (received.consumed == 0) break;
@@ -339,14 +356,25 @@ fn client_turn() !void {
         };
         report(event);
     }
+    // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.client, consumed);
-    try link.send(.client, output[0..client_connection.send(&output, now_ns)]);
 }
 
 /// Acts on one event of the client. Each exchange ends in one `finished` event, whatever happened
 /// to it: its `outcome` says whether the response arrived.
-fn report(event: client.Event) void {
+fn report(event: client.ChannelEvent) void {
     switch (event) {
+        // The channel asks for a socket to `open.to`. A program connects one there, then starts
+        // the connection on it. Here the link stands where the socket would be, and is connected
+        // from the start.
+        .open => |open| {
+            assert(open.transport == .tcp);
+            // A start the TLS stack refuses ends the attempt, which the channel reports.
+            channel.start_tcp(program.random(), now_seconds, null) catch {};
+        },
+        // The connection is over and `send_stream` wrote everything, the TLS close_notify too:
+        // the program closes the socket. The channel has wiped the session's secrets.
+        .close => socket_closed = true,
         .connected => |protocol| {
             std.debug.print("client: connected over {s}\n", .{@tagName(protocol)});
             spoken = protocol;
@@ -357,28 +385,30 @@ fn report(event: client.Event) void {
                 exchange.path, @tagName(exchange.outcome), exchange.status,
             });
             finished += 1;
-            // Every exchange has ended, so the client ends the connection.
-            if (finished == exchanges_count) client_connection.shutdown();
+            // Every exchange has ended, so the client shuts the channel down.
+            if (finished == exchanges_count) channel.shutdown();
         },
         // This client opens no second connection, so it wipes the ticket a server gives it.
-        .ticket => if (client_connection.take_ticket()) |ticket| {
+        .ticket => |transport| if (channel.take_ticket(transport)) |ticket| {
             var held = ticket;
             held.wipe();
         },
-        .draining, .closed => {},
+        // The shut-down channel is over: its connection ended and its socket closed.
+        .closed => channel_closed = true,
     }
 }
 
 /// The exchanges `start_client` requested.
 const exchanges_count = 2;
 
-/// The client saw what the server sent. The server saw each response end, one `close` and both
-/// connections end: the socket its peer closed first gets no `close`.
+/// The client saw what the server sent, and closed its socket when the channel said to. The server
+/// saw each response end, one `close` and both connections end: the socket its peer closed first
+/// gets no `close`.
 fn check() Error!void {
     const greeted = arrived(&get, greeting);
     const typed = std.mem.eql(u8, wanted[0].value orelse "", content_type);
     const echoed = arrived(&post, note);
-    const over = closes == 1 and connections_ended == connections_count;
+    const over = socket_closed and closes == 1 and connections_ended == connections_count;
     if (spoken == .h2 and greeted and typed and echoed and answered == exchanges_count and over) {
         std.debug.print("tls_exchange: every octet arrived as sent\n", .{});
         return;
@@ -386,7 +416,9 @@ fn check() Error!void {
     std.debug.print("tls_exchange: greeting {}, content type {}, echo {}, answered {d}\n", .{
         greeted, typed, echoed, answered,
     });
-    std.debug.print("tls_exchange: closes {d}, connections ended {d}\n", .{ closes, connections_ended });
+    std.debug.print("tls_exchange: client closed {}, closes {d}, connections ended {d}\n", .{
+        socket_closed, closes, connections_ended,
+    });
     return error.ExchangeWrong;
 }
 
