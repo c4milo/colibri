@@ -15,73 +15,77 @@ const std = @import("std");
 const quic = @import("quic");
 const h11 = @import("h11");
 const http = @import("http");
-const coding_pool = @import("coding_pool.zig");
-const event = @import("event.zig");
-const connection = @import("connection/connection.zig");
-const quic_connection = @import("quic/quic_connection.zig");
-const channel = @import("channel/channel.zig");
-const alt_svc = @import("alt_svc.zig");
-const versions = @import("versions.zig");
 
 /// The module's named limits and sizes (decision 35). It is the one file the root exports whole:
 /// every other name below is a type a program names (design §8 step 17f).
 pub const constants = @import("constants.zig");
 
-pub const Config = channel.Config;
-pub const Versions = versions.Versions;
-pub const Connection = connection.Connection;
+/// Every file a name below comes from. None of these is exported: the names below are.
+const files = struct {
+    pub const coding_pool = @import("coding_pool.zig");
+    pub const event = @import("event.zig");
+    pub const connection = @import("connection/connection.zig");
+    pub const quic_connection = @import("quic/quic_connection.zig");
+    pub const channel = @import("channel/channel.zig");
+    pub const alt_svc = @import("alt_svc.zig");
+    pub const versions = @import("versions.zig");
+};
+
+pub const Config = files.channel.Config;
+pub const Versions = files.versions.Versions;
+pub const Connection = files.connection.Connection;
 /// Why `Channel.init` or one of its starts refused (decision 120): `Connection.init` and
 /// `QuicConnection.init` return members of it.
-pub const StartError = channel.StartError;
-pub const RequestError = connection.RequestError;
-pub const Field = event.Field;
-pub const Id = event.Id;
-pub const Protocol = event.Protocol;
-pub const HttpExchange = event.HttpExchange;
-pub const Wanted = event.Wanted;
-pub const Outcome = event.Outcome;
-pub const Event = event.Event;
-pub const Finished = event.Finished;
-pub const Received = event.Received;
+pub const StartError = files.channel.StartError;
+pub const RequestError = files.connection.RequestError;
+pub const Field = files.event.Field;
+pub const Id = files.event.Id;
+pub const Protocol = files.event.Protocol;
+pub const HttpExchange = files.event.HttpExchange;
+pub const Wanted = files.event.Wanted;
+pub const Outcome = files.event.Outcome;
+pub const Event = files.event.Event;
+pub const Finished = files.event.Finished;
+pub const Received = files.event.Received;
 /// What one response's Alt-Svc field says of h3 on the origin's host (RFC 7838 §3), which
 /// `Connection.take_alt_svc` returns.
-pub const Advert = alt_svc.Advert;
-pub const QuicConnection = quic_connection.QuicConnection;
+pub const Advert = files.alt_svc.Advert;
+pub const QuicConnection = files.quic_connection.QuicConnection;
 /// A datagram a QUIC connection or a channel wrote, with its ECN codepoint and the address it
 /// goes to.
-pub const Sent = quic_connection.Sent;
+pub const Sent = files.quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
-pub const Address = channel.Address;
+pub const Address = files.channel.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
 /// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
-pub const Channel = channel.Channel;
+pub const Channel = files.channel.Channel;
 /// What DNS knows of the origin, which `Channel.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a channel learned from Alt-Svc.
-pub const ChannelValues = channel.Values;
-pub const Https = channel.Https;
-pub const Alternative = channel.Alternative;
+pub const ChannelValues = files.channel.Values;
+pub const Https = files.channel.Https;
+pub const Alternative = files.channel.Alternative;
 /// What a program passes `Channel.receive`, and what it returns.
-pub const ChannelInput = channel.Input;
-pub const Datagram = channel.Datagram;
-pub const ChannelReceived = channel.Received;
-pub const ChannelEvent = channel.Event;
+pub const ChannelInput = files.channel.Input;
+pub const Datagram = files.channel.Datagram;
+pub const ChannelReceived = files.channel.Received;
+pub const ChannelEvent = files.channel.Event;
 /// The transport an `open` event asks for and where it goes, and which of the two transports a
 /// channel's calls name.
-pub const ChannelOpen = channel.Open;
-pub const Transport = channel.Transport;
+pub const ChannelOpen = files.channel.Open;
+pub const Transport = files.channel.Transport;
 /// Where a transport's connection and an exchange stand at a channel, as
 /// spec/tla/client_exchanges names them (decision 105). The simulator's trace reads them: a
 /// program reads the events.
-pub const ChannelPhase = channel.Phase;
-pub const ChannelEntry = channel.Entry;
+pub const ChannelPhase = files.channel.Phase;
+pub const ChannelEntry = files.channel.Entry;
 /// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
 /// places: `ReceivePool(capacity)` for `capacity` octets, a whole number of
 /// `quic.constants.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
 /// capacity bounds every window the client advertises, and so how fast one connection receives.
 pub const ReceivePool = quic.stream.stream_incoming.Pool;
 pub const DefaultReceivePool = quic.stream.stream_incoming.DefaultPool;
-pub const ReceiveStorage = quic_connection.ReceiveStorage;
+pub const ReceiveStorage = files.quic_connection.ReceiveStorage;
 /// The content codings a client decodes (decision 101).
 pub const Coding = http.content_coding.Coding;
 /// The pool of decoders a client removes content codings with (decision 101), which the caller
@@ -95,13 +99,13 @@ pub const Decoders = h11.coding.Storage;
 /// (RFC 9659 §3), and each of a `BrotliDecoderPool(count)` a 16 MiB one (RFC 7932 §9.1);
 /// docs/usage.md gives their sizes. A configuration holds each as `ZstdDecoders` or
 /// `BrotliDecoders`, from `storage()`.
-pub const ZstdDecoderPool = coding_pool.ZstdDecoderPool;
-pub const ZstdDecoders = coding_pool.ZstdDecoders;
-pub const BrotliDecoderPool = coding_pool.BrotliDecoderPool;
-pub const BrotliDecoders = coding_pool.BrotliDecoders;
+pub const ZstdDecoderPool = files.coding_pool.ZstdDecoderPool;
+pub const ZstdDecoders = files.coding_pool.ZstdDecoders;
+pub const BrotliDecoderPool = files.coding_pool.BrotliDecoderPool;
+pub const BrotliDecoders = files.coding_pool.BrotliDecoders;
 /// The CPU features a pool's codecs run on, which its `reset` takes: `Features.detect()` asks the
 /// CPU, as colibri never does itself, and `Features.target()` is what the build target guarantees.
-pub const Features = coding_pool.Features;
+pub const Features = files.coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     const public_names = @import("core").public_names;
@@ -119,7 +123,10 @@ test "design §8 step 17f: the root exports its constants and the types a progra
 }
 
 test {
-    std.testing.refAllDecls(@This());
+    // Every file's tests run, whether or not the root exports a name of it.
+    std.testing.refAllDecls(files);
+    // Every name the root exports resolves.
+    _ = @import("core").public_names.reference(@This(), &.{});
     _ = @import("versions.zig");
     _ = @import("slots.zig");
     _ = @import("response.zig");
