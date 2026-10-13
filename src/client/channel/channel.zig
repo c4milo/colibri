@@ -12,9 +12,10 @@
 //! another connection once (RFC 9113 §8.7, RFC 9114 §4.1.1).
 //!
 //! The caller opens a transport when an `open` event says to, starts its connection with
-//! `start_quic` or `start_tcp`, and closes it when a `close` event says to. It passes what each
-//! transport reads to `receive`, and writes what `send_datagram` and `send_stream` return. It loops
-//! over `receive` as it does for one connection: until nothing is consumed and no event comes.
+//! `start_quic` or `start_tcp`, and closes it when a `close` event says to, dropping the octets it
+//! still holds of what the socket read. It passes what each transport reads to `receive`, and
+//! writes what `send_datagram` and `send_stream` return. It loops over `receive` as it does for one
+//! connection: until nothing is consumed and no event comes.
 //! After each send, each event and each `on_instant` it reads again, with the TCP octets it still
 //! holds, or with `.none` when it holds none: an h11 connection reads a held octet only once the
 //! response before it ends. colibri makes no system call and reads no clock: time is a value the
@@ -92,7 +93,8 @@ pub const Event = union(enum) {
     /// Open this transport, then start its connection with `start_quic` or `start_tcp`.
     open: Open,
     /// Close this transport: its connection is over, and the channel reads and writes nothing more
-    /// on it.
+    /// on it. The program drops the octets it read from the socket and still holds: they are that
+    /// connection's, and the next connection on the transport must not get them.
     close: Transport,
     /// The connection carrying the exchanges speaks `Protocol`. The event comes only for a
     /// connection that takes the exchanges. A connection that failed, or that takes no new

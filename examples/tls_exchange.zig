@@ -355,6 +355,8 @@ fn drain(now_ns: u64) !void {
             continue;
         };
         report(event);
+        // The octets the closed socket read are its connection's, which is over: they are dropped.
+        if (event == .close) consumed = input.len;
     }
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.client, consumed);

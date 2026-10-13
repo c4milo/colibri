@@ -456,6 +456,8 @@ fn drain(now_ns: u64) !void {
             continue;
         };
         report(event);
+        // The octets the closed socket read are its connection's, which is over: they are dropped.
+        if (event == .close) consumed = input.len;
     }
     // What an event carried points into the queue, so the queue is consumed only now.
     link.consume(.client, consumed);
@@ -522,7 +524,9 @@ The exchange's `outcome` says what happened:
 - `ticket` says the server issued a resumption ticket: `take_ticket(.tcp)` hands it over, and a
   later connection offers it through `start_tcp`'s last argument.
 - `close` says the connection is over and `send_stream` wrote everything, the TLS close_notify
-  too. The program closes the socket. The channel has wiped the session's secrets.
+  too. The program closes the socket, and drops the octets it read from it and still holds: they
+  are that connection's, and the next connection must not get them. The channel has wiped the
+  session's secrets.
 - After `shutdown`, `closed` says the channel is over.
 
 A channel asks for a second socket when an exchange the server refused unprocessed moves to
@@ -817,7 +821,8 @@ fn report(event: client.ChannelEvent, now_ns: u64) void {
   h3, or when `Config.quic_first` says to try it. TCP opens when QUIC fails or
   `fallback_delay_ns` passes, and the first connection whose handshake completes takes the
   exchanges.
-- `close` names a transport the program closes.
+- `close` names a transport the program closes. It drops the octets it still holds from that
+  socket.
 - `connected`, `ticket` and `finished` mean what they mean on a TCP connection, and `closed` says
   the channel was shut down and every transport is closed.
 
