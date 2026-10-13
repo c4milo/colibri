@@ -67,10 +67,15 @@ pub const Writer = struct {
         assert(self.offset <= self.buffer.len);
     }
 
-    /// An unsigned integer as `@sizeOf(T)` octets in network byte order, all of them or none.
+    /// An unsigned integer as `@sizeOf(T)` octets in network byte order, all of them or none:
+    /// `@sizeOf(u24)` is four octets, the first of them 0, so a three-octet field is written some
+    /// other way. The octets are stored as one array of a size known at compile time, which the
+    /// compiler writes with stores where `write_bytes` calls `memcpy` for a length it learns at
+    /// run time.
     pub fn write_int(self: *Writer, comptime T: type, value: T) Error!void {
         comptime assert(@typeInfo(T).int.signedness == .unsigned);
         comptime assert(@bitSizeOf(T) % @bitSizeOf(u8) == 0 and @bitSizeOf(T) > 0);
+        if (@sizeOf(T) > self.remaining_len()) return error.NoSpaceLeft;
         var octets: [@sizeOf(T)]u8 = @splat(0);
         var rest: T = value;
         for (0..@sizeOf(T)) |index| {
@@ -78,7 +83,9 @@ pub const Writer = struct {
             rest = if (@sizeOf(T) == 1) 0 else rest >> @bitSizeOf(u8);
         }
         assert(rest == 0);
-        try self.write_bytes(&octets);
+        self.buffer[self.offset..][0..@sizeOf(T)].* = octets;
+        self.offset += @sizeOf(T);
+        assert(self.offset <= self.buffer.len);
     }
 };
 
@@ -131,4 +138,56 @@ test "an empty buffer takes an empty write and refuses a byte" {
     var writer = Writer.init(&.{});
     try writer.write_bytes(&.{});
     try testing.expectError(error.NoSpaceLeft, writer.write_byte(0));
+}
+
+// The test below holds `write_int` to the one it replaced, which wrote its octets through
+// `write_bytes`. It stays here as the reference.
+
+/// The reference: `write_int` as it was.
+fn write_int_by_bytes(writer: *Writer, comptime T: type, value: T) Error!void {
+    var octets: [@sizeOf(T)]u8 = @splat(0);
+    var rest: T = value;
+    for (0..@sizeOf(T)) |index| {
+        octets[@sizeOf(T) - 1 - index] = @truncate(rest);
+        rest = if (@sizeOf(T) == 1) 0 else rest >> @bitSizeOf(u8);
+    }
+    try writer.write_bytes(&octets);
+}
+
+/// What a buffer holds before a write.
+const untouched: u8 = 0xee;
+/// The values each width is written with: its edges, and a pattern in each octet.
+const pattern: u64 = 0x0123456789abcdef;
+/// Octets a test buffer holds: room for the widest integer after as many octets before it, and
+/// one octet more.
+const test_buffer_len = @sizeOf(u64) + @sizeOf(u64) + 1;
+
+/// Fails, printing both, when `write_int` and the reference differ for `value` in `room` octets,
+/// after `before` octets already written.
+fn expect_same_int(comptime T: type, value: T, before: usize, room: usize) !void {
+    var changed_buffer: [test_buffer_len]u8 = @splat(untouched);
+    var reference_buffer: [test_buffer_len]u8 = @splat(untouched);
+    var changed = Writer.init(changed_buffer[0 .. before + room]);
+    var reference = Writer.init(reference_buffer[0 .. before + room]);
+    changed.offset = before;
+    reference.offset = before;
+    const changed_failed = if (changed.write_int(T, value)) false else |_| true;
+    const reference_failed = if (write_int_by_bytes(&reference, T, value)) false else |_| true;
+    const same = changed_failed == reference_failed and changed.offset == reference.offset and
+        std.mem.eql(u8, &changed_buffer, &reference_buffer);
+    if (same) return;
+    std.debug.print("first difference: {s} {x} after {d} in room {d}: write_int {} {x}, reference {} {x}\n", .{
+        @typeName(T), value, before, room, changed_failed, changed.written(), reference_failed, reference.written(),
+    });
+    return error.TestUnexpectedResult;
+}
+
+test "write_int writes what the reference writes, at every width, offset and room" {
+    inline for ([_]type{ u8, u16, u32, u64 }) |T| {
+        for ([_]T{ 0, 1, std.math.maxInt(T), @truncate(pattern) }) |value| {
+            for (0..@sizeOf(T) + 1) |before| {
+                for (0..@sizeOf(T) + 2) |room| try expect_same_int(T, value, before, room);
+            }
+        }
+    }
 }

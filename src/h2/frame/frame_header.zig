@@ -47,15 +47,8 @@ pub fn write(writer: *Writer, header: Header) core.writer.Error!void {
     assert(header.length <= constants.frame_length_max);
     assert(header.stream_id <= constants.stream_id_max);
     var cursor = writer.*;
-    var length_octets: [constants.frame_length_len]u8 = @splat(0);
-    var rest = header.length;
-    for (0..constants.frame_length_len) |index| {
-        length_octets[constants.frame_length_len - 1 - index] = @truncate(rest);
-        rest >>= @bitSizeOf(u8);
-    }
-    assert(rest == 0);
-    try cursor.write_bytes(&length_octets);
-    try cursor.write_byte(header.type);
+    // RFC 9113 §4.1: the 24-bit length, then the type, as the four octets of one integer.
+    try cursor.write_int(u32, header.length << @bitSizeOf(u8) | header.type);
     try cursor.write_byte(header.flags);
     // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
     try cursor.write_int(u32, header.stream_id & ~constants.reserved_bit_mask);
@@ -137,4 +130,62 @@ test "has_flag reads one bit of the flags octet" {
     try testing.expect(has_flag(header, constants.flag_end_stream));
     try testing.expect(has_flag(header, constants.flag_end_headers));
     try testing.expect(!has_flag(header, constants.flag_padded));
+}
+
+// The test below holds `write` to the one it replaced, which wrote the length's three octets
+// through `write_bytes` and the type on its own. It stays here as the reference. The two agree on
+// what each returns and on the octets a write leaves the writer holding; past those, a write that
+// fails leaves different octets, which no caller reads.
+
+/// The reference: `write` as it was.
+fn write_by_parts(writer: *Writer, header: Header) core.writer.Error!void {
+    var cursor = writer.*;
+    var length_octets: [constants.frame_length_len]u8 = @splat(0);
+    var rest = header.length;
+    for (0..constants.frame_length_len) |index| {
+        length_octets[constants.frame_length_len - 1 - index] = @truncate(rest);
+        rest >>= @bitSizeOf(u8);
+    }
+    try cursor.write_bytes(&length_octets);
+    try cursor.write_byte(header.type);
+    try cursor.write_byte(header.flags);
+    // RFC 9113 §4.1: the reserved bit MUST remain unset when sending.
+    try cursor.write_int(u32, header.stream_id & ~constants.reserved_bit_mask);
+    writer.* = cursor;
+}
+
+/// What a buffer holds before a write. Test-only.
+const untouched: u8 = 0xee;
+
+/// Fails, printing both, when `write` and the reference differ for `header` in `room` octets.
+fn expect_same_header(header: Header, room: usize) !void {
+    var changed_buffer: [constants.frame_header_len + 1]u8 = @splat(untouched);
+    var reference_buffer: [constants.frame_header_len + 1]u8 = @splat(untouched);
+    var changed = Writer.init(changed_buffer[0..room]);
+    var reference = Writer.init(reference_buffer[0..room]);
+    const changed_failed = if (write(&changed, header)) false else |_| true;
+    const reference_failed = if (write_by_parts(&reference, header)) false else |_| true;
+    const same = changed_failed == reference_failed and changed.offset == reference.offset and
+        std.mem.eql(u8, changed.written(), reference.written());
+    if (same) return;
+    std.debug.print("first difference: {any} in room {d}: write {} {x}, reference {} {x}\n", .{
+        header, room, changed_failed, changed.written(), reference_failed, reference.written(),
+    });
+    return error.TestUnexpectedResult;
+}
+
+test "write writes what the reference writes, for each length, type, flags and stream, in every room" {
+    const lengths = [_]u32{ 0, 1, 0xff, 0x100, 0x4000, 0x123456, constants.frame_length_max };
+    const octets = [_]u8{ 0, 1, 0x7f, 0x80, 0xff };
+    const streams = [_]u32{ 0, 1, 0x7f, 0x12345678, constants.stream_id_max };
+    for (lengths) |length| {
+        for (octets) |kind| {
+            for (octets) |flags| {
+                for (streams) |stream_id| {
+                    const header: Header = .{ .length = length, .type = kind, .flags = flags, .stream_id = stream_id };
+                    for (0..constants.frame_header_len + 2) |room| try expect_same_header(header, room);
+                }
+            }
+        }
+    }
 }

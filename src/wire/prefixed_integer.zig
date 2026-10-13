@@ -81,7 +81,9 @@ pub fn encode(
     if (value < mask) return writer.write_byte(high_bits | @as(u8, @intCast(value)));
     const rest = value - mask;
     // RFC 7541 §5.1: a remainder of seven bits or fewer is one continuation octet, the last.
-    if (rest <= continuation_value_mask) return writer.write_bytes(&.{ high_bits | mask, @intCast(rest) });
+    if (rest <= continuation_value_mask) {
+        return writer.write_int(u16, @as(u16, high_bits | mask) << @bitSizeOf(u8) | @as(u16, @intCast(rest)));
+    }
     return encode_continued(writer, high_bits | mask, rest);
 }
 

@@ -958,6 +958,41 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 189 in both jobs,
   where the disassembly gave about 200.
 
+  **A fixed-size integer is stored without `memcpy`, 2026-10-13.** `Writer.write_int` built its
+  octets in an array and wrote them through `write_bytes`, which the compiler keeps out of line
+  and which calls `memcpy` for a length it learns at run time. It now checks the room and stores
+  the array, whose size the compiler knows. Huffman's 32-bit words already used it; an h2 frame
+  header now writes its 24-bit length and its type as one `u32`, and `wire`'s prefixed integer
+  writes its two-octet case as one `u16`, for HPACK and QPACK. `@sizeOf(u24)` is four octets, so
+  `write_int` still writes four for it, and its comment says so.
+
+  What each check printed:
+  - The old `write_int` and the old frame header stay in the tests as references, and the
+    prefixed integer's reference from step 1 covers its two-octet case. `write_int` must write
+    what the old one writes at every width, offset and room; the frame header must return what
+    the old one returns and leave the writer the same octets, for each length, type, flags and
+    stream in every room. A failed frame header no longer leaves its three length octets in the
+    buffer past the writer's offset, which no caller reads.
+  - `zig build hpack-vectors`, `zig build qpack-vectors` and `zig build golden-check` passed, and
+    the four traces wrote the same octets before and after the change.
+  - 7 mutations, each **CAUGHT**: an integer that fits exactly refused; no room checked; the
+    cursor not moved; the low octet written first; the frame type left out of the header, or the
+    length shifted an octet too far; and the prefixed pair written in the other order.
+
+  The judge, [run 38427727383](https://github.com/c4milo/colibri/actions/runs/38427727383),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 14,962 | 14,671 | 0.9806 | 0.9824 | wins in both |
+  | h2-tls-many | 22,942 | 22,702 | 0.9895 | 0.9869 | wins in both |
+  | h2-one | 181,310 | 180,711 | 0.9967 | 0.9971 | within the noise |
+  | h2-tls-one | 7,279,202 | 7,278,778 | 0.9999 | 1.0000 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 282 in the first
+  job and by 280 in the second, where the disassembly gave about 300.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
