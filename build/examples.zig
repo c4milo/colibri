@@ -18,6 +18,7 @@ const examples = [_]Example{
     .{ .name = "h2_exchange" },
     .{ .name = "tls_exchange", .tls = true },
     .{ .name = "h3_exchange", .tls = true },
+    .{ .name = "server_exchange", .tls = true },
 };
 
 pub fn add(

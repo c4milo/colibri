@@ -107,33 +107,45 @@ The `server` module answers requests behind one set of calls, whichever version 
 speaks ([decision 100](decisions.md)). An endpoint is the server side of every connection one
 thread serves: RFC 9000 §1.2 and RFC 9113 §2.2 give the word to the client or the server of a
 connection, and a server has many connections. A program makes one `server.Config` and one
-endpoint for each thread that serves, and calls `accept` for each TCP socket its listener accepts
-([decision 119](decisions.md)). The endpoint holds every connection, and a
-`server.ConnectionHandle` names one. Over TLS the
-connection runs the handshake itself, and ALPN picks h2 or h11 during it. In cleartext, a
-connection speaks h2 when its first octets are h2's connection preface and h11 otherwise (RFC 9113
-§3.3, [decision 117](decisions.md)). The configuration's `versions` turns either version off, in
-cleartext and over TLS: the endpoint builds its ALPN list from `versions`, so the TLS identity
-names no protocol.
+endpoint for each thread that serves ([decision 119](decisions.md)). The endpoint holds every
+connection, and a `server.ConnectionHandle` names one:
 
-The code in this section and the next is from
-[`examples/tls_exchange.zig`](../examples/tls_exchange.zig), where `link` stands in for a
-program's sockets. An endpoint's size is fixed at build time. `server.Endpoint` holds 16 TCP
-connections and 16 QUIC connections, and `server.EndpointOf` makes one of another size. This
-server has no UDP socket, so its endpoint holds no QUIC connection:
+- **TCP connections.** The program calls `accept` for each TCP socket its listener accepts. Over
+  TLS the connection runs the handshake itself, and ALPN picks h2 or h11 during it. In cleartext,
+  a connection speaks h2 when its first octets are h2's connection preface and h11 otherwise (RFC
+  9113 §3.3, [decision 117](decisions.md)).
+- **QUIC connections.** They serve h3, all of them behind one UDP socket
+  ([decision 103](decisions.md)), each in a slot of its own. A client's first datagram starts one.
+
+The configuration's `versions` turns any version off, in cleartext and over TLS: the endpoint
+builds its ALPN list from `versions`, so the TLS identity names no protocol. For its QUIC
+connections the endpoint names h3 itself (RFC 9114 §3.1).
+
+The code in this section is from
+[`examples/server_exchange.zig`](../examples/server_exchange.zig), where `link` and
+`datagram_link` stand in for a program's TCP and UDP sockets. Its clients, in
+[`examples/server_peers.zig`](../examples/server_peers.zig), send a GET and a POST over h2 and a
+GET over h3. An endpoint's size is fixed at build time. `server.Endpoint` holds 16 TCP connections
+and 16 QUIC connections, and `server.EndpointOf` makes one of another size. The `server.Capacity`
+it takes names the TCP and the QUIC connections the endpoint holds at once, and the octets each
+QUIC connection holds unread:
 
 ```zig
-const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 0 });
+const Endpoint = server.EndpointOf(.{ .tcp_connections = 2, .quic_connections = 1, .receive_pool_len = 64 * 1024 });
 ```
 
-The configuration holds the server's TLS identity. `init` builds the endpoint's TLS configuration
-from it and checks that the key signs, so a program learns of a bad identity before it serves. The
-program then calls `accept` for each socket, with whether the socket runs TLS:
+A program that serves QUIC alone sets `.tcp_connections = 0`, and a program with no UDP socket
+sets `.quic_connections = 0`.
+
+The configuration holds the server's TLS identity, once for both transports. `init` builds the TLS
+configuration of each transport from it and checks that the key signs, so a program learns of a
+bad identity before it serves. The program then calls `accept` for each socket, with whether the
+socket runs TLS:
 
 ```zig
 endpoint_config = .{
-    // The identity names no protocol: the endpoint offers h2 and h11 through ALPN, as
-    // `versions` allows by default.
+    // The identity names no protocol: the endpoint offers h2 and h11 through ALPN over TCP,
+    // as `versions` allows by default, and names h3 for its QUIC connections.
     .tls = .{
         .ecdsa_p256 = .{
             .chain = &chain,
@@ -141,12 +153,18 @@ endpoint_config = .{
             .private_key = identity.private_key,
         },
         .cookie_key = &cookie_key,
+        .ticket_key = &ticket_key,
         .cpu = cpu,
     },
+    // Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit
+    // a server, and this one ends an idle connection sooner.
+    .deadlines = .{ .idle_ns = idle_ns },
+    // Each TLS connection advertises h3 on the server's UDP port (RFC 7838).
+    .h3_alternative = .{ .port = peers.server_port },
 };
 const now_ns = link.now_ns(.server);
-// One endpoint for every socket the program accepts, in storage the program owns. `init`
-// checks that the key signs.
+// One endpoint for every socket the program accepts and for its UDP socket, in storage the
+// program owns. `init` checks that the key signs.
 try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
 // One call for each socket the listener accepts, with whether the socket runs TLS. The handle
 // names the connection in every later call and event. Null says the endpoint starts no
@@ -154,86 +172,126 @@ try endpoint.init(&endpoint_config, program.random(), now_seconds, now_ns);
 accepted = endpoint.accept(.tls, now_ns) orelse return error.ExchangeWrong;
 ```
 
-`now_seconds` is Unix time, which the server's tickets are issued at. `now_ns` is the instant on
+`now_seconds` is Unix time, which the server's tickets are issued at. With a `ticket_key` the
+endpoint issues each client a ticket, which a later connection of that client offers to resume
+the session. `now_ns` is the instant on
 the clock every later call passes, and a connection's deadlines count from the instant its
 `accept` is given. `accept` returns null when no slot is free, after `shutdown`, when `versions`
 allows neither h11 nor h2, or when the TLS stack refuses to start a session. The program closes
-the socket then. A program passes `.tls` only when its configuration holds an identity. The
-endpoint reads the configuration while it runs and keeps pointers into itself, so the program
-keeps both where `init` found them.
+the socket then. A program passes `.tls` only when its configuration holds an identity. With h3
+turned off, or with no identity, an endpoint that serves no TCP version returns `error.NoVersion`
+from `init`, and one that also serves TCP starts no QUIC connection. The endpoint reads the
+configuration while it runs and keeps pointers into itself, so the program keeps both where `init`
+found them.
 
-Each turn of the program's loop fires the deadlines that passed, passes the endpoint the octets a
-socket read, and acts on every event the endpoint reports:
+Each turn of the program's loop fires the deadlines that passed, passes the endpoint what each
+socket read, acts on every event the endpoint reports, and sends every datagram the endpoint owes:
 
 ```zig
-const input = try link.receive(.server);
-const now_ns = link.now_ns(.server);
-// Decision 110: a deadline bounds how long a peer may hold a connection. `on_instant` ends
-// each connection whose peer is late, at the instant the program woke at, and the `receive`
-// calls below report what that leaves the program to do.
-endpoint.on_instant(now_ns);
-var consumed: usize = 0;
-for (0..events_per_turn_max) |_| {
-    // The handle says which connection's socket read the octets.
-    const read: server.StreamOctets = .{ .connection = accepted, .octets = input[consumed..] };
-    const received = endpoint.receive(.{ .stream = read }, now_ns);
-    consumed += received.consumed;
-    const event = received.event orelse {
-        if (received.consumed == 0) break;
-        continue;
-    };
-    try serve(event, now_ns);
+fn server_turn() !void {
+    const input = try link.receive(.server);
+    const now_ns = link.now_ns(.server);
+    // Decision 110: a deadline bounds how long a peer may hold a connection. `on_instant` ends
+    // each connection whose peer is late, at the instant the program woke at, and the `receive`
+    // calls below report what that leaves the program to do.
+    endpoint.on_instant(now_ns);
+    try read_stream(input, now_ns);
+    try read_datagrams(now_ns);
+    // Both clients are done, so the server stops. `closed` follows once every connection ended.
+    if (peers.closed() and !shut) {
+        endpoint.shutdown(now_ns);
+        shut = true;
+    }
+    try serve_all(.none, now_ns);
+    for (0..datagrams_per_turn_max) |_| {
+        const sent = endpoint.send_datagram(&datagram_output, now_ns) orelse break;
+        try datagram_link.send(.server, sent.octets);
+    }
 }
-// What an event carried points into the queue, so the queue is consumed only now.
-link.consume(.server, consumed);
+```
+
+The program passes `.stream` with the octets a TCP socket read and the handle of that socket's
+connection:
+
+```zig
+fn read_stream(input: []u8, now_ns: u64) !void {
+    var consumed: usize = 0;
+    for (0..events_per_input_max) |_| {
+        // The handle says which connection's socket read the octets.
+        const read: server.StreamOctets = .{ .connection = accepted, .octets = input[consumed..] };
+        const received = endpoint.receive(.{ .stream = read }, now_ns);
+        consumed += received.consumed;
+        const event = received.event orelse {
+            if (received.consumed == 0) break;
+            continue;
+        };
+        try serve(event, now_ns);
+    }
+    // What an event carried points into the queue, so the queue is consumed only now.
+    link.consume(.server, consumed);
+}
 ```
 
 `receive` returns at most one event a call, of any connection the endpoint holds. A program loops
 over it until it consumes nothing and returns no event. It loops again after every call that
 changes a connection: an answer, `cancel`, `send_stream`, `transport_closed`, `shutdown` and
 `on_instant`. Each leaves what follows it to the next `receive`, the release of a closed
-connection's slot included. The program passes `.stream` with the octets a socket
-read and the handle of that socket's connection, and `.none` when no socket read any. A connection
-may consume fewer octets than it was given, such as a pipelined h11 request while the one before
-it is answered. The program holds the rest, and passes it again with the socket's next read and
-after each event that names the connection. The turn above passes what is left after every event.
-What an event carries points into the octets the program passed or into the connection, and stays
-valid until the next `receive`, `on_instant`, `send_stream`, `send_datagram`, `accept`,
-`transport_closed` or `shutdown`.
+connection's slot included. The program passes `.none` when no socket read any octets. A TCP
+connection may consume fewer octets than it was given, such as a pipelined h11 request while the
+one before it is answered. The program holds the rest, and passes it again with the socket's next
+read and after each event that names the connection. `read_stream` passes what is left after
+every event. What an event carries points into the octets the program passed or into the
+connection, and stays valid until the next `receive`, `on_instant`, `send_stream`,
+`send_datagram`, `accept`, `transport_closed` or `shutdown`.
 
-An event names a request by its id, in h11 and h2 alike, or a connection by its handle. The id
+The program passes each datagram its UDP socket read, with the address it came from, as a
+`server.Input`. The endpoint finds the connection the datagram's connection ID names, or starts
+one from a client's first datagram, and answers Version Negotiation and Retry itself. After each
+datagram the program calls `receive` with `.none` until it reports nothing:
+
+```zig
+fn read_datagrams(now_ns: u64) !void {
+    for (0..datagrams_per_turn_max) |_| {
+        const datagram = try datagram_link.receive(.server) orelse break;
+        // The endpoint finds the connection the datagram's connection ID names, or starts one.
+        try serve_all(.{ .datagram = .{ .octets = datagram, .from = client_address } }, now_ns);
+        datagram_link.consume(.server);
+    }
+}
+
+/// Passes `input` to the endpoint, then takes every event it reports until it reports none.
+fn serve_all(input: server.Input, now_ns: u64) !void {
+    var rest = input;
+    for (0..events_per_input_max) |_| {
+        const received = endpoint.receive(rest, now_ns);
+        rest = .none;
+        try serve(received.event orelse return, now_ns);
+    }
+}
+```
+
+An event names a request by its id, in h11, h2 and h3 alike, or a connection by its handle. The id
 names the request's connection too, so the program answers by the id alone:
 
 ```zig
 fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
-        .request => |request| {
-            std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-            if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
-            // The POST's content follows in `body` events, and the answer waits for its end.
-            if (is(request, "POST", "/echo")) return;
-            try endpoint.respond(request.id, .{ .status = 404, .end = true });
-        },
-        .body => |body| {
-            if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
-            @memcpy(posted[posted_len..][0..body.octets.len], body.octets);
-            posted_len += body.octets.len;
-            if (body.end) try answer(body.id, posted[0..posted_len]);
-        },
+        .request => |request| try take_request(request),
+        .body => |body| try take_body(body),
         // The response to this request is whole: colibri reads none of the program's octets for
-        // it again.
-        .done => answered += 1,
-        // The connection owes its socket octets.
+        // it again. Over QUIC the client has acknowledged every octet of it.
+        .done => |done| (try served_of(done.user_data)).done = true,
+        // A TCP connection owes its socket octets.
         .send => |connection| try flush(connection, now_ns),
-        // colibri reads and writes nothing more on this connection. A program closes the socket
-        // once the socket has taken the octets `send_stream` returned, and owes the endpoint no
-        // call: the connection's `ended` follows by itself.
+        // colibri reads and writes nothing more on this TCP connection. A program closes the
+        // socket once the socket has taken the octets `send_stream` returned, and owes the
+        // endpoint no call: the connection's `ended` follows by itself.
         .close => closes += 1,
-        // The connection is over, and its slot takes a later socket.
-        .ended => |over| try count_ended(over),
+        // The connection is over, and its slot takes a later socket or client.
+        .ended => |over| try count_ended(over, now_ns),
+        // The shut-down endpoint holds no connection.
+        .closed => endpoint_closed = true,
         .trailers, .cancelled, .writable => {},
-        // Only a shutdown ends in `closed`.
-        .closed => unreachable,
     }
 }
 ```
@@ -246,17 +304,43 @@ fn serve(event: server.Event, now_ns: u64) !void {
 - `trailers` carries the request's trailer section.
 - `done` says the response is whole, and colibri reads none of the program's octets for it again.
   `cancelled` says the request ended before its response did, and its `reason` says why. Every
-  request ends with one of the two.
+  request ends with one of the two, and a connection's `ended` comes after its requests' endings.
 - `writable` says a response whose last write found no room can take more.
-- `send` says a connection owes its socket octets, `close` says the program closes a connection's
-  socket, and `ended` says a connection is over. The paragraphs below describe each.
+- `send` says a TCP connection owes its socket octets, `close` says the program closes a TCP
+  connection's socket, and `ended` says a connection is over. The paragraphs below describe each.
+- `closed` comes after `shutdown`, once every connection has ended.
+
+`set_user_data` sets a word that each later event of a request carries back: its `body`,
+`trailers`, `writable`, and its one `done` or `cancelled`. A program finds its own state for the
+request by the word, with no lookup. Here the word names the request's place in the server's
+table:
+
+```zig
+fn take_request(request: server.Request) !void {
+    std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
+    if (served_count == served.len) return error.ExchangeWrong;
+    served[served_count] = .{ .echo = is(request, "POST", "/echo") };
+    served_count += 1;
+    // Each later event of the request carries this word, and the server finds its state by it.
+    try endpoint.set_user_data(request.id, served_count);
+    if (request.version.major == 3) {
+        // The endpoint holds one QUIC connection at a time. A client can keep its connection
+        // open after the response, so the server shortens its idle deadline, and the slot is
+        // free sooner.
+        try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
+    }
+    if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
+    if (is(request, "POST", "/echo")) return;
+    try endpoint.respond(request.id, .{ .status = 404, .end = true });
+}
+```
 
 A client that puts `100-continue` in a request's `Expect` field waits for a 100 (Continue) before
 it sends the content (RFC 9110 §10.1.1). The connection writes that 100 when the endpoint next
 reads the connection or writes its octets, in every version. That may be at the program's next
 call. An answer the program gives first takes the place of the 100. A program that refuses such a
-request therefore answers it before its next call: a final response, the program's own 100, or `cancel`
-takes the place of the 100 the connection owes.
+request therefore answers it before its next call: a final response, the program's own 100, or
+`cancel` takes the place of the 100 the connection owes.
 
 The program answers with a head, then content:
 
@@ -281,14 +365,20 @@ fn answer(id: server.Id, content: []const u8) !void {
 ```
 
 A response with no content sets `end` in `respond`, and `write_trailers` ends a response with a
-trailer section. A write can find no room: `write_body` takes fewer octets than it was given, or any
-of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often returns
-`error.Blocked`, and `respond` and `write_trailers` `error.NoSpaceLeft`. Either way the endpoint
-reports `writable` for the request once the response has room, and the program writes again. `cancel` ends one request before its response is whole, and its `cancelled` follows with
-the reason `program`. `shutdown` ends every connection once the requests it holds are answered,
-and the `closed` event follows once every connection has ended.
+trailer section. A write can find no room: `write_body` takes fewer octets than it was given, or
+any of the three calls returns `error.Blocked` or `error.NoSpaceLeft`. `write_body` most often
+returns `error.Blocked`, and `respond` and `write_trailers` `error.NoSpaceLeft`. `write_trailers`
+returns `error.Blocked` while a coded response's last octets wait. Over QUIC, room comes back only
+as the client acknowledges what was sent (RFC 9000 §3.1), and a head or a trailer section larger
+than the room the response's earlier frames leave waits until the client has acknowledged all of
+them. Either way the endpoint reports `writable` for the request, once, when the response has
+room, and the program writes again. `cancel` ends one
+request before its response is whole, and its `cancelled` follows with the reason `program`. A
+connection that stops with requests open ends each with `cancelled` and the reason `closed`.
+`shutdown` ends every connection once the requests it holds are answered, and the `closed` event
+follows once every connection has ended.
 
-The endpoint reports `send` when a connection owes its socket octets. The program calls
+The endpoint reports `send` when a TCP connection owes its socket octets. The program calls
 `send_stream` for that connection until a call leaves room in the buffer, and writes what each
 call returns to the connection's socket:
 
@@ -304,17 +394,28 @@ return error.SendUnfinished;
 A call that fills the buffer leaves more owed. A call that leaves room ends the `send`, and the
 endpoint reports another once the connection owes more. A program whose socket is full stops
 calling, and calls again when the socket takes more. A program may also call `send_stream` for an
-open connection without waiting for a `send`, such as straight after it writes a response.
+open connection without waiting for a `send`, such as straight after it writes a response. For
+QUIC the turn calls `send_datagram` until it returns null, and sends each datagram to the address
+it names.
 
 A peer may hold a connection only so long ([decision 110](decisions.md)). Deadlines bound the
 wait for a first request, the time between requests, a request's head and its content, and how
-slowly the peer may take the response. The endpoint's `deadline_ns` names the soonest instant one
-passes, on any connection it holds, and the program waits for octets no longer than that:
+slowly the peer may take the response. They bound an h3 connection as they bound a TCP one. The
+endpoint's `deadline_ns` names the soonest instant one passes, on any connection it holds. Over
+QUIC it also names the instants of loss recovery, acknowledgments and idle timeouts. The program
+waits for octets and datagrams no longer than that:
 
 ```zig
-fn server_wait_ns() u64 {
-    const deadline_ns = endpoint.deadline_ns() orelse return wait_ns_max;
-    return @min(wait_ns_max, deadline_ns -| link.now_ns(.server));
+fn sleep_ns() u64 {
+    var wait_ns: u64 = wait_ns_max;
+    if (endpoint.deadline_ns()) |deadline_ns| {
+        wait_ns = @min(wait_ns, deadline_ns -| link.now_ns(.server));
+    }
+    if (peers.deadline_ns()) |deadline_ns| {
+        wait_ns = @min(wait_ns, deadline_ns -| link.now_ns(.client));
+    }
+    // A wait of 0 would poll, so the shortest sleep is one nanosecond.
+    return @max(wait_ns, 1);
 }
 ```
 
@@ -322,16 +423,18 @@ The program then calls `on_instant` with the instant it woke at, as the turn abo
 connection whose peer is late ends. Over h2, a request whose content is late may end by itself,
 with a `cancelled` whose reason names the deadline. `receive` and `send_stream` fire a deadline
 that passed too, on the connection they read or write. The configuration's `deadlines` sets the
-limits, and `set_deadlines` changes one connection's, by its handle. A program that wakes only
-when octets arrive never ends a silent peer.
+limits, and `Endpoint.init` refuses limits a connection would refuse, with
+`error.DeadlineInvalid`. `set_deadlines` changes one connection's limits, by its handle, as
+`take_request` does above. A program that wakes only when octets arrive never ends a silent peer.
 
-A connection's socket closes in one of two ways. The endpoint reports `close` once the connection
-has finished and `send_stream` has written every octet it owed, the TLS close_notify too, or once
-the `linger_ns` deadline passes with octets still owed. The program closes the socket once
-the socket has taken the octets `send_stream` returned, and owes the endpoint no call. After a
-linger there are none to wait for: colibri dropped what it still owed. Or the peer closes the socket first, or the socket fails, and the
-program tells the endpoint with `transport_closed`. The example accepts a second socket to show
-that call, a socket its peer closes before it sends an octet:
+A TCP connection's socket closes in one of two ways. The endpoint reports `close` once the
+connection has finished and `send_stream` has written every octet it owed, the TLS close_notify
+too, or once the `linger_ns` deadline passes with octets still owed. The program closes the socket
+once the socket has taken the octets `send_stream` returned, and owes the endpoint no call. After a
+linger there are none to wait for: colibri dropped what it still owed. Or the peer closes the
+socket first, or the socket fails, and the program tells the endpoint with `transport_closed`. The
+example accepts a second socket to show that call, a socket its peer closes before it sends an
+octet:
 
 ```zig
 const closed = endpoint.accept(.tls, link.now_ns(.server)) orelse return error.ExchangeWrong;
@@ -344,14 +447,15 @@ endpoint.transport_closed(closed);
 Either way colibri reads and writes nothing more on the connection, and wipes its TLS session's
 secrets. The endpoint then reports the `done` of each response written whole, the `cancelled` of
 each other request with the reason `closed`, and last the connection's `ended`, once. A later
-socket takes the connection's slot, and the ended connection's handle and every id on it name
-nothing from then on. `ended` carries two more fields:
+socket or client takes the connection's slot, and the ended connection's handle and every id on it
+name nothing from then on. `ended` carries two more fields:
 
 - `reason` names the deadline that passed, or the limit the peer passed, when colibri closed the
-  connection for one. It is null otherwise.
+  connection for one. It is null otherwise. In the example, the QUIC connection ends at the idle
+  deadline `take_request` shortened.
 - `failed` says colibri closed the connection because its peer broke a protocol rule or its record
-  layer failed. The endpoint reports a `send` for what colibri owes that peer, such as h2's
-  GOAWAY or an h11 server's 400, before the `close`.
+  layer failed. For a TCP connection, the endpoint reports a `send` for what colibri owes that
+  peer, such as h2's GOAWAY or an h11 server's 400, before the `close`.
 
 `ended` follows a `close` with no call from the program, so it may come while the program's socket
 still writes its last octets or waits for its close to complete. A later connection may then take
@@ -366,11 +470,36 @@ Three more things a server sets:
   ([decision 101](decisions.md)). The program calls the pool's `reset` once, with
   `server.Features.detect()` or `.target()`, and gives its `encoders()` to the configuration.
 - **h3.** The configuration's `h3_alternative` makes each TLS connection advertise the server's h3
-  endpoint (RFC 7838).
+  endpoint (RFC 7838), as the example's does. A cleartext connection advertises nothing (RFC 9114
+  §3.1.2).
 - **Bounds.** The configuration's `limits` holds the bounds of each connection, named by what they
-  bound: `requests_max`, the requests a connection holds at once, and `data_frame_len_min`, the
+  bound: `requests_max`, the requests a connection holds at once, up to
+  `server.constants.quic_requests_max` request streams over QUIC, and `data_frame_len_min`, the
   shortest DATA frame h2 sends when a window, not the content, decides its length
   ([decision 110](decisions.md)).
+
+### Over QUIC
+
+The same events and the same calls serve h3. A program moves datagrams with addresses in place of
+a stream of octets, and it keeps time for each connection. Two things differ from TCP:
+
+- **Content is not copied.** QUIC reads the program's octets again whenever it sends them again.
+  They stay the program's until the request is `done` or `cancelled`. `done` comes once the peer
+  has acknowledged every octet of the response.
+- **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`, for loss
+  recovery and acknowledgments too, so a program sleeps until then when no datagram arrives.
+  `Config.idle_timeout_ms` is QUIC's own idle timeout, which ends a peer that sends nothing at
+  all.
+
+`ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
+or the limit its client passed, and `failed` says colibri closed it because its client broke a rule
+of the protocol. A later client then takes its slot, and every id of the ended connection names
+nothing. A QUIC connection has no socket of its own, so the endpoint reports no `send` and no
+`close` for one.
+
+`Config.retry` makes every client prove its address before a connection starts (RFC 9000
+§8.1.2), and `Config.logs` gives each connection a qlog log
+([decision 102](decisions.md)).
 
 ## The client
 
@@ -380,7 +509,9 @@ The `client` module sends requests behind one set of calls too. A program makes 
 this section does; [The client's channel](#the-clients-channel) adds QUIC. In cleartext its
 connection speaks h11, or h2 with prior knowledge when `versions` turns h11 off ([decision
 117](decisions.md)). Over TLS, ALPN picks. For each request the program places an
-`HttpExchange` in its own memory: the request, and where the response goes.
+`HttpExchange` in its own memory: the request, and where the response goes. The code in this
+section is from [`examples/tls_exchange.zig`](../examples/tls_exchange.zig), where `link` stands
+in for a program's sockets.
 
 ```zig
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};
@@ -537,160 +668,13 @@ socket the peer closed, or that failed, goes to `transport_closed(.tcp)` too.
 A client that decodes content codings names them in `Config.codings`, and places the pool
 of decoders each needs ([decision 101](decisions.md)).
 
-## h3: the endpoint and the channel
+## The client's channel
 
 Over QUIC the same events and the same calls serve h3. What changes is what carries them: a
 program moves datagrams with addresses in place of a stream of octets, and it keeps time for the
 connection. The code in this section is from
 [`examples/h3_exchange.zig`](../examples/h3_exchange.zig), where `link` stands in for a program's
-UDP sockets.
-
-### The server's endpoint
-
-The endpoint of [The server](#the-server) holds QUIC connections too, all of them behind one UDP
-socket ([decision 103](decisions.md)), each in a slot of its own. The `server.Capacity` that
-`server.EndpointOf` takes names the TCP and the QUIC connections the endpoint holds at once, and
-the octets each QUIC connection holds unread. The `server.Config` gives the server's TLS
-identity once, with no protocol named: the endpoint names h3 itself for its QUIC connections (RFC
-9114 §3.1). `init` builds the TLS configuration of each transport from it and checks that the key
-signs, so a program learns of a bad identity before it serves:
-
-```zig
-endpoint_config = .{
-    // The identity names no protocol: the endpoint names h3 for its QUIC connections.
-    .tls = .{
-        .ecdsa_p256 = .{
-            .chain = &chain,
-            .public_key = identity.public_key,
-            .private_key = identity.private_key,
-        },
-        .cookie_key = &cookie_key,
-        .cpu = cpu,
-    },
-    // Decision 110: deadlines bound how long a peer may hold a connection. The defaults suit
-    // a server, and this one ends an idle connection sooner.
-    .deadlines = .{ .idle_ns = idle_ns },
-};
-// One endpoint for the program's UDP socket. It checks that the key signs, and starts a
-// connection from each client's first datagram, in a slot of its own.
-try endpoint.init(&endpoint_config, program.random(), now_seconds, link.now_ns(.server));
-```
-
-`versions` and `limits` mean what they mean over TCP. With h3 turned off, or with no identity,
-an endpoint that serves no TCP version returns `error.NoVersion` from `init`, and one that also
-serves TCP starts no QUIC connection. `limits.requests_max` bounds the request streams a client opens
-at once, up to `server.constants.quic_requests_max`.
-
-The program passes the endpoint each datagram with the address it came from, as a
-`server.Input`. The endpoint finds the connection the datagram's connection ID names, or starts
-one from a client's first datagram, and answers Version Negotiation and Retry itself. After a
-datagram and after `on_instant`, the program calls `receive` with `.none` until it reports
-nothing:
-
-```zig
-fn server_turn() !void {
-    for (0..datagrams_per_turn_max) |_| {
-        const datagram = try link.receive(.server) orelse break;
-        // The endpoint finds the connection the datagram's connection ID names, or starts one.
-        try serve(.{ .datagram = .{ .octets = datagram, .from = client_address } }, link.now_ns(.server));
-        link.consume(.server);
-    }
-    const now_ns = link.now_ns(.server);
-    endpoint.on_instant(now_ns);
-    try serve(.none, now_ns);
-    for (0..datagrams_per_turn_max) |_| {
-        const sent = endpoint.send_datagram(&output, now_ns) orelse break;
-        try link.send(.server, sent.octets);
-    }
-}
-```
-
-Each `receive` reports one event of any connection. A request's id names its connection, so the
-program answers it by that id alone, with `respond`, `write_body` and `write_trailers`:
-
-```zig
-fn serve(input: server.Input, now_ns: u64) !void {
-    var rest = input;
-    for (0..events_per_datagram_max) |_| {
-        const received = endpoint.receive(rest, now_ns);
-        rest = .none;
-        switch (received.event orelse return) {
-            .request => |request| {
-                std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-                try endpoint.respond(request.id, .{
-                    .status = 200,
-                    .fields = &.{.{ .name = "content-type", .value = content_type }},
-                    .end = false,
-                });
-                // Over QUIC `write_body` copies nothing, because QUIC reads the octets again to
-                // send them again. They stay the program's until the request is `done` or
-                // `cancelled`.
-                _ = try endpoint.write_body(request.id, .{ .octets = greeting, .end = true });
-                answered += 1;
-                // A program short of connections shortens the deadlines of one it holds. This
-                // connection has answered the one request the example sends.
-                try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
-            },
-            // Every request ends once, with `done` or `cancelled`. `done` says the client
-            // acknowledged every octet of the response.
-            .done => |done| std.debug.print("server: request {d} is acknowledged\n", .{done.id.number}),
-            .body, .trailers, .cancelled, .writable => {},
-            // A connection that is over comes once, after its requests' endings, and its slot is
-            // free for a later client. Its reason names the deadline or the limit that made colibri
-            // close it, and is null when its client closed it, as this one does.
-            .ended => |over| {
-                if (over.reason) |reason| std.debug.print("server: closed for {s}\n", .{@tagName(reason)});
-                ended += 1;
-            },
-            // Only a TCP connection owes octets or a close, and only a shutdown ends in `closed`.
-            .send, .close, .closed => unreachable,
-        }
-    }
-}
-```
-
-Every request ends with one `done` or `cancelled`, and a connection's `ended` comes after its
-requests' endings ([decision 119](decisions.md)). `set_user_data` sets a word that each later event
-of a request carries back, so a program finds its own state for the request without a lookup.
-`cancel` ends a request the program gives up on, and its `cancelled` follows with the reason
-`program`. A connection that stops with requests open ends each with `cancelled` and the reason
-`closed`.
-
-A response can find no room. `write_body` takes less than it was given, or returns
-`error.Blocked`. `respond` or `write_trailers` returns `error.NoSpaceLeft`, or `write_trailers`
-returns `error.Blocked` while a coded response's last octets wait. Over QUIC, room comes back only
-as the client acknowledges what was sent (RFC 9000 §3.1). The endpoint then reports `writable` for
-the request, once, and the program writes again. A head or a trailer section larger than the room
-the response's earlier frames leave waits until the client has acknowledged all of them.
-
-Two things differ from TCP:
-
-- **Content is not copied.** QUIC reads the program's octets again whenever it sends them again.
-  They stay the program's until the request is `done` or `cancelled`. `done` comes once the peer
-  has acknowledged every octet of the response.
-- **Time.** `deadline_ns` names the instant the endpoint next needs `on_instant`: for loss
-  recovery, acknowledgments and idle timeouts, and for the deadlines of
-  [decision 110](decisions.md), which bound an h3 connection as they bound a TCP one. A program
-  sleeps until then when no datagram arrives. `Config.deadlines` sets the limits, and
-  `Endpoint.init` refuses limits a connection would refuse, with `error.DeadlineInvalid`.
-  `set_deadlines` changes one connection's limits, by its handle. `Config.idle_timeout_ms`
-  is QUIC's own idle timeout, which ends a peer that sends nothing at all.
-
-`ended` means what it means over TCP. Its `reason` names the deadline that ended the connection,
-or the limit its client passed, and `failed` says colibri closed it because its client broke a rule
-of the protocol. A later client then takes its slot, and every id of the ended connection names
-nothing. A QUIC connection has no socket of its own, so the endpoint reports no `send` and no
-`close` for one.
-
-`Config.retry` makes every client prove its address before a connection starts (RFC 9000
-§8.1.2), and `Config.logs` gives each connection a qlog log
-([decision 102](decisions.md)).
-
-The same endpoint holds TCP connections, `Capacity.tcp_connections` of them, 16 by default, and
-[The server](#the-server) shows the calls a program makes for them. A program that serves QUIC
-alone sets `.tcp_connections = 0`.
-
-### The client's channel
+UDP sockets. Its server is an endpoint, as [The server](#the-server) shows.
 
 A `client.Channel` carries a program's exchanges to one origin over QUIC or over TCP, and tells
 the program which transport to open ([decision 105](decisions.md)). The program passes what DNS

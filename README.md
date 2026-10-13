@@ -119,8 +119,9 @@ every exchange ends in one `finished` event:
 },
 ```
 
-A server holds its connections in one endpoint, and calls `accept` for each socket it accepts. It
-gets one event from each `receive`, and answers a request by its id:
+A server holds its TCP and QUIC connections in one endpoint, and calls `accept` for each TCP socket
+it accepts. It gets one event from each `receive`, and answers a request by its id, in h11, h2 and
+h3 alike. These lines are from [`examples/server_exchange.zig`](examples/server_exchange.zig):
 
 ```zig
 fn answer(id: server.Id, content: []const u8) !void {
