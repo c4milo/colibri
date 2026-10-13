@@ -116,11 +116,13 @@ code that serves it.
   struct that imports each file, each type under its own name, each function or constant under
   the namespace of its file, the test that lists the names, and last the test block that
   references each file so its tests run.
-- **A struct's `pub fn`s are a program's calls.** Zig makes a function `pub` so that another
-  file can call it, and a type that passes 500 lines is split over files. A function the type's
-  other files call is therefore a free function that takes the type's pointer, in a file the
-  root does not export, such as `connection_internal.zig`. Never make a method `pub` to call it
-  from another file.
+- **A struct's `pub fn`s are a program's calls,** for each type the root exports. Zig makes a
+  function `pub` so that another file can call it, and a type that passes 500 lines is split over
+  files. A function the type's other files call is therefore a free function that takes the
+  type's pointer, in a file the root does not export, such as `connection_internal.zig`. Never
+  make a method of an exported type `pub` to call it from another file. A type the root does not
+  export, such as the connection an endpoint's slot holds, has no program's calls: its `pub`
+  methods are the calls its module's other files make.
 - **A check calls what a program calls.** The simulator, the corpus and `src/testing/` use the
   public API. A check that must read what a program does not reads a field, or the root exports
   that one name with a comment that says which check calls it.
