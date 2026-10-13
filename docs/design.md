@@ -6552,6 +6552,37 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   still fills the payload it switches to with 0xAA, 163,384 octets for h2: that is ReleaseSafe's
   fill of `undefined`, and this change leaves it.
 
+  **A request's regular lines are counted from its pseudo-headers, 2026-10-13.** The h2 half
+  found a request's regular field lines with `event.Fields.of`, which reads lines until one does
+  not start with a colon. h2 reports a request only with each pseudo-header field at most once,
+  before every regular line, none but the four RFC 9113 §8.3.1 defines (decision 19 refuses
+  `:protocol`), and `:method` always (RFC 9113 §8.3). So the count of the pseudo-headers the
+  request carries is the index of its first regular line, and one assertion reads that line to
+  check it. A trailer section holds none (RFC 9113 §8.1). `Fields.of` stays for h3.
+
+  What each check printed:
+  - `connection_h2_fields_test.zig` holds the count to `Fields.of`: for each set of
+    pseudo-headers h2 admits, in two orders, with none to three regular lines; and for a trailer
+    section of two lines and of none.
+  - The four traces wrote the same octets before and after the change.
+  - 6 mutations, each **CAUGHT**: the count leaving out `:method`, `:authority` or `:path`, or
+    taking `:scheme` for `:authority`; a trailer section skipping its first line; and the
+    assertion reading the first line of an empty trailer section.
+
+  The judge, [run 38342561888](https://github.com/c4milo/colibri/actions/runs/38342561888),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 15,448 | 15,237 | 0.9864 | 0.9874 | wins in both |
+  | h2-tls-many | 23,401 | 23,193 | 0.9911 | 0.9911 | wins in both |
+  | h2-one | 181,364 | 181,303 | 0.9997 | 0.9996 | within the noise |
+  | h2-tls-one | 7,277,899 | 7,278,332 | 1.0001 | 0.9999 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 211 in both jobs,
+  where the disassembly gave about 225.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of

@@ -1,14 +1,20 @@
-//! The tests that hold the h2 half's `respond` and `write_trailers` to the code they replaced.
-//! That code copied the caller's fields into an array of `h2.hpack.Field` and gave h2 the copy,
-//! and ReleaseSafe filled the array's 4,096 octets on every call. `h2.hpack.Field` is `http.Field`
-//! now, so h2 reads the caller's fields where they are. The copy stays here as the reference: each
-//! call must return what the reference returns and send the same octets, at every count of lines
-//! up to `field_count_max` and one past it.
+//! The tests that hold the h2 half's field lines to the code they replaced, each kept here as the
+//! reference.
+//!
+//! - `respond` and `write_trailers` copied the caller's fields into an array of `h2.hpack.Field`
+//!   and gave h2 the copy, and ReleaseSafe filled the array's 4,096 octets on every call.
+//!   `h2.hpack.Field` is `http.Field` now, so h2 reads the caller's fields where they are. Each
+//!   call must return what the copy returns and send the same octets, at every count of lines up
+//!   to `field_count_max` and one past it.
+//! - A request's regular field lines were found by reading lines until one did not start with a
+//!   colon (`event.Fields.of`). They are counted from the request's pseudo-header fields now, and
+//!   the count must be where `Fields.of` finds the first regular line, for every set of them.
 const std = @import("std");
 const h2 = @import("h2");
 const support = @import("connection_test_support.zig");
 const h2_support = @import("connection_h2_test_support.zig");
 const internal = @import("connection_internal.zig");
+const event = @import("../event.zig");
 
 const testing = std.testing;
 const connection = &support.connection;
@@ -152,4 +158,75 @@ test "a section refused for its count leaves the reply h2 owes unwritten, and th
     try connection.respond(1, .{ .status = ok, .end = true });
     const sent = support.drain();
     try testing.expectEqual(h2.constants.frame_type_ping, sent[held_len + h2_support.type_index]);
+}
+
+/// The pseudo-header field lines a request can carry, as h2 admits them (RFC 9113 §8.3.1, §8.5).
+/// Test-only.
+const PseudoSet = []const support.Field;
+const pseudo_sets = [_]PseudoSet{
+    &.{ .{ .name = ":method", .value = "GET" }, .{ .name = ":scheme", .value = "http" }, .{ .name = ":path", .value = "/" }, .{ .name = ":authority", .value = "example.com" } },
+    &.{ .{ .name = ":authority", .value = "example.com" }, .{ .name = ":path", .value = "/" }, .{ .name = ":scheme", .value = "http" }, .{ .name = ":method", .value = "POST" } },
+    // RFC 9113 §8.3.1: `:authority` may be left out.
+    &.{ .{ .name = ":method", .value = "GET" }, .{ .name = ":scheme", .value = "https" }, .{ .name = ":path", .value = "/a" } },
+    // RFC 9113 §8.5: a CONNECT request carries `:method` and `:authority` alone.
+    &.{ .{ .name = ":method", .value = "CONNECT" }, .{ .name = ":authority", .value = "example.com:443" } },
+};
+
+/// Sends a HEADERS frame on stream 1 holding `pseudo` and then `regular`, and returns the event.
+fn receive_request(pseudo: PseudoSet, regular: []const support.Field, end: bool) !event.Event {
+    var block: [h2.constants.frame_size_max]u8 = undefined;
+    var encoder: h2.hpack.Encoder = undefined;
+    encoder.init(h2.constants.header_table_size_initial, .never);
+    var block_writer = h2.core.Writer.init(&block);
+    try encoder.begin_block(&block_writer);
+    for (pseudo) |line| try encoder.write_field(&block_writer, line.name, line.value, .without_indexing);
+    for (regular) |line| try encoder.write_field(&block_writer, line.name, line.value, .without_indexing);
+    encoder.commit_block();
+    var writer = h2.core.Writer.init(&h2_support.frames);
+    const end_flag: u8 = if (end) h2.constants.flag_end_stream else 0;
+    try h2.frame.write_header(&writer, .{
+        .length = @intCast(block_writer.written().len),
+        .type = h2.constants.frame_type_headers,
+        .flags = h2.constants.flag_end_headers | end_flag,
+        .stream_id = 1,
+    });
+    try writer.write_bytes(block_writer.written());
+    return (try support.receive_copy(writer.written())).event.?;
+}
+
+/// Fails, printing both, when the event's first regular line is not where `Fields.of` finds it.
+fn expect_first_as_scanned(fields: event.Fields) !void {
+    const scanned = event.Fields.of(fields.section).first;
+    if (fields.first == scanned) return;
+    std.debug.print("first difference: the count gives {d}, the scan {d}\n", .{ fields.first, scanned });
+    return error.TestUnexpectedResult;
+}
+
+test "RFC 9113 §8.3: a request's count of pseudo-header lines is where the scan finds its first regular line" {
+    const regular = [_]support.Field{ .{ .name = "accept", .value = "*/*" }, .{ .name = "x-a", .value = "b" }, .{ .name = "x-c", .value = "d" } };
+    for (pseudo_sets) |pseudo| {
+        for (0..regular.len + 1) |count| {
+            try h2_support.start();
+            const arrived = try receive_request(pseudo, regular[0..count], true);
+            try expect_first_as_scanned(arrived.request.fields);
+            try testing.expectEqual(count, arrived.request.fields.len());
+        }
+    }
+}
+
+test "RFC 9113 §8.1: a trailer section's lines are all regular, as the scan finds" {
+    const trailer_lines = [_]support.Field{ .{ .name = "grpc-status", .value = "0" }, .{ .name = "x-a", .value = "b" } };
+    try h2_support.start();
+    _ = try receive_request(pseudo_sets[0], &.{}, false);
+    const arrived = try receive_request(&.{}, &trailer_lines, true);
+    try expect_first_as_scanned(arrived.trailers.fields);
+    try testing.expectEqual(trailer_lines.len, arrived.trailers.fields.len());
+}
+
+test "RFC 9113 §8.1: an empty trailer section has no line, as the scan finds" {
+    try h2_support.start();
+    _ = try receive_request(pseudo_sets[0], &.{}, false);
+    const arrived = try receive_request(&.{}, &.{}, true);
+    try expect_first_as_scanned(arrived.trailers.fields);
+    try testing.expectEqual(0, arrived.trailers.fields.len());
 }

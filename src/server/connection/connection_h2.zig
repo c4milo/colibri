@@ -61,12 +61,12 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
                 .scheme = arrived.request.scheme,
                 .authority = arrived.request.authority,
                 .path = arrived.request.path,
-                .fields = event.Fields.of(session.field_section()),
+                .fields = request_fields(session.field_section(), arrived),
                 .end = arrived.end_stream,
             },
         },
         .data => |data| .{ .body = .{ .id = event.id_of(data.stream_id), .octets = data.payload, .end = data.end_stream } },
-        .trailers => |trailers| .{ .trailers = .{ .id = event.id_of(trailers.stream_id), .fields = event.Fields.of(session.field_section()) } },
+        .trailers => |trailers| .{ .trailers = .{ .id = event.id_of(trailers.stream_id), .fields = trailer_fields(session.field_section()) } },
         // RFC 9113 §6.4: the peer ended the stream; §5.4.2: colibri did, on a stream error.
         .stream_reset => |reset| .{ .cancelled = .{ .id = event.id_of(reset.stream_id), .reason = .peer_reset } },
         .stream_refused => |refused| .{ .cancelled = .{ .id = event.id_of(refused.stream_id), .reason = .refused } },
@@ -74,6 +74,27 @@ fn report(session: *const h2.Connection, h2_event: h2.Event) ?Event {
         // 7838 §4: a server ignores ALTSVC, and h2 reports none to one.
         .settings_acknowledged, .settings_applied, .ping_acknowledged, .goaway, .response, .alt_svc => null,
     };
+}
+
+/// The regular field lines of a request h2 read. h2 reads a request only with each pseudo-header
+/// field at most once, before every regular line, and none but the four §8.3.1 defines (RFC 9113
+/// §8.3; decision 19 refuses `:protocol`), and with `:method` always (§8.3.1). So the count of
+/// pseudo-header fields the request carries is the index of its first regular line. The code
+/// finds that index without reading a line, and the assertion reads that one line to check it.
+fn request_fields(section: *const http.FieldSection, arrived: h2.connection.Request) event.Fields {
+    const optional = [_]?[]const u8{ arrived.request.scheme, arrived.request.authority, arrived.request.path };
+    var first: u32 = 1;
+    for (optional) |value| first += @intFromBool(value != null);
+    assert(first <= section.len());
+    assert(first == section.len() or !http.message_lines.is_pseudo_header(section.get(first).name));
+    return .{ .section = section, .first = first };
+}
+
+/// The field lines of a trailer section h2 read, which holds no pseudo-header field
+/// (RFC 9113 §8.1).
+fn trailer_fields(section: *const http.FieldSection) event.Fields {
+    assert(section.len() == 0 or !http.message_lines.is_pseudo_header(section.get(0).name));
+    return .{ .section = section, .first = 0 };
 }
 
 /// Writes what h2 owes ahead of a frame of the caller's, as `client.Connection` does. A full
