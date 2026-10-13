@@ -80,7 +80,7 @@ pub const Storage = struct {
     encoders: EncoderPool,
     decoders: DecoderPool,
     endpoint_config: server.Config,
-    client_config: client.ChannelConfig,
+    client_config: client.Config,
     endpoint: Endpoint,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,

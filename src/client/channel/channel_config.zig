@@ -1,8 +1,8 @@
 //! A channel's configuration (decision 120, design §8 step 21c): one TLS value, the versions the
 //! client speaks, and what its TCP or QUIC connections alone take. `Channel.init` builds from it,
 //! in the channel's own storage, the TLS configuration of each transport the channel offers and
-//! the configuration each connection borrows. `client.zig` exports `Config` as `ChannelConfig`
-//! until step 21c.11, and `StartError` under its own name.
+//! the configuration each connection borrows. `client.zig` exports `Config` and `StartError`
+//! under their own names.
 const std = @import("std");
 const assert = std.debug.assert;
 const tls = @import("tls");

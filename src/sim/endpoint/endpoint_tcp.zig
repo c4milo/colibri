@@ -120,7 +120,7 @@ pub const Peer = struct {
 pub const Peers = struct {
     /// The one address each channel opens its socket to.
     addresses: [1]client.Address,
-    configs: [std.enums.values(Way).len]client.ChannelConfig,
+    configs: [std.enums.values(Way).len]client.Config,
     /// The content an uploading peer's requests carry.
     upload: [sim.constants.deadline.upload_len_max]u8,
     peers: [limits.tcp_peers]Peer,

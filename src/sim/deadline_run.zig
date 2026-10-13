@@ -124,7 +124,7 @@ pub const Storage = struct {
     closed: bool,
     lingered: bool,
     ended: ?server.Ended,
-    client_config: client.ChannelConfig,
+    client_config: client.Config,
     addresses: [1]client.Address,
     channel: client.Channel,
     hostile: Hostile,

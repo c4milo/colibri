@@ -75,7 +75,7 @@ pub const Connection = std.meta.Elem(@FieldType(Endpoint, "tcp"));
 
 pub const World = struct {
     endpoint_config: server.Config,
-    client_config: client.ChannelConfig,
+    client_config: client.Config,
     tls: bool,
     endpoint: Endpoint,
     /// The one connection the endpoint holds.

@@ -98,7 +98,7 @@ var ended: u32 = 0;
 // unread octets in, and one exchange.
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
 const ReceivePool = client.ReceivePool(64 * 1024);
-var channel_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = undefined;
+var channel_config: client.Config align(@alignOf(client.Config)) = undefined;
 var receive_pool: ReceivePool align(@alignOf(ReceivePool)) = undefined;
 var channel: client.Channel align(@alignOf(client.Channel)) = undefined;
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};

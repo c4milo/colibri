@@ -111,7 +111,7 @@ var connections_ended: u32 = 0;
 // The client: one configuration for the origin, one channel, and an exchange for each request. An
 // exchange holds the request and the memory its response goes into.
 const anchors = [_]tls.Anchor{.{ .subject = identity.root_name, .spki = identity.root_spki }};
-var client_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = undefined;
+var client_config: client.Config align(@alignOf(client.Config)) = undefined;
 var channel: client.Channel align(@alignOf(client.Channel)) = undefined;
 /// The fields of the response the client reads. colibri keeps no other field.
 var wanted: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "content-type" }};

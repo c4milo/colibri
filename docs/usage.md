@@ -375,7 +375,7 @@ Three more things a server sets:
 ## The client
 
 The `client` module sends requests behind one set of calls too. A program makes one
-`client.ChannelConfig` for an origin, and a `client.Channel` that carries its exchanges there
+`client.Config` for an origin, and a `client.Channel` that carries its exchanges there
 ([decision 120](decisions.md)). A channel given no receive pool opens TCP alone, as the one in
 this section does; [The client's channel](#the-clients-channel) adds QUIC. In cleartext its
 connection speaks h11, or h2 with prior knowledge when `versions` turns h11 off ([decision
@@ -530,7 +530,7 @@ another connection (RFC 9113 §8.7). It reports the first socket's `close` befor
 that opens no second socket calls `transport_closed(.tcp)`, and the exchange ends `refused`. A
 socket the peer closed, or that failed, goes to `transport_closed(.tcp)` too.
 
-A client that decodes content codings names them in `ChannelConfig.codings`, and places the pool
+A client that decodes content codings names them in `Config.codings`, and places the pool
 of decoders each needs ([decision 101](decisions.md)).
 
 ## h3: the endpoint and the channel
@@ -711,7 +711,7 @@ try channel.init(&channel_config, known, receive_pool.storage());
 _ = try channel.request(&get);
 ```
 
-The channel takes one `client.ChannelConfig` ([decision 120](decisions.md)):
+The channel takes one `client.Config` ([decision 120](decisions.md)):
 
 - `tls` is one `tls.Client` value, which says how the client judges the server over TCP and over
   QUIC. Its `alpn` list stays empty. A channel with no `tls` runs in cleartext, over TCP alone.
@@ -814,7 +814,7 @@ fn report(event: client.ChannelEvent, now_ns: u64) void {
 
 - `open` names a transport and where it goes. The program opens a UDP flow or a TCP connection
   there, then calls `start_quic` or `start_tcp`. QUIC goes first when the origin is known to speak
-  h3, or when `ChannelConfig.quic_first` says to try it. TCP opens when QUIC fails or
+  h3, or when `Config.quic_first` says to try it. TCP opens when QUIC fails or
   `fallback_delay_ns` passes, and the first connection whose handshake completes takes the
   exchanges.
 - `close` names a transport the program closes.

@@ -62,7 +62,7 @@ pub const World = struct {
     tls_random: Random,
     now_ns: u64,
     channel: Channel,
-    channel_config: client.ChannelConfig,
+    channel_config: client.Config,
     /// The receive pool of the channel's QUIC connections (decision 61).
     receive_pool: client.DefaultReceivePool,
     addresses: [1]client.Address,

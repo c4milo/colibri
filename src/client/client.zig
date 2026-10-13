@@ -1,16 +1,16 @@
 //! colibri's client (decision 100, design §8 step 17): HTTP requests behind one set of calls for
-//! h11 and h2 over TCP, the version chosen by ALPN over TLS and named in cleartext. Step 17d adds
-//! h3 over QUIC and the choice between the transports.
+//! h11, h2 and h3, over TCP or QUIC, the version chosen by ALPN over TLS and named in cleartext.
 //!
-//! A program makes one `Config` for an origin, then a `Connection` for each TCP connection it opens
-//! to it, in storage it owns. For each request it places an `HttpExchange` in its own memory, which
-//! holds the request and where the response goes, and hands it to `request`. It sends what `send`
-//! writes and passes the octets it read to `receive`, which returns at most one event: the version
-//! the connection speaks, a resumption ticket, an exchange's end, draining, or the close. colibri
-//! makes no system call and reads no clock: time is a value the caller passes.
+//! A program makes one `Config` for an origin, then a `Channel` to it, in storage it owns
+//! (decision 120). The channel says which transport to open and where, and the program starts the
+//! connection it asked for on the socket it opened. For each request the program places an
+//! `HttpExchange` in its own memory, which holds the request and where the response goes, and
+//! hands it to `request`. It passes what each socket read to `receive`, which returns at most one
+//! event, and sends what `send_stream` and `send_datagram` write. colibri makes no system call and
+//! reads no clock: time is a value the caller passes.
 //!
-//! Over TLS, the connection runs the handshake through `tls.record.Client` itself, so a program
-//! that uses this module links chapulin. One that wants no TLS uses `h11` or `h2` directly.
+//! The channel runs each connection's TLS handshake itself, so a program that uses this module
+//! links chapulin. One that wants no TLS uses `h11` or `h2` directly.
 const std = @import("std");
 const quic = @import("quic");
 const h11 = @import("h11");
@@ -27,7 +27,7 @@ const versions = @import("versions.zig");
 /// every other name below is a type a program names (design §8 step 17f).
 pub const constants = @import("constants.zig");
 
-pub const Config = connection.Config;
+pub const Config = channel.Config;
 pub const Versions = versions.Versions;
 pub const Connection = connection.Connection;
 /// Why `Channel.init` or one of its starts refused (decision 120): `Connection.init` and
@@ -53,10 +53,9 @@ pub const Sent = quic_connection.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = channel.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
-/// sets when `ChannelConfig.ecn` is set (decision 68).
+/// sets when `Config.ecn` is set (decision 68).
 pub const Ecn = quic.connection_send.Ecn;
 pub const Channel = channel.Channel;
-pub const ChannelConfig = channel.Config;
 /// What DNS knows of the origin, which `Channel.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a channel learned from Alt-Svc.
 pub const ChannelValues = channel.Values;
@@ -107,15 +106,15 @@ pub const Features = coding_pool.Features;
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",       "Config",         "Versions",          "Connection",         "StartError",
-        "RequestError",    "Field",          "Id",                "Protocol",           "HttpExchange",
-        "Wanted",          "Outcome",        "Event",             "Finished",           "Received",
-        "Advert",          "QuicConnection", "Sent",              "Address",            "Ecn",
-        "Channel",         "ChannelConfig",  "ChannelValues",     "Https",              "Alternative",
-        "ChannelInput",    "Datagram",       "ChannelReceived",   "ChannelEvent",       "ChannelOpen",
-        "Transport",       "ChannelPhase",   "ChannelEntry",      "ReceivePool",        "DefaultReceivePool",
-        "ReceiveStorage",  "Coding",         "DecoderPool",       "DefaultDecoderPool", "Decoders",
-        "ZstdDecoderPool", "ZstdDecoders",   "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",    "Config",            "Versions",           "Connection",         "StartError",
+        "RequestError", "Field",             "Id",                 "Protocol",           "HttpExchange",
+        "Wanted",       "Outcome",           "Event",              "Finished",           "Received",
+        "Advert",       "QuicConnection",    "Sent",               "Address",            "Ecn",
+        "Channel",      "ChannelValues",     "Https",              "Alternative",        "ChannelInput",
+        "Datagram",     "ChannelReceived",   "ChannelEvent",       "ChannelOpen",        "Transport",
+        "ChannelPhase", "ChannelEntry",      "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",
+        "Coding",       "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool",
+        "ZstdDecoders", "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 

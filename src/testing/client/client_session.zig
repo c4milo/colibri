@@ -67,7 +67,7 @@ pub const Session = struct {
     /// outlive the session.
     pub fn init(
         session: *Session,
-        config: *const client.ChannelConfig,
+        config: *const client.Config,
         address: client.Address,
         port: u16,
         random: tls.Random,
@@ -220,7 +220,7 @@ var test_server_config: server_session.server.Config align(@alignOf(server_sessi
 var test_bodies: Bodies align(@alignOf(Bodies)) = undefined;
 var test_to_server: [constants.write_buffer_len]u8 = @splat(0);
 var test_to_client: [constants.write_buffer_len]u8 = @splat(0);
-var test_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = .{ .authority = "localhost" };
+var test_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
 /// The server's address, which no socket reads: the test passes the octets itself. Test-only.
 const test_octets: [client_options.ipv4_octets]u8 = @splat(0);
 const test_address = client.Address.of(&test_octets, 0);

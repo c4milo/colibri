@@ -40,7 +40,7 @@ var slot_outbound: [constants.channel_udp_send_slots]udp.Outbound align(@alignOf
 var tcp: channel_tcp.Socket align(@alignOf(channel_tcp.Socket)) = undefined;
 
 var channel: client.Channel align(@alignOf(client.Channel)) = undefined;
-var channel_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = undefined;
+var channel_config: client.Config align(@alignOf(client.Config)) = undefined;
 /// The receive pool of the channel's QUIC connections (decision 61).
 var receive_pool: client.DefaultReceivePool align(@alignOf(client.DefaultReceivePool)) = undefined;
 var addresses: [1]Address align(@alignOf(Address)) = undefined;
@@ -61,7 +61,7 @@ var closed: bool = false;
 /// ended the way a working peer ends one and the channel closed. `shared` is what every channel of
 /// a run borrows: the TLS value the channel judges the server by, the versions, and the codings the
 /// run offers and their pools, which both transports share (decision 101).
-pub fn run_channel(run: *const Run, shared: *const client.ChannelConfig) !bool {
+pub fn run_channel(run: *const Run, shared: *const client.Config) !bool {
     assert(run.channel and shared.tls != null);
     assert(run.plans_count > 0 and run.plans_count <= constants.exchanges_max);
     // `--h11` turns h2 off, so TCP offers `http/1.1` alone, and QUIC still offers h3.

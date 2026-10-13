@@ -81,7 +81,7 @@ var bodies: [constants.client_connections_max]client_session.Bodies align(@align
 
 /// What every channel of the run borrows: the authority, the versions, the TLS value when `--tls`
 /// names a root, and the codings.
-var channel_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = .{ .authority = "localhost" };
+var channel_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
 /// The decoders every connection of a `--coded` run shares, a pool for each coding (decision 101 as
 /// amended), and the codings it offers. `br` goes first, with no weight: h2o 2.2.5 codes no coding
 /// the request names with a weight, and a peer that reads weights still takes the one it has.
