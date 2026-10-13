@@ -18,7 +18,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const rotor = @import("rotor");
 const client = @import("client");
-const tls = @import("tls");
 const constants = @import("../constants.zig");
 const udp = @import("../udp.zig");
 const entropy = @import("../entropy.zig");
@@ -59,23 +58,15 @@ var now_seconds: u64 = 0;
 var closed: bool = false;
 
 /// Runs the plan of `run` through one channel and reports each exchange. True when every exchange
-/// ended the way a working peer ends one and the channel closed. `values` is the TLS value the
-/// channel judges the server by, and `shared` holds the codings the run offers and their pools.
-pub fn run_channel(run: *const Run, shared: *const client.Config, values: tls.Client) !bool {
-    assert(run.channel and run.anchor_prefix != null);
+/// ended the way a working peer ends one and the channel closed. `shared` is what every channel of
+/// a run borrows: the TLS value the channel judges the server by, the versions, and the codings the
+/// run offers and their pools, which both transports share (decision 101).
+pub fn run_channel(run: *const Run, shared: *const client.ChannelConfig) !bool {
+    assert(run.channel and shared.tls != null);
     assert(run.plans_count > 0 and run.plans_count <= constants.exchanges_max);
-    channel_config = .{
-        .tls = values,
-        // `--h11` turns h2 off, so TCP offers `http/1.1` alone, and QUIC still offers h3.
-        .versions = if (run.protocol == .h11) .{ .h2 = false } else .{},
-        .authority = run.authority,
-        // Decision 101: both transports offer the codings, and share every pool.
-        .codings = shared.codings,
-        .decoders = shared.decoders,
-        .zstd_decoders = shared.zstd_decoders,
-        .br_decoders = shared.br_decoders,
-        .fallback_delay_ns = run.fallback_delay_ns,
-    };
+    // `--h11` turns h2 off, so TCP offers `http/1.1` alone, and QUIC still offers h3.
+    channel_config = shared.*;
+    channel_config.fallback_delay_ns = run.fallback_delay_ns;
     addresses[0] = Address.of(&run.address, 0);
     now_seconds = run.now_seconds;
     try channel.init(&channel_config, .{ .addresses = &addresses, .port = run.port }, receive_pool.storage());

@@ -1,6 +1,6 @@
 //! The command line of the test-only client (`client_loop.zig`): where it connects, how many
-//! connections it opens, and the plan of exchanges every one of them runs. Split off the loop for
-//! length.
+//! connections it opens, each a `client.Channel`, and the plan of exchanges every one of them runs.
+//! Split off the loop for length.
 const std = @import("std");
 const constants = @import("../constants.zig");
 const client_exchange = @import("client_exchange.zig");
@@ -25,9 +25,10 @@ pub const Run = struct {
     /// The protocol every connection speaks in cleartext: h2 with prior knowledge unless `--h11`
     /// says h11. Over TLS, `--h11` offers `http/1.1` alone, and ALPN picks the protocol.
     protocol: Protocol,
-    /// Whether `--channel` hands the plan to one `client.Channel` (`channel_loop.zig`), which tries
-    /// h3 over QUIC first and falls back to TCP. It needs `--tls`, since h3 serves only "https"
-    /// origins (RFC 9114 §3.1.2), and runs one channel, so no `--connections`.
+    /// Whether `--channel` adds QUIC: the plan goes to one `client.Channel` (`channel_loop.zig`),
+    /// which tries h3 over QUIC first and falls back to TCP, where every other run's channels hold
+    /// TCP alone. It needs `--tls`, since h3 serves only "https" origins (RFC 9114 §3.1.2), and runs
+    /// one channel, so no `--connections`.
     channel: bool,
     /// How long the channel's QUIC handshake runs before TCP opens beside it: `--fallback-ms`.
     fallback_delay_ns: u64,

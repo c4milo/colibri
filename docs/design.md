@@ -8543,14 +8543,16 @@ only place in the tree permitted to touch a socket
    exchanges against another implementation's server and reports how each ended. For h2spec,
    h2load and `tools/h2_interop.sh`. They landed as `h2-server` and `h2-client` with step 4
    (cleartext) and step 5 (TLS), and the owner renamed them on 2026-09-25, when step 15d gave
-   them h11 as well. In cleartext the client speaks h2 with prior knowledge, or h11 with `--h11`.
-   The server in cleartext names no version and speaks h2 when a connection's first octets are
-   h2's preface and h11 otherwise (decision 117, step 21a), or one alone with `--h11` or `--h2`.
-   Over TLS, both offer `h2` and then `http/1.1` through ALPN, or one alone with `--h11` and, for
-   the server, `--h2`, and each connection speaks what the handshake selected: h2 for `h2`, and h11
-   for `http/1.1` or for no selection (decision 88). With `--channel` and `--tls` the client hands
-   its plan to one `client.Channel` instead, which tries h3 over QUIC first and falls back to TCP
-   (step 17d), and `tools/channel_interop.sh` runs it.
+   them h11 as well. Each connection of a client's run is a `client.Channel` with TCP alone, which
+   asks for its socket and for another when an exchange moves (step 21c). In cleartext the client
+   speaks h2 with prior knowledge, or h11 with `--h11`. The server in cleartext names no version
+   and speaks h2 when a connection's first octets are h2's preface and h11 otherwise (decision
+   117, step 21a), or one alone with `--h11` or `--h2`. Over TLS, both offer `h2` and then
+   `http/1.1` through ALPN, or one alone with `--h11` and, for the server, `--h2`, and each
+   connection speaks what the handshake selected: h2 for `h2`, and h11 for `http/1.1` or for no
+   selection (decision 88). With `--channel` and `--tls` the client hands its plan to one channel
+   that adds QUIC instead, which tries h3 over QUIC first and falls back to TCP (step 17d), and
+   `tools/channel_interop.sh` runs it.
 2. **A QUIC and h3 server** with ALPN `h3` and a self-signed certificate. For h3spec and
    `h2load --h3`. Lands with step 12. From step 17b it runs on `server`: the UDP endpoint's `h3`
    mode serves h3 alone through `server.Endpoint`, and h3spec, `h2load --h3` and the interop

@@ -1,22 +1,20 @@
-//! The socket around `client_session.zig`: the test-only client of design §9, which
+//! The sockets around `client_session.zig`: the test-only client of design §9, which
 //! `tools/h2_interop.sh` runs against other implementations' servers. `zig build http-client --
 //! --port <port> --get <path> --post <path> <octets>` runs it.
 //!
-//! Each connection runs on the `client` module (design §8 step 17c). It speaks cleartext h2 with
-//! prior knowledge (RFC 9113 §3.3) or h11, or with `--tls` whichever ALPN selects over TLS, which
-//! the module runs through colibri's `tls.record.Client` (RFC 9113 §3.2, decision 82).
+//! Each connection of a run is a `client.Channel` with TCP alone (design §8 step 21c). It speaks
+//! cleartext h2 with prior knowledge (RFC 9113 §3.3) or h11, or with `--tls` whichever ALPN selects
+//! over TLS, which the module runs through colibri's `tls.record.Client` (RFC 9113 §3.2, decision
+//! 82). With `--channel` the run is one channel that adds QUIC instead (`channel_loop.zig`).
 //!
 //! No call here waits but the loop's `tick` (decisions 46 and 58,
-//! https://github.com/c4milo/colibri/issues/61). One thread holds every connection of a run on
-//! one Rotor loop: a connect, then at most one receive and one send in flight, and a close at the
-//! end. A slow peer holds up nothing but its own connection. The one wait that ends a run is
-//! `client_wait_ns` with no event.
+//! https://github.com/c4milo/colibri/issues/61). One thread holds every channel of a run on one
+//! Rotor loop, and each channel holds one socket at a time (`channel_tcp.zig`): a connect, then at
+//! most one receive and one send in flight, and a close at the end. A socket the channel asks for
+//! while its last one closes waits for that close. A slow peer holds up nothing but its own
+//! channel. The one wait that ends a run is `client_wait_ns` with no event.
 //!
-//! As in the server, a receive writes into `received` and its octets are appended to `input` when
-//! its event arrives, because the session moves what is left of `input` and Rotor owns a receive's
-//! buffer until its final event.
-//!
-//! Nothing here allocates: the loop and every connection and buffer are in static storage sized by
+//! Nothing here allocates: the loop and every channel and buffer are in static storage sized by
 //! `constants.zig`. Nothing here reads a clock: the timeout is the loop's.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -29,49 +27,50 @@ const client_session = @import("client_session.zig");
 const client_exchange = @import("client_exchange.zig");
 const client_tls = @import("../tls/client_tls.zig");
 const channel_loop = @import("channel_loop.zig");
+const channel_tcp = @import("channel_tcp.zig");
 const entropy = @import("../entropy.zig");
 const alpn = @import("../alpn.zig");
 
 const Run = client_options.Run;
 const Session = client_session.Session;
 
-/// Why a connection ended without its session finishing.
-const Failure = enum { none, connect_refused, peer_closed, socket_error, timed_out, refused_start };
+/// Why a connection did not end with every exchange answered and its channel closed: the last end
+/// of a socket the channel did not ask for, as `channel_tcp` names it, a channel that never
+/// started, or the run's wait running out.
+const Failure = enum { none, failed, open_failed, refused_start, timed_out };
 
-/// What an operation a connection has in flight does. It rides in the operation's user data,
-/// below the connection's index.
-const Kind = enum(u8) { connect, receive, send, close };
-const kind_bits = @bitSizeOf(Kind);
+/// The bits of an operation's user data that name what it does, below the index of the connection
+/// it belongs to: each socket's `base` is its connection's index shifted past them.
+const kind_bits = @bitSizeOf(channel_tcp.Kind);
 
 const loop_options: rotor.Loop.Options = .{
-    .operations = constants.client_connections_max * @typeInfo(Kind).@"enum".fields.len,
+    .operations = constants.client_connections_max * @typeInfo(channel_tcp.Kind).@"enum".fields.len,
 };
 
-/// One connection of a run: the session, the octets read but not consumed, and the octets the
-/// session produced that the socket has not taken yet.
+/// One connection of a run, as the command line counts them: a channel, and the one socket it holds
+/// at a time.
 const Connection = struct {
-    descriptor: rotor.Descriptor,
-    /// The peer, which the connect in flight reads until its event (Rotor's rule 3).
-    address: rotor.Address,
-    /// Over TLS its octets are records, and `input` and `output` hold them as they cross the
-    /// socket, so each holds a whole record.
     session: Session,
-    received: [constants.wire_read_len]u8,
-    input: [constants.wire_read_len]u8,
-    input_len: usize,
-    output: [constants.write_buffer_len]u8,
-    output_len: usize,
-    output_sent: usize,
-    state: enum { connecting, open, closing, closed },
-    /// The operations in flight, which must all end before the loop does.
-    connecting: bool,
-    receiving: bool,
-    sending: bool,
+    socket: channel_tcp.Socket,
     failure: Failure,
+
+    /// Whether the channel or its socket still has something to do.
+    fn running(connection: *const Connection) bool {
+        if (connection.failure == .refused_start) return false;
+        return !connection.session.closed or connection.socket.state != .idle;
+    }
+
+    /// Whether the channel closed with every exchange answered, and every socket it opened ended
+    /// before the run did.
+    fn succeeded(connection: *const Connection) bool {
+        if (connection.failure == .timed_out or connection.failure == .refused_start) return false;
+        return connection.session.closed and connection.session.succeeded();
+    }
 };
 
-/// The loop and the connections, in static storage: each connection is large, and a run holds up
-/// to the limit of them.
+/// The loop and the connections, in static storage: each channel is large, and a run holds up to
+/// the limit of them. The QUIC connection inside each channel is never written, so the system gives
+/// its pages no memory.
 var loop_memory: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment) = undefined;
 var loop: rotor.Loop align(@alignOf(rotor.Loop)) = undefined;
 var events: [loop_options.operations]rotor.Event align(@alignOf(rotor.Event)) = undefined;
@@ -80,9 +79,9 @@ var connections: [constants.client_connections_max]Connection align(@alignOf(Con
 /// the system gives it no memory.
 var bodies: [constants.client_connections_max]client_session.Bodies align(@alignOf(client_session.Bodies)) = undefined;
 
-/// What every connection of the run borrows, and the root the TLS mode trusts, which `main` loads
-/// when `--tls` names one.
-var client_config: client.Config align(@alignOf(client.Config)) = .{ .authority = "localhost" };
+/// What every channel of the run borrows: the authority, the versions, the TLS value when `--tls`
+/// names a root, and the codings.
+var channel_config: client.ChannelConfig align(@alignOf(client.ChannelConfig)) = .{ .authority = "localhost" };
 /// The decoders every connection of a `--coded` run shares, a pool for each coding (decision 101 as
 /// amended), and the codings it offers. `br` goes first, with no weight: h2o 2.2.5 codes no coding
 /// the request names with a weight, and a peer that reads weights still takes the one it has.
@@ -95,179 +94,125 @@ const offered_codings = [_]client.Coding{ .br, .zstd, .gzip, .deflate };
 const coded_decoders: usize = 2;
 var tls_anchors: client_tls.Anchors align(@alignOf(client_tls.Anchors)) = undefined;
 
-/// Opens every connection of `run`, serves them until each is closed, and returns how many
-/// finished with every exchange answered.
+/// Starts every connection of `run`, serves them until each channel is closed, and returns how
+/// many finished with every exchange answered.
 fn run_connections(run: *const Run) !u32 {
     assert(run.connections_count > 0 and run.connections_count <= constants.client_connections_max);
     assert(run.plans_count > 0);
     try loop.init(&loop_memory, loop_options);
     defer loop.deinit();
     const live = connections[0..run.connections_count];
-    for (live, 0..) |*connection, index| open_connection(connection, index, run);
+    for (live, 0..) |*connection, index| start_connection(connection, index, run);
     for (0..constants.client_ticks_max) |_| {
         if (!try turn(live)) break;
     }
-    // A run that ends with a connection still open ran out of time or of ticks.
-    for (live, 0..) |*connection, index| {
-        if (connection.state == .open or connection.state == .connecting) close_connection(connection, index, .timed_out);
+    // A run that ends with a channel not closed, or a socket still open, ran out of time or of
+    // ticks.
+    for (live) |*connection| {
+        if (connection.failure == .refused_start) continue;
+        if (connection.running()) connection.failure = .timed_out;
+        connection.socket.close_now(&loop);
+        // The channel wipes its TLS session's secrets, whether its connection finished or not.
+        connection.session.peer_closed();
     }
     loop.cancel_all();
     try loop.drain(&events);
     var succeeded: u32 = 0;
-    for (live) |*connection| {
-        if (connection.failure == .none and connection.session.succeeded()) succeeded += 1;
-    }
+    for (live) |*connection| succeeded += @intFromBool(connection.succeeded());
     return succeeded;
 }
 
-/// Waits for events and does what each asks. False when every connection is closed, or none
-/// moved for the whole wait, which means the peers left are not answering.
+/// Waits for events and does what each asks. False when no connection has anything left to do, or
+/// none moved for the whole wait, which means the peers left are not answering.
 fn turn(live: []Connection) !bool {
-    var open: usize = 0;
-    for (live) |*connection| {
-        if (connection.state != .closed) open += 1;
-    }
-    if (open == 0) return false;
+    var running: usize = 0;
+    for (live) |*connection| running += @intFromBool(connection.running());
+    if (running == 0) return false;
     const count = try loop.tick(&events, constants.client_wait_ns);
     if (count == 0) return false;
     for (events[0..count]) |event| on_event(live, event);
     return true;
 }
 
-fn on_event(live: []Connection, event: rotor.Event) void {
-    const index: usize = @intCast(event.user_data >> kind_bits);
-    const kind: Kind = @enumFromInt(@as(u8, @truncate(event.user_data)));
-    const connection = &live[index];
-    switch (kind) {
-        .connect => on_connected(connection, index, event),
-        .receive => on_received(connection, index, event),
-        .send => on_sent(connection, index, event),
-        .close => {
-            connection.state = .closed;
-            // The module wipes the TLS session's secrets, whether the connection finished or not.
-            connection.session.connection.transport_closed();
-        },
-    }
-    if (connection.state == .open) arm(connection, index);
-}
-
-/// Makes a socket and starts its connect, whose event the loop delivers.
-fn open_connection(connection: *Connection, index: usize, run: *const Run) void {
-    connection.input_len = 0;
-    connection.output_len = 0;
-    connection.output_sent = 0;
-    connection.connecting = false;
-    connection.receiving = false;
-    connection.sending = false;
-    connection.state = .closed;
-    connection.failure = .refused_start;
-    const plans = run.plans[0..run.plans_count];
-    connection.session.init(&client_config, entropy.random(), run.now_seconds, plans, &bodies[index]) catch return;
-    connection.failure = .socket_error;
-    connection.address = rotor.Address.ipv4(run.address, run.port);
-    connection.descriptor = rotor.sync.open_socket(.ipv4) catch return;
-    connection.state = .connecting;
+/// Starts one connection of the run: a channel with every exchange of the plan requested, which
+/// asks for its first socket at once.
+fn start_connection(connection: *Connection, index: usize, run: *const Run) void {
     connection.failure = .none;
-    connection.connecting = true;
-    submit(rotor.Operation.connect(user_data(index, .connect), connection.descriptor, &connection.address));
+    connection.socket.init(@as(u64, index) << kind_bits);
+    const plans = run.plans[0..run.plans_count];
+    const address = client.Address.of(&run.address, 0);
+    connection.session.init(&channel_config, address, run.port, entropy.random(), run.now_seconds, plans, &bodies[index]) catch {
+        connection.failure = .refused_start;
+        return;
+    };
+    step_session(connection);
 }
 
-/// The connect finished: the session writes its preface once it succeeded.
-fn on_connected(connection: *Connection, index: usize, event: rotor.Event) void {
-    connection.connecting = false;
-    _ = event.outcome() catch return close_connection(connection, index, .connect_refused);
-    connection.state = .open;
-    step_session(connection, index);
+fn on_event(live: []Connection, event: rotor.Event) void {
+    const connection = &live[@intCast(event.user_data >> kind_bits)];
+    on_happened(connection, connection.socket.on_event(&loop, event));
+    step_session(connection);
 }
 
-/// Appends what a receive read to the input and steps the session. A receive of no octets is the
-/// peer closing its side.
-fn on_received(connection: *Connection, index: usize, event: rotor.Event) void {
-    connection.receiving = false;
-    if (connection.state != .open) return;
-    const read = event.outcome() catch return close_connection(connection, index, .socket_error);
-    if (read == 0) return close_connection(connection, index, if (connection.session.peer_closed()) .none else .peer_closed);
-    assert(read <= connection.input.len - connection.input_len);
-    @memcpy(connection.input[connection.input_len..][0..read], connection.received[0..read]);
-    connection.input_len += read;
-    step_session(connection, index);
-}
-
-/// Counts what a send took, and steps the session, which may have waited for the room.
-fn on_sent(connection: *Connection, index: usize, event: rotor.Event) void {
-    connection.sending = false;
-    if (connection.state != .open) return;
-    const sent = event.outcome() catch return close_connection(connection, index, .socket_error);
-    connection.output_sent += sent;
-    assert(connection.output_sent <= connection.output_len);
-    // Every octet is gone and no send is in flight, so the buffer starts again at its front.
-    if (connection.output_sent == connection.output_len) {
-        connection.output_len = 0;
-        connection.output_sent = 0;
-    }
-    step_session(connection, index);
-}
-
-/// Submits a send of what is owed and a receive while there is room for more.
-fn arm(connection: *Connection, index: usize) void {
-    if (!connection.sending and connection.output_sent < connection.output_len) {
-        connection.sending = true;
-        const owed = connection.output[connection.output_sent..connection.output_len];
-        submit(rotor.Operation.send(user_data(index, .send), connection.descriptor, owed));
-    }
-    const room = connection.input.len - connection.input_len;
-    if (!connection.receiving and room > 0) {
-        connection.receiving = true;
-        const into = connection.received[0..@min(room, connection.received.len)];
-        submit(rotor.Operation.receive(user_data(index, .receive), connection.descriptor, into));
+/// Tells the channel what a socket's event meant.
+fn on_happened(connection: *Connection, happened: channel_tcp.Happened) void {
+    switch (happened) {
+        .none => {},
+        // A start chapulin refuses ends the attempt, and the channel owes no `close` event for a
+        // connection that never started, so the socket closes here.
+        .connected => if (!connection.session.started()) connection.socket.close(&loop),
+        .failed => socket_ended(connection, .failed),
+        .open_failed => socket_ended(connection, .open_failed),
     }
 }
 
-fn user_data(index: usize, kind: Kind) u64 {
-    return (@as(u64, index) << kind_bits) | @intFromEnum(kind);
-}
-
-/// Submits one operation. The loop holds one of each kind for every connection, so it always has
-/// room.
-fn submit(operation: rotor.Operation) void {
-    const taken = loop.submit(&.{operation}, &.{});
-    assert(taken == 1);
-}
-
-/// Steps the session until it stops moving, appending what it writes to the output buffer. A
-/// session that finished with every octet written closes its connection.
-fn step_session(connection: *Connection, index: usize) void {
-    for (0..constants.steps_per_read_max) |_| {
-        const room = connection.output[connection.output_len..];
-        if (room.len == 0) return;
-        const step = connection.session.step(connection.input[0..connection.input_len], room);
-        connection.output_len += step.written;
-        consume(connection, step.consumed);
-        if (step.done) return close_when_sent(connection, index);
-        if (step.consumed == 0 and step.written == 0) return;
-    }
-}
-
-/// Closes a connection whose session is done, once the socket has taken every octet.
-fn close_when_sent(connection: *Connection, index: usize) void {
-    if (connection.output_sent == connection.output_len and !connection.sending) close_connection(connection, index, .none);
-}
-
-/// Drops the `consumed` octets the session took, moving what is left to the front.
-fn consume(connection: *Connection, consumed: usize) void {
-    assert(consumed <= connection.input_len);
-    const rest = connection.input_len - consumed;
-    std.mem.copyForwards(u8, connection.input[0..rest], connection.input[consumed..connection.input_len]);
-    connection.input_len = rest;
-}
-
-/// Closes a connection and records why: Rotor's close cancels its receive and send first. A
-/// connection already closing keeps its reason.
-fn close_connection(connection: *Connection, index: usize, failure: Failure) void {
-    if (connection.state == .closing or connection.state == .closed) return;
-    connection.state = .closing;
+/// The socket ended before the channel was done with it, which the channel hears. In h11 a peer's
+/// close may end a response, so it is a failure only if the run fails.
+fn socket_ended(connection: *Connection, failure: Failure) void {
     connection.failure = failure;
-    submit(rotor.Operation.close(user_data(index, .close), connection.descriptor));
+    connection.session.peer_closed();
+}
+
+/// Steps the channel until it stops moving, then hands the socket its receive and its send.
+fn step_session(connection: *Connection) void {
+    // Bounded: each pass reads, writes or does what the channel asked, or stops.
+    for (0..constants.steps_per_read_max) |_| {
+        if (!step_once(connection)) break;
+    }
+    connection.socket.arm(&loop);
+}
+
+/// Steps the channel once, and does what it asked of the socket: the close first, then the open.
+/// The step passes the octets the socket read and the room it has, while it carries the channel's
+/// connection. Returns whether anything moved.
+fn step_once(connection: *Connection) bool {
+    const socket = &connection.socket;
+    var none: [0]u8 = .{};
+    const carrying = socket.carrying();
+    const room = if (carrying) socket.room() else none[0..];
+    // A full output waits for the send in flight, whose event steps the channel again.
+    if (carrying and room.len == 0) return false;
+    const step = connection.session.step(if (carrying) socket.unread() else none[0..], room);
+    if (carrying) {
+        socket.consume(step.consumed);
+        socket.wrote(step.written);
+    }
+    assert(carrying or step.consumed + step.written == 0);
+    if (step.close) socket.close(&loop);
+    if (step.open) |to| open_socket(connection, to);
+    return step.consumed + step.written > 0 or step.close or step.open != null;
+}
+
+/// Opens the socket the channel asked for, or tells the channel the system gave none.
+fn open_socket(connection: *Connection, to: client.Address) void {
+    if (!connection.socket.open(&loop, rotor_address(to))) socket_ended(connection, .open_failed);
+}
+
+/// The socket address the channel named, in Rotor's form: IPv4, the one family the command line
+/// names.
+fn rotor_address(address: client.Address) rotor.Address {
+    assert(address.len == client_options.ipv4_octets);
+    return rotor.Address.ipv4(address.octets[0..client_options.ipv4_octets].*, address.port);
 }
 
 /// Prints one line per exchange of every connection, then the count of each ending.
@@ -278,7 +223,7 @@ fn report(run: *const Run, succeeded: u32) void {
             std.debug.print("connection={d} ", .{index});
             exchange.print(protocol_name(session.protocol));
         }
-        if (connection.failure != .none or !session.succeeded()) {
+        if (!connection.succeeded()) {
             std.debug.print("connection={d} failure={t} succeeded={}\n", .{ index, connection.failure, session.succeeded() });
         }
     }
@@ -301,35 +246,29 @@ pub fn main(init: std.process.Init.Minimal) !void {
         std.process.exit(exit_usage);
     };
     client_exchange.fill_content();
-    client_config = .{ .authority = run.authority, .versions = versions_of(&run) };
+    channel_config = .{ .authority = run.authority, .versions = versions_of(&run) };
     if (run.coded) {
         // The CPU features stdx's decoders use, asked of the CPU once, here and not in colibri.
         const features = h11.coding.Features.detect();
         decoders.storage().reset(features);
         zstd_decoders.storage().reset(features);
         br_decoders.storage().reset(features);
-        client_config.codings = &offered_codings;
-        client_config.decoders = decoders.storage();
-        client_config.zstd_decoders = zstd_decoders.storage();
-        client_config.br_decoders = br_decoders.storage();
+        channel_config.codings = &offered_codings;
+        channel_config.decoders = decoders.storage();
+        channel_config.zstd_decoders = zstd_decoders.storage();
+        channel_config.br_decoders = br_decoders.storage();
     }
+    // Each channel builds its TLS configuration from the value, with the protocols its versions
+    // allow (decision 120). The name the server's certificate must carry is the authority the
+    // requests name.
+    if (run.anchor_prefix) |prefix| channel_config.tls = try client_tls.read(&tls_anchors, prefix, run.authority);
     if (run.channel) {
-        // The channel converts the TLS value itself, with the protocols its versions allow.
-        const values = try client_tls.read(&tls_anchors, run.anchor_prefix.?, run.authority);
-        if (!try channel_loop.run_channel(&run, &client_config, values)) std.process.exit(exit_failed);
+        if (!try channel_loop.run_channel(&run, &channel_config)) std.process.exit(exit_failed);
         return;
     }
-    if (run.anchor_prefix) |prefix| try load_tls(prefix, &run);
     const succeeded = try run_connections(&run);
     report(&run, succeeded);
     if (succeeded != run.connections_count) std.process.exit(exit_failed);
-}
-
-/// Loads what every TLS connection of the run shares. The name the server's certificate must carry
-/// is the authority the requests name, and `--h11` offers `http/1.1` alone.
-fn load_tls(prefix: []const u8, run: *const Run) !void {
-    const protocols: []const []const u8 = if (run.protocol == .h11) &alpn.alpn_h11 else &alpn.alpn_both;
-    client_config.tls = try client_tls.load(&tls_anchors, prefix, run.authority, protocols);
 }
 
 /// The protocol a report names, or "none" for a connection that never connected.
@@ -370,4 +309,65 @@ test "the command line's protocol is the one version a connection allows in clea
 test "decision 88: over TLS with no --h11, a connection allows h11 for a server that selects nothing" {
     try testing.expectEqual(client.Versions{}, versions_for(.h2, "root"));
     try testing.expectEqual(client.Versions{ .h2 = false }, versions_for(.h11, "root"));
+}
+
+/// A request with no content, which the loop's tests make. Test-only.
+const test_plan = [_]client_exchange.Plan{.{ .method = "GET", .path = "/", .content_len = 0 }};
+const test_octets: [client_options.ipv4_octets]u8 = @splat(0);
+
+/// The first connection of a run, its channel in cleartext h11 with the plan's one exchange
+/// requested, and the `open` its first step reports. Test-only.
+fn test_connection() !*Connection {
+    client_exchange.fill_content();
+    channel_config = .{ .authority = "localhost", .versions = .{ .h2 = false } };
+    const connection = &connections[0];
+    connection.failure = .none;
+    connection.socket.init(0);
+    const address = client.Address.of(&test_octets, 0);
+    try connection.session.init(&channel_config, address, constants.default_port, entropy.random(), 0, &test_plan, &bodies[0]);
+    var none: [0]u8 = .{};
+    try testing.expect(connection.session.step(&none, &none).open != null);
+    return connection;
+}
+
+/// The connection of `test_connection`, started on its socket, and holding its exchange, which
+/// it has not written: the test reads `connected` from the channel with no send. Test-only.
+fn test_carrying() !*Connection {
+    const connection = try test_connection();
+    try testing.expect(connection.session.started());
+    // In cleartext the connection reports `connected`, and the channel hands it the exchange.
+    const reported = connection.session.channel.receive(.none, 0).event orelse return error.TestUnexpectedResult;
+    try testing.expect(reported == .connected);
+    return connection;
+}
+
+test "a socket that fails before its channel is done tells the channel, which asks for another" {
+    const connection = try test_carrying();
+    on_happened(connection, .failed);
+    try testing.expectEqual(Failure.failed, connection.failure);
+    // RFC 9113 §8.7: the request was never written, so it moves to another connection, and the
+    // channel asks for a socket to carry it.
+    var none: [0]u8 = .{};
+    try testing.expect(connection.session.step(&none, &none).open != null);
+}
+
+test "a socket the system never gave ends the channel's attempt, and the exchange with it" {
+    const connection = try test_connection();
+    on_happened(connection, .open_failed);
+    var none: [0]u8 = .{};
+    const stepped = connection.session.step(&none, &none);
+    try testing.expect(stepped.done and stepped.open == null);
+    try testing.expectEqual(.refused, connection.session.exchanges[0].carried.outcome);
+}
+
+test "a socket the channel asks for while its last one closes waits for that close" {
+    try loop.init(&loop_memory, loop_options);
+    defer loop.deinit();
+    const connection = try test_carrying();
+    on_happened(connection, .failed);
+    // The socket that failed is closing, and its close's event has not arrived.
+    connection.socket.state = .closing;
+    try testing.expect(step_once(connection));
+    try testing.expectEqual(.closing, connection.socket.state);
+    try testing.expect(connection.socket.open_pending != null);
 }
