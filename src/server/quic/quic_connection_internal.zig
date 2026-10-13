@@ -2,7 +2,7 @@
 //! program does (design §8 step 17f): the endpoint starts the connection from a client's first
 //! Initial, passes it the datagrams its connection IDs name, sends what it writes, fires its
 //! deadlines and frees it once it is over (decision 103, RFC 9000 §5.2). `QuicConnection` keeps as
-//! methods only the calls the endpoint passes on from a program.
+//! methods the calls that the module's other files make.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");

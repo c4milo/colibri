@@ -396,7 +396,7 @@ pub const Connection = struct {
     }
 };
 
-test "design §8 step 17f: the connection's public functions are the calls the endpoint makes" {
+test "design §8 step 17f: the connection's public functions are the calls the module's other files make" {
     // What the connection's own files call on it lives in `connection_internal.zig`. The root does
     // not export the connection (decision 121), so a function added here is one the endpoint's files
     // may call.

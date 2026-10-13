@@ -4138,8 +4138,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))`.
      2. The methods of the four types stay `pub`. The root does not export the types, so `pub`
         means only that another file of the module calls a method. h2's `Streams` and the other
-        internal types use `pub` in the same way. The list test of each type names the calls of
-        its endpoint or its channel.
+        internal types use `pub` in the same way. The list test of each type names the calls
+        that the other files of its module make.
      3. The names that only the calls of those types took or returned leave with them:
         `server.Error`, `server.Protocol`, `client.Event`, `client.Received` and
         `client.Advert`. A program reads the version of a request from `Request.version`. It

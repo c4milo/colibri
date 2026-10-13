@@ -1,6 +1,6 @@
 //! What a client QUIC connection's other files and the channel call on it, and no program does
-//! (design §8 step 17f). `QuicConnection` keeps as methods only the calls the channel passes on
-//! from a program.
+//! (design §8 step 17f). `QuicConnection` keeps as methods the calls that the module's other files
+//! make.
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");

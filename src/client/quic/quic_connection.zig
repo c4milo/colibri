@@ -18,9 +18,10 @@
 //! until its stream reads nothing more of the exchange (RFC 9000 §3.1), so the caller may reuse the
 //! exchange's memory once the event arrives.
 //!
-//! `QuicConnection`'s functions are the calls the channel makes. What its other files and the
-//! channel call is in `quic_connection_internal.zig` (design §8 step 17f). The module's root
-//! exports neither file (decision 121).
+//! `QuicConnection`'s public functions are the calls that the module's other files make: the
+//! channel's files and the tests. What only the connection's own files call is in
+//! `quic_connection_internal.zig` (design §8 step 17f). The module's root exports neither file
+//! (decision 121).
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -333,7 +334,7 @@ pub const QuicConnection = struct {
     }
 
     /// h3 once the handshake completed with it, or null.
-    pub fn protocol(connection: *const QuicConnection) ?event.Protocol {
+    fn protocol(connection: *const QuicConnection) ?event.Protocol {
         return if (connection.started) .h3 else null;
     }
 
@@ -436,11 +437,11 @@ fn parameters(config: *const Config, capacity: u64) Parameters {
     return held;
 }
 
-test "design §8 step 17f: the QUIC connection's public functions are the calls the channel makes" {
+test "design §8 step 17f: the QUIC connection's public functions are the calls the module's other files make" {
     const public_names = @import("core").public_names;
     try public_names.expect(QuicConnection, &.{
-        "init",        "request",     "cancel",   "receive",      "send",
-        "deadline_ns", "on_instant",  "shutdown", "should_close", "transport_closed",
-        "protocol",    "take_ticket",
+        "init",        "request",    "cancel",   "receive",      "send",
+        "deadline_ns", "on_instant", "shutdown", "should_close", "transport_closed",
+        "take_ticket",
     });
 }

@@ -8535,7 +8535,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - `server.StartError` loses `TlsRefused`, and `client.RequestError` loses `Draining` and
       `ConnectionClosed`: no program gets them.
     - `Endpoint` keeps its 16 functions and `Channel` its 15. The four connection types keep
-      their methods, which the endpoint's and the channel's files call. Each root imports its
+      their methods, which the other files of their modules call. Each root imports its
       files through a private `files` struct, in CLAUDE.md's order.
     - `examples/server_exchange.zig` serves TCP and QUIC through one endpoint, and
       `examples/client_exchange.zig` falls back from QUIC to TCP in one channel, on a datagram
