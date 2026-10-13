@@ -160,13 +160,23 @@ fn check_pseudo_header(seen: *Seen, kind: Kind, line: Field) Error!void {
 fn slot_of(seen: *Seen, kind: Kind, name: []const u8) ?*?[]const u8 {
     assert(kind != .trailers);
     assert(is_pseudo_header(name));
-    for (definitions) |definition| {
+    // Unrolled, so that each definition's name and slot are constants the compiler sees.
+    inline for (definitions) |definition| {
         // RFC 9113 §8.3 and RFC 9114 §4.3: a pseudo-header field is valid only in the context it
         // is defined for.
-        const defined = definition.kind == kind and std.mem.eql(u8, name, definition.name);
+        const defined = definition.kind == kind and is_name(name, definition.name);
         if (defined) return seen.slot(definition.pseudo);
     }
     return null;
+}
+
+/// Whether `name` is `expected`, octet for octet. The octets are read as one integer, in the order
+/// stated for both sides, so a name costs one compare where a loop costs one for each octet.
+inline fn is_name(name: []const u8, comptime expected: []const u8) bool {
+    if (name.len != expected.len) return false;
+    const Octets = std.meta.Int(.unsigned, expected.len * @bitSizeOf(u8));
+    const wanted = comptime std.mem.readInt(Octets, expected[0..expected.len], .little);
+    return std.mem.readInt(Octets, name[0..expected.len], .little) == wanted;
 }
 
 /// The second pass for one line. A pseudo-header's name was compared exactly in the first pass,
@@ -233,4 +243,83 @@ fn check_connection_specific(kind: Kind, line: Field) Error!void {
     // RFC 9113 §8.2.2 and RFC 9114 §4.2: TE must not contain any value other than "trailers".
     if (!connection_specific.te_is_trailers(line.value)) return error.TeNotTrailers;
     assert(kind == .request and which == .te);
+}
+
+// The tests below hold `slot_of` to the loop it replaced, which compared each definition's name
+// with `std.mem.eql`. It stays here as the reference: `slot_of` must name the slot it names, or
+// null where it gives null, for every name and kind.
+
+/// The reference: `slot_of` as it was.
+fn slot_of_by_loop(seen: *Seen, kind: Kind, name: []const u8) ?*?[]const u8 {
+    for (definitions) |definition| {
+        // RFC 9113 §8.3 and RFC 9114 §4.3: a pseudo-header field is valid only in the context it
+        // is defined for.
+        const defined = definition.kind == kind and std.mem.eql(u8, name, definition.name);
+        if (defined) return seen.slot(definition.pseudo);
+    }
+    return null;
+}
+
+/// The kinds that define pseudo-headers.
+const kinds_with_pseudo = [_]Kind{ .request, .response };
+/// The octet values, 0 to 255.
+const octet_values = std.math.maxInt(u8) + 1;
+/// The longest name the tests build: the longest defined one and one octet more.
+const built_len_max = ":authority".len + 1;
+
+/// Fails, printing both answers, when `slot_of` and the reference differ on `name`, in either kind.
+fn expect_same_slot(name: []const u8) !void {
+    for (kinds_with_pseudo) |kind| {
+        var seen: Seen = .{};
+        const changed = slot_of(&seen, kind, name);
+        const reference = slot_of_by_loop(&seen, kind, name);
+        if (changed == reference) continue;
+        std.debug.print("first difference: name {x} in a {t}: slot_of {any}, reference {any}\n", .{ name, kind, changed, reference });
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "slot_of names the slot the reference names for every pseudo-header name of up to three octets" {
+    var name: [3]u8 = .{ ':', 0, 0 };
+    try expect_same_slot(name[0..1]);
+    for (0..octet_values) |second| {
+        name[1] = @intCast(second);
+        try expect_same_slot(name[0..2]);
+        for (0..octet_values) |third| {
+            name[2] = @intCast(third);
+            try expect_same_slot(&name);
+        }
+    }
+}
+
+test "slot_of tells each defined name from the same name with any one octet changed" {
+    var name: [built_len_max]u8 = undefined;
+    for (definitions) |definition| {
+        const len = definition.name.len;
+        @memcpy(name[0..len], definition.name);
+        try expect_same_slot(name[0..len]);
+        // Every octet value at every place but the colon.
+        for (1..len) |position| {
+            for (0..octet_values) |octet| {
+                name[position] = @intCast(octet);
+                try expect_same_slot(name[0..len]);
+            }
+            name[position] = definition.name[position];
+        }
+        // One octet short, and one octet more.
+        try expect_same_slot(name[0 .. len - 1]);
+        for (0..octet_values) |octet| {
+            name[len] = @intCast(octet);
+            try expect_same_slot(name[0 .. len + 1]);
+        }
+    }
+}
+
+test "RFC 9113 §8.3: each defined name has its own slot, in its own kind alone" {
+    for (definitions) |definition| {
+        var seen: Seen = .{};
+        const other: Kind = if (definition.kind == .request) .response else .request;
+        try std.testing.expectEqual(seen.slot(definition.pseudo), slot_of(&seen, definition.kind, definition.name).?);
+        try std.testing.expectEqual(null, slot_of(&seen, other, definition.name));
+    }
 }

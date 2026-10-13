@@ -820,6 +820,39 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 668 in both
   jobs, where the disassembly gave about 620: the new loop runs 9 instructions for each 2 octets.
 
+  **A pseudo-header name is compared with each definition at once, 2026-10-13.** `slot_of`
+  compared each pseudo-header name of a request with the five definitions through
+  `std.mem.eql`, which the compiler did not inline: ten calls for a request of four
+  pseudo-headers. The loop is unrolled with `inline for`, and `is_name` reads the name as one
+  integer, in an order it states, against the definition's name as a constant. A definition then
+  costs a length test and one compare. `slot_of` returns the slot it returned for every name.
+
+  What each check printed:
+  - The loop with `std.mem.eql` stays in `message_lines.zig`'s tests as the reference. `slot_of`
+    must name its slot, or null, in a request and in a response, for every pseudo-header name of
+    up to three octets and for each defined name with any one octet changed, one octet short, or
+    one octet longer.
+  - `zig build sim -- --h2-trace-write`, `--tcp-trace-write`, `--deadline-trace-write` and
+    `--h3-trace-write` wrote the same octets before and after the change.
+  - 5 mutations, each **CAUGHT**: a name of another length compared, a name taken when it
+    differs, the expected name read in the other order, the last octet not compared, and a name
+    defined in either kind. 1 mutation **NOT CAUGHT**: the colon left out of the compare, which
+    `slot_of` asserts before it compares.
+
+  The judge, [run 38342552581](https://github.com/c4milo/colibri/actions/runs/38342552581),
+  measured it against `25e1c93`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 16,857 | 16,504 | 0.9790 | 0.9790 | wins in both |
+  | h2-tls-many | 24,698 | 24,396 | 0.9878 | 0.9882 | wins in both |
+  | h2-one | 184,513 | 184,336 | 0.9990 | 0.9987 | within the noise |
+  | h2-tls-one | 7,283,578 | 7,282,422 | 0.9998 | 0.9999 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 354 in the first
+  job and by 355 in the second, where the disassembly gave about 370.
+
 - **Step 2 — the deterministic driver.** A seeded harness that feeds bytes in arbitrary chunks,
   supplies instants, and substitutes null TLS and crypto providers. This is the simulator for the h2
   half, and it exists before there is a connection to drive, which is possible only because §4 put
