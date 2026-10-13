@@ -1,9 +1,12 @@
 //! The tests of `connection.zig`, split out because a hand-written source file stays at or under
-//! 500 lines with its tests included (CLAUDE.md): the preface each role writes, the replies
-//! written after it, and `fail`.
+//! 500 lines with its tests included (CLAUDE.md): what `init` writes, the preface each role
+//! writes, the replies written after it, and `fail`.
 const std = @import("std");
 const constants = @import("../constants.zig");
 const support = @import("connection_test_support.zig");
+
+const Connection = @import("connection.zig").Connection;
+const Role = @import("../role.zig").Role;
 
 const testing = std.testing;
 const test_connection = &support.test_connection;
@@ -105,4 +108,47 @@ test "a connection with nothing pending writes no reply, after each kind of repl
     try testing.expect(test_connection.has_pending());
     _ = support.write_queued();
     try expect_nothing_owed_when_none_pending();
+}
+
+/// The parts of a connection `init` leaves as they were: storage written before it is read. The
+/// HPACK tables hold an entry's octets once it is inserted, the stream pool an entry once it opens
+/// (invariant 5), and the decoder's scratch, the field block and `send_block` what a call writes
+/// before it reads. Test-only.
+const storage_left_by_init = [_][]const u8{
+    "decoder.table.octets", "decoder.table.entries", "decoder.name_scratch", "decoder.value_scratch",
+    "encoder.table.octets", "encoder.table.entries", "streams.pool.entries", "block.buffer",
+    "block.section.octets", "block.section.lines",   "send_block",
+};
+
+/// Two connections `init` starts over storage filled with zeros and with ones. Test-only.
+var over_zeros: Connection align(@alignOf(Connection)) = undefined;
+var over_ones: Connection align(@alignOf(Connection)) = undefined;
+
+/// Fails, naming the field, when a field of `T` at any depth holds different octets in `a` and
+/// `b`, other than the storage `init` leaves.
+fn expect_written(comptime T: type, a: *const T, b: *const T, comptime path: []const u8) !void {
+    inline for (storage_left_by_init) |left| {
+        if (comptime std.mem.eql(u8, path, left)) return;
+    }
+    const info = @typeInfo(T);
+    if (info == .@"struct" and info.@"struct".layout != .@"packed") {
+        inline for (info.@"struct".fields) |field| {
+            const inner = if (path.len == 0) field.name else path ++ "." ++ field.name;
+            try expect_written(field.type, &@field(a.*, field.name), &@field(b.*, field.name), inner);
+        }
+        return;
+    }
+    if (std.mem.eql(u8, std.mem.asBytes(a), std.mem.asBytes(b))) return;
+    std.debug.print("first difference: init leaves {s} as the storage held it\n", .{path});
+    return error.TestUnexpectedResult;
+}
+
+test "init writes every field but the storage it leaves, for each role" {
+    for ([_]Role{ .server, .client }) |role| {
+        @memset(std.mem.asBytes(&over_zeros), 0);
+        @memset(std.mem.asBytes(&over_ones), std.math.maxInt(u8));
+        over_zeros.init(role);
+        over_ones.init(role);
+        try expect_written(Connection, &over_zeros, &over_ones, "");
+    }
 }

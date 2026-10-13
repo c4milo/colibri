@@ -414,6 +414,7 @@ test {
     _ = @import("connection_h11_test.zig");
     _ = @import("connection_h2_test.zig");
     _ = @import("connection_h2_fields_test.zig");
+    _ = @import("connection_internal_test.zig");
     _ = @import("connection_tls_test.zig");
     _ = @import("connection_records_test.zig");
     _ = @import("connection_done_test.zig");

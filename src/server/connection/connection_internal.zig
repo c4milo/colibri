@@ -34,11 +34,22 @@ pub fn close_transport(connection: *Connection) void {
     if (connection.config.tls != null) connection.tls_server.close();
 }
 
+/// Makes h2 the session's protocol and leaves its payload's octets as they are. ReleaseSafe fills
+/// a payload written as `undefined` with 0xAA, which for `h2.Connection` is 163,384 octets on
+/// every connection; runtime safety is off in this function alone, at the owner's ruling of
+/// 2026-10-13, so only the tag is stored. `h2.Connection.init` then writes every field a read
+/// reaches, which `connection_internal_test.zig` holds: an h2 connection sends the same octets
+/// whatever its storage held before.
+fn make_h2_session(connection: *Connection) void {
+    @setRuntimeSafety(false);
+    connection.session = .{ .h2 = undefined };
+}
+
 /// Makes the protocol's connection, which then serves this one.
 pub fn open_session(connection: *Connection, chosen: Protocol) void {
     switch (chosen) {
         .h2 => {
-            connection.session = .{ .h2 = undefined };
+            make_h2_session(connection);
             connection.session.h2.init(.server);
             connection.session.h2.data_frame_len_min = connection.config.limits.data_frame_len_min;
             connection.session.h2.limit_peer_streams(connection.config.limits.requests_max);

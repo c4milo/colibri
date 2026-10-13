@@ -6749,6 +6749,48 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 132 in both jobs,
   where the disassembly gave about 140.
 
+  **The h2 session is made without filling its payload, 2026-10-13.** `open_session` wrote the
+  session as `.{ .h2 = undefined }`, and ReleaseSafe fills a payload written as `undefined` with
+  0xAA: 163,384 octets on every h2 connection, the largest cost of one that remained. The owner
+  ruled on 2026-10-13 for `@setRuntimeSafety(false)` on that one assignment: `make_h2_session`
+  holds it alone, so it stores the tag and nothing else. No assertion is turned off; the function
+  has none. `h2.Connection.init` then writes every field a read reaches. h11's payload, 35,040
+  octets, is still filled.
+
+  What each check printed:
+  - A new test in h2's `connection_test.zig` inits a connection of each role over storage of
+    zeros and over storage of ones, and requires every field at every depth to match but eleven
+    regions read only after they are written: the HPACK tables' octets and entries, the
+    decoder's two scratch buffers, the stream pool's entries (invariant 5), the field block's
+    buffer and section, and `send_block`.
+  - A new test in `connection_internal_test.zig` runs one h2 exchange (a body, a trailer section,
+    a PING, a SETTINGS frame, a stream the peer resets, and a shutdown) over a connection whose
+    storage is filled four ways, and requires the same octets and events from each.
+  - With each TCP endpoint's storage filled with 0x00, and again with 0xFF, before it starts,
+    `zig build sim -Drelease -- --deadline-check 65536`, `--tcp-trace-check`,
+    `--content-coding-check`, `--deadline-trace-check` and `--connection-check` printed what the
+    tree printed with no fill, and `--tcp-trace-write` and `--deadline-trace-write` wrote the same
+    octets. The fill was a patch for those runs alone.
+  - The disassembly of the server `bench/run.sh` builds no longer fills 163,384 octets where a
+    session is made.
+  - 12 mutations, each **CAUGHT**: `init` leaving each of ten fields, its reply queues or its send
+    window as the storage held them, and a scratch region left off the test's list. 1 mutation
+    **NOT CAUGHT**: the payload filled as before, which is the old code.
+
+  The judge, [run 38445649577](https://github.com/c4milo/colibri/actions/runs/38445649577),
+  measured it against `bc79211`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-one | 179,622 | 145,555 | 0.8103 | 0.8091 | wins in both |
+  | h2-tls-one | 7,275,284 | 7,238,002 | 0.9949 | 0.9948 | wins in both |
+  | h2-many | 14,445 | 14,347 | 0.9932 | 0.9926 | wins in both |
+  | h2-tls-many | 22,387 | 22,304 | 0.9963 | 0.9956 | within the noise |
+
+  No input loses. On h2-one the server's user instructions per connection fell by 34,910 in the
+  first job and by 34,982 in the second, where the disassembly gave about 35,760.
+
 - **Step 18 — qlog.** [Decision 102](decisions.md) has colibri log a connection as qlog when its
   caller asks, from the drafts pinned in `docs/rfcs/qlog/`. Four parts, in order:
   - **18a**, the `qlog` module. A `Log` over a buffer the caller owns, the QlogFileSeq header of
