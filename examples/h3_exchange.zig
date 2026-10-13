@@ -78,7 +78,9 @@ pub const Error = error{
     ExchangeWrong,
 };
 
-// The link and both sides hold megabytes, so they live outside the stack.
+// The link and both sides hold megabytes, so they live outside the stack. The link runs on
+// `loops`, which the program starts and stops.
+var loops: link_module.Loops align(@alignOf(link_module.Loops)) = undefined;
 var link: Link align(@alignOf(Link)) = undefined;
 var output: [link_module.datagram_len_max]u8 = undefined;
 
@@ -116,8 +118,9 @@ var spoken: ?client.Protocol align(@alignOf(client.Protocol)) = null;
 var closed: bool = false;
 
 pub fn main() !void {
-    try link.init();
-    defer link.deinit();
+    try loops.init();
+    defer loops.deinit();
+    link.init(&loops);
     // A program probes its CPU once and says what mode its thread runs in, and passes both to every
     // TLS configuration. This one sets no mode, so its sessions run ChaCha20 alone; one whose
     // thread set PSTATE.DIT on arm64 states `.data_independent`.

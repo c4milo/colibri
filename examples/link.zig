@@ -58,8 +58,9 @@ const LoopMemory = struct {
     bytes: [rotor.Loop.memory_bytes(loop_options)]u8 align(rotor.memory_alignment),
 };
 
-/// Both sides' loops and the registry they share. `Link` holds one, and so does the
-/// `DatagramLink` of `link_datagram.zig`.
+/// Both sides' loops and the registry they share. `Link` holds one, and its `init` and `deinit`
+/// start and stop them. The `DatagramLink` of `link_datagram.zig` holds a pointer to one, and
+/// does not start or stop them.
 pub const Loops = struct {
     registry_memory: [rotor.Registry.memory_bytes(side_count)]u8 align(rotor.memory_alignment),
     registry: rotor.Registry,

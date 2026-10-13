@@ -10,7 +10,7 @@ server against each other.
 | [`h3_exchange.zig`](h3_exchange.zig) | h3 through `server.Endpoint` and `client.Channel`. The endpoint passes each datagram to its connection, the channel opens QUIC and carries the exchange, and both sides sleep until their next deadline. |
 | [`h11_exchange.zig`](h11_exchange.zig) | The `h11` module by itself. A client pipelines a GET and a PUT, and sends the PUT's body from its own buffer with `count_body`. The server reads one request at a time and answers each. |
 | [`h2_exchange.zig`](h2_exchange.zig) | The `h2` module by itself. A client and a server exchange their prefaces and SETTINGS, and the server answers a GET with HEADERS and DATA. Each side runs the loop every h2 program runs: `receive` one frame at a time, then `write_pending`. |
-| [`link.zig`](link.zig), [`link_datagram.zig`](link_datagram.zig) | Not examples of colibri, but what the others run over: the stand-ins for a program's sockets, one for a stream of octets and one for datagrams. |
+| [`link.zig`](link.zig), [`link_datagram.zig`](link_datagram.zig) | Not examples of colibri, but what the others run over: the stand-ins for a program's sockets, one for a stream of octets and one for datagrams. The datagram link runs on the loops of a stream link, or on loops the program starts, so each side runs one loop. |
 | [`tls_program.zig`](tls_program.zig) | Not an example by itself, but what a program that links `tls` defines once: chapulin's hook, and the source its connections draw from. |
 
 Run every example, or one:

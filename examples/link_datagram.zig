@@ -6,6 +6,10 @@
 //! copied whole into the other side's queue, and each datagram comes out as it went in. No socket
 //! is opened (decision 96).
 //!
+//! The link holds a pointer to its `Loops`, and does not start or stop them. A program that holds a
+//! `Link` too gives this link the `Link`'s loops. Then each side runs one loop and reads one clock,
+//! so the instants each side gives colibri never go back.
+//!
 //! QUIC runs on timers as well as datagrams. `wait` ticks a side's loop until a duration passes,
 //! which is how a side with nothing to read sleeps until its next deadline.
 const std = @import("std");
@@ -14,6 +18,7 @@ const link = @import("link.zig");
 
 pub const Side = link.Side;
 pub const Error = link.Error;
+pub const Loops = link.Loops;
 
 /// Octets of one datagram, at most: what one Ethernet frame carries.
 pub const datagram_len_max = 1500;
@@ -33,20 +38,18 @@ const Queue = struct {
 };
 
 pub const DatagramLink = struct {
-    loops: link.Loops,
+    loops: *Loops,
     queues: [side_count]Queue,
 
-    /// Starts both loops. The link lives outside the stack: it holds both queues.
-    pub fn init(self: *DatagramLink) Error!void {
-        try self.loops.init();
+    /// Empties both queues and runs the link on `loops`. The link lives outside the stack: it
+    /// holds both queues. The program starts `loops` once before this call, and stops them once
+    /// after its last use of the link: `Link.init` and `Link.deinit` do this for a `Link`'s loops.
+    pub fn init(self: *DatagramLink, loops: *Loops) void {
+        self.loops = loops;
         for (&self.queues) |*queue| {
             queue.first = 0;
             queue.count = 0;
         }
-    }
-
-    pub fn deinit(self: *DatagramLink) void {
-        self.loops.deinit();
     }
 
     /// Copies `datagram` into the other side's queue and posts it a message saying it arrived.
