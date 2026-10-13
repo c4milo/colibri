@@ -4103,3 +4103,18 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      values come from the TLS source. `client.Connection` grows by one field, and
      `client.Channel` by two TLS configurations. A program with TCP alone places about 1 MB a
      channel where it placed 289,200 octets a connection.
+
+     Amended on 2026-10-12 by design §8 step 21c, for what its sub-steps met that the rulings
+     left open:
+     - A channel reports a transport's `close` before the `open` of its next connection. A
+       connection that ended while an exchange waited was closed and its transport opened again
+       in one pass, and the `open` overwrote the `close` it owed, so the caller kept the old
+       socket. It was so from step 17d.
+     - A caller reads nothing from a socket after the channel's `close`, and still calls
+       `receive` for the channel's events. The TCP trace run does so.
+     - The test-only client counts a connection a success only when its channel closed with
+       every exchange answered and every socket it opened ended before the run did.
+     - A shut-down channel that abandons a connection whose `open` no caller heard of drops the
+       `open`, and owes no `close` for it.
+     - A program drops the octets it still holds from a socket when the channel says `close`:
+       they are that connection's, and the next connection on the transport must not get them.

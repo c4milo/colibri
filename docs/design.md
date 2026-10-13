@@ -8524,6 +8524,127 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - The counts: a cancel or a wait not counted, or counted twice; a request that found room,
       or that ended, still counted; either scan run only while its count is zero.
 
+  **21c, 2026-10-12.** A client's channel builds its TLS configurations, draws what a QUIC
+  connection starts from, and carries every exchange a program makes (decision 120). Run on macOS
+  26 on an Apple M1 Pro. The sub-steps ran on main 9b621a0, and the branch was then replayed over
+  25e1c93, whose one commit changes two tests.
+  - **The API.** `client.Config` is the channel's configuration: one `tls.Client` value, whose
+    `alpn` now defaults to empty, and `Channel.init` builds each transport's TLS configuration
+    with the ALPN list `versions` gives. `start_quic` draws the grease value and the two
+    connection IDs from its source. `QuicConfig`, `ChannelConfig`, `QuicStart` and
+    `QuicStartError` leave the root, which exports 44 names where it exported 48.
+    `client.constants.fallback_delay_ns_default` is 250 ms.
+  - **What the move needed fixed,** each in a commit of its own: an h11 connection in cleartext
+    reads nothing on a call with no octets while octets wait (21c.3); a transport closes once its
+    connection wrote its alert, its Finished or h2's GOAWAY (21c.4); a connection that carried
+    nothing stays counted in its attempt (21c.5); a handshake that selects no protocol runs h11
+    only while `versions` allows it (21c.6c). The endpoint check's move found one more, there
+    since step 17d: a connection that ended while an exchange waited was closed and its transport
+    opened again in one pass of the channel, and the `open` overwrote the `close` it owed, so the
+    caller kept the old socket. The channel now reports the `close` first. That left an `open`
+    owed across a call: a program that then cancelled the last exchange and shut the channel down
+    reached an assertion, and a shut-down channel now drops an `open` no caller heard of. A
+    program also drops the octets it still holds from a socket when the channel says `close`:
+    passed on after the next `start_tcp`, a stale h2 GOAWAY failed the new connection (RFC 9113
+    §3.4). The guide and the TLS example say so, and the test-only client already did.
+  - **The callers.** The endpoint check's peers, the test-only client's plain modes, the
+    content-coding, deadline and TCP trace runs, the TLS example with the guide's client section,
+    and `tools/consumer/` each hold a `client.Channel` with TCP alone.
+  - **What stayed.** 21c.2 pinned a CRC-32 of what the client writes in three runs:
+    `wire_crc32=0xe6434a84` in the deadline check, `0xc8625587` in the content-coding check and
+    `0x553ad660` in the TCP trace run. Each stayed through every move, and so did each run's
+    other pins. Over 65,536 seeds in ReleaseSafe the deadline check printed `crc32=0x4878c63a`
+    and `wire_crc32=0x7a90b4e4` before its move and after. The endpoint check kept `0x560d5625`
+    and `0x5ec49f44`, and each of its 128 traces line for line. The h2 and h11 interop scripts
+    print what they printed before, octet for octet.
+  - **The one census that moved.** In 21c.7a the client trace run draws a QUIC connection's start
+    values from its TLS source: 17 values fewer of `random` and 24 more of `tls_random` at each
+    open. `states` went from 2570 to 2569, `refused` from 83 to 85, `failed` from 61 to 59,
+    `moved` from 3 to 4 and `tcp_connections` from 272 to 274. Four of 256 seeds print another
+    trace, each from its second QUIC open. 21c.7b moved the draws into `start_quic`, and the
+    census stayed.
+  - **A closed socket reads nothing.** The TCP trace run's socket reads nothing after the
+    channel's `close`, as a program's closed socket does, and the run still calls `receive` for
+    the channel's events. Reading on, the channel drops the server's late octets, and `states`
+    becomes 566 where it is 563: the first difference is a `deliver_to_client` of seed 0x16.
+  - **The test-only client.** A run counts a connection a success only when its channel closed
+    with every exchange answered and every socket it opened ended before the run did. Its channel
+    mode gives QUIC every decoder pool, which `--coded` needed.
+  - **Memory.** docs/performance.md lists `client.Connection` at 289,208 octets, eight more for
+    `unread_len`, and `client.Channel` at 995,328, which holds two TLS configurations now.
+  - **Models.** spec/tla/client_exchanges gains `TakeAtHandshake`, `Bounded`, `TcpAllowed`,
+    `TcpWhenAllowed` and `NoTcp`. The configurations `bounded` and the three `h3_alone` hold, and
+    `take_at_handshake` and `tcp_when_allowed` find their invariants violated, as their first
+    lines say. `tools/client_trace.sh` found 67 of 67 traces behaviors of the model, and
+    `tools/tcp_trace.sh` 64 of 64.
+  - **Checks.** `zig build test` and `zig build test -Drelease` passed on 21c.11a before the
+    replay, and so did `zig build examples`, `tools/doc_snippets.sh`, `tools/consumer_check.sh`,
+    `tools/h2_interop.sh --tls`, `tools/h11_interop.sh --tls` and `tools/channel_interop.sh`.
+    `tools/ci.sh`, which runs `zig build tla` for every model, runs on the pushed tree.
+  - A review, two readers and a verifier, confirmed five findings, and each is corrected: the
+    assertion and the stale octets above, design §6.5's sentence that h3's grease value derives
+    from configuration, the test-only socket's header, and the commits this entry named before
+    the replay.
+  - Mutations, each **CAUGHT** unless it says otherwise:
+    - The pins: one more SETTINGS parameter from the client; Accept-Encoding with a space, by
+      the new pin alone, and in another order, by an older check; each hash without its last
+      octet; the TCP trace's hash over `consumed`, **NOT CAUGHT** at first and caught by a new
+      test.
+    - h11's empty call: the rule dropped; `unread_len` never set; the rule on a call with
+      octets.
+    - The close: the closed-phase term back in `close_over`; `protocol_pending` removed from
+      `should_close`; `close_over` ready whatever `should_close` says.
+    - The attempt: the guard removed, or reading `failed` alone; `abandon` removed;
+      `end_attempt` before the guard; `connected` reported; `finish_link` reading `abandoned`
+      alone, or `won` alone, each caught by a new test; the assertion negated; the model
+      without `TakeAtHandshake`, which TLC finds violating `Bounded`.
+    - One TLS value, 26 of 28: the ALPN list wrong four ways; QUIC offered in cleartext, without
+      a pool, or with h3 off; `quic_allowed` ignoring what the channel offers; TCP offered or
+      opened with h11 and h2 off, three ways; `NoVersion` not returned; the fallback instant
+      reported with TCP off; QUIC's configuration with another authority, or without `ecn`,
+      `idle_timeout_ms`, the codings or any of its three pools; `TooManyAnchors` dropped; a TLS
+      configuration built for a transport not offered, two ways; the internal TCP configuration
+      with no TLS; the model without `TcpWhenAllowed => TcpAllowed`, which TLC finds violating
+      `NoTcp`; the trace world speaking no h3. And 21c.6a's: `alpn`'s default naming "h2", or a
+      protocol the test server does not select.
+    - No ALPN selection: no selection always h11, always h2, or reading h2; `attach` passing
+      default versions, or keeping `connected` owed; the test-only client's versions wrong
+      four ways, one caught by a new test.
+    - The draws: the IDs drawn before the grease value; the two IDs swapped; one draw for both;
+      a constant grease value; the draws after the session starts; the Initial keys derived
+      from the source ID; the root exporting `QuicStart` again.
+    - The order of `close` and `open`: the `open` dropping the `close` owed; `open` reported
+      first. An `open` no caller heard of: the old assertion back; a `close` owed for it; the
+      link not closed; the `open` left owed.
+    - The endpoint check's peers: `start_tcp` never called; `.none` passed for `.stream`; a
+      second `open` started; the `close` flag never set; no `receive` after `start_tcp`; both
+      protocols offered over TLS, two ways; `closes` true before `close`.
+    - The test-only client: `open`, the start or `close` ignored; a socket's end or a failed
+      open not passed on; a second `open` ignored; two sockets of one connection at once; held
+      octets dropped after an event; no read after a send; `versions` wrong over TLS or in
+      cleartext.
+    - The content-coding, deadline and TCP trace runs: `send_stream` never called; `.none`
+      passed for `.stream`; `start_tcp` not called; the channel given no codings; the read after
+      `start_tcp` removed; a second `open` started, which the deadline run's new test plays; a
+      request while draining; a `receive` after a send; the socket read after `close`.
+    - The example and the consumer: `send_stream` never called; `.none` passed for `.stream`;
+      `close` ignored; `start_tcp` not called; `shutdown` never called.
+    - The name: the root still exporting `ChannelConfig`, by its list test; `Config` naming the
+      TCP connection's configuration, by `zig build`.
+  - **NOT CAUGHT**, and why each has no test:
+    - h11's rule returning on every empty call: h11's client reports nothing on one.
+    - The trace world given a receive pool under the policy `never`, or speaking h11 too: the
+      world's plans and servers make both equivalent.
+    - The test-only client dropping held octets after a send: h11 refuses a response that no
+      request it sent awaits (RFC 9112 §9.2), so no octet waits for a send to be read.
+    - The TLS example keeping a closed socket's octets: its socket holds none at its `close`,
+      and no second connection opens.
+    - 21c.4's `protocol_pending` removed, against the deadline check: its honest peer never
+      shuts down, so its h2 owes no GOAWAY when it closes. The client's own tests catch it.
+    - The TCP trace run cancelling a moved exchange, or ending a delivery at its first quiet
+      call: no state changes over 1,024 seeds. A moved exchange waits at the channel, and the
+      connection reports `draining` in the call that reads the GOAWAY.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.
