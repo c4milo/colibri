@@ -1,6 +1,7 @@
-//! Static memory per connection (design §8 step 13b, §11.2): the size of each struct a caller holds
-//! for one connection, and of the server's endpoint, which holds a server's connections (design §8
-//! step 21b.6), taken from the code being built and never estimated, as chapulin's `bench/sram.sh`
+//! Static memory per connection (design §8 step 13b, §11.2). The table gives the size of each
+//! struct a program places, and of the connection in each slot of an endpoint and in each transport
+//! of a channel. An endpoint holds a server's connections (design §8 step 21b.6). Each size comes
+//! from the code that the build compiles and is never estimated, as chapulin's `bench/sram.sh`
 //! measures its rows. `zig build bench-memory` prints the table, and the test
 //! requires `docs/performance.md` to hold the same table, so a struct that changes size changes
 //! the document in the same commit.
@@ -21,7 +22,8 @@ const performance_md = @embedFile("performance_md");
 /// heading that the document holds no table under.
 const heading = "With chapulin's " ++ options.object ++ " objects:\n\n";
 
-/// One row: a struct a caller places, and what it holds.
+/// One row: a struct a program places, or the connection one of its fields holds, and what the
+/// struct holds.
 const Row = struct {
     name: []const u8,
     size: usize,
@@ -37,12 +39,12 @@ const rows = [_]Row{
     .{ .name = "server.Endpoint", .size = @sizeOf(server.Endpoint), .holds = "a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools" },
     .{ .name = "server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })", .size = @sizeOf(server.EndpointOf(one_tcp)), .holds = "an endpoint that holds one TCP connection" },
     .{ .name = "server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })", .size = @sizeOf(server.EndpointOf(one_quic)), .holds = "an endpoint that holds one QUIC connection, with its receive pool" },
-    .{ .name = "server.Connection", .size = @sizeOf(server.Connection), .holds = "one TCP connection: h11 or h2, in cleartext or over TLS" },
-    .{ .name = "server.QuicConnection", .size = @sizeOf(server.QuicConnection), .holds = "one h3 connection, without its receive pool" },
-    .{ .name = "client.Connection", .size = @sizeOf(client.Connection), .holds = "one TCP connection: h11 or h2, in cleartext or over TLS" },
-    .{ .name = "client.QuicConnection", .size = @sizeOf(client.QuicConnection), .holds = "one h3 connection, without its receive pool" },
+    .{ .name = "std.meta.Elem(@FieldType(server.Endpoint, \"tcp\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Endpoint, "tcp"))), .holds = "the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS" },
+    .{ .name = "std.meta.Elem(@FieldType(server.Endpoint, \"quic\"))", .size = @sizeOf(std.meta.Elem(@FieldType(server.Endpoint, "quic"))), .holds = "the connection each QUIC slot of an endpoint holds, without its receive pool" },
+    .{ .name = "@FieldType(client.Channel, \"tcp\")", .size = @sizeOf(@FieldType(client.Channel, "tcp")), .holds = "a channel's TCP connection: h11 or h2, in cleartext or over TLS" },
+    .{ .name = "@FieldType(client.Channel, \"quic\")", .size = @sizeOf(@FieldType(client.Channel, "quic")), .holds = "a channel's QUIC connection, without its receive pool" },
     .{ .name = "client.Channel", .size = @sizeOf(client.Channel), .holds = "one server's connections, QUIC first and TCP after, without receive pools" },
-    .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a QUIC connection's caller passes, at its default capacity" },
+    .{ .name = "client.DefaultReceivePool", .size = @sizeOf(client.DefaultReceivePool), .holds = "the receive pool a program passes to a channel, at its default capacity" },
     .{ .name = "h11.Connection", .size = @sizeOf(h11.Connection), .holds = "the h11 state inside a TCP connection" },
     .{ .name = "h2.Connection", .size = @sizeOf(h2.Connection), .holds = "the h2 state inside a TCP connection" },
     .{ .name = "h3.Connection", .size = @sizeOf(h3.Connection), .holds = "the h3 state inside a QUIC connection" },

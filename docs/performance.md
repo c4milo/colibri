@@ -80,16 +80,19 @@ Each one is set up so that the three do the same work:
 
 ## Memory per connection
 
-Each struct a caller holds for one connection, and the server's endpoint, which holds a server's
-connections (design §8 step 21b.6), in bytes, from the code being built (design §8 step 13b,
-§11.2). `zig build bench-memory` prints the table for the objects the build targets, and
-`zig build test` fails when the table here differs from it. The sizes depend on which object
-chapulin builds: x86-64 and arm64 build its host objects (decision 97 as amended), so one table
-serves both. Any other target builds its device objects, prints another heading, and its test
-fails until this section holds its table. An endpoint holds each QUIC connection's receive pool.
-The QUIC connections listed by themselves hold none: a client's caller passes one, whose default
-the table lists. The two endpoints of one slot each hold one connection and the endpoint's fixed
-part, about 12.7 KB of TLS and connection configuration, which every endpoint holds once.
+The table gives the size in bytes of each struct a program places, and of the connection in each
+slot of an endpoint and in each transport of a channel. An endpoint holds a server's connections
+(design §8 step 21b.6). Each size comes from the code that the build compiles (design §8 step 13b,
+§11.2).
+
+`zig build bench-memory` prints the table for the objects the build targets, and `zig build test`
+fails when the table here differs from it. The sizes depend on which object chapulin builds: x86-64
+and arm64 build its host objects (decision 97 as amended), so one table serves both. Any other
+target builds its device objects, prints another heading, and its test fails until this section
+holds its table. An endpoint holds each QUIC connection's receive pool. A QUIC connection listed by
+itself holds none: a client's program passes one to `Channel.init`, whose default the table lists.
+The two endpoints of one slot each hold one connection and the endpoint's fixed part, about 12.7 KB
+of TLS and connection configuration, which every endpoint holds once.
 
 With chapulin's host objects:
 
@@ -98,12 +101,12 @@ With chapulin's host objects:
 | `server.Endpoint` | 40630608 | a server's connections at the default capacity: 16 over TCP, and 16 over QUIC with their receive pools |
 | `server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 })` | 323440 | an endpoint that holds one TCP connection |
 | `server.EndpointOf(.{ .tcp_connections = 0, .quic_connections = 1 })` | 2240560 | an endpoint that holds one QUIC connection, with its receive pool |
-| `server.Connection` | 306448 | one TCP connection: h11 or h2, in cleartext or over TLS |
-| `server.QuicConnection` | 721416 | one h3 connection, without its receive pool |
-| `client.Connection` | 289208 | one TCP connection: h11 or h2, in cleartext or over TLS |
-| `client.QuicConnection` | 703712 | one h3 connection, without its receive pool |
+| `std.meta.Elem(@FieldType(server.Endpoint, "tcp"))` | 306448 | the connection each TCP slot of an endpoint holds: h11 or h2, in cleartext or over TLS |
+| `std.meta.Elem(@FieldType(server.Endpoint, "quic"))` | 721416 | the connection each QUIC slot of an endpoint holds, without its receive pool |
+| `@FieldType(client.Channel, "tcp")` | 289208 | a channel's TCP connection: h11 or h2, in cleartext or over TLS |
+| `@FieldType(client.Channel, "quic")` | 703712 | a channel's QUIC connection, without its receive pool |
 | `client.Channel` | 995328 | one server's connections, QUIC first and TCP after, without receive pools |
-| `client.DefaultReceivePool` | 1505288 | the receive pool a QUIC connection's caller passes, at its default capacity |
+| `client.DefaultReceivePool` | 1505288 | the receive pool a program passes to a channel, at its default capacity |
 | `h11.Connection` | 35040 | the h11 state inside a TCP connection |
 | `h2.Connection` | 163384 | the h2 state inside a TCP connection |
 | `h3.Connection` | 146312 | the h3 state inside a QUIC connection |
@@ -116,12 +119,12 @@ With chapulin's host objects:
 ## Pitfalls this tree has paid for
 
 - **compiler_rt's `memset`.** Symptom: on the judge, a cleartext h2 connection cost 857,000
-  instructions against 46,100 for a request on an open one, about 2.8 for each octet of
-  `server.Connection`. Cause: on Linux every `memset` in a Zig 0.16 program is compiler_rt's,
-  which writes one octet at a time, and each connection's structs are filled through it. Rule: the
-  programs colibri times export their own (`src/testing/memset.zig`), which brought the
-  connection to 305,000 instructions. A program that links colibri should export one too, as
-  pepegrillo's guide says.
+  instructions against 46,100 for a request on an open one, about 2.8 for each octet of the server's
+  TCP connection. Cause: on Linux every `memset` in a Zig 0.16 program is compiler_rt's, which
+  writes one octet at a time, and each connection's structs are filled through it. Rule: the
+  programs colibri times export their own (`src/testing/memset.zig`), which brought the connection
+  to 305,000 instructions. A program that links colibri should export one too, as pepegrillo's guide
+  says.
 - **A scratch array as large as its limit.** Symptom: every h2 response cost about 940
   instructions before it wrote an octet, whatever it carried. Cause: ReleaseSafe fills an
   `undefined` local with 0xAA on every call, and `respond` copied the caller's fields into an
