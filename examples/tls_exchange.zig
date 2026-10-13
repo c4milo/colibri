@@ -208,7 +208,7 @@ fn start_client(cpu: tls.Cpu) !void {
     };
     // The channel takes what DNS knows as values. With no receive pool it offers TCP alone. `init`
     // builds the TLS configuration inside the channel, which stays in place from here on.
-    const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+    const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     try channel.init(&client_config, known, null);
     // `request` only takes an exchange. The channel asks for a socket, and sends the exchange
     // once the handshake has picked the version, so a program asks at once and never waits.
@@ -347,7 +347,7 @@ fn drain(now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
         const held = input[consumed..];
-        const read: client.ChannelInput = if (held.len > 0) .{ .stream = held } else .none;
+        const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
         const received = channel.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -364,7 +364,7 @@ fn drain(now_ns: u64) !void {
 
 /// Acts on one event of the client. Each exchange ends in one `finished` event, whatever happened
 /// to it: its `outcome` says whether the response arrived.
-fn report(event: client.ChannelEvent) void {
+fn report(event: client.Event) void {
     switch (event) {
         // The channel asks for a socket to `open.to`. A program connects one there, then starts
         // the connection on it. Here the link stands where the socket would be, and is connected

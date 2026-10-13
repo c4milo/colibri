@@ -446,7 +446,7 @@ pub const World = struct {
         var quiet: u32 = 0;
         for (0..limits.receives_per_delivery_max) |_| {
             // A closed socket reads nothing more, and the octets in flight stay there.
-            const input: client.ChannelInput = if (world.socket_closed) .none else .{ .stream = world.to_client.unread() };
+            const input: client.Input = if (world.socket_closed) .none else .{ .stream = world.to_client.unread() };
             const received = world.channel.receive(input, world.now_ns);
             world.to_client.consumed += received.consumed;
             if (received.event) |reported| world.on_client_event(reported);
@@ -459,7 +459,7 @@ pub const World = struct {
     /// What an event of the channel's means to the run. A second `open` gets no socket, so the
     /// exchanges that wait for it end refused, and a `close` closes the one socket. The run reads
     /// the outcomes, and ignores the rest.
-    fn on_client_event(world: *World, reported: client.ChannelEvent) void {
+    fn on_client_event(world: *World, reported: client.Event) void {
         switch (reported) {
             .open => |asked| {
                 assert(asked.transport == .tcp);

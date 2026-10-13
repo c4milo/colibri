@@ -50,23 +50,22 @@ pub const Ecn = quic.connection_send.Ecn;
 pub const Channel = files.channel.Channel;
 /// What DNS knows of the origin, which `Channel.init` takes, an HTTPS record's values in it, and
 /// the h3 alternative a channel learned from Alt-Svc.
-pub const ChannelValues = files.channel.Values;
+pub const Values = files.channel.Values;
 pub const Https = files.channel.Https;
 pub const Alternative = files.channel.Alternative;
 /// What a program passes `Channel.receive`, and what it returns.
-pub const ChannelInput = files.channel.Input;
+pub const Input = files.channel.Input;
 pub const Datagram = files.channel.Datagram;
-pub const ChannelReceived = files.channel.Received;
-pub const ChannelEvent = files.channel.Event;
+pub const Received = files.channel.Received;
+pub const Event = files.channel.Event;
 /// The transport an `open` event asks for and where it goes, and which of the two transports a
 /// channel's calls name.
-pub const ChannelOpen = files.channel.Open;
+pub const Open = files.channel.Open;
 pub const Transport = files.channel.Transport;
-/// Where a transport's connection and an exchange stand at a channel, as
-/// spec/tla/client_exchanges names them (decision 105). The simulator's trace reads them: a
-/// program reads the events.
-pub const ChannelPhase = files.channel.Phase;
-pub const ChannelEntry = files.channel.Entry;
+/// Where a transport's connection stands at a channel, as spec/tla/client_exchanges names it
+/// (decision 105). `Channel.phase` returns it, and the simulator's trace reads it. A program reads
+/// the events.
+pub const Phase = files.channel.Phase;
 /// The pool a QUIC connection holds the server's unread octets in (decision 61), which the caller
 /// places: `ReceivePool(capacity)` for `capacity` octets, a whole number of
 /// `quic.constants.stream_receive_block_len` blocks, or the 1 MiB of `DefaultReceivePool`. The
@@ -97,17 +96,19 @@ pub const Features = files.coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21d takes out `Connection` and `QuicConnection`, which the channel holds, and
-    // `Event`, `Received` and `Advert`, which only their calls return (decision 121).
+    // `Event`, `Received` and `Advert`, which only their calls return (decision 121). It removes
+    // the `Channel` prefix from the channel's types, and takes out `ChannelEntry`, which no call
+    // of `Channel` takes or returns.
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",    "Config",            "Versions",           "StartError",         "RequestError",
-        "Field",        "Id",                "Protocol",           "HttpExchange",       "Wanted",
-        "Outcome",      "Finished",          "Sent",               "Address",            "Ecn",
-        "Channel",      "ChannelValues",     "Https",              "Alternative",        "ChannelInput",
-        "Datagram",     "ChannelReceived",   "ChannelEvent",       "ChannelOpen",        "Transport",
-        "ChannelPhase", "ChannelEntry",      "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",
-        "Coding",       "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool",
-        "ZstdDecoders", "BrotliDecoderPool", "BrotliDecoders",     "Features",
+        "constants",         "Config",             "Versions",           "StartError",      "RequestError",
+        "Field",             "Id",                 "Protocol",           "HttpExchange",    "Wanted",
+        "Outcome",           "Finished",           "Sent",               "Address",         "Ecn",
+        "Channel",           "Values",             "Https",              "Alternative",     "Input",
+        "Datagram",          "Received",           "Event",              "Open",            "Transport",
+        "Phase",             "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",  "Coding",
+        "DecoderPool",       "DefaultDecoderPool", "Decoders",           "ZstdDecoderPool", "ZstdDecoders",
+        "BrotliDecoderPool", "BrotliDecoders",     "Features",
     });
 }
 

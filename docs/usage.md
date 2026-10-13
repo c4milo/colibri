@@ -419,7 +419,7 @@ client_config = .{
 };
 // The channel takes what DNS knows as values. With no receive pool it offers TCP alone. `init`
 // builds the TLS configuration inside the channel, which stays in place from here on.
-const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
 try channel.init(&client_config, known, null);
 // `request` only takes an exchange. The channel asks for a socket, and sends the exchange
 // once the handshake has picked the version, so a program asks at once and never waits.
@@ -448,7 +448,7 @@ fn drain(now_ns: u64) !void {
     var consumed: usize = 0;
     for (0..events_per_turn_max) |_| {
         const held = input[consumed..];
-        const read: client.ChannelInput = if (held.len > 0) .{ .stream = held } else .none;
+        const read: client.Input = if (held.len > 0) .{ .stream = held } else .none;
         const received = channel.receive(read, now_ns);
         consumed += received.consumed;
         const event = received.event orelse {
@@ -468,7 +468,7 @@ The channel's events say what the program does next, and an exchange ends in exa
 `finished` event, whatever happened to it:
 
 ```zig
-fn report(event: client.ChannelEvent) void {
+fn report(event: client.Event) void {
     switch (event) {
         // The channel asks for a socket to `open.to`. A program connects one there, then starts
         // the connection on it. Here the link stands where the socket would be, and is connected
@@ -706,7 +706,7 @@ channel_config = .{
     .fallback_delay_ns = fallback_delay_ns,
 };
 // The channel takes what DNS knows as values: the server's addresses and its port.
-const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
 // `init` builds the TLS configuration of each transport inside the channel, which stays in
 // place from here on. The pool is what makes the channel offer QUIC.
 try channel.init(&channel_config, known, receive_pool.storage());
@@ -766,7 +766,7 @@ After each of those, the program loops over `receive` until the channel consumes
 reports nothing:
 
 ```zig
-fn drain(input: client.ChannelInput, now_ns: u64) void {
+fn drain(input: client.Input, now_ns: u64) void {
     var rest = input;
     for (0..events_per_datagram_max) |_| {
         const received = channel.receive(rest, now_ns);
@@ -783,7 +783,7 @@ fn drain(input: client.ChannelInput, now_ns: u64) void {
 The channel's events say what the program does next:
 
 ```zig
-fn report(event: client.ChannelEvent, now_ns: u64) void {
+fn report(event: client.Event, now_ns: u64) void {
     switch (event) {
         // The channel names the transport to open. A program opens a UDP flow or a TCP
         // connection to `open.to`, then starts the connection.

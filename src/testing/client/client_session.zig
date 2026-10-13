@@ -131,7 +131,7 @@ pub const Session = struct {
         // Bounded: each pass consumes an octet or reports one of the finitely many events.
         for (0..input.len + constants.exchanges_max * constants.steps_per_read_max) |_| {
             const held = input[consumed..];
-            const passed: client.ChannelInput = if (held.len > 0) .{ .stream = held } else .none;
+            const passed: client.Input = if (held.len > 0) .{ .stream = held } else .none;
             const received = session.channel.receive(passed, session.now_ns);
             consumed += received.consumed;
             const reported = received.event orelse {
@@ -143,7 +143,7 @@ pub const Session = struct {
         return consumed;
     }
 
-    fn record(session: *Session, reported: client.ChannelEvent) void {
+    fn record(session: *Session, reported: client.Event) void {
         switch (reported) {
             .finished => |ended| session.exchange_of(ended.id).finished = true,
             // The client offers no ticket, so it keeps none it is given.

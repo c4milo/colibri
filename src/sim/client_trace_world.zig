@@ -132,9 +132,9 @@ pub const World = struct {
         try world.tcp_server.configure();
     }
 
-    fn values(world: *World) client.ChannelValues {
+    fn values(world: *World) client.Values {
         world.addresses = .{client.Address.of(&server_host, 0)};
-        var held: client.ChannelValues = .{ .addresses = &world.addresses, .port = https_port };
+        var held: client.Values = .{ .addresses = &world.addresses, .port = https_port };
         // RFC 9460 §7.1.2: an HTTPS record naming h3 has the channel try QUIC first, and one naming
         // no h3 has it wait for Alt-Svc.
         if (world.plan.https) held.https = .{ .h3 = world.plan.policy == .first };
@@ -321,7 +321,7 @@ pub const World = struct {
     }
 
     /// Passes a datagram to the channel, reporting each event it owes first.
-    fn to_channel(world: *World, input: client.ChannelInput) Error!void {
+    fn to_channel(world: *World, input: client.Input) Error!void {
         // Bounded: each pass consumes the datagram or reports one of the channel's events.
         for (0..limits.settle_rounds_max) |_| {
             const received = world.channel.receive(input, world.now_ns);
@@ -398,7 +398,7 @@ pub const World = struct {
     }
 
     /// What the caller does with each of the channel's events.
-    fn handle(world: *World, reported: client.ChannelEvent) Error!void {
+    fn handle(world: *World, reported: client.Event) Error!void {
         switch (reported) {
             .open => |open| switch (open.transport) {
                 .quic => world.open_quic(),

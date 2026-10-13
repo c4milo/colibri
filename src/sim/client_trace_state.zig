@@ -24,7 +24,9 @@ const transports: usize = 2;
 pub const Stage = enum { unmade, waiting, queued, sent, ended, reported, cancelled };
 pub const Carrier = enum { none, quic, tcp };
 pub const Outcome = enum { pending, response, refused, failed };
-pub const Phase = client.ChannelPhase;
+pub const Phase = client.Phase;
+/// An entry of `Channel.entries`, named through that field: the root exports no such type.
+const Entry = std.meta.Elem(@FieldType(client.Channel, "entries"));
 
 pub const State = struct {
     stage: [exchanges_max]Stage,
@@ -78,7 +80,7 @@ pub const Tracker = struct {
         }
     }
 
-    fn note_carried(tracker: *Tracker, world: *World, index: usize, entry: client.ChannelEntry) void {
+    fn note_carried(tracker: *Tracker, world: *World, index: usize, entry: Entry) void {
         tracker.carrier[index] = if (entry.carrier == .quic) .quic else .tcp;
         tracker.generation[index] = world.channel.links.get(entry.carrier).opens;
         if (entry.carrier != .quic) return;
@@ -129,7 +131,7 @@ fn stage_of(world: *World, index: usize) Stage {
     };
 }
 
-fn carried_stage(world: *World, entry: client.ChannelEntry) Stage {
+fn carried_stage(world: *World, entry: Entry) Stage {
     const slot = switch (entry.carrier) {
         .quic => world.channel.quic.slots.of_id(entry.carried_id),
         .tcp => world.channel.tcp.slots.of_id(entry.carried_id),
@@ -142,7 +144,7 @@ fn carried_stage(world: *World, entry: client.ChannelEntry) Stage {
     };
 }
 
-fn entry_of(world: *World, index: usize) ?client.ChannelEntry {
+fn entry_of(world: *World, index: usize) ?Entry {
     for (world.channel.entries) |entry| {
         if (entry.stage != .free and entry.exchange == &world.exchanges[index]) return entry;
     }

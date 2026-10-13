@@ -302,7 +302,7 @@ pub fn read(peer: *Peer, plan: *const TcpPeer, now_ns: u64, now_ms: u64) Error!b
 
 /// What the peer does with an event of its channel. Returns whether the event counts as something
 /// that moved: what the connection reports does, and what the channel says of the socket does not.
-fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.ChannelEvent) Error!bool {
+fn on_event(peer: *Peer, plan: *const TcpPeer, reported: client.Event) Error!bool {
     switch (reported) {
         // A peer has one socket, and `connect` started the one connection it carries. The peer
         // opens no other, so each exchange that waits for one ends refused.

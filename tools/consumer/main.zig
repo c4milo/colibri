@@ -174,7 +174,7 @@ fn hear(octets: []u8) void {
     var consumed: usize = 0;
     for (0..events_per_round_max) |_| {
         const held = octets[consumed..];
-        const read: client_module.ChannelInput = if (held.len > 0) .{ .stream = held } else .none;
+        const read: client_module.Input = if (held.len > 0) .{ .stream = held } else .none;
         const received = asked.receive(read, 0);
         consumed += received.consumed;
         if (received.event == null and received.consumed == 0) return;

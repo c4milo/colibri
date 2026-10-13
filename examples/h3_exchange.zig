@@ -167,7 +167,7 @@ fn start_client(cpu: tls.Cpu) !void {
         .fallback_delay_ns = fallback_delay_ns,
     };
     // The channel takes what DNS knows as values: the server's addresses and its port.
-    const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+    const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
     // `init` builds the TLS configuration of each transport inside the channel, which stays in
     // place from here on. The pool is what makes the channel offer QUIC.
     try channel.init(&channel_config, known, receive_pool.storage());
@@ -257,7 +257,7 @@ fn client_turn() !void {
 
 /// Passes `input` to the channel and acts on each event, until the channel consumes nothing and
 /// reports nothing. A datagram is consumed whole.
-fn drain(input: client.ChannelInput, now_ns: u64) void {
+fn drain(input: client.Input, now_ns: u64) void {
     var rest = input;
     for (0..events_per_datagram_max) |_| {
         const received = channel.receive(rest, now_ns);
@@ -271,7 +271,7 @@ fn drain(input: client.ChannelInput, now_ns: u64) void {
 }
 
 /// Acts on one event of the channel.
-fn report(event: client.ChannelEvent, now_ns: u64) void {
+fn report(event: client.Event, now_ns: u64) void {
     switch (event) {
         // The channel names the transport to open. A program opens a UDP flow or a TCP
         // connection to `open.to`, then starts the connection.

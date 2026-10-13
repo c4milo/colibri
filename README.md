@@ -96,7 +96,7 @@ It hands the exchange to a channel, which asks for a socket and sends the exchan
 handshake has picked the version:
 
 ```zig
-const known: client.ChannelValues = .{ .addresses = &server_addresses, .port = server_port };
+const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
 try channel.init(&client_config, known, null);
 // `request` only takes an exchange. The channel asks for a socket, and sends the exchange
 // once the handshake has picked the version, so a program asks at once and never waits.

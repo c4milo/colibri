@@ -399,7 +399,7 @@ pub fn peer_read(storage: *Storage, plan: *const Plan, now_ms: u64) Error!bool {
 /// What an event of colibri's client means to the run. An upload's next exchange starts when one
 /// finishes. `connected` and `ticket` change nothing here, and the run ignores `close`: the server
 /// closes this socket, never the peer.
-fn on_event(storage: *Storage, plan: *const Plan, reported: client.ChannelEvent) Error!void {
+fn on_event(storage: *Storage, plan: *const Plan, reported: client.Event) Error!void {
     switch (reported) {
         .finished => |finished| {
             if (finished.exchange.outcome == .response) storage.record.exchanges_done += 1;
