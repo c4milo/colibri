@@ -46,6 +46,7 @@ pub const connection_specific = struct {
 };
 
 pub const method = struct {
+    pub const Standard = files.method.Standard;
     pub const standard = files.method.standard;
     pub const validate = files.method.validate;
 };
@@ -95,6 +96,10 @@ test "decision 115: the root exports the names code outside the module uses" {
         "method",          "status",    "content_length", "message_lines",
         "message_request", "uri",       "content_coding",
     });
+}
+
+test "decision 122: the method namespace exports the type the router's table names" {
+    try core.public_names.expect(method, &.{ "Standard", "standard", "validate" });
 }
 
 test {
