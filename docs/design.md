@@ -779,9 +779,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   | h2-tls-one | 7,564,746 | 7,560,839 | 0.9995 | 0.9985 | within the noise |
 
   No input loses. On h2-many the server's user instructions per request fell by 586 in the first
-  job and by 587 in the second. The server still measures a string twice before it codes it: once
-  to choose Huffman, in the HPACK encoder's `write_string`, and once for the literal's length, in
-  `string_literal.encode`.
+  job and by 587 in the second. The server then still measured a string twice before it coded it:
+  once to choose Huffman, in the HPACK encoder's `write_string`, and once for the literal's length,
+  in `string_literal.encode`. HPACK measures once since the change recorded in step 3; QPACK's
+  encoder still measures twice.
 
   **`validate_value` reads one table, 2026-10-12.** The loop tested each octet of a field value
   with compares and returned from inside itself at NUL, CR or LF, which kept the compiler to one
@@ -1122,6 +1123,41 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
 
   No input loses. On h2-many the server's user instructions per request fell by 207 in the first
   job and by 206 in the second, where the disassembly gave about 210.
+
+  **HPACK measures a Huffman code once when it is shorter, 2026-10-13.** An encoder that
+  Huffman-codes a string only where the code is shorter measured the code twice: once in
+  `write_string` to choose the coding, and once more in `string_literal.encode` for the
+  literal's length. `encoder_string.write_shorter` now writes the literal (RFC 7541 §5.2) from
+  the one measurement, with `prefixed_integer.encode` and `huffman.encode`, names `wire` already
+  exports. It asserts that the code is shorter and that the literal holds the code. QPACK's
+  encoder still measures twice.
+
+  What each check printed:
+  - The old path stays in `encoder_string.zig`'s tests as the reference. `write_shorter` must
+    return what it returns and leave the same octets written, in every room from none to past the
+    literal: for every string of up to two octets, strings that mix code lengths up to 40 octets,
+    the strings a response carries, and runs of three 5-bit codes up to 220 octets, whose codes
+    pass the 127 octets a one-octet length holds.
+  - `zig build hpack-vectors` and `zig build golden-check` passed, and the four traces wrote the
+    same octets before and after the change.
+  - 8 mutations, each **CAUGHT**: a code as long as the string written; the H flag one bit low;
+    the flag left out; the string's length written for the code's; the cursor not given back; the
+    literal written in place, so that a short room keeps its length; and the length given a
+    6-bit or a 5-bit prefix.
+
+  The judge, [run 38427721946](https://github.com/c4milo/colibri/actions/runs/38427721946),
+  measured it against `0228d20`, in instructions per request, or per connection for the two `one`
+  inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 15,072 | 14,923 | 0.9901 | 0.9909 | wins in both |
+  | h2-tls-many | 23,006 | 22,858 | 0.9936 | 0.9937 | wins in both |
+  | h2-one | 180,439 | 180,484 | 1.0003 | 1.0005 | within the noise |
+  | h2-tls-one | 7,273,153 | 7,273,448 | 1.0000 | 0.9999 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 143 in the first
+  job and by 142 in the second, where the disassembly gave about 185.
 
 - **Step 4 — h2 connection and streams, cleartext, prior knowledge.** Frame reader and writer,
   the two prefaces, settings with the ACK discipline, the stream state machine, the signed send

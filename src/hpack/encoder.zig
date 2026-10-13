@@ -28,6 +28,7 @@ const core = @import("core");
 const wire = @import("wire");
 const constants = @import("constants.zig");
 const static_table = @import("static_table.zig");
+const encoder_string = @import("encoder_string.zig");
 const dynamic_table = @import("dynamic_table.zig");
 
 const Writer = core.Writer;
@@ -173,7 +174,7 @@ pub const Encoder = struct {
         const coding: string_literal.Coding = switch (encoder.huffman) {
             .never => .raw,
             .always => .huffman,
-            .when_shorter => if (wire.huffman.encoded_len(octets) < octets.len) .huffman else .raw,
+            .when_shorter => return encoder_string.write_shorter(output, octets),
         };
         try string_literal.encode(constants.string_prefix_bits, output, 0, octets, coding);
     }
