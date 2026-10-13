@@ -112,6 +112,27 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     });
 }
 
+test "decision 121: RequestError names what Channel.request returns, and no other error" {
+    // A switch names each member of the set once. A member added to a set, or taken out of it,
+    // stops the test from compiling. A connection that drains or closes gets no new exchange from
+    // its channel, so `request` never returns `Draining` or `ConnectionClosed`.
+    const names = struct {
+        fn of(comptime Set: type, failure: Set) []const u8 {
+            return switch (failure) {
+                error.Full => "Full",
+                error.RequestUnsupported => "RequestUnsupported",
+                error.FieldReserved => "FieldReserved",
+            };
+        }
+    };
+    const Returned = @typeInfo(@typeInfo(@TypeOf(Channel.request)).@"fn".return_type.?).error_union.error_set;
+    inline for (.{ RequestError, Returned }) |Set| {
+        inline for (@typeInfo(Set).error_set.?) |member| {
+            try std.testing.expectEqualStrings(member.name, names.of(Set, @field(Set, member.name)));
+        }
+    }
+}
+
 test {
     // Every file's tests run, whether or not the root exports a name of it.
     std.testing.refAllDecls(files);

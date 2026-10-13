@@ -80,6 +80,7 @@ pub const StartError = error{
     NoVersion,
 };
 
+pub const CheckError = connection_request.CheckError;
 pub const RequestError = connection_request.RequestError;
 pub const check_request = connection_request.check_request;
 

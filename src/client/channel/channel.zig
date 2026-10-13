@@ -49,7 +49,12 @@ pub const Id = event.Id;
 pub const HttpExchange = event.HttpExchange;
 pub const Protocol = event.Protocol;
 pub const Finished = event.Finished;
-pub const RequestError = connection_module.RequestError;
+/// What `Channel.request` returns: what `check_request` refuses, and `Full`.
+pub const RequestError = connection_module.CheckError || error{
+    /// Every entry of the channel holds an exchange, until one's `finished` event is reported or
+    /// the caller cancels one.
+    Full,
+};
 pub const Config = channel_config.Config;
 pub const StartError = channel_config.StartError;
 pub const ReceiveStorage = quic_connection.ReceiveStorage;

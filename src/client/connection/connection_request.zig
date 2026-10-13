@@ -6,19 +6,25 @@ const event = @import("../event.zig");
 
 const HttpExchange = event.HttpExchange;
 
-pub const RequestError = error{
-    /// Every slot holds an exchange, until one's `finished` event is reported.
-    Full,
-    /// The connection takes no new request, as its `draining` event said.
-    Draining,
-    /// The connection is over.
-    ConnectionClosed,
+/// What `check_request` refuses, on a connection and on a channel.
+pub const CheckError = error{
     /// The method or the path is empty, or the method is CONNECT, whose tunnel is no exchange of
     /// a request and a response (RFC 9110 §9.3.6).
     RequestUnsupported,
     /// A field line the client writes itself, Host or Content-Length, or a connection-specific
     /// one, which h2 forbids (RFC 9113 §8.2.2), so a request means the same in every version.
     FieldReserved,
+};
+
+/// What a connection's `request` returns. The channel gives an exchange only to an open
+/// connection, so the channel's own set has no `Draining` or `ConnectionClosed`.
+pub const RequestError = CheckError || error{
+    /// Every slot holds an exchange, until one's `finished` event is reported.
+    Full,
+    /// The connection takes no new request, as its `draining` event said.
+    Draining,
+    /// The connection is over.
+    ConnectionClosed,
 };
 
 /// The names of the field lines `request` refuses, lowercase.
@@ -36,7 +42,7 @@ const reserved_names = [_][]const u8{
 };
 
 /// Refuses what no protocol could send as an exchange, before the exchange takes a slot.
-pub fn check_request(exchange: *const HttpExchange) RequestError!void {
+pub fn check_request(exchange: *const HttpExchange) CheckError!void {
     // The caller marks each of its field lines, or none.
     assert(exchange.never_indexed.fields.len == 0 or exchange.never_indexed.fields.len == exchange.fields.len);
     // RFC 9110 §9.1: a method is a token, which is never empty.
