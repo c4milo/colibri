@@ -35,8 +35,21 @@ pub const Block = struct {
     /// Size updates read so far.
     updates: u32 = 0,
 
-    /// The next field line, or null when the block is consumed.
+    /// The next field line, or null when the block is consumed. An indexed field line, which a
+    /// block that repeats lines the table holds is made of, is read here, and `next_other` reads
+    /// the rest.
     pub fn next(block: *Block) Error!?FieldLine {
+        if (block.reader.remaining_len() > 0) {
+            const first = block.reader.peek_byte() catch unreachable;
+            // RFC 7541 §6.1: a first octet whose high bit is set starts an indexed field line.
+            if (first & constants.indexed_pattern != 0) return try block.indexed();
+        }
+        return block.next_other();
+    }
+
+    /// The next field line of any representation, the size updates a block opens with included.
+    /// It is out of line, so that `next` stays small enough to inline where it is called.
+    noinline fn next_other(block: *Block) Error!?FieldLine {
         // Every pass but the last reads one size update, and at most two are allowed.
         for (0..constants.size_updates_per_block_max + 1) |_| {
             if (block.reader.remaining_len() == 0) return null;
@@ -63,7 +76,7 @@ pub const Block = struct {
         return block.reader.offset;
     }
 
-    fn indexed(block: *Block) Error!FieldLine {
+    inline fn indexed(block: *Block) Error!FieldLine {
         // RFC 9113 §4.3.1: after a lowered limit, the block must start with a size update.
         if (block.is_first() and block.decoder.lowered_limit != null) return error.SizeUpdateMissing;
         const index = try prefixed_integer.decode(constants.indexed_prefix_bits, &block.reader);
@@ -324,4 +337,120 @@ test "fuzz: a block decodes wholly or is refused, and the table stays under its 
         core.fuzz.input("\x40\x81\xff"),
     } });
     try core.fuzz.sweep(fuzz_block, null);
+}
+
+// The tests below hold `next` to `next_other`, which is `next` as it was before the indexed field
+// line was read first: on two decoders that start alike, each call must return the same line or
+// refusal, consume the same octets and leave the same table.
+
+/// The decoder `next_other` runs on, beside `decoder_module.test_decoder`. Test-only.
+threadlocal var reference_decoder: Decoder align(@alignOf(Decoder)) = undefined;
+
+/// What one call returned, in a form two calls compare by: the line's octets, the refusal, or the
+/// end of the block.
+const Outcome = union(enum) { line: FieldLine, refused: Error, end };
+
+fn outcome_of(result: Error!?FieldLine) Outcome {
+    const line = result catch |failure| return .{ .refused = failure };
+    return if (line) |found| .{ .line = found } else .end;
+}
+
+fn same_outcome(first: Outcome, second: Outcome) bool {
+    return switch (first) {
+        .end => second == .end,
+        .refused => |failure| second == .refused and second.refused == failure,
+        .line => |line| second == .line and std.mem.eql(u8, line.name, second.line.name) and
+            std.mem.eql(u8, line.value, second.line.value) and line.never_indexed == second.line.never_indexed,
+    };
+}
+
+/// Whether the two decoders' tables hold the same entries at the same size and capacity.
+fn same_tables() bool {
+    const changed = &decoder_module.test_decoder.table;
+    const reference = &reference_decoder.table;
+    if (changed.len() != reference.len() or changed.size != reference.size) return false;
+    if (changed.capacity != reference.capacity) return false;
+    for (1..changed.len() + 1) |index| {
+        const one = changed.get(index).?;
+        const other = reference.get(index).?;
+        if (!std.mem.eql(u8, one.name, other.name) or !std.mem.eql(u8, one.value, other.value)) return false;
+    }
+    return true;
+}
+
+/// The limit a test lowers to, below `fuzz_capacity`, so that a block must open with a size update.
+const lowered_capacity = 100;
+
+/// Whether the two decoders wait for the same size update: none, or one at or below one limit.
+fn same_lowered_limits() bool {
+    const changed = decoder_module.test_decoder.lowered_limit;
+    const reference = reference_decoder.lowered_limit;
+    if (changed == null or reference == null) return changed == null and reference == null;
+    return changed.? == reference.?;
+}
+
+/// Starts both decoders alike: `capacity`, two entries in the table, and a lowered limit when
+/// `lowered` is set.
+fn start_both(capacity: u64, lowered: bool) !void {
+    for ([_]*Decoder{ &decoder_module.test_decoder, &reference_decoder }) |decoder| {
+        decoder.init(capacity);
+        var seed = decoder.block("\x40\x01a\x01b\x41\x0fwww.example.com");
+        _ = try seed.next_other();
+        _ = try seed.next_other();
+        if (lowered) decoder.set_capacity_limit(lowered_capacity);
+    }
+}
+
+/// Fails, printing both, when `next` and `next_other` differ anywhere in `octets`.
+fn expect_same_block(octets: []const u8, lowered: bool) !void {
+    try start_both(fuzz_capacity, lowered);
+    var changed = decoder_module.test_decoder.block(octets);
+    var reference = reference_decoder.block(octets);
+    for (0..octets.len + 1) |call| {
+        const changed_outcome = outcome_of(changed.next());
+        const reference_outcome = outcome_of(reference.next_other());
+        const same = same_outcome(changed_outcome, reference_outcome) and
+            changed.consumed_len() == reference.consumed_len() and same_tables() and
+            changed.fields == reference.fields and changed.updates == reference.updates and
+            same_lowered_limits();
+        if (!same) {
+            std.debug.print("first difference: block {x}, call {d}: next {any}, next_other {any}\n", .{ octets, call, changed_outcome, reference_outcome });
+            return error.TestUnexpectedResult;
+        }
+        if (changed_outcome != .line) return;
+    }
+}
+
+/// The octet values, 0 to 255.
+const octet_values = std.math.maxInt(u8) + 1;
+
+test "next returns what next_other returns for every block of up to two octets" {
+    for ([_]bool{ false, true }) |lowered| {
+        try expect_same_block("", lowered);
+        for (0..octet_values) |first| {
+            try expect_same_block(&.{@intCast(first)}, lowered);
+            for (0..octet_values) |second| try expect_same_block(&.{ @intCast(first), @intCast(second) }, lowered);
+        }
+    }
+}
+
+test "next returns what next_other returns for each cut of blocks that mix every representation" {
+    const blocks = [_][]const u8{
+        // RFC 7541 Appendix C.3 and C.4: indexed lines, static and dynamic, and literals.
+        "\x82\x86\x84\x41\x0fwww.example.com",
+        "\x82\x86\x84\xbe\x58\x08no-cache",
+        "\x82\x87\x85\xbf\x40\x0acustom-key\x0ccustom-value",
+        // A size update, then an indexed line; two updates; an update after a line.
+        "\x3f\x45\x82\xbe",
+        "\x20\x3f\xe1\x1f\x82",
+        "\x82\x20",
+        // A never-indexed literal, an index past both tables, and an index of 0.
+        "\x10\x01a\x01b\xc0",
+        "\xbf\x80",
+    };
+    for (blocks) |octets| {
+        for (0..octets.len + 1) |len| {
+            for ([_]bool{ false, true }) |lowered| try expect_same_block(octets[0..len], lowered);
+        }
+    }
 }

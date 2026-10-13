@@ -1023,6 +1023,40 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   No input loses. On h2-many the server's user instructions per request fell by 2,257 in the
   first job and by 2,256 in the second.
 
+  **An indexed field line is read before the other representations, 2026-10-13.** `Block.next`
+  was one function the compiler kept out of line for every representation, called once a line:
+  a frame, a stack canary and a result returned through memory. `next` now reads an indexed line
+  itself, with `indexed` inline, and calls `next_other`, the old loop, for every other
+  representation and for a size update. In the server `bench/run.sh` builds, `next` is inlined
+  into h2's `feed_fragment`. Every block decodes to the lines, the refusals, the consumed octets
+  and the table it did.
+
+  What each check printed:
+  - `next_other` is the old `next` and the tests' reference. On two decoders that start alike,
+    `next` and `next_other` must return the same line or refusal, consume the same octets and
+    leave the same table, counts and lowered limit: for every block of up to two octets, with
+    and without a lowered limit, and for each cut of blocks that mix every representation.
+  - `zig build hpack-vectors` and `zig build golden-check` passed, and the four traces wrote the
+    same octets before and after the change.
+  - 6 mutations, each **CAUGHT**: the fast path reading a block with no octet left, taking a
+    literal with incremental indexing, or taking every representation but an indexed line; a
+    block with no indexed line ahead ending; an indexed line after a lowered limit needing no size
+    update; and an index of 0 accepted.
+
+  The judge, [run 38342558304](https://github.com/c4milo/colibri/actions/runs/38342558304),
+  measured it against the commit before it, in instructions per request, or per connection for
+  the two `one` inputs. The base and the change are the first job's medians:
+
+  | Input | Base | Change | Ratio, job 1 | Ratio, job 2 | Verdict |
+  | --- | ---: | ---: | ---: | ---: | --- |
+  | h2-many | 15,898 | 15,691 | 0.9870 | 0.9871 | wins in both |
+  | h2-tls-many | 23,839 | 23,636 | 0.9915 | 0.9929 | wins in both |
+  | h2-one | 181,267 | 180,978 | 0.9984 | 0.9986 | within the noise |
+  | h2-tls-one | 7,279,084 | 7,280,172 | 1.0001 | 0.9998 | within the noise |
+
+  No input loses. On h2-many the server's user instructions per request fell by 207 in the first
+  job and by 206 in the second, where the disassembly gave about 210.
+
 - **Step 4 — h2 connection and streams, cleartext, prior knowledge.** Frame reader and writer,
   the two prefaces, settings with the ACK discipline, the stream state machine, the signed send
   window and the retroactive settings sweep, GOAWAY, `RST_STREAM`, the field-block reassembly
