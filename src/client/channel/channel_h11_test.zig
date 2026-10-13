@@ -192,3 +192,32 @@ test "decision 100: a channel reports a closed connection's close before it asks
     try testing.expect(closed_at < index_of(.open, 1).?);
     try testing.expectEqual(2, count(.connected));
 }
+
+test "decision 120: a shut-down channel drops the open of a connection no caller heard of" {
+    var first = get(&bodies[0]);
+    var second = get(&bodies[1]);
+    try start(&first);
+    const second_id = try channel.request(&second);
+    // RFC 9112 §9.6: the response closes the connection, so the second exchange waits for another.
+    const response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+    @memcpy(support.to_client[0..response.len], response);
+    support.to_client_len = response.len;
+    // The program reads until the channel says to close the socket, and no further.
+    for (0..support.buffer_len + support.events_max) |_| {
+        const input: channel_module.Input = if (support.to_client_len > 0) .{ .stream = support.to_client[0..support.to_client_len] } else .none;
+        const received = channel.receive(input, support.now_ns);
+        std.mem.copyForwards(u8, &support.to_client, support.to_client[received.consumed..support.to_client_len]);
+        support.to_client_len -= received.consumed;
+        const reported = received.event orelse continue;
+        if (reported == .close) break;
+    } else return error.TestUnexpectedResult;
+    // The program gives the second exchange up and shuts the channel down, before the `open` the
+    // channel owes for it.
+    channel.cancel(second_id);
+    channel.shutdown();
+    events_len = 0;
+    try collect();
+    // The connection's `close` went out already, and the one the channel never opened has none.
+    try testing.expectEqual(0, count(.open) + count(.close));
+    try testing.expectEqual(Event.closed, find(.closed).?);
+}

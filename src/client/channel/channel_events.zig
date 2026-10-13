@@ -224,10 +224,15 @@ fn shut_connection(channel: *Channel, transport: Transport) void {
 /// for (the model's Abandon).
 fn abandon(channel: *Channel, transport: Transport) void {
     const link = channel.links.getPtr(transport);
+    // An `open` still owed reached no caller, which opened no socket for it, so the link closes
+    // with no `close` of its own. Only a shut-down channel's `plan` meets one: a pass that closed
+    // the link's last connection and opened it again reported that connection's `close` first.
+    if (link.open_owed) {
+        assert(link.state == .opening and channel.shut);
+        link.* = .{ .state = .closed, .opens = link.opens, .address_index = link.address_index, .close_owed = link.close_owed };
+        return;
+    }
     link.abandoned = true;
-    // The channel reports what it owes before it reads a connection's event, so the caller heard
-    // of every transport the channel opened.
-    assert(!link.open_owed);
     switch (link.state) {
         .opening => {},
         .running => switch (transport) {
