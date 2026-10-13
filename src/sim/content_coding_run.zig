@@ -1,8 +1,9 @@
 //! One run of the content-coding check (`content_coding_check.zig`, decision 101): a colibri
 //! client and a colibri server over two streams, delivered in seeded pieces or whole. The server
-//! is an endpoint with one TCP slot (design §8 step 21b.6). The client makes every exchange of the
-//! plan, and the server's caller answers each as the plan says, marked codable or not, in writes
-//! of the content, until every exchange ended.
+//! is an endpoint with one TCP slot (design §8 step 21b.6), and the client a channel with TCP alone
+//! in cleartext (step 21c). The client makes every exchange of the plan, and the server's caller
+//! answers each as the plan says, marked codable or not, in writes of the content, until every
+//! exchange ended.
 const std = @import("std");
 const assert = std.debug.assert;
 const sim = @import("sim");
@@ -30,6 +31,12 @@ pub const DecoderPool = client.DecoderPool(limits.exchanges_max);
 
 /// The server: one connection in cleartext, and no QUIC.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
+
+/// The one address the channel opens its socket to, which no socket reads, and the port of an
+/// "http" origin whose URI names none (RFC 9110 §4.2.1).
+const ipv4_len: usize = 4;
+const address_octet: u8 = 0x0a;
+const origin_port: u16 = 80;
 
 /// One direction's octets: written at the back, delivered in pieces, consumed from the front.
 const Stream = struct {
@@ -73,11 +80,12 @@ pub const Storage = struct {
     encoders: EncoderPool,
     decoders: DecoderPool,
     endpoint_config: server.Config,
-    client_config: client.Config,
+    client_config: client.ChannelConfig,
     endpoint: Endpoint,
     /// The one connection the endpoint holds.
     accepted: server.ConnectionHandle,
-    client_connection: client.Connection,
+    addresses: [1]client.Address,
+    channel: client.Channel,
     to_server: Stream,
     to_client: Stream,
     exchanges: [limits.exchanges_max]client.HttpExchange,
@@ -98,7 +106,7 @@ pub fn run(storage: *Storage, plan: *const Plan, content_seed: u64, pieces: ?*Ra
     try start(storage, plan, content_seed);
     // Bounded: each round moves octets both ways, and the plan's responses end in fewer.
     for (0..limits.rounds_max) |_| {
-        storage.to_server.written += storage.client_connection.send(storage.to_server.free(), now_ns);
+        storage.to_server.written += storage.channel.send_stream(storage.to_server.free(), now_ns);
         storage.to_server.deliver(pieces);
         try server_read(storage);
         try server_write(storage, plan);
@@ -139,7 +147,10 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
     try storage.endpoint.init(&storage.endpoint_config, source, 0, now_ns);
     // A new endpoint has its one slot free.
     storage.accepted = storage.endpoint.accept(.cleartext, now_ns) orelse return error.ExchangeRefused;
-    try storage.client_connection.init(&storage.client_config, source, 0, null);
+    const octets: [ipv4_len]u8 = @splat(address_octet);
+    storage.addresses = .{client.Address.of(&octets, 0)};
+    // No receive pool, so the channel offers TCP alone.
+    try storage.channel.init(&storage.client_config, .{ .addresses = &storage.addresses, .port = origin_port }, null);
     storage.to_server.reset();
     storage.to_client.reset();
     storage.answers_len = 0;
@@ -148,6 +159,19 @@ fn start(storage: *Storage, plan: *const Plan, content_seed: u64) Error!void {
         fill_content(storage.contents[index][0..planned.content_len], planned.compressible, content_seed +% index);
         try request(storage, planned, index);
     }
+    try connect(storage, source);
+}
+
+/// Reads the channel's `open`, and starts its connection on the socket it asked for. In cleartext
+/// the connection owes `connected` from its start, and the channel hands it the waiting exchanges
+/// as it reports it, so the first round's send carries them.
+fn connect(storage: *Storage, source: tls.Random) Error!void {
+    const asked = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    assert(asked.open.transport == .tcp);
+    try storage.channel.start_tcp(source, 0, null);
+    const reported = storage.channel.receive(.none, now_ns).event orelse return error.RunStalled;
+    assert(reported == .connected);
+    assert(storage.channel.receive(.none, now_ns).event == null);
 }
 
 fn request(storage: *Storage, planned: *const plan_module.Exchange, index: usize) Error!void {
@@ -161,7 +185,7 @@ fn request(storage: *Storage, planned: *const plan_module.Exchange, index: usize
         storage.own_offers[index] = .{.{ .name = "accept-encoding", .value = value }};
         exchange.fields = &storage.own_offers[index];
     }
-    _ = try storage.client_connection.request(exchange);
+    _ = try storage.channel.request(exchange);
 }
 
 fn fill(random: *Random, buffer: []u8) void {
@@ -259,7 +283,7 @@ fn client_read(storage: *Storage) void {
     const stream = &storage.to_client;
     // Bounded: each pass consumes an octet or reports an event.
     for (0..limits.stream_len_max + limits.exchanges_max * events_per_exchange) |_| {
-        const received = storage.client_connection.receive(stream.held(), now_ns);
+        const received = storage.channel.receive(.{ .stream = stream.held() }, now_ns);
         stream.consumed += received.consumed;
         const reported = received.event orelse {
             if (received.consumed == 0) return;
