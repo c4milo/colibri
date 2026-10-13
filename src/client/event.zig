@@ -1,6 +1,6 @@
 //! What a client connection takes and reports, the same for h11 and h2 (decision 100): an
 //! exchange the caller places in its own memory, which holds the request and where its response
-//! goes, and the events `Connection.receive` returns.
+//! goes, and the events each connection's `receive` returns to the channel.
 //!
 //! The caller keeps an exchange in place, and every slice it names, from `request` until the
 //! exchange's `finished` event, or until `cancel` returns. The client reads the request's part

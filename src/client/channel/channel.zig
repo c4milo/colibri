@@ -108,7 +108,7 @@ pub const Event = union(enum) {
     closed,
 };
 
-/// A datagram the UDP flow read, as `QuicConnection.receive` takes it.
+/// A datagram the UDP flow read, with its ECN codepoint and the address it came from.
 pub const Datagram = struct {
     octets: []u8,
     ecn: quic.connection_receive.Datagram.Ecn = .not_ect,

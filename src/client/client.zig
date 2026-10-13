@@ -24,36 +24,24 @@ pub const constants = @import("constants.zig");
 const files = struct {
     pub const coding_pool = @import("coding_pool.zig");
     pub const event = @import("event.zig");
-    pub const connection = @import("connection/connection.zig");
-    pub const quic_connection = @import("quic/quic_connection.zig");
     pub const channel = @import("channel/channel.zig");
-    pub const alt_svc = @import("alt_svc.zig");
     pub const versions = @import("versions.zig");
 };
 
 pub const Config = files.channel.Config;
 pub const Versions = files.versions.Versions;
-pub const Connection = files.connection.Connection;
-/// Why `Channel.init` or one of its starts refused (decision 120): `Connection.init` and
-/// `QuicConnection.init` return members of it.
+/// Why `Channel.init`, `Channel.start_tcp` or `Channel.start_quic` refused (decision 120).
 pub const StartError = files.channel.StartError;
-pub const RequestError = files.connection.RequestError;
+pub const RequestError = files.channel.RequestError;
 pub const Field = files.event.Field;
 pub const Id = files.event.Id;
 pub const Protocol = files.event.Protocol;
 pub const HttpExchange = files.event.HttpExchange;
 pub const Wanted = files.event.Wanted;
 pub const Outcome = files.event.Outcome;
-pub const Event = files.event.Event;
 pub const Finished = files.event.Finished;
-pub const Received = files.event.Received;
-/// What one response's Alt-Svc field says of h3 on the origin's host (RFC 7838 §3), which
-/// `Connection.take_alt_svc` returns.
-pub const Advert = files.alt_svc.Advert;
-pub const QuicConnection = files.quic_connection.QuicConnection;
-/// A datagram a QUIC connection or a channel wrote, with its ECN codepoint and the address it
-/// goes to.
-pub const Sent = files.quic_connection.Sent;
+/// A datagram `Channel.send_datagram` wrote, with its ECN codepoint and the address it goes to.
+pub const Sent = files.channel.Sent;
 /// An address and port as the program names a peer (decision 72): `Address.of(octets, port)`.
 pub const Address = files.channel.Address;
 /// The ECN field of a datagram's IP header, by RFC 9000 §13.4's names, which a program reads and
@@ -85,7 +73,7 @@ pub const ChannelEntry = files.channel.Entry;
 /// capacity bounds every window the client advertises, and so how fast one connection receives.
 pub const ReceivePool = quic.stream.stream_incoming.Pool;
 pub const DefaultReceivePool = quic.stream.stream_incoming.DefaultPool;
-pub const ReceiveStorage = files.quic_connection.ReceiveStorage;
+pub const ReceiveStorage = files.channel.ReceiveStorage;
 /// The content codings a client decodes (decision 101).
 pub const Coding = http.content_coding.Coding;
 /// The pool of decoders a client removes content codings with (decision 101), which the caller
@@ -108,12 +96,13 @@ pub const BrotliDecoders = files.coding_pool.BrotliDecoders;
 pub const Features = files.coding_pool.Features;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
+    // Design §8 step 21d takes out `Connection` and `QuicConnection`, which the channel holds, and
+    // `Event`, `Received` and `Advert`, which only their calls return (decision 121).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
-        "constants",    "Config",            "Versions",           "Connection",         "StartError",
-        "RequestError", "Field",             "Id",                 "Protocol",           "HttpExchange",
-        "Wanted",       "Outcome",           "Event",              "Finished",           "Received",
-        "Advert",       "QuicConnection",    "Sent",               "Address",            "Ecn",
+        "constants",    "Config",            "Versions",           "StartError",         "RequestError",
+        "Field",        "Id",                "Protocol",           "HttpExchange",       "Wanted",
+        "Outcome",      "Finished",          "Sent",               "Address",            "Ecn",
         "Channel",      "ChannelValues",     "Https",              "Alternative",        "ChannelInput",
         "Datagram",     "ChannelReceived",   "ChannelEvent",       "ChannelOpen",        "Transport",
         "ChannelPhase", "ChannelEntry",      "ReceivePool",        "DefaultReceivePool", "ReceiveStorage",
@@ -127,6 +116,11 @@ test {
     std.testing.refAllDecls(files);
     // Every name the root exports resolves.
     _ = @import("core").public_names.reference(@This(), &.{});
+    // The two connections the channel holds, and the file that reads a response's Alt-Svc field.
+    // The root exports no name of them, and each one's own test block runs its test files.
+    _ = @import("connection/connection.zig");
+    _ = @import("quic/quic_connection.zig");
+    _ = @import("alt_svc.zig");
     _ = @import("versions.zig");
     _ = @import("slots.zig");
     _ = @import("response.zig");

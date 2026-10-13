@@ -97,9 +97,9 @@ fn trailer_fields(section: *const http.FieldSection) event.Fields {
     return .{ .section = section, .first = 0 };
 }
 
-/// Writes what h2 owes ahead of a frame of the caller's, as `client.Connection` does. A full
-/// reply queue stops the reading, and two endpoints that each write their own frames first can
-/// fill the transport both ways so that neither queue ever empties (decision 39 as amended,
+/// Writes what h2 owes ahead of a frame of the caller's, as the client's TCP connection does. A
+/// full reply queue stops the reading, and two endpoints that each write their own frames first
+/// can fill the transport both ways so that neither queue ever empties (decision 39 as amended,
 /// https://github.com/c4milo/colibri/issues/85).
 fn write_owed_first(connection: *Connection) void {
     const session = &connection.session.h2;

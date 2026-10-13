@@ -18,9 +18,9 @@
 //! until its stream reads nothing more of the exchange (RFC 9000 §3.1), so the caller may reuse the
 //! exchange's memory once the event arrives.
 //!
-//! `QuicConnection`'s functions are the calls a program makes. What its other files and the
-//! channel call is in `quic_connection_internal.zig`, which the module's root does not export
-//! (design §8 step 17f).
+//! `QuicConnection`'s functions are the calls the channel makes. What its other files and the
+//! channel call is in `quic_connection_internal.zig` (design §8 step 17f). The module's root
+//! exports neither file (decision 121).
 const std = @import("std");
 const assert = std.debug.assert;
 const quic = @import("quic");
@@ -436,7 +436,7 @@ fn parameters(config: *const Config, capacity: u64) Parameters {
     return held;
 }
 
-test "design §8 step 17f: the QUIC connection's public functions are the calls a program makes" {
+test "design §8 step 17f: the QUIC connection's public functions are the calls the channel makes" {
     const public_names = @import("core").public_names;
     try public_names.expect(QuicConnection, &.{
         "init",        "request",     "cancel",   "receive",      "send",

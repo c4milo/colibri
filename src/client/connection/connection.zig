@@ -356,9 +356,10 @@ pub const Connection = struct {
     }
 };
 
-test "design §8 step 17f: the connection's public functions are the calls a program makes" {
-    // What the connection's own files call on it lives in `connection_internal.zig`, which the
-    // module does not export. A function added here is one every program can call.
+test "design §8 step 17f: the connection's public functions are the calls the channel makes" {
+    // What the connection's own files call on it lives in `connection_internal.zig`. The root does
+    // not export the connection (decision 121), so a function added here is one the channel's files
+    // may call.
     const public_names = @import("core").public_names;
     try public_names.expect(Connection, &.{
         "init",         "request",      "cancel",           "receive",  "send",
