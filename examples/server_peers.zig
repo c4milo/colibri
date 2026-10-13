@@ -10,7 +10,7 @@
 //!   the peer then shuts its channel down.
 //!
 //! The TCP peer runs over the stream link and the QUIC peer over the datagram link, on the client's
-//! loop. `docs/usage.md` shows the client's calls with the client examples, so the comments here
+//! loop. `docs/usage.md` shows the client's calls with the client example, so the comments here
 //! are short.
 const std = @import("std");
 const client = @import("client");

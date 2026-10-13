@@ -80,7 +80,7 @@ assertions stay on in production.
 Most programs use two modules. `client` sends requests and `server` answers them, behind one
 set of calls for h11, h2 and h3. Each connection runs its own TLS handshake, and ALPN picks the
 version. A client places an exchange for each request: the request, and the memory its response
-goes into. These lines are from [`examples/tls_exchange.zig`](examples/tls_exchange.zig):
+goes into. These lines are from [`examples/client_exchange.zig`](examples/client_exchange.zig):
 
 ```zig
 var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
@@ -92,20 +92,23 @@ var get: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
 };
 ```
 
-It hands the exchange to a channel, which asks for a socket and sends the exchange once the
-handshake has picked the version:
+It hands the exchange to a channel. The channel asks for a QUIC or a TCP transport, and sends
+the exchange over the first connection that completes its handshake:
 
 ```zig
 const known: client.Values = .{ .addresses = &server_addresses, .port = server_port };
-try channel.init(&client_config, known, null);
-// `request` only takes an exchange. The channel asks for a socket, and sends the exchange
-// once the handshake has picked the version, so a program asks at once and never waits.
+// `init` builds the TLS configuration of each transport inside the channel, which stays in
+// place from here on. The pool is what makes the channel offer QUIC.
+try channel.init(&client_config, known, receive_pool.storage());
+// `request` only takes an exchange. The channel asks for a transport, and sends the exchange
+// over the first connection that completes its handshake, so a program asks at once and
+// never waits.
 _ = try channel.request(&get);
 _ = try channel.request(&post);
 ```
 
-The program moves octets between its socket and the channel's `send_stream` and `receive`, and
-every exchange ends in one `finished` event:
+The program moves datagrams and octets between its sockets and the channel's `send_datagram`,
+`send_stream` and `receive`, and every exchange ends in one `finished` event:
 
 ```zig
 .finished => |ended| {
@@ -143,8 +146,7 @@ fn answer(id: server.Id, content: []const u8) !void {
 }
 ```
 
-[`docs/usage.md`](docs/usage.md) walks through both modules, and through h3's endpoint and
-channel.
+[`docs/usage.md`](docs/usage.md) walks through both modules.
 
 The protocol modules are there for a program that wants one version by itself. An h11 client
 writes each request into a buffer it owns, then sends it. These lines are from
@@ -183,9 +185,9 @@ shape: octets in, at most one event out, and the frames colibri owes written int
 [`docs/usage.md`](docs/usage.md) walks through each protocol, TLS, and the buffers each one needs.
 
 [`examples/`](examples/) holds whole programs, each a client and a server run over
-[Rotor](https://github.com/c4milo/rotor)'s loop: the `server` and `client` modules over TLS, h3
-through the endpoint and the channel, and h11 and h2 by themselves. `zig build examples` runs
-them, and CI does too.
+[Rotor](https://github.com/c4milo/rotor)'s loop: a server that serves TCP and QUIC through one
+endpoint, a client whose channel tries QUIC and then TCP, and h11 and h2 by themselves. `zig
+build examples` runs them, and CI does too.
 
 ## How it is checked
 
@@ -236,7 +238,7 @@ platforms are checked. Published performance numbers come from Linux alone.
 | Document | What it covers |
 | --- | --- |
 | [`docs/usage.md`](docs/usage.md) | Adding colibri, driving each protocol, TLS, and the buffers you own |
-| [`examples/`](examples/) | Whole programs for h11 and h2, which CI runs |
+| [`examples/`](examples/) | Whole programs for the `server` and `client` modules, and for h11 and h2 by themselves, which CI runs |
 | [`docs/design.md`](docs/design.md) | The module graph, the wire formats, and the numbered build plan with each step's record |
 | [`docs/decisions.md`](docs/decisions.md) | Every design decision, with the alternatives it beat |
 | [`docs/invariants.md`](docs/invariants.md) | The numbered invariants, each one a runtime assertion |

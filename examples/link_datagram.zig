@@ -40,21 +40,32 @@ const Queue = struct {
 pub const DatagramLink = struct {
     loops: *Loops,
     queues: [side_count]Queue,
+    /// While set, the link drops every datagram, as a network that drops UDP does. `send` then
+    /// counts each datagram in `dropped` and queues nothing.
+    blocked: bool,
+    dropped: u32,
 
     /// Empties both queues and runs the link on `loops`. The link lives outside the stack: it
     /// holds both queues. The program starts `loops` once before this call, and stops them once
     /// after its last use of the link: `Link.init` and `Link.deinit` do this for a `Link`'s loops.
     pub fn init(self: *DatagramLink, loops: *Loops) void {
         self.loops = loops;
+        self.blocked = false;
+        self.dropped = 0;
         for (&self.queues) |*queue| {
             queue.first = 0;
             queue.count = 0;
         }
     }
 
-    /// Copies `datagram` into the other side's queue and posts it a message saying it arrived.
+    /// Copies `datagram` into the other side's queue and posts it a message saying it arrived. A
+    /// blocked link drops it, and the sender learns nothing.
     pub fn send(self: *DatagramLink, from: Side, datagram: []const u8) Error!void {
         assert(datagram.len > 0 and datagram.len <= datagram_len_max);
+        if (self.blocked) {
+            self.dropped += 1;
+            return;
+        }
         const queue = &self.queues[@intFromEnum(from.other())];
         if (queue.count == datagrams_max) return error.QueueFull;
         const index = (queue.first + queue.count) % datagrams_max;

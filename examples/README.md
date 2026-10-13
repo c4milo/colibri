@@ -6,27 +6,28 @@ server against each other.
 
 | Example | What it shows |
 | --- | --- |
-| [`tls_exchange.zig`](tls_exchange.zig) | The `server` and `client` modules over TLS, which most programs use. ALPN picks h2. The client is a `client.Channel` with TCP alone: it places an exchange for a GET and one for a POST, starts the connection the channel's `open` asks for, and closes the socket at its `close`. The server answers each request by its id, and each exchange ends in one outcome. The server holds its connections in a `server.Endpoint`: it calls `accept` for each socket, `send_stream` at each `send` event, and `transport_closed` for a socket its peer closed first, and it reads `close` and `ended`. |
 | [`server_exchange.zig`](server_exchange.zig) | The `server` module over TCP and QUIC through one `server.Endpoint`. A TCP client gets h2 by ALPN and sends a GET and a POST, and a QUIC client sends a GET over h3. The server passes the endpoint each socket's octets and each datagram, answers each request by its id, and finds its own state for a request through `set_user_data`. It calls `transport_closed` for a socket its peer closed first, shortens the idle deadline of its QUIC connection with `set_deadlines`, advertises h3 with `h3_alternative`, and calls `shutdown` once both clients are done. |
 | [`server_peers.zig`](server_peers.zig) | Not an example by itself, but the two clients the server example answers: one `client.Channel` over TCP alone, and one over QUIC alone. |
-| [`h3_exchange.zig`](h3_exchange.zig) | h3 through `server.Endpoint` and `client.Channel`. The endpoint passes each datagram to its connection, the channel opens QUIC and carries the exchange, and both sides sleep until their next deadline. |
+| [`client_exchange.zig`](client_exchange.zig) | The `client` module through one `client.Channel`, on a network that drops every UDP datagram. The channel offers h3 over QUIC and h2 over TCP. It opens QUIC first, opens TCP once the fallback delay passes, and carries a GET and a POST over h2. The client starts the connection each `open` asks for, closes each transport at its `close`, takes the server's ticket, and calls `shutdown`. The abandoned QUIC connection ends after its closing period, so the run takes about 3 s. A second channel shows a connect that fails: the client calls `transport_closed`, and the exchange ends `refused`. |
+| [`client_peer.zig`](client_peer.zig) | Not an example by itself, but the server the client example sends to: one `server.Endpoint` with one TCP slot and no UDP socket. |
 | [`h11_exchange.zig`](h11_exchange.zig) | The `h11` module by itself. A client pipelines a GET and a PUT, and sends the PUT's body from its own buffer with `count_body`. The server reads one request at a time and answers each. |
 | [`h2_exchange.zig`](h2_exchange.zig) | The `h2` module by itself. A client and a server exchange their prefaces and SETTINGS, and the server answers a GET with HEADERS and DATA. Each side runs the loop every h2 program runs: `receive` one frame at a time, then `write_pending`. |
-| [`link.zig`](link.zig), [`link_datagram.zig`](link_datagram.zig) | Not examples of colibri, but what the others run over: the stand-ins for a program's sockets, one for a stream of octets and one for datagrams. The datagram link runs on the loops of a stream link, or on loops the program starts, so each side runs one loop. |
+| [`link.zig`](link.zig), [`link_datagram.zig`](link_datagram.zig) | Not examples of colibri, but what the others run over: the stand-ins for a program's sockets, one for a stream of octets and one for datagrams. The datagram link runs on the loops of a stream link, or on loops the program starts, so each side runs one loop. A blocked datagram link drops every datagram, as a network that drops UDP does. |
 | [`tls_program.zig`](tls_program.zig) | Not an example by itself, but what a program that links `tls` defines once: chapulin's hook, and the source its connections draw from. |
 
 Run every example, or one:
 
 ```sh
 zig build examples
-zig build example-tls_exchange
+zig build example-server_exchange
 ```
 
 Each example checks what arrived against what was sent, octet for octet, and exits with an error
 when anything differs. `tools/ci.sh` runs them on every push, so an example that stops working fails
-CI. Twenty-four deliberate breaks each made `zig build examples` fail: in colibri's h11 and h2
-writers, in its server, client and endpoint, in the TLS setup, in the links, and in the calls the
-TLS example's server makes on its endpoint.
+CI. Fifty-two deliberate breaks each made `zig build examples` fail: 28 of the server example and
+24 of the client example. They break the calls each example makes, its peers and the links. One
+more break made no example fail: the client keeps the octets of a socket after its `close`. The
+socket holds no octets then.
 
 The code in README.md and docs/usage.md is quoted from these programs, and `tools/doc_snippets.sh`
 fails when a quote no longer matches them.
