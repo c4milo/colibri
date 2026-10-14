@@ -1,5 +1,5 @@
 //! The arrays of a route table that `match` reads at run time (decision 122, design §8 step 21e).
-//! `build` writes the trie of `routes_trie.merge` into them, at compile time.
+//! `build` writes the trie of `routes_trie.trie_of` into them, at compile time.
 //!
 //! Each node holds a run of edges, one for each literal segment after it, sorted by length and
 //! then by octets. A node holds one parameter child at most, with the parameter's name, and one
@@ -31,12 +31,13 @@ pub const Sizes = struct {
     depth_max: usize,
 };
 
-fn sizes_of(comptime table: anytype) Sizes {
+fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
     @setEvalBranchQuota(routes_trie.quota_of(table));
-    const routes = routes_trie.routes_of(table);
-    const merged = routes_trie.merge(&routes.patterns);
+    // The calls in the loops get pointers to copies in vars (`routes_trie.zig`).
+    var routes = routes_trie.routes_of(table);
+    var trie_copy = trie.*;
     var sizes: Sizes = .{
-        .nodes = merged.node_count,
+        .nodes = trie_copy.node_count,
         .parameters = 0,
         .wildcards = 0,
         .leaves = 0,
@@ -45,9 +46,9 @@ fn sizes_of(comptime table: anytype) Sizes {
         .text = 0,
         .depth_max = 0,
     };
-    for (1..merged.node_count) |node| {
-        const segment = merged.segment[node];
-        sizes.depth_max = @max(sizes.depth_max, merged.depth[node]);
+    for (1..trie_copy.node_count) |node| {
+        const segment = trie_copy.segment[node];
+        sizes.depth_max = @max(sizes.depth_max, trie_copy.depth[node]);
         // A wildcard has no text: `match` binds it to the name `routes_pattern.wildcard`.
         if (routes_pattern.is_wildcard(segment)) {
             sizes.wildcards += 1;
@@ -57,10 +58,10 @@ fn sizes_of(comptime table: anytype) Sizes {
         if (routes_pattern.is_parameter(segment)) sizes.parameters += 1;
         sizes.text += if (routes_pattern.is_parameter(segment)) routes_pattern.parameter_name(segment).len else segment.len;
     }
-    for (0..merged.node_count) |node| {
-        if (std.mem.indexOfScalar(usize, &merged.route_node, node) == null) continue;
+    for (0..trie_copy.node_count) |node| {
+        if (routes_trie.routes_at(&trie_copy, node).len == 0) continue;
         sizes.leaves += 1;
-        if (head_added(&routes, &merged, node)) sizes.text += allow_separator.len + routes_method.head_token.len;
+        if (head_added(&routes, &trie_copy, node)) sizes.text += allow_separator.len + routes_method.head_token.len;
     }
     // Each Allow value holds the tokens of its leaf's routes, with a separator between two.
     for (routes.tokens) |token| sizes.text += token.len;
@@ -115,18 +116,20 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
     };
 }
 
-/// The layout of a table that `routes_trie.refusal_of` passed. Comptime-only.
-pub fn build(comptime Value: type, comptime table: anytype) Layout(Value, sizes_of(table)) {
+/// The layout of a table that `routes_trie.refusal_of` passed. `trie` is a pointer to the value
+/// of `routes_trie.trie_of(table)`. Comptime-only.
+pub fn build(comptime Value: type, comptime table: anytype, comptime trie: anytype) Layout(Value, sizes_of(table, trie)) {
     @setEvalBranchQuota(routes_trie.quota_of(table));
-    assert(routes_trie.refusal_of(table) == null);
-    const sizes = sizes_of(table);
-    const routes = routes_trie.routes_of(table);
-    const merged = routes_trie.merge(&routes.patterns);
+    assert(routes_trie.entries_refusal(table) == null and routes_trie.trie_refusal(table, trie) == null);
+    const sizes = sizes_of(table, trie);
+    // The calls in the loop get pointers to copies in vars (`routes_trie.zig`).
+    var routes = routes_trie.routes_of(table);
+    var trie_copy = trie.*;
     var builder: Builder(Value, sizes) = .{ .values = values_of(Value, table) };
-    for (0..merged.node_count) |node| {
+    for (0..trie_copy.node_count) |node| {
         builder.layout.nodes[node] = .{ .edges_first = builder.edges_count, .edges_count = 0, .parameter = null, .wildcard = null, .leaf = null };
-        add_edges(&builder, &merged, node);
-        add_leaf(&builder, &merged, &routes, node);
+        add_edges(&builder, &trie_copy, node);
+        add_leaf(&builder, &trie_copy, &routes, node);
     }
     add_methods(&builder);
     assert(builder.edges_count == sizes.nodes - 1 - sizes.parameters - sizes.wildcards);
@@ -137,17 +140,15 @@ pub fn build(comptime Value: type, comptime table: anytype) Layout(Value, sizes_
 }
 
 /// The first route, in table order, whose leaf has an Allow value longer than
-/// `core.constants.field_value_len_max`, or null. `layout` is the layout of `table`.
-/// Comptime-only.
-pub fn allow_refusal(comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
+/// `core.constants.field_value_len_max`, or null. `layout` is the layout of `table`, and
+/// `trie` is a pointer to the value of `routes_trie.trie_of(table)`. Comptime-only.
+pub fn allow_refusal(comptime layout: anytype, comptime table: anytype, comptime trie: anytype) ?routes_trie.Refusal {
     @setEvalBranchQuota(routes_trie.quota_of(table));
     for (layout.leaves) |leaf| {
         if (allow_too_long(leaf.allow.len)) break;
     } else return null;
-    // The merge that names the route runs on a refusal only.
     const routes = routes_trie.routes_of(table);
-    const merged = routes_trie.merge(&routes.patterns);
-    for (merged.route_node, 0..) |node, route| {
+    for (trie.route_node, 0..) |node, route| {
         const leaf = layout.nodes[node].leaf.?;
         if (allow_too_long(layout.leaves[leaf].allow.len)) {
             return .{ .route = route, .pattern = routes.patterns[route], .reason = .allow_too_long };
@@ -189,27 +190,27 @@ fn add_text(builder: anytype, text: []const u8) usize {
     return offset;
 }
 
-fn add_edges(builder: anytype, merged: anytype, node: usize) void {
-    var children: [merged.segment.len]usize = undefined;
+fn add_edges(builder: anytype, trie: anytype, node: usize) void {
+    var children: [trie.segment.len]usize = undefined;
     var count: usize = 0;
-    var child = merged.first_child[node];
-    for (0..merged.node_count) |_| {
+    var child = trie.first_child[node];
+    for (0..trie.node_count) |_| {
         const index = child orelse break;
-        child = merged.next_sibling[index];
-        if (routes_pattern.is_parameter(merged.segment[index])) {
-            add_parameter(builder, merged, node, index);
+        child = trie.next_sibling[index];
+        if (routes_pattern.is_parameter(trie.segment[index])) {
+            add_parameter(builder, trie, node, index);
             continue;
         }
-        if (routes_pattern.is_wildcard(merged.segment[index])) {
-            add_wildcard(builder, merged, node, index);
+        if (routes_pattern.is_wildcard(trie.segment[index])) {
+            add_wildcard(builder, trie, node, index);
             continue;
         }
         children[count] = index;
         count += 1;
     }
-    sort(children[0..count], merged, segment_less);
+    sort(children[0..count], trie, segment_less);
     for (children[0..count]) |index| {
-        const segment = merged.segment[index];
+        const segment = trie.segment[index];
         const offset = add_text(builder, segment);
         builder.layout.edges[builder.edges_count] = .{ .segment = .{ .offset = @intCast(offset), .len = @intCast(segment.len) }, .child = @intCast(index) };
         builder.edges_count += 1;
@@ -217,59 +218,55 @@ fn add_edges(builder: anytype, merged: anytype, node: usize) void {
     builder.layout.nodes[node].edges_count = @intCast(count);
 }
 
-fn add_parameter(builder: anytype, merged: anytype, node: usize, child: usize) void {
-    // `names_refusal` passed the table, so the node has one parameter child at most.
+fn add_parameter(builder: anytype, trie: anytype, node: usize, child: usize) void {
+    // `routes_trie.trie_refusal` passed the table, so the node has one parameter child at most.
     assert(builder.layout.nodes[node].parameter == null);
-    const name = routes_pattern.parameter_name(merged.segment[child]);
+    const name = routes_pattern.parameter_name(trie.segment[child]);
     const offset = add_text(builder, name);
     builder.layout.nodes[node].parameter = .{ .name = .{ .offset = @intCast(offset), .len = @intCast(name.len) }, .child = @intCast(child) };
 }
 
-fn add_wildcard(builder: anytype, merged: anytype, node: usize, child: usize) void {
+fn add_wildcard(builder: anytype, trie: anytype, node: usize, child: usize) void {
     // A node has one child for each segment, so it has one wildcard child at most.
     assert(builder.layout.nodes[node].wildcard == null);
     // `routes_pattern.refusal_of` passed each pattern, so the wildcard is the last segment of its
     // patterns and its node has no child.
-    assert(merged.first_child[child] == null);
+    assert(trie.first_child[child] == null);
     builder.layout.nodes[node].wildcard = @intCast(child);
 }
 
 /// Orders two nodes by their segments: the shorter first, then by octets. A lookup then compares
 /// lengths first. The order reads octets, never a pointer (non-negotiable 5).
-fn segment_less(merged: anytype, left: usize, right: usize) bool {
-    const left_segment = merged.segment[left];
-    const right_segment = merged.segment[right];
+fn segment_less(trie: anytype, left: usize, right: usize) bool {
+    const left_segment = trie.segment[left];
+    const right_segment = trie.segment[right];
     if (left_segment.len != right_segment.len) return left_segment.len < right_segment.len;
     return std.mem.lessThan(u8, left_segment, right_segment);
 }
 
 /// Whether the leaf at `node` names GET and no HEAD. A HEAD request then finds the GET route
 /// (RFC 9110 §9.1, §9.3.2), so the leaf's Allow value lists HEAD after GET.
-fn head_added(routes: anytype, merged: anytype, node: usize) bool {
+fn head_added(routes: anytype, trie: anytype, node: usize) bool {
     var get = false;
     var head = false;
-    for (merged.route_node, 0..) |route_node, route| {
-        if (route_node != node) continue;
+    for (routes_trie.routes_at(trie, node)) |route| {
         if (routes.ranks[route] == routes_method.rank_of(.get)) get = true;
         if (routes.ranks[route] == routes_method.rank_of(.head)) head = true;
     }
     return get and !head;
 }
 
-fn add_leaf(builder: anytype, merged: anytype, routes: anytype, node: usize) void {
-    var held: [merged.route_node.len]usize = undefined;
-    var count: usize = 0;
-    for (merged.route_node, 0..) |route_node, route| {
-        if (route_node != node) continue;
-        held[count] = route;
-        count += 1;
-    }
+fn add_leaf(builder: anytype, trie: anytype, routes: anytype, node: usize) void {
+    const of_node = routes_trie.routes_at(trie, node);
+    const count = of_node.len;
     if (count == 0) return;
+    var held: [trie.route_node.len]usize = undefined;
+    @memcpy(held[0..count], of_node);
     // RFC 9110 §10.2.1: Allow lists the methods of the target. The standard methods come in RFC
     // 9110 §9.1's order and the tokens after them by octets, so the table's order changes nothing.
     sort(held[0..count], routes, method_less);
     // RFC 9110 §9.1's order puts GET first, so HEAD follows the first token.
-    const head = head_added(routes, merged, node);
+    const head = head_added(routes, trie, node);
     assert(!head or routes.ranks[held[0]] == routes_method.rank_of(.get));
     const allow_first = builder.text_len;
     const entries_first = builder.entries_count;
@@ -309,16 +306,43 @@ fn method_held(layout: anytype, count: usize, token: []const u8) bool {
     return false;
 }
 
-/// Sorts `items` by `less` in place, by insertion. Comptime-only, so the order reads no pointer.
+/// Sorts `items` by `less` in place: a merge sort that merges runs of 1, 2, 4 and more items,
+/// so it makes about log2 of the count passes. It keeps the order of two items that `less` does
+/// not order. Comptime-only, so the order reads no pointer.
 fn sort(items: []usize, context: anytype, comptime less: anytype) void {
-    if (items.len <= 1) return;
-    for (1..items.len) |sorted| {
-        var at = sorted;
-        for (0..sorted) |_| {
-            if (!less(context, items[at], items[at - 1])) break;
-            std.mem.swap(usize, &items[at], &items[at - 1]);
-            at -= 1;
-            if (at == 0) break;
+    var sorted: [items.len]usize = undefined;
+    var width: usize = 1;
+    // Bounded: each pass doubles `width`, so a count of `usize` needs fewer passes than its bits.
+    for (0..@bitSizeOf(usize)) |_| {
+        if (width >= items.len) return;
+        // Bounded: each step merges the run at `start` with the next run, and moves `start` past
+        // both runs.
+        var start: usize = 0;
+        for (0..items.len) |_| {
+            if (start >= items.len) break;
+            const end = @min(start + width + width, items.len);
+            merge_runs(items[start..end], @min(width, end - start), sorted[start..end], context, less);
+            start = end;
+        }
+        @memcpy(items, &sorted);
+        width += width;
+    }
+    unreachable;
+}
+
+/// Writes the two sorted runs of `runs`, which meet at `split`, into `sorted` in order.
+fn merge_runs(runs: []const usize, split: usize, sorted: []usize, context: anytype, comptime less: anytype) void {
+    var left: usize = 0;
+    var right = split;
+    for (sorted) |*item| {
+        // An item of the right run goes first only when `less` orders it first, so the sort
+        // keeps the order of two equal items.
+        if (left == split or (right < runs.len and less(context, runs[right], runs[left]))) {
+            item.* = runs[right];
+            right += 1;
+        } else {
+            item.* = runs[left];
+            left += 1;
         }
     }
 }

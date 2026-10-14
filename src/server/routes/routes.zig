@@ -40,10 +40,13 @@ pub fn routes(comptime Value: type, comptime table: anytype) Table(Value, table)
 
 fn Table(comptime Value: type, comptime table: anytype) type {
     // Decision 122: a malformed or conflicting table does not compile, and the message names the
-    // entry and the rule. The checks that read the layout run after the build.
-    if (routes_trie.refusal_of(table)) |refusal| refuse(refusal);
-    const layout = routes_trie_layout.build(Value, table);
-    if (layout_refusal_of(Value, layout, table)) |refusal| refuse(refusal);
+    // entry and the rule. The checks that read the trie run after its merge, and the checks
+    // that read the layout run after the build. The merge runs once.
+    if (routes_trie.entries_refusal(table)) |refusal| refuse(refusal);
+    const trie = routes_trie.trie_of(table);
+    if (routes_trie.trie_refusal(table, &trie)) |refusal| refuse(refusal);
+    const layout = routes_trie_layout.build(Value, table, &trie);
+    if (layout_refusal_of(Value, layout, table, &trie)) |refusal| refuse(refusal);
     return struct {
         /// What `match` gives: `found` with the route's value, `method_not_allowed` with the
         /// value of the Allow field that a 405 carries, `not_found`, or `not_implemented` for a
@@ -66,8 +69,8 @@ fn Table(comptime Value: type, comptime table: anytype) type {
 
 /// The first refusal of `table` that reads its layout, or null: `allow_too_long`, then
 /// `route_hidden` and `route_unreachable`. Comptime-only.
-fn layout_refusal_of(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
-    if (routes_trie_layout.allow_refusal(layout, table)) |refusal| return refusal;
+fn layout_refusal_of(comptime Value: type, comptime layout: anytype, comptime table: anytype, comptime trie: anytype) ?routes_trie.Refusal {
+    if (routes_trie_layout.allow_refusal(layout, table, trie)) |refusal| return refusal;
     return routes_hidden.refusal_of(Value, layout, table);
 }
 

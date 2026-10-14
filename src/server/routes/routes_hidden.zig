@@ -94,6 +94,13 @@ const other_octets = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345
 /// layout of `table`, which `routes_trie.refusal_of` passed. The check reads the layout's trie,
 /// and it reads `table` only to name the route that it refuses. Comptime-only.
 pub fn refusal_of(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
+    // The calls in the loops get a view of a copy in a var (`routes_trie.zig`).
+    var copy = layout;
+    return view_refusal(Value, routes_hidden_canonical.view_of(&copy), table);
+}
+
+/// `refusal_of` on `layout`, a view of the layout (`routes_hidden_canonical.View`).
+fn view_refusal(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
     const depth_max = @TypeOf(layout).depth_max;
     const lengths = depth_max + lengths_past_depth;
     const pairs = layout.leaves.len * layout.leaves.len;
@@ -236,7 +243,7 @@ fn first_refusal(comptime layout: anytype, shapes: []const Shape, comptime table
     for (verdicts) |verdict| {
         if (verdict != null) break;
     } else return null;
-    const routes = routes_trie.routes_of(table);
+    var routes = routes_trie.routes_of(table);
     var first: ?routes_trie.Refusal = null;
     for (layout.leaves, shapes) |at, shape| {
         for (layout.entries[at.entries_first..][0..at.entries_count], verdicts[at.entries_first..][0..at.entries_count]) |entry, verdict| {

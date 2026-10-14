@@ -411,7 +411,8 @@ fn search_tables_quota() u32 {
 test "decision 122: the binary search finds the literal edge that the scan of each edge finds" {
     @setEvalBranchQuota(comptime search_tables_quota());
     inline for (search_tables) |table| {
-        const layout = comptime routes_trie_layout.build(u8, table);
+        const trie = comptime routes_trie.trie_of(table);
+        const layout = comptime routes_trie_layout.build(u8, table, &trie);
         try testing.expect(!layout_differs(layout));
     }
 }

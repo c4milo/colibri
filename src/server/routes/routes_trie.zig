@@ -17,6 +17,13 @@
 //!
 //! `merge` writes the trie of a table's patterns. It gives each segment of a pattern a node, and
 //! two patterns with the same first segments share their nodes.
+//!
+//! The compile time of a large table depends on the calls in its loops. With Zig 0.16, a comptime
+//! call that gets a large constant, or a pointer to one, takes time in proportion to the size of
+//! that constant. A call that gets a pointer to a comptime var takes a few steps. So the checks
+//! and the build copy the trie, the routes and the layout into vars once, and their loops pass
+//! pointers to the copies. Zig also does not keep the result of a comptime call, so
+//! `server.routes` merges the trie once and passes it to each check and to the build.
 const std = @import("std");
 const assert = std.debug.assert;
 const routes_pattern = @import("routes_pattern.zig");
@@ -33,9 +40,9 @@ const entry_parts = 3;
 
 /// The comptime branches that the checks and the build use, at most: a fixed part, a part for
 /// each octet of the patterns and of the method tokens times the count of routes, and a part for
-/// each pair of routes. The trie's lookups and sorts compare each segment with the segments of
-/// the other routes, and the check of repeated routes compares each pair of routes. A table of
-/// 256 routes of 64 octets each needs a quarter of this quota (`routes_test.zig`).
+/// each pair of routes. The lookups of the trie, its sorts and the check of repeated routes use
+/// much less than the part for each pair. A test builds a table of 256 routes of 64 octets each
+/// within this quota (`routes_test.zig`).
 const quota_branches_base = 4_096;
 const quota_branches_per_octet_route = 8;
 const quota_branches_per_route_pair = 16;
@@ -167,8 +174,16 @@ pub fn message(comptime refusal: Refusal) []const u8 {
     return std.fmt.comptimePrint("server.routes: route {d}, \"{s}\": {s}: {s}", .{ refusal.route, refusal.pattern, name, sentence });
 }
 
-/// The first refusal of `table`, or null when the table compiles. Comptime-only.
+/// The first refusal of `table`, or null when the table compiles: `entries_refusal`, then
+/// `trie_refusal` on the trie of `trie_of`. Comptime-only.
 pub fn refusal_of(comptime table: anytype) ?Refusal {
+    if (entries_refusal(table)) |refusal| return refusal;
+    const trie = trie_of(table);
+    return trie_refusal(table, &trie);
+}
+
+/// The first refusal of checks 1 and 2, or null. Comptime-only.
+pub fn entries_refusal(comptime table: anytype) ?Refusal {
     @setEvalBranchQuota(quota_of(table));
     // Decision 122: a table with no route matches nothing.
     if (table.len == 0) return .{ .route = 0, .pattern = "", .reason = .table_empty };
@@ -177,8 +192,18 @@ pub fn refusal_of(comptime table: anytype) ?Refusal {
             return .{ .route = index, .pattern = pattern_or_empty(table[index]), .reason = reason };
         }
     }
-    if (names_refusal(table)) |refusal| return refusal;
-    return repeated_refusal(table);
+    return null;
+}
+
+/// The first refusal of checks 3 and 4, or null. `trie` is a pointer to the value of
+/// `trie_of(table)`, and `entries_refusal` passed `table`. Comptime-only.
+pub fn trie_refusal(comptime table: anytype, trie: anytype) ?Refusal {
+    @setEvalBranchQuota(quota_of(table));
+    // The calls in the loop get pointers to copies in vars (see the top of this file).
+    var routes = routes_of(table);
+    var trie_copy = trie.*;
+    if (trie_copy.names_route) |route| return .{ .route = route, .pattern = routes.patterns[route], .reason = .parameter_names_differ };
+    return repeated_refusal(&routes, &trie_copy);
 }
 
 fn entry_refusal(comptime entry: anytype) ?Reason {
@@ -201,69 +226,11 @@ fn pattern_or_empty(comptime entry: anytype) []const u8 {
     return entry[pattern_part];
 }
 
-fn names_refusal(comptime table: anytype) ?Refusal {
-    var patterns: [table.len][]const u8 = undefined;
-    var named: [table.len]bool = undefined;
-    inline for (0..table.len) |index| {
-        patterns[index] = table[index][pattern_part];
-        // Only a pattern with a parameter can give a parameter node a name.
-        named[index] = holds_parameter(patterns[index]);
-    }
-    for (0..table.len) |later| {
-        if (!named[later]) continue;
-        for (0..later) |earlier| {
-            if (!named[earlier]) continue;
-            // Decision 122 ruling 5: one parameter node has one name.
-            if (names_differ(patterns[earlier], patterns[later])) {
-                return .{ .route = later, .pattern = patterns[later], .reason = .parameter_names_differ };
-            }
-        }
-    }
-    return null;
-}
-
-/// Whether `pattern` holds a ":", which each parameter does. The loop reads each octet with no
-/// call into `std.mem`, whose search costs many comptime branches.
-fn holds_parameter(comptime pattern: []const u8) bool {
-    for (pattern) |octet| {
-        if (octet == routes_pattern.parameter_prefix) return true;
-    }
-    return false;
-}
-
-/// Whether the first segments of `left` and `right` that differ are two parameters. The trie
-/// then holds both parameters at one node.
-fn names_differ(comptime left: []const u8, comptime right: []const u8) bool {
-    const differ = first_difference(left, right);
-    // A pattern that ends where the other starts a segment has no segment that differs.
-    if (differ == left.len and (differ == right.len or right[differ] == routes_pattern.separator)) return false;
-    if (differ == right.len and left[differ] == routes_pattern.separator) return false;
-    // The segment that holds the first difference starts at the same octet in both patterns.
-    var first = differ;
-    for (0..differ) |_| {
-        if (left[first - 1] == routes_pattern.separator) break;
-        first -= 1;
-    }
-    // The root's pattern "/" has no segment.
-    if (first >= left.len or first >= right.len) return false;
-    return left[first] == routes_pattern.parameter_prefix and right[first] == routes_pattern.parameter_prefix;
-}
-
-/// The index of the first octet where `left` and `right` differ, or the length of the shorter.
-fn first_difference(comptime left: []const u8, comptime right: []const u8) usize {
-    const shorter = @min(left.len, right.len);
-    for (0..shorter) |index| {
-        if (left[index] != right[index]) return index;
-    }
-    return shorter;
-}
-
-fn repeated_refusal(comptime table: anytype) ?Refusal {
-    const routes = routes_of(table);
-    const merged = merge(&routes.patterns);
-    for (0..table.len) |later| {
-        for (0..later) |earlier| {
-            if (merged.route_node[earlier] != merged.route_node[later]) continue;
+fn repeated_refusal(routes: anytype, trie: anytype) ?Refusal {
+    for (0..trie.route_node.len) |later| {
+        // The routes of a node come in table order, so the routes before `later` come first.
+        for (routes_at(trie, trie.route_node[later])) |earlier| {
+            if (earlier >= later) break;
             // https://github.com/c4milo/colibri/issues/96: two routes that match one request do
             // not compile.
             if (std.mem.eql(u8, routes.tokens[earlier], routes.tokens[later])) {
@@ -313,18 +280,33 @@ pub fn routes_of(comptime table: anytype) Routes(table.len) {
     return routes;
 }
 
-/// The trie as the build first writes it: each node's segment, depth, first child and next
-/// sibling, and the node where each route ends.
+/// The trie as the build first writes it: each node's segment, parent, depth, first child, next
+/// sibling and parameter child, and the node where each route ends. Two indexes give the build
+/// each lookup in a few steps:
+///   - `slots` finds the child of a node by its segment. A slot holds a node, or null.
+///   - `route_order` holds the routes of each node, each node's run in table order. The run of
+///     node n starts at `route_first[n]` and ends at `route_first[n + 1]`.
+/// `names_route` is the first route, in table order, that gives a parameter node a second name.
 fn Merged(comptime nodes_max: usize, comptime routes_count: usize) type {
     return struct {
         segment: [nodes_max][]const u8 = undefined,
+        parent: [nodes_max]usize = undefined,
         depth: [nodes_max]usize = undefined,
         first_child: [nodes_max]?usize = undefined,
         next_sibling: [nodes_max]?usize = undefined,
+        parameter_child: [nodes_max]?usize = undefined,
         node_count: usize = 0,
+        slots: [nodes_max * slots_per_node]?usize = @splat(null),
         route_node: [routes_count]usize = undefined,
+        route_first: [nodes_max + 1]usize = @splat(0),
+        route_order: [routes_count]usize = undefined,
+        names_route: ?usize = null,
     };
 }
+
+/// The slots of the index of children for each node. Half the slots or more stay empty, so a
+/// lookup reads a few slots on average.
+const slots_per_node = 2;
 
 fn nodes_bound(comptime patterns: []const []const u8) usize {
     var count: usize = 1;
@@ -332,46 +314,89 @@ fn nodes_bound(comptime patterns: []const []const u8) usize {
     return count;
 }
 
-pub fn merge(comptime patterns: []const []const u8) Merged(nodes_bound(patterns), patterns.len) {
+/// The trie of the patterns of `table`, which `entries_refusal` passed. Comptime-only.
+pub fn trie_of(comptime table: anytype) Merged(nodes_bound(&routes_of(table).patterns), table.len) {
+    @setEvalBranchQuota(quota_of(table));
+    const routes = routes_of(table);
+    return merge(&routes.patterns);
+}
+
+/// The routes of `node`, in table order. `trie` is a pointer to the value of `trie_of`.
+pub fn routes_at(trie: anytype, node: usize) []const usize {
+    return trie.route_order[trie.route_first[node]..trie.route_first[node + 1]];
+}
+
+fn merge(comptime patterns: []const []const u8) Merged(nodes_bound(patterns), patterns.len) {
     var merged: Merged(nodes_bound(patterns), patterns.len) = .{};
     merged.segment[root] = "";
+    merged.parent[root] = root;
     merged.depth[root] = 0;
     merged.first_child[root] = null;
     merged.next_sibling[root] = null;
+    merged.parameter_child[root] = null;
     merged.node_count = 1;
-    for (patterns, 0..) |pattern, index| merged.route_node[index] = insert(&merged, pattern);
+    for (patterns, 0..) |pattern, index| merged.route_node[index] = insert(&merged, pattern, index);
+    index_routes(&merged);
     return merged;
 }
 
-fn insert(merged: anytype, comptime pattern: []const u8) usize {
+fn insert(merged: anytype, comptime pattern: []const u8, route: usize) usize {
     if (std.mem.eql(u8, pattern, routes_pattern.root)) return root;
     var node: usize = root;
     var segments = std.mem.splitScalar(u8, pattern[1..], routes_pattern.separator);
     for (0..routes_pattern.segments_count(pattern) + 1) |_| {
         const segment = segments.next() orelse return node;
-        node = child_of(merged, node, segment) orelse add_child(merged, node, segment);
+        const slot = slot_of(merged, node, segment);
+        node = merged.slots[slot] orelse add_child(merged, node, segment, slot, route);
     }
     unreachable;
 }
 
-fn child_of(merged: anytype, node: usize, segment: []const u8) ?usize {
-    var child = merged.first_child[node];
-    for (0..merged.node_count) |_| {
-        const index = child orelse return null;
-        if (std.mem.eql(u8, merged.segment[index], segment)) return index;
-        child = merged.next_sibling[index];
+/// The slot that holds the child of `node` with `segment`, or the empty slot where
+/// `add_child` writes that child. The search starts at a hash of the segment's octets and of
+/// `node`, and never reads a pointer (non-negotiable 5).
+fn slot_of(merged: anytype, node: usize, segment: []const u8) usize {
+    const start: usize = @intCast((std.hash.Fnv1a_64.hash(segment) ^ node) % merged.slots.len);
+    // Bounded: the trie holds fewer nodes than slots, so the search finds an empty slot.
+    for (0..merged.slots.len) |probe| {
+        const slot = (start + probe) % merged.slots.len;
+        const child = merged.slots[slot] orelse return slot;
+        if (merged.parent[child] == node and std.mem.eql(u8, merged.segment[child], segment)) return slot;
     }
     unreachable;
 }
 
-fn add_child(merged: anytype, node: usize, segment: []const u8) usize {
+fn add_child(merged: anytype, node: usize, segment: []const u8, slot: usize, route: usize) usize {
     const added = merged.node_count;
     assert(added < merged.segment.len);
+    assert(merged.slots[slot] == null);
     merged.segment[added] = segment;
+    merged.parent[added] = node;
     merged.depth[added] = merged.depth[node] + 1;
     merged.first_child[added] = null;
     merged.next_sibling[added] = merged.first_child[node];
+    merged.parameter_child[added] = null;
     merged.first_child[node] = added;
+    merged.slots[slot] = added;
     merged.node_count += 1;
+    if (routes_pattern.is_parameter(segment)) {
+        // Decision 122 ruling 5: one parameter node has one name. A node that already holds a
+        // parameter child with another name gets a second one from this route.
+        if (merged.parameter_child[node] != null and merged.names_route == null) merged.names_route = route;
+        merged.parameter_child[node] = added;
+    }
     return added;
+}
+
+/// Writes `route_first` and `route_order` from `route_node`: a sort of the routes by node that
+/// counts the routes of each node. It keeps the table order within each node.
+fn index_routes(merged: anytype) void {
+    for (merged.route_node) |node| merged.route_first[node + 1] += 1;
+    for (1..merged.route_first.len) |node| merged.route_first[node] += merged.route_first[node - 1];
+    var next: [merged.route_first.len]usize = merged.route_first;
+    for (merged.route_node, 0..) |node, route| {
+        merged.route_order[next[node]] = route;
+        next[node] += 1;
+    }
+    assert(merged.route_first[merged.route_first.len - 1] == merged.route_node.len);
 }

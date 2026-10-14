@@ -131,7 +131,9 @@ fn token(method: Standard) []const u8 {
 
 /// The first refusal, in table order, that the brute force finds.
 fn brute_verdict(comptime table: []const Entry, comptime paths: []const Path) Verdict {
-    const layout = routes_trie_layout.build(u8, table[0..table.len].*);
+    const array = table[0..table.len].*;
+    const trie = routes_trie.trie_of(array);
+    const layout = routes_trie_layout.build(u8, array, &trie);
     for (table, 0..) |entry, route| {
         var hidden = false;
         var reached = false;
@@ -152,7 +154,8 @@ fn brute_verdict(comptime table: []const Entry, comptime paths: []const Path) Ve
 
 fn check_verdict(comptime table: []const Entry) Verdict {
     const array = table[0..table.len].*;
-    const layout = routes_trie_layout.build(u8, array);
+    const trie = routes_trie.trie_of(array);
+    const layout = routes_trie_layout.build(u8, array, &trie);
     const refusal = routes_hidden.refusal_of(u8, layout, array) orelse return .{ .route = null, .tag = null };
     return .{ .route = refusal.route, .tag = std.meta.activeTag(refusal.reason) };
 }

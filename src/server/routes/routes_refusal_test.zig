@@ -255,6 +255,18 @@ test "decision 122: two names at one node refuse the later route, before a repea
     try testing.expectEqualStrings("/users/:name", refusal.pattern);
     try testing.expectEqual(routes_trie.Reason.parameter_names_differ, refusal.reason);
     try expect_table(.route_repeated, .{ .{ .get, "/users/:id", .one }, .{ .get, "/users/:id", .two } });
+    // The repeated route is not the first route of its pattern.
+    try expect_table(.route_repeated, .{ .{ .get, "/a", .one }, .{ .put, "/a", .two }, .{ .put, "/a", .one } });
+    // A third name, and a second name at another node, come after the first second name.
+    const first = comptime routes_trie.refusal_of(.{
+        .{ .get, "/a/:x", .one },
+        .{ .get, "/b/:y", .one },
+        .{ .get, "/a/:z", .two },
+        .{ .get, "/b/:w", .two },
+        .{ .get, "/a/:v", .one },
+    }).?;
+    try testing.expectEqual(2, first.route);
+    try testing.expectEqualStrings("/a/:z", first.pattern);
 }
 
 test "decision 122: a table's checks run in order, and the first refusal names its entry" {
@@ -288,8 +300,9 @@ test "decision 122: the compile error names the entry, the refusal and its reaso
 fn layout_refusal(comptime table: anytype) ?routes_trie.Refusal {
     @setEvalBranchQuota(routes_trie.quota_of(table) + routes_hidden.quota_bound_of(table));
     std.debug.assert(routes_trie.refusal_of(table) == null);
-    const layout = routes_trie_layout.build(u8, table);
-    if (routes_trie_layout.allow_refusal(layout, table)) |refusal| return refusal;
+    const trie = routes_trie.trie_of(table);
+    const layout = routes_trie_layout.build(u8, table, &trie);
+    if (routes_trie_layout.allow_refusal(layout, table, &trie)) |refusal| return refusal;
     return routes_hidden.refusal_of(u8, layout, table);
 }
 

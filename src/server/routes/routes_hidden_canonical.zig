@@ -35,6 +35,35 @@ pub const Canonical = struct { leaf: usize, segments: usize };
 /// The kind of a segment, in the walk's order (claim 1).
 const Kind = enum { literal, parameter, wildcard };
 
+/// The arrays of a layout, each by a pointer. It has the fields and the `depth_max` of the layout,
+/// so the check and the walk of `routes_match.zig` read it as they read the layout. Its pointers
+/// point to a copy of the layout in a var, so a call that gets the view costs a few steps
+/// (`routes_trie.zig`).
+pub fn View(comptime Layout: type) type {
+    return struct {
+        nodes: *const @FieldType(Layout, "nodes"),
+        edges: *const @FieldType(Layout, "edges"),
+        leaves: *const @FieldType(Layout, "leaves"),
+        entries: *const @FieldType(Layout, "entries"),
+        methods: *const @FieldType(Layout, "methods"),
+        text: *const @FieldType(Layout, "text"),
+
+        pub const depth_max = Layout.depth_max;
+    };
+}
+
+/// The view of the layout that `copy` points to, a var. Comptime-only.
+pub fn view_of(copy: anytype) View(@TypeOf(copy.*)) {
+    return .{
+        .nodes = &copy.nodes,
+        .edges = &copy.edges,
+        .leaves = &copy.leaves,
+        .entries = &copy.entries,
+        .methods = &copy.methods,
+        .text = &copy.text,
+    };
+}
+
 /// The shape of each leaf, in the order of `layout.leaves`. Each node's index is larger than
 /// its parent's, so one pass in index order writes each node after its parent.
 pub fn leaf_shapes(comptime layout: anytype) [layout.leaves.len]Shape {
