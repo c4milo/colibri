@@ -315,6 +315,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   refusal of `server.routes`, and requires each compile to fail with the message of that refusal
   (`build/routes_check.zig`, decision 122). The case `accepted` must compile. `zig build test` runs
   it.
+- Route cross-check: `zig build routes-hidden-check` runs
+  `src/server/routes/routes_hidden_test.zig`, which compares the check of hidden routes with a
+  brute force on small tables. It compiles from `src/server/routes_hidden_check.zig` in a test
+  binary of its own (`build/routes_check.zig`, the owner's ruling of 2026-10-14). Its compile takes
+  about a minute, so `zig build test-server` does not run it. Measure a mutation of the check of
+  hidden routes against this step. `zig build test` runs it, and fails when it does not run a step
+  whose name ends in `-check` (`build/check_steps.zig`).
 - Generated tables: `zig build huffman-table` regenerates `src/wire/huffman_table.zig` from RFC
   7541 Appendix B, `zig build static-table` regenerates `src/hpack/static_table.zig` from its
   Appendix A, and `zig build qpack-static-table` regenerates `src/qpack/static_table.zig` from
