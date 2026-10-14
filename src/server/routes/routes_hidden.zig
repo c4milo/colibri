@@ -13,7 +13,9 @@
 //!
 //! The check does not read each path. For each leaf it reads a few canonical paths, and it runs
 //! the walk of `routes_match.zig` on each one. The claims below show that these paths are enough.
-//! `routes_hidden_test.zig` compares the verdicts with a brute force on small tables.
+//! A walk of the trie finds the leaves of the canonical paths of each leaf
+//! (`routes_hidden_canonical.zig`). `routes_hidden_test.zig` compares the verdicts with a brute
+//! force on small tables.
 //!
 //! Terms:
 //!   - A segment of a pattern has a kind: a literal, a parameter, or the wildcard. The wildcard
@@ -76,28 +78,17 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
+const routes_hidden_canonical = @import("routes_hidden_canonical.zig");
 const routes_match = @import("routes_match.zig");
 const routes_pattern = @import("routes_pattern.zig");
 const routes_trie = @import("routes_trie.zig");
 
+const Shape = routes_hidden_canonical.Shape;
+const Canonical = routes_hidden_canonical.Canonical;
+const text_of = routes_hidden_canonical.text_of;
+
 /// The octets of "other": ALPHA and DIGIT, which are unreserved (RFC 3986 §2.3).
 const other_octets = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-/// A leaf as the walk reads it: its node, its pattern, the literal of each segment before the
-/// wildcard, or null for a parameter, and whether the pattern ends in the wildcard.
-const Shape = struct {
-    node: usize,
-    pattern: []const u8,
-    literals: []const ?[]const u8,
-    wildcard: bool,
-};
-
-/// The kind of a segment, in the walk's order (claim 1).
-const Kind = enum { literal, parameter, wildcard };
-
-/// One canonical path of a leaf T: the leaf L whose literals it holds beside T's, and its count
-/// of segments.
-const Canonical = struct { leaf: usize, segments: usize };
 
 /// The first route of `table`, in table order, that ruling 12 refuses, or null. `layout` is the
 /// layout of `table`, which `routes_trie.refusal_of` passed. The check reads the layout's trie,
@@ -107,9 +98,9 @@ pub fn refusal_of(comptime Value: type, comptime layout: anytype, comptime table
     const lengths = depth_max + lengths_past_depth;
     const pairs = layout.leaves.len * layout.leaves.len;
     @setEvalBranchQuota(routes_trie.hidden_quota_of(table, .{ .pairs = pairs, .lengths = lengths, .segments = depth_max + 1 }));
-    const shapes = leaf_shapes(layout);
+    const shapes = routes_hidden_canonical.leaf_shapes(layout);
     const other = other_of(&shapes);
-    const canonicals = all_canonicals_of(&shapes, depth_max);
+    const canonicals = routes_hidden_canonical.all_canonicals_of(layout, &shapes, depth_max);
     var walks: usize = 0;
     for (canonicals) |list| walks += list.len;
     @setEvalBranchQuota(routes_trie.hidden_quota_of(table, .{
@@ -164,133 +155,6 @@ const octet_reads = 2;
 /// octets.
 const other_len_bound = 2;
 
-/// The shape of each leaf, in the order of `layout.leaves`. Each node's index is larger than
-/// its parent's, so one pass in index order writes each node after its parent.
-fn leaf_shapes(comptime layout: anytype) [layout.leaves.len]Shape {
-    var nodes: [layout.nodes.len]Shape = undefined;
-    nodes[routes_trie.root] = .{ .node = routes_trie.root, .pattern = "", .literals = &.{}, .wildcard = false };
-    var leaves: [layout.leaves.len]Shape = undefined;
-    for (layout.nodes, 0..) |at, node| {
-        const shape = nodes[node];
-        for (layout.edges[at.edges_first..][0..at.edges_count]) |edge| {
-            const literal = text_of(layout, edge.segment);
-            nodes[edge.child] = child_shape(shape, edge.child, literal, literal);
-        }
-        if (at.parameter) |parameter| {
-            const name = text_of(layout, parameter.name);
-            nodes[parameter.child] = child_shape(shape, parameter.child, [_]u8{routes_pattern.parameter_prefix} ++ name, null);
-        }
-        if (at.wildcard) |child| {
-            nodes[child] = child_shape(shape, child, routes_pattern.wildcard, null);
-            // The wildcard is no segment of `literals`: it matches each segment after them.
-            nodes[child].literals = shape.literals;
-            nodes[child].wildcard = true;
-        }
-        const leaf = at.leaf orelse continue;
-        leaves[leaf] = shape;
-        // Decision 122: the pattern "/" is the root, with no segment.
-        if (node == routes_trie.root) leaves[leaf].pattern = routes_pattern.root;
-    }
-    return leaves;
-}
-
-fn child_shape(parent: Shape, child: usize, segment: []const u8, literal: ?[]const u8) Shape {
-    assert(child > parent.node);
-    return .{
-        .node = child,
-        .pattern = parent.pattern ++ [_]u8{routes_pattern.separator} ++ segment,
-        .literals = parent.literals ++ [_]?[]const u8{literal},
-        .wildcard = false,
-    };
-}
-
-/// A copy of the run `range` of the layout's text. The compiler compares a slice of the large
-/// `text` array much more slowly than a small array of its own, so the check reads copies.
-fn text_of(comptime layout: anytype, range: anytype) []const u8 {
-    var copy: [range.len]u8 = undefined;
-    @memcpy(&copy, layout.text[range.offset..][0..range.len]);
-    const final = copy;
-    return &final;
-}
-
-fn all_canonicals_of(comptime shapes: []const Shape, depth_max: usize) [shapes.len][]const Canonical {
-    var canonicals: [shapes.len][]const Canonical = undefined;
-    for (&canonicals, 0..) |*list, leaf| list.* = canonicals_of(shapes, leaf, depth_max);
-    return canonicals;
-}
-
-fn literal_at(shape: Shape, position: usize) ?[]const u8 {
-    if (position < shape.literals.len) return shape.literals[position];
-    return null;
-}
-
-fn kind_at(shape: Shape, position: usize) Kind {
-    if (position < shape.literals.len) return if (shape.literals[position] == null) .parameter else .literal;
-    // A leaf that matches a path holds a segment at each position of the path.
-    assert(shape.wildcard);
-    return .wildcard;
-}
-
-/// Whether `shape` matches a path of `segments` segments.
-fn matches_length(shape: Shape, segments: usize) bool {
-    return if (shape.wildcard) segments > shape.literals.len else segments == shape.literals.len;
-}
-
-/// Whether one path of `segments` segments matches both `left` and `right`.
-fn compatible(left: Shape, right: Shape, segments: usize) bool {
-    if (!matches_length(left, segments) or !matches_length(right, segments)) return false;
-    for (0..@min(left.literals.len, right.literals.len)) |position| {
-        const left_literal = left.literals[position] orelse continue;
-        const right_literal = right.literals[position] orelse continue;
-        if (!std.mem.eql(u8, left_literal, right_literal)) return false;
-    }
-    return true;
-}
-
-/// Whether `left` comes before `right` in the walk's order (claim 1). The two leaves differ, and
-/// a path matches both.
-fn precedes(left: Shape, right: Shape) bool {
-    for (0..@as(usize, @max(left.literals.len, right.literals.len)) + 1) |position| {
-        const left_kind = kind_at(left, position);
-        const right_kind = kind_at(right, position);
-        if (left_kind != right_kind) return @intFromEnum(left_kind) < @intFromEnum(right_kind);
-        // Two leaves with the same kinds and literals up to one wildcard are one leaf.
-        assert(left_kind != .wildcard);
-    }
-    unreachable;
-}
-
-/// The canonical paths of leaf `leaf`: x(T, L, n) for T, and for each L before T, at each n
-/// that both match (claims 3, 5 and 6).
-fn canonicals_of(shapes: []const Shape, leaf: usize, depth_max: usize) []const Canonical {
-    const shape = shapes[leaf];
-    const first = shape.literals.len + @intFromBool(shape.wildcard);
-    // Claim 3: a path of `depth_max` + 1 segments stands for each longer path.
-    const last = if (shape.wildcard) depth_max + 1 else first;
-    var list: []const Canonical = &.{};
-    for (shapes, 0..) |other_shape, other_leaf| {
-        for (first..last + 1) |segments| {
-            if (!compatible(shape, other_shape, segments)) continue;
-            // Claim 6: the walk on a path of T never stops at a leaf after T.
-            if (other_leaf != leaf and !precedes(other_shape, shape)) continue;
-            list = list ++ [_]Canonical{.{ .leaf = other_leaf, .segments = segments }};
-        }
-    }
-    return list;
-}
-
-/// x(T, L, n): T's literal, else L's literal, else "other", at each position.
-fn canonical_path(shape: Shape, other_shape: Shape, segments: usize, other: []const u8) []const u8 {
-    // Decision 122: the path "/" is the root, with no segment.
-    if (segments == 0) return routes_pattern.root;
-    var path: []const u8 = "";
-    for (0..segments) |position| {
-        const literal: ?[]const u8 = literal_at(shape, position) orelse literal_at(other_shape, position);
-        path = path ++ [_]u8{routes_pattern.separator} ++ (literal orelse other);
-    }
-    return path;
-}
-
 /// The checks of each entry of leaf `leaf`. Each walk on a canonical path writes the verdict of
 /// each entry that it refuses first.
 fn leaf_verdicts(
@@ -313,7 +177,7 @@ fn leaf_verdicts(
         if (canonical.leaf != leaf) break false;
     } else true;
     for (canonicals) |canonical| {
-        const path = canonical_path(shapes[leaf], shapes[canonical.leaf], canonical.segments, other);
+        const path = routes_hidden_canonical.canonical_path(shapes[leaf], shapes[canonical.leaf], canonical.segments, other);
         switch (walk_of(layout, shapes[leaf], path, alone)) {
             .too_long => too_long = too_long or canonical.leaf == leaf,
             .reached => reached = true,

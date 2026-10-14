@@ -324,6 +324,9 @@ test "refusal 20, route_hidden: decision 122 ruling 12, a request that a route m
     // The plan's rule 13 table, and a leaf that names HEAD and no GET.
     try expect_hidden(1, "PUT", "/users/me", "/users/me", .{ .{ .get, "/users/me", 0 }, .{ .put, "/users/:id", 1 } });
     try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .head, "/users/me", 1 } });
+    // Two patterns give 405 on a path of the route. The refusal names the pattern that comes
+    // first in the table. The walk of the trie in `routes_hidden_canonical.zig` finds "/b" first.
+    try expect_hidden(2, "GET", "/a", "/a", .{ .{ .put, "/a", 0 }, .{ .put, "/b", 1 }, .{ .get, "/:x", 2 } });
     // The owner's examples 1, 4 and 6, and each refused table with the routes that it lacks.
     try expect_layout(null, 0, .{ .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 } });
     try expect_layout(null, 0, .{ .{ .get, "/files/*", 0 }, .{ .get, "/files/:name", 1 } });

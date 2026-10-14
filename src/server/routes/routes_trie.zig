@@ -42,8 +42,9 @@ const quota_branches_per_route_pair = 16;
 
 /// The comptime branches that the check of hidden routes (`routes_hidden.zig`) takes, at most,
 /// beside `quota_of`. It has two parts:
-///   - It compares each pair of leaves at each length of a path, segment by segment, so a part
-///     for each pair, each length and each segment.
+///   - For each leaf it walks the trie, which holds `segments` nodes for each leaf at most, and it
+///     writes a canonical path for each leaf that it finds at each length. So a part for each
+///     pair of leaves, each length and each segment bounds it.
 ///   - It walks each canonical path once. A walk takes `routes_match.walk_steps_max` passes at
 ///     most, and each pass costs a fixed part. A walk reads the literal edges of each node once at
 ///     most, and each octet of its path once, so a part for each octet of the table and the path.
