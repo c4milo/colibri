@@ -112,7 +112,7 @@ code that serves it.
 - **No public name repeats itself.** A type named after its file is exported under its own
   name: `h2.Connection` and `http.Field`, never `h2.connection.Connection`. A function or a
   constant keeps the namespace of its file: `http.field.validate_name`. A function named after
-  its file is exported under its own name: `server.routes`, never `server.routes.routes`.
+  its file is exported under its own name: `server.router`, never `server.router.router`.
 - **Every root reads in one order.** The modules it re-exports, `constants`, the private `files`
   struct that imports each file, each type under its own name, each function or constant under
   the namespace of its file, the test that lists the names, and last the test block that
@@ -311,17 +311,19 @@ Everything below exists. Change this section when a step adds or renames a comma
   a mutation is measured against.
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
-- Route tables: `zig build routes-check` compiles `tools/fixtures/routes_refused.zig` once for each
-  refusal of `server.routes`, and requires each compile to fail with the message of that refusal
-  (`build/routes_check.zig`, decision 122). The case `accepted` must compile. `zig build test` runs
+- Route tables: `zig build router-check` compiles `tools/fixtures/router_refused.zig` once for each
+  refusal of `server.router`, and requires each compile to fail with the message of that refusal
+  (`build/router_check.zig`, decision 122). The case `accepted` must compile. `zig build test` runs
   it.
-- Route cross-check: `zig build routes-hidden-check` runs
-  `src/server/routes/routes_hidden_test.zig`, which compares the check of hidden routes with a
-  brute force on small tables. It compiles from `src/server/routes_hidden_check.zig` in a test
-  binary of its own (`build/routes_check.zig`, the owner's ruling of 2026-10-14). Its compile takes
-  about a minute, so `zig build test-server` does not run it. Measure a mutation of the check of
-  hidden routes against this step. `zig build test` runs it, and fails when it does not run a step
-  whose name ends in `-check` (`build/check_steps.zig`).
+- Route cross-check: `zig build router-hidden-check` runs two test binaries apart from `zig build
+  test-server` (`build/router_check.zig`, the owner's rulings of 2026-10-14). `router-hidden`, from
+  `src/server/router_hidden_check.zig`, runs `src/server/router/router_hidden_test.zig`, which
+  compares the check of hidden routes with a brute force on small tables. `router-quota`, from
+  `src/server/router_quota_check.zig`, runs `src/server/router/router_quota_test.zig`, a table of
+  257 routes whose quota must count its longest segment. Each compile takes about a minute, and
+  the step compiles the two in parallel. Measure a mutation of the check of hidden routes against
+  this step. `zig build test` runs it, and fails when it does not run a step whose name ends in
+  `-check` (`build/check_steps.zig`).
 - Generated tables: `zig build huffman-table` regenerates `src/wire/huffman_table.zig` from RFC
   7541 Appendix B, `zig build static-table` regenerates `src/hpack/static_table.zig` from its
   Appendix A, and `zig build qpack-static-table` regenerates `src/qpack/static_table.zig` from
@@ -412,6 +414,13 @@ Everything below exists. Change this section when a step adds or renames a comma
   TLS identity. `zig build bench-memory` prints the static memory per connection for the objects the
   build targets (design §8 step 13b), and `zig build test` fails when `docs/performance.md`'s table
   for those objects differs from it.
+- Router probes: `bench/router/compile_time.sh [--tree <tree>] [table...]` compiles each route
+  table of `bench/router/build.zig` twice and prints the wall time of each compile.
+  `bench/router/run_time.sh [--tree <tree>] [count]` counts the instructions of one `match` under
+  callgrind, in a container that `bench/router/valgrind.Dockerfile` builds; it needs Docker. Each
+  one builds from a copy of `bench/router/` in the tree's `.zig-cache`, so the packages that Zig
+  fetches stay out of `bench/` (design §8 step 21e, decision 122 as amended on 2026-10-14). Neither
+  one is part of `tools/ci.sh`, and their numbers are never published (decision 32).
 - chapulin: `build.zig.zon` pins it (decision 94), and colibri's build compiles its objects from
   the package, each `RAND=session`. The library's `tls` module links two: the TCP object,
   `TRANSPORT=tcp-nonblocking ROLE=both TRUST=webpki EXPORTER=on TX_RECORD=16384`, and the QUIC
