@@ -4,8 +4,9 @@
 //! The channel carries exchanges to one origin over the QUIC and TCP connections it chooses
 //! between, and tells the program which transport to open (decision 120). This one has a receive
 //! pool and a TLS value, so it offers h3 over QUIC and h2 then h11 over TCP. The program places an
-//! exchange for a GET and one for a POST, and the channel sends each over the first connection
-//! whose handshake completes.
+//! exchange for a GET and one for a POST, which the server's routes serve. It places three more,
+//! which no route serves: a GET of `/echo`, a GET of `/missing` and a DELETE. The channel sends
+//! each exchange over the first connection whose handshake completes.
 //!
 //! The network drops every UDP datagram, as some networks do. The run goes in this order:
 //! 1. The channel says `open .quic`, and the program starts the QUIC connection. Each datagram it
@@ -13,8 +14,8 @@
 //! 2. The fallback delay passes. `deadline_ns` names its end, and the first `receive` at or after
 //!    that instant tells the channel. The channel says `open .tcp`, and the program connects a
 //!    socket and starts the TCP connection.
-//! 3. ALPN picks h2. The channel reports `connected` and sends both requests, and each exchange
-//!    ends in one `finished` event.
+//! 3. ALPN picks h2. The channel reports `connected` and sends the five requests, and each
+//!    exchange ends in one `finished` event.
 //! 4. The program calls `shutdown`. The channel says `close .tcp` once `send_stream` wrote the
 //!    GOAWAY and the TLS close_notify.
 //! 5. The channel says `close .quic` once the abandoned QUIC connection ends, and then `closed`.
@@ -29,10 +30,11 @@
 //! and `link_datagram.zig` stand where a program's sockets would be, and `tls_program.zig` holds
 //! what any program that links `tls` defines once.
 //!
-//! The program checks what arrived: 200 twice, the greeting, the note it posted and the content
-//! type, octet for octet, over h2. It also checks one open and one close of each transport, at
-//! least one lost datagram, a ticket, the `closed` event, and the refused exchange. Anything else
-//! exits with an error, which is how `zig build examples` and CI know the example still works.
+//! The program checks what arrived over h2, octet for octet: 200 twice, the greeting, the note it
+//! posted and the content type. It checks 405 with the Allow value "POST", 404 and 501, each with
+//! no content. It also checks one open and one close of each transport, at least one lost
+//! datagram, a ticket, the `closed` event, and the refused exchange. Anything else exits with an
+//! error, which is how `zig build examples` and CI know the example still works.
 //!
 //! Run it with `zig build example-client_exchange`, or every example with `zig build examples`.
 const std = @import("std");
@@ -122,6 +124,31 @@ var post: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
     .body = &post_body,
 };
 
+/// The three requests that no route serves. The route of `/echo` names POST alone, so a GET of it
+/// gets 405 with an Allow value. No route names `/missing`, so its GET gets 404. No route names
+/// DELETE, so its request gets 501 on any path. Each response has no content.
+const allow_expected = "POST";
+var allow: [1]client.Wanted align(@alignOf(client.Wanted)) = .{.{ .name = "allow" }};
+var allow_values: [allow_expected.len]u8 = undefined;
+var unanswered_body: [greeting.len]u8 = undefined;
+var get_echo: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+    .method = "GET",
+    .path = "/echo",
+    .wanted = &allow,
+    .values = &allow_values,
+    .body = &unanswered_body,
+};
+var get_missing: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+    .method = "GET",
+    .path = "/missing",
+    .body = &unanswered_body,
+};
+var delete_greeting: client.HttpExchange align(@alignOf(client.HttpExchange)) = .{
+    .method = "DELETE",
+    .path = "/greeting",
+    .body = &unanswered_body,
+};
+
 /// What the client saw: exchanges that ended, the version ALPN picked, the transports the channel
 /// opened and said to close, the tickets it took, and whether the shut-down channel is over.
 var finished: u32 = 0;
@@ -182,6 +209,9 @@ fn start_client(cpu: tls.Cpu) !void {
     // never waits.
     _ = try channel.request(&get);
     _ = try channel.request(&post);
+    _ = try channel.request(&get_echo);
+    _ = try channel.request(&get_missing);
+    _ = try channel.request(&delete_greeting);
 }
 
 /// One turn of the client: pass the channel what each socket read, fire its deadlines, send what
@@ -301,7 +331,7 @@ fn take_ticket(transport: client.Transport) void {
 }
 
 /// The exchanges `start_client` requested.
-const exchanges_count = 2;
+const exchanges_count = 5;
 
 /// A second channel to the origin, whose connect fails, as when the server's listener is down.
 /// The program tells the channel with `transport_closed`, and calls it too for a socket that the
@@ -343,23 +373,24 @@ fn sleep_ns() u64 {
 }
 
 /// The client saw what the server sent, over h2. It opened and closed each transport once, lost
-/// at least one datagram, and took a ticket. The refused exchange ended `refused`, and the server
-/// saw what it expects.
+/// at least one datagram, and took a ticket. The requests that no route serves got 405, 404 and
+/// 501. The refused exchange ended `refused`, and the server saw what it expects.
 fn check() Error!void {
-    const greeted = arrived(&get, greeting);
+    const greeted = arrived(&get, 200, greeting);
     const typed = std.mem.eql(u8, wanted[0].value orelse "", content_type);
-    const echoed = arrived(&post, note);
+    const echoed = arrived(&post, 200, note);
+    const unserved = unserved_arrived();
     const opened = opens.get(.quic) == 1 and opens.get(.tcp) == 1;
     const closed = closes.get(.quic) == 1 and closes.get(.tcp) == 1;
     const lost = datagram_link.dropped > 0;
     const refused = refused_get.outcome == .refused;
-    const right = spoken == .h2 and greeted and typed and echoed and tickets > 0 and refused;
+    const right = spoken == .h2 and greeted and typed and echoed and unserved and tickets > 0 and refused;
     if (right and opened and closed and lost and peer.check()) {
         std.debug.print("client_exchange: every octet arrived as sent\n", .{});
         return;
     }
-    std.debug.print("client_exchange: greeting {}, content type {}, echo {}, tickets {d}\n", .{
-        greeted, typed, echoed, tickets,
+    std.debug.print("client_exchange: greeting {}, content type {}, echo {}, unserved {}, tickets {d}\n", .{
+        greeted, typed, echoed, unserved, tickets,
     });
     std.debug.print("client_exchange: opens {d} and {d}, closes {d} and {d}, lost {d}, refused {}\n", .{
         opens.get(.quic), opens.get(.tcp), closes.get(.quic), closes.get(.tcp), datagram_link.dropped, refused,
@@ -367,8 +398,15 @@ fn check() Error!void {
     return error.ExchangeWrong;
 }
 
-/// Whether `exchange` ended in a 200 response whose content is `content`.
-fn arrived(exchange: *const client.HttpExchange, content: []const u8) bool {
-    if (exchange.outcome != .response or exchange.status != 200) return false;
+/// Whether `exchange` ended in a response with `status`, whose content is `content`.
+fn arrived(exchange: *const client.HttpExchange, status: u16, content: []const u8) bool {
+    if (exchange.outcome != .response or exchange.status != status) return false;
     return std.mem.eql(u8, exchange.content_received(), content);
+}
+
+/// Whether the three requests that no route serves got 405 with the Allow value, 404 and 501.
+fn unserved_arrived() bool {
+    const allowed = std.mem.eql(u8, allow[0].value orelse "", allow_expected);
+    return allowed and arrived(&get_echo, 405, "") and arrived(&get_missing, 404, "") and
+        arrived(&delete_greeting, 501, "");
 }

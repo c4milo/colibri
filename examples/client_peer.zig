@@ -3,7 +3,8 @@
 //!
 //! The server is one `server.Endpoint` with one TCP slot and no UDP socket, so every datagram of
 //! the client's QUIC connection is lost. It answers a GET with a greeting and a POST with its own
-//! content, and it issues a resumption ticket on its connection. Each of its routes names the
+//! content. It answers 405, 404 or 501 to a request that no route serves, and it issues a
+//! resumption ticket on its connection. Each of its routes names the
 //! function that answers the request, where the routes of `server_exchange.zig` name an enum. It
 //! runs over the stream link, on the server's loop. `docs/usage.md` shows the server's calls with
 //! the server example, so the comments here are short.
@@ -29,7 +30,7 @@ const events_per_turn_max = 64;
 const sends_per_event_max = 8;
 
 /// The requests the client sends, and the sockets it connects.
-const requests_count = 2;
+const requests_count = 5;
 const connections_count = 1;
 
 /// Unix seconds, at which the server issues its tickets. A program reads them from its clock.
@@ -203,7 +204,7 @@ pub fn over() bool {
     return ended == connections_count;
 }
 
-/// Whether the server answered both requests whole, said to close its socket once, and saw its
+/// Whether the server answered each request whole, said to close its socket once, and saw its
 /// connection end.
 pub fn check() bool {
     if (answered == requests_count and closes == connections_count and ended == connections_count) return true;
