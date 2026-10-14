@@ -49,8 +49,8 @@ pub fn refusal_of(comptime method: anytype) ?Refusal {
     if (!routes_pattern.is_text(Method)) return .method_type;
     // RFC 9110 §9.1: method = token.
     http.method.validate(method) catch return .method_not_token;
-    // https://github.com/c4milo/colibri/issues/96: a table names a method of RFC 9110 §9.1's
-    // eight by its member of `Standard`.
+    // Decision 122: a table names a method of RFC 9110 §9.1's eight by its member of
+    // `Standard` (https://github.com/c4milo/colibri/issues/96).
     if (http.method.standard(method) != null) return .method_standard_as_token;
     return null;
 }

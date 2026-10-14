@@ -238,8 +238,8 @@ fn repeated_refusal(routes: anytype, trie: anytype) ?Refusal {
         // The routes of a node come in table order, so the routes before `later` come first.
         for (routes_at(trie, trie.route_node[later])) |earlier| {
             if (earlier >= later) break;
-            // https://github.com/c4milo/colibri/issues/96: two routes that match one request do
-            // not compile.
+            // Decision 122: two routes that match one request do not compile
+            // (https://github.com/c4milo/colibri/issues/96).
             if (std.mem.eql(u8, routes.tokens[earlier], routes.tokens[later])) {
                 return .{ .route = later, .pattern = routes.patterns[later], .reason = .route_repeated };
             }

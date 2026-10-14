@@ -313,7 +313,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
 `set_user_data` sets a word that each later event of a request carries back: its `body`,
 `trailers`, `writable`, and its one `done` or `cancelled`. A program finds its own state for the
 request by the word, with no lookup. Here the word names the request's place in the server's
-table. `route` answers the request by its route, as [Routing](#routing) shows:
+table. `route` answers the request by its route, as [Routes](#routes) shows:
 
 ```zig
 fn take_request(request: server.Request) !void {
@@ -477,7 +477,7 @@ Three more things a server sets:
   shortest DATA frame h2 sends when a window, not the content, decides its length
   ([decision 110](decisions.md)).
 
-### Routing
+### Routes
 
 A program finds the route of a request through a table that it declares at compile time
 ([decision 122](decisions.md)). `server.routes` builds the table. Each entry holds a method, a
@@ -487,8 +487,8 @@ pattern and a value of the program's type. The routes of the server example name
 /// What a route of the server names.
 const Route = enum { greeting, echo, named };
 
-/// The server's routes, which the compiler builds. A malformed or conflicting table does not
-/// compile.
+/// The server's routes, which the compiler builds. A malformed table, or a table with a
+/// conflict, does not compile.
 const routes = server.routes(Route, .{
     .{ .get, "/greeting", .greeting },
     .{ .post, "/echo", .echo },
@@ -500,7 +500,8 @@ var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .
 ```
 
 The method of an entry is an enum literal, one of RFC 9110 §9.1's eight methods, or the token of
-another method, such as `"PATCH"`. Each segment of a pattern is a literal, a parameter such as
+another method, such as `"PATCH"`. CONNECT does not compile, because a CONNECT request has no path
+(RFC 9110 §9.3.6, decision 19). Each segment of a pattern is a literal, a parameter such as
 `:name`, or the wildcard `*` as the last segment. A pattern holds
 `server.constants.path_parameters_max` parameters at most, the wildcard included. `match` takes
 the request's method and its path, and gives one of four results. The program writes a response
@@ -597,8 +598,8 @@ It then calls the function of the route that matches:
 .found => |handler| try handler(request, &parameters),
 ```
 
-A malformed or conflicting table does not compile, and the compile error names the entry and the
-rule. A route that other routes hide is a conflict, in two cases:
+A malformed table, or a table with a conflict, does not compile, and the compile error names the
+entry and the rule. A route that other routes hide is a conflict, in two cases:
 
 - **`route_hidden`:** a request that the route matches gets 405 from another pattern. With
   `GET /users/:id` and `PUT /users/me`, a GET of `/users/me` matches `/users/me` first, which

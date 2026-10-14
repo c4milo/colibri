@@ -8572,17 +8572,17 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - Each table has a type of its own, whose public declarations are `Match` and `match`.
       `PathParameters` has one public function, `get`. A test lists each.
     - An entry is a tuple of a method, a pattern and a value: `.{ .get, "/users/:id", .user }`.
-      A pattern's segment is a literal, a parameter (`:id`) or a trailing wildcard (`*`), and a
-      match writes the path's parameters into a `server.PathParameters`.
+      A pattern's segment is a literal, a parameter (`:id`) or, as the last segment, the wildcard
+      (`*`). A match writes the path's parameters into a `server.PathParameters`.
     - The walk tries a literal, then a parameter, then the wildcard, and backs up a level when a
       deeper one fails (INV-32). The method is looked up at the leaf: `found`,
       `method_not_allowed` with the Allow value, or `not_found`. A method that no route names
       is `not_implemented`, and HEAD finds a GET route.
     - The path is matched as received. A path with an empty segment, a dot segment, a "%", an
       octet outside `pchar` or more than `path_len_max` octets matches nothing.
-    - A malformed or conflicting table does not compile. A route that other routes hide is a
-      conflict: a request that it matches gets 405 from another pattern, or no request reaches
-      it (decision 122 ruling 12). A table whose Allow value is longer than
+    - A malformed table, or a table with a conflict, does not compile. A route that other routes
+      hide is a conflict: a request that it matches gets 405 from another pattern, or no request
+      reaches it (decision 122 ruling 12). A table whose Allow value is longer than
       `core.constants.field_value_len_max` does not compile either.
     - The endpoint writes no content in a response to HEAD, in h11, h2 and h3 alike.
     - `server.constants.path_parameters_max` is 8, and `server.constants.path_len_max` is the
@@ -8597,7 +8597,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - 21e.3: literal routes, with every public name and its list.
       - 21e.4: `zig build routes-check`.
       - 21e.5: parameters, the checks of a path, and `path_len_max`.
-      - 21e.6: the trailing wildcard.
+      - 21e.6: the wildcard as the last segment.
       - 21e.7a: the back-up (INV-32).
       - 21e.7b: the refusal of a hidden route, of a route that no request reaches, and of an
         Allow value that is too long.
@@ -8606,14 +8606,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - 21e.9: `not_implemented`.
       - 21e.10: the examples and the guide.
       - 21e.11: the step's entry.
-    - **Check:** tests for literal segments, parameters, a trailing wildcard, precedence whatever
-      the table's order, 404, 405 with its Allow list, 501, HEAD, and a path with an encoded
-      octet, a dot segment or an empty segment matching nothing. A test of each version shows
-      that a response to HEAD carries no content. `zig build routes-check` requires each
-      malformed or conflicting table to fail to compile, a hidden route too, and a valid one to
-      compile. A test compares the check of hidden routes with a brute force on small tables.
-      `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass. Each
-      rule has a mutation a test catches.
+    - **Check:** tests for literal segments, parameters, the wildcard as the last segment,
+      precedence whatever the table's order, 404, 405 with its Allow list, 501, HEAD, and a path
+      that matches nothing because it holds an encoded octet, a dot segment or an empty segment.
+      A test of each version shows that a response to HEAD carries no content. `zig build
+      routes-check` requires each malformed table and each table with a conflict to fail to
+      compile, a hidden route too, and a valid one to compile. A test compares the check of
+      hidden routes with a brute force on small tables. `zig build examples`,
+      `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass. Each rule has a mutation a test
+      catches.
   - **21f, the package.** Whether `h11`, `h2`, `h3` and `quic` stay exported (decision 86).
     **Check:** the owner's ruling, once the dependent that uses `h11` directly can use `client`.
 
@@ -9296,8 +9297,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - 21e.3, 98c89fe: literal routes, every public name and its list. 131 steps, 2923, 425.
     - 21e.4, 0222d42: `zig build routes-check`. 160 steps, 2923, 425.
     - 21e.5, a9d1b95: parameters, the checks of a path, and `path_len_max`. 170 steps, 2935, 437.
-    - 21e.6, d3c20fb: the trailing wildcard. `routes_trie_layout.zig` holds the layout, because
-      `routes_trie.zig` was at 486 lines. 172 steps, 2938, 440.
+    - 21e.6, d3c20fb: the wildcard as the last segment. `routes_trie_layout.zig` holds the
+      layout, because `routes_trie.zig` was at 486 lines. 172 steps, 2938, 440.
     - f20e74d: CLAUDE.md names `server.routes` and `zig build routes-check`. No check changes.
     - 800ebda: the router's tests move to four files, because `routes_test.zig` was at 483
       lines. 172 steps, 2938, 440, as before.
@@ -9307,7 +9308,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - 21e.8b, 104d9d5: HEAD on a GET route. 172 steps, 2951, 453.
     - 21e.9, 2b82b3d: `not_implemented`. 172 steps, 2954, 456.
     - 21e.7b, 6ed56b1: the refusals `route_hidden`, `route_unreachable` and `allow_too_long`. It
-      came after 21e.9, because it waited for the owner's reading of ruling 12. 178 steps,
+      came after 21e.9, because it waited until the owner read ruling 12. 178 steps,
       2962, 464.
     - 6eef776: the review's fixes of 21e.7b. 178 steps, 2966, 468.
     - 21e.10, 75d08e9: the examples and the guide. 178 steps, 2966, 468.
@@ -9318,7 +9319,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - fc90377: the client example sends a request to each arm of its server's route switch.
       181 steps, 2971, 465.
     - 31c52ee: a test builds each route table that docs/usage.md shows. 181 steps, 2972, 466.
-    - 174c242: one verb for each meaning in the router's text. 181 steps, 2972, 466.
+    - 174c242: one verb for each sense in the router's text. 181 steps, 2972, 466.
     - 315e3c1: CLAUDE.md names `zig build routes-hidden-check`, and the rule that `zig build
       test` runs each step whose name ends in `-check`. No check changes.
     - 73fbf50: the build of a large table in a few seconds. 181 steps, 2972, 466. `zig build
@@ -9464,7 +9465,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       exported under a second name beside it.
     - 21e.3, 34 breaks, by `zig build test-server`:
       - The match: a literal compared by prefix; a literal compared without case; the query
-        read; the leading "/" not required; the root read as one empty segment, in `match` and
+        read; the first "/" not required; the root read as one empty segment, in `match` and
         in the build; the method compared without case; 404 for a wrong method; 405 for an
         unknown path, at no node and at a node with no leaf; the count not reset to 0; `get`
         that compares by prefix.
@@ -9485,9 +9486,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       the fixture's path wrong.
     - 21e.5, by `zig build test-server`, and the messages by `zig build routes-check`:
       - The match: a value with its "/"; the name of another node; the parameter tried before
-        the literal; rules 6, 7, 8 and 9 each removed; rule 9 widened to a leading "."; the
-        count left at 0 after `found`; the count written for each result; the check of
-        `path_len_max` removed, and off by one.
+        the literal; rules 6, 7, 8 and 9 each removed; rule 9 widened to a segment that starts
+        with "."; the count left at 0 after `found`; the count written for each result; the
+        check of `path_len_max` removed, and off by one.
       - The refusals: refusals 6, 7, 8, 9 and 19 each removed; `name_octets` widened to "-";
         refusal 9 one parameter early; `holds_parameter` always false; `names_differ` that
         reads the wrong segment; refusal 19 removed, by `zig build routes-check` too; each of

@@ -337,7 +337,7 @@ test "refusal 20, route_hidden: decision 122 ruling 12, a request that a route m
     });
     try expect_hidden(0, "GET", "/files/a", "/files/:name", .{ .{ .get, "/files/*", 0 }, .{ .post, "/files/:name", 1 } });
     try expect_hidden(0, "GET", "/a/b/c", "/a/b/:y", .{ .{ .get, "/a/:x/c", 0 }, .{ .put, "/a/b/:y", 1 } });
-    // The plan's rule 13 table, and a leaf that names HEAD and no GET.
+    // The table of the cost of decision 122 ruling 12, and a leaf that names HEAD and no GET.
     try expect_hidden(1, "PUT", "/users/me", "/users/me", .{ .{ .get, "/users/me", 0 }, .{ .put, "/users/:id", 1 } });
     try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .head, "/users/me", 1 } });
     // Two patterns give 405 on a path of the route. The refusal names the pattern that comes
@@ -370,7 +370,7 @@ test "refusal 21, route_unreachable: decision 122 ruling 12, a request reaches e
     try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x/b", 1 }, .{ .get, "/a/:x", 2 } });
 }
 
-test "docs/usage.md: each table of the Routing section compiles or is refused as the guide says" {
+test "docs/usage.md: each table of the Routes section compiles or is refused as the guide says" {
     // `route_hidden`: a GET of `/users/me` matches `/users/me` first, which names no GET.
     try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
     // `route_unreachable`: each path of two segments matches `/a/:x` first, and each longer path

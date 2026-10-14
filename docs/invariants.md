@@ -586,6 +586,6 @@ the build-plan step (design §8) that lands its check. Each entry names the buil
   build computes from the node count. The code after the loop asserts that it is unreachable.
   Tests in `src/server/routes/routes_test.zig` run every order of a table and a deep table whose
   last level fails. The fuzz test runs paths of every shape. Step 21e.5 for the check of the
-  path and `path_len_max`, and step 21e.7 for the walk's bound.
+  path and `path_len_max`, and step 21e.7a for the walk's bound.
 - **Violation.** A back-up that tries a child kind again. A path built to fail at the last level
   then makes the walk exponential in the table's depth.

@@ -4283,8 +4283,9 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        with the leaf's Allow value. A walk that stops at no leaf gives `not_found`.
      - `found` writes the parameters into a `server.PathParameters`, which the program places and
        reads with `get`. The values are slices of the path.
-     - A malformed or conflicting table does not compile, and the message names the entry and the
-       rule. `zig build routes-check` compiles each such table and requires the refusal.
+     - A malformed table, or a table with a conflict, does not compile, and the message names the
+       entry and the rule. `zig build routes-check` compiles each such table and requires the
+       refusal.
 
      The rulings:
      1. HEAD finds the GET route at a leaf that names GET and no HEAD. The leaf's Allow value

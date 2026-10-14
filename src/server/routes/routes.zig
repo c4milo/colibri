@@ -11,7 +11,8 @@ const routes_hidden = @import("routes_hidden.zig");
 /// entry is a tuple of a method, a pattern and a value: `.{ .get, "/greeting", .greeting }`.
 ///
 /// - The method is an enum literal or a value of `http.method.Standard`, or the token of a
-///   method outside RFC 9110 §9.1's eight, such as `"PATCH"`.
+///   method outside RFC 9110 §9.1's eight, such as `"PATCH"`. CONNECT does not compile, because
+///   a CONNECT request has no path (RFC 9110 §9.3.6, decision 19).
 /// - The pattern is a path of segments, or "/" for the root. A segment is a literal, or a
 ///   parameter: ":" and a name of `1*( ALPHA / DIGIT / "_" )`, such as `/users/:id`. A
 ///   parameter matches one segment of a path, and a program reads its value with
@@ -25,12 +26,12 @@ const routes_hidden = @import("routes_hidden.zig");
 /// §9.3.2). The endpoint writes no content in a response to HEAD, so a program writes one answer
 /// for GET and HEAD.
 ///
-/// A malformed or conflicting table does not compile. The compile error names the entry, the
-/// refusal and its reason. A route that other routes hide is a conflict (decision 122 ruling 12):
-/// a request that the route matches gets 405 from another pattern, or no request reaches the
-/// route. So a literal names each method that a parameter beside it names: with `GET /users/me`,
-/// `GET /users/:id` and `PUT /users/:id`, a PUT of `/users/me` gets 405, and the table does not
-/// compile.
+/// A malformed table, or a table with a conflict, does not compile. The compile error names the
+/// entry, the refusal and its reason. A route that other routes hide is a conflict (decision 122
+/// ruling 12): a request that the route matches gets 405 from another pattern, or no request
+/// reaches the route. So a literal names each method that a parameter beside it names: with
+/// `GET /users/me`, `GET /users/:id` and `PUT /users/:id`, a PUT of `/users/me` gets 405, and the
+/// table does not compile.
 ///
 /// Each call returns a value of a type of its own, with no field. Its one call is `match`, which
 /// returns a `Match`. A program names that type as `@TypeOf(table).Match`.
@@ -39,9 +40,9 @@ pub fn routes(comptime Value: type, comptime table: anytype) Table(Value, table)
 }
 
 fn Table(comptime Value: type, comptime table: anytype) type {
-    // Decision 122: a malformed or conflicting table does not compile, and the message names the
-    // entry and the rule. The checks that read the trie run after its merge, and the checks
-    // that read the layout run after the build. The merge runs once.
+    // Decision 122: a malformed table, or a table with a conflict, does not compile, and the
+    // message names the entry and the rule. The checks that read the trie run after its merge,
+    // and the checks that read the layout run after the build. The merge runs once.
     if (routes_trie.entries_refusal(table)) |refusal| refuse(refusal);
     const trie = routes_trie.trie_of(table);
     if (routes_trie.trie_refusal(table, &trie)) |refusal| refuse(refusal);

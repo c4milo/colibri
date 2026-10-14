@@ -118,8 +118,8 @@ var accepted: server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) =
 /// What a route of the server names.
 const Route = enum { greeting, echo, named };
 
-/// The server's routes, which the compiler builds. A malformed or conflicting table does not
-/// compile.
+/// The server's routes, which the compiler builds. A malformed table, or a table with a
+/// conflict, does not compile.
 const routes = server.routes(Route, .{
     .{ .get, "/greeting", .greeting },
     .{ .post, "/echo", .echo },
