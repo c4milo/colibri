@@ -7,6 +7,7 @@ const http = @import("http");
 const routes_pattern = @import("routes_pattern.zig");
 const routes_method = @import("routes_method.zig");
 const routes_trie = @import("routes_trie.zig");
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 
@@ -71,14 +72,68 @@ test "refusal 5, octet_outside_path: RFC 3986 §3.3, a segment holds pchar alone
     try expect_pattern(null, "/a:b@c");
 }
 
-test "decision 122: a parameter or a wildcard does not compile until steps 21e.5 and 21e.6" {
-    try expect_pattern(.segment_unsupported, "/users/:id");
-    try expect_pattern(.segment_unsupported, "/:");
+test "decision 122: the wildcard does not compile until step 21e.6" {
     try expect_pattern(.segment_unsupported, "/files/*");
+    try expect_pattern(.segment_unsupported, "/*");
     // A segment that holds "*" or ":" after its first octet is a literal.
     try expect_pattern(null, "/a*b");
     try expect_pattern(null, "/**");
     try expect_pattern(null, "/a:b");
+}
+
+test "refusal 6, parameter_unnamed: a parameter has a name after its \":\"" {
+    try expect_pattern(.parameter_unnamed, "/users/:");
+    try expect_pattern(.parameter_unnamed, "/:");
+    try expect_pattern(.parameter_unnamed, "/:/a");
+    try expect_pattern(null, "/users/:id");
+    try expect_pattern(null, "/:a");
+}
+
+test "refusal 7, parameter_name_invalid: a name is 1*( ALPHA / DIGIT / \"_\" ), and a whole segment" {
+    try expect_pattern(.parameter_name_invalid, "/:user-id");
+    try expect_pattern(.parameter_name_invalid, "/:a:b");
+    try expect_pattern(.parameter_name_invalid, "/:id.json");
+    try expect_pattern(.parameter_name_invalid, "/::");
+    try expect_pattern(.parameter_name_invalid, "/:%41");
+    try expect_pattern(.parameter_name_invalid, "/:a~");
+    try expect_pattern(.parameter_name_invalid, "/:a b");
+    try expect_pattern(.parameter_name_invalid, "/:*");
+    try expect_pattern(null, "/:user_id");
+    try expect_pattern(null, "/:Id9");
+    try expect_pattern(null, "/:_");
+    try expect_pattern(null, "/:0");
+    try expect_pattern(null, "/:azAZ09_");
+}
+
+test "refusal 8, parameter_repeated: each parameter of a pattern has a name of its own" {
+    try expect_pattern(.parameter_repeated, "/:id/posts/:id");
+    try expect_pattern(.parameter_repeated, "/:id/:id");
+    try expect_pattern(.parameter_repeated, "/:a/:b/:a");
+    try expect_pattern(null, "/:id/posts/:post");
+    // A literal of the same text as a name is not a parameter.
+    try expect_pattern(null, "/:id/id");
+    // Names compare octet for octet.
+    try expect_pattern(null, "/:id/:ID");
+}
+
+/// The comptime branches that `parameters_pattern` takes for each parameter. Test-only.
+const branches_per_parameter = 1_000;
+
+/// A pattern of `count` parameters, `/:p0/:p1/...`. Comptime-only.
+fn parameters_pattern(comptime count: usize) []const u8 {
+    var pattern: []const u8 = "";
+    for (0..count) |index| pattern = pattern ++ std.fmt.comptimePrint("/:p{d}", .{index});
+    return pattern;
+}
+
+test "refusal 9, parameters_too_many: a pattern holds path_parameters_max parameters at most" {
+    @setEvalBranchQuota(constants.path_parameters_max * branches_per_parameter);
+    const most = comptime parameters_pattern(constants.path_parameters_max);
+    try expect_pattern(.parameters_too_many, most ++ "/:extra");
+    try expect_pattern(.parameters_too_many, most ++ "/a/:extra");
+    try expect_pattern(null, most);
+    // A literal is not a parameter.
+    try expect_pattern(null, most ++ "/extra");
 }
 
 test "refusal 11, method_unknown: an enum literal names a member of http.method.Standard" {
@@ -155,6 +210,36 @@ test "refusal 18, route_repeated: two routes name one method and one path" {
     try expect_table(null, .{ .{ .get, "/a", .one }, .{ .put, "/a", .two } });
     try expect_table(null, .{ .{ .get, "/a", .one }, .{ .get, "/a/a", .two } });
     try expect_table(null, .{ .{ "PATCH", "/", .one }, .{ "patch", "/", .two } });
+}
+
+test "refusal 19, parameter_names_differ: decision 122 ruling 5, one parameter node has one name" {
+    try expect_table(.parameter_names_differ, .{ .{ .get, "/users/:id", .one }, .{ .put, "/users/:user", .two } });
+    try expect_table(.parameter_names_differ, .{ .{ .get, "/:a/x", .one }, .{ .get, "/:b/y", .two } });
+    try expect_table(.parameter_names_differ, .{ .{ .get, "/:a", .one }, .{ .get, "/:ab", .two } });
+    try expect_table(.parameter_names_differ, .{ .{ .get, "/:ab", .one }, .{ .get, "/:a/c", .two } });
+    try expect_table(.parameter_names_differ, .{ .{ .get, "/u/:id/p/:x", .one }, .{ .get, "/u/:id/p/:y", .two } });
+    // The same name at one node, names at two nodes, and a literal beside a parameter.
+    try expect_table(null, .{ .{ .get, "/users/:id", .one }, .{ .put, "/users/:id", .two } });
+    try expect_table(null, .{ .{ .get, "/users/:id", .one }, .{ .get, "/posts/:id2", .two } });
+    try expect_table(null, .{ .{ .get, "/users/:id", .one }, .{ .get, "/users/:id/:part", .two } });
+    try expect_table(null, .{ .{ .get, "/users/me", .one }, .{ .get, "/users/:id", .two } });
+    try expect_table(null, .{ .{ .get, "/:a/x", .one }, .{ .get, "/:a/:b", .two } });
+    try expect_table(null, .{ .{ .get, "/", .one }, .{ .get, "/:a", .two } });
+    try expect_table(null, .{ .{ .get, "/:a", .one }, .{ .get, "/:a/b", .two } });
+    try expect_table(null, .{ .{ .get, "/a:b", .one }, .{ .get, "/a:c", .two } });
+}
+
+test "decision 122: two names at one node refuse the later route, before a repeated route" {
+    const refusal = comptime routes_trie.refusal_of(.{
+        .{ .get, "/a", .one },
+        .{ .get, "/users/:id", .one },
+        .{ .get, "/users/:name", .two },
+        .{ .get, "/a", .two },
+    }).?;
+    try testing.expectEqual(2, refusal.route);
+    try testing.expectEqualStrings("/users/:name", refusal.pattern);
+    try testing.expectEqual(routes_trie.Reason.parameter_names_differ, refusal.reason);
+    try expect_table(.route_repeated, .{ .{ .get, "/users/:id", .one }, .{ .get, "/users/:id", .two } });
 }
 
 test "decision 122: a table's checks run in order, and the first refusal names its entry" {

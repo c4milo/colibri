@@ -10,7 +10,10 @@ const routes_match = @import("routes_match.zig");
 ///
 /// - The method is an enum literal or a value of `http.method.Standard`, or the token of a
 ///   method outside RFC 9110 §9.1's eight, such as `"PATCH"`.
-/// - The pattern is a path of literal segments, or "/" for the root.
+/// - The pattern is a path of segments, or "/" for the root. A segment is a literal, or a
+///   parameter: ":" and a name of `1*( ALPHA / DIGIT / "_" )`, such as `/users/:id`. A
+///   parameter matches one segment of a path, and a program reads its value with
+///   `PathParameters.get`.
 /// - The value coerces to `Value`, which is a type that exists at run time: an enum, a pointer to
 ///   a function, or a struct. `match` reads the value at run time, so `Value` is not a `type` or
 ///   a bare `fn` type.

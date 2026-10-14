@@ -7,13 +7,15 @@
 //!   2. Each entry, from the first, is a tuple of three parts whose pattern is text, or
 //!      `entry_shape`. Then its method passes `routes_method.refusal_of`, and its pattern passes
 //!      `routes_pattern.refusal_of`.
-//!   3. No two routes name one method at one leaf, or `route_repeated`.
+//!   3. No two routes give two names to one parameter node, or `parameter_names_differ`.
+//!   4. No two routes name one method at one leaf, or `route_repeated`.
 //!
 //! `build` then writes the trie into fixed arrays. Each node holds a run of edges, one for each
-//! literal segment after it, sorted by length and then by octets. A node where a pattern ends
-//! holds a leaf. A leaf holds a run of entries and its Allow value. The arrays index one array of
-//! text, which holds every literal and every Allow value. The value that `build` returns holds no
-//! pointer into the memory of the build, so a program can read it at run time.
+//! literal segment after it, sorted by length and then by octets. A node holds one parameter
+//! child at most, with the parameter's name. A node where a pattern ends holds a leaf. A leaf
+//! holds a run of entries and its Allow value. The arrays index one array of text, which holds
+//! every literal, every parameter name and every Allow value. The value that `build` returns
+//! holds no pointer into the memory of the build, so a program can read it at run time.
 const std = @import("std");
 const assert = std.debug.assert;
 const routes_pattern = @import("routes_pattern.zig");
@@ -47,6 +49,7 @@ pub const Reason = union(enum) {
     method: routes_method.Refusal,
     table_empty,
     entry_shape,
+    parameter_names_differ,
     route_repeated,
 
     /// The name that the compile error writes, which `zig build routes-check` reads.
@@ -65,6 +68,7 @@ pub const Reason = union(enum) {
             .method => |refusal| refusal.reason(),
             .table_empty => "a table holds one route at least",
             .entry_shape => "an entry is a tuple of a method, a pattern and a value",
+            .parameter_names_differ => "two routes with the same segments before a parameter give the parameter one name",
             .route_repeated => "two routes name one method and one path",
         };
     }
@@ -97,6 +101,7 @@ pub fn refusal_of(comptime table: anytype) ?Refusal {
             return .{ .route = index, .pattern = pattern_or_empty(table[index]), .reason = reason };
         }
     }
+    if (names_refusal(table)) |refusal| return refusal;
     return repeated_refusal(table);
 }
 
@@ -118,6 +123,63 @@ fn is_entry(comptime Entry: type) bool {
 fn pattern_or_empty(comptime entry: anytype) []const u8 {
     if (!is_entry(@TypeOf(entry))) return "";
     return entry[pattern_part];
+}
+
+fn names_refusal(comptime table: anytype) ?Refusal {
+    var patterns: [table.len][]const u8 = undefined;
+    var named: [table.len]bool = undefined;
+    inline for (0..table.len) |index| {
+        patterns[index] = table[index][pattern_part];
+        // Only a pattern with a parameter can give a parameter node a name.
+        named[index] = holds_parameter(patterns[index]);
+    }
+    for (0..table.len) |later| {
+        if (!named[later]) continue;
+        for (0..later) |earlier| {
+            if (!named[earlier]) continue;
+            // Decision 122 ruling 5: one parameter node has one name.
+            if (names_differ(patterns[earlier], patterns[later])) {
+                return .{ .route = later, .pattern = patterns[later], .reason = .parameter_names_differ };
+            }
+        }
+    }
+    return null;
+}
+
+/// Whether `pattern` holds a ":", which each parameter does. The loop reads each octet with no
+/// call into `std.mem`, whose search costs many comptime branches.
+fn holds_parameter(comptime pattern: []const u8) bool {
+    for (pattern) |octet| {
+        if (octet == routes_pattern.parameter_prefix) return true;
+    }
+    return false;
+}
+
+/// Whether the first segments of `left` and `right` that differ are two parameters. The trie
+/// then holds both parameters at one node.
+fn names_differ(comptime left: []const u8, comptime right: []const u8) bool {
+    const differ = first_difference(left, right);
+    // A pattern that ends where the other starts a segment has no segment that differs.
+    if (differ == left.len and (differ == right.len or right[differ] == routes_pattern.separator)) return false;
+    if (differ == right.len and left[differ] == routes_pattern.separator) return false;
+    // The segment that holds the first difference starts at the same octet in both patterns.
+    var first = differ;
+    for (0..differ) |_| {
+        if (left[first - 1] == routes_pattern.separator) break;
+        first -= 1;
+    }
+    // The root's pattern "/" has no segment.
+    if (first >= left.len or first >= right.len) return false;
+    return left[first] == routes_pattern.parameter_prefix and right[first] == routes_pattern.parameter_prefix;
+}
+
+/// The index of the first octet where `left` and `right` differ, or the length of the shorter.
+fn first_difference(comptime left: []const u8, comptime right: []const u8) usize {
+    const shorter = @min(left.len, right.len);
+    for (0..shorter) |index| {
+        if (left[index] != right[index]) return index;
+    }
+    return shorter;
 }
 
 fn repeated_refusal(comptime table: anytype) ?Refusal {
@@ -234,6 +296,7 @@ fn add_child(merged: anytype, node: usize, segment: []const u8) usize {
 /// The size of each array of a table's layout.
 pub const Sizes = struct {
     nodes: usize,
+    parameters: usize,
     leaves: usize,
     routes: usize,
     text: usize,
@@ -244,9 +307,12 @@ fn sizes_of(comptime table: anytype) Sizes {
     @setEvalBranchQuota(quota_of(table));
     const routes = routes_of(table);
     const merged = merge(&routes.patterns);
-    var sizes: Sizes = .{ .nodes = merged.node_count, .leaves = 0, .routes = table.len, .text = 0, .depth_max = 0 };
+    var sizes: Sizes = .{ .nodes = merged.node_count, .parameters = 0, .leaves = 0, .routes = table.len, .text = 0, .depth_max = 0 };
     for (1..merged.node_count) |node| {
-        sizes.text += merged.segment[node].len;
+        const segment = merged.segment[node];
+        // A literal's text is its segment, and a parameter's text is its name.
+        if (routes_pattern.is_parameter(segment)) sizes.parameters += 1;
+        sizes.text += if (routes_pattern.is_parameter(segment)) routes_pattern.parameter_name(segment).len else segment.len;
         sizes.depth_max = @max(sizes.depth_max, merged.depth[node]);
     }
     for (0..merged.node_count) |node| {
@@ -263,7 +329,7 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
     const Index = std.math.IntFittingRange(0, @max(sizes.nodes, sizes.routes, sizes.text));
     return struct {
         nodes: [sizes.nodes]Node,
-        edges: [sizes.nodes - 1]Edge,
+        edges: [sizes.nodes - 1 - sizes.parameters]Edge,
         leaves: [sizes.leaves]Leaf,
         entries: [sizes.routes]Entry,
         text: [sizes.text]u8,
@@ -273,10 +339,13 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
 
         /// A run of `text`.
         pub const Range = struct { offset: Index, len: Index };
-        /// The node's literal edges, a run of `edges`, and its leaf, an index of `leaves`.
-        pub const Node = struct { edges_first: Index, edges_count: Index, leaf: ?Index };
+        /// The node's literal edges, a run of `edges`, its parameter child, and its leaf, an
+        /// index of `leaves`.
+        pub const Node = struct { edges_first: Index, edges_count: Index, parameter: ?Parameter, leaf: ?Index };
         /// A literal segment, and the node after it.
         pub const Edge = struct { segment: Range, child: Index };
+        /// A parameter's name, and the node after it.
+        pub const Parameter = struct { name: Range, child: Index };
         /// The leaf's entries, a run of `entries`, and its Allow value.
         pub const Leaf = struct { entries_first: Index, entries_count: Index, allow: Range };
         /// A route's method token, a run of its leaf's Allow value, and its value.
@@ -293,11 +362,11 @@ pub fn build(comptime Value: type, comptime table: anytype) Layout(Value, sizes_
     const merged = merge(&routes.patterns);
     var builder: Builder(Value, sizes) = .{ .values = values_of(Value, table) };
     for (0..merged.node_count) |node| {
-        builder.layout.nodes[node] = .{ .edges_first = builder.edges_count, .edges_count = 0, .leaf = null };
+        builder.layout.nodes[node] = .{ .edges_first = builder.edges_count, .edges_count = 0, .parameter = null, .leaf = null };
         add_edges(&builder, &merged, node);
         add_leaf(&builder, &merged, &routes, node);
     }
-    assert(builder.edges_count == sizes.nodes - 1 and builder.leaves_count == sizes.leaves);
+    assert(builder.edges_count == sizes.nodes - 1 - sizes.parameters and builder.leaves_count == sizes.leaves);
     assert(builder.entries_count == sizes.routes and builder.text_len == sizes.text);
     return builder.layout;
 }
@@ -332,9 +401,13 @@ fn add_edges(builder: anytype, merged: anytype, node: usize) void {
     var child = merged.first_child[node];
     for (0..merged.node_count) |_| {
         const index = child orelse break;
+        child = merged.next_sibling[index];
+        if (routes_pattern.is_parameter(merged.segment[index])) {
+            add_parameter(builder, merged, node, index);
+            continue;
+        }
         children[count] = index;
         count += 1;
-        child = merged.next_sibling[index];
     }
     sort(children[0..count], merged, segment_less);
     for (children[0..count]) |index| {
@@ -344,6 +417,14 @@ fn add_edges(builder: anytype, merged: anytype, node: usize) void {
         builder.edges_count += 1;
     }
     builder.layout.nodes[node].edges_count = @intCast(count);
+}
+
+fn add_parameter(builder: anytype, merged: anytype, node: usize, child: usize) void {
+    // `names_refusal` passed the table, so the node has one parameter child at most.
+    assert(builder.layout.nodes[node].parameter == null);
+    const name = routes_pattern.parameter_name(merged.segment[child]);
+    const offset = add_text(builder, name);
+    builder.layout.nodes[node].parameter = .{ .name = .{ .offset = @intCast(offset), .len = @intCast(name.len) }, .child = @intCast(child) };
 }
 
 /// Orders two nodes by their segments: the shorter first, then by octets. A lookup then compares

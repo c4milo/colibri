@@ -1,17 +1,25 @@
 //! The checks on the pattern of a route (decision 122, design §8 step 21e). They run at compile
 //! time. A pattern that fails one of them matches no path, so the table does not compile.
 //!
+//! A segment of a pattern is a literal, or a parameter: ":" and the parameter's name. A parameter
+//! matches one segment of a path, and `match` writes the segment as the parameter's value.
+//!
 //! A pattern is checked in this order (invariant 7):
 //!   1. It starts with "/", or `pattern_not_absolute`. The pattern "/" alone is the root, with no
 //!      segment.
 //!   2. Each segment, from the first, is checked in this order:
 //!      1. not empty, or `segment_empty`;
 //!      2. not "." or "..", or `segment_dot`;
-//!      3. not a parameter or a wildcard, or `segment_unsupported`, until steps 21e.5 and 21e.6;
-//!      4. each octet, from the first, is not "%", or `segment_encoded`, and is an octet of
-//!         `path_octets`, or `octet_outside_path`.
+//!      3. not the wildcard "*", or `segment_unsupported`, until step 21e.6;
+//!      4. for a parameter: a name follows the ":", or `parameter_unnamed`; each octet of the name
+//!         is an octet of `name_octets`, or `parameter_name_invalid`; no earlier parameter of the
+//!         pattern has the name, or `parameter_repeated`; and the pattern holds no more than
+//!         `path_parameters_max` parameters, or `parameters_too_many`;
+//!      5. for a literal: each octet, from the first, is not "%", or `segment_encoded`, and is an
+//!         octet of `path_octets`, or `octet_outside_path`.
 const std = @import("std");
 const assert = std.debug.assert;
+const constants = @import("../constants.zig");
 
 /// Why a pattern does not compile.
 pub const Refusal = enum {
@@ -20,6 +28,10 @@ pub const Refusal = enum {
     segment_dot,
     segment_encoded,
     octet_outside_path,
+    parameter_unnamed,
+    parameter_name_invalid,
+    parameter_repeated,
+    parameters_too_many,
     segment_unsupported,
 
     /// The sentence that the compile error writes after the refusal's name.
@@ -30,7 +42,11 @@ pub const Refusal = enum {
             .segment_dot => "a segment of a pattern is not \".\" or \"..\" (RFC 3986 §3.3)",
             .segment_encoded => "a pattern holds no \"%\", because a path with one matches no route (RFC 3986 §2.1)",
             .octet_outside_path => "each octet of a segment is a pchar other than \"%\" (RFC 3986 §3.3)",
-            .segment_unsupported => "a segment that starts with \":\", or the segment \"*\", has no meaning yet",
+            .parameter_unnamed => "a parameter has a name after its \":\"",
+            .parameter_name_invalid => "a parameter name is 1*( ALPHA / DIGIT / \"_\" ), and a parameter is a whole segment",
+            .parameter_repeated => "each parameter of a pattern has a name of its own",
+            .parameters_too_many => "a pattern holds server.constants.path_parameters_max parameters at most",
+            .segment_unsupported => "the segment \"*\" has no meaning yet",
         };
     }
 };
@@ -62,17 +78,44 @@ pub const separator = '/';
 /// The pattern of the root, which matches the path "/" alone.
 pub const root = "/";
 
+/// The octet that starts a parameter's segment. The name follows it.
+pub const parameter_prefix = ':';
+
+/// The octets of a parameter's name: `1*( ALPHA / DIGIT / "_" )` (decision 122).
+pub const name_octets: [std.math.maxInt(u8) + 1]bool = build: {
+    var table: [std.math.maxInt(u8) + 1]bool = undefined;
+    for (&table, 0..) |*allowed, octet| allowed.* = std.ascii.isAlphanumeric(octet) or octet == '_';
+    break :build table;
+};
+
+/// Whether `segment`, which `refusal_of` passed, is a parameter.
+pub fn is_parameter(segment: []const u8) bool {
+    return segment.len > 0 and segment[0] == parameter_prefix;
+}
+
+/// The name of the parameter `segment`.
+pub fn parameter_name(segment: []const u8) []const u8 {
+    assert(is_parameter(segment));
+    return segment[1..];
+}
+
 /// The verdict on a pattern, or null when the pattern can match a path. Comptime-only.
 pub fn refusal_of(comptime pattern: []const u8) ?Refusal {
     // RFC 9110 §4.1: absolute-path = 1*( "/" segment ), and a path that does not start with "/"
     // matches no route.
     if (pattern.len == 0 or pattern[0] != separator) return .pattern_not_absolute;
     if (std.mem.eql(u8, pattern, root)) return null;
+    var names: [constants.path_parameters_max][]const u8 = undefined;
+    var names_count: usize = 0;
     var segments = std.mem.splitScalar(u8, pattern[1..], separator);
     // Bounded: the pattern holds one segment for each "/", and the pass after the last one ends.
     for (0..segments_count(pattern) + 1) |_| {
         const segment = segments.next() orelse return null;
         if (segment_refusal(segment)) |refusal| return refusal;
+        if (!is_parameter(segment)) continue;
+        if (names_refusal(names[0..names_count], parameter_name(segment))) |refusal| return refusal;
+        names[names_count] = parameter_name(segment);
+        names_count += 1;
     }
     unreachable;
 }
@@ -83,8 +126,9 @@ fn segment_refusal(comptime segment: []const u8) ?Refusal {
     if (segment.len == 0) return .segment_empty;
     // RFC 3986 §3.3: "." and ".." are dot-segments, and a path with one matches no route.
     if (std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return .segment_dot;
-    // Design §8 steps 21e.5 and 21e.6 give a meaning to a parameter and to a wildcard.
-    if (segment[0] == ':' or std.mem.eql(u8, segment, "*")) return .segment_unsupported;
+    // Design §8 step 21e.6 gives a meaning to the wildcard.
+    if (std.mem.eql(u8, segment, "*")) return .segment_unsupported;
+    if (is_parameter(segment)) return name_refusal(parameter_name(segment));
     for (segment) |octet| {
         // RFC 3986 §2.1: "%" starts a pct-encoded octet, and a path with one matches no route.
         if (octet == '%') return .segment_encoded;
@@ -94,11 +138,37 @@ fn segment_refusal(comptime segment: []const u8) ?Refusal {
     return null;
 }
 
-/// How many segments `pattern` holds: none for the root. Comptime-only.
+fn name_refusal(comptime name: []const u8) ?Refusal {
+    // Decision 122: a program reads a parameter by its name.
+    if (name.len == 0) return .parameter_unnamed;
+    for (name) |octet| {
+        // Decision 122: a name is 1*( ALPHA / DIGIT / "_" ), and a parameter is a whole segment.
+        if (!name_octets[octet]) return .parameter_name_invalid;
+    }
+    return null;
+}
+
+fn names_refusal(comptime names: []const []const u8, comptime name: []const u8) ?Refusal {
+    assert(names.len <= constants.path_parameters_max);
+    for (names) |held| {
+        // Decision 122: `get` of the name would find two values.
+        if (std.mem.eql(u8, held, name)) return .parameter_repeated;
+    }
+    // Decision 122 ruling 10: `path_parameters_max` sizes `PathParameters`.
+    if (names.len == constants.path_parameters_max) return .parameters_too_many;
+    return null;
+}
+
+/// How many segments `pattern` holds: none for the root. Comptime-only. The loop reads each
+/// octet with no call to `std.mem.count`, whose search costs many comptime branches.
 pub fn segments_count(comptime pattern: []const u8) usize {
     assert(pattern.len > 0 and pattern[0] == separator);
     if (std.mem.eql(u8, pattern, root)) return 0;
-    return std.mem.count(u8, pattern, &.{separator});
+    var count: usize = 0;
+    for (pattern) |octet| {
+        if (octet == separator) count += 1;
+    }
+    return count;
 }
 
 /// Whether a value of `T` is text: a slice of octets, or a pointer to an array of them.

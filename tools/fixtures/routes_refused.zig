@@ -13,19 +13,26 @@ const case = @import("routes_case").case;
 const valid = .{ .get, "/", 0 };
 
 const tables = struct {
-    /// Each kind of method and pattern that a table accepts at design §8 step 21e.4: an enum
-    /// literal, a value of `http.method.Standard`, a token, the root and literal segments.
+    /// Each kind of method and pattern that a table accepts at design §8 step 21e.5: an enum
+    /// literal, a value of `http.method.Standard`, a token, the root, literal segments and
+    /// parameters.
     pub const accepted = .{
         .{ .get, "/", 0 },
         .{ http.method.Standard.put, "/users/me", 1 },
         .{ "PATCH", "/users/me", 2 },
         .{ .delete, "/a.b/~c/d@e:f", 3 },
+        .{ .get, "/files/:name/parts/:part_2", 4 },
+        .{ .put, "/files/:name", 5 },
     };
     pub const pattern_not_absolute = .{ valid, .{ .get, "users", 1 } };
     pub const segment_empty = .{ valid, .{ .get, "/a//b", 1 } };
     pub const segment_dot = .{ valid, .{ .get, "/a/./b", 1 } };
     pub const segment_encoded = .{ valid, .{ .get, "/caf%C3%A9", 1 } };
     pub const octet_outside_path = .{ valid, .{ .get, "/a b", 1 } };
+    pub const parameter_unnamed = .{ valid, .{ .get, "/users/:", 1 } };
+    pub const parameter_name_invalid = .{ valid, .{ .get, "/:user-id", 1 } };
+    pub const parameter_repeated = .{ valid, .{ .get, "/:id/posts/:id", 1 } };
+    pub const parameters_too_many = .{ valid, .{ .get, "/:a/:b/:c/:d/:e/:f/:g/:h/:i", 1 } };
     pub const method_unknown = .{ valid, .{ .gte, "/a", 1 } };
     pub const method_not_token = .{ valid, .{ "GET ", "/a", 1 } };
     pub const method_standard_as_token = .{ valid, .{ "GET", "/a", 1 } };
@@ -33,6 +40,7 @@ const tables = struct {
     pub const method_type = .{ valid, .{ 42, "/a", 1 } };
     pub const table_empty = .{};
     pub const entry_shape = .{ valid, .{ .get, "/a" } };
+    pub const parameter_names_differ = .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/:user", 1 } };
     pub const route_repeated = .{ .{ .get, "/a", 0 }, .{ .get, "/a", 1 } };
 };
 

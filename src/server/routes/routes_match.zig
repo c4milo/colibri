@@ -4,17 +4,24 @@
 //!
 //! `match` reads the method and the path in this order (invariant 7):
 //!   1. It sets `parameters.count` to 0, so no value of an earlier match is read.
-//!   2. The path ends at the first "?". The query is not read.
-//!   3. A path that does not start with "/" matches nothing: "*", "", and a query alone.
-//!   4. The path "/" is the root, with no segment.
-//!   5. Each segment, from the first, takes the literal edge of its node that equals it, octet for
-//!      octet. A segment with no such edge matches nothing.
-//!   6. The node after the last segment holds a leaf, or the path matches nothing.
-//!   7. The method equals the token of one entry of the leaf, octet for octet, and the result is
+//!   2. A path of more than `path_len_max` octets, its query included, matches nothing.
+//!   3. The path ends at the first "?". The query is not read.
+//!   4. A path that does not start with "/" matches nothing: "*", "", and a query alone.
+//!   5. One pass reads each octet of the path once, before the walk. A path matches nothing when
+//!      a segment holds an octet outside `path_octets`, a "%" included, when a segment other than
+//!      the root's is empty, or when a segment is "." or "..".
+//!   6. The path "/" is the root, with no segment.
+//!   7. Each segment, from the first, takes the literal edge of its node that equals it, octet for
+//!      octet, or else the node's parameter child. A segment with neither matches nothing.
+//!   8. The node after the last segment holds a leaf, or the path matches nothing.
+//!   9. The method equals the token of one entry of the leaf, octet for octet, and the result is
 //!      `found` with the entry's value. Otherwise it is `method_not_allowed` with the leaf's Allow
 //!      value.
+//!  10. `found` writes the name and the segment of each parameter of the walk into `parameters`.
+//!      Each other result leaves `parameters.count` at 0.
 const std = @import("std");
 const assert = std.debug.assert;
+const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const routes_pattern = @import("routes_pattern.zig");
 const routes_trie = @import("routes_trie.zig");
@@ -47,32 +54,90 @@ pub fn match(
 ) Match(Value) {
     // Decision 122: no value of an earlier match is read.
     parameters.count = 0;
-    // RFC 3986 §3.3: the first "?" ends the path, and RFC 9112 §3.2.1, RFC 9113 §8.3.1 and RFC
-    // 9114 §4.3.1 put the query after it.
-    const path = target[0 .. std.mem.indexOfScalar(u8, target, query_start) orelse target.len];
-    // RFC 9110 §4.1: absolute-path = 1*( "/" segment ). So "*" (RFC 9112 §3.2.4), the "" of a
-    // CONNECT request, and a query alone match nothing.
-    if (path.len == 0 or path[0] != routes_pattern.separator) return .not_found;
-    const node = walk(layout, path) orelse return .not_found;
+    const path = path_of(target) orelse return .not_found;
+    const walked = walk(layout, path, parameters) orelse return .not_found;
     // RFC 9110 §15.5.5: a path whose node holds no leaf names no resource.
-    const leaf = layout.nodes[node].leaf orelse return .not_found;
-    return choose(Value, layout, leaf, method);
+    const leaf = layout.nodes[walked.node].leaf orelse return .not_found;
+    const result = choose(Value, layout, leaf, method);
+    // Decision 122: only `found` gives the program the values of the parameters.
+    if (result == .found) parameters.count = @intCast(walked.count);
+    return result;
 }
 
-/// The node after the last segment of `path`, or null when a segment has no edge.
-fn walk(comptime layout: anytype, path: []const u8) ?usize {
-    assert(path.len > 0 and path[0] == routes_pattern.separator);
+/// The path of `target` before its query, or null when the path matches no route. It reads each
+/// octet of the path once (INV-32).
+fn path_of(target: []const u8) ?[]const u8 {
+    // INV-8: `path_len_max` bounds the octets that one match reads.
+    if (target.len > constants.path_len_max) return null;
+    // RFC 9110 §4.1: absolute-path = 1*( "/" segment ). So "*" (RFC 9112 §3.2.4), the "" of a
+    // CONNECT request, and a query alone match nothing.
+    if (target.len == 0 or target[0] != routes_pattern.separator) return null;
+    var segment_first: usize = 1;
+    for (target[1..], 1..) |octet, index| {
+        // RFC 3986 §3.3: the first "?" ends the path, and RFC 9112 §3.2.1, RFC 9113 §8.3.1 and
+        // RFC 9114 §4.3.1 put the query after it.
+        if (octet == query_start) return path_end(target[0..index], segment_first);
+        if (octet == routes_pattern.separator) {
+            if (!segment_matches(target[segment_first..index])) return null;
+            segment_first = index + 1;
+            continue;
+        }
+        // RFC 3986 §3.3: segment = *pchar. `path_octets` holds no "%", which starts a
+        // pct-encoded octet (RFC 3986 §2.1), so a path with one matches nothing (decision 122).
+        if (!routes_pattern.path_octets[octet]) return null;
+    }
+    return path_end(target, segment_first);
+}
+
+/// `path`, or null when its last segment matches no route.
+fn path_end(path: []const u8, segment_first: usize) ?[]const u8 {
+    assert(segment_first > 0 and segment_first <= path.len);
     // Decision 122: the path "/" is the root, with no segment.
-    if (path.len == 1) return routes_trie.root;
-    var node: usize = routes_trie.root;
+    if (path.len == 1) return path;
+    if (!segment_matches(path[segment_first..])) return null;
+    return path;
+}
+
+/// Whether a route can match `segment`, which is not the root's.
+fn segment_matches(segment: []const u8) bool {
+    // Decision 122: an empty segment matches no route, though RFC 3986 §3.3 allows one.
+    if (segment.len == 0) return false;
+    // RFC 3986 §3.3, §6.2.2.3: "." and ".." are dot-segments, which match no route.
+    if (std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return false;
+    return true;
+}
+
+/// The node of a walk, and the count of parameters that it wrote.
+const Walked = struct { node: usize, count: usize };
+
+/// The node after the last segment of `path`, or null when a segment has no child. The walk
+/// writes each parameter's name and value into `parameters` and counts them in `Walked`.
+fn walk(comptime layout: anytype, path: []const u8, parameters: *PathParameters) ?Walked {
+    assert(path.len > 0 and path[0] == routes_pattern.separator);
+    var walked: Walked = .{ .node = routes_trie.root, .count = 0 };
+    // Decision 122: the path "/" is the root, with no segment.
+    if (path.len == 1) return walked;
     var segments = std.mem.splitScalar(u8, path[1..], routes_pattern.separator);
     // Bounded: each pass goes one level deeper, and a node at the depth of the deepest pattern
-    // has no edge, so the pass after it returns.
+    // has no child, so the pass after it returns.
     for (0..@TypeOf(layout).depth_max + 1) |_| {
-        const segment = segments.next() orelse return node;
-        node = literal_child(layout, node, segment) orelse return null;
+        const segment = segments.next() orelse return walked;
+        walked.node = child_of(layout, walked.node, segment, parameters, &walked.count) orelse return null;
     }
     unreachable;
+}
+
+fn child_of(comptime layout: anytype, node: usize, segment: []const u8, parameters: *PathParameters, count: *usize) ?usize {
+    // Decision 122: the literal edge first, then the parameter child.
+    if (literal_child(layout, node, segment)) |child| return child;
+    const parameter = layout.nodes[node].parameter orelse return null;
+    // `routes_pattern.refusal_of` passed each pattern, so a walk meets `path_parameters_max`
+    // parameters at most.
+    assert(count.* < constants.path_parameters_max);
+    parameters.names[count.*] = text_of(layout, parameter.name);
+    parameters.values[count.*] = segment;
+    count.* += 1;
+    return parameter.child;
 }
 
 fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?usize {

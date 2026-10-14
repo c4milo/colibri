@@ -51,6 +51,26 @@ const cases = [_]Case{
             "each octet of a segment is a pchar other than \"%\" (RFC 3986 §3.3)",
     },
     .{
+        .name = "parameter_unnamed",
+        .message = "server.routes: route 1, \"/users/:\": parameter_unnamed: " ++
+            "a parameter has a name after its \":\"",
+    },
+    .{
+        .name = "parameter_name_invalid",
+        .message = "server.routes: route 1, \"/:user-id\": parameter_name_invalid: " ++
+            "a parameter name is 1*( ALPHA / DIGIT / \"_\" ), and a parameter is a whole segment",
+    },
+    .{
+        .name = "parameter_repeated",
+        .message = "server.routes: route 1, \"/:id/posts/:id\": parameter_repeated: " ++
+            "each parameter of a pattern has a name of its own",
+    },
+    .{
+        .name = "parameters_too_many",
+        .message = "server.routes: route 1, \"/:a/:b/:c/:d/:e/:f/:g/:h/:i\": parameters_too_many: " ++
+            "a pattern holds server.constants.path_parameters_max parameters at most",
+    },
+    .{
         .name = "method_unknown",
         .message = "server.routes: route 1, \"/a\": method_unknown: " ++
             "no member of http.method.Standard has this name; write a method " ++
@@ -84,6 +104,11 @@ const cases = [_]Case{
         .name = "entry_shape",
         .message = "server.routes: route 1, \"\": entry_shape: " ++
             "an entry is a tuple of a method, a pattern and a value",
+    },
+    .{
+        .name = "parameter_names_differ",
+        .message = "server.routes: route 1, \"/users/:user\": parameter_names_differ: " ++
+            "two routes with the same segments before a parameter give the parameter one name",
     },
     .{
         .name = "route_repeated",

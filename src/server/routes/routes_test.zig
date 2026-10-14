@@ -5,6 +5,7 @@ const core = @import("core");
 const http = @import("http");
 const routes = @import("routes.zig").routes;
 const PathParameters = @import("../path_parameters.zig").PathParameters;
+const constants = @import("../constants.zig");
 
 const testing = std.testing;
 
@@ -166,6 +167,104 @@ test "decision 122: each match sets the count of parameters to 0 first" {
     try testing.expectEqual(0, parameters.count);
 }
 
+const Person = enum { user, posts, post };
+
+const people = routes(Person, .{
+    .{ .get, "/users/:id", .user },
+    .{ .get, "/users/:id/posts", .posts },
+    .{ .get, "/users/:id/posts/:post", .post },
+});
+
+test "decision 122: a parameter binds one segment, and its value is a slice of the path" {
+    var parameters: PathParameters = .{};
+    const one: []const u8 = "/users/42";
+    try testing.expectEqual(.user, people.match("GET", one, &parameters).found);
+    try testing.expectEqual(1, parameters.count);
+    try testing.expectEqualStrings("42", parameters.get("id").?);
+    try testing.expectEqual(one.ptr + "/users/".len, parameters.get("id").?.ptr);
+    try testing.expectEqual(null, parameters.get("post"));
+    const two: []const u8 = "/users/42/posts/7";
+    try testing.expectEqual(.post, people.match("GET", two, &parameters).found);
+    try testing.expectEqual(2, parameters.count);
+    try testing.expectEqualStrings("42", parameters.get("id").?);
+    try testing.expectEqualStrings("7", parameters.get("post").?);
+    try testing.expectEqual(two.ptr + "/users/42/posts/".len, parameters.get("post").?.ptr);
+    try testing.expectEqual(.posts, people.match("GET", "/users/42/posts", &parameters).found);
+    try testing.expectEqualStrings("42", parameters.get("id").?);
+    // RFC 3986 §3.3: the checks of the path do not read the query.
+    try testing.expectEqual(.user, people.match("GET", "/users/42?q=a%20b", &parameters).found);
+    try testing.expectEqualStrings("42", parameters.get("id").?);
+    try testing.expectEqual(.user, people.match("GET", "/users/42?a b#c", &parameters).found);
+}
+
+test "decision 122: a result other than found leaves no parameter" {
+    var parameters: PathParameters = .{};
+    // RFC 9110 §15.5.6: the walk reaches the leaf, and the method does not.
+    try testing.expectEqualStrings("GET", people.match("PUT", "/users/42", &parameters).method_not_allowed);
+    try testing.expectEqual(0, parameters.count);
+    try testing.expectEqual(null, parameters.get("id"));
+    // The walk binds `id`, and then a segment has no child.
+    try testing.expect(people.match("GET", "/users/42/comments", &parameters) == .not_found);
+    try testing.expectEqual(0, parameters.count);
+    // The walk binds `id`, and then the node holds no leaf.
+    const deep = routes(u8, .{.{ .get, "/users/:id/posts/all", 1 }});
+    try testing.expect(deep.match("GET", "/users/42/posts", &parameters) == .not_found);
+    try testing.expectEqual(0, parameters.count);
+}
+
+test "decision 122: each parameter takes the name of its own node" {
+    const pairs = routes(u8, .{.{ .get, "/pairs/:left/:right", 1 }});
+    var parameters: PathParameters = .{};
+    try testing.expectEqual(1, pairs.match("GET", "/pairs/a/b", &parameters).found);
+    try testing.expectEqualStrings("a", parameters.get("left").?);
+    try testing.expectEqualStrings("b", parameters.get("right").?);
+}
+
+test "decision 122: the literal wins over the parameter, whatever the table's order" {
+    const me_first = routes(u8, .{ .{ .get, "/users/me", 1 }, .{ .get, "/users/:id", 2 } });
+    const id_first = routes(u8, .{ .{ .get, "/users/:id", 2 }, .{ .get, "/users/me", 1 } });
+    inline for (.{ me_first, id_first }) |table| {
+        var parameters: PathParameters = .{};
+        try testing.expectEqual(1, table.match("GET", "/users/me", &parameters).found);
+        try testing.expectEqual(0, parameters.count);
+        inline for (.{ "/users/42", "/users/mee", "/users/m", "/users/Me" }) |path| {
+            try testing.expectEqual(2, table.match("GET", path, &parameters).found);
+            try testing.expectEqualStrings(path["/users/".len..], parameters.get("id").?);
+        }
+    }
+}
+
+const posts = routes(Person, .{
+    .{ .get, "/users/:id", .user },
+    .{ .get, "/users/:id/posts", .posts },
+});
+
+test "RFC 3986 §3.3: a path with a \"%\", an empty or dot segment, or an octet outside pchar matches nothing" {
+    inline for (.{
+        "/users/%6De",        "/users/42%2F", "/users/.",       "/users/..",       "/users/a b",
+        "/users//posts",      "/users/42/",   "/users/./posts", "/users/../posts", "/users/a#b",
+        "/users/caf\xc3\xa9", "/users/a\\b",  "/users/a\"b",    "/users/42//",     "/users/%",
+    }) |path| try expect_not_found(posts, "GET", path);
+    var parameters: PathParameters = .{};
+    inline for (.{ "...", ".well-known", "a.b", ".a", "a..", "~!$&'()*+,;=:@" }) |segment| {
+        try testing.expectEqual(.user, posts.match("GET", "/users/" ++ segment, &parameters).found);
+        try testing.expectEqualStrings(segment, parameters.get("id").?);
+    }
+}
+
+test "INV-8: a path of more than path_len_max octets matches nothing, its query included" {
+    const any = routes(u8, .{.{ .get, "/:segment", 1 }});
+    var target: [constants.path_len_max + 1]u8 = @splat('a');
+    target[0] = '/';
+    var parameters: PathParameters = .{};
+    try testing.expectEqual(1, any.match("GET", target[0..constants.path_len_max], &parameters).found);
+    try testing.expectEqual(constants.path_len_max - 1, parameters.get("segment").?.len);
+    try testing.expect(any.match("GET", &target, &parameters) == .not_found);
+    target[2] = '?';
+    try testing.expectEqual(1, any.match("GET", target[0..constants.path_len_max], &parameters).found);
+    try testing.expect(any.match("GET", &target, &parameters) == .not_found);
+}
+
 /// The routes of the largest table that the tests build: each one has a pattern of
 /// `large_segments` segments of `large_segment_len` octets.
 const large_routes = 256;
@@ -215,12 +314,14 @@ test "decision 122: a table of 256 routes of four segments each compiles and mat
     try testing.expectEqualStrings("GET", large.match("PUT", large_table[0][1], &parameters).method_not_allowed);
 }
 
-/// The table that the sweep reads. Each pattern is of one or two octets, so the sweep's paths of
-/// up to two octets find each route.
-const swept_patterns = [_][]const u8{ "/", "/a" };
+/// The table that the sweep reads. Each pattern is of one, two or three octets, so the sweep's
+/// paths of up to two octets find each route.
+const swept_patterns = [_][]const u8{ "/", "/a", "/:x" };
+const swept_parameter = 2;
 const swept = routes(u8, .{
     .{ .get, swept_patterns[0], 0 },
     .{ .get, swept_patterns[1], 1 },
+    .{ .get, swept_patterns[swept_parameter], swept_parameter },
 });
 
 /// Most octets a fuzz input carries. Test-only.
@@ -231,32 +332,50 @@ fn fuzz_match(_: void, smith: *testing.Smith) anyerror!void {
     const target = input[0..smith.slice(&input)];
     var parameters: PathParameters = .{};
     parameters.count = 1;
-    const result = swept.match("GET", target, &parameters);
-    try testing.expectEqual(0, parameters.count);
-    switch (result) {
-        .found => |route| {
-            const path = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
-            try testing.expect(path.len > 0 and path[0] == '/');
-            try testing.expectEqualStrings(swept_patterns[route], path);
-        },
+    switch (swept.match("GET", target, &parameters)) {
+        .found => |route| try expect_swept(route, target, &parameters),
         // Each path of the table names GET.
         .method_not_allowed => return error.TestUnexpectedResult,
-        .not_found => {},
+        .not_found => try testing.expectEqual(0, parameters.count),
     }
 }
 
-test "fuzz: a found path starts with \"/\" and equals a pattern before its query" {
+fn expect_swept(route: u8, target: []const u8, parameters: *const PathParameters) !void {
+    const path = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
+    try testing.expect(path.len > 0 and path[0] == '/');
+    try testing.expectEqual(null, std.mem.indexOfScalar(u8, path, '%'));
+    if (route != swept_parameter) {
+        try testing.expectEqualStrings(swept_patterns[route], path);
+        try testing.expectEqual(0, parameters.count);
+        return;
+    }
+    // The value is the path's one segment: not empty, not a dot segment, and with no "/".
+    const value = parameters.get("x").?;
+    try testing.expectEqual(1, parameters.count);
+    try testing.expectEqual(path.ptr + 1, value.ptr);
+    try testing.expectEqual(path.len - 1, value.len);
+    try testing.expect(value.len > 0 and std.mem.indexOfScalar(u8, value, '/') == null);
+    try testing.expect(!std.mem.eql(u8, value, ".") and !std.mem.eql(u8, value, ".."));
+}
+
+test "fuzz: a found path equals a pattern before its query, or binds one segment that is not empty or a dot" {
     try testing.fuzz({}, fuzz_match, .{ .corpus = &.{
         core.fuzz.input("/"),
         core.fuzz.input("/a"),
         core.fuzz.input("/a?b"),
         core.fuzz.input("/?"),
+        core.fuzz.input("/b"),
+        core.fuzz.input("/b?c"),
+        core.fuzz.input("/..."),
         core.fuzz.input("/a/"),
+        core.fuzz.input("/."),
+        core.fuzz.input("/%"),
+        core.fuzz.input("//"),
         core.fuzz.input("a"),
         core.fuzz.input("*"),
     } });
 }
 
-test "sweep: every path of up to two octets that matches equals a pattern before its query" {
+test "sweep: every path of up to two octets that matches equals a pattern or binds one segment" {
     try core.fuzz.sweep(fuzz_match, null);
 }

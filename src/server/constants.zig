@@ -3,6 +3,8 @@
 //! constant a caller can read (decision 35).
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
+const h11 = @import("h11");
 const h2 = @import("h2");
 const h3 = @import("h3");
 const quic = @import("quic");
@@ -212,6 +214,12 @@ pub const bodies_max: usize = h2.constants.concurrent_streams_max;
 /// never fails at run time.
 pub const path_parameters_max: usize = 8;
 
+/// The most octets of a path that a route table matches, its query included (decision 122 ruling
+/// 13). It is the endpoint's own bound on a path: an h11 request line, or an h2 or h3 `:path`
+/// field value. `match` gives `not_found` for a longer path, so the octets that one match reads
+/// have a named bound (INV-8).
+pub const path_len_max: usize = @max(h11.constants.start_line_len_max, core.constants.field_value_len_max);
+
 comptime {
     assert(encoder_ring_len > 0 and encoders_default > 0);
     assert(quic_requests_max > 0 and quic_requests_max <= h3.constants.request_streams_max);
@@ -241,4 +249,6 @@ comptime {
     assert(rate_grace_ns + rate_window_ns <= body_timeout_ns and body_timeout_ns <= timeout_ns_max);
     // A pattern can hold one parameter at least.
     assert(path_parameters_max > 0);
+    // Each path that the endpoint gives the program fits, in each version.
+    assert(path_len_max >= h11.constants.start_line_len_max and path_len_max >= core.constants.field_value_len_max);
 }
