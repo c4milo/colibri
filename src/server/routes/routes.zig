@@ -3,6 +3,7 @@
 //! the program's (decision 118): `match` gives the route's value, and the program acts on it.
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const routes_trie = @import("routes_trie.zig");
+const routes_trie_layout = @import("routes_trie_layout.zig");
 const routes_match = @import("routes_match.zig");
 
 /// Builds a route table at compile time. `table` is a tuple, or an array, of entries, and each
@@ -13,7 +14,8 @@ const routes_match = @import("routes_match.zig");
 /// - The pattern is a path of segments, or "/" for the root. A segment is a literal, or a
 ///   parameter: ":" and a name of `1*( ALPHA / DIGIT / "_" )`, such as `/users/:id`. A
 ///   parameter matches one segment of a path, and a program reads its value with
-///   `PathParameters.get`.
+///   `PathParameters.get`. The last segment can be the wildcard "*", such as `/files/*`. It
+///   matches one segment or more, and `get("*")` gives the rest of the path.
 /// - The value coerces to `Value`, which is a type that exists at run time: an enum, a pointer to
 ///   a function, or a struct. `match` reads the value at run time, so `Value` is not a `type` or
 ///   a bare `fn` type.
@@ -31,7 +33,7 @@ fn Table(comptime Value: type, comptime table: anytype) type {
     // Decision 122: a malformed or conflicting table does not compile, and the message names the
     // entry and the rule.
     if (routes_trie.refusal_of(table)) |refusal| @compileError(routes_trie.message(refusal));
-    const layout = routes_trie.build(Value, table);
+    const layout = routes_trie_layout.build(Value, table);
     return struct {
         /// What `match` gives: `found` with the route's value, `method_not_allowed` with the
         /// value of the Allow field that a 405 carries, or `not_found`.

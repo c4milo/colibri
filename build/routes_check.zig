@@ -71,6 +71,11 @@ const cases = [_]Case{
             "a pattern holds server.constants.path_parameters_max parameters at most",
     },
     .{
+        .name = "wildcard_not_last",
+        .message = "server.routes: route 1, \"/files/*/meta\": wildcard_not_last: " ++
+            "the wildcard \"*\" is the last segment of its pattern",
+    },
+    .{
         .name = "method_unknown",
         .message = "server.routes: route 1, \"/a\": method_unknown: " ++
             "no member of http.method.Standard has this name; write a method " ++

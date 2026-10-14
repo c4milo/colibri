@@ -12,13 +12,16 @@
 //!      the root's is empty, or when a segment is "." or "..".
 //!   6. The path "/" is the root, with no segment.
 //!   7. Each segment, from the first, takes the literal edge of its node that equals it, octet for
-//!      octet, or else the node's parameter child. A segment with neither matches nothing.
+//!      octet, or else the node's parameter child, or else the node's wildcard child. The wildcard
+//!      takes the segment and each segment after it. A segment with none of the three matches
+//!      nothing.
 //!   8. The node after the last segment holds a leaf, or the path matches nothing.
 //!   9. The method equals the token of one entry of the leaf, octet for octet, and the result is
 //!      `found` with the entry's value. Otherwise it is `method_not_allowed` with the leaf's Allow
 //!      value.
-//!  10. `found` writes the name and the segment of each parameter of the walk into `parameters`.
-//!      Each other result leaves `parameters.count` at 0.
+//!  10. `found` writes the name and the segment of each parameter of the walk into `parameters`,
+//!      and for the wildcard the name "*" and the rest of the path, without its first "/". Each
+//!      other result leaves `parameters.count` at 0.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -121,23 +124,36 @@ fn walk(comptime layout: anytype, path: []const u8, parameters: *PathParameters)
     // Bounded: each pass goes one level deeper, and a node at the depth of the deepest pattern
     // has no child, so the pass after it returns.
     for (0..@TypeOf(layout).depth_max + 1) |_| {
+        // The segment and each segment after it, which a wildcard takes.
+        const rest = segments.rest();
         const segment = segments.next() orelse return walked;
-        walked.node = child_of(layout, walked.node, segment, parameters, &walked.count) orelse return null;
+        // Decision 122: the literal edge first, then the parameter child, then the wildcard.
+        if (literal_child(layout, walked.node, segment)) |child| {
+            walked.node = child;
+            continue;
+        }
+        if (layout.nodes[walked.node].parameter) |parameter| {
+            bind(parameters, &walked.count, text_of(layout, parameter.name), segment);
+            walked.node = parameter.child;
+            continue;
+        }
+        // Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path.
+        walked.node = layout.nodes[walked.node].wildcard orelse return null;
+        bind(parameters, &walked.count, routes_pattern.wildcard, rest);
+        return walked;
     }
     unreachable;
 }
 
-fn child_of(comptime layout: anytype, node: usize, segment: []const u8, parameters: *PathParameters, count: *usize) ?usize {
-    // Decision 122: the literal edge first, then the parameter child.
-    if (literal_child(layout, node, segment)) |child| return child;
-    const parameter = layout.nodes[node].parameter orelse return null;
+/// Writes `name` and `value` as the next parameter of a walk.
+fn bind(parameters: *PathParameters, count: *usize, name: []const u8, value: []const u8) void {
     // `routes_pattern.refusal_of` passed each pattern, so a walk meets `path_parameters_max`
-    // parameters at most.
+    // parameters at most, the wildcard included.
     assert(count.* < constants.path_parameters_max);
-    parameters.names[count.*] = text_of(layout, parameter.name);
-    parameters.values[count.*] = segment;
+    assert(value.len > 0);
+    parameters.names[count.*] = name;
+    parameters.values[count.*] = value;
     count.* += 1;
-    return parameter.child;
 }
 
 fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?usize {

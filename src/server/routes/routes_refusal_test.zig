@@ -72,12 +72,17 @@ test "refusal 5, octet_outside_path: RFC 3986 §3.3, a segment holds pchar alone
     try expect_pattern(null, "/a:b@c");
 }
 
-test "decision 122: the wildcard does not compile until step 21e.6" {
-    try expect_pattern(.segment_unsupported, "/files/*");
-    try expect_pattern(.segment_unsupported, "/*");
-    // A segment that holds "*" or ":" after its first octet is a literal.
+test "refusal 10, wildcard_not_last: decision 122 ruling 6, the wildcard is the last segment" {
+    try expect_pattern(.wildcard_not_last, "/files/*/meta");
+    try expect_pattern(.wildcard_not_last, "/*/a");
+    try expect_pattern(.wildcard_not_last, "/*/*");
+    try expect_pattern(null, "/files/*");
+    try expect_pattern(null, "/*");
+    try expect_pattern(null, "/:id/*");
+    // A segment that holds "*" and other octets, or ":" after its first octet, is a literal.
     try expect_pattern(null, "/a*b");
     try expect_pattern(null, "/**");
+    try expect_pattern(null, "/*a/b");
     try expect_pattern(null, "/a:b");
 }
 
@@ -134,6 +139,11 @@ test "refusal 9, parameters_too_many: a pattern holds path_parameters_max parame
     try expect_pattern(null, most);
     // A literal is not a parameter.
     try expect_pattern(null, most ++ "/extra");
+    // Decision 122 ruling 10: the wildcard takes one entry of `PathParameters`.
+    try expect_pattern(.parameters_too_many, most ++ "/*");
+    const fewer = comptime parameters_pattern(constants.path_parameters_max - 1);
+    try expect_pattern(null, fewer ++ "/*");
+    try expect_pattern(.parameters_too_many, fewer ++ "/:extra/*");
 }
 
 test "refusal 11, method_unknown: an enum literal names a member of http.method.Standard" {

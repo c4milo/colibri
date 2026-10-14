@@ -13,9 +13,9 @@ const case = @import("routes_case").case;
 const valid = .{ .get, "/", 0 };
 
 const tables = struct {
-    /// Each kind of method and pattern that a table accepts at design §8 step 21e.5: an enum
-    /// literal, a value of `http.method.Standard`, a token, the root, literal segments and
-    /// parameters.
+    /// Each kind of method and pattern that a table accepts at design §8 step 21e.6: an enum
+    /// literal, a value of `http.method.Standard`, a token, the root, literal segments,
+    /// parameters and the wildcard.
     pub const accepted = .{
         .{ .get, "/", 0 },
         .{ http.method.Standard.put, "/users/me", 1 },
@@ -23,6 +23,7 @@ const tables = struct {
         .{ .delete, "/a.b/~c/d@e:f", 3 },
         .{ .get, "/files/:name/parts/:part_2", 4 },
         .{ .put, "/files/:name", 5 },
+        .{ .get, "/static/*", 6 },
     };
     pub const pattern_not_absolute = .{ valid, .{ .get, "users", 1 } };
     pub const segment_empty = .{ valid, .{ .get, "/a//b", 1 } };
@@ -33,6 +34,7 @@ const tables = struct {
     pub const parameter_name_invalid = .{ valid, .{ .get, "/:user-id", 1 } };
     pub const parameter_repeated = .{ valid, .{ .get, "/:id/posts/:id", 1 } };
     pub const parameters_too_many = .{ valid, .{ .get, "/:a/:b/:c/:d/:e/:f/:g/:h/:i", 1 } };
+    pub const wildcard_not_last = .{ valid, .{ .get, "/files/*/meta", 1 } };
     pub const method_unknown = .{ valid, .{ .gte, "/a", 1 } };
     pub const method_not_token = .{ valid, .{ "GET ", "/a", 1 } };
     pub const method_standard_as_token = .{ valid, .{ "GET", "/a", 1 } };

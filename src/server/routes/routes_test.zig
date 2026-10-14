@@ -252,6 +252,87 @@ test "RFC 3986 §3.3: a path with a \"%\", an empty or dot segment, or an octet 
     }
 }
 
+/// The kind of segment that a route of the wildcard's tests ends with.
+const Last = enum { parameter, literal, wildcard };
+
+const files = routes(Last, .{
+    .{ .get, "/files/*", .wildcard },
+    .{ .get, "/files/a*b", .literal },
+});
+
+test "decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path" {
+    var parameters: PathParameters = .{};
+    const path: []const u8 = "/files/a/b";
+    try testing.expectEqual(.wildcard, files.match("GET", path, &parameters).found);
+    try testing.expectEqual(1, parameters.count);
+    try testing.expectEqualStrings("a/b", parameters.get("*").?);
+    try testing.expectEqual(path.ptr + "/files/".len, parameters.get("*").?.ptr);
+    try testing.expectEqual(.wildcard, files.match("GET", "/files/a", &parameters).found);
+    try testing.expectEqualStrings("a", parameters.get("*").?);
+    // RFC 3986 §3.3: the rest of the path stops at the first "?".
+    try testing.expectEqual(.wildcard, files.match("GET", "/files/a/b?c/d", &parameters).found);
+    try testing.expectEqualStrings("a/b", parameters.get("*").?);
+    // A segment that holds "*" and other octets is a literal, and the literal wins.
+    try testing.expectEqual(.literal, files.match("GET", "/files/a*b", &parameters).found);
+    try testing.expectEqual(0, parameters.count);
+    try testing.expectEqual(.wildcard, files.match("GET", "/files/axb", &parameters).found);
+    // The wildcard needs one segment, and each segment of the rest passes the checks of the path.
+    inline for (.{ "/files", "/files/", "/files/a/../b", "/files/a/./b", "/files/a//b", "/files/a/", "/files/%2F" }) |refused| {
+        try expect_not_found(files, "GET", refused);
+    }
+}
+
+/// Tables where the wildcard competes with a literal and a parameter. Each table is a constant of
+/// the file, so each one has the comptime branch quota of its own build.
+const parameter_first = routes(Last, .{ .{ .get, "/a/:x", .parameter }, .{ .get, "/a/b", .literal }, .{ .get, "/a/*", .wildcard } });
+const wildcard_first = routes(Last, .{ .{ .get, "/a/*", .wildcard }, .{ .get, "/a/b", .literal }, .{ .get, "/a/:x", .parameter } });
+const literal_and_wildcard = routes(Last, .{ .{ .get, "/a/*", .wildcard }, .{ .get, "/a/b", .literal } });
+
+test "decision 122: the literal and the parameter win over the wildcard, whatever the table's order" {
+    inline for (.{ parameter_first, wildcard_first }) |table| {
+        var parameters: PathParameters = .{};
+        try testing.expectEqual(.parameter, table.match("GET", "/a/c", &parameters).found);
+        try testing.expectEqual(1, parameters.count);
+        try testing.expectEqualStrings("c", parameters.get("x").?);
+        try testing.expectEqual(null, parameters.get("*"));
+        try testing.expectEqual(.literal, table.match("GET", "/a/b", &parameters).found);
+        try testing.expectEqual(0, parameters.count);
+    }
+    var parameters: PathParameters = .{};
+    try testing.expectEqual(.literal, literal_and_wildcard.match("GET", "/a/b", &parameters).found);
+    try testing.expectEqual(.wildcard, literal_and_wildcard.match("GET", "/a/c", &parameters).found);
+    try testing.expectEqualStrings("c", parameters.get("*").?);
+}
+
+/// The comptime branches that `most_parameters` takes for each parameter. Test-only.
+const branches_per_parameter = 1_000;
+
+/// A pattern of `path_parameters_max - 1` parameters and the wildcard, or a path that it matches
+/// with `value_prefix` before each value. Comptime-only.
+fn most_parameters(comptime parameter_prefix: []const u8, comptime value_prefix: []const u8) []const u8 {
+    @setEvalBranchQuota(constants.path_parameters_max * branches_per_parameter);
+    var text: []const u8 = "";
+    for (0..constants.path_parameters_max - 1) |index| {
+        text = text ++ std.fmt.comptimePrint("/{s}{s}{d}", .{ parameter_prefix, value_prefix, index });
+    }
+    return text;
+}
+
+test "decision 122 ruling 10: the parameters and the wildcard of a pattern fill path_parameters_max entries" {
+    const most = routes(u8, .{.{ .get, comptime most_parameters(":", "p") ++ "/*", 1 }});
+    const path = comptime most_parameters("", "v") ++ "/w/x";
+    var parameters: PathParameters = .{};
+    try testing.expectEqual(1, most.match("GET", path, &parameters).found);
+    try testing.expectEqual(constants.path_parameters_max, parameters.count);
+    try testing.expectEqualStrings("v0", parameters.get("p0").?);
+    try testing.expectEqualStrings("w/x", parameters.get("*").?);
+    inline for (0..constants.path_parameters_max - 1) |index| {
+        const name = comptime std.fmt.comptimePrint("p{d}", .{index});
+        const value = comptime std.fmt.comptimePrint("v{d}", .{index});
+        try testing.expectEqualStrings(value, parameters.get(name).?);
+    }
+}
+
 test "INV-8: a path of more than path_len_max octets matches nothing, its query included" {
     const any = routes(u8, .{.{ .get, "/:segment", 1 }});
     var target: [constants.path_len_max + 1]u8 = @splat('a');
@@ -314,14 +395,20 @@ test "decision 122: a table of 256 routes of four segments each compiles and mat
     try testing.expectEqualStrings("GET", large.match("PUT", large_table[0][1], &parameters).method_not_allowed);
 }
 
-/// The table that the sweep reads. Each pattern is of one, two or three octets, so the sweep's
-/// paths of up to two octets find each route.
+/// The tables that the sweep reads. Each pattern is of one, two or three octets, so the sweep's
+/// paths of up to two octets find each route. The parameter child of `swept` takes each path of
+/// one segment before the wildcard can, so the wildcard has a table of its own.
 const swept_patterns = [_][]const u8{ "/", "/a", "/:x" };
-const swept_parameter = 2;
+const swept_binding = 2;
 const swept = routes(u8, .{
     .{ .get, swept_patterns[0], 0 },
     .{ .get, swept_patterns[1], 1 },
-    .{ .get, swept_patterns[swept_parameter], swept_parameter },
+    .{ .get, swept_patterns[swept_binding], swept_binding },
+});
+const swept_wildcard = routes(u8, .{
+    .{ .get, swept_patterns[0], 0 },
+    .{ .get, swept_patterns[1], 1 },
+    .{ .get, "/*", swept_binding },
 });
 
 /// Most octets a fuzz input carries. Test-only.
@@ -330,35 +417,46 @@ const fuzz_input_len_max = 64;
 fn fuzz_match(_: void, smith: *testing.Smith) anyerror!void {
     var input: [fuzz_input_len_max]u8 = @splat(0);
     const target = input[0..smith.slice(&input)];
+    try expect_match(swept, "x", target);
+    try expect_match(swept_wildcard, "*", target);
+}
+
+fn expect_match(table: anytype, comptime name: []const u8, target: []const u8) !void {
     var parameters: PathParameters = .{};
     parameters.count = 1;
-    switch (swept.match("GET", target, &parameters)) {
-        .found => |route| try expect_swept(route, target, &parameters),
+    switch (table.match("GET", target, &parameters)) {
+        .found => |route| try expect_swept(route, name, target, &parameters),
         // Each path of the table names GET.
         .method_not_allowed => return error.TestUnexpectedResult,
         .not_found => try testing.expectEqual(0, parameters.count),
     }
 }
 
-fn expect_swept(route: u8, target: []const u8, parameters: *const PathParameters) !void {
+fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parameters: *const PathParameters) !void {
     const path = target[0 .. std.mem.indexOfScalar(u8, target, '?') orelse target.len];
     try testing.expect(path.len > 0 and path[0] == '/');
     try testing.expectEqual(null, std.mem.indexOfScalar(u8, path, '%'));
-    if (route != swept_parameter) {
+    if (route != swept_binding) {
         try testing.expectEqualStrings(swept_patterns[route], path);
         try testing.expectEqual(0, parameters.count);
         return;
     }
-    // The value is the path's one segment: not empty, not a dot segment, and with no "/".
-    const value = parameters.get("x").?;
+    // The value is the path after its first "/". A parameter's value holds no "/".
+    const value = parameters.get(name).?;
     try testing.expectEqual(1, parameters.count);
     try testing.expectEqual(path.ptr + 1, value.ptr);
     try testing.expectEqual(path.len - 1, value.len);
-    try testing.expect(value.len > 0 and std.mem.indexOfScalar(u8, value, '/') == null);
-    try testing.expect(!std.mem.eql(u8, value, ".") and !std.mem.eql(u8, value, ".."));
+    if (comptime !std.mem.eql(u8, name, "*")) try testing.expectEqual(null, std.mem.indexOfScalar(u8, value, '/'));
+    // Each segment of the value is not empty and not a dot segment.
+    var segments = std.mem.splitScalar(u8, value, '/');
+    for (0..value.len + 1) |_| {
+        const segment = segments.next() orelse break;
+        try testing.expect(segment.len > 0);
+        try testing.expect(!std.mem.eql(u8, segment, ".") and !std.mem.eql(u8, segment, ".."));
+    }
 }
 
-test "fuzz: a found path equals a pattern before its query, or binds one segment that is not empty or a dot" {
+test "fuzz: a found path equals a pattern before its query, or binds segments that are not empty or a dot" {
     try testing.fuzz({}, fuzz_match, .{ .corpus = &.{
         core.fuzz.input("/"),
         core.fuzz.input("/a"),
@@ -371,11 +469,15 @@ test "fuzz: a found path equals a pattern before its query, or binds one segment
         core.fuzz.input("/."),
         core.fuzz.input("/%"),
         core.fuzz.input("//"),
+        core.fuzz.input("/b/c"),
+        core.fuzz.input("/b/c?d/e"),
+        core.fuzz.input("/b//c"),
+        core.fuzz.input("/b/../c"),
         core.fuzz.input("a"),
         core.fuzz.input("*"),
     } });
 }
 
-test "sweep: every path of up to two octets that matches equals a pattern or binds one segment" {
+test "sweep: every path of up to two octets that matches equals a pattern or binds its segment" {
     try core.fuzz.sweep(fuzz_match, null);
 }

@@ -1,8 +1,11 @@
 //! The checks on the pattern of a route (decision 122, design §8 step 21e). They run at compile
 //! time. A pattern that fails one of them matches no path, so the table does not compile.
 //!
-//! A segment of a pattern is a literal, or a parameter: ":" and the parameter's name. A parameter
-//! matches one segment of a path, and `match` writes the segment as the parameter's value.
+//! A segment of a pattern is a literal, a parameter, or the wildcard. A parameter is ":" and the
+//! parameter's name, and it matches one segment of a path. `match` writes the segment as the
+//! parameter's value. The wildcard is the segment "*", which is the last segment of a pattern. It
+//! matches one segment or more, and `match` writes the rest of the path as the value of the name
+//! "*" (decision 122 ruling 6).
 //!
 //! A pattern is checked in this order (invariant 7):
 //!   1. It starts with "/", or `pattern_not_absolute`. The pattern "/" alone is the root, with no
@@ -10,13 +13,14 @@
 //!   2. Each segment, from the first, is checked in this order:
 //!      1. not empty, or `segment_empty`;
 //!      2. not "." or "..", or `segment_dot`;
-//!      3. not the wildcard "*", or `segment_unsupported`, until step 21e.6;
-//!      4. for a parameter: a name follows the ":", or `parameter_unnamed`; each octet of the name
-//!         is an octet of `name_octets`, or `parameter_name_invalid`; no earlier parameter of the
-//!         pattern has the name, or `parameter_repeated`; and the pattern holds no more than
-//!         `path_parameters_max` parameters, or `parameters_too_many`;
+//!      3. for the wildcard: it is the last segment, or `wildcard_not_last`;
+//!      4. for a parameter: a name follows the ":", or `parameter_unnamed`, and each octet of the
+//!         name is an octet of `name_octets`, or `parameter_name_invalid`;
 //!      5. for a literal: each octet, from the first, is not "%", or `segment_encoded`, and is an
-//!         octet of `path_octets`, or `octet_outside_path`.
+//!         octet of `path_octets`, or `octet_outside_path`;
+//!      6. for a parameter or the wildcard: no earlier parameter of the pattern has the name, or
+//!         `parameter_repeated`, and the pattern holds no more than `path_parameters_max`
+//!         parameters, the wildcard included, or `parameters_too_many`.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -32,7 +36,7 @@ pub const Refusal = enum {
     parameter_name_invalid,
     parameter_repeated,
     parameters_too_many,
-    segment_unsupported,
+    wildcard_not_last,
 
     /// The sentence that the compile error writes after the refusal's name.
     pub fn reason(refusal: Refusal) []const u8 {
@@ -46,7 +50,7 @@ pub const Refusal = enum {
             .parameter_name_invalid => "a parameter name is 1*( ALPHA / DIGIT / \"_\" ), and a parameter is a whole segment",
             .parameter_repeated => "each parameter of a pattern has a name of its own",
             .parameters_too_many => "a pattern holds server.constants.path_parameters_max parameters at most",
-            .segment_unsupported => "the segment \"*\" has no meaning yet",
+            .wildcard_not_last => "the wildcard \"*\" is the last segment of its pattern",
         };
     }
 };
@@ -81,6 +85,9 @@ pub const root = "/";
 /// The octet that starts a parameter's segment. The name follows it.
 pub const parameter_prefix = ':';
 
+/// The segment of the wildcard, and the name that `match` binds the rest of the path to.
+pub const wildcard = "*";
+
 /// The octets of a parameter's name: `1*( ALPHA / DIGIT / "_" )` (decision 122).
 pub const name_octets: [std.math.maxInt(u8) + 1]bool = build: {
     var table: [std.math.maxInt(u8) + 1]bool = undefined;
@@ -99,6 +106,19 @@ pub fn parameter_name(segment: []const u8) []const u8 {
     return segment[1..];
 }
 
+/// Whether `segment` is the wildcard. A segment that holds "*" and other octets is a literal.
+pub fn is_wildcard(segment: []const u8) bool {
+    return std.mem.eql(u8, segment, wildcard);
+}
+
+/// The name that `match` writes for `segment`: the parameter's name, `wildcard` for the
+/// wildcard, or null for a literal.
+fn binding_name(segment: []const u8) ?[]const u8 {
+    if (is_parameter(segment)) return parameter_name(segment);
+    if (is_wildcard(segment)) return wildcard;
+    return null;
+}
+
 /// The verdict on a pattern, or null when the pattern can match a path. Comptime-only.
 pub fn refusal_of(comptime pattern: []const u8) ?Refusal {
     // RFC 9110 §4.1: absolute-path = 1*( "/" segment ), and a path that does not start with "/"
@@ -111,23 +131,23 @@ pub fn refusal_of(comptime pattern: []const u8) ?Refusal {
     // Bounded: the pattern holds one segment for each "/", and the pass after the last one ends.
     for (0..segments_count(pattern) + 1) |_| {
         const segment = segments.next() orelse return null;
-        if (segment_refusal(segment)) |refusal| return refusal;
-        if (!is_parameter(segment)) continue;
-        if (names_refusal(names[0..names_count], parameter_name(segment))) |refusal| return refusal;
-        names[names_count] = parameter_name(segment);
+        if (segment_refusal(segment, segments.peek() == null)) |refusal| return refusal;
+        const name = binding_name(segment) orelse continue;
+        if (names_refusal(names[0..names_count], name)) |refusal| return refusal;
+        names[names_count] = name;
         names_count += 1;
     }
     unreachable;
 }
 
-fn segment_refusal(comptime segment: []const u8) ?Refusal {
+fn segment_refusal(comptime segment: []const u8, comptime last: bool) ?Refusal {
     // Decision 122: a path with an empty segment other than the root's matches no route, though
     // RFC 3986 §3.3 allows one.
     if (segment.len == 0) return .segment_empty;
     // RFC 3986 §3.3: "." and ".." are dot-segments, and a path with one matches no route.
     if (std.mem.eql(u8, segment, ".") or std.mem.eql(u8, segment, "..")) return .segment_dot;
-    // Design §8 step 21e.6 gives a meaning to the wildcard.
-    if (std.mem.eql(u8, segment, "*")) return .segment_unsupported;
+    // Decision 122 ruling 6: the wildcard matches the rest of the path, so no segment follows it.
+    if (is_wildcard(segment)) return if (last) null else .wildcard_not_last;
     if (is_parameter(segment)) return name_refusal(parameter_name(segment));
     for (segment) |octet| {
         // RFC 3986 §2.1: "%" starts a pct-encoded octet, and a path with one matches no route.
@@ -154,7 +174,8 @@ fn names_refusal(comptime names: []const []const u8, comptime name: []const u8) 
         // Decision 122: `get` of the name would find two values.
         if (std.mem.eql(u8, held, name)) return .parameter_repeated;
     }
-    // Decision 122 ruling 10: `path_parameters_max` sizes `PathParameters`.
+    // Decision 122 ruling 10: `path_parameters_max` sizes `PathParameters`, and the wildcard
+    // takes one entry of it.
     if (names.len == constants.path_parameters_max) return .parameters_too_many;
     return null;
 }
