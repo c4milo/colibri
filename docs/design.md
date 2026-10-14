@@ -9273,6 +9273,317 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - 21d.1, 21d.2, 21d.4 and 21d.5 change no check. The test counts are the check of 21d.4 and
       21d.5.
 
+  **21e, 2026-10-14.** `server.routes`, a table of methods and paths that a program declares at
+  compile time (decision 122). Run on macOS 26 on an Apple M1 Pro, with Zig 0.16.0. The commits
+  are on the branch `router-21e` over main c6eeb9c, from 2026-10-13 to 2026-10-14. 21e.7 became
+  21e.7a and 21e.7b, and 21e.8 became 21e.8a and 21e.8b.
+  - **The rulings.**
+    - 2026-10-13: the owner ruled "Go with the recommendations" on the choices of the plan.
+      Decision 122 records the thirteen rulings. The same day, the owner read ruling 12 as two
+      cases, `route_hidden` and `route_unreachable`, after eight examples. The owner also
+      approved the two CLAUDE.md sentences of f20e74d.
+    - 2026-10-14, after 21e.10: the cross-check of `routes_hidden_test.zig` leaves `zig build
+      test-server` for a build step of its own, which `zig build test` runs. Also, 21e fixes the
+      compile time of large tables. The owner accepted that the fix changes the run-time code of
+      `match`, and that CLAUDE.md's rule on performance then asks for a measurement.
+  - **The base.** On main c6eeb9c, `zig build test` passed 131 of 131 steps and 2892 of 2892
+    tests, `zig build test-server` 395 tests and `zig build test-http` 78.
+  - **The commits.** After each one, `zig build test` passed these steps and tests, and `zig
+    build test-server` these tests:
+    - 21e.1, e97e694: decision 122, INV-32 and the text of this step. 131 steps, 2892, 395.
+    - 21e.2, d2b73ab: `http.method.Standard`. 131 steps, 2893, 395. `zig build test-http`
+      passed 79 tests from this commit on.
+    - 21e.3, 98c89fe: literal routes, every public name and its list. 131 steps, 2923, 425.
+    - 21e.4, 0222d42: `zig build routes-check`. 160 steps, 2923, 425.
+    - 21e.5, a9d1b95: parameters, the checks of a path, and `path_len_max`. 170 steps, 2935, 437.
+    - 21e.6, d3c20fb: the trailing wildcard. `routes_trie_layout.zig` holds the layout, because
+      `routes_trie.zig` was at 486 lines. 172 steps, 2938, 440.
+    - f20e74d: CLAUDE.md names `server.routes` and `zig build routes-check`. No check changes.
+    - 800ebda: the router's tests move to four files, because `routes_test.zig` was at 483
+      lines. 172 steps, 2938, 440, as before.
+    - 21e.7a, 6b6c0a3: the back-up (INV-32). 172 steps, 2943, 445.
+    - 21e.8a, 52206df: no content in a response to HEAD, in h11, h2 and h3. 172 steps, 2949, 451.
+      The six new tests failed on the code before the fix: 445 of 451 passed.
+    - 21e.8b, 104d9d5: HEAD on a GET route. 172 steps, 2951, 453.
+    - 21e.9, 2b82b3d: `not_implemented`. 172 steps, 2954, 456.
+    - 21e.7b, 6ed56b1: the refusals `route_hidden`, `route_unreachable` and `allow_too_long`. It
+      came after 21e.9, because it waited for the owner's reading of ruling 12. 178 steps,
+      2962, 464.
+    - 6eef776: the review's fixes of 21e.7b. 178 steps, 2966, 468.
+    - 21e.10, 75d08e9: the examples and the guide. 178 steps, 2966, 468.
+    - e6a5c77: the cross-check in `zig build routes-hidden-check`. 181 steps, 2969, 464.
+      `zig build routes-hidden-check` passed 7 tests.
+    - 546d6b1: the binary search and the walk of the trie. 181 steps, 2971, 465. `zig build
+      routes-hidden-check` passed 8 tests.
+    - fc90377: the client example sends a request to each arm of its server's route switch.
+      181 steps, 2971, 465.
+    - 31c52ee: a test builds each route table that docs/usage.md shows. 181 steps, 2972, 466.
+    - 174c242: one verb for each meaning in the router's text. 181 steps, 2972, 466.
+    - 315e3c1: CLAUDE.md names `zig build routes-hidden-check`, and the rule that `zig build
+      test` runs each step whose name ends in `-check`. No check changes.
+    - 73fbf50: the build of a large table in a few seconds. 181 steps, 2972, 466. `zig build
+      routes-hidden-check` passed 8 tests.
+    - From 21e.2 on, `zig build test -Drelease` passed the count of `zig build test` after each
+      commit.
+  - **What stayed.**
+    - From 21e.3 on, `zig build bench-memory` printed the table of the base after each
+      sub-step. No census, CRC, golden check or memory row changed.
+    - After each sub-step, `zig build lint` passed inside `zig build test`, and
+      `tools/doc_snippets.sh` and `zig build lint-commits` passed. From 21e.2 on, `zig fmt
+      --check` and `tools/consumer_check.sh` passed too. At 73fbf50, `zig build lint` printed
+      "cognitive-complexity: 9233 functions scored, highest 15 (max 15)".
+  - **The examples.** At 73fbf50, `zig build examples` prints "every octet arrived as sent" for
+    `h2_exchange`, `h11_exchange`, `server_exchange` and `client_exchange`. Each program prints
+    its statuses in the order that the responses end. The clients of `server_exchange` get 200,
+    200, 405, 404, 200 and 200. The client example gets 200, 405, 404, 501 and 200.
+  - **routes-check.** It compiles `accepted` and 22 refused tables, in 65 steps. 21e.4 added 14
+    cases, 21e.5 five, 21e.6 one and 21e.7b three.
+    - At 21e.4, the first run took 9.07 s and a run on a warm cache 2.28 s. A refused compile
+      is not cached. Two runs of `zig build test` took 220 s and 232 s.
+    - At 174c242, two runs on a warm cache took 2.61 s and 2.68 s, timed with `/usr/bin/time -p
+      zig build routes-check`.
+  - **The cross-check.** `routes_hidden_test.zig` compares the check of hidden routes with a
+    brute force on 2,838 tables. Each census gives the tables, then those with `route_hidden`,
+    with `route_unreachable`, and those that compile:
+    - The ordered pairs of two routes over 17 patterns, with GET and PUT: 1122, 240, 0 and 882.
+    - The pairs over GET, HEAD and PUT that hold a HEAD route: 1428, 360, 0 and 1068.
+    - Example 8's triples in its own order: 48, 36, 6 and 6.
+    - Example 8's triples in the five other orders: 240, 180, 30 and 30.
+    - 6ed56b1 pinned the first and the third census. 6eef776 added the second and the fourth.
+  - **The cost of the cross-check.**
+    - At 6ed56b1, `zig build test-server --summary all` gave its compile as 51 s and 53 s,
+      against 26 s and 25 s before.
+    - At 6eef776, a warm run of `zig build test-server` took about 90 s, against about 40 s.
+    - e6a5c77 obeys the first ruling of 2026-10-14. `zig build routes-hidden-check` compiles the
+      cross-check in a test binary of its own, from `src/server/routes_hidden_check.zig`. After
+      a change to a source file, timed with `date +%s`, `zig build test-server` took 86 s and
+      86 s before, at a load average of 14 to 5. It took 27 s and 27 s after, at a load
+      average of 6 to 4. `zig build routes-hidden-check` alone took 60 s and 61 s, at a load
+      average of 7 to 6. Inside `zig build test`, its compile took 57 s.
+    - No check caught the new step left out of `zig build test`. So `build/check_steps.zig`
+      makes `zig build test` fail for each step whose name ends in `-check` that it does not
+      run.
+  - **Large tables.** 546d6b1 is the first part of the second ruling of 2026-10-14. `match`
+    finds a literal edge by a binary search over the edges of a node, which the build sorts by
+    length and then by octets. The check of hidden routes finds the leaves on the paths of a
+    route by a walk of the trie.
+    - Compile time, in seconds, before and after. Each table compiled twice in a project
+      outside the tree that depends on this checkout as a path package, as `zig build
+      ct-<name>`, a Debug test binary. The load average was 4 to 6.
+      - One route: 2.0, then 2.0.
+      - 256 literals beside `/:x`: 13.6, then 7.0.
+      - 512 literals beside `/:x`: 68.2 and 68.5, then 23.3 and 23.4.
+      - 512 literals beside `/zzz`: 26.7 and 26.8, then 19.9.
+      - The table of 256 routes in `routes_test.zig`: 17.2, then 15.5.
+      - 50 routes, of 10 resources each with five routes: 2.1, then 2.1.
+    - Run time, in instructions for each match: callgrind's count for 100,000 matches less its
+      count for none, divided by 100,000. The probe is a ReleaseSafe build for aarch64 Linux,
+      run in Docker under OrbStack on the same M1 Pro. It is a number from a laptop, and
+      docs/performance.md publishes only the numbers of the judge (decision 33). The root has k
+      literal edges of four octets. Each line gives the first edge, the middle edge, the last
+      edge and a miss:
+      - k = 1: 525, 525, 525 and 429, then 503, 503, 503 and 391.
+      - k = 2: 536, 605, 605 and 498, then 568, 518, 518 and 397.
+      - k = 4: 536, 674, 743 and 636, then 617, 518, 567 and 433.
+      - k = 8: 536, 812, 1019 and 912, then 666, 518, 616 and 470.
+      - k = 16: 466, 1002, 1471 and 1382, then 651, 450, 594 and 460.
+      - k = 64: 535, 2743, 4882 and 4775, then 826, 526, 768 and 608.
+      - k = 256: 557, 9133, 17642 and 17543, then 937, 559, 874 and 726.
+    - The search costs more than the old scan only for the first edge, from k = 2 on. On the
+      mean of the four segments it costs less at each k. So there is no threshold and no named
+      limit. `search_passes_max` bounds the loop beside the code.
+    - After 546d6b1, 512 literals beside `/zzz` still took 19.9 s, against 2.0 s for one route.
+      That table does no walk in the check of hidden routes, so the rest of the cost was in the
+      build of the trie and of the layout.
+  - **Large tables, the build.** 73fbf50 completes the second ruling of 2026-10-14. It changes
+    no run-time code of `match`: in `routes_match.zig` only a test block changes.
+    - Two causes, from small probes on Zig 0.16. First, the compiler keeps no result of a
+      comptime call, so three equal calls cost three times one call. The merge of the trie ran
+      four times for each table. Second, a comptime call that gets a large constant, or a
+      pointer to one, costs time in proportion to the size of the constant. A pointer to a
+      comptime `var` costs a few steps.
+    - The parts of the cost, from a copy of the tree with one part removed each time. Each line
+      gives the seconds of that part for the table of 512 literals beside `/:x` (23.0 s), and
+      for the table of 256 routes in `routes_test.zig` (15.4 s):
+      - The insertion sort of the edges: 9.3 and 5.2.
+      - The scans of siblings in the merge: 3.3 and 1.7.
+      - The scans of the routes of a node: 1.6 and 1.7.
+      - The check of hidden routes: 6.1 and 3.0.
+      - The pairwise check of parameter names took 1.2 s of 8.5 s for 256 routes `/rNNN/:id`.
+    - So `server.routes` merges the trie once and passes it to the build and to each check.
+      The loops pass pointers to `var` copies. A hash finds the child of a node, a merge sort
+      orders the edges, and an index lists the routes of each node. The merge records the
+      first route that gives a parameter node a second name, in place of the pairwise check.
+      The check of hidden routes reads the layout through `routes_hidden_canonical.View`.
+    - Compile time, in seconds, two runs before and two after, in the same probe project as
+      above. Before is 315e3c1, at a load average of about 4. After is a build that differs
+      from 73fbf50 only in the names of locals, in comments and in tests, at a load average of
+      about 9:
+      - One route: 2.1 and 2.1, then 2.2 and 2.1.
+      - 256 literals beside `/:x`: 7.1 and 6.9, then 2.9 and 2.9.
+      - 512 literals beside `/:x`: 22.8 and 23.1, then 4.0 and 4.7.
+      - 512 literals beside `/zzz`: 19.6 and 19.9, then 3.6 and 3.4.
+      - The table of 256 routes in `routes_test.zig`: 15.5 and 15.3, then 5.0 and 4.9.
+      - 50 routes, of 10 resources each with five routes: 2.0 and 2.0, then 2.1 and 2.1.
+      - 338 routes of mixed forms: 3.7 and 3.7, then 2.9 and 3.0.
+      - 256 routes `/rNNN/:id`: 8.6 and 8.4, then 2.8 and 2.9.
+    - Each table now compiles within 3 s of one route, and no table is slower than before. A run of
+      315e3c1 and 73fbf50 in turns, at a load average of 25 to 67, agrees in direction: 512 literals
+      beside `/:x` took 71.4 and 78.1 s before, and 19.7 and 15.7 s after.
+    - The build gives the same layout as before. A scratch `@compileLog` wrote a hash of each
+      array of each layout: 97 layouts in `zig build test-server`, 2843 in `zig build
+      routes-hidden-check`, 2 in the examples and 8 in the probe. Some layouts occur in more
+      than one set, so 2944 layouts differ. Each set was the same before and after.
+  - **The review.** Two readers read 21e.7b, and 6eef776 fixes what they found:
+    - The check counted a literal each time it repeats when it chose "other". It refused a
+      route that a request reaches at `path_len_max`, and it passed a hidden one.
+    - The cross-check gained the pairs with HEAD and the five other orders of example 8.
+    - One predicate decides `allow_too_long`.
+    - The cost of the check grows with the square of the literal siblings of a parameter. The
+      second ruling of 2026-10-14 answers it, in 546d6b1 and 73fbf50.
+    - After 21e.10, fc90377, 31c52ee and 174c242 fix the client example, the guide's tables and
+      the words of the router's text.
+  - **The citation.** Decision 122 ruling 1 cited RFC 9114 §4.1 for a response to HEAD with no
+    content. RFC 9114 §4.1.2 states the rule, so the decision now cites §4.1.2. 21e.8a's code
+    and tests cited §4.1.2 already.
+  - **Owed.** Two checks must run before the push. The review and the session that started
+    this step run them:
+    - `zig build test-server -Dtarget=x86_64-linux-gnu --summary all`, then each binary it names
+      in an amd64 container. GitHub's `checks` job builds Debug with Zig 0.16's x86_64 backend,
+      and the tables are globals that the compiler builds.
+    - `tools/ci.sh` on the exact tree. 21e.8a changes what h11, h2 and h3 write in a response to
+      HEAD, so the interop scripts run too.
+    - The review records the x86_64 run in this entry.
+  - **Owed, not for the push.**
+    - A second run of the compile times of 73fbf50 against 315e3c1 at a low load. The load was
+      9 for the runs above, and 25 to 85 later.
+    - The wall time of `zig build routes-hidden-check` after 73fbf50, at a low load. It used
+      about 72 s of CPU time. e6a5c77 recorded 60 s and 61 s of wall time.
+  - Mutations, each **CAUGHT** unless it says otherwise:
+    - 21e.2, by `zig build test-http`: `Standard` left out of the namespace; `Standard`
+      exported under a second name beside it.
+    - 21e.3, 34 breaks, by `zig build test-server`:
+      - The match: a literal compared by prefix; a literal compared without case; the query
+        read; the leading "/" not required; the root read as one empty segment, in `match` and
+        in the build; the method compared without case; 404 for a wrong method; 405 for an
+        unknown path, at no node and at a node with no leaf; the count not reset to 0; `get`
+        that compares by prefix.
+      - The Allow value: in the table's order; its tokens before the standard methods; joined
+        by ","; without the last method of a leaf. The edges not sorted by length, which a new
+        test catches.
+      - The refusals: refusals 1 to 5, 11 to 16 and 18 each removed; refusal 3 widened to each
+        segment that starts with "."; refusal 17 widened to an entry of four parts;
+        `path_octets` widened to each octet; `segment_unsupported` removed; a `Standard` value
+        refused.
+      - Refusal 1 removed stops the build at the comptime assert of `segments_count`, so a
+        compile error catches it.
+      - Ten breaks ran a second time, in a form that compiles or with a search text that
+        matches one place.
+    - 21e.4, by `zig build routes-check`: `built` ignores the refusal; the messages of
+      `route_repeated`, `segment_dot` and `method_connect` changed; the route index off by one;
+      the control's table made invalid; the fixture builds no table; `expect_errors` not set;
+      the fixture's path wrong.
+    - 21e.5, by `zig build test-server`, and the messages by `zig build routes-check`:
+      - The match: a value with its "/"; the name of another node; the parameter tried before
+        the literal; rules 6, 7, 8 and 9 each removed; rule 9 widened to a leading "."; the
+        count left at 0 after `found`; the count written for each result; the check of
+        `path_len_max` removed, and off by one.
+      - The refusals: refusals 6, 7, 8, 9 and 19 each removed; `name_octets` widened to "-";
+        refusal 9 one parameter early; `holds_parameter` always false; `names_differ` that
+        reads the wrong segment; refusal 19 removed, by `zig build routes-check` too; each of
+        the five new messages changed.
+      - Refusal 9 removed writes past the array of names at compile time, so a compile error
+        catches it. Refusal 8 removed ran a second time, in a form that compiles.
+    - 21e.6, by `zig build test-server`, and the message by `zig build routes-check`: the rest
+      with its "/"; the rest that ends at the next "/", in a form that compiles; a wildcard of
+      no segment; the wildcard tried before the parameter; the wildcard not counted in
+      `path_parameters_max`; refusal 10 removed, by `zig build routes-check` too; the wildcard
+      widened to each segment that starts with "*"; the message of `wildcard_not_last` changed.
+      The wildcard widened to each segment that holds "*" stops the build at the assert of
+      `add_wildcard`, so a compile error catches it.
+    - 21e.7a, by `zig build test-server`: no back-up; a back-up that tries the literal again; a
+      back-up of two levels; the wildcard not tried after a back-up from the parameter; no
+      parameter or wildcard after a back-up; a node with no leaf after the last segment that
+      gives `not_found`; `walk_steps_max` of one pass for each node.
+    - 21e.8a, by `zig build test-server`:
+      - h11: the drop removed, so h11's error comes back; the error restored in place of the
+        drop; the drop before the final response.
+      - h2: the drop removed; the entry of a response to HEAD released at its head; no entry
+        for HEAD when the connection codes nothing; the content written at the end; the entry
+        kept after the end; the end not written.
+      - h3: the drop removed; the method not kept when the connection codes nothing; the
+        stream not ended at the end.
+    - 21e.8b, by `zig build test-server`: no fallback; the fallback taken over a HEAD route;
+      HEAD not in the Allow value; GET that falls back to HEAD; HEAD twice in the Allow value
+      when the table names GET and HEAD.
+    - 21e.9, by `zig build test-server`: the method checked after the walk; `not_implemented`
+      for a method that another leaf names; HEAD counted as not implemented when the table
+      names GET; only the first token of the set compared; the set compared without case.
+    - 21e.7b, by `zig build test-server`, and the first two and `allow_too_long` by `zig build
+      routes-check` too: case 1 removed; case 2 removed; x(T, L, n) without the literals of L;
+      the wildcard tried only at n = k; the HEAD fallback ignored when the check decides if a
+      leaf serves a method; L only from the leaves after T; 405 replaced by `not_found`;
+      `allow_too_long` removed; the walk skipped for each leaf; "other" chosen without the
+      literals; an Allow value of exactly `field_value_len_max` refused.
+    - 6eef776, by `zig build test-server`: each repeat of a literal counted again; a length
+      whose segments are all taken that gives its first segment; a back-up for a method, a copy
+      of the walk in `match` that goes on to the next leaf that matches and serves the method;
+      405 replaced by `not_found`; the HEAD fallback ignored; an Allow value of exactly the
+      limit refused; `allow_too_long` removed.
+    - 21e.10, by `zig build examples`: in `server_exchange`, the 405 without its Allow field,
+      the parameter not in the answer, the greeting and echo arms swapped, the 404 and 501 arms
+      swapped, the 404 arm that answers 200, the 405 arm that answers 404, and the named route
+      that greets the path and not the parameter; in `client_peer`, the two handlers swapped.
+    - e6a5c77, by `zig build test`: the new step left out of `zig build test`; `zig build
+      routes-check` left out of it; a step that counts as run only when `zig build test`
+      depends on it directly.
+    - 546d6b1:
+      - By `zig build test-server`, and by the test of the first difference against the old
+        scan: the low bound one high at the start; the high bound one low at the start; the
+        high bound one too far; the low bound one too far; the octets compared before the
+        length.
+      - By `zig build test-server` and `zig build routes-hidden-check`: the walk with no
+        literal edges at a parameter, with no wildcard child, and with no parameter child;
+        `precedes` called on a leaf with no common length.
+      - By `zig build routes-hidden-check` alone: the walk with no literal edges past the
+        literals of a wildcard leaf.
+      - The leaves in the walk's order and not sorted: **NOT CAUGHT** at first. A new line in
+        the test of refusal 20 pins the order, and it passed on the old check. Then **CAUGHT**
+        by `zig build test-server`.
+    - fc90377, by `zig build example-client_exchange`: in `client_peer`, the 405 without its
+      Allow field; the 404 arm that answers 200; the 501 arm that answers 404; the 405 arm that
+      answers 404; the two handlers swapped.
+    - 31c52ee, by `zig build test-server`: the guide's table without `PUT /users/me`; a leaf
+      that gives `found` at compile time for a method that it does not name.
+    - 73fbf50, 15 breaks, by `zig build test-server`:
+      - The merge: the child of another parent with the same segment; a child of the parent
+        with another segment; no child found, so each segment added again.
+      - The names: the last second name recorded, not the first; no second name found.
+      - The routes of a node: the last left out; the first left out; the order reversed.
+      - The repeated check: a route compared with itself; only the first route of a node read.
+      - The merge sort: the right item taken when the left is less; runs that grow by one item
+        a pass; one pass only; a last run with no partner left out of the pass.
+      - HEAD that reads no route of the node.
+  - **NOT CAUGHT**, or no mutation, and why:
+    - 21e.10: in `client_peer`, the 405 without its Allow field, and the 404 arm that answers
+      200. No request of the client example reached the two arms. fc90377 adds the requests,
+      and then each one is **CAUGHT**.
+    - e6a5c77: a step with no dependencies that counts as run. It is equivalent, because each
+      `-check` step has a dependency. The line is gone, and the doc comment states the rule.
+    - The body of 6ed56b1 names a break "a back-up for a method". That break was "405 replaced
+      by `not_found`". 6eef776 ran the real back-up for a method, and it is **CAUGHT**.
+    - No check catches the line `_ = @import("routes/routes_hidden_test.zig");` removed from
+      `src/server/routes_hidden_check.zig`: the binary then passes with 3 tests. Each test
+      block of a module root has the same gap. It did not run as a mutation.
+    - 73fbf50: the last second name recorded, not the first, and the repeated check that reads
+      only the first route of a node. No test held a table with these shapes. Two new lines in
+      `routes_refusal_test.zig` hold them: three names at `/a` and two at `/b` refuse route 2,
+      and `GET /a`, `PUT /a`, `PUT /a` is `route_repeated`. Then each one is **CAUGHT**.
+    - 73fbf50: the first form of the lone run that the merge sort leaves out copied the run. That
+      form is correct, so it is equivalent. A form that leaves the run out is **CAUGHT**.
+    - 21e.1, f20e74d, 800ebda, 174c242 and 315e3c1 change no check. The test counts are the
+      check of 800ebda.
+
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks
 both. Steps 14 and 15 are h11: the decoder package first, because h11 imports it. Step 6 exists
 where it does on purpose: the cheap regression check is in place before the larger half begins.

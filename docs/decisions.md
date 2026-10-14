@@ -4290,7 +4290,7 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      1. HEAD finds the GET route at a leaf that names GET and no HEAD. The leaf's Allow value
         lists HEAD after GET. RFC 9110 §9.1 tells every general-purpose server to support GET and
         HEAD. The endpoint also writes no content in a response to HEAD, in h11, h2 and h3 alike
-        (RFC 9110 §9.3.2, RFC 9113 §8.1.1, RFC 9114 §4.1). `write_body` takes the octets and
+        (RFC 9110 §9.3.2, RFC 9113 §8.1.1, RFC 9114 §4.1.2). `write_body` takes the octets and
         writes none. So a program writes the same answer for GET and for HEAD. Before this step,
         `write_body` on a response to HEAD returned `SectionOutOfOrder` over h11, and h2 and h3
         sent the content. The endpoint keeps the Content-Length field that the program writes,
@@ -4448,3 +4448,31 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
      endpoint sends no content, and over h11 `write_body` returns no error. Each table costs
      compile time, which `zig build routes-check` shows. A parameter's slice stays valid only
      until the endpoint's next call, so a program that answers later copies it.
+
+     **Amended by the owner on 2026-10-14, for design §8 step 21e.** Two rulings, after the
+     first build of the check of hidden routes:
+     - The cross-check of `src/server/routes/routes_hidden_test.zig` runs in `zig build
+       routes-hidden-check`, a test binary of its own, which `zig build test` runs. It added about
+       a minute to each compile of `zig build test-server`. On an M1 Pro, that compile took 86 s
+       with the cross-check and 27 s without it. `build/check_steps.zig` makes `zig build test`
+       fail for each step whose name ends in `-check` that it does not run.
+     - Step 21e removes the quadratic compile-time work of large tables. `match` finds a literal
+       edge by a binary search over the edges of a node, which the build sorts by length and
+       then by octets. Before, it read the edges in turn. The check of hidden routes walks the
+       trie, and the build merges the trie once.
+     - The binary search changes the run-time code of `match`, so it carries a measurement.
+       callgrind counted the instructions of a match on aarch64 Linux, at a root with 256 literal
+       edges. The last edge took 17,642 before and 874 after. The first edge took 557 before
+       and 937 after.
+     - Over the first edge, the middle edge, the last edge and a miss, the search costs less on
+       average for each count of edges from 1 to 256. So it has no threshold and no named limit.
+     - Compile time on the M1 Pro, in a Debug test binary: 512 literals beside `/:x` took 68.3 s
+       before 546d6b1 and 4.4 s after 73fbf50. The table of 256 routes in `routes_test.zig` took
+       17.2 s and 5.0 s. One route takes about 2 s. Design §8 step 21e gives the load of each
+       run.
+
+     The alternatives refused:
+     - The cross-check: a smaller family of tables in `zig build test-server`. It then proves
+       less than the brute force on 2,838 tables.
+     - The cross-check: `zig build test-server` as it was, a minute slower to compile.
+     - Large tables: the compile time accepted, with an issue filed for a later step.
