@@ -204,6 +204,9 @@ pub fn write_body(connection: *Connection, id: Number, octets: []const u8, end: 
     try check_current(connection, id);
     const session = &connection.session.h11;
     defer note_done(connection, id);
+    // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD. The final response
+    // ended with its head (RFC 9112 §6.3 rule 1), so the call takes the octets and writes none.
+    if (connection.head_request and session.responded) return octets.len;
     // RFC 9112 §6: content follows only a final response that declared some, and ends once. h11
     // refuses the rest with `NoBody`.
     const chunked = session.writer.kind == .chunked;

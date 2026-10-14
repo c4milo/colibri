@@ -185,6 +185,7 @@ test {
     _ = @import("quic/quic_drain_test.zig");
     _ = @import("quic/quic_coding_test.zig");
     _ = @import("quic/quic_continue_test.zig");
+    _ = @import("quic/quic_head_test.zig");
     _ = @import("endpoint/endpoint_stateless.zig");
     _ = @import("endpoint/endpoint_slots.zig");
     _ = @import("endpoint/endpoint_ready.zig");

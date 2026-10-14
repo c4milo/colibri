@@ -99,8 +99,10 @@ test "RFC 9112 §6.3 rule 1: a 204, a 304 and a response to HEAD carry no framin
     _ = try expect_request("HEAD / HTTP/1.1\r\nHost: a\r\n\r\n", 3);
     try connection.respond(3, .{ .status = ok, .fields = &content_type, .end = false });
     try testing.expectEqualStrings("HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\n\r\n", support.drain());
-    // RFC 9110 §9.3.2: a response to HEAD has no content, so its head made it whole.
-    try testing.expectError(error.SectionOutOfOrder, connection.write_body(3, .{ .octets = "x", .end = true }));
+    // RFC 9110 §9.3.2: a response to HEAD has no content, so its head made it whole, and the
+    // content the program writes goes nowhere.
+    try testing.expectEqual(1, try connection.write_body(3, .{ .octets = "x", .end = true }));
+    try testing.expectEqual(0, support.drain().len);
     try support.expect_done(3);
 }
 

@@ -187,7 +187,11 @@ fn on_request(connection: *QuicConnection, arrived: h3.connection.Request) ?even
             .end = false,
         },
     };
-    if (connection.config.encoders != null) record.asked = coding_rules.asked(connection.config.codings, reported.request);
+    if (connection.config.encoders != null) {
+        record.asked = coding_rules.asked(connection.config.codings, reported.request);
+    } else {
+        record.asked.method = coding_rules.method_of(request.method);
+    }
     quic_continue.note(connection, record, reported.request);
     return reported;
 }
@@ -291,6 +295,12 @@ pub fn write_body(connection: *QuicConnection, id: Number, content: event.Conten
     const octets = content.octets;
     const end_stream = content.end;
     if (octets.len == 0 and !end_stream) return 0;
+    // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD. RFC 9114 §4.1.2:
+    // no DATA frame holds its content, whatever Content-Length it names.
+    if (record.asked.method == .head) {
+        if (end_stream) try supply(connection, record, true);
+        return octets.len;
+    }
     if (record.coded != null) return quic_coding.write_body(connection, record, content);
     if (octets.len > 0) {
         const pieces = &record.response;

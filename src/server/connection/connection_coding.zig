@@ -7,7 +7,8 @@
 //! the content once the encoder has finished.
 //!
 //! Every response passes through here: `respond`, `write_body` and `write_trailers` hand one that
-//! is not coded to the protocol unchanged.
+//! is not coded to the protocol unchanged. An h2 response to HEAD keeps an entry too, coded or
+//! not, so that `write_body` takes its content and writes none (RFC 9110 §9.3.2).
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
@@ -34,10 +35,13 @@ pub const Entry = struct {
     asked: coding_rules.Asked,
     /// The coded response, once its head went out coded.
     coded: ?Coded,
+    /// h2: the final response to a HEAD request went out and did not end the stream, so
+    /// `write_body` takes the content and writes none (RFC 9110 §9.3.2).
+    dropping: bool,
 };
 
-/// The requests whose responses may be coded: one entry each, from the request's head until its
-/// response is uncoded, ends, or is cancelled.
+/// The requests whose responses may be coded, and the h2 requests to HEAD: one entry each, from
+/// the request's head until its response is uncoded and not to HEAD, ends, or is cancelled.
 pub const Table = struct {
     entries: [constants.coding_requests_max]Entry,
     /// Entries in use.
@@ -60,7 +64,7 @@ pub const Table = struct {
         assert(id != 0 and table.find(id) == null);
         for (&table.entries) |*entry| {
             if (entry.id != 0) continue;
-            entry.* = .{ .id = id, .asked = asked, .coded = null };
+            entry.* = .{ .id = id, .asked = asked, .coded = null, .dropping = false };
             table.used += 1;
             return;
         }
@@ -70,10 +74,16 @@ pub const Table = struct {
     }
 };
 
-/// Keeps what `request` asks, when the connection codes content.
+/// Keeps what `request` asks, when the connection codes content or the request is an h2 HEAD.
 pub fn on_request(connection: *Connection, request: event.Request) void {
-    if (connection.config.encoders == null) return;
-    connection.coding.add(request.id.number, coding_rules.asked(connection.config.codings, request));
+    if (connection.config.encoders != null) {
+        connection.coding.add(request.id.number, coding_rules.asked(connection.config.codings, request));
+        return;
+    }
+    const method = coding_rules.method_of(request.method);
+    // RFC 9110 §9.3.2: h2 can answer HEAD on more streams than one, so each one keeps an entry.
+    // h11 answers one request at a time, and `Connection.head_request` holds it.
+    if (method == .head and connection.session == .h2) connection.coding.add(request.id.number, .{ .method = method });
 }
 
 /// Forgets request `id`, which ended before its response did, and gives back its encoder.
@@ -84,7 +94,7 @@ pub fn forget(connection: *Connection, id: Number) void {
 
 /// Forgets every request and gives back every encoder: nothing more is written.
 pub fn forget_all(connection: *Connection) void {
-    if (connection.config.encoders == null) return;
+    if (connection.coding.used == 0) return;
     for (&connection.coding.entries) |*entry| {
         if (entry.id != 0) release(connection, entry);
     }
@@ -104,7 +114,10 @@ pub fn respond(connection: *Connection, id: Number, response: event.Response) Se
     const entry = connection.coding.find(id) orelse return write_head(connection, id, response.status, response.fields, response.end);
     // RFC 9110 §15.2: an interim response leaves the coding to the final one.
     if (is_interim(response.status)) return write_head(connection, id, response.status, response.fields, response.end);
-    const encoders = connection.config.encoders.?;
+    const encoders = connection.config.encoders orelse {
+        try write_head(connection, id, response.status, response.fields, response.end);
+        return keep_or_release(connection, entry, response.end);
+    };
     var rewritten: coding_fields.Rewritten = undefined;
     const head = try coding_response.plan_head(encoders, entry.asked, response, &rewritten);
     errdefer if (head.slot) |index| encoders.give_back(index);
@@ -112,14 +125,27 @@ pub fn respond(connection: *Connection, id: Number, response: event.Response) Se
     if (head.slot) |index| {
         entry.coded = .{ .slot = index };
     } else {
-        release(connection, entry);
+        keep_or_release(connection, entry, response.end);
     }
+}
+
+/// Keeps the entry of an h2 response to HEAD whose final head did not end the stream, so that
+/// `write_body` drops its content, and releases any other uncoded entry.
+fn keep_or_release(connection: *Connection, entry: *Entry, end: bool) void {
+    assert(entry.coded == null and !entry.dropping);
+    // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD.
+    if (entry.asked.method == .head and connection.session == .h2 and !end) {
+        entry.dropping = true;
+        return;
+    }
+    release(connection, entry);
 }
 
 /// Writes content of the response to request `id`: the caller's octets, or for a coded response
 /// as many as the encoder's ring takes, coded. Returns the octets taken.
 pub fn write_body(connection: *Connection, id: Number, content: event.Content) SendError!usize {
     const entry = connection.coding.find(id) orelse return write_content(connection, id, content.octets, content.end);
+    if (entry.dropping) return drop_content(connection, entry, content);
     const coded = if (entry.coded) |*coded| coded else return write_content(connection, id, content.octets, content.end);
     // RFC 9110 §6.4.1: the content ended, and nothing follows it.
     if (coded.finishing) return error.SectionOutOfOrder;
@@ -135,9 +161,26 @@ pub fn write_body(connection: *Connection, id: Number, content: event.Content) S
     return consumed;
 }
 
+/// Takes the content of an h2 response to HEAD and writes none of it. The end goes out as a DATA
+/// frame with no octet and END_STREAM, and the entry goes with it.
+fn drop_content(connection: *Connection, entry: *Entry, content: event.Content) SendError!usize {
+    assert(entry.dropping and entry.coded == null);
+    // RFC 9110 §9.3.2: the server MUST NOT send content in a response to HEAD. RFC 9113 §8.1.1:
+    // its DATA frames hold no content, whatever content-length it names.
+    if (!content.end) return content.octets.len;
+    _ = try write_content(connection, entry.id, &.{}, true);
+    release(connection, entry);
+    return content.octets.len;
+}
+
 /// Ends the response to request `id` with a trailer section, after every coded octet.
 pub fn write_trailers(connection: *Connection, id: Number, fields: []const Field) SendError!void {
     const entry = connection.coding.find(id) orelse return write_trailer_section(connection, id, fields);
+    if (entry.dropping) {
+        // RFC 9113 §8.1: a trailer section ends the stream, and the entry goes with it.
+        try write_trailer_section(connection, id, fields);
+        return release(connection, entry);
+    }
     const coded = if (entry.coded) |*coded| coded else return write_trailer_section(connection, id, fields);
     // RFC 9110 §6.5: a trailer section follows the content, and one that ended has none.
     if (coded.finishing and !coded.trailers) return error.SectionOutOfOrder;

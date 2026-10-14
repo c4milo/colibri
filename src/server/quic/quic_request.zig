@@ -32,7 +32,8 @@ pub const Request = struct {
     /// them.
     response: quic_response.Pieces,
     /// What the request asked of the codings the server applies, and the coded response, whose
-    /// runs are its encoder's ring (decision 101).
+    /// runs are its encoder's ring (decision 101). The connection sets `asked.method` whether or
+    /// not it codes content, because `write_body` drops the content of a response to HEAD.
     asked: coding_rules.Asked,
     coded: ?coding_response.Coded,
 };

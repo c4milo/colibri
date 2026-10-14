@@ -53,7 +53,7 @@ fn accepted(codings: []const Coding, request: event.Request) ?Coding {
 const http_1_0: event.Version = .{ .major = 1, .minor = 0 };
 const accept_encoding = "accept-encoding";
 
-fn method_of(method: []const u8) Method {
+pub fn method_of(method: []const u8) Method {
     // RFC 9110 §9.1: a method is case-sensitive.
     if (std.mem.eql(u8, method, "HEAD")) return .head;
     if (std.mem.eql(u8, method, "CONNECT")) return .connect;
