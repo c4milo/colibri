@@ -33,6 +33,7 @@ const vectors = @import("build/vectors.zig");
 const examples = @import("build/examples.zig");
 const guide = @import("build/guide.zig");
 const bench = @import("build/bench.zig");
+const routes_check = @import("build/routes_check.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "examples", "src", "tools" };
@@ -183,6 +184,7 @@ pub fn build(b: *std.Build) void {
     vectors.add(b, .{ .test_step = test_step, .tool_test_step = tool_test_step }, qifs.path(""));
 
     test_step.dependOn(add_graph_check_step(b));
+    test_step.dependOn(routes_check.add(b, graph, target, optimize));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
     // Design §8 step 13: the benchmarks, whose memory table `zig build test` checks.

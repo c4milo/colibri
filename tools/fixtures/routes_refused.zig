@@ -1,0 +1,41 @@
+//! The tables of `zig build routes-check` (build/routes_check.zig, decision 122). The build option
+//! `case` names one declaration of `tables`, and the `comptime` block below builds that table
+//! alone. Zig analyses only the declaration that the block names, so the other tables do not
+//! change the result.
+//!
+//! The table `accepted` must compile. Each other table must fail to compile, with the refusal of
+//! its name. In a refused table the first entry is valid, so the message must name route 1.
+const server = @import("server");
+const http = @import("http");
+const case = @import("routes_case").case;
+
+/// A valid entry, which each refused table holds first.
+const valid = .{ .get, "/", 0 };
+
+const tables = struct {
+    /// Each kind of method and pattern that a table accepts at design §8 step 21e.4: an enum
+    /// literal, a value of `http.method.Standard`, a token, the root and literal segments.
+    pub const accepted = .{
+        .{ .get, "/", 0 },
+        .{ http.method.Standard.put, "/users/me", 1 },
+        .{ "PATCH", "/users/me", 2 },
+        .{ .delete, "/a.b/~c/d@e:f", 3 },
+    };
+    pub const pattern_not_absolute = .{ valid, .{ .get, "users", 1 } };
+    pub const segment_empty = .{ valid, .{ .get, "/a//b", 1 } };
+    pub const segment_dot = .{ valid, .{ .get, "/a/./b", 1 } };
+    pub const segment_encoded = .{ valid, .{ .get, "/caf%C3%A9", 1 } };
+    pub const octet_outside_path = .{ valid, .{ .get, "/a b", 1 } };
+    pub const method_unknown = .{ valid, .{ .gte, "/a", 1 } };
+    pub const method_not_token = .{ valid, .{ "GET ", "/a", 1 } };
+    pub const method_standard_as_token = .{ valid, .{ "GET", "/a", 1 } };
+    pub const method_connect = .{ valid, .{ .connect, "/a", 1 } };
+    pub const method_type = .{ valid, .{ 42, "/a", 1 } };
+    pub const table_empty = .{};
+    pub const entry_shape = .{ valid, .{ .get, "/a" } };
+    pub const route_repeated = .{ .{ .get, "/a", 0 }, .{ .get, "/a", 1 } };
+};
+
+comptime {
+    _ = server.routes(u8, @field(tables, case));
+}
