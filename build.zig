@@ -34,6 +34,7 @@ const examples = @import("build/examples.zig");
 const guide = @import("build/guide.zig");
 const bench = @import("build/bench.zig");
 const routes_check = @import("build/routes_check.zig");
+const check_steps = @import("build/check_steps.zig");
 
 /// Every directory `zig build lint` scores and `zig build fmt` checks, beside build.zig itself.
 const source_directories = [_][]const u8{ "bench", "build", "examples", "src", "tools" };
@@ -185,6 +186,7 @@ pub fn build(b: *std.Build) void {
 
     test_step.dependOn(add_graph_check_step(b));
     test_step.dependOn(routes_check.add(b, graph, target, optimize));
+    test_step.dependOn(routes_check.add_hidden(b, graph.server));
     test_step.dependOn(add_hook_check_step(b, pepegrillo_dependency));
     add_sim_step(b, graph.sim_run);
     // Design §8 step 13: the benchmarks, whose memory table `zig build test` checks.
@@ -206,6 +208,9 @@ pub fn build(b: *std.Build) void {
         .paths = &(.{"build.zig"} ++ source_directories),
         .check = true,
     }).step);
+
+    // After every step is made: `zig build test` fails when it does not run a `-check` step.
+    check_steps.require(b, test_step);
 }
 
 /// `zig build test-<name>`: the tests of one module, or of the tools, with nothing else in the

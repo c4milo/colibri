@@ -167,3 +167,25 @@ pub fn add(
     }
     return step;
 }
+
+/// Adds `zig build routes-hidden-check` and returns its step, which `zig build test` depends on.
+/// It runs the cross-check of `src/server/routes/routes_hidden_test.zig` in a test binary of its
+/// own, apart from `zig build test-server` (the owner's ruling of 2026-10-14). Its compile takes
+/// about a minute.
+///
+/// The root `src/server/routes_hidden_check.zig` compiles with the imports of `server`, as the
+/// root of `test-server` does (build/modules_test_roots.zig). No packaged module imports the root.
+pub fn add_hidden(b: *std.Build, server: *std.Build.Module) *std.Build.Step {
+    const module = b.createModule(.{
+        .root_source_file = b.path("src/server/routes_hidden_check.zig"),
+        .target = server.resolved_target,
+        .optimize = server.optimize,
+    });
+    for (server.import_table.keys(), server.import_table.values()) |name, imported| {
+        module.addImport(name, imported);
+    }
+    const tests = b.addTest(.{ .name = "routes-hidden", .root_module = module });
+    const step = b.step("routes-hidden-check", "Compare the check of hidden routes with a brute force");
+    step.dependOn(&b.addRunArtifact(tests).step);
+    return step;
+}
