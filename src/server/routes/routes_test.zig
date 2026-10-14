@@ -12,6 +12,7 @@ const testing = std.testing;
 const expect_found = support.expect_found;
 const expect_not_found = support.expect_not_found;
 const expect_allow = support.expect_allow;
+const expect_not_implemented = support.expect_not_implemented;
 
 const Route = enum { greeting, root, users, user_put, user_delete, user_patch, user_link };
 
@@ -88,12 +89,12 @@ test "RFC 9110 §15.5.6: a known path and another method give the Allow value, i
     inline for (.{ users, users_reversed }) |table| {
         // RFC 9110 §9.1's order, then the tokens by octets, joined by ", ".
         try expect_allow(table, "PUT, DELETE, LINK, PATCH", "GET", "/users/me");
-        try expect_allow(table, "PUT, DELETE, LINK, PATCH", "POST", "/users/me?x");
+        try expect_allow(table, "PUT, DELETE, LINK, PATCH", "HEAD", "/users/me?x");
         // RFC 9110 §9.1: a HEAD request finds the GET route, so Allow lists HEAD after GET.
         try expect_allow(table, "GET, HEAD", "PUT", "/users");
-        // RFC 9110 §9.1: the method is case-sensitive, so "put" is another method.
-        try expect_allow(table, "PUT, DELETE, LINK, PATCH", "put", "/users/me");
-        try expect_allow(table, "PUT, DELETE, LINK, PATCH", "patch", "/users/me");
+        // RFC 9110 §9.1: the method is case-sensitive, so "put" is a method no route names.
+        try expect_not_implemented(table, "put", "/users/me");
+        try expect_not_implemented(table, "patch", "/users/me");
         try expect_found(table, Route.user_put, "PUT", "/users/me");
         try expect_found(table, Route.user_delete, "DELETE", "/users/me");
         try expect_found(table, Route.user_patch, "PATCH", "/users/me");
@@ -134,8 +135,8 @@ test "RFC 9110 §9.3.2: a HEAD request finds the GET route of a path that names 
         // A HEAD route wins over the GET route of its path.
         try expect_found(table, Page.page_head, "HEAD", "/page");
         try expect_found(table, Page.page, "GET", "/page");
-        // RFC 9110 §9.1: the method is case-sensitive, so "head" is another method.
-        try expect_allow(table, "GET, HEAD, PATCH", "head", "/notes");
+        // RFC 9110 §9.1: the method is case-sensitive, so "head" is a method no route names.
+        try expect_not_implemented(table, "head", "/notes");
         // A path with no GET route gives HEAD no route.
         try expect_allow(table, "PUT", "HEAD", "/upload");
         try expect_not_found(table, "HEAD", "/missing");
@@ -144,15 +145,63 @@ test "RFC 9110 §9.3.2: a HEAD request finds the GET route of a path that names 
 
 test "RFC 9110 §10.2.1: Allow lists HEAD after GET once, and GET never finds a HEAD route" {
     inline for (.{ pages, pages_reversed }) |table| {
-        // RFC 9110 §15.5.6: a 405 for POST on a path with a GET route.
-        try expect_allow(table, "GET, HEAD", "POST", "/page");
-        try expect_allow(table, "GET, HEAD, PATCH", "POST", "/notes");
-        try expect_allow(table, "GET, HEAD, PATCH", "DELETE", "/notes?x");
+        // RFC 9110 §15.5.6: a 405 for PUT on a path with a GET route.
+        try expect_allow(table, "GET, HEAD", "PUT", "/page");
+        try expect_allow(table, "GET, HEAD, PATCH", "PUT", "/notes");
+        try expect_allow(table, "GET, HEAD, PATCH", "PUT", "/notes?x");
         // A HEAD route does not answer GET.
         try expect_allow(table, "HEAD", "GET", "/status");
         try expect_found(table, Page.status, "HEAD", "/status");
     }
-    try expect_allow(routes(u8, .{.{ .get, "/", 0 }}), "GET, HEAD", "POST", "/");
+    try expect_allow(routes(u8, .{ .{ .get, "/", 0 }, .{ .post, "/a", 1 } }), "GET, HEAD", "POST", "/");
+}
+
+test "RFC 9110 §15.6.2: a method that no route names gives 501 before the path is read" {
+    inline for (.{ users, users_reversed }) |table| {
+        inline for (.{ "/users/me", "/users", "/missing", "*", "", "/users/caf%C3%A9", "/a//b" }) |path| {
+            try expect_not_implemented(table, "POST", path);
+            try expect_not_implemented(table, "OPTIONS", path);
+            // RFC 9110 §9.1: the method is case-sensitive.
+            try expect_not_implemented(table, "get", path);
+        }
+        // RFC 9110 §9.3.6: no route names CONNECT, and its request has no path.
+        try expect_not_implemented(table, "CONNECT", "");
+        // A method that another leaf names gives 405 at a leaf without it.
+        try expect_allow(table, "PUT, DELETE, LINK, PATCH", "GET", "/users/me");
+        try expect_allow(table, "GET, HEAD", "LINK", "/users");
+        // Each method of the table is implemented, so an unknown path gives 404.
+        inline for (.{ "GET", "HEAD", "PUT", "DELETE", "LINK", "PATCH" }) |method| {
+            try expect_not_found(table, method, "/missing");
+        }
+    }
+    inline for (.{ pages, pages_reversed }) |table| {
+        // A token method that one leaf names gives 405 at another leaf.
+        try expect_found(table, Page.notes_patch, "PATCH", "/notes");
+        try expect_allow(table, "GET, HEAD", "PATCH", "/page");
+        try expect_allow(table, "PUT", "PATCH", "/upload");
+        try expect_not_implemented(table, "DELETE", "/page");
+    }
+}
+
+test "RFC 9110 §9.1: a table that names GET implements HEAD" {
+    try expect_found(greetings, Route.greeting, "HEAD", "/greeting");
+    try expect_not_found(greetings, "HEAD", "/missing");
+    try expect_not_found(greetings, "HEAD", "*");
+    try expect_not_implemented(greetings, "PUT", "/greeting");
+    // A table that names HEAD alone does not implement GET.
+    try expect_not_implemented(routes(u8, .{.{ .head, "/", 0 }}), "GET", "/");
+}
+
+test "RFC 9110 §9.1: OPTIONS * gives 501 from a table with no OPTIONS route, and 404 from one" {
+    try expect_not_implemented(greetings, "OPTIONS", "*");
+    const options = routes(Route, .{
+        .{ .get, "/greeting", .greeting },
+        .{ .options, "/", .root },
+    });
+    // RFC 9112 §3.2.4: the asterisk-form names no path, so it matches no route.
+    try expect_not_found(options, "OPTIONS", "*");
+    try expect_found(options, Route.root, "OPTIONS", "/");
+    try expect_allow(options, "GET, HEAD", "OPTIONS", "/greeting");
 }
 
 fn greet() u8 {
@@ -214,7 +263,8 @@ test "INV-8: a path of more than path_len_max octets matches nothing, its query 
 }
 
 /// The routes of the largest table that the tests build: each one has a pattern of
-/// `large_segments` segments of `large_segment_len` octets.
+/// `large_segments` segments of `large_segment_len` octets. The last route names PUT, and each
+/// other route names GET.
 const large_routes = 256;
 const large_segments = 4;
 const large_segment_len = 15;
@@ -246,7 +296,7 @@ const Large = struct { http.method.Standard, []const u8, u16 };
 const large_table: [large_routes]Large = build: {
     @setEvalBranchQuota(large_routes * large_segments * large_segment_len * large_segment_len);
     var table: [large_routes]Large = undefined;
-    for (&table, 0..) |*entry, index| entry.* = .{ .get, large_pattern(index), index };
+    for (&table, 0..) |*entry, index| entry.* = .{ if (index == large_routes - 1) .put else .get, large_pattern(index), index };
     break :build table;
 };
 
@@ -254,7 +304,8 @@ test "decision 122: a table of 256 routes of four segments each compiles and mat
     const large = routes(u16, large_table);
     var parameters: PathParameters = .{};
     for (large_table) |entry| {
-        try testing.expectEqual(entry[2], large.match("GET", entry[1], &parameters).found);
+        const method: []const u8 = if (entry[0] == .put) "PUT" else "GET";
+        try testing.expectEqual(entry[2], large.match(method, entry[1], &parameters).found);
     }
     // The first segment of a pattern alone names no route.
     const first = comptime large_segment(0, 0);

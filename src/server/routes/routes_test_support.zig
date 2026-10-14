@@ -20,6 +20,14 @@ pub fn expect_not_found(table: anytype, method: []const u8, path: []const u8) !v
     try testing.expectEqual(0, parameters.count);
 }
 
+/// Requires `match` to give `not_implemented` and no parameter.
+pub fn expect_not_implemented(table: anytype, method: []const u8, path: []const u8) !void {
+    var parameters: PathParameters = .{};
+    parameters.count = 1;
+    try testing.expect(table.match(method, path, &parameters) == .not_implemented);
+    try testing.expectEqual(0, parameters.count);
+}
+
 /// Requires `match` to give `method_not_allowed` with the Allow value `allow`.
 pub fn expect_allow(table: anytype, allow: []const u8, method: []const u8, path: []const u8) !void {
     var parameters: PathParameters = .{};

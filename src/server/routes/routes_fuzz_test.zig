@@ -38,9 +38,13 @@ fn expect_match(table: anytype, comptime name: []const u8, target: []const u8) !
     switch (table.match("GET", target, &parameters)) {
         .found => |route| try expect_swept(route, name, target, &parameters),
         // Each path of the table names GET.
-        .method_not_allowed => return error.TestUnexpectedResult,
+        .method_not_allowed, .not_implemented => return error.TestUnexpectedResult,
         .not_found => try testing.expectEqual(0, parameters.count),
     }
+    // RFC 9110 §9.1: no route of the table names POST, so each target gives 501.
+    parameters.count = 1;
+    try testing.expect(table.match("POST", target, &parameters) == .not_implemented);
+    try testing.expectEqual(0, parameters.count);
 }
 
 fn expect_swept(route: u8, comptime name: []const u8, target: []const u8, parameters: *const PathParameters) !void {

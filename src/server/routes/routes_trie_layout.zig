@@ -4,8 +4,9 @@
 //! Each node holds a run of edges, one for each literal segment after it, sorted by length and
 //! then by octets. A node holds one parameter child at most, with the parameter's name, and one
 //! wildcard child at most. A node where a pattern ends holds a leaf. A leaf holds a run of entries
-//! and its Allow value. The arrays index one array of text, which holds every literal, every
-//! parameter name and every Allow value. The value that `build` returns holds no pointer into the
+//! and its Allow value. The table's set of methods holds each method token of the table once. The
+//! arrays index one array of text, which holds every literal, every parameter name and every Allow
+//! value. The value that `build` returns holds no pointer into the
 //! memory of the build, so a program can read it at run time.
 const std = @import("std");
 const assert = std.debug.assert;
@@ -24,6 +25,7 @@ pub const Sizes = struct {
     wildcards: usize,
     leaves: usize,
     routes: usize,
+    methods: usize,
     text: usize,
     depth_max: usize,
 };
@@ -32,7 +34,16 @@ fn sizes_of(comptime table: anytype) Sizes {
     @setEvalBranchQuota(routes_trie.quota_of(table));
     const routes = routes_trie.routes_of(table);
     const merged = routes_trie.merge(&routes.patterns);
-    var sizes: Sizes = .{ .nodes = merged.node_count, .parameters = 0, .wildcards = 0, .leaves = 0, .routes = table.len, .text = 0, .depth_max = 0 };
+    var sizes: Sizes = .{
+        .nodes = merged.node_count,
+        .parameters = 0,
+        .wildcards = 0,
+        .leaves = 0,
+        .routes = table.len,
+        .methods = methods_count(&routes.tokens),
+        .text = 0,
+        .depth_max = 0,
+    };
     for (1..merged.node_count) |node| {
         const segment = merged.segment[node];
         sizes.depth_max = @max(sizes.depth_max, merged.depth[node]);
@@ -56,6 +67,22 @@ fn sizes_of(comptime table: anytype) Sizes {
     return sizes;
 }
 
+/// The count of distinct tokens in `tokens`. Comptime-only.
+fn methods_count(comptime tokens: []const []const u8) usize {
+    var count: usize = 0;
+    for (tokens, 0..) |token, index| {
+        if (!holds_token(tokens[0..index], token)) count += 1;
+    }
+    return count;
+}
+
+fn holds_token(tokens: []const []const u8, token: []const u8) bool {
+    for (tokens) |held| {
+        if (std.mem.eql(u8, held, token)) return true;
+    }
+    return false;
+}
+
 /// The arrays of one table, sized by `sizes`. Every index is of the smallest type that holds it.
 pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
     const Index = std.math.IntFittingRange(0, @max(sizes.nodes, sizes.routes, sizes.text));
@@ -64,6 +91,8 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
         edges: [sizes.nodes - 1 - sizes.parameters - sizes.wildcards]Edge,
         leaves: [sizes.leaves]Leaf,
         entries: [sizes.routes]Entry,
+        /// The table's set of methods: one run of `text` for each distinct method token.
+        methods: [sizes.methods]Range,
         text: [sizes.text]u8,
 
         /// The most segments of a pattern of the table.
@@ -98,9 +127,11 @@ pub fn build(comptime Value: type, comptime table: anytype) Layout(Value, sizes_
         add_edges(&builder, &merged, node);
         add_leaf(&builder, &merged, &routes, node);
     }
+    add_methods(&builder);
     assert(builder.edges_count == sizes.nodes - 1 - sizes.parameters - sizes.wildcards);
     assert(builder.leaves_count == sizes.leaves);
     assert(builder.entries_count == sizes.routes and builder.text_len == sizes.text);
+    assert(builder.methods_count == sizes.methods);
     return builder.layout;
 }
 
@@ -111,6 +142,7 @@ fn Builder(comptime Value: type, comptime sizes: Sizes) type {
         edges_count: usize = 0,
         leaves_count: usize = 0,
         entries_count: usize = 0,
+        methods_count: usize = 0,
         text_len: usize = 0,
     };
 }
@@ -227,6 +259,25 @@ fn add_leaf(builder: anytype, merged: anytype, routes: anytype, node: usize) voi
         .allow = .{ .offset = @intCast(allow_first), .len = @intCast(builder.text_len - allow_first) },
     };
     builder.leaves_count += 1;
+}
+
+/// Writes the table's set of methods: the method token of the first entry for each distinct
+/// token. `match` reads it before the path (RFC 9110 §9.1, §15.6.2).
+fn add_methods(builder: anytype) void {
+    const layout = &builder.layout;
+    for (layout.entries) |entry| {
+        const token = layout.text[entry.method.offset..][0..entry.method.len];
+        if (method_held(layout, builder.methods_count, token)) continue;
+        layout.methods[builder.methods_count] = entry.method;
+        builder.methods_count += 1;
+    }
+}
+
+fn method_held(layout: anytype, count: usize, token: []const u8) bool {
+    for (layout.methods[0..count]) |method| {
+        if (std.mem.eql(u8, layout.text[method.offset..][0..method.len], token)) return true;
+    }
+    return false;
 }
 
 /// Sorts `items` by `less` in place, by insertion. Comptime-only, so the order reads no pointer.

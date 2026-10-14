@@ -4,26 +4,28 @@
 //!
 //! `match` reads the method and the path in this order (invariant 7):
 //!   1. It sets `parameters.count` to 0, so no value of an earlier match is read.
-//!   2. A path of more than `path_len_max` octets, its query included, matches nothing.
-//!   3. The path ends at the first "?". The query is not read.
-//!   4. A path that does not start with "/" matches nothing: "*", "", and a query alone.
-//!   5. One pass reads each octet of the path once, before the walk. A path matches nothing when
+//!   2. A method that no route of the table names gives `not_implemented`, before the path is
+//!      read. A table that names GET names HEAD too.
+//!   3. A path of more than `path_len_max` octets, its query included, matches nothing.
+//!   4. The path ends at the first "?". The query is not read.
+//!   5. A path that does not start with "/" matches nothing: "*", "", and a query alone.
+//!   6. One pass reads each octet of the path once, before the walk. A path matches nothing when
 //!      a segment holds an octet outside `path_octets`, a "%" included, when a segment other than
 //!      the root's is empty, or when a segment is "." or "..".
-//!   6. The path "/" is the root, with no segment.
-//!   7. The walk starts at the root. At each node it tries the literal edge that equals the
+//!   7. The path "/" is the root, with no segment.
+//!   8. The walk starts at the root. At each node it tries the literal edge that equals the
 //!      segment, octet for octet, then the parameter child, then the wildcard child. The wildcard
 //!      takes the segment and each segment after it.
-//!   8. The walk backs up one level when a node has no child left to try for its segment, or when
+//!   9. The walk backs up one level when a node has no child left to try for its segment, or when
 //!      the walk read every segment and the node holds no leaf. It tries each child kind of a node
 //!      once at most (INV-32). A walk that backs up from the root matches nothing.
-//!   9. The first node that holds a leaf after the last segment decides. The walk does not back
+//!  10. The first node that holds a leaf after the last segment decides. The walk does not back
 //!      up for a method.
-//!  10. The method equals the token of one entry of the leaf, octet for octet, and the result is
+//!  11. The method equals the token of one entry of the leaf, octet for octet, and the result is
 //!      `found` with the entry's value. A HEAD request finds the GET entry of a leaf with no HEAD
 //!      entry. Otherwise the result is `method_not_allowed` with the leaf's Allow value, which
 //!      lists HEAD after GET.
-//!  11. `found` writes the name and the segment of each parameter of the walk into `parameters`,
+//!  12. `found` writes the name and the segment of each parameter of the walk into `parameters`,
 //!      and for the wildcard the name "*" and the rest of the path, without its first "/". Each
 //!      other result leaves `parameters.count` at 0.
 const std = @import("std");
@@ -48,6 +50,11 @@ pub fn Match(comptime Value: type) type {
         method_not_allowed: []const u8,
         /// No route names the path (RFC 9110 §15.5.5).
         not_found,
+        /// No route of the table names the method, whatever the path (RFC 9110 §9.1, §15.6.2).
+        /// A table that names GET names HEAD too. So an `OPTIONS *` request gets
+        /// `not_implemented` from a table with no OPTIONS route, and `not_found` from a table
+        /// with one.
+        not_implemented,
     };
 }
 
@@ -62,6 +69,8 @@ pub fn match(
 ) Match(Value) {
     // Decision 122: no value of an earlier match is read.
     parameters.count = 0;
+    // RFC 9110 §9.1, §15.6.2: a method that no route names gives 501, before the path is read.
+    if (!implemented(layout, method)) return .not_implemented;
     const path = path_of(target) orelse return .not_found;
     const walked = walk(layout, path, parameters) orelse return .not_found;
     // RFC 9110 §15.5.5: a path whose node holds no leaf names no resource.
@@ -70,6 +79,20 @@ pub fn match(
     // Decision 122: only `found` gives the program the values of the parameters.
     if (result == .found) parameters.count = @intCast(walked.count);
     return result;
+}
+
+/// Whether a route of `layout` names `method`. A table that names GET names HEAD too. The loop
+/// reads each method of the table's set once.
+fn implemented(comptime layout: anytype, method: []const u8) bool {
+    const head = std.mem.eql(u8, method, routes_method.head_token);
+    for (layout.methods) |range| {
+        const token = text_of(layout, range);
+        // RFC 9110 §9.1: the method token is case-sensitive.
+        if (std.mem.eql(u8, token, method)) return true;
+        // RFC 9110 §9.1, §9.3.2: a HEAD request finds a GET route, so GET implements HEAD.
+        if (head and std.mem.eql(u8, token, routes_method.get_token)) return true;
+    }
+    return false;
 }
 
 /// The path of `target` before its query, or null when the path matches no route. It reads each

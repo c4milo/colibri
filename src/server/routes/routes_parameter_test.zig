@@ -15,6 +15,7 @@ const people = routes(Person, .{
     .{ .get, "/users/:id", .user },
     .{ .get, "/users/:id/posts", .posts },
     .{ .get, "/users/:id/posts/:post", .post },
+    .{ .put, "/users/:id/posts/:post", .post },
 });
 
 test "decision 122: a parameter binds one segment, and its value is a slice of the path" {
@@ -41,7 +42,7 @@ test "decision 122: a parameter binds one segment, and its value is a slice of t
 
 test "decision 122: a result other than found leaves no parameter" {
     var parameters: PathParameters = .{};
-    // RFC 9110 §15.5.6: the walk reaches the leaf, and the method does not.
+    // RFC 9110 §15.5.6: another leaf names PUT, so the walk binds `id` and the leaf refuses PUT.
     try testing.expectEqualStrings("GET, HEAD", people.match("PUT", "/users/42", &parameters).method_not_allowed);
     try testing.expectEqual(0, parameters.count);
     try testing.expectEqual(null, parameters.get("id"));

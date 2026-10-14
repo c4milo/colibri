@@ -40,14 +40,18 @@ fn Table(comptime Value: type, comptime table: anytype) type {
     const layout = routes_trie_layout.build(Value, table);
     return struct {
         /// What `match` gives: `found` with the route's value, `method_not_allowed` with the
-        /// value of the Allow field that a 405 carries, or `not_found`.
+        /// value of the Allow field that a 405 carries, `not_found`, or `not_implemented` for a
+        /// method that no route of the table names (RFC 9110 §9.1, §15.6.2). An `OPTIONS *`
+        /// request gets `not_implemented` from a table with no OPTIONS route, and `not_found`
+        /// from a table with one.
         pub const Match = routes_match.Match(Value);
 
         /// The route that `method` and `path` name. `path` is `Request.path`, which may end in a
         /// query: the match stops at the first "?". `match` writes the path's parameters into
-        /// `parameters`, and sets `parameters.count` to 0 first. A HEAD request finds the GET
-        /// route of a path with no HEAD route. The endpoint writes no content in a response to
-        /// HEAD, so a program writes one answer for GET and HEAD.
+        /// `parameters`, and sets `parameters.count` to 0 first. It reads the method before the
+        /// path, so a method that no route names gives `not_implemented` on any path. A HEAD
+        /// request finds the GET route of a path with no HEAD route. The endpoint writes no
+        /// content in a response to HEAD, so a program writes one answer for GET and HEAD.
         pub fn match(_: @This(), method: []const u8, path: []const u8, parameters: *PathParameters) Match {
             return routes_match.match(Value, layout, method, path, parameters);
         }
