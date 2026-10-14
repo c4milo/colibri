@@ -203,6 +203,8 @@ test {
     _ = @import("coding/coding_fields.zig");
     _ = @import("coding/coding_response.zig");
     _ = @import("routes/routes_test.zig");
+    _ = @import("routes/routes_parameter_test.zig");
+    _ = @import("routes/routes_fuzz_test.zig");
     _ = @import("routes/routes_refusal_test.zig");
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
