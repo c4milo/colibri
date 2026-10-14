@@ -11,6 +11,8 @@ const routes_trie_layout = @import("routes_trie_layout.zig");
 const routes_hidden = @import("routes_hidden.zig");
 const constants = @import("../constants.zig");
 const core = @import("core");
+const routes = @import("routes.zig").routes;
+const support = @import("routes_test_support.zig");
 
 const testing = std.testing;
 
@@ -352,6 +354,24 @@ test "refusal 21, route_unreachable: decision 122 ruling 12, a request reaches e
     // The wildcard matches a path of two segments or more, which "/a/:x" does not.
     try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 } });
     try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x/b", 1 }, .{ .get, "/a/:x", 2 } });
+}
+
+test "docs/usage.md: each table of the Routing section compiles or is refused as the guide says" {
+    // `route_hidden`: a GET of `/users/me` matches `/users/me` first, which names no GET.
+    try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
+    // `route_unreachable`: each path of two segments matches `/a/:x` first, and each longer path
+    // matches `/a/:x/*` first.
+    try expect_layout(.route_unreachable, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } });
+    // The cost of the rule: a PUT of `/users/me` gets 405 from `/users/me`.
+    try expect_hidden(2, "PUT", "/users/me", "/users/me", .{
+        .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 },
+    });
+    // The guide adds `PUT /users/me`, and the table compiles.
+    const added = routes(u8, .{
+        .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 }, .{ .put, "/users/me", 3 },
+    });
+    try support.expect_found(added, @as(u8, 3), "PUT", "/users/me");
+    try support.expect_found(added, @as(u8, 0), "GET", "/users/me");
 }
 
 /// A segment of `path_len_max` octets, so a path of it is one octet too long.
