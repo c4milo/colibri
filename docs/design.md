@@ -9324,6 +9324,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       test` runs each step whose name ends in `-check`. No check changes.
     - 73fbf50: the build of a large table in a few seconds. 181 steps, 2972, 466. `zig build
       routes-hidden-check` passed 8 tests.
+    - 8a0dc3f: the quota of the check of hidden routes counts the reads of each pass. 181
+      steps, 2973, 467. `zig build routes-hidden-check` passed 8 tests.
+    - c05ce20: the text that the second review found wrong. 181 steps, 2973, 467.
+    - 1c3a4f2: `bench/routes/`, the probes of the router's cost. 181 steps, 2973, 467.
+    - The record of the second review, after 1c3a4f2, changes no check.
     - From 21e.2 on, `zig build test -Drelease` passed the count of `zig build test` after each
       commit.
   - **What stayed.**
@@ -9332,7 +9337,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - After each sub-step, `zig build lint` passed inside `zig build test`, and
       `tools/doc_snippets.sh` and `zig build lint-commits` passed. From 21e.2 on, `zig fmt
       --check` and `tools/consumer_check.sh` passed too. At 73fbf50, `zig build lint` printed
-      "cognitive-complexity: 9233 functions scored, highest 15 (max 15)".
+      "cognitive-complexity: 9233 functions scored, highest 15 (max 15)". At 1c3a4f2, it
+      printed 9248 functions, highest 15.
   - **The examples.** At 73fbf50, `zig build examples` prints "every octet arrived as sent" for
     `h2_exchange`, `h11_exchange`, `server_exchange` and `client_exchange`. Each program prints
     its statuses in the order that the responses end. The clients of `server_exchange` get 200,
@@ -9368,9 +9374,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     finds a literal edge by a binary search over the edges of a node, which the build sorts by
     length and then by octets. The check of hidden routes finds the leaves on the paths of a
     route by a walk of the trie.
-    - Compile time, in seconds, before and after. Each table compiled twice in a project
-      outside the tree that depends on this checkout as a path package, as `zig build
-      ct-<name>`, a Debug test binary. The load average was 4 to 6.
+    - Compile time, in seconds, before and after. Each table compiled twice in a probe project
+      outside the tree, as `zig build ct-<name>`, a Debug test binary. The project depended on
+      this checkout as a path package, and `bench/routes/` holds it since 1c3a4f2. The load
+      average was 4 to 6.
       - One route: 2.0, then 2.0.
       - 256 literals beside `/:x`: 13.6, then 7.0.
       - 512 literals beside `/:x`: 68.2 and 68.5, then 23.3 and 23.4.
@@ -9379,7 +9386,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - 50 routes, of 10 resources each with five routes: 2.1, then 2.1.
     - Run time, in instructions for each match: callgrind's count for 100,000 matches less its
       count for none, divided by 100,000. The probe is a ReleaseSafe build for aarch64 Linux,
-      run in Docker under OrbStack on the same M1 Pro. It is a number from a laptop, and
+      run in Docker under OrbStack on the same M1 Pro. `bench/routes/run_time.sh` runs it since
+      1c3a4f2. It is a number from a laptop, and
       docs/performance.md publishes only the numbers of the judge (decision 33). The root has k
       literal edges of four octets. Each line gives the first edge, the middle edge, the last
       edge and a miss:
@@ -9391,8 +9399,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - k = 64: 535, 2743, 4882 and 4775, then 826, 526, 768 and 608.
       - k = 256: 557, 9133, 17642 and 17543, then 937, 559, 874 and 726.
     - The search costs more than the old scan only for the first edge, from k = 2 on. On the
-      mean of the four segments it costs less at each k. So there is no threshold and no named
-      limit. `search_passes_max` bounds the loop beside the code.
+      mean of the four segments it costs less at each k measured. So there is no threshold and
+      no named limit. `search_passes_max` bounds the loop beside the code.
     - After 546d6b1, 512 literals beside `/zzz` still took 19.9 s, against 2.0 s for one route.
       That table does no walk in the check of hidden routes, so the rest of the cost was in the
       build of the trie and of the layout.
@@ -9416,8 +9424,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       orders the edges, and an index lists the routes of each node. The merge records the
       first route that gives a parameter node a second name, in place of the pairwise check.
       The check of hidden routes reads the layout through `routes_hidden_canonical.View`.
-    - Compile time, in seconds, two runs before and two after, in the same probe project as
-      above. Before is 315e3c1, at a load average of about 4. After is a build that differs
+    - Compile time, in seconds, two runs before and two after, in the probe project of
+      546d6b1's runs. Before is 315e3c1, at a load average of about 4. After is a build that differs
       from 73fbf50 only in the names of locals, in comments and in tests, at a load average of
       about 9:
       - One route: 2.1 and 2.1, then 2.2 and 2.1.
@@ -9447,19 +9455,68 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
   - **The citation.** Decision 122 ruling 1 cited RFC 9114 §4.1 for a response to HEAD with no
     content. RFC 9114 §4.1.2 states the rule, so the decision now cites §4.1.2. 21e.8a's code
     and tests cited §4.1.2 already.
-  - **Owed.** Two checks must run before the push. The review and the session that started
-    this step run them:
-    - `zig build test-server -Dtarget=x86_64-linux-gnu --summary all`, then each binary it names
-      in an amd64 container. GitHub's `checks` job builds Debug with Zig 0.16's x86_64 backend,
-      and the tables are globals that the compiler builds.
-    - `tools/ci.sh` on the exact tree. 21e.8a changes what h11, h2 and h3 write in a response to
-      HEAD, so the interop scripts run too.
-    - The review records the x86_64 run in this entry.
-  - **Owed, not for the push.**
-    - A second run of the compile times of 73fbf50 against 315e3c1 at a low load. The load was
-      9 for the runs above, and 25 to 85 later.
-    - The wall time of `zig build routes-hidden-check` after 73fbf50, at a low load. It used
-      about 72 s of CPU time. e6a5c77 recorded 60 s and 61 s of wall time.
+  - **Large tables, a second run.** At 1c3a4f2, on the same M1 Pro, with the probes of
+    `bench/routes/`. `--tree` names an export of an older commit, made with `git archive`.
+    - `bench/routes/run_time.sh`, and the same with `--tree` on e6a5c77, gave each count of
+      546d6b1's runs within 3 instructions. For k = 256, the last edge took 17,642 at e6a5c77
+      and 874 at 1c3a4f2.
+    - `bench/routes/compile_time.sh`, in turns with `--tree` on 315e3c1, one table at a time,
+      at a load average of 5 to 8. Each line gives two runs at 315e3c1, then two at 1c3a4f2:
+      - One route: 2.03 and 2.07, then 2.06 and 2.07.
+      - 256 literals beside `/:x`: 6.99 and 7.01, then 2.83 and 3.01.
+      - 512 literals beside `/:x`: 23.61 and 23.79, then 4.11 and 3.93.
+      - 512 literals beside `/zzz`: 20.12 and 20.14, then 3.51 and 3.46.
+      - The table of 256 routes in `routes_test.zig`: 15.67 and 15.60, then 4.88 and 5.01.
+      - 50 routes, of 10 resources each with five routes: 2.11 and 2.25, then 2.11 and 2.21.
+      - 338 routes of mixed forms: 3.87 and 3.91, then 2.90 and 2.83.
+      - 256 routes `/rNNN/:id`: 8.89 and 8.89, then 2.85 and 3.00.
+    - With `--tree` on e6a5c77, at a load average of about 6, 512 literals beside `/:x` took
+      68.98 s and 69.33 s. The table of 256 routes in `routes_test.zig` took 17.48 s and
+      17.60 s.
+    - After a change to `routes_hidden_test.zig`, `/usr/bin/time -p zig build
+      routes-hidden-check` took 66.07 s and 66.30 s, at a load average of about 6. e6a5c77
+      recorded 60 s and 61 s.
+    - These runs give the two items that the first record owed for after the push.
+  - **The second review.** Two reviewers read the whole of step 21e at 6d080ea. One of them
+    built and ran the checks below:
+    - x86_64 Debug: `zig build test-server -Dtarget=x86_64-linux-gnu --summary all` compiled
+      the test binary. In a `linux/amd64` container of `ubuntu:24.04`, it printed "All 466
+      tests passed." The binary of `zig build routes-hidden-check` printed "All 8 tests
+      passed." x86_64 ReleaseSafe and aarch64 Linux Debug passed the same counts.
+    - Seven hostile tests of `match` in a scratch file passed on aarch64 macOS and in the
+      x86_64 container, 473 of 473. They covered the binary search over 202 literal edges, paths
+      of `path_len_max` octets, and empty and dot segments. They also covered a query at each
+      position, each of the 256 octets, the methods, and 8 parameters.
+    - `zig build examples` and `zig build lint-commits` passed.
+    - After the fixes, at 1c3a4f2, the same container ran the x86_64 Debug binaries again.
+      `zig build test-server` printed "All 467 tests passed.", and `zig build
+      routes-hidden-check` printed "All 8 tests passed."
+  - **The findings of the second review.** Ten findings, and what each one became:
+    - Decision 122's amendment claimed more than the records showed. It said that 21e removes
+      the quadratic work. It named counts of edges that were not measured, and it gave a time
+      of another build. The amendment now names what 21e removes, a table where the check stays
+      quadratic, the counts measured, and the runs of 1c3a4f2.
+    - The compile times and callgrind counts came from a probe outside the tree. 1c3a4f2 adds
+      it as `bench/routes/`, and the second run above uses it.
+    - Two comments cited "the plan's rule 13", a document outside the tree. c05ce20 cites the
+      table of the cost of decision 122 ruling 12.
+    - Two checks of colibri's own cited issue 96 in place of decision 122. c05ce20 cites
+      decision 122 first.
+    - The comment of the quota said that a walk reads each octet of its path once. Each pass
+      reads the segment of its frame, and the search reads it again. 8a0dc3f states the true
+      bound and adds it to the quota.
+    - `quota_of` used the factor for each pair of routes as a factor for each route. 8a0dc3f
+      names `quota_branches_per_route`, and a new test of 1,024 routes needs it.
+    - INV-32 named step 21e.7, which the record split. c05ce20 names 21e.7a.
+    - The guide did not say that CONNECT does not compile. c05ce20 says it, in the guide and
+      in the doc comment of `routes`.
+    - The router's text used -ing forms. c05ce20 changes them, and the heading "Routing"
+      becomes "Routes".
+    - The body of 73fbf50 counts 2950 layouts and lists 14 of its 15 mutations. The record of
+      73fbf50 above holds the true count and list, so no commit changes.
+  - **Owed.** `tools/ci.sh` on the exact tree, before the push. 21e.8a changes what h11, h2 and
+    h3 write in a response to HEAD, so the interop scripts run too. The session that started
+    this step runs it.
   - Mutations, each **CAUGHT** unless it says otherwise:
     - 21e.2, by `zig build test-http`: `Standard` left out of the namespace; `Standard`
       exported under a second name beside it.
@@ -9565,6 +9622,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - The merge sort: the right item taken when the left is less; runs that grow by one item
         a pass; one pass only; a last run with no partner left out of the pass.
       - HEAD that reads no route of the node.
+    - 8a0dc3f, by `zig build test-server`: the factor for each route of `quota_of` set to 0,
+      and set to 1. Before 8a0dc3f no test held a table that needs the factor.
   - **NOT CAUGHT**, or no mutation, and why:
     - 21e.10: in `client_peer`, the 405 without its Allow field, and the 404 arm that answers
       200. No request of the client example reached the two arms. fc90377 adds the requests,
@@ -9582,7 +9641,15 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       and `GET /a`, `PUT /a`, `PUT /a` is `route_repeated`. Then each one is **CAUGHT**.
     - 73fbf50: the first form of the lone run that the merge sort leaves out copied the run. That
       form is correct, so it is equivalent. A form that leaves the run out is **CAUGHT**.
-    - 21e.1, f20e74d, 800ebda, 174c242 and 315e3c1 change no check. The test counts are the
+    - 8a0dc3f, by `zig build test-server` and `zig build routes-hidden-check`: the reads of
+      each pass left out of `walk_octets`; the longest segment of the layout not read from its
+      edges; the bound of the longest segment not read from the patterns. Each is **NOT
+      CAUGHT**. The part for each pair of leaves gives each table that a test builds more
+      branches than these reads use. A walk reads a long segment past the other parts only in
+      more than 32 frames, and such a table has more than 32 leaves. No such table was found
+      where the part for each pair is too small.
+    - 21e.1, f20e74d, 800ebda, 174c242, 315e3c1, c05ce20, 1c3a4f2 and the record of the second
+      review change no check. The test counts are the
       check of 800ebda.
 
 Steps 0 to 6 are h2 and deliver a shippable library. Steps 7 to 12 are h3, and step 13 benchmarks

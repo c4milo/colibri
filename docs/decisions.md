@@ -4457,20 +4457,27 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        a minute to each compile of `zig build test-server`. On an M1 Pro, that compile took 86 s
        with the cross-check and 27 s without it. `build/check_steps.zig` makes `zig build test`
        fail for each step whose name ends in `-check` that it does not run.
-     - Step 21e removes the quadratic compile-time work of large tables. `match` finds a literal
-       edge by a binary search over the edges of a node, which the build sorts by length and
-       then by octets. Before, it read the edges in turn. The check of hidden routes walks the
-       trie, and the build merges the trie once.
+     - Step 21e removes the quadratic compile-time work that the measured tables paid for. That
+       work was the scans of siblings, the insertion sort, the pairwise check of parameter names,
+       and the passes over large constants. `match` finds a literal edge by a binary search over the
+       edges of a node, which the build sorts by length and then by octets. Before, it read the
+       edges in turn. The check of hidden routes walks the trie, and the build merges the trie
+       once.
+     - The check of hidden routes stays quadratic in the leaves for some tables. Take the
+       routes `GET /a_i/:x` and `GET /:y/b_j`, for i and j from 1 to n. The check walks
+       n * (n + 1) canonical paths.
      - The binary search changes the run-time code of `match`, so it carries a measurement.
        callgrind counted the instructions of a match on aarch64 Linux, at a root with 256 literal
-       edges. The last edge took 17,642 before and 874 after. The first edge took 557 before
-       and 937 after.
+       edges, with `bench/routes/run_time.sh`. The last edge took 17,642 before and 874 after.
+       The first edge took 557 before and 937 after.
      - Over the first edge, the middle edge, the last edge and a miss, the search costs less on
-       average for each count of edges from 1 to 256. So it has no threshold and no named limit.
-     - Compile time on the M1 Pro, in a Debug test binary: 512 literals beside `/:x` took 68.3 s
-       before 546d6b1 and 4.4 s after 73fbf50. The table of 256 routes in `routes_test.zig` took
-       17.2 s and 5.0 s. One route takes about 2 s. Design §8 step 21e gives the load of each
-       run.
+       average at each count of edges measured: 1, 2, 4, 8, 16, 64 and 256. So it has no
+       threshold and no named limit.
+     - Compile time on the M1 Pro, in a Debug test binary, from `bench/routes/compile_time.sh`
+       at a load average of 5 to 8. 512 literals beside `/:x` took 69.0 s and 69.3 s at e6a5c77,
+       before 546d6b1. They took 4.1 s and 3.9 s at 1c3a4f2. The table of 256 routes in
+       `routes_test.zig` took 17.5 s and 17.6 s, then 4.9 s and 5.0 s. One route takes about
+       2 s. Design §8 step 21e gives each run.
 
      The alternatives refused:
      - The cross-check: a smaller family of tables in `zig build test-server`. It then proves
