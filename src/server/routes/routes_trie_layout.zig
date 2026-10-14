@@ -9,6 +9,7 @@
 //! memory of the build, so a program can read it at run time.
 const std = @import("std");
 const assert = std.debug.assert;
+const routes_method = @import("routes_method.zig");
 const routes_pattern = @import("routes_pattern.zig");
 const routes_trie = @import("routes_trie.zig");
 
@@ -45,7 +46,9 @@ fn sizes_of(comptime table: anytype) Sizes {
         sizes.text += if (routes_pattern.is_parameter(segment)) routes_pattern.parameter_name(segment).len else segment.len;
     }
     for (0..merged.node_count) |node| {
-        if (std.mem.indexOfScalar(usize, &merged.route_node, node) != null) sizes.leaves += 1;
+        if (std.mem.indexOfScalar(usize, &merged.route_node, node) == null) continue;
+        sizes.leaves += 1;
+        if (head_added(&routes, &merged, node)) sizes.text += allow_separator.len + routes_method.head_token.len;
     }
     // Each Allow value holds the tokens of its leaf's routes, with a separator between two.
     for (routes.tokens) |token| sizes.text += token.len;
@@ -179,6 +182,19 @@ fn segment_less(merged: anytype, left: usize, right: usize) bool {
     return std.mem.lessThan(u8, left_segment, right_segment);
 }
 
+/// Whether the leaf at `node` names GET and no HEAD. A HEAD request then finds the GET route
+/// (RFC 9110 §9.1, §9.3.2), so the leaf's Allow value lists HEAD after GET.
+fn head_added(routes: anytype, merged: anytype, node: usize) bool {
+    var get = false;
+    var head = false;
+    for (merged.route_node, 0..) |route_node, route| {
+        if (route_node != node) continue;
+        if (routes.ranks[route] == routes_method.rank_of(.get)) get = true;
+        if (routes.ranks[route] == routes_method.rank_of(.head)) head = true;
+    }
+    return get and !head;
+}
+
 fn add_leaf(builder: anytype, merged: anytype, routes: anytype, node: usize) void {
     var held: [merged.route_node.len]usize = undefined;
     var count: usize = 0;
@@ -191,6 +207,9 @@ fn add_leaf(builder: anytype, merged: anytype, routes: anytype, node: usize) voi
     // RFC 9110 §10.2.1: Allow lists the methods of the target. The standard methods come in RFC
     // 9110 §9.1's order and the tokens after them by octets, so the table's order changes nothing.
     sort(held[0..count], routes, method_less);
+    // RFC 9110 §9.1's order puts GET first, so HEAD follows the first token.
+    const head = head_added(routes, merged, node);
+    assert(!head or routes.ranks[held[0]] == routes_method.rank_of(.get));
     const allow_first = builder.text_len;
     const entries_first = builder.entries_count;
     for (held[0..count], 0..) |route, position| {
@@ -199,6 +218,7 @@ fn add_leaf(builder: anytype, merged: anytype, routes: anytype, node: usize) voi
         const offset = add_text(builder, token);
         builder.layout.entries[builder.entries_count] = .{ .method = .{ .offset = @intCast(offset), .len = @intCast(token.len) }, .value = builder.values[route] };
         builder.entries_count += 1;
+        if (head and position == 0) _ = add_text(builder, allow_separator ++ routes_method.head_token);
     }
     builder.layout.nodes[node].leaf = @intCast(builder.leaves_count);
     builder.layout.leaves[builder.leaves_count] = .{

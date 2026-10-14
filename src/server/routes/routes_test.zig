@@ -89,7 +89,8 @@ test "RFC 9110 §15.5.6: a known path and another method give the Allow value, i
         // RFC 9110 §9.1's order, then the tokens by octets, joined by ", ".
         try expect_allow(table, "PUT, DELETE, LINK, PATCH", "GET", "/users/me");
         try expect_allow(table, "PUT, DELETE, LINK, PATCH", "POST", "/users/me?x");
-        try expect_allow(table, "GET", "PUT", "/users");
+        // RFC 9110 §9.1: a HEAD request finds the GET route, so Allow lists HEAD after GET.
+        try expect_allow(table, "GET, HEAD", "PUT", "/users");
         // RFC 9110 §9.1: the method is case-sensitive, so "put" is another method.
         try expect_allow(table, "PUT, DELETE, LINK, PATCH", "put", "/users/me");
         try expect_allow(table, "PUT, DELETE, LINK, PATCH", "patch", "/users/me");
@@ -103,6 +104,55 @@ test "RFC 9110 §15.5.6: a known path and another method give the Allow value, i
         try expect_not_found(table, "GET", "/");
         try expect_not_found(table, "GET", "/user");
     }
+}
+
+const Page = enum { page, page_head, notes, notes_patch, status, upload };
+
+const pages = routes(Page, .{
+    .{ .get, "/page", .page },
+    .{ .head, "/page", .page_head },
+    .{ .get, "/notes", .notes },
+    .{ "PATCH", "/notes", .notes_patch },
+    .{ .head, "/status", .status },
+    .{ .put, "/upload", .upload },
+});
+
+const pages_reversed = routes(Page, .{
+    .{ .put, "/upload", .upload },
+    .{ .head, "/status", .status },
+    .{ "PATCH", "/notes", .notes_patch },
+    .{ .get, "/notes", .notes },
+    .{ .head, "/page", .page_head },
+    .{ .get, "/page", .page },
+});
+
+test "RFC 9110 §9.3.2: a HEAD request finds the GET route of a path that names no HEAD route" {
+    inline for (.{ pages, pages_reversed }) |table| {
+        try expect_found(table, Page.notes, "HEAD", "/notes");
+        try expect_found(table, Page.notes, "HEAD", "/notes?x");
+        try expect_found(table, Page.notes, "GET", "/notes");
+        // A HEAD route wins over the GET route of its path.
+        try expect_found(table, Page.page_head, "HEAD", "/page");
+        try expect_found(table, Page.page, "GET", "/page");
+        // RFC 9110 §9.1: the method is case-sensitive, so "head" is another method.
+        try expect_allow(table, "GET, HEAD, PATCH", "head", "/notes");
+        // A path with no GET route gives HEAD no route.
+        try expect_allow(table, "PUT", "HEAD", "/upload");
+        try expect_not_found(table, "HEAD", "/missing");
+    }
+}
+
+test "RFC 9110 §10.2.1: Allow lists HEAD after GET once, and GET never finds a HEAD route" {
+    inline for (.{ pages, pages_reversed }) |table| {
+        // RFC 9110 §15.5.6: a 405 for POST on a path with a GET route.
+        try expect_allow(table, "GET, HEAD", "POST", "/page");
+        try expect_allow(table, "GET, HEAD, PATCH", "POST", "/notes");
+        try expect_allow(table, "GET, HEAD, PATCH", "DELETE", "/notes?x");
+        // A HEAD route does not answer GET.
+        try expect_allow(table, "HEAD", "GET", "/status");
+        try expect_found(table, Page.status, "HEAD", "/status");
+    }
+    try expect_allow(routes(u8, .{.{ .get, "/", 0 }}), "GET, HEAD", "POST", "/");
 }
 
 fn greet() u8 {
@@ -209,7 +259,7 @@ test "decision 122: a table of 256 routes of four segments each compiles and mat
     // The first segment of a pattern alone names no route.
     const first = comptime large_segment(0, 0);
     try testing.expect(large.match("GET", &first, &parameters) == .not_found);
-    try testing.expectEqualStrings("GET", large.match("PUT", large_table[0][1], &parameters).method_not_allowed);
+    try testing.expectEqualStrings("GET, HEAD", large.match("PUT", large_table[0][1], &parameters).method_not_allowed);
 }
 
 /// The route that a test of the back-up takes, by the kind of its last segments.

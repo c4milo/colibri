@@ -20,6 +20,10 @@ const routes_match = @import("routes_match.zig");
 ///   a function, or a struct. `match` reads the value at run time, so `Value` is not a `type` or
 ///   a bare `fn` type.
 ///
+/// A HEAD request finds the GET route of a path that names no HEAD route (RFC 9110 §9.1,
+/// §9.3.2). The endpoint writes no content in a response to HEAD, so a program writes one answer
+/// for GET and HEAD.
+///
 /// A malformed or conflicting table does not compile. The compile error names the entry, the
 /// refusal and its reason.
 ///
@@ -41,7 +45,9 @@ fn Table(comptime Value: type, comptime table: anytype) type {
 
         /// The route that `method` and `path` name. `path` is `Request.path`, which may end in a
         /// query: the match stops at the first "?". `match` writes the path's parameters into
-        /// `parameters`, and sets `parameters.count` to 0 first.
+        /// `parameters`, and sets `parameters.count` to 0 first. A HEAD request finds the GET
+        /// route of a path with no HEAD route. The endpoint writes no content in a response to
+        /// HEAD, so a program writes one answer for GET and HEAD.
         pub fn match(_: @This(), method: []const u8, path: []const u8, parameters: *PathParameters) Match {
             return routes_match.match(Value, layout, method, path, parameters);
         }

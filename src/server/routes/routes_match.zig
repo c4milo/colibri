@@ -20,8 +20,9 @@
 //!   9. The first node that holds a leaf after the last segment decides. The walk does not back
 //!      up for a method.
 //!  10. The method equals the token of one entry of the leaf, octet for octet, and the result is
-//!      `found` with the entry's value. Otherwise it is `method_not_allowed` with the leaf's Allow
-//!      value.
+//!      `found` with the entry's value. A HEAD request finds the GET entry of a leaf with no HEAD
+//!      entry. Otherwise the result is `method_not_allowed` with the leaf's Allow value, which
+//!      lists HEAD after GET.
 //!  11. `found` writes the name and the segment of each parameter of the walk into `parameters`,
 //!      and for the wildcard the name "*" and the rest of the path, without its first "/". Each
 //!      other result leaves `parameters.count` at 0.
@@ -29,6 +30,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
+const routes_method = @import("routes_method.zig");
 const routes_pattern = @import("routes_pattern.zig");
 const routes_trie = @import("routes_trie.zig");
 
@@ -231,9 +233,16 @@ fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?us
 fn choose(comptime Value: type, comptime layout: anytype, leaf: usize, method: []const u8) Match(Value) {
     const at = layout.leaves[leaf];
     assert(at.entries_count > 0);
-    for (layout.entries[at.entries_first..][0..at.entries_count]) |entry| {
+    const entries = layout.entries[at.entries_first..][0..at.entries_count];
+    for (entries) |entry| {
         // RFC 9110 §9.1: the method token is case-sensitive.
         if (std.mem.eql(u8, text_of(layout, entry.method), method)) return .{ .found = entry.value };
+    }
+    // RFC 9110 §9.1, §9.3.2: a HEAD request finds the GET entry of a leaf with no HEAD entry.
+    // The entries come in RFC 9110 §9.1's order, so a GET entry is the first.
+    const first = text_of(layout, entries[0].method);
+    if (std.mem.eql(u8, method, routes_method.head_token) and std.mem.eql(u8, first, routes_method.get_token)) {
+        return .{ .found = entries[0].value };
     }
     // RFC 9110 §15.5.6: a 405 carries an Allow field with the target's methods.
     return .{ .method_not_allowed = text_of(layout, at.allow) };

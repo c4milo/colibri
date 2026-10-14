@@ -83,6 +83,11 @@ pub fn rank_of(comptime method: anytype) usize {
     return @intFromEnum(standard);
 }
 
+/// The tokens of GET and HEAD. A HEAD request finds the GET route of a leaf that names no HEAD
+/// route (RFC 9110 §9.1, §9.3.2).
+pub const get_token = token_of(.get);
+pub const head_token = token_of(.head);
+
 fn standard_of(comptime method: anytype) ?Standard {
     if (@TypeOf(method) == @EnumLiteral()) return @field(Standard, @tagName(method));
     if (@TypeOf(method) == Standard) return method;

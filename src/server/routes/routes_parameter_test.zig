@@ -42,7 +42,7 @@ test "decision 122: a parameter binds one segment, and its value is a slice of t
 test "decision 122: a result other than found leaves no parameter" {
     var parameters: PathParameters = .{};
     // RFC 9110 §15.5.6: the walk reaches the leaf, and the method does not.
-    try testing.expectEqualStrings("GET", people.match("PUT", "/users/42", &parameters).method_not_allowed);
+    try testing.expectEqualStrings("GET, HEAD", people.match("PUT", "/users/42", &parameters).method_not_allowed);
     try testing.expectEqual(0, parameters.count);
     try testing.expectEqual(null, parameters.get("id"));
     // The walk binds `id`, and then a segment has no child.
