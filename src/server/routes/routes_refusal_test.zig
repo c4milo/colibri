@@ -7,7 +7,10 @@ const http = @import("http");
 const routes_pattern = @import("routes_pattern.zig");
 const routes_method = @import("routes_method.zig");
 const routes_trie = @import("routes_trie.zig");
+const routes_trie_layout = @import("routes_trie_layout.zig");
+const routes_hidden = @import("routes_hidden.zig");
 const constants = @import("../constants.zig");
+const core = @import("core");
 
 const testing = std.testing;
 
@@ -274,5 +277,121 @@ test "decision 122: the compile error names the entry, the refusal and its reaso
     try testing.expectEqualStrings(
         "server.routes: table_empty: a table holds one route at least",
         comptime routes_trie.message(.{ .route = 0, .pattern = "", .reason = .table_empty }),
+    );
+}
+
+/// The first refusal of `table` that reads its layout, in the order of `server.routes`:
+/// `allow_too_long`, then `route_hidden` and `route_unreachable`. `table` passes every check
+/// before the build. Comptime-only.
+fn layout_refusal(comptime table: anytype) ?routes_trie.Refusal {
+    @setEvalBranchQuota(routes_trie.quota_of(table) + routes_hidden.quota_bound_of(table));
+    std.debug.assert(routes_trie.refusal_of(table) == null);
+    const layout = routes_trie_layout.build(u8, table);
+    if (routes_trie_layout.allow_refusal(layout, table)) |refusal| return refusal;
+    return routes_hidden.refusal_of(u8, layout, table);
+}
+
+const Tag = std.meta.Tag(routes_trie.Reason);
+
+/// Requires the refusal of `table` that reads its layout to name route `route` with `expected`,
+/// or no refusal when `expected` is null.
+fn expect_layout(comptime expected: ?Tag, comptime route: usize, comptime table: anytype) !void {
+    const refusal = comptime layout_refusal(table);
+    const tag = expected orelse return testing.expectEqual(null, refusal);
+    const refused = refusal orelse return error.TestExpectedRefusal;
+    try testing.expectEqual(tag, std.meta.activeTag(refused.reason));
+    try testing.expectEqual(route, refused.route);
+}
+
+/// Requires `table` to refuse route `route` with `route_hidden`, for the request `method` and
+/// `path`, which gets 405 from the routes of `pattern`.
+fn expect_hidden(comptime route: usize, comptime method: []const u8, comptime path: []const u8, comptime pattern: []const u8, comptime table: anytype) !void {
+    const refusal = comptime layout_refusal(table).?;
+    try testing.expectEqual(route, refusal.route);
+    try testing.expectEqualStrings(method, refusal.reason.route_hidden.method);
+    try testing.expectEqualStrings(path, refusal.reason.route_hidden.path);
+    try testing.expectEqualStrings(pattern, refusal.reason.route_hidden.pattern);
+}
+
+test "refusal 20, route_hidden: decision 122 ruling 12, a request that a route matches gets no 405" {
+    // The owner's examples 2, 3, 5 and 7.
+    try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
+    try expect_hidden(2, "PUT", "/users/me", "/users/me", .{
+        .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 }, .{ .delete, "/users/:id", 3 },
+    });
+    try expect_hidden(0, "GET", "/files/a", "/files/:name", .{ .{ .get, "/files/*", 0 }, .{ .post, "/files/:name", 1 } });
+    try expect_hidden(0, "GET", "/a/b/c", "/a/b/:y", .{ .{ .get, "/a/:x/c", 0 }, .{ .put, "/a/b/:y", 1 } });
+    // The plan's rule 13 table, and a leaf that names HEAD and no GET.
+    try expect_hidden(1, "PUT", "/users/me", "/users/me", .{ .{ .get, "/users/me", 0 }, .{ .put, "/users/:id", 1 } });
+    try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .head, "/users/me", 1 } });
+    // The owner's examples 1, 4 and 6, and each refused table with the routes that it lacks.
+    try expect_layout(null, 0, .{ .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 } });
+    try expect_layout(null, 0, .{ .{ .get, "/files/*", 0 }, .{ .get, "/files/:name", 1 } });
+    try expect_layout(null, 0, .{ .{ .get, "/a/:x/c", 0 }, .{ .get, "/a/b/:y", 1 } });
+    try expect_layout(null, 0, .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 }, .{ .get, "/users/me", 2 } });
+    try expect_layout(null, 0, .{
+        .{ .get, "/users/me", 0 },     .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 },
+        .{ .delete, "/users/:id", 3 }, .{ .put, "/users/me", 4 },  .{ .delete, "/users/me", 5 },
+    });
+    try expect_layout(null, 0, .{ .{ .get, "/a/:x/c", 0 }, .{ .put, "/a/b/:y", 1 }, .{ .get, "/a/b/c", 2 }, .{ .put, "/a/b/c", 3 } });
+    // RFC 9110 §9.3.2: HEAD of `/users/me` finds the GET route of `/users/me`.
+    try expect_layout(null, 0, .{ .{ .head, "/users/:id", 0 }, .{ .get, "/users/me", 1 } });
+}
+
+test "refusal 21, route_unreachable: decision 122 ruling 12, a request reaches each route" {
+    // The owner's example 8: "/a/:x" takes each path of one segment, and "/a/:x/*" each longer path.
+    const refusal = comptime layout_refusal(.{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } }).?;
+    try testing.expectEqual(0, refusal.route);
+    try testing.expectEqualStrings("\"/a/:x\", \"/a/:x/*\"", refusal.reason.route_unreachable.patterns);
+    try testing.expect(!refusal.reason.route_unreachable.too_long);
+    try expect_layout(.route_unreachable, 1, .{ .{ .get, "/a/:x/*", 0 }, .{ .get, "/a/*", 1 }, .{ .get, "/a/:x", 2 } });
+    // The wildcard takes a path of two segments or more, which "/a/:x" does not.
+    try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 } });
+    try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x/b", 1 }, .{ .get, "/a/:x", 2 } });
+}
+
+/// A segment of `path_len_max` octets, so a path of it is one octet too long.
+const long_segment = "a" ** constants.path_len_max;
+
+test "refusal 21, route_unreachable: a pattern whose paths are longer than path_len_max" {
+    const refusal = comptime layout_refusal(.{ .{ .get, "/", 0 }, .{ .get, "/" ++ long_segment, 1 } }).?;
+    try testing.expectEqual(1, refusal.route);
+    try testing.expectEqualStrings("", refusal.reason.route_unreachable.patterns);
+    try testing.expect(refusal.reason.route_unreachable.too_long);
+    try expect_layout(null, 0, .{ .{ .get, "/", 0 }, .{ .get, "/" ++ long_segment[1..], 1 } });
+    // INV-8: a request of a path longer than `path_len_max` gets 404, so the literal hides no GET
+    // of the parameter. The literal is the route that no request reaches.
+    try expect_layout(.route_unreachable, 1, .{ .{ .get, "/:x", 0 }, .{ .put, "/" ++ long_segment, 1 } });
+}
+
+test "refusal 22, allow_too_long: an Allow value fits core.constants.field_value_len_max" {
+    const most = core.constants.field_value_len_max;
+    try expect_layout(.allow_too_long, 1, .{ valid_entry, .{ "A" ** (most + 1), "/a", 1 } });
+    try expect_layout(null, 0, .{ valid_entry, .{ "A" ** most, "/a", 1 } });
+    // The Allow value "GET, HEAD, " and the token: HEAD counts.
+    const head_allow = "GET, HEAD, ".len;
+    try expect_layout(.allow_too_long, 0, .{ .{ .get, "/", 0 }, .{ "A" ** (most - head_allow + 1), "/", 1 } });
+    try expect_layout(null, 0, .{ .{ .get, "/", 0 }, .{ "A" ** (most - head_allow), "/", 1 } });
+}
+
+/// A valid entry, which a refused table holds first.
+const valid_entry = .{ .get, "/", 0 };
+
+test "decision 122: the compile error of a hidden route names the request and the pattern" {
+    try testing.expectEqualStrings(
+        "server.routes: route 0, \"/users/:id\": route_hidden: a request that this route matches gets 405 " ++
+            "from another pattern: GET \"/users/me\" matches \"/users/me\" first, and no route of that " ++
+            "pattern names GET",
+        comptime routes_trie.message(layout_refusal(.{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } }).?),
+    );
+    try testing.expectEqualStrings(
+        "server.routes: route 0, \"/a/*\": route_unreachable: no request reaches this route, because " ++
+            "another pattern matches each of its paths first: \"/a/:x\", \"/a/:x/*\"",
+        comptime routes_trie.message(layout_refusal(.{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } }).?),
+    );
+    try testing.expectEqualStrings(
+        "server.routes: route 1, \"/a\": allow_too_long: the Allow value of the routes of one pattern " ++
+            "holds core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
+        comptime routes_trie.message(.{ .route = 1, .pattern = "/a", .reason = .allow_too_long }),
     );
 }

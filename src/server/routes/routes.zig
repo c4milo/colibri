@@ -5,6 +5,7 @@ const PathParameters = @import("../path_parameters.zig").PathParameters;
 const routes_trie = @import("routes_trie.zig");
 const routes_trie_layout = @import("routes_trie_layout.zig");
 const routes_match = @import("routes_match.zig");
+const routes_hidden = @import("routes_hidden.zig");
 
 /// Builds a route table at compile time. `table` is a tuple, or an array, of entries, and each
 /// entry is a tuple of a method, a pattern and a value: `.{ .get, "/greeting", .greeting }`.
@@ -25,7 +26,11 @@ const routes_match = @import("routes_match.zig");
 /// for GET and HEAD.
 ///
 /// A malformed or conflicting table does not compile. The compile error names the entry, the
-/// refusal and its reason.
+/// refusal and its reason. A route that other routes hide is a conflict (decision 122 ruling 12):
+/// a request that the route matches gets 405 from another pattern, or no request reaches the
+/// route. So a literal names each method that a parameter beside it names: with `GET /users/me`,
+/// `GET /users/:id` and `PUT /users/:id`, a PUT of `/users/me` gets 405, and the table does not
+/// compile.
 ///
 /// Each call returns a value of a type of its own, with no field. Its one call is `match`, which
 /// returns a `Match`. A program names that type as `@TypeOf(table).Match`.
@@ -35,9 +40,10 @@ pub fn routes(comptime Value: type, comptime table: anytype) Table(Value, table)
 
 fn Table(comptime Value: type, comptime table: anytype) type {
     // Decision 122: a malformed or conflicting table does not compile, and the message names the
-    // entry and the rule.
-    if (routes_trie.refusal_of(table)) |refusal| @compileError(routes_trie.message(refusal));
+    // entry and the rule. The checks that read the layout run after the build.
+    if (routes_trie.refusal_of(table)) |refusal| refuse(refusal);
     const layout = routes_trie_layout.build(Value, table);
+    if (layout_refusal_of(Value, layout, table)) |refusal| refuse(refusal);
     return struct {
         /// What `match` gives: `found` with the route's value, `method_not_allowed` with the
         /// value of the Allow field that a 405 carries, `not_found`, or `not_implemented` for a
@@ -56,6 +62,18 @@ fn Table(comptime Value: type, comptime table: anytype) type {
             return routes_match.match(Value, layout, method, path, parameters);
         }
     };
+}
+
+/// The first refusal of `table` that reads its layout, or null: `allow_too_long`, then
+/// `route_hidden` and `route_unreachable`. Comptime-only.
+fn layout_refusal_of(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
+    if (routes_trie_layout.allow_refusal(layout, table)) |refusal| return refusal;
+    return routes_hidden.refusal_of(Value, layout, table);
+}
+
+/// The one compile error of a table that does not compile (decision 122).
+fn refuse(comptime refusal: routes_trie.Refusal) noreturn {
+    @compileError(routes_trie.message(refusal));
 }
 
 test "decision 122: a table's type exports Match and match alone" {

@@ -120,6 +120,24 @@ const cases = [_]Case{
         .message = "server.routes: route 1, \"/a\": route_repeated: " ++
             "two routes name one method and one path",
     },
+    .{
+        .name = "allow_too_long",
+        .message = "server.routes: route 1, \"/a\": allow_too_long: " ++
+            "the Allow value of the routes of one pattern holds " ++
+            "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
+    },
+    .{
+        .name = "route_hidden",
+        .message = "server.routes: route 1, \"/users/:id\": route_hidden: " ++
+            "a request that this route matches gets 405 from another pattern: " ++
+            "PUT \"/users/me\" matches \"/users/me\" first, and no route of that pattern names PUT",
+    },
+    .{
+        .name = "route_unreachable",
+        .message = "server.routes: route 1, \"/a/*\": route_unreachable: " ++
+            "no request reaches this route, because another pattern matches each of its paths first: " ++
+            "\"/a/:x\", \"/a/:x/*\"",
+    },
 };
 
 /// Adds `zig build routes-check` and returns its step, which `zig build test` depends on.

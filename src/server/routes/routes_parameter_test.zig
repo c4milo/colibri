@@ -77,6 +77,16 @@ test "decision 122: the literal wins over the parameter, whatever the table's or
     }
 }
 
+test "decision 122: the walk does not back up for a method, so a literal leaf answers 405" {
+    // Decision 122 ruling 12 refuses a parameter beside this literal for a method that the
+    // literal does not name, so no table gives a back-up for a method another route.
+    const me = routes(u8, .{ .{ .get, "/users/me", 1 }, .{ .put, "/users", 2 } });
+    var parameters: PathParameters = .{};
+    try testing.expectEqualStrings("GET, HEAD", me.match("PUT", "/users/me", &parameters).method_not_allowed);
+    try testing.expectEqual(0, parameters.count);
+    try expect_not_found(me, "PUT", "/users/you");
+}
+
 const posts = routes(Person, .{
     .{ .get, "/users/:id", .user },
     .{ .get, "/users/:id/posts", .posts },
@@ -161,7 +171,12 @@ fn most_parameters(comptime parameter_prefix: []const u8, comptime value_prefix:
     return text;
 }
 
+/// The comptime work of the test of ruling 10, in units of `branches_per_parameter` for each
+/// parameter: the pattern, the path, the names and values, and the table's build.
+const ruling_10_units = 4;
+
 test "decision 122 ruling 10: the parameters and the wildcard of a pattern fill path_parameters_max entries" {
+    @setEvalBranchQuota(ruling_10_units * constants.path_parameters_max * branches_per_parameter);
     const most = routes(u8, .{.{ .get, comptime most_parameters(":", "p") ++ "/*", 1 }});
     const path = comptime most_parameters("", "v") ++ "/w/x";
     var parameters: PathParameters = .{};

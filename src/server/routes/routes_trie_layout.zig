@@ -10,6 +10,7 @@
 //! memory of the build, so a program can read it at run time.
 const std = @import("std");
 const assert = std.debug.assert;
+const core = @import("core");
 const routes_method = @import("routes_method.zig");
 const routes_pattern = @import("routes_pattern.zig");
 const routes_trie = @import("routes_trie.zig");
@@ -133,6 +134,28 @@ pub fn build(comptime Value: type, comptime table: anytype) Layout(Value, sizes_
     assert(builder.entries_count == sizes.routes and builder.text_len == sizes.text);
     assert(builder.methods_count == sizes.methods);
     return builder.layout;
+}
+
+/// The first route, in table order, whose leaf has an Allow value longer than
+/// `core.constants.field_value_len_max`, or null. `layout` is the layout of `table`.
+/// Comptime-only.
+pub fn allow_refusal(comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
+    @setEvalBranchQuota(routes_trie.quota_of(table));
+    for (layout.leaves) |leaf| {
+        // RFC 9110 §10.2.1: a 405 carries the Allow value as a field value, which the endpoint
+        // bounds at `core.constants.field_value_len_max` (decision 122).
+        if (leaf.allow.len > core.constants.field_value_len_max) break;
+    } else return null;
+    // The merge that names the route runs on a refusal only.
+    const routes = routes_trie.routes_of(table);
+    const merged = routes_trie.merge(&routes.patterns);
+    for (merged.route_node, 0..) |node, route| {
+        const leaf = layout.nodes[node].leaf.?;
+        if (layout.leaves[leaf].allow.len > core.constants.field_value_len_max) {
+            return .{ .route = route, .pattern = routes.patterns[route], .reason = .allow_too_long };
+        }
+    }
+    unreachable;
 }
 
 fn Builder(comptime Value: type, comptime sizes: Sizes) type {

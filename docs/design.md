@@ -8580,8 +8580,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       is `not_implemented`, and HEAD finds a GET route.
     - The path is matched as received. A path with an empty segment, a dot segment, a "%", an
       octet outside `pchar` or more than `path_len_max` octets matches nothing.
-    - A malformed or conflicting table does not compile. A route that the rules hide is a
-      conflict.
+    - A malformed or conflicting table does not compile. A route that other routes hide is a
+      conflict: a request that it matches gets 405 from another pattern, or no request reaches
+      it (decision 122 ruling 12). An Allow value longer than
+      `core.constants.field_value_len_max` is one too.
     - The endpoint writes no content in a response to HEAD, in h11, h2 and h3 alike.
     - `server.constants.path_parameters_max` is 8, and `server.constants.path_len_max` is the
       endpoint's own bound on a path, 8192 octets.
@@ -8589,14 +8591,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       Allow field, and reads a parameter. Its TCP peer also asks for a path that no route
       names. `examples/client_peer.zig` routes through a table of functions. The guide shows
       both.
-    - Twelve sub-steps. After each one, every check passes:
+    - Thirteen sub-steps. After each one, every check passes:
       - 21e.1: decision 122, INV-32 and this text.
       - 21e.2: `http.method.Standard`.
       - 21e.3: literal routes, with every public name and its list.
       - 21e.4: `zig build routes-check`.
       - 21e.5: parameters, the checks of a path, and `path_len_max`.
       - 21e.6: the trailing wildcard.
-      - 21e.7: the back-up (INV-32) and the refusal of a hidden route.
+      - 21e.7a: the back-up (INV-32).
+      - 21e.7b: the refusal of a hidden route, of a route that no request reaches, and of an
+        Allow value that is too long.
       - 21e.8a: no content in a response to HEAD, in each version.
       - 21e.8b: HEAD on a GET route.
       - 21e.9: `not_implemented`.
@@ -8607,7 +8611,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       octet, a dot segment or an empty segment matching nothing. A test of each version shows
       that a response to HEAD carries no content. `zig build routes-check` requires each
       malformed or conflicting table to fail to compile, a hidden route too, and a valid one to
-      compile. `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh`
+      compile. A test compares the check of hidden routes with a brute force on small tables. `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh`
       pass. Each rule has a mutation a test catches.
   - **21f, the package.** Whether `h11`, `h2`, `h3` and `quic` stay exported (decision 86).
     **Check:** the owner's ruling, once the dependent that uses `h11` directly can use `client`.

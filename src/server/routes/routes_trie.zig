@@ -11,6 +11,10 @@
 //!   3. No two routes give two names to one parameter node, or `parameter_names_differ`.
 //!   4. No two routes name one method at one leaf, or `route_repeated`.
 //!
+//! `routes.zig` then builds the layout and checks it in this order: each Allow value fits
+//! `core.constants.field_value_len_max`, or `allow_too_long` (`routes_trie_layout.zig`), and no
+//! route is hidden, or `route_hidden` or `route_unreachable` (`routes_hidden.zig`).
+//!
 //! `merge` writes the trie of a table's patterns. It gives each segment of a pattern a node, and
 //! two patterns with the same first segments share their nodes.
 const std = @import("std");
@@ -28,13 +32,45 @@ pub const value_part = 2;
 const entry_parts = 3;
 
 /// The comptime branches that the checks and the build take, at most: a fixed part, a part for
-/// each octet of the patterns times the count of routes, and a part for each pair of routes. The
-/// trie's lookups and sorts compare each segment with the segments of the other routes, and the
-/// check of repeated routes compares each pair of routes. A table of 256 routes of 64 octets each
-/// needs a quarter of this quota (`routes_test.zig`).
+/// each octet of the patterns and of the method tokens times the count of routes, and a part for
+/// each pair of routes. The trie's lookups and sorts compare each segment with the segments of
+/// the other routes, and the check of repeated routes compares each pair of routes. A table of
+/// 256 routes of 64 octets each needs a quarter of this quota (`routes_test.zig`).
 const quota_branches_base = 4_096;
 const quota_branches_per_octet_route = 8;
 const quota_branches_per_route_pair = 16;
+
+/// The comptime branches that the check of hidden routes (`routes_hidden.zig`) takes, at most,
+/// beside `quota_of`. It has two parts:
+///   - It compares each pair of leaves at each length of a path, segment by segment, so a part
+///     for each pair, each length and each segment.
+///   - It walks each canonical path once. A walk takes `routes_match.walk_steps_max` passes at
+///     most, and each pass costs a fixed part. A walk reads the literal edges of each node once at
+///     most, and each octet of its path once, so a part for each octet of the table and the path.
+pub const quota_branches_per_pair_length_segment = 32;
+pub const quota_branches_per_walk_step = 32;
+pub const quota_branches_per_walk_octet = 16;
+
+/// The quota of the check of hidden routes: `quota_of(table)`, the part for `pairs` pairs of
+/// leaves at `lengths` lengths of `segments` segments, and the part for `walks` walks of
+/// `walk_steps` passes each over `octets` octets. The value stops at the largest `u32`, which
+/// `@setEvalBranchQuota` takes.
+pub fn hidden_quota_of(comptime table: anytype, comptime counts: HiddenCounts) u32 {
+    const compared: u64 = @as(u64, quota_branches_per_pair_length_segment) * counts.pairs * counts.lengths * counts.segments;
+    const walked: u64 = @as(u64, counts.walks) *
+        (quota_branches_per_walk_step * counts.walk_steps + quota_branches_per_walk_octet * counts.octets);
+    return @intCast(@min(std.math.maxInt(u32), quota_of(table) + compared + walked));
+}
+
+/// The counts that bound the work of the check of hidden routes.
+pub const HiddenCounts = struct {
+    pairs: usize,
+    lengths: usize,
+    segments: usize,
+    walks: usize = 0,
+    walk_steps: usize = 0,
+    octets: usize = 0,
+};
 
 /// Why a table does not compile.
 pub const Reason = union(enum) {
@@ -44,6 +80,9 @@ pub const Reason = union(enum) {
     entry_shape,
     parameter_names_differ,
     route_repeated,
+    allow_too_long,
+    route_hidden: Hidden,
+    route_unreachable: Unreachable,
 
     /// The name that the compile error writes, which `zig build routes-check` reads.
     pub fn name(reason: Reason) []const u8 {
@@ -54,8 +93,8 @@ pub const Reason = union(enum) {
         };
     }
 
-    /// The sentence that the compile error writes after the name.
-    pub fn sentence(reason: Reason) []const u8 {
+    /// The sentence that the compile error writes after the name. Comptime-only.
+    pub fn sentence(comptime reason: Reason) []const u8 {
         return switch (reason) {
             .pattern => |refusal| refusal.reason(),
             .method => |refusal| refusal.reason(),
@@ -63,7 +102,50 @@ pub const Reason = union(enum) {
             .entry_shape => "an entry is a tuple of a method, a pattern and a value",
             .parameter_names_differ => "two routes with the same segments before a parameter give the parameter one name",
             .route_repeated => "two routes name one method and one path",
+            .allow_too_long => "the Allow value of the routes of one pattern holds " ++
+                "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
+            .route_hidden => |hidden| hidden.sentence(),
+            .route_unreachable => |never| never.sentence(),
         };
+    }
+};
+
+/// A request that a route matches, which gets 405 from the routes of another pattern (decision
+/// 122 ruling 12).
+pub const Hidden = struct {
+    /// The route's method token.
+    method: []const u8,
+    /// A path that the route matches.
+    path: []const u8,
+    /// The pattern that the walk on the path finds first.
+    pattern: []const u8,
+
+    fn sentence(comptime hidden: Hidden) []const u8 {
+        // RFC 9110 §9.3.2: a HEAD request finds a GET route too.
+        const methods = if (std.mem.eql(u8, hidden.method, routes_method.head_token)) "HEAD or GET" else hidden.method;
+        return std.fmt.comptimePrint(
+            "a request that this route matches gets 405 from another pattern: {s} \"{s}\" matches " ++
+                "\"{s}\" first, and no route of that pattern names {s}",
+            .{ hidden.method, hidden.path, hidden.pattern, methods },
+        );
+    }
+};
+
+/// Why no request reaches a route (decision 122 ruling 12).
+pub const Unreachable = struct {
+    /// The patterns that the walk finds first on the paths of the route, each in quotes and
+    /// joined by ", ", or "" when there is none.
+    patterns: []const u8,
+    /// Whether a path of the route is longer than `server.constants.path_len_max`.
+    too_long: bool,
+
+    fn sentence(comptime never: Unreachable) []const u8 {
+        const prefix = "no request reaches this route, because ";
+        const long = "server.constants.path_len_max";
+        if (never.patterns.len == 0) return prefix ++ "each of its paths is longer than " ++ long;
+        const first = "another pattern matches each of its paths first";
+        if (!never.too_long) return prefix ++ first ++ ": " ++ never.patterns;
+        return prefix ++ first ++ ", or the path is longer than " ++ long ++ ": " ++ never.patterns;
     }
 };
 
@@ -192,15 +274,22 @@ fn repeated_refusal(comptime table: anytype) ?Refusal {
 }
 
 pub fn quota_of(comptime table: anytype) u32 {
+    // The loop below makes four calls for each route, and the part for each pair covers them.
+    @setEvalBranchQuota(quota_branches_base + quota_branches_per_route_pair * table.len);
     var octets: usize = 0;
     inline for (0..table.len) |index| {
-        if (is_entry(@TypeOf(table[index]))) octets += table[index][pattern_part].len;
+        if (is_entry(@TypeOf(table[index]))) octets += table[index][pattern_part].len + token_len(table[index][method_part]);
     }
-    // The octets of the patterns bound the work of the checks and of the trie. The check of a
-    // method's token reads each octet once, and the fixed part covers it.
+    // The octets of the patterns and of the tokens bound the work of the checks and of the trie.
     const routes = table.len;
     return quota_branches_base + quota_branches_per_octet_route * octets * (routes + 1) +
         quota_branches_per_route_pair * routes * routes;
+}
+
+/// The octets of `method` when it is text, or 0. The check of a token and the Allow value read
+/// each octet of it.
+fn token_len(comptime method: anytype) usize {
+    return if (routes_pattern.is_text(@TypeOf(method))) method.len else 0;
 }
 
 /// The method, the pattern and the place in an Allow value of each route of a table that

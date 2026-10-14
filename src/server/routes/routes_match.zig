@@ -71,14 +71,21 @@ pub fn match(
     parameters.count = 0;
     // RFC 9110 §9.1, §15.6.2: a method that no route names gives 501, before the path is read.
     if (!implemented(layout, method)) return .not_implemented;
-    const path = path_of(target) orelse return .not_found;
-    const walked = walk(layout, path, parameters) orelse return .not_found;
+    const walked = stop(layout, target, parameters) orelse return .not_found;
     // RFC 9110 §15.5.5: a path whose node holds no leaf names no resource.
     const leaf = layout.nodes[walked.node].leaf orelse return .not_found;
     const result = choose(Value, layout, leaf, method);
     // Decision 122: only `found` gives the program the values of the parameters.
     if (result == .found) parameters.count = @intCast(walked.count);
     return result;
+}
+
+/// The node where the walk on the path of `target` stops, or null when the path matches no
+/// route. `match` and the check of hidden routes (`routes_hidden.zig`) both call it, so the check
+/// reads the walk that a request gets.
+pub fn stop(comptime layout: anytype, target: []const u8, parameters: *PathParameters) ?Walked {
+    const path = path_of(target) orelse return null;
+    return walk(layout, path, parameters);
 }
 
 /// Whether a route of `layout` names `method`. A table that names GET names HEAD too. The loop
@@ -139,7 +146,7 @@ fn segment_matches(segment: []const u8) bool {
 }
 
 /// The node of a walk, and the count of parameters that it wrote.
-const Walked = struct { node: usize, count: usize };
+pub const Walked = struct { node: usize, count: usize };
 
 /// The child kind that a frame of the walk tried last, in the order of decision 122. A frame
 /// with `none` has tried no child.
@@ -158,7 +165,7 @@ const Step = union(enum) { push: Frame, found: Walked, back };
 const passes_per_node = 2;
 
 /// The passes of a walk's loop for a table of `nodes` nodes, at most (INV-32).
-fn walk_steps_max(comptime nodes: usize) usize {
+pub fn walk_steps_max(comptime nodes: usize) usize {
     return passes_per_node * nodes + 1;
 }
 
@@ -253,7 +260,10 @@ fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?us
     return null;
 }
 
-fn choose(comptime Value: type, comptime layout: anytype, leaf: usize, method: []const u8) Match(Value) {
+/// The result of `method` at `leaf`: `found` or `method_not_allowed`. The check of hidden routes
+/// (`routes_hidden.zig`) calls it too, so a leaf serves a method for the check as it does for a
+/// request.
+pub fn choose(comptime Value: type, comptime layout: anytype, leaf: usize, method: []const u8) Match(Value) {
     const at = layout.leaves[leaf];
     assert(at.entries_count > 0);
     const entries = layout.entries[at.entries_first..][0..at.entries_count];

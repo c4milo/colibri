@@ -4,6 +4,7 @@ const std = @import("std");
 const http = @import("http");
 const routes = @import("routes.zig").routes;
 const routes_trie = @import("routes_trie.zig");
+const routes_hidden = @import("routes_hidden.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const constants = @import("../constants.zig");
 const support = @import("routes_test_support.zig");
@@ -377,8 +378,8 @@ const overlap_entries = [_]OverlapEntry{
 const overlap_orders = factorial(overlap_entries.len);
 
 /// The tables of one test share its comptime branch count, so the test sets the quota of each
-/// build, and of one more build for the orders.
-const overlap_quota = (overlap_orders + 1) * routes_trie.quota_of(overlap_entries);
+/// build and of its check of hidden routes, and of one more for the orders.
+const overlap_quota = (overlap_orders + 1) * (routes_trie.quota_of(overlap_entries) + routes_hidden.quota_bound_of(overlap_entries));
 
 fn factorial(comptime count: usize) usize {
     var product: usize = 1;

@@ -44,6 +44,12 @@ const tables = struct {
     pub const entry_shape = .{ valid, .{ .get, "/a" } };
     pub const parameter_names_differ = .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/:user", 1 } };
     pub const route_repeated = .{ .{ .get, "/a", 0 }, .{ .get, "/a", 1 } };
+    /// A token one octet longer than `core.constants.field_value_len_max`, 8192 octets.
+    pub const allow_too_long = .{ valid, .{ "A" ** 8193, "/a", 1 } };
+    /// The plan's rule 13 table: a PUT of `/users/me` gets 405 from the GET route.
+    pub const route_hidden = .{ .{ .get, "/users/me", 0 }, .{ .put, "/users/:id", 1 } };
+    /// The owner's example 8 of decision 122 ruling 12.
+    pub const route_unreachable = .{ .{ .get, "/a/:x", 0 }, .{ .get, "/a/*", 1 }, .{ .get, "/a/:x/*", 2 } };
 };
 
 comptime {
