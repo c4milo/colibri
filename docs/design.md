@@ -9334,6 +9334,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       steps were renamed with it, as `zig build router-check` and `zig build
       router-hidden-check`. 181 steps, 2973, 467. `zig build router-check` passed 65 steps,
       and `zig build router-hidden-check` 8 tests.
+    - After 5cefb6c, on 2026-10-14: the owner ruled that a table of 257 routes with one segment
+      of 8150 octets runs in a second test binary of `zig build router-hidden-check`,
+      `router-quota`. The table is in `router_quota_test.zig`, and the step compiles it in
+      parallel with the cross-check. 183 steps, 2979, 467. `zig build router-hidden-check`
+      passed 14 tests in two binaries.
+      - The step's wall time on the M1 Pro, with a test file changed to force its compile: 66 s
+        before, at a load average of 6. After, 81 s twice with both compiles, at load averages
+        of 4 and 7, and 67 s with the compile of the cross-check alone.
+      - At a load average of 12 to 50, from other builds, the step took 152 s to 255 s, and
+        `zig build test` took 664 s.
     - From 21e.2 on, `zig build test -Drelease` passed the count of `zig build test` after each
       commit.
   - **What stayed.**
@@ -9629,6 +9639,10 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - HEAD that reads no route of the node.
     - 8a0dc3f, by `zig build test-server`: the factor for each route of `quota_of` set to 0,
       and set to 1. Before 8a0dc3f no test held a table that needs the factor.
+    - After 5cefb6c, by `zig build router-hidden-check`, in the binary `router-quota` alone:
+      the longest segment of the layout not read from its edges (`segment_len_max =
+      other.len` in `view_refusal`). The compile fails with "evaluation exceeded 1043726368
+      backwards branches". The binary `router-hidden` passed under the mutation.
   - **NOT CAUGHT**, or no mutation, and why:
     - 21e.10: in `client_peer`, the 405 without its Allow field, and the 404 arm that answers
       200. No request of the client example reached the two arms. fc90377 adds the requests,
@@ -9653,6 +9667,16 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       branches than these reads use. A walk reads a long segment past the other parts only in
       more than 32 frames, and such a table has more than 32 leaves. No such table was found
       where the part for each pair is too small.
+    - After 5cefb6c, by `zig build router-hidden-check` with `router-quota`: the reads of each
+      pass left out of `walk_octets`, and the bound of the longest segment not read from the
+      patterns. Each is **NOT CAUGHT**, and no table that the limits allow catches it:
+      - Without the reads of each pass, the other parts of the quota still cover the reads of
+        each walk. A table large enough to need them has a quota above `maxInt(u32)`, so the
+        quota is `maxInt(u32)` with the mutation and without it.
+      - The bound of `quota_bound_of` is `maxInt(u32)` for each table that could exceed it, so
+        the mutation changes no result. For the table of `router_quota_test.zig`, the bound before
+        the clamp is 8.9e15 without the mutation and 3.0e12 with it, and both become
+        4,294,967,295.
     - 21e.1, f20e74d, 800ebda, 174c242, 315e3c1, c05ce20, 1c3a4f2 and the record of the second
       review change no check. The test counts are the
       check of 800ebda.

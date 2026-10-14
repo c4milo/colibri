@@ -207,8 +207,9 @@ test {
     _ = @import("router/router_parameter_test.zig");
     _ = @import("router/router_fuzz_test.zig");
     _ = @import("router/router_refusal_test.zig");
-    // `zig build router-hidden-check` runs `router/router_hidden_test.zig` in a binary of its own,
-    // because its compile takes about a minute (the owner's ruling of 2026-10-14).
+    // `zig build router-hidden-check` runs `router/router_hidden_test.zig` and
+    // `router/router_quota_test.zig`, each in a binary of its own, because each compile takes
+    // about a minute (the owner's rulings of 2026-10-14).
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");
 }

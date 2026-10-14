@@ -169,23 +169,35 @@ pub fn add(
 }
 
 /// Adds `zig build router-hidden-check` and returns its step, which `zig build test` depends on.
-/// It runs the cross-check of `src/server/router/router_hidden_test.zig` in a test binary of its
-/// own, apart from `zig build test-server` (the owner's ruling of 2026-10-14). Its compile takes
-/// about a minute.
+/// The step runs two test binaries, apart from `zig build test-server` (the owner's rulings of
+/// 2026-10-14):
 ///
-/// The root `src/server/router_hidden_check.zig` compiles with the imports of `server`, as the
-/// root of `test-server` does (build/modules_test_roots.zig). No packaged module imports the root.
+/// - `router-hidden`, from `src/server/router_hidden_check.zig`: the cross-check of
+///   `src/server/router/router_hidden_test.zig`. Its compile takes about a minute.
+/// - `router-quota`, from `src/server/router_quota_check.zig`: the test of the quota on a long
+///   segment, in `src/server/router/router_quota_test.zig`. Its compile also takes about a
+///   minute.
+///
+/// The two binaries do not depend on each other, so the build compiles them in parallel. Each root
+/// compiles with the imports of `server`, as the root of `test-server` does
+/// (build/modules_test_roots.zig). No packaged module imports a root.
 pub fn add_hidden(b: *std.Build, server: *std.Build.Module) *std.Build.Step {
+    const step = b.step("router-hidden-check", "Compare the check of hidden routes with a brute force, and test its quota");
+    step.dependOn(hidden_run(b, server, "router-hidden", "src/server/router_hidden_check.zig"));
+    step.dependOn(hidden_run(b, server, "router-quota", "src/server/router_quota_check.zig"));
+    return step;
+}
+
+/// The run of the test binary `name`, which compiles from `root` with the imports of `server`.
+fn hidden_run(b: *std.Build, server: *std.Build.Module, name: []const u8, root: []const u8) *std.Build.Step {
     const module = b.createModule(.{
-        .root_source_file = b.path("src/server/router_hidden_check.zig"),
+        .root_source_file = b.path(root),
         .target = server.resolved_target,
         .optimize = server.optimize,
     });
-    for (server.import_table.keys(), server.import_table.values()) |name, imported| {
-        module.addImport(name, imported);
+    for (server.import_table.keys(), server.import_table.values()) |import_name, imported| {
+        module.addImport(import_name, imported);
     }
-    const tests = b.addTest(.{ .name = "router-hidden", .root_module = module });
-    const step = b.step("router-hidden-check", "Compare the check of hidden routes with a brute force");
-    step.dependOn(&b.addRunArtifact(tests).step);
-    return step;
+    const tests = b.addTest(.{ .name = name, .root_module = module });
+    return &b.addRunArtifact(tests).step;
 }
