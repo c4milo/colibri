@@ -124,8 +124,8 @@ connections the endpoint names h3 itself (RFC 9114 §3.1).
 The code in this section is from
 [`examples/server_exchange.zig`](../examples/server_exchange.zig), where `link` and
 `datagram_link` stand in for a program's TCP and UDP sockets. Its clients, in
-[`examples/server_peers.zig`](../examples/server_peers.zig), send a GET and a POST over h2 and a
-GET over h3. An endpoint's size is fixed at build time. `server.Endpoint` holds 16 TCP connections
+[`examples/server_peers.zig`](../examples/server_peers.zig), send five requests over h2 and a GET
+over h3. An endpoint's size is fixed at build time. `server.Endpoint` holds 16 TCP connections
 and 16 QUIC connections, and `server.EndpointOf` makes one of another size. The `server.Capacity`
 it takes names the TCP and the QUIC connections the endpoint holds at once, and the octets each
 QUIC connection holds unread:
@@ -313,13 +313,14 @@ fn serve(event: server.Event, now_ns: u64) !void {
 `set_user_data` sets a word that each later event of a request carries back: its `body`,
 `trailers`, `writable`, and its one `done` or `cancelled`. A program finds its own state for the
 request by the word, with no lookup. Here the word names the request's place in the server's
-table:
+table. `route` answers the request by its route, as [Routing](#routing) shows:
 
 ```zig
 fn take_request(request: server.Request) !void {
     std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
     if (served_count == served.len) return error.ExchangeWrong;
-    served[served_count] = .{ .echo = is(request, "POST", "/echo") };
+    const state = &served[served_count];
+    state.* = .{};
     served_count += 1;
     // Each later event of the request carries this word, and the server finds its state by it.
     try endpoint.set_user_data(request.id, served_count);
@@ -329,9 +330,7 @@ fn take_request(request: server.Request) !void {
         // free sooner.
         try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
-    if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
-    if (is(request, "POST", "/echo")) return;
-    try endpoint.respond(request.id, .{ .status = 404, .end = true });
+    try route(request, state);
 }
 ```
 
@@ -477,6 +476,141 @@ Three more things a server sets:
   `server.constants.quic_requests_max` request streams over QUIC, and `data_frame_len_min`, the
   shortest DATA frame h2 sends when a window, not the content, decides its length
   ([decision 110](decisions.md)).
+
+### Routing
+
+A program finds the route of a request through a table that it declares at compile time
+([decision 122](decisions.md)). `server.routes` builds the table. Each entry holds a method, a
+pattern and a value of the program's type. The routes of the server example name an enum:
+
+```zig
+/// What a route of the server names.
+const Route = enum { greeting, echo, named };
+
+/// The server's routes, which the compiler builds. A malformed or conflicting table does not
+/// compile.
+const routes = server.routes(Route, .{
+    .{ .get, "/greeting", .greeting },
+    .{ .post, "/echo", .echo },
+    .{ .get, "/greetings/:name", .named },
+});
+
+/// Written by each `match`. Its values are slices of the request's path.
+var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
+```
+
+The method of an entry is an enum literal, one of RFC 9110 §9.1's eight methods, or the token of
+another method, such as `"PATCH"`. Each segment of a pattern is a literal, a parameter such as
+`:name`, or the wildcard `*` as the last segment. A pattern holds
+`server.constants.path_parameters_max` parameters at most, the wildcard included. `match` takes
+the request's method and its path, and gives one of four results. The program writes a response
+for each:
+
+```zig
+fn route(request: server.Request, state: *Served) !void {
+    switch (routes.match(request.method, request.path orelse "", &parameters)) {
+        .found => |found| switch (found) {
+            .greeting => try answer(request.id, greeting),
+            // The content follows in `body` events, and `take_body` answers at its end.
+            .echo => state.echo = true,
+            .named => try answer_named(request.id, state, parameters.get("name").?),
+        },
+        // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
+        .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
+            .status = 405,
+            .fields = &.{.{ .name = "allow", .value = allowed }},
+            .end = true,
+        }),
+        .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
+        // RFC 9110 §9.1: no route names the method, such as DELETE. No client here sends one.
+        .not_implemented => try endpoint.respond(request.id, .{ .status = 501, .end = true }),
+    }
+}
+```
+
+`match` follows these rules:
+
+- **The method comes first.** When no route of the table names the method, the result is
+  `not_implemented`, on any path, and the program answers 501 (RFC 9110 §9.1, §15.6.2). Then
+  `match` reads the path, up to the first "?". The query does not change the result.
+- **A literal, then a parameter, then the wildcard.** At each segment, `match` tries the literal
+  that equals the segment, then the parameter, then the wildcard. When a deeper segment fails, it
+  backs up one level and tries the next kind. So the order of the table does not change the
+  result: with `/users/me` beside `/users/:id`, the path `/users/me` finds `/users/me`.
+- **A parameter matches one segment.** The wildcard matches one segment or more, and
+  `get("*")` gives the rest of the path, without its first "/". So `/files/*` does not match
+  `/files`.
+- **The first pattern that matches the whole path decides.** When no route of that pattern names
+  the method, the result is `method_not_allowed` with the Allow value of the pattern, and the
+  program writes a 405 with an "allow" field (RFC 9110 §15.5.6). `match` does not try another
+  pattern for the method. The field name is in lowercase, because h2 and h3 refuse an uppercase
+  field name.
+- **HEAD finds GET.** A HEAD request finds the GET route of a pattern that names no HEAD route,
+  and the Allow value lists HEAD after GET. The endpoint writes no content in a response to HEAD,
+  in h11, h2 and h3 (RFC 9110 §9.3.2). So a program writes one answer for GET and HEAD. It reads
+  `request.method` when it must know which one it got.
+- **`OPTIONS *` gets one of two results.** A table with no OPTIONS route gives
+  `not_implemented`. A table with an OPTIONS route gives `not_found`, because "*" is not a path.
+  A program that answers `OPTIONS *` reads `request.path` before it calls `match`.
+- **A parameter's value is a slice of the path.** It stays valid until the next endpoint call
+  that the comment on `Endpoint.receive` lists. A program that keeps a value longer copies it
+  first. `answer_named` below writes its content into the request's state, because QUIC reads the
+  content again until `done`.
+- **A path that holds a "%" or an octet outside `pchar` matches nothing** (RFC 3986 §2.1, §3.3).
+  colibri does not decode a path. A router that decoded `/users/%6De` could route it past a check
+  written for `/users/me`. So a parameter never holds a "/", a space or an octet above 0x7F. h11
+  refuses a target with an octet outside `pchar`, and this rule makes h2 and h3 route the same
+  way.
+- **Other paths that match nothing:** a path with an empty segment, such as `/a//b` or `/a/`, a
+  path with a "." or ".." segment, and a path longer than `server.constants.path_len_max` octets,
+  its query included.
+
+The server example answers a parameter route like this:
+
+```zig
+fn answer_named(id: server.Id, state: *Served, name: []const u8) !void {
+    const content = std.fmt.bufPrint(&state.content, "hello, {s}\n", .{name}) catch {
+        // RFC 9110 §15.5.15: the target is longer than this server takes.
+        return endpoint.respond(id, .{ .status = 414, .end = true });
+    };
+    try answer(id, content);
+}
+```
+
+A route's value can also be a function that the program calls. The server of
+[`examples/client_peer.zig`](../examples/client_peer.zig) names one in each route:
+
+```zig
+/// What a route of this server names: the function that answers the request.
+const Handler = *const fn (request: server.Request, parameters: *const server.PathParameters) anyerror!void;
+
+/// The server's routes, which the compiler builds.
+const routes = server.routes(Handler, .{
+    .{ .get, "/greeting", greet },
+    .{ .post, "/echo", echo },
+});
+```
+
+It then calls the function of the route that matches:
+
+```zig
+.found => |handler| try handler(request, &parameters),
+```
+
+A malformed or conflicting table does not compile, and the compile error names the entry and the
+rule. A route that other routes hide is a conflict, in two cases:
+
+- **`route_hidden`:** a request that the route matches gets 405 from another pattern. With
+  `GET /users/:id` and `PUT /users/me`, a GET of `/users/me` finds `/users/me`, which names no
+  GET.
+- **`route_unreachable`:** no request gets to the route. With `GET /a/*`, `GET /a/:x` and
+  `GET /a/:x/*`, each path of two segments finds `/a/:x`, and each longer path finds `/a/:x/*`.
+
+The cost of this rule: a literal names each method that the parameter beside it names. A table
+with `GET /users/me`, `GET /users/:id` and `PUT /users/:id` does not compile, because a PUT of
+`/users/me` gets 405. Add `PUT /users/me` to make it compile. The check runs at compile time and
+adds no cost to `match`. The largest table that the tests build holds 256 routes, each a pattern
+of four segments and 64 octets.
 
 ### Over QUIC
 

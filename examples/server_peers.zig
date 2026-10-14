@@ -3,7 +3,9 @@
 //!
 //! Each peer is one `client.Channel`:
 //! - the TCP peer holds no receive pool, so its channel opens TCP alone, and ALPN picks h2. It
-//!   sends a GET and a POST, and shuts its channel down when both have finished;
+//!   sends five requests: a GET and a POST that each match a route, a GET whose path holds a
+//!   parameter, a POST to a path whose route names GET alone, and a GET of a path that no route
+//!   names. It shuts its channel down when all five have finished;
 //! - the QUIC peer holds a receive pool and speaks h3 alone, so its channel opens QUIC alone
 //!   (decision 120). It sends a GET, and keeps its connection open after the response, as a client
 //!   that can ask again does. The server closes the connection when its idle deadline passes, and
@@ -26,6 +28,14 @@ const DatagramLink = datagram_module.DatagramLink;
 pub const greeting = "hello from colibri\n";
 pub const note = "a note the client posts, which the server sends back\n";
 pub const content_type = "text/plain; charset=utf-8";
+
+/// The name the TCP peer asks the server to greet, and the greeting it must get back.
+const name = "colibri";
+const named_greeting = "hello, " ++ name ++ "\n";
+
+/// The Allow value of the path "/greeting", whose one route names GET. A HEAD request finds a GET
+/// route, so the value lists HEAD after GET.
+const greeting_allow = "GET, HEAD";
 
 /// The server's port, for TCP and for UDP: the port of an "https" origin (RFC 9110 §4.2.2). The
 /// TCP connections advertise h3 on this UDP port.
@@ -52,18 +62,19 @@ const events_per_input_max = 64;
 const datagrams_per_turn_max = 32;
 
 /// Requests one peer makes, at most.
-const requests_max = 2;
+const requests_max = 5;
 
 /// One request a peer makes, and the memory its response goes into.
 const Asked = struct {
     exchange: client.HttpExchange,
-    wanted: [1]client.Wanted,
-    values: [content_type.len]u8,
+    /// The content type of a 200, and the Allow value of a 405.
+    wanted: [2]client.Wanted,
+    values: [content_type.len + greeting_allow.len]u8,
     body: [note.len]u8,
 
     /// Fills the exchange. `content` is the request's content, or empty for none.
     fn place(asked: *Asked, method: []const u8, path: []const u8, content: []const u8) void {
-        asked.wanted = .{.{ .name = "content-type" }};
+        asked.wanted = .{ .{ .name = "content-type" }, .{ .name = "allow" } };
         asked.exchange = .{
             .method = method,
             .path = path,
@@ -82,6 +93,16 @@ const Asked = struct {
         if (exchange.outcome != .response or exchange.status != 200) return false;
         if (!std.mem.eql(u8, asked.wanted[0].value orelse "", content_type)) return false;
         return std.mem.eql(u8, exchange.content_received(), content);
+    }
+
+    /// Whether the exchange ended in a response with `status` and no content, whose Allow value
+    /// is `allow`, or which has no Allow field when `allow` is null.
+    fn refused(asked: *const Asked, status: u16, allow: ?[]const u8) bool {
+        const exchange = &asked.exchange;
+        if (exchange.outcome != .response or exchange.status != status) return false;
+        if (exchange.content_received().len != 0) return false;
+        const held = asked.wanted[1].value orelse return allow == null;
+        return std.mem.eql(u8, held, allow orelse return false);
     }
 };
 
@@ -133,6 +154,11 @@ pub fn init(stream: *Link, datagrams: *DatagramLink, cpu: tls.Cpu) !void {
     try tcp_peer.channel.init(&tcp_peer.config, known, null);
     try tcp_peer.ask("GET", "/greeting", "");
     try tcp_peer.ask("POST", "/echo", note);
+    try tcp_peer.ask("GET", "/greetings/" ++ name, "");
+    // The route of "/greeting" names GET alone, so a POST gets 405.
+    try tcp_peer.ask("POST", "/greeting", "");
+    // A parameter matches one segment, so no route names this path.
+    try tcp_peer.ask("GET", "/greetings", "");
     // h3 alone: the channel opens QUIC alone, and needs the receive pool for it.
     start(&quic_peer, cpu, .{ .h11 = false, .h2 = false }, true);
     try quic_peer.channel.init(&quic_peer.config, known, receive_pool.storage());
@@ -273,10 +299,12 @@ pub fn closed() bool {
 }
 
 /// Whether each peer saw what the server sent: h2 for the TCP peer, with the h3 alternative its
-/// connection advertised, and h3 for the QUIC peer. Each peer opened one transport, took a ticket
-/// from the server, and closed the transport.
+/// connection advertised, a 405 with its Allow value and a 404, and h3 for the QUIC peer. Each
+/// peer opened one transport, took a ticket from the server, and closed the transport.
 pub fn check() bool {
-    const tcp_arrived = tcp_peer.asked[0].arrived(greeting) and tcp_peer.asked[1].arrived(note);
+    const asked = &tcp_peer.asked;
+    const routed = asked[0].arrived(greeting) and asked[1].arrived(note) and asked[2].arrived(named_greeting);
+    const tcp_arrived = routed and asked[3].refused(405, greeting_allow) and asked[4].refused(404, null);
     const alternative = tcp_peer.channel.alternative();
     const advertised = alternative != null and alternative.?.port == server_port;
     const tcp_right = tcp_peer.spoken == .h2 and tcp_arrived and advertised;

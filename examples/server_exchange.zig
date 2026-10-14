@@ -5,6 +5,8 @@
 //! speak h3. The program calls `accept` for each TCP socket, and the handle it gets names the
 //! connection from then on. A QUIC connection starts from a client's first datagram.
 //!
+//! The server routes each request through a table of `server.routes`, which the compiler builds.
+//!
 //! In a turn the server fires the deadlines that passed, then passes the endpoint what each socket
 //! read: the octets of a TCP socket under the handle of its connection, and each datagram with the
 //! address it came from. Each `receive` reports one event of any connection. The server answers a
@@ -21,12 +23,13 @@
 //! - `h3_alternative`, with which each TLS connection advertises the server's h3 port;
 //! - `shutdown`, once both clients are done, and the `closed` event that follows it.
 //!
-//! Its clients are in `server_peers.zig`: one sends a GET and a POST over TCP, and one a GET over
+//! Its clients are in `server_peers.zig`: one sends five requests over TCP, and one a GET over
 //! QUIC. The links of `link.zig` and `link_datagram.zig` stand where a program's sockets would be,
 //! and `tls_program.zig` holds what any program that links `tls` defines once.
 //!
 //! The program checks what arrived: each client must see 200, the content and its type, octet for
-//! octet. The server must see three responses done, one `close`, three connections end, the QUIC
+//! octet, for each request that a route names, and 405 with its Allow field or 404 for each other
+//! request. The server must see six responses done, one `close`, three connections end, the QUIC
 //! one at its idle deadline, and `closed`. Anything else exits with an error, which is how `zig
 //! build examples` and CI know the example still works.
 //!
@@ -67,7 +70,7 @@ const idle_ns = 10_000_000_000;
 const idle_after_answer_ns = 100_000_000;
 
 /// Requests the server keeps state for, at most.
-const requests_max = 4;
+const requests_max = 7;
 
 const greeting = peers.greeting;
 const note = peers.note;
@@ -112,12 +115,27 @@ var started_ns: u64 = 0;
 /// The connection of the socket the TCP client opened, which `accept` named.
 var accepted: server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = undefined;
 
+/// What a route of the server names.
+const Route = enum { greeting, echo, named };
+
+/// The server's routes, which the compiler builds. A malformed or conflicting table does not
+/// compile.
+const routes = server.routes(Route, .{
+    .{ .get, "/greeting", .greeting },
+    .{ .post, "/echo", .echo },
+    .{ .get, "/greetings/:name", .named },
+});
+
+/// Written by each `match`. Its values are slices of the request's path.
+var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
+
 /// What the server keeps for one request, which `set_user_data` names.
 const Served = struct {
     /// Whether the request is the POST, whose content the server sends back once it ends.
-    echo: bool,
-    posted: [note.len]u8 = undefined,
-    posted_len: usize = 0,
+    echo: bool = false,
+    /// The content of the response: the POST's content, or the greeting to a name.
+    content: [note.len]u8 = undefined,
+    content_len: usize = 0,
     /// Whether the response is whole.
     done: bool = false,
 };
@@ -286,12 +304,13 @@ fn serve(event: server.Event, now_ns: u64) !void {
     }
 }
 
-/// Keeps state for a request's head, and answers a GET at once. The POST's content follows in
-/// `body` events, and the answer waits for its end.
+/// Keeps state for a request's head, and answers the request by its route. A GET gets its answer
+/// at once. The POST's content follows in `body` events, and the answer waits for its end.
 fn take_request(request: server.Request) !void {
     std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
     if (served_count == served.len) return error.ExchangeWrong;
-    served[served_count] = .{ .echo = is(request, "POST", "/echo") };
+    const state = &served[served_count];
+    state.* = .{};
     served_count += 1;
     // Each later event of the request carries this word, and the server finds its state by it.
     try endpoint.set_user_data(request.id, served_count);
@@ -301,9 +320,39 @@ fn take_request(request: server.Request) !void {
         // free sooner.
         try endpoint.set_deadlines(request.id.connection, .{ .idle_ns = idle_after_answer_ns });
     }
-    if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
-    if (is(request, "POST", "/echo")) return;
-    try endpoint.respond(request.id, .{ .status = 404, .end = true });
+    try route(request, state);
+}
+
+/// Answers a request by the route that its method and its path match.
+fn route(request: server.Request, state: *Served) !void {
+    switch (routes.match(request.method, request.path orelse "", &parameters)) {
+        .found => |found| switch (found) {
+            .greeting => try answer(request.id, greeting),
+            // The content follows in `body` events, and `take_body` answers at its end.
+            .echo => state.echo = true,
+            .named => try answer_named(request.id, state, parameters.get("name").?),
+        },
+        // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
+        .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
+            .status = 405,
+            .fields = &.{.{ .name = "allow", .value = allowed }},
+            .end = true,
+        }),
+        .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
+        // RFC 9110 §9.1: no route names the method, such as DELETE. No client here sends one.
+        .not_implemented => try endpoint.respond(request.id, .{ .status = 501, .end = true }),
+    }
+}
+
+/// Answers a GET of `/greetings/:name` with a greeting to the name. The slice `name` stays valid
+/// until the next endpoint call, and QUIC reads the content again until `done`. So the server
+/// writes the content into the request's state first.
+fn answer_named(id: server.Id, state: *Served, name: []const u8) !void {
+    const content = std.fmt.bufPrint(&state.content, "hello, {s}\n", .{name}) catch {
+        // RFC 9110 §15.5.15: the target is longer than this server takes.
+        return endpoint.respond(id, .{ .status = 414, .end = true });
+    };
+    try answer(id, content);
 }
 
 /// Keeps the POST's content, and sends it back once it ends. Over h3 a GET's end can come in a
@@ -311,21 +360,16 @@ fn take_request(request: server.Request) !void {
 fn take_body(body: server.Body) !void {
     const state = try served_of(body.user_data);
     if (!state.echo) return;
-    if (state.posted_len + body.octets.len > state.posted.len) return error.ExchangeWrong;
-    @memcpy(state.posted[state.posted_len..][0..body.octets.len], body.octets);
-    state.posted_len += body.octets.len;
-    if (body.end) try answer(body.id, state.posted[0..state.posted_len]);
+    if (state.content_len + body.octets.len > state.content.len) return error.ExchangeWrong;
+    @memcpy(state.content[state.content_len..][0..body.octets.len], body.octets);
+    state.content_len += body.octets.len;
+    if (body.end) try answer(body.id, state.content[0..state.content_len]);
 }
 
 /// The state `user_data` names. The word is 0 for a request whose head set none.
 fn served_of(user_data: usize) !*Served {
     if (user_data == 0 or user_data > served_count) return error.ExchangeWrong;
     return &served[user_data - 1];
-}
-
-fn is(request: server.Request, method: []const u8, path: []const u8) bool {
-    if (!std.mem.eql(u8, request.method, method)) return false;
-    return std.mem.eql(u8, request.path orelse "", path);
 }
 
 /// Answers request `id` with 200 and `content`: the head, then the content, which ends the
@@ -395,7 +439,7 @@ fn sleep_ns() u64 {
 
 /// The sockets the server accepts, the QUIC connection, and the requests the clients send.
 const connections_count = 3;
-const requests_count = 3;
+const requests_count = 6;
 
 /// The clients saw what the server sent. The server saw each response done, one `close`, and
 /// every connection end, the QUIC one at its idle deadline.

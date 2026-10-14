@@ -3,9 +3,10 @@
 //!
 //! The server is one `server.Endpoint` with one TCP slot and no UDP socket, so every datagram of
 //! the client's QUIC connection is lost. It answers a GET with a greeting and a POST with its own
-//! content, and it issues a resumption ticket on its connection. It runs over the stream link, on
-//! the server's loop. `docs/usage.md` shows the server's calls with the server example, so the
-//! comments here are short.
+//! content, and it issues a resumption ticket on its connection. Each of its routes names the
+//! function that answers the request, where the routes of `server_exchange.zig` name an enum. It
+//! runs over the stream link, on the server's loop. `docs/usage.md` shows the server's calls with
+//! the server example, so the comments here are short.
 const std = @import("std");
 const assert = std.debug.assert;
 const server = @import("server");
@@ -41,6 +42,15 @@ pub const Error = error{
     SendUnfinished,
 };
 
+/// What a route of this server names: the function that answers the request.
+const Handler = *const fn (request: server.Request, parameters: *const server.PathParameters) anyerror!void;
+
+/// The server's routes, which the compiler builds.
+const routes = server.routes(Handler, .{
+    .{ .get, "/greeting", greet },
+    .{ .post, "/echo", echo },
+});
+
 /// One TCP connection at a time, and no QUIC connection: this server has no UDP socket.
 const Endpoint = server.EndpointOf(.{ .tcp_connections = 1, .quic_connections = 0 });
 const chain = [_][]const u8{ identity.leaf, identity.root };
@@ -54,6 +64,8 @@ var config: server.Config align(@alignOf(server.Config)) = undefined;
 var endpoint: Endpoint align(@alignOf(Endpoint)) = undefined;
 /// The connection of the socket the client connected, once the listener accepted it.
 var accepted: ?server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) = null;
+/// Written by each `match`.
+var parameters: server.PathParameters align(@alignOf(server.PathParameters)) = .{};
 /// The content of the POST, which the server sends back once the request ends.
 var posted: [note.len]u8 = undefined;
 var posted_len: usize = 0;
@@ -111,12 +123,7 @@ pub fn turn() !void {
 
 fn serve(event: server.Event, now_ns: u64) !void {
     switch (event) {
-        .request => |request| {
-            std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-            if (is(request, "GET", "/greeting")) return answer(request.id, greeting);
-            if (is(request, "POST", "/echo")) return;
-            try endpoint.respond(request.id, .{ .status = 404, .end = true });
-        },
+        .request => |request| try take_request(request),
         .body => |body| {
             if (posted_len + body.octets.len > posted.len) return error.ExchangeWrong;
             @memcpy(posted[posted_len..][0..body.octets.len], body.octets);
@@ -136,10 +143,30 @@ fn serve(event: server.Event, now_ns: u64) !void {
     }
 }
 
-fn is(request: server.Request, method: []const u8, path: []const u8) bool {
-    if (!std.mem.eql(u8, request.method, method)) return false;
-    return std.mem.eql(u8, request.path orelse "", path);
+/// Calls the function of the route that the request's method and path match, or refuses the
+/// request.
+fn take_request(request: server.Request) !void {
+    std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
+    switch (routes.match(request.method, request.path orelse "", &parameters)) {
+        .found => |handler| try handler(request, &parameters),
+        // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
+        .method_not_allowed => |allowed| try endpoint.respond(request.id, .{
+            .status = 405,
+            .fields = &.{.{ .name = "allow", .value = allowed }},
+            .end = true,
+        }),
+        .not_found => try endpoint.respond(request.id, .{ .status = 404, .end = true }),
+        // RFC 9110 §9.1: no route names the method.
+        .not_implemented => try endpoint.respond(request.id, .{ .status = 501, .end = true }),
+    }
 }
+
+fn greet(request: server.Request, _: *const server.PathParameters) anyerror!void {
+    try answer(request.id, greeting);
+}
+
+/// The content follows in `body` events, and the server answers at its end.
+fn echo(_: server.Request, _: *const server.PathParameters) anyerror!void {}
 
 fn answer(id: server.Id, content: []const u8) !void {
     var digits: [8]u8 = undefined;
