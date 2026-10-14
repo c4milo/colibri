@@ -79,7 +79,9 @@ test "decision 122: the literal wins over the parameter, whatever the table's or
 
 test "decision 122: the walk does not back up for a method, so a literal leaf answers 405" {
     // Decision 122 ruling 12 refuses a parameter beside this literal for a method that the
-    // literal does not name, so no table gives a back-up for a method another route.
+    // literal does not name. So in a table that compiles, a back-up for a method finds no other
+    // route. The route `PUT /users` makes PUT a method of the table, so the request gets 405, not
+    // 501.
     const me = routes(u8, .{ .{ .get, "/users/me", 1 }, .{ .put, "/users", 2 } });
     var parameters: PathParameters = .{};
     try testing.expectEqualStrings("GET, HEAD", me.match("PUT", "/users/me", &parameters).method_not_allowed);

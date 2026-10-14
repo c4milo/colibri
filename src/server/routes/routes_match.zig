@@ -15,7 +15,7 @@
 //!   7. The path "/" is the root, with no segment.
 //!   8. The walk starts at the root. At each node it tries the literal edge that equals the
 //!      segment, octet for octet, then the parameter child, then the wildcard child. The wildcard
-//!      takes the segment and each segment after it.
+//!      matches the segment and each segment after it.
 //!   9. The walk backs up one level when a node has no child left to try for its segment, or when
 //!      the walk read every segment and the node holds no leaf. It tries each child kind of a node
 //!      once at most (INV-32). A walk that backs up from the root matches nothing.
@@ -146,7 +146,7 @@ fn segment_matches(segment: []const u8) bool {
 }
 
 /// The node of a walk, and the count of parameters that it wrote.
-pub const Walked = struct { node: usize, count: usize };
+const Walked = struct { node: usize, count: usize };
 
 /// The child kind that a frame of the walk tried last, in the order of decision 122. A frame
 /// with `none` has tried no child.
@@ -201,8 +201,8 @@ fn walk(comptime layout: anytype, path: []const u8, parameters: *PathParameters)
 }
 
 /// One pass of the walk at `frame`. It tries the child kinds that `frame` has not tried, in
-/// order. It pushes the first literal or parameter child that takes the segment, or it gives the
-/// node of the wildcard.
+/// order. It pushes the first literal or parameter child that matches the segment, or it gives
+/// the node of the wildcard.
 fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *PathParameters) Step {
     if (frame.segment_first > path.len) {
         // RFC 9110 §15.5.5: a node with no leaf names no resource, so the walk backs up.

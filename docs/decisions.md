@@ -4325,7 +4325,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          table that needs more does not compile, so the limit never fails at run time.
      11. For a 405, `match` gives the leaf's Allow value. The build writes it: the leaf's
          standard methods in RFC 9110 §9.1's order, then its tokens ordered by octets, joined
-         by ", ". The program writes the 405 and its "allow" field (RFC 9110 §15.5.6).
+         by ", ". The program writes the 405 and its "allow" field (RFC 9110 §15.5.6). Each
+         Allow value holds `core.constants.field_value_len_max` octets at most, because a
+         program sends it as a field value. A table with a longer one does not compile:
+         `allow_too_long`.
      12. A route that other routes hide does not compile. The owner read this ruling on
          2026-10-13, after eight examples: a route is refused in two cases, and in no other. A
          route names a method, and its pattern ends at a leaf of the trie.
@@ -4336,8 +4339,8 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          - `route_unreachable`: no request reaches the route. The walk on each path that the
            route's pattern matches stops at another leaf.
 
-         A table where another leaf takes a path of a route and serves its method compiles. The
-         eight examples, with their verdicts:
+         The walk on a path of a route can stop at another leaf. When that leaf serves the
+         route's method, the table compiles. The eight examples, with their verdicts:
          1. `GET /users/me`, `GET /users/:id`: compiles.
          2. `GET /users/:id`, `PUT /users/me`: `route_hidden`, because `GET /users/me` gets 405.
          3. `GET /users/me`, `GET /users/:id`, `PUT /users/:id`, `DELETE /users/:id`:
@@ -4346,17 +4349,15 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
          5. `GET /files/*`, `POST /files/:name`: `route_hidden`, because `GET /files/a` gets 405.
          6. `GET /a/:x/c`, `GET /a/b/:y`: compiles.
          7. `GET /a/:x/c`, `PUT /a/b/:y`: `route_hidden`, because `GET /a/b/c` gets 405.
-         8. `GET /a/*`, `GET /a/:x`, `GET /a/:x/*`: `route_unreachable`. `/a/:x` takes each path
-            of two segments, and `/a/:x/*` takes each longer path.
+         8. `GET /a/*`, `GET /a/:x`, `GET /a/:x/*`: `route_unreachable`. The walk on each path
+            of two segments stops at `/a/:x`, and on each longer path at `/a/:x/*`.
 
          The cost, which the owner saw: a literal names each method that the parameter beside it
          names. So `GET /users/me` and `PUT /users/:id` do not compile, because `PUT /users/me`
          gets 405. The check runs at compile time and adds nothing at run time. It runs the walk
-         of `match` on a few canonical paths of each leaf, and the doc comment of
+         of `match` on a few canonical paths of each leaf. The doc comment of
          `src/server/routes/routes_hidden.zig` proves that these paths find each case. A test
-         compares its verdict with a brute force on 1,170 small tables. Each Allow value also
-         holds `core.constants.field_value_len_max` octets at most, or `allow_too_long`, because
-         a program sends it as a field value.
+         compares its verdict with a brute force on 2,838 small tables.
      13. `server.constants.path_len_max` is the endpoint's own bound on a path:
          `@max(h11.constants.start_line_len_max, core.constants.field_value_len_max)`, 8192
          octets today. A comptime assert pins it. `match` gives `not_found` for a longer path

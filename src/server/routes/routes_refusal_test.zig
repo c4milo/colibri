@@ -339,13 +339,14 @@ test "refusal 20, route_hidden: decision 122 ruling 12, a request that a route m
 }
 
 test "refusal 21, route_unreachable: decision 122 ruling 12, a request reaches each route" {
-    // The owner's example 8: "/a/:x" takes each path of one segment, and "/a/:x/*" each longer path.
+    // The owner's example 8: the walk on each path of two segments stops at "/a/:x", and on each
+    // longer path at "/a/:x/*".
     const refusal = comptime layout_refusal(.{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } }).?;
     try testing.expectEqual(0, refusal.route);
     try testing.expectEqualStrings("\"/a/:x\", \"/a/:x/*\"", refusal.reason.route_unreachable.patterns);
     try testing.expect(!refusal.reason.route_unreachable.too_long);
     try expect_layout(.route_unreachable, 1, .{ .{ .get, "/a/:x/*", 0 }, .{ .get, "/a/*", 1 }, .{ .get, "/a/:x", 2 } });
-    // The wildcard takes a path of two segments or more, which "/a/:x" does not.
+    // The wildcard matches a path of two segments or more, which "/a/:x" does not.
     try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 } });
     try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x/b", 1 }, .{ .get, "/a/:x", 2 } });
 }
@@ -362,6 +363,47 @@ test "refusal 21, route_unreachable: a pattern whose paths are longer than path_
     // INV-8: a request of a path longer than `path_len_max` gets 404, so the literal hides no GET
     // of the parameter. The literal is the route that no request reaches.
     try expect_layout(.route_unreachable, 1, .{ .{ .get, "/:x", 0 }, .{ .put, "/" ++ long_segment, 1 } });
+}
+
+/// A pattern of `count` segments "a". Its literal "a" repeats, so it counts once for "other".
+fn repeated_pattern(comptime count: usize) []const u8 {
+    return "/a" ** count;
+}
+
+/// A literal segment that fills a path of `path_len_max` octets beside `rest` octets.
+fn filler(comptime rest: usize) []const u8 {
+    return "L" ** (constants.path_len_max - rest);
+}
+
+test "decision 122 ruling 12: \"other\" counts a literal that repeats once, at path_len_max" {
+    // Claims 8 and 9 of routes_hidden.zig: "other" is "b" beside 62 segments "a", so each path
+    // below has `path_len_max` octets and a walk reads it.
+    inline for (.{ 61, 62 }) |count| {
+        try expect_layout(null, 0, .{ .{ .get, repeated_pattern(count), 0 }, .{ .get, "/" ++ filler(3) ++ "/:x", 1 } });
+        try expect_hidden(1, "GET", "/bbb/" ++ filler(7) ++ "/b", "/bbb/:y/:w", .{
+            .{ .get, repeated_pattern(count), 0 }, .{ .get, "/:x/" ++ filler(7) ++ "/:z", 1 }, .{ .put, "/bbb/:y/:w", 2 },
+        });
+    }
+}
+
+const Entry = struct { http.method.Standard, []const u8, u8 };
+
+/// The two routes after the one-octet routes of `one_octet_table`. The walk on `/<other>/b`
+/// stops at `/:x/b`, which names no GET, so `GET /:x/:y` is hidden.
+const one_octet_tail = [_]Entry{ .{ .get, "/:x/:y", 0 }, .{ .put, "/:x/b", 0 } };
+
+/// A table that holds each one-octet segment of `octets` as a GET route, then `one_octet_tail`.
+fn one_octet_table(comptime octets: []const u8) [octets.len + one_octet_tail.len]Entry {
+    var table: [octets.len]Entry = undefined;
+    for (octets, &table) |octet, *entry| entry.* = .{ .get, "/" ++ [_]u8{octet}, 0 };
+    return table ++ one_octet_tail;
+}
+
+test "decision 122 ruling 12: \"other\" has two octets when the table holds each one-octet literal" {
+    const alpha_digit = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    // Claim 9: 62 literals of one octet take each segment of one octet.
+    try expect_hidden(alpha_digit.len, "GET", "/aa/b", "/:x/b", comptime one_octet_table(alpha_digit));
+    try expect_hidden(alpha_digit.len - 1, "GET", "/9/b", "/:x/b", comptime one_octet_table(alpha_digit[0 .. alpha_digit.len - 1]));
 }
 
 test "refusal 22, allow_too_long: an Allow value fits core.constants.field_value_len_max" {

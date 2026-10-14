@@ -17,14 +17,14 @@
 //!
 //! Terms:
 //!   - A segment of a pattern has a kind: a literal, a parameter, or the wildcard. The wildcard
-//!     takes each segment from its position to the end of the path.
+//!     matches each segment from its position to the end of the path.
 //!   - "other" is a segment of ALPHA and DIGIT octets that equals no literal segment of the
-//!     table. The check takes the shortest such segment: one octet, when one is free.
-//!   - A leaf T of k segments takes paths of n segments: n = k when T has no wildcard, and each
-//!     n of k or more when T ends in the wildcard.
+//!     table. The check uses the shortest such segment: one octet, when one is free.
+//!   - A leaf T of k segments matches paths of n segments: n = k when T has no wildcard, and
+//!     each n of k or more when T ends in the wildcard.
 //!   - x(T, n) holds T's literal at each literal position of T, and "other" at each other
 //!     position, with n segments.
-//!   - x(T, L, n), for a leaf L that takes a path of n segments that T takes too, holds T's
+//!   - x(T, L, n), for a leaf L that matches a path of n segments that T matches too, holds T's
 //!     literal, else L's literal, else "other", at each position. x(T, T, n) is x(T, n).
 //!
 //! Each claim, with its proof:
@@ -35,7 +35,7 @@
 //!      `routes_match.zig`). It backs up when a deeper level fails (rule 9), and the first node
 //!      with a leaf after the last segment decides (rule 10). Where two patterns that match x
 //!      both hold a literal, both literals equal the segment of x, so the kinds decide.
-//!   2. Other. No literal edge takes "other". So at each position where x holds "other", a
+//!   2. Other. No literal edge matches "other". So at each position where x holds "other", a
 //!      pattern that matches x holds a parameter or the wildcard.
 //!   3. Lengths. No pattern holds more than `depth_max` segments. So only a pattern that ends in
 //!      the wildcard matches a path of more than `depth_max` segments, and its literals all come
@@ -53,15 +53,15 @@
 //!      both equal the segment of x, and x(T, F, n) is a path that both match. Let a leaf L
 //!      before F match x(T, F, n). Where x(T, F, n) holds "other", L holds a parameter or the
 //!      wildcard. Where it holds a literal of T or F, x holds the same literal. So L matches x
-//!      and comes before F, but the walk on x stops at F. So R is hidden if and only if the walk
-//!      on x(T, L, n), for some leaf L and some n, stops at a leaf other than T that does not
-//!      serve m. Each canonical path is a path that T matches, so each refusal names a request
-//!      that gets 405.
+//!      and comes before F, but the walk on x stops at F. So R is hidden if and only if a
+//!      request of m on some canonical path x(T, L, n) gets 405. The walk on it then stops at a
+//!      leaf other than T, and that leaf does not serve m. Each canonical path is a path that T
+//!      matches, so each refusal names a request that gets 405.
 //!   6. Leaves after T. The leaf F of claim 5 comes before T in the order, because T matches x
 //!      and the walk stops at the first leaf that matches. So the check reads x(T, L, n) only for
 //!      L = T and for each L before T.
-//!   7. Alone. When no leaf before T takes a path of n segments that T takes, the walk on each
-//!      path of T stops at T, by claims 1 and 6. The check then runs no walk for T.
+//!   7. Alone. When no leaf before T matches a path of n segments that T matches, the walk on
+//!      each path of T stops at T, by claims 1 and 6. The check then runs no walk for T.
 //!   8. Long paths. `match` gives `not_found` for a path longer than `path_len_max`, so no walk
 //!      runs on it. Each path of n segments that T and L both match holds the literals of
 //!      x(T, L, n), and one octet at least at each other position. So when "other" has one
@@ -69,9 +69,9 @@
 //!      such path gets `not_found` and hides nothing, and the check runs no walk on it. When each
 //!      x(T, n) is longer, no request reaches T, which is `route_unreachable`.
 //!   9. Long other. A table that holds each of the 62 one-octet literals of ALPHA and DIGIT gets
-//!      an "other" of two octets or more. A canonical path is then up to n octets longer than the
-//!      shortest path of its kind. For such a table, claim 8 holds only for patterns more than
-//!      `depth_max` + 1 octets shorter than `path_len_max`.
+//!      an "other" of two octets or more. A literal that repeats counts once. A canonical path is
+//!      then up to n octets longer than the shortest path of its kind. For such a table, claim 8
+//!      holds only for patterns more than `depth_max` + 1 octets shorter than `path_len_max`.
 const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
@@ -160,7 +160,8 @@ const lengths_past_depth = 2;
 /// The check reads each octet of the text twice at most: once to copy it, and once in a walk.
 const octet_reads = 2;
 
-/// The octets of "other" in a table of fewer than 62 * 62 literals of two octets.
+/// The octets of "other" in a table that does not hold each of the 62 * 62 literals of two
+/// octets.
 const other_len_bound = 2;
 
 /// The shape of each leaf, in the order of `layout.leaves`. Each node's index is larger than
@@ -181,7 +182,7 @@ fn leaf_shapes(comptime layout: anytype) [layout.leaves.len]Shape {
         }
         if (at.wildcard) |child| {
             nodes[child] = child_shape(shape, child, routes_pattern.wildcard, null);
-            // The wildcard is no segment of `literals`: it takes each segment after them.
+            // The wildcard is no segment of `literals`: it matches each segment after them.
             nodes[child].literals = shape.literals;
             nodes[child].wildcard = true;
         }
@@ -225,19 +226,19 @@ fn literal_at(shape: Shape, position: usize) ?[]const u8 {
 
 fn kind_at(shape: Shape, position: usize) Kind {
     if (position < shape.literals.len) return if (shape.literals[position] == null) .parameter else .literal;
-    // A leaf that takes a path holds a segment at each position of the path.
+    // A leaf that matches a path holds a segment at each position of the path.
     assert(shape.wildcard);
     return .wildcard;
 }
 
-/// Whether `shape` takes a path of `segments` segments.
-fn takes(shape: Shape, segments: usize) bool {
+/// Whether `shape` matches a path of `segments` segments.
+fn matches_length(shape: Shape, segments: usize) bool {
     return if (shape.wildcard) segments > shape.literals.len else segments == shape.literals.len;
 }
 
 /// Whether one path of `segments` segments matches both `left` and `right`.
 fn compatible(left: Shape, right: Shape, segments: usize) bool {
-    if (!takes(left, segments) or !takes(right, segments)) return false;
+    if (!matches_length(left, segments) or !matches_length(right, segments)) return false;
     for (0..@min(left.literals.len, right.literals.len)) |position| {
         const left_literal = left.literals[position] orelse continue;
         const right_literal = right.literals[position] orelse continue;
@@ -260,7 +261,7 @@ fn precedes(left: Shape, right: Shape) bool {
 }
 
 /// The canonical paths of leaf `leaf`: x(T, L, n) for T, and for each L before T, at each n
-/// that both take (claims 3, 5 and 6).
+/// that both match (claims 3, 5 and 6).
 fn canonicals_of(shapes: []const Shape, leaf: usize, depth_max: usize) []const Canonical {
     const shape = shapes[leaf];
     const first = shape.literals.len + @intFromBool(shape.wildcard);
@@ -270,7 +271,7 @@ fn canonicals_of(shapes: []const Shape, leaf: usize, depth_max: usize) []const C
     for (shapes, 0..) |other_shape, other_leaf| {
         for (first..last + 1) |segments| {
             if (!compatible(shape, other_shape, segments)) continue;
-            // Claim 6: a leaf after T never takes a path of T.
+            // Claim 6: the walk on a path of T never stops at a leaf after T.
             if (other_leaf != leaf and !precedes(other_shape, shape)) continue;
             list = list ++ [_]Canonical{.{ .leaf = other_leaf, .segments = segments }};
         }
@@ -305,8 +306,8 @@ fn leaf_verdicts(
     const entries = verdicts[at.entries_first..][0..at.entries_count];
     var reached = false;
     var too_long = false;
-    var takers: []const u8 = "";
-    // Claim 7: when no leaf before T takes a path of T, the walk on each path of T stops at T,
+    var first_patterns: []const u8 = "";
+    // Claim 7: when no leaf before T matches a path of T, the walk on each path of T stops at T,
     // so the check runs no walk.
     const alone = for (canonicals) |canonical| {
         if (canonical.leaf != leaf) break false;
@@ -318,7 +319,7 @@ fn leaf_verdicts(
             .reached => reached = true,
             .stopped => |stop_leaf| {
                 const pattern = shapes[stop_leaf].pattern;
-                if (canonical.leaf == leaf) takers = add_taker(takers, pattern);
+                if (canonical.leaf == leaf) first_patterns = add_first_pattern(first_patterns, pattern);
                 hidden_verdicts(Value, layout, at, stop_leaf, path, pattern, entries);
             },
         }
@@ -326,7 +327,7 @@ fn leaf_verdicts(
     if (reached) return;
     for (entries) |*verdict| {
         // Decision 122 ruling 12: the walk on each path of the route stops at another leaf.
-        if (verdict.* == null) verdict.* = .{ .route_unreachable = .{ .patterns = takers, .too_long = too_long } };
+        if (verdict.* == null) verdict.* = .{ .route_unreachable = .{ .patterns = first_patterns, .too_long = too_long } };
     }
 }
 
@@ -391,27 +392,29 @@ fn route_of(patterns: []const []const u8, tokens: []const []const u8, pattern: [
     unreachable;
 }
 
-/// `takers` with `pattern` in quotes after it, once.
-fn add_taker(takers: []const u8, pattern: []const u8) []const u8 {
+/// `patterns` with `pattern` in quotes after it, once.
+fn add_first_pattern(patterns: []const u8, pattern: []const u8) []const u8 {
     const quoted = "\"" ++ pattern ++ "\"";
-    if (std.mem.indexOf(u8, takers, quoted) != null) return takers;
-    if (takers.len == 0) return quoted;
-    return takers ++ ", " ++ quoted;
+    if (std.mem.indexOf(u8, patterns, quoted) != null) return patterns;
+    if (patterns.len == 0) return quoted;
+    return patterns ++ ", " ++ quoted;
 }
 
-/// The shortest segment of `other_octets` that equals no literal of `shapes` (claim 2). For each
-/// length it counts the literals of that length. When they are fewer than the segments of that
-/// length, one of the first `count` + 1 segments is free.
+/// The shortest segment of `other_octets` that equals no literal of `shapes` (claim 2). It reads
+/// each length in turn, from one octet, and returns the first free segment of that length.
 fn other_of(shapes: []const Shape) []const u8 {
     var literals: usize = 0;
     for (shapes) |shape| literals += shape.literals.len;
     var segments_of_length: usize = 1;
-    // Bounded: the loop returns at the first length whose segments outnumber the literals.
+    // Bounded: a length whose segments outnumber the literals holds a free segment.
     for (0..literals + 1) |index| {
         const length = index + 1;
         segments_of_length *= other_octets.len;
-        const count = literals_of_length(shapes, length);
-        if (count < segments_of_length) return free_segment(shapes, length, count);
+        // `count` counts a literal that repeats each time, so the literals of this length are
+        // `count` or fewer. One of the first `count` + 1 segments is free when that is fewer
+        // than `segments_of_length`.
+        const count = @min(literals_of_length(shapes, length), segments_of_length - 1);
+        if (free_segment(shapes, length, count)) |segment| return segment;
     }
     unreachable;
 }
@@ -426,9 +429,9 @@ fn literals_of_length(shapes: []const Shape, length: usize) usize {
     return count;
 }
 
-/// The first of the segments 0 to `count` of `length` octets that equals no literal. Segment i
-/// writes i in base 62 over `other_octets`.
-fn free_segment(shapes: []const Shape, comptime length: usize, comptime count: usize) []const u8 {
+/// The first of the segments 0 to `count` of `length` octets that equals no literal, or null.
+/// Segment i writes i in base 62 over `other_octets`.
+fn free_segment(shapes: []const Shape, comptime length: usize, comptime count: usize) ?[]const u8 {
     var taken: [count + 1]bool = @splat(false);
     for (shapes) |shape| {
         for (shape.literals) |literal| {
@@ -436,7 +439,7 @@ fn free_segment(shapes: []const Shape, comptime length: usize, comptime count: u
             if (index <= count) taken[index] = true;
         }
     }
-    const free = std.mem.indexOfScalar(bool, &taken, false).?;
+    const free = std.mem.indexOfScalar(bool, &taken, false) orelse return null;
     var segment: [length]u8 = undefined;
     var rest = free;
     for (0..length) |position| {

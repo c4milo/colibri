@@ -142,20 +142,26 @@ pub fn build(comptime Value: type, comptime table: anytype) Layout(Value, sizes_
 pub fn allow_refusal(comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
     @setEvalBranchQuota(routes_trie.quota_of(table));
     for (layout.leaves) |leaf| {
-        // RFC 9110 §10.2.1: a 405 carries the Allow value as a field value, which the endpoint
-        // bounds at `core.constants.field_value_len_max` (decision 122).
-        if (leaf.allow.len > core.constants.field_value_len_max) break;
+        if (allow_too_long(leaf.allow.len)) break;
     } else return null;
     // The merge that names the route runs on a refusal only.
     const routes = routes_trie.routes_of(table);
     const merged = routes_trie.merge(&routes.patterns);
     for (merged.route_node, 0..) |node, route| {
         const leaf = layout.nodes[node].leaf.?;
-        if (layout.leaves[leaf].allow.len > core.constants.field_value_len_max) {
+        if (allow_too_long(layout.leaves[leaf].allow.len)) {
             return .{ .route = route, .pattern = routes.patterns[route], .reason = .allow_too_long };
         }
     }
     unreachable;
+}
+
+/// Whether an Allow value of `allow_len` octets is too long. Both loops of `allow_refusal` call
+/// it, so the two loops compare with one rule.
+fn allow_too_long(allow_len: usize) bool {
+    // RFC 9110 §10.2.1: a 405 carries the Allow value as a field value, which the endpoint
+    // bounds at `core.constants.field_value_len_max` (decision 122).
+    return allow_len > core.constants.field_value_len_max;
 }
 
 fn Builder(comptime Value: type, comptime sizes: Sizes) type {

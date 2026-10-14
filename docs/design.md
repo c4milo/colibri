@@ -8582,8 +8582,8 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       octet outside `pchar` or more than `path_len_max` octets matches nothing.
     - A malformed or conflicting table does not compile. A route that other routes hide is a
       conflict: a request that it matches gets 405 from another pattern, or no request reaches
-      it (decision 122 ruling 12). An Allow value longer than
-      `core.constants.field_value_len_max` is one too.
+      it (decision 122 ruling 12). A table whose Allow value is longer than
+      `core.constants.field_value_len_max` does not compile either.
     - The endpoint writes no content in a response to HEAD, in h11, h2 and h3 alike.
     - `server.constants.path_parameters_max` is 8, and `server.constants.path_len_max` is the
       endpoint's own bound on a path, 8192 octets.
@@ -8611,8 +8611,9 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       octet, a dot segment or an empty segment matching nothing. A test of each version shows
       that a response to HEAD carries no content. `zig build routes-check` requires each
       malformed or conflicting table to fail to compile, a hidden route too, and a valid one to
-      compile. A test compares the check of hidden routes with a brute force on small tables. `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh`
-      pass. Each rule has a mutation a test catches.
+      compile. A test compares the check of hidden routes with a brute force on small tables.
+      `zig build examples`, `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass. Each
+      rule has a mutation a test catches.
   - **21f, the package.** Whether `h11`, `h2`, `h3` and `quic` stay exported (decision 86).
     **Check:** the owner's ruling, once the dependent that uses `h11` directly can use `client`.
 

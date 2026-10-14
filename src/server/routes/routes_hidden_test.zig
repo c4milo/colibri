@@ -1,5 +1,6 @@
 //! The cross-check of the check of hidden routes (decision 122 ruling 12, design §8 step 21e).
-//! It is the evidence for claims 4 and 5 of `routes_hidden.zig`.
+//! It is the evidence for claims 4 and 5 of `routes_hidden.zig`. The paths of the family are
+//! short, so the tests of claims 8 and 9 are in `routes_refusal_test.zig`.
 //!
 //! For each table of a family of small tables, a brute force decides each route's verdict from
 //! every path of a few segments, and the test requires the check to give the same first
@@ -25,6 +26,10 @@ const Entry = struct { Standard, []const u8, u8 };
 /// The methods of the family.
 const methods = [_]Standard{ .get, .put };
 
+/// The methods of the family with HEAD, which a leaf that names GET serves too (RFC 9110
+/// §9.3.2).
+const head_methods = [_]Standard{ .get, .head, .put };
+
 /// The segments of a path that the brute force reads: the two literals of the family, and two
 /// segments that equal no literal.
 const path_segments = [_][]const u8{ "a", "b", "c", "d" };
@@ -43,6 +48,24 @@ const pair_patterns = [_][]const u8{
 /// after that segment, after each prefix.
 const triple_prefixes = [_][]const u8{ "", "/a", "/:x" };
 const triple_segments = [_][]const u8{ ":s", "a" };
+
+/// The routes of a triple.
+const triple_len = 3;
+
+/// Each order of a triple's patterns. An order gives the position in the table of the
+/// wildcard, the segment and the wildcard after the segment. The first is example 8's order.
+const triple_orders = orders: {
+    var orders: []const [triple_len]u8 = &.{};
+    for (0..triple_len) |wildcard| {
+        for (0..triple_len) |segment| {
+            for (0..triple_len) |after| {
+                if (segment == wildcard or after == wildcard or after == segment) continue;
+                orders = orders ++ [_][triple_len]u8{.{ wildcard, segment, after }};
+            }
+        }
+    }
+    break :orders orders;
+};
 
 /// The most segments of a path that the brute force reads: one more than the deepest pattern of
 /// the family (claim 3).
@@ -98,7 +121,12 @@ fn paths_of(comptime count: usize) []const Path {
 const Path = struct { segments: []const []const u8, text: []const u8 };
 
 fn token(method: Standard) []const u8 {
-    return if (method == .get) "GET" else "PUT";
+    return switch (method) {
+        .get => "GET",
+        .head => "HEAD",
+        .put => "PUT",
+        else => unreachable,
+    };
 }
 
 /// The first refusal, in table order, that the brute force finds.
@@ -148,61 +176,83 @@ fn describe(comptime table: []const Entry) []const u8 {
     return text;
 }
 
-/// Every table of two routes over `pair_patterns` and `methods`, in each order.
-fn pair_census() Census {
-    const routes_count = pair_patterns.len * methods.len;
+/// Every table of two routes over `pair_patterns` and `family`, in each order. With
+/// `head_only`, only the tables that hold a HEAD route.
+fn pair_census(comptime family: []const Standard, comptime head_only: bool) Census {
+    const routes_count = pair_patterns.len * family.len;
     @setEvalBranchQuota(branches_per_table * routes_count * routes_count);
     const paths = paths_of(pair_path_segments);
     var census: Census = .{};
     for (0..routes_count) |first| {
         for (0..routes_count) |second| {
             if (first == second) continue;
-            cross_check(&census, &.{ pair_entry(first, 0), pair_entry(second, 1) }, paths);
+            const table = [_]Entry{ pair_entry(family, first, 0), pair_entry(family, second, 1) };
+            if (head_only and table[0][0] != .head and table[1][0] != .head) continue;
+            cross_check(&census, &table, paths);
         }
     }
     return census;
 }
 
-fn pair_entry(index: usize, value: u8) Entry {
-    return .{ methods[index % methods.len], pair_patterns[index / methods.len], value };
+fn pair_entry(comptime family: []const Standard, index: usize, value: u8) Entry {
+    return .{ family[index % family.len], pair_patterns[index / family.len], value };
 }
 
-/// Every triple of example 8's shape, with each method at each route. The tables of two routes
-/// read each order, so the triples keep one.
-fn triple_census() Census {
+/// Every triple of example 8's shape, with each method at each route, in each order of `orders`.
+/// Each route has its index in the table as its value.
+fn triple_census(comptime orders: []const [triple_len]u8) Census {
     const methods_count = methods.len * methods.len * methods.len;
-    const tables = triple_prefixes.len * triple_segments.len * methods_count;
+    const tables = orders.len * triple_prefixes.len * triple_segments.len * methods_count;
     @setEvalBranchQuota(branches_per_table * tables);
     const paths = paths_of(triple_path_segments);
     var census: Census = .{};
-    for (triple_prefixes) |prefix| {
-        for (triple_segments) |segment| {
-            const patterns = [_][]const u8{ prefix ++ "/*", prefix ++ "/" ++ segment, prefix ++ "/" ++ segment ++ "/*" };
-            for (0..methods_count) |choice| {
-                var table: [patterns.len]Entry = undefined;
-                for (&table, patterns, 0..) |*entry, pattern, route| {
-                    const method = methods[(choice >> @intCast(route)) & 1];
-                    entry.* = .{ method, pattern, route };
-                }
-                const fixed = table;
-                cross_check(&census, &fixed, paths);
+    for (orders) |order| {
+        for (triple_prefixes) |prefix| {
+            for (triple_segments) |segment| {
+                const patterns = [_][]const u8{ prefix ++ "/*", prefix ++ "/" ++ segment, prefix ++ "/" ++ segment ++ "/*" };
+                for (0..methods_count) |choice| cross_check(&census, &triple_table(patterns, order, choice), paths);
             }
         }
     }
     return census;
 }
 
+/// The triple of `patterns` in `order`, with the method of route i at bit i of `choice`.
+fn triple_table(comptime patterns: [triple_len][]const u8, comptime order: [triple_len]u8, comptime choice: usize) [triple_len]Entry {
+    var table: [patterns.len]Entry = undefined;
+    for (patterns, order) |pattern, route| {
+        const method = methods[(choice >> @intCast(route)) & 1];
+        table[route] = .{ method, pattern, route };
+    }
+    return table;
+}
+
 test "decision 122 ruling 12: the check gives the brute force's verdict on every table of two routes" {
-    const census = comptime pair_census();
+    const census = comptime pair_census(&methods, false);
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
     // In each table of two routes of the family, a request reaches each route.
     try testing.expectEqual(Census{ .tables = 1122, .hidden = 240, .unreached = 0, .compiled = 882 }, census);
 }
 
+test "decision 122 ruling 12: the check gives the brute force's verdict on each table of two routes with HEAD" {
+    const census = comptime pair_census(&head_methods, true);
+    if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
+    try testing.expectEqual(null, census.differ);
+    try testing.expectEqual(Census{ .tables = 1428, .hidden = 360, .unreached = 0, .compiled = 1068 }, census);
+}
+
 test "decision 122 ruling 12: the check gives the brute force's verdict on each triple of example 8" {
-    const census = comptime triple_census();
+    const census = comptime triple_census(triple_orders[0..1]);
     if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
     try testing.expectEqual(null, census.differ);
     try testing.expectEqual(Census{ .tables = 48, .hidden = 36, .unreached = 6, .compiled = 6 }, census);
+}
+
+test "decision 122 ruling 12: the check gives the brute force's verdict on each other order of example 8" {
+    const census = comptime triple_census(triple_orders[1..]);
+    if (census.differ) |table| std.debug.print("the check and the brute force differ on: {s}\n", .{table});
+    try testing.expectEqual(null, census.differ);
+    // Example 8's order gives 6 tables of `route_unreachable`, and the five other orders 30.
+    try testing.expectEqual(Census{ .tables = 240, .hidden = 180, .unreached = 30, .compiled = 30 }, census);
 }

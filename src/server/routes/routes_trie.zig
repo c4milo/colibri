@@ -47,9 +47,9 @@ const quota_branches_per_route_pair = 16;
 ///   - It walks each canonical path once. A walk takes `routes_match.walk_steps_max` passes at
 ///     most, and each pass costs a fixed part. A walk reads the literal edges of each node once at
 ///     most, and each octet of its path once, so a part for each octet of the table and the path.
-pub const quota_branches_per_pair_length_segment = 32;
-pub const quota_branches_per_walk_step = 32;
-pub const quota_branches_per_walk_octet = 16;
+const quota_branches_per_pair_length_segment = 32;
+const quota_branches_per_walk_step = 32;
+const quota_branches_per_walk_octet = 16;
 
 /// The quota of the check of hidden routes: `quota_of(table)`, the part for `pairs` pairs of
 /// leaves at `lengths` lengths of `segments` segments, and the part for `walks` walks of
