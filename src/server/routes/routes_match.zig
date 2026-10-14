@@ -272,7 +272,7 @@ pub fn literal_child(comptime layout: anytype, node: usize, segment: []const u8)
 }
 
 /// The passes of the binary search of `literal_child` over a run of `edges` edges, at most.
-fn search_passes_max(comptime edges: usize) usize {
+pub fn search_passes_max(comptime edges: usize) usize {
     return std.math.log2_int(usize, edges + 1) + search_passes_past_log;
 }
 

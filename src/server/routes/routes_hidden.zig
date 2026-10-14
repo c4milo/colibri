@@ -110,15 +110,17 @@ fn view_refusal(comptime Value: type, comptime layout: anytype, comptime table: 
     const canonicals = routes_hidden_canonical.all_canonicals_of(layout, &shapes, depth_max);
     var walks: usize = 0;
     for (canonicals) |list| walks += list.len;
+    const walk_steps = routes_match.walk_steps_max(layout.nodes.len);
+    // A canonical path holds a literal or "other" in each segment.
+    var segment_len_max = other.len;
+    for (layout.edges) |edge| segment_len_max = @max(segment_len_max, edge.segment.len);
     @setEvalBranchQuota(routes_trie.hidden_quota_of(table, .{
         .pairs = pairs,
         .lengths = lengths,
         .segments = depth_max + 1,
         .walks = walks,
-        .walk_steps = routes_match.walk_steps_max(layout.nodes.len),
-        // The text holds each literal and each method token, and a canonical path holds a
-        // literal or "other" in each segment.
-        .octets = octet_reads * layout.text.len + lengths * (other.len + 1),
+        .walk_steps = walk_steps,
+        .octets = walk_octets(layout.text.len, lengths, walk_steps, routes_match.search_passes_max(layout.edges.len), segment_len_max),
     }));
     var verdicts: [layout.entries.len]?routes_trie.Reason = @splat(null);
     for (canonicals, 0..) |list, leaf| leaf_verdicts(Value, layout, &shapes, other, leaf, list, &verdicts);
@@ -134,22 +136,34 @@ pub fn quota_bound_of(comptime table: anytype) u32 {
     var depth_max: usize = 0;
     var segments: usize = 0;
     var octets: usize = 0;
+    // A segment of a pattern is no longer than the pattern.
+    var segment_len_max: usize = other_len_bound;
     for (routes.patterns, routes.tokens) |pattern, token| {
         depth_max = @max(depth_max, routes_pattern.segments_count(pattern));
         segments += routes_pattern.segments_count(pattern);
         octets += pattern.len + token.len;
+        segment_len_max = @max(segment_len_max, pattern.len);
     }
     const lengths = depth_max + lengths_past_depth;
     const pairs = table.len * table.len;
+    // The trie holds the root and a node for each segment at most, and an edge for each segment
+    // at most.
+    const walk_steps = routes_match.walk_steps_max(segments + 1);
     return routes_trie.hidden_quota_of(table, .{
         .pairs = pairs,
         .lengths = lengths,
         .segments = depth_max + 1,
         .walks = pairs * lengths,
-        // The trie holds the root and a node for each segment at most.
-        .walk_steps = routes_match.walk_steps_max(segments + 1),
-        .octets = octet_reads * octets + lengths * (other_len_bound + 1),
+        .walk_steps = walk_steps,
+        .octets = walk_octets(octets, lengths, walk_steps, routes_match.search_passes_max(segments), segment_len_max),
     });
+}
+
+/// The octets that one walk of the check reads, at most (`routes_trie.zig`): the text, the path
+/// of `lengths` segments at most, and the segment of each pass once for each comparison of the
+/// search and once more.
+fn walk_octets(text_len: usize, lengths: usize, walk_steps: usize, search_passes: usize, segment_len_max: usize) usize {
+    return octet_reads * text_len + lengths * (segment_len_max + 1) + walk_steps * (search_passes + 1) * segment_len_max;
 }
 
 /// A canonical path holds 0 to `depth_max` + 1 segments (claim 3), so `depth_max` + 2 counts.

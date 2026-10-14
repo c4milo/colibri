@@ -298,7 +298,8 @@ test "decision 122: the compile error names the entry, the refusal and its reaso
 /// `allow_too_long`, then `route_hidden` and `route_unreachable`. `table` passes every check
 /// before the build. Comptime-only.
 fn layout_refusal(comptime table: anytype) ?routes_trie.Refusal {
-    @setEvalBranchQuota(routes_trie.quota_of(table) + routes_hidden.quota_bound_of(table));
+    // The bound of the check is the largest `u32` at most, so the sum saturates.
+    @setEvalBranchQuota(routes_trie.quota_of(table) +| routes_hidden.quota_bound_of(table));
     std.debug.assert(routes_trie.refusal_of(table) == null);
     const trie = routes_trie.trie_of(table);
     const layout = routes_trie_layout.build(u8, table, &trie);

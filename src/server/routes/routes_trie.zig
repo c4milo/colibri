@@ -47,22 +47,29 @@ const quota_branches_base = 4_096;
 const quota_branches_per_octet_route = 8;
 const quota_branches_per_route_pair = 16;
 
+/// The comptime branches of the loop of `quota_of` for each route, at most. The loop makes four
+/// calls for each route, and each call takes a few branches.
+const quota_branches_per_route = 16;
+
 /// The comptime branches that the check of hidden routes (`routes_hidden.zig`) uses, at most,
 /// beside `quota_of`. It has two parts:
 ///   - For each leaf it walks the trie, which holds `segments` nodes for each leaf at most, and it
 ///     writes a canonical path for each leaf that it finds at each length. So a part for each
 ///     pair of leaves, each length and each segment bounds it.
 ///   - It walks each canonical path once. A walk makes `routes_match.walk_steps_max` passes at
-///     most, and each pass costs a fixed part. A walk reads the literal edges of each node once at
-///     most, and each octet of its path once, so a part for each octet of the table and the path.
+///     most, and each pass costs a fixed part. Each pass also reads the segment of its frame to
+///     find the end of the segment. The search of a literal edge then compares the segment with
+///     `routes_match.search_passes_max` edges at most. So each pass reads the longest segment
+///     once for each comparison and once more. The walk also reads each octet of its path once
+///     before its first pass. `octets` counts these reads for one walk.
 const quota_branches_per_pair_length_segment = 32;
 const quota_branches_per_walk_step = 32;
 const quota_branches_per_walk_octet = 16;
 
 /// The quota of the check of hidden routes: `quota_of(table)`, the part for `pairs` pairs of
 /// leaves at `lengths` lengths of `segments` segments, and the part for `walks` walks of
-/// `walk_steps` passes each over `octets` octets. The value is the largest `u32` at most, which
-/// `@setEvalBranchQuota` takes.
+/// `walk_steps` passes each that read `octets` octets each. The value is the largest `u32` at
+/// most, which `@setEvalBranchQuota` takes.
 pub fn hidden_quota_of(comptime table: anytype, comptime counts: HiddenCounts) u32 {
     const compared: u64 = @as(u64, quota_branches_per_pair_length_segment) * counts.pairs * counts.lengths * counts.segments;
     const walked: u64 = @as(u64, counts.walks) *
@@ -242,8 +249,7 @@ fn repeated_refusal(routes: anytype, trie: anytype) ?Refusal {
 }
 
 pub fn quota_of(comptime table: anytype) u32 {
-    // The loop below makes four calls for each route, and the part for each pair covers them.
-    @setEvalBranchQuota(quota_branches_base + quota_branches_per_route_pair * table.len);
+    @setEvalBranchQuota(quota_branches_base + quota_branches_per_route * table.len);
     var octets: usize = 0;
     inline for (0..table.len) |index| {
         if (is_entry(@TypeOf(table[index]))) octets += table[index][pattern_part].len + token_len(table[index][method_part]);

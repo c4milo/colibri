@@ -314,6 +314,22 @@ test "decision 122: a table of 256 routes of four segments each compiles and mat
     try testing.expectEqualStrings("GET, HEAD", large.match("PUT", large_table[0][1], &parameters).method_not_allowed);
 }
 
+/// The routes of a table whose quota alone a test computes. The loop of `quota_of` needs more
+/// branches for these routes than `quota_branches_base` gives.
+const quota_routes = 1024;
+
+const quota_table: [quota_routes]Large = build: {
+    @setEvalBranchQuota(quota_routes * quota_routes);
+    var table: [quota_routes]Large = undefined;
+    for (&table) |*entry| entry.* = .{ .get, "/a", 0 };
+    break :build table;
+};
+
+test "decision 122: quota_of has the branches of its own loop over a table of 1024 routes" {
+    const quota = comptime routes_trie.quota_of(quota_table);
+    try testing.expect(quota > quota_routes);
+}
+
 /// The route that a test of the back-up finds, by the kind of its last segments.
 const Deeper = enum { literal, parameter, wildcard };
 
@@ -379,7 +395,7 @@ const overlap_orders = factorial(overlap_entries.len);
 
 /// The tables of one test share its comptime branch count, so the test sets the quota of each
 /// build and of its check of hidden routes, and of one more for the orders.
-const overlap_quota = (overlap_orders + 1) * (routes_trie.quota_of(overlap_entries) + routes_hidden.quota_bound_of(overlap_entries));
+const overlap_quota = (overlap_orders + 1) *| (routes_trie.quota_of(overlap_entries) +| routes_hidden.quota_bound_of(overlap_entries));
 
 fn factorial(comptime count: usize) usize {
     var product: usize = 1;
