@@ -111,7 +111,8 @@ code that serves it.
   `error_code` in `quic`. The `root-exports` lint rule refuses one.
 - **No public name repeats itself.** A type named after its file is exported under its own
   name: `h2.Connection` and `http.Field`, never `h2.connection.Connection`. A function or a
-  constant keeps the namespace of its file: `http.field.validate_name`.
+  constant keeps the namespace of its file: `http.field.validate_name`. A function named after
+  its file is exported under its own name: `server.routes`, never `server.routes.routes`.
 - **Every root reads in one order.** The modules it re-exports, `constants`, the private `files`
   struct that imports each file, each type under its own name, each function or constant under
   the namespace of its file, the test that lists the names, and last the test block that
@@ -310,6 +311,10 @@ Everything below exists. Change this section when a step adds or renames a comma
   a mutation is measured against.
 - Golden corpus: `zig build golden-check` checks the embedded corpus against the constructors;
   `zig build golden` regenerates `src/golden/` and refuses a directory carrying a `FROZEN` marker.
+- Route tables: `zig build routes-check` compiles `tools/fixtures/routes_refused.zig` once for each
+  refusal of `server.routes`, and requires each compile to fail with the message of that refusal
+  (`build/routes_check.zig`, decision 122). The case `accepted` must compile. `zig build test` runs
+  it.
 - Generated tables: `zig build huffman-table` regenerates `src/wire/huffman_table.zig` from RFC
   7541 Appendix B, `zig build static-table` regenerates `src/hpack/static_table.zig` from its
   Appendix A, and `zig build qpack-static-table` regenerates `src/qpack/static_table.zig` from
