@@ -1,5 +1,5 @@
 //! The arrays of a route table that `match` reads at run time (decision 122, design §8 step 21e).
-//! `build` writes the trie of `routes_trie.trie_of` into them, at compile time.
+//! `build` writes the trie of `router_trie.trie_of` into them, at compile time.
 //!
 //! Each node holds a run of edges, one for each literal segment after it, sorted by length and
 //! then by octets. A node holds one parameter child at most, with the parameter's name, and one
@@ -11,9 +11,9 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const core = @import("core");
-const routes_method = @import("routes_method.zig");
-const routes_pattern = @import("routes_pattern.zig");
-const routes_trie = @import("routes_trie.zig");
+const router_method = @import("router_method.zig");
+const router_pattern = @import("router_pattern.zig");
+const router_trie = @import("router_trie.zig");
 
 /// The separator between the methods of an Allow value: RFC 9110 §10.2.1 makes Allow a list,
 /// and RFC 9110 §5.6.1.1 writes a list as `element *( OWS "," OWS element )`.
@@ -32,9 +32,9 @@ pub const Sizes = struct {
 };
 
 fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
-    @setEvalBranchQuota(routes_trie.quota_of(table));
-    // The calls in the loops get pointers to copies in vars (`routes_trie.zig`).
-    var routes = routes_trie.routes_of(table);
+    @setEvalBranchQuota(router_trie.quota_of(table));
+    // The calls in the loops get pointers to copies in vars (`router_trie.zig`).
+    var routes = router_trie.routes_of(table);
     var trie_copy = trie.*;
     var sizes: Sizes = .{
         .nodes = trie_copy.node_count,
@@ -49,19 +49,19 @@ fn sizes_of(comptime table: anytype, comptime trie: anytype) Sizes {
     for (1..trie_copy.node_count) |node| {
         const segment = trie_copy.segment[node];
         sizes.depth_max = @max(sizes.depth_max, trie_copy.depth[node]);
-        // A wildcard has no text: `match` binds it to the name `routes_pattern.wildcard`.
-        if (routes_pattern.is_wildcard(segment)) {
+        // A wildcard has no text: `match` binds it to the name `router_pattern.wildcard`.
+        if (router_pattern.is_wildcard(segment)) {
             sizes.wildcards += 1;
             continue;
         }
         // A literal's text is its segment, and a parameter's text is its name.
-        if (routes_pattern.is_parameter(segment)) sizes.parameters += 1;
-        sizes.text += if (routes_pattern.is_parameter(segment)) routes_pattern.parameter_name(segment).len else segment.len;
+        if (router_pattern.is_parameter(segment)) sizes.parameters += 1;
+        sizes.text += if (router_pattern.is_parameter(segment)) router_pattern.parameter_name(segment).len else segment.len;
     }
     for (0..trie_copy.node_count) |node| {
-        if (routes_trie.routes_at(&trie_copy, node).len == 0) continue;
+        if (router_trie.routes_at(&trie_copy, node).len == 0) continue;
         sizes.leaves += 1;
-        if (head_added(&routes, &trie_copy, node)) sizes.text += allow_separator.len + routes_method.head_token.len;
+        if (head_added(&routes, &trie_copy, node)) sizes.text += allow_separator.len + router_method.head_token.len;
     }
     // Each Allow value holds the tokens of its leaf's routes, with a separator between two.
     for (routes.tokens) |token| sizes.text += token.len;
@@ -116,14 +116,14 @@ pub fn Layout(comptime Value: type, comptime sizes: Sizes) type {
     };
 }
 
-/// The layout of a table that `routes_trie.refusal_of` passed. `trie` is a pointer to the value
-/// of `routes_trie.trie_of(table)`. Comptime-only.
+/// The layout of a table that `router_trie.refusal_of` passed. `trie` is a pointer to the value
+/// of `router_trie.trie_of(table)`. Comptime-only.
 pub fn build(comptime Value: type, comptime table: anytype, comptime trie: anytype) Layout(Value, sizes_of(table, trie)) {
-    @setEvalBranchQuota(routes_trie.quota_of(table));
-    assert(routes_trie.entries_refusal(table) == null and routes_trie.trie_refusal(table, trie) == null);
+    @setEvalBranchQuota(router_trie.quota_of(table));
+    assert(router_trie.entries_refusal(table) == null and router_trie.trie_refusal(table, trie) == null);
     const sizes = sizes_of(table, trie);
-    // The calls in the loop get pointers to copies in vars (`routes_trie.zig`).
-    var routes = routes_trie.routes_of(table);
+    // The calls in the loop get pointers to copies in vars (`router_trie.zig`).
+    var routes = router_trie.routes_of(table);
     var trie_copy = trie.*;
     var builder: Builder(Value, sizes) = .{ .values = values_of(Value, table) };
     for (0..trie_copy.node_count) |node| {
@@ -141,13 +141,13 @@ pub fn build(comptime Value: type, comptime table: anytype, comptime trie: anyty
 
 /// The first route, in table order, whose leaf has an Allow value longer than
 /// `core.constants.field_value_len_max`, or null. `layout` is the layout of `table`, and
-/// `trie` is a pointer to the value of `routes_trie.trie_of(table)`. Comptime-only.
-pub fn allow_refusal(comptime layout: anytype, comptime table: anytype, comptime trie: anytype) ?routes_trie.Refusal {
-    @setEvalBranchQuota(routes_trie.quota_of(table));
+/// `trie` is a pointer to the value of `router_trie.trie_of(table)`. Comptime-only.
+pub fn allow_refusal(comptime layout: anytype, comptime table: anytype, comptime trie: anytype) ?router_trie.Refusal {
+    @setEvalBranchQuota(router_trie.quota_of(table));
     for (layout.leaves) |leaf| {
         if (allow_too_long(leaf.allow.len)) break;
     } else return null;
-    const routes = routes_trie.routes_of(table);
+    const routes = router_trie.routes_of(table);
     for (trie.route_node, 0..) |node, route| {
         const leaf = layout.nodes[node].leaf.?;
         if (allow_too_long(layout.leaves[leaf].allow.len)) {
@@ -179,7 +179,7 @@ fn Builder(comptime Value: type, comptime sizes: Sizes) type {
 
 fn values_of(comptime Value: type, comptime table: anytype) [table.len]Value {
     var values: [table.len]Value = undefined;
-    inline for (0..table.len) |index| values[index] = @as(Value, table[index][routes_trie.value_part]);
+    inline for (0..table.len) |index| values[index] = @as(Value, table[index][router_trie.value_part]);
     return values;
 }
 
@@ -197,11 +197,11 @@ fn add_edges(builder: anytype, trie: anytype, node: usize) void {
     for (0..trie.node_count) |_| {
         const index = child orelse break;
         child = trie.next_sibling[index];
-        if (routes_pattern.is_parameter(trie.segment[index])) {
+        if (router_pattern.is_parameter(trie.segment[index])) {
             add_parameter(builder, trie, node, index);
             continue;
         }
-        if (routes_pattern.is_wildcard(trie.segment[index])) {
+        if (router_pattern.is_wildcard(trie.segment[index])) {
             add_wildcard(builder, trie, node, index);
             continue;
         }
@@ -219,9 +219,9 @@ fn add_edges(builder: anytype, trie: anytype, node: usize) void {
 }
 
 fn add_parameter(builder: anytype, trie: anytype, node: usize, child: usize) void {
-    // `routes_trie.trie_refusal` passed the table, so the node has one parameter child at most.
+    // `router_trie.trie_refusal` passed the table, so the node has one parameter child at most.
     assert(builder.layout.nodes[node].parameter == null);
-    const name = routes_pattern.parameter_name(trie.segment[child]);
+    const name = router_pattern.parameter_name(trie.segment[child]);
     const offset = add_text(builder, name);
     builder.layout.nodes[node].parameter = .{ .name = .{ .offset = @intCast(offset), .len = @intCast(name.len) }, .child = @intCast(child) };
 }
@@ -229,7 +229,7 @@ fn add_parameter(builder: anytype, trie: anytype, node: usize, child: usize) voi
 fn add_wildcard(builder: anytype, trie: anytype, node: usize, child: usize) void {
     // A node has one child for each segment, so it has one wildcard child at most.
     assert(builder.layout.nodes[node].wildcard == null);
-    // `routes_pattern.refusal_of` passed each pattern, so the wildcard is the last segment of its
+    // `router_pattern.refusal_of` passed each pattern, so the wildcard is the last segment of its
     // patterns and its node has no child.
     assert(trie.first_child[child] == null);
     builder.layout.nodes[node].wildcard = @intCast(child);
@@ -249,15 +249,15 @@ fn segment_less(trie: anytype, left: usize, right: usize) bool {
 fn head_added(routes: anytype, trie: anytype, node: usize) bool {
     var get = false;
     var head = false;
-    for (routes_trie.routes_at(trie, node)) |route| {
-        if (routes.ranks[route] == routes_method.rank_of(.get)) get = true;
-        if (routes.ranks[route] == routes_method.rank_of(.head)) head = true;
+    for (router_trie.routes_at(trie, node)) |route| {
+        if (routes.ranks[route] == router_method.rank_of(.get)) get = true;
+        if (routes.ranks[route] == router_method.rank_of(.head)) head = true;
     }
     return get and !head;
 }
 
 fn add_leaf(builder: anytype, trie: anytype, routes: anytype, node: usize) void {
-    const of_node = routes_trie.routes_at(trie, node);
+    const of_node = router_trie.routes_at(trie, node);
     const count = of_node.len;
     if (count == 0) return;
     var held: [trie.route_node.len]usize = undefined;
@@ -267,7 +267,7 @@ fn add_leaf(builder: anytype, trie: anytype, routes: anytype, node: usize) void 
     sort(held[0..count], routes, method_less);
     // RFC 9110 §9.1's order puts GET first, so HEAD follows the first token.
     const head = head_added(routes, trie, node);
-    assert(!head or routes.ranks[held[0]] == routes_method.rank_of(.get));
+    assert(!head or routes.ranks[held[0]] == router_method.rank_of(.get));
     const allow_first = builder.text_len;
     const entries_first = builder.entries_count;
     for (held[0..count], 0..) |route, position| {
@@ -276,7 +276,7 @@ fn add_leaf(builder: anytype, trie: anytype, routes: anytype, node: usize) void 
         const offset = add_text(builder, token);
         builder.layout.entries[builder.entries_count] = .{ .method = .{ .offset = @intCast(offset), .len = @intCast(token.len) }, .value = builder.values[route] };
         builder.entries_count += 1;
-        if (head and position == 0) _ = add_text(builder, allow_separator ++ routes_method.head_token);
+        if (head and position == 0) _ = add_text(builder, allow_separator ++ router_method.head_token);
     }
     builder.layout.nodes[node].leaf = @intCast(builder.leaves_count);
     builder.layout.leaves[builder.leaves_count] = .{

@@ -5,7 +5,7 @@
 //! speak h3. The program calls `accept` for each TCP socket, and the handle it gets names the
 //! connection from then on. A QUIC connection starts from a client's first datagram.
 //!
-//! The server routes each request through a table of `server.routes`, which the compiler builds.
+//! The server routes each request through a table of `server.router`, which the compiler builds.
 //!
 //! In a turn the server fires the deadlines that passed, then passes the endpoint what each socket
 //! read: the octets of a TCP socket under the handle of its connection, and each datagram with the
@@ -118,9 +118,9 @@ var accepted: server.ConnectionHandle align(@alignOf(server.ConnectionHandle)) =
 /// What a route of the server names.
 const Route = enum { greeting, echo, named };
 
-/// The server's routes, which the compiler builds. A malformed table, or a table with a
+/// The server's table of routes, which the compiler builds. A malformed table, or a table with a
 /// conflict, does not compile.
-const routes = server.routes(Route, .{
+const router = server.router(Route, .{
     .{ .get, "/greeting", .greeting },
     .{ .post, "/echo", .echo },
     .{ .get, "/greetings/:name", .named },
@@ -325,7 +325,7 @@ fn take_request(request: server.Request) !void {
 
 /// Answers a request by the route that its method and its path match.
 fn route(request: server.Request, state: *Served) !void {
-    switch (routes.match(request.method, request.path orelse "", &parameters)) {
+    switch (router.match(request.method, request.path orelse "", &parameters)) {
         .found => |found| switch (found) {
             .greeting => try answer(request.id, greeting),
             // The content follows in `body` events, and `take_body` answers at its end.

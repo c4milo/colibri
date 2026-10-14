@@ -1,9 +1,9 @@
 //! The shapes of the leaves of a table, and the canonical paths of each leaf, for the check of
-//! hidden routes (`routes_hidden.zig`, decision 122 ruling 12, design §8 step 21e).
+//! hidden routes (`router_hidden.zig`, decision 122 ruling 12, design §8 step 21e).
 //! Comptime-only.
 //!
 //! The canonical paths of a leaf T are x(T, L, n), for T and for each leaf L before T, at each n
-//! that both match (claims 3, 5 and 6 of `routes_hidden.zig`). A walk of the trie finds each leaf
+//! that both match (claims 3, 5 and 6 of `router_hidden.zig`). A walk of the trie finds each leaf
 //! L that matches a path of T, so the check compares no pair of leaves that match no common path.
 //! The walk starts at the root, and at the position of each segment it follows:
 //!   - the literal edge that equals T's literal, where T holds a literal;
@@ -15,9 +15,9 @@
 //! once at most.
 const std = @import("std");
 const assert = std.debug.assert;
-const routes_match = @import("routes_match.zig");
-const routes_pattern = @import("routes_pattern.zig");
-const routes_trie = @import("routes_trie.zig");
+const router_match = @import("router_match.zig");
+const router_pattern = @import("router_pattern.zig");
+const router_trie = @import("router_trie.zig");
 
 /// A leaf as the walk reads it: its node, its pattern, the literal of each segment before the
 /// wildcard, or null for a parameter, and whether the pattern ends in the wildcard.
@@ -36,9 +36,9 @@ pub const Canonical = struct { leaf: usize, segments: usize };
 const Kind = enum { literal, parameter, wildcard };
 
 /// The arrays of a layout, each by a pointer. It has the fields and the `depth_max` of the layout,
-/// so the check and the walk of `routes_match.zig` read it as they read the layout. Its pointers
+/// so the check and the walk of `router_match.zig` read it as they read the layout. Its pointers
 /// point to a copy of the layout in a var, so a call that gets the view costs a few steps
-/// (`routes_trie.zig`).
+/// (`router_trie.zig`).
 pub fn View(comptime Layout: type) type {
     return struct {
         nodes: *const @FieldType(Layout, "nodes"),
@@ -68,7 +68,7 @@ pub fn view_of(copy: anytype) View(@TypeOf(copy.*)) {
 /// its parent's, so one pass in index order writes each node after its parent.
 pub fn leaf_shapes(comptime layout: anytype) [layout.leaves.len]Shape {
     var nodes: [layout.nodes.len]Shape = undefined;
-    nodes[routes_trie.root] = .{ .node = routes_trie.root, .pattern = "", .literals = &.{}, .wildcard = false };
+    nodes[router_trie.root] = .{ .node = router_trie.root, .pattern = "", .literals = &.{}, .wildcard = false };
     var leaves: [layout.leaves.len]Shape = undefined;
     for (layout.nodes, 0..) |at, node| {
         const shape = nodes[node];
@@ -78,10 +78,10 @@ pub fn leaf_shapes(comptime layout: anytype) [layout.leaves.len]Shape {
         }
         if (at.parameter) |parameter| {
             const name = text_of(layout, parameter.name);
-            nodes[parameter.child] = child_shape(shape, parameter.child, [_]u8{routes_pattern.parameter_prefix} ++ name, null);
+            nodes[parameter.child] = child_shape(shape, parameter.child, [_]u8{router_pattern.parameter_prefix} ++ name, null);
         }
         if (at.wildcard) |child| {
-            nodes[child] = child_shape(shape, child, routes_pattern.wildcard, null);
+            nodes[child] = child_shape(shape, child, router_pattern.wildcard, null);
             // The wildcard is no segment of `literals`: it matches each segment after them.
             nodes[child].literals = shape.literals;
             nodes[child].wildcard = true;
@@ -89,7 +89,7 @@ pub fn leaf_shapes(comptime layout: anytype) [layout.leaves.len]Shape {
         const leaf = at.leaf orelse continue;
         leaves[leaf] = shape;
         // Decision 122: the pattern "/" is the root, with no segment.
-        if (node == routes_trie.root) leaves[leaf].pattern = routes_pattern.root;
+        if (node == router_trie.root) leaves[leaf].pattern = router_pattern.root;
     }
     return leaves;
 }
@@ -98,7 +98,7 @@ fn child_shape(parent: Shape, child: usize, segment: []const u8, literal: ?[]con
     assert(child > parent.node);
     return .{
         .node = child,
-        .pattern = parent.pattern ++ [_]u8{routes_pattern.separator} ++ segment,
+        .pattern = parent.pattern ++ [_]u8{router_pattern.separator} ++ segment,
         .literals = parent.literals ++ [_]?[]const u8{literal},
         .wildcard = false,
     };
@@ -184,7 +184,7 @@ const Visit = struct { node: usize, depth: usize };
 /// of T when it also matches a path of T's length.
 fn leaves_on_paths(comptime layout: anytype, shape: Shape) []const usize {
     var stack: [layout.nodes.len]Visit = undefined;
-    stack[0] = .{ .node = routes_trie.root, .depth = 0 };
+    stack[0] = .{ .node = router_trie.root, .depth = 0 };
     var count: usize = 1;
     var leaves: []const usize = &.{};
     // Each node has one parent, so the walk pushes each node once at most.
@@ -211,7 +211,7 @@ fn push_children(comptime layout: anytype, shape: Shape, visit: Visit, stack: []
     var pushed = count;
     if (literal_at(shape, visit.depth)) |literal| {
         // Where T holds a literal, a path of T holds it, so only its literal edge matches.
-        if (routes_match.literal_child(layout, visit.node, literal)) |child| {
+        if (router_match.literal_child(layout, visit.node, literal)) |child| {
             stack[pushed] = .{ .node = child, .depth = visit.depth + 1 };
             pushed += 1;
         }
@@ -232,11 +232,11 @@ fn push_children(comptime layout: anytype, shape: Shape, visit: Visit, stack: []
 /// x(T, L, n): T's literal, else L's literal, else "other", at each position.
 pub fn canonical_path(shape: Shape, other_shape: Shape, segments: usize, other: []const u8) []const u8 {
     // Decision 122: the path "/" is the root, with no segment.
-    if (segments == 0) return routes_pattern.root;
+    if (segments == 0) return router_pattern.root;
     var path: []const u8 = "";
     for (0..segments) |position| {
         const literal: ?[]const u8 = literal_at(shape, position) orelse literal_at(other_shape, position);
-        path = path ++ [_]u8{routes_pattern.separator} ++ (literal orelse other);
+        path = path ++ [_]u8{router_pattern.separator} ++ (literal orelse other);
     }
     return path;
 }

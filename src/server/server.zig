@@ -41,7 +41,7 @@ const files = struct {
     pub const versions = @import("versions.zig");
     pub const limits = @import("limits.zig");
     pub const path_parameters = @import("path_parameters.zig");
-    pub const routes = @import("routes/routes.zig");
+    pub const router = @import("router/router.zig");
 };
 
 /// What a program configures a server with, once: the endpoint reads it while it runs (decision
@@ -111,7 +111,7 @@ pub const PathParameters = files.path_parameters.PathParameters;
 
 /// Builds a route table at compile time, whose `match` names the route of a method and a path
 /// (decision 122). A function named after its file is exported under its own name.
-pub const routes = files.routes.routes;
+pub const router = files.router.router;
 
 test "design §8 step 17f: the root exports its constants and the types a program names" {
     // Design §8 step 21a adds `Versions` and `Limits` (decision 117), 21b.2 `ConnectionHandle`,
@@ -119,7 +119,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
     // `Config` to the type `EndpointConfig` named, which `QuicConfig` folded into in 21b.3, and
     // takes a TCP connection's own configuration out of the root (decision 119). 21d takes out
     // `Connection` and `QuicConnection`, which the endpoint holds, and `Error` and `Protocol`,
-    // which only their calls return (decision 121). 21e adds `PathParameters` and `routes`
+    // which only their calls return (decision 121). 21e adds `PathParameters` and `router`
     // (decision 122).
     const public_names = @import("core").public_names;
     try public_names.expect(@This(), &.{
@@ -132,7 +132,7 @@ test "design §8 step 17f: the root exports its constants and the types a progra
         "Cancelled",   "CancelReason",       "Done",           "Writable",         "Ended",
         "Response",    "Content",            "Received",       "Alternative",      "Coding",
         "EncoderPool", "DefaultEncoderPool", "Encoders",       "DecoderPool",      "DefaultDecoderPool",
-        "Decoders",    "Features",           "PathParameters", "routes",
+        "Decoders",    "Features",           "PathParameters", "router",
     });
 }
 
@@ -203,11 +203,11 @@ test {
     _ = @import("coding/coding_rules.zig");
     _ = @import("coding/coding_fields.zig");
     _ = @import("coding/coding_response.zig");
-    _ = @import("routes/routes_test.zig");
-    _ = @import("routes/routes_parameter_test.zig");
-    _ = @import("routes/routes_fuzz_test.zig");
-    _ = @import("routes/routes_refusal_test.zig");
-    // `zig build routes-hidden-check` runs `routes/routes_hidden_test.zig` in a binary of its own,
+    _ = @import("router/router_test.zig");
+    _ = @import("router/router_parameter_test.zig");
+    _ = @import("router/router_fuzz_test.zig");
+    _ = @import("router/router_refusal_test.zig");
+    // `zig build router-hidden-check` runs `router/router_hidden_test.zig` in a binary of its own,
     // because its compile takes about a minute (the owner's ruling of 2026-10-14).
     // The hook a test binary defines, as every program that links chapulin does.
     _ = @import("test_hooks.zig");

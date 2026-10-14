@@ -1,11 +1,11 @@
 //! The cross-check of the check of hidden routes (decision 122 ruling 12, design §8 step 21e).
-//! It is the evidence for claims 4 and 5 of `routes_hidden.zig`. The paths of the family are
-//! short, so the tests of claims 8 and 9 are in `routes_refusal_test.zig`.
+//! It is the evidence for claims 4 and 5 of `router_hidden.zig`. The paths of the family are
+//! short, so the tests of claims 8 and 9 are in `router_refusal_test.zig`.
 //!
 //! For each table of a family of small tables, a brute force decides each route's verdict from
 //! every path of a few segments, and the test requires the check to give the same first
-//! refusal. The brute force builds the layout with `routes_trie_layout.build`, because a refused
-//! table cannot go through `server.routes`. It decides whether a route's pattern matches a path
+//! refusal. The brute force builds the layout with `router_trie_layout.build`, because a refused
+//! table cannot go through `server.router`. It decides whether a route's pattern matches a path
 //! with a matcher of its own, and it calls the real `match` for the result of each request:
 //!   - a route is hidden when a path that its pattern matches gets `method_not_allowed` for its
 //!     method;
@@ -13,10 +13,10 @@
 //!     table has its index as its value.
 const std = @import("std");
 const http = @import("http");
-const routes_trie = @import("routes_trie.zig");
-const routes_trie_layout = @import("routes_trie_layout.zig");
-const routes_hidden = @import("routes_hidden.zig");
-const routes_match = @import("routes_match.zig");
+const router_trie = @import("router_trie.zig");
+const router_trie_layout = @import("router_trie_layout.zig");
+const router_hidden = @import("router_hidden.zig");
+const router_match = @import("router_match.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 
 const testing = std.testing;
@@ -76,7 +76,7 @@ const triple_path_segments = 4;
 const branches_per_table = 400_000;
 
 /// The verdict of the check, or of the brute force, on one table.
-const Verdict = struct { route: ?usize, tag: ?std.meta.Tag(routes_trie.Reason) };
+const Verdict = struct { route: ?usize, tag: ?std.meta.Tag(router_trie.Reason) };
 
 /// The count of tables that the cross-check read, by verdict, and the first table where the
 /// check and the brute force differ.
@@ -132,15 +132,15 @@ fn token(method: Standard) []const u8 {
 /// The first refusal, in table order, that the brute force finds.
 fn brute_verdict(comptime table: []const Entry, comptime paths: []const Path) Verdict {
     const array = table[0..table.len].*;
-    const trie = routes_trie.trie_of(array);
-    const layout = routes_trie_layout.build(u8, array, &trie);
+    const trie = router_trie.trie_of(array);
+    const layout = router_trie_layout.build(u8, array, &trie);
     for (table, 0..) |entry, route| {
         var hidden = false;
         var reached = false;
         for (paths) |path| {
             if (!pattern_matches(entry[1], path.segments)) continue;
             var parameters: PathParameters = .{};
-            switch (routes_match.match(u8, layout, token(entry[0]), path.text, &parameters)) {
+            switch (router_match.match(u8, layout, token(entry[0]), path.text, &parameters)) {
                 .found => |value| reached = reached or value == route,
                 .method_not_allowed => hidden = true,
                 .not_found, .not_implemented => unreachable,
@@ -154,15 +154,15 @@ fn brute_verdict(comptime table: []const Entry, comptime paths: []const Path) Ve
 
 fn check_verdict(comptime table: []const Entry) Verdict {
     const array = table[0..table.len].*;
-    const trie = routes_trie.trie_of(array);
-    const layout = routes_trie_layout.build(u8, array, &trie);
-    const refusal = routes_hidden.refusal_of(u8, layout, array) orelse return .{ .route = null, .tag = null };
+    const trie = router_trie.trie_of(array);
+    const layout = router_trie_layout.build(u8, array, &trie);
+    const refusal = router_hidden.refusal_of(u8, layout, array) orelse return .{ .route = null, .tag = null };
     return .{ .route = refusal.route, .tag = std.meta.activeTag(refusal.reason) };
 }
 
 fn cross_check(census: *Census, comptime table: []const Entry, comptime paths: []const Path) void {
     // Refusals 1 to 19 come first, and a table that one of them refuses gets no layout.
-    if (routes_trie.refusal_of(table[0..table.len].*) != null) return;
+    if (router_trie.refusal_of(table[0..table.len].*) != null) return;
     const brute = brute_verdict(table, paths);
     const check = check_verdict(table);
     census.tables += 1;

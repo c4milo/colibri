@@ -13,7 +13,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const http = @import("http");
-const routes_pattern = @import("routes_pattern.zig");
+const router_pattern = @import("router_pattern.zig");
 
 const Standard = http.method.Standard;
 
@@ -46,7 +46,7 @@ pub fn refusal_of(comptime method: anytype) ?Refusal {
         return standard_refusal(@field(Standard, @tagName(method)));
     }
     if (Method == Standard) return standard_refusal(method);
-    if (!routes_pattern.is_text(Method)) return .method_type;
+    if (!router_pattern.is_text(Method)) return .method_type;
     // RFC 9110 §9.1: method = token.
     http.method.validate(method) catch return .method_not_token;
     // Decision 122: a table names a method of RFC 9110 §9.1's eight by its member of

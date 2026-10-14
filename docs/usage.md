@@ -313,7 +313,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
 `set_user_data` sets a word that each later event of a request carries back: its `body`,
 `trailers`, `writable`, and its one `done` or `cancelled`. A program finds its own state for the
 request by the word, with no lookup. Here the word names the request's place in the server's
-table. `route` answers the request by its route, as [Routes](#routes) shows:
+table. `route` answers the request by its route, as [Router](#router) shows:
 
 ```zig
 fn take_request(request: server.Request) !void {
@@ -477,19 +477,19 @@ Three more things a server sets:
   shortest DATA frame h2 sends when a window, not the content, decides its length
   ([decision 110](decisions.md)).
 
-### Routes
+### Router
 
 A program finds the route of a request through a table that it declares at compile time
-([decision 122](decisions.md)). `server.routes` builds the table. Each entry holds a method, a
+([decision 122](decisions.md)). `server.router` builds the table. Each entry holds a method, a
 pattern and a value of the program's type. The routes of the server example name an enum:
 
 ```zig
 /// What a route of the server names.
 const Route = enum { greeting, echo, named };
 
-/// The server's routes, which the compiler builds. A malformed table, or a table with a
+/// The server's table of routes, which the compiler builds. A malformed table, or a table with a
 /// conflict, does not compile.
-const routes = server.routes(Route, .{
+const router = server.router(Route, .{
     .{ .get, "/greeting", .greeting },
     .{ .post, "/echo", .echo },
     .{ .get, "/greetings/:name", .named },
@@ -509,7 +509,7 @@ for each:
 
 ```zig
 fn route(request: server.Request, state: *Served) !void {
-    switch (routes.match(request.method, request.path orelse "", &parameters)) {
+    switch (router.match(request.method, request.path orelse "", &parameters)) {
         .found => |found| switch (found) {
             .greeting => try answer(request.id, greeting),
             // The content follows in `body` events, and `take_body` answers at its end.
@@ -585,8 +585,8 @@ A route's value can also be a function that the program calls. The server of
 /// What a route of this server names: the function that answers the request.
 const Handler = *const fn (request: server.Request, parameters: *const server.PathParameters) anyerror!void;
 
-/// The server's routes, which the compiler builds.
-const routes = server.routes(Handler, .{
+/// The server's table of routes, which the compiler builds.
+const router = server.router(Handler, .{
     .{ .get, "/greeting", greet },
     .{ .post, "/echo", echo },
 });

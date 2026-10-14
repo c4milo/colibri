@@ -13,8 +13,8 @@ pub const literals_256_parameter = .{ .entries = literals(256, "/:x"), .path = "
 pub const literals_512_parameter = .{ .entries = literals(512, "/:x"), .path = "/r511" };
 /// 512 literal siblings at the root, and the literal `/zzz` beside them.
 pub const literals_512_literal = .{ .entries = literals(512, "/zzz"), .path = "/zzz" };
-/// The table of 256 routes of `src/server/routes/routes_test.zig`.
-pub const routes_test_256 = .{ .entries = large_table, .path = large_table[0][1] };
+/// The table of 256 routes of `src/server/router/router_test.zig`.
+pub const router_test_256 = .{ .entries = large_table, .path = large_table[0][1] };
 /// Five routes for each of ten resources.
 pub const resources_50 = .{ .entries = resources(), .path = "/api/v1/users/7" };
 /// 338 routes of mixed forms: literals, parameters, wildcards, HEAD and OPTIONS.
@@ -81,7 +81,7 @@ fn mixed() [2 + words.len * (words.len * 2 + 4)]Entry {
     return entries[0..entries.len].*;
 }
 
-/// The routes of the table of 256 routes of `src/server/routes/routes_test.zig`: each one has a
+/// The routes of the table of 256 routes of `src/server/router/router_test.zig`: each one has a
 /// pattern of `large_segments` segments of `large_segment_len` octets. The last route names PUT,
 /// and each other route names GET.
 const large_routes = 256;

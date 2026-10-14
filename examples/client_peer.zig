@@ -46,8 +46,8 @@ pub const Error = error{
 /// What a route of this server names: the function that answers the request.
 const Handler = *const fn (request: server.Request, parameters: *const server.PathParameters) anyerror!void;
 
-/// The server's routes, which the compiler builds.
-const routes = server.routes(Handler, .{
+/// The server's table of routes, which the compiler builds.
+const router = server.router(Handler, .{
     .{ .get, "/greeting", greet },
     .{ .post, "/echo", echo },
 });
@@ -148,7 +148,7 @@ fn serve(event: server.Event, now_ns: u64) !void {
 /// request.
 fn take_request(request: server.Request) !void {
     std.debug.print("server: {s} {s}\n", .{ request.method, request.target });
-    switch (routes.match(request.method, request.path orelse "", &parameters)) {
+    switch (router.match(request.method, request.path orelse "", &parameters)) {
         .found => |handler| try handler(request, &parameters),
         // RFC 9110 §15.5.6: a 405 carries an Allow field, which lists the methods of the path.
         .method_not_allowed => |allowed| try endpoint.respond(request.id, .{

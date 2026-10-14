@@ -14,7 +14,7 @@ const case = @field(tables, @tagName(options.table));
 test "the table compiles and matches its path" {
     // The stamp changes the inputs of the build, so the compiler builds the table again.
     std.mem.doNotOptimizeAway(options.stamp);
-    const table = server.routes(u16, case.entries);
+    const table = server.router(u16, case.entries);
     var parameters: server.PathParameters = .{};
     try std.testing.expect(table.match("GET", case.path, &parameters) == .found);
 }

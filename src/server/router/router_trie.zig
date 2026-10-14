@@ -1,19 +1,19 @@
 //! The checks on a whole route table at compile time, and the trie of its path segments
-//! (decision 122, design §8 step 21e). `routes_trie_layout.zig` writes the trie into the arrays
+//! (decision 122, design §8 step 21e). `router_trie_layout.zig` writes the trie into the arrays
 //! that `match` reads.
 //!
 //! A table is a tuple, or an array, of entries. An entry is a tuple of a method, a pattern and a
 //! value. `refusal_of` checks a table in this order (invariant 7):
 //!   1. The table holds one entry at least, or `table_empty`.
 //!   2. Each entry, from the first, is a tuple of three parts whose pattern is text, or
-//!      `entry_shape`. Then its method passes `routes_method.refusal_of`, and its pattern passes
-//!      `routes_pattern.refusal_of`.
+//!      `entry_shape`. Then its method passes `router_method.refusal_of`, and its pattern passes
+//!      `router_pattern.refusal_of`.
 //!   3. No two routes give two names to one parameter node, or `parameter_names_differ`.
 //!   4. No two routes name one method at one leaf, or `route_repeated`.
 //!
-//! `routes.zig` then builds the layout and checks it in this order: each Allow value fits
-//! `core.constants.field_value_len_max`, or `allow_too_long` (`routes_trie_layout.zig`), and no
-//! route is hidden, or `route_hidden` or `route_unreachable` (`routes_hidden.zig`).
+//! `router.zig` then builds the layout and checks it in this order: each Allow value fits
+//! `core.constants.field_value_len_max`, or `allow_too_long` (`router_trie_layout.zig`), and no
+//! route is hidden, or `route_hidden` or `route_unreachable` (`router_hidden.zig`).
 //!
 //! `merge` writes the trie of a table's patterns. It gives each segment of a pattern a node, and
 //! two patterns with the same first segments share their nodes.
@@ -23,11 +23,11 @@
 //! that constant. A call that gets a pointer to a comptime var takes a few steps. So the checks
 //! and the build copy the trie, the routes and the layout into vars once, and their loops pass
 //! pointers to the copies. Zig also does not keep the result of a comptime call, so
-//! `server.routes` merges the trie once and passes it to each check and to the build.
+//! `server.router` merges the trie once and passes it to each check and to the build.
 const std = @import("std");
 const assert = std.debug.assert;
-const routes_pattern = @import("routes_pattern.zig");
-const routes_method = @import("routes_method.zig");
+const router_pattern = @import("router_pattern.zig");
+const router_method = @import("router_method.zig");
 
 /// The node of the path "/", where each walk starts.
 pub const root = 0;
@@ -42,7 +42,7 @@ const entry_parts = 3;
 /// each octet of the patterns and of the method tokens times the count of routes, and a part for
 /// each pair of routes. The lookups of the trie, its sorts and the check of repeated routes use
 /// much less than the part for each pair. A test builds a table of 256 routes of 64 octets each
-/// within this quota (`routes_test.zig`).
+/// within this quota (`router_test.zig`).
 const quota_branches_base = 4_096;
 const quota_branches_per_octet_route = 8;
 const quota_branches_per_route_pair = 16;
@@ -51,15 +51,15 @@ const quota_branches_per_route_pair = 16;
 /// calls for each route, and each call takes a few branches.
 const quota_branches_per_route = 16;
 
-/// The comptime branches that the check of hidden routes (`routes_hidden.zig`) uses, at most,
+/// The comptime branches that the check of hidden routes (`router_hidden.zig`) uses, at most,
 /// beside `quota_of`. It has two parts:
 ///   - For each leaf it walks the trie, which holds `segments` nodes for each leaf at most, and it
 ///     writes a canonical path for each leaf that it finds at each length. So a part for each
 ///     pair of leaves, each length and each segment bounds it.
-///   - It walks each canonical path once. A walk makes `routes_match.walk_steps_max` passes at
+///   - It walks each canonical path once. A walk makes `router_match.walk_steps_max` passes at
 ///     most, and each pass costs a fixed part. Each pass also reads the segment of its frame to
 ///     find the end of the segment. The search of a literal edge then compares the segment with
-///     `routes_match.search_passes_max` edges at most. So each pass reads the longest segment
+///     `router_match.search_passes_max` edges at most. So each pass reads the longest segment
 ///     once for each comparison and once more. The walk also reads each octet of its path once
 ///     before its first pass. `octets` counts these reads for one walk.
 const quota_branches_per_pair_length_segment = 32;
@@ -89,8 +89,8 @@ pub const HiddenCounts = struct {
 
 /// Why a table does not compile.
 pub const Reason = union(enum) {
-    pattern: routes_pattern.Refusal,
-    method: routes_method.Refusal,
+    pattern: router_pattern.Refusal,
+    method: router_method.Refusal,
     table_empty,
     entry_shape,
     parameter_names_differ,
@@ -99,7 +99,7 @@ pub const Reason = union(enum) {
     route_hidden: Hidden,
     route_unreachable: Unreachable,
 
-    /// The name that the compile error writes, which `zig build routes-check` reads.
+    /// The name that the compile error writes, which `zig build router-check` reads.
     pub fn name(reason: Reason) []const u8 {
         return switch (reason) {
             .pattern => |refusal| @tagName(refusal),
@@ -137,7 +137,7 @@ pub const Hidden = struct {
 
     fn sentence(comptime hidden: Hidden) []const u8 {
         // RFC 9110 §9.3.2: a HEAD request finds a GET route too.
-        const methods = if (std.mem.eql(u8, hidden.method, routes_method.head_token)) "HEAD or GET" else hidden.method;
+        const methods = if (std.mem.eql(u8, hidden.method, router_method.head_token)) "HEAD or GET" else hidden.method;
         return std.fmt.comptimePrint(
             "a request that this route matches gets 405 from another pattern: {s} \"{s}\" matches " ++
                 "\"{s}\" first, and no route of that pattern names {s}",
@@ -177,8 +177,8 @@ pub const Refusal = struct {
 pub fn message(comptime refusal: Refusal) []const u8 {
     const name = refusal.reason.name();
     const sentence = refusal.reason.sentence();
-    if (refusal.reason == .table_empty) return std.fmt.comptimePrint("server.routes: {s}: {s}", .{ name, sentence });
-    return std.fmt.comptimePrint("server.routes: route {d}, \"{s}\": {s}: {s}", .{ refusal.route, refusal.pattern, name, sentence });
+    if (refusal.reason == .table_empty) return std.fmt.comptimePrint("server.router: {s}: {s}", .{ name, sentence });
+    return std.fmt.comptimePrint("server.router: route {d}, \"{s}\": {s}: {s}", .{ refusal.route, refusal.pattern, name, sentence });
 }
 
 /// The first refusal of `table`, or null when the table compiles: `entries_refusal`, then
@@ -216,8 +216,8 @@ pub fn trie_refusal(comptime table: anytype, trie: anytype) ?Refusal {
 fn entry_refusal(comptime entry: anytype) ?Reason {
     // Decision 122: an entry is a tuple of a method, a pattern and a value.
     if (!is_entry(@TypeOf(entry))) return .entry_shape;
-    if (routes_method.refusal_of(entry[method_part])) |refusal| return .{ .method = refusal };
-    if (routes_pattern.refusal_of(entry[pattern_part])) |refusal| return .{ .pattern = refusal };
+    if (router_method.refusal_of(entry[method_part])) |refusal| return .{ .method = refusal };
+    if (router_pattern.refusal_of(entry[pattern_part])) |refusal| return .{ .pattern = refusal };
     return null;
 }
 
@@ -225,7 +225,7 @@ fn is_entry(comptime Entry: type) bool {
     const info = @typeInfo(Entry);
     if (info != .@"struct" or !info.@"struct".is_tuple) return false;
     if (info.@"struct".fields.len != entry_parts) return false;
-    return routes_pattern.is_text(info.@"struct".fields[pattern_part].type);
+    return router_pattern.is_text(info.@"struct".fields[pattern_part].type);
 }
 
 fn pattern_or_empty(comptime entry: anytype) []const u8 {
@@ -263,7 +263,7 @@ pub fn quota_of(comptime table: anytype) u32 {
 /// The octets of `method` when it is text, or 0. The check of a token and the Allow value read
 /// each octet of it.
 fn token_len(comptime method: anytype) usize {
-    return if (routes_pattern.is_text(@TypeOf(method))) method.len else 0;
+    return if (router_pattern.is_text(@TypeOf(method))) method.len else 0;
 }
 
 /// The method, the pattern and the place in an Allow value of each route of a table that
@@ -280,8 +280,8 @@ pub fn routes_of(comptime table: anytype) Routes(table.len) {
     var routes: Routes(table.len) = undefined;
     inline for (0..table.len) |index| {
         routes.patterns[index] = table[index][pattern_part];
-        routes.tokens[index] = routes_method.token_of(table[index][method_part]);
-        routes.ranks[index] = routes_method.rank_of(table[index][method_part]);
+        routes.tokens[index] = router_method.token_of(table[index][method_part]);
+        routes.ranks[index] = router_method.rank_of(table[index][method_part]);
     }
     return routes;
 }
@@ -316,7 +316,7 @@ const slots_per_node = 2;
 
 fn nodes_bound(comptime patterns: []const []const u8) usize {
     var count: usize = 1;
-    for (patterns) |pattern| count += routes_pattern.segments_count(pattern);
+    for (patterns) |pattern| count += router_pattern.segments_count(pattern);
     return count;
 }
 
@@ -347,10 +347,10 @@ fn merge(comptime patterns: []const []const u8) Merged(nodes_bound(patterns), pa
 }
 
 fn insert(merged: anytype, comptime pattern: []const u8, route: usize) usize {
-    if (std.mem.eql(u8, pattern, routes_pattern.root)) return root;
+    if (std.mem.eql(u8, pattern, router_pattern.root)) return root;
     var node: usize = root;
-    var segments = std.mem.splitScalar(u8, pattern[1..], routes_pattern.separator);
-    for (0..routes_pattern.segments_count(pattern) + 1) |_| {
+    var segments = std.mem.splitScalar(u8, pattern[1..], router_pattern.separator);
+    for (0..router_pattern.segments_count(pattern) + 1) |_| {
         const segment = segments.next() orelse return node;
         const slot = slot_of(merged, node, segment);
         node = merged.slots[slot] orelse add_child(merged, node, segment, slot, route);
@@ -385,7 +385,7 @@ fn add_child(merged: anytype, node: usize, segment: []const u8, slot: usize, rou
     merged.first_child[node] = added;
     merged.slots[slot] = added;
     merged.node_count += 1;
-    if (routes_pattern.is_parameter(segment)) {
+    if (router_pattern.is_parameter(segment)) {
         // Decision 122 ruling 5: one parameter node has one name. A node that already holds a
         // parameter child with another name gets a second one from this route.
         if (merged.parameter_child[node] != null and merged.names_route == null) merged.names_route = route;

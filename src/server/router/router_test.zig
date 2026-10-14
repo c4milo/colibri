@@ -2,12 +2,12 @@
 //! constant, as a program declares one.
 const std = @import("std");
 const http = @import("http");
-const routes = @import("routes.zig").routes;
-const routes_trie = @import("routes_trie.zig");
-const routes_hidden = @import("routes_hidden.zig");
+const router = @import("router.zig").router;
+const router_trie = @import("router_trie.zig");
+const router_hidden = @import("router_hidden.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const constants = @import("../constants.zig");
-const support = @import("routes_test_support.zig");
+const support = @import("router_test_support.zig");
 
 const testing = std.testing;
 const expect_found = support.expect_found;
@@ -17,7 +17,7 @@ const expect_not_implemented = support.expect_not_implemented;
 
 const Route = enum { greeting, root, users, user_put, user_delete, user_patch, user_link };
 
-const greetings = routes(Route, .{
+const greetings = router(Route, .{
     .{ .get, "/", .root },
     .{ .get, "/greeting", .greeting },
 });
@@ -34,7 +34,7 @@ test "RFC 9110 §4.2.3: a literal matches its whole segment, octet for octet and
 }
 
 test "decision 122: a node's literals of each length are found, whatever the table's order" {
-    const lengths = routes(u8, .{
+    const lengths = router(u8, .{
         .{ .get, "/ccc", 3 },
         .{ .get, "/a", 1 },
         .{ .get, "/bb", 2 },
@@ -67,10 +67,10 @@ test "RFC 9110 §4.1: the path \"/\" is the root, and a path that does not start
     try expect_not_found(greetings, "GET", "//");
     try expect_not_found(greetings, "GET", "//greeting");
     // A table with no route at "/" does not match the root.
-    try expect_not_found(routes(Route, .{.{ .get, "/greeting", .greeting }}), "GET", "/");
+    try expect_not_found(router(Route, .{.{ .get, "/greeting", .greeting }}), "GET", "/");
 }
 
-const users = routes(Route, .{
+const users = router(Route, .{
     .{ "PATCH", "/users/me", .user_patch },
     .{ .delete, "/users/me", .user_delete },
     .{ .get, "/users", .users },
@@ -78,7 +78,7 @@ const users = routes(Route, .{
     .{ http.method.Standard.put, "/users/me", .user_put },
 });
 
-const users_reversed = routes(Route, .{
+const users_reversed = router(Route, .{
     .{ http.method.Standard.put, "/users/me", .user_put },
     .{ "LINK", "/users/me", .user_link },
     .{ .get, "/users", .users },
@@ -110,7 +110,7 @@ test "RFC 9110 §15.5.6: a known path and another method give the Allow value, i
 
 const Page = enum { page, page_head, notes, notes_patch, status, upload };
 
-const pages = routes(Page, .{
+const pages = router(Page, .{
     .{ .get, "/page", .page },
     .{ .head, "/page", .page_head },
     .{ .get, "/notes", .notes },
@@ -119,7 +119,7 @@ const pages = routes(Page, .{
     .{ .put, "/upload", .upload },
 });
 
-const pages_reversed = routes(Page, .{
+const pages_reversed = router(Page, .{
     .{ .put, "/upload", .upload },
     .{ .head, "/status", .status },
     .{ "PATCH", "/notes", .notes_patch },
@@ -154,7 +154,7 @@ test "RFC 9110 §10.2.1: Allow lists HEAD after GET once, and GET never finds a 
         try expect_allow(table, "HEAD", "GET", "/status");
         try expect_found(table, Page.status, "HEAD", "/status");
     }
-    try expect_allow(routes(u8, .{ .{ .get, "/", 0 }, .{ .post, "/a", 1 } }), "GET, HEAD", "POST", "/");
+    try expect_allow(router(u8, .{ .{ .get, "/", 0 }, .{ .post, "/a", 1 } }), "GET, HEAD", "POST", "/");
 }
 
 test "RFC 9110 §15.6.2: a method that no route names gives 501 before the path is read" {
@@ -190,12 +190,12 @@ test "RFC 9110 §9.1: a table that names GET implements HEAD" {
     try expect_not_found(greetings, "HEAD", "*");
     try expect_not_implemented(greetings, "PUT", "/greeting");
     // A table that names HEAD alone does not implement GET.
-    try expect_not_implemented(routes(u8, .{.{ .head, "/", 0 }}), "GET", "/");
+    try expect_not_implemented(router(u8, .{.{ .head, "/", 0 }}), "GET", "/");
 }
 
 test "RFC 9110 §9.1: OPTIONS * gives 501 from a table with no OPTIONS route, and 404 from one" {
     try expect_not_implemented(greetings, "OPTIONS", "*");
-    const options = routes(Route, .{
+    const options = router(Route, .{
         .{ .get, "/greeting", .greeting },
         .{ .options, "/", .root },
     });
@@ -218,14 +218,14 @@ const Handler = *const fn () u8;
 const Answer = struct { status: u16, content: []const u8 };
 
 test "decision 122: a route's value is an enum, a pointer to a function or a struct" {
-    const handlers = routes(Handler, .{
+    const handlers = router(Handler, .{
         .{ .get, "/greeting", greet },
         .{ .get, "/part", part },
     });
     var parameters: PathParameters = .{};
     const handler = handlers.match("GET", "/part", &parameters).found;
     try testing.expectEqual(@as(u8, 1), handler());
-    const answers = routes(Answer, .{
+    const answers = router(Answer, .{
         .{ .get, "/greeting", Answer{ .status = 200, .content = "hello" } },
         .{ .post, "/greeting", Answer{ .status = 201, .content = "made" } },
     });
@@ -251,7 +251,7 @@ test "decision 122: each match sets the count of parameters to 0 first" {
 }
 
 test "INV-8: a path of more than path_len_max octets matches nothing, its query included" {
-    const any = routes(u8, .{.{ .get, "/:segment", 1 }});
+    const any = router(u8, .{.{ .get, "/:segment", 1 }});
     var target: [constants.path_len_max + 1]u8 = @splat('a');
     target[0] = '/';
     var parameters: PathParameters = .{};
@@ -302,7 +302,7 @@ const large_table: [large_routes]Large = build: {
 };
 
 test "decision 122: a table of 256 routes of four segments each compiles and matches" {
-    const large = routes(u16, large_table);
+    const large = router(u16, large_table);
     var parameters: PathParameters = .{};
     for (large_table) |entry| {
         const method: []const u8 = if (entry[0] == .put) "PUT" else "GET";
@@ -326,18 +326,18 @@ const quota_table: [quota_routes]Large = build: {
 };
 
 test "decision 122: quota_of has the branches of its own loop over a table of 1024 routes" {
-    const quota = comptime routes_trie.quota_of(quota_table);
+    const quota = comptime router_trie.quota_of(quota_table);
     try testing.expect(quota > quota_routes);
 }
 
 /// The route that a test of the back-up finds, by the kind of its last segments.
 const Deeper = enum { literal, parameter, wildcard };
 
-const literal_or_parameter = routes(Deeper, .{ .{ .get, "/a/b/c", .literal }, .{ .get, "/a/:x/d", .parameter } });
-const literal_or_leaf = routes(Deeper, .{ .{ .get, "/a/b/c", .literal }, .{ .get, "/a/:x", .parameter } });
-const literal_or_wildcard = routes(Deeper, .{ .{ .get, "/a/b/c", .literal }, .{ .get, "/a/*", .wildcard } });
-const parameter_or_wildcard = routes(Deeper, .{ .{ .get, "/a/:x", .parameter }, .{ .get, "/a/*", .wildcard } });
-const leaf_or_wildcard = routes(Deeper, .{ .{ .get, "/a/b", .literal }, .{ .get, "/a/*", .wildcard } });
+const literal_or_parameter = router(Deeper, .{ .{ .get, "/a/b/c", .literal }, .{ .get, "/a/:x/d", .parameter } });
+const literal_or_leaf = router(Deeper, .{ .{ .get, "/a/b/c", .literal }, .{ .get, "/a/:x", .parameter } });
+const literal_or_wildcard = router(Deeper, .{ .{ .get, "/a/b/c", .literal }, .{ .get, "/a/*", .wildcard } });
+const parameter_or_wildcard = router(Deeper, .{ .{ .get, "/a/:x", .parameter }, .{ .get, "/a/*", .wildcard } });
+const leaf_or_wildcard = router(Deeper, .{ .{ .get, "/a/b", .literal }, .{ .get, "/a/*", .wildcard } });
 
 test "decision 122: the walk backs up one level when a deeper segment has no child" {
     var parameters: PathParameters = .{};
@@ -395,7 +395,7 @@ const overlap_orders = factorial(overlap_entries.len);
 
 /// The tables of one test share its comptime branch count, so the test sets the quota of each
 /// build and of its check of hidden routes, and of one more for the orders.
-const overlap_quota = (overlap_orders + 1) *| (routes_trie.quota_of(overlap_entries) +| routes_hidden.quota_bound_of(overlap_entries));
+const overlap_quota = (overlap_orders + 1) *| (router_trie.quota_of(overlap_entries) +| router_hidden.quota_bound_of(overlap_entries));
 
 fn factorial(comptime count: usize) usize {
     var product: usize = 1;
@@ -441,7 +441,7 @@ fn expect_overlap(table: anytype) !void {
 test "decision 122: routes that compete for a path give one result in each order of their table" {
     @setEvalBranchQuota(overlap_quota);
     inline for (0..overlap_orders) |order| {
-        try expect_overlap(routes(Overlap, comptime overlap_order(order)));
+        try expect_overlap(router(Overlap, comptime overlap_order(order)));
     }
 }
 
@@ -467,7 +467,7 @@ const deep_table: [deep_levels]DeepEntry = build: {
 };
 
 test "INV-32: a deep table and a path that fails at the last level finish within the bound" {
-    const deep = routes(u8, deep_table);
+    const deep = router(u8, deep_table);
     var parameters: PathParameters = .{};
     // Each branch reads "l" to the last level, where "x" is not "y", so the walk backs up past
     // every node once.

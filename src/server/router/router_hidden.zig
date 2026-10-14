@@ -1,20 +1,20 @@
 //! The check of a route that other routes hide (decision 122 ruling 12, design §8 step 21e). It
-//! runs at compile time on the layout of a table that `routes_trie.refusal_of` passed. It adds
+//! runs at compile time on the layout of a table that `router_trie.refusal_of` passed. It adds
 //! nothing at run time.
 //!
 //! A route R names a method m, and its pattern ends at the leaf T. R does not compile in two
 //! cases, and the check reads them in this order (invariant 7):
 //!   1. `route_hidden`: a path that T's pattern matches gets 405 from another leaf. The walk on
 //!      the path stops at a leaf F other than T, and F does not serve m. F serves m when it names
-//!      m, or when m is HEAD and F names GET (RFC 9110 §9.3.2). `routes_match.choose` decides it.
+//!      m, or when m is HEAD and F names GET (RFC 9110 §9.3.2). `router_match.choose` decides it.
 //!   2. `route_unreachable`: the walk on each path that T's pattern matches stops at a leaf
 //!      other than T.
 //! The check refuses the first route of the table, in table order, that falls in a case.
 //!
 //! The check does not read each path. For each leaf it reads a few canonical paths, and it runs
-//! the walk of `routes_match.zig` on each one. The claims below show that these paths are enough.
+//! the walk of `router_match.zig` on each one. The claims below show that these paths are enough.
 //! A walk of the trie finds the leaves of the canonical paths of each leaf
-//! (`routes_hidden_canonical.zig`). `routes_hidden_test.zig` compares the verdicts with a brute
+//! (`router_hidden_canonical.zig`). `router_hidden_test.zig` compares the verdicts with a brute
 //! force on small tables.
 //!
 //! Terms:
@@ -34,7 +34,7 @@
 //!      matches x. Two patterns that both match x compare at the first segment where their kinds
 //!      differ: the literal, then the parameter, then the wildcard. Proof: at each node the walk
 //!      tries the literal edge, then the parameter child, then the wildcard child (rule 8 of
-//!      `routes_match.zig`). It backs up when a deeper level fails (rule 9), and the first node
+//!      `router_match.zig`). It backs up when a deeper level fails (rule 9), and the first node
 //!      with a leaf after the last segment decides (rule 10). Where two patterns that match x
 //!      both hold a literal, both literals equal the segment of x, so the kinds decide.
 //!   2. Other. No literal edge matches "other". So at each position where x holds "other", a
@@ -78,51 +78,51 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
-const routes_hidden_canonical = @import("routes_hidden_canonical.zig");
-const routes_match = @import("routes_match.zig");
-const routes_pattern = @import("routes_pattern.zig");
-const routes_trie = @import("routes_trie.zig");
+const router_hidden_canonical = @import("router_hidden_canonical.zig");
+const router_match = @import("router_match.zig");
+const router_pattern = @import("router_pattern.zig");
+const router_trie = @import("router_trie.zig");
 
-const Shape = routes_hidden_canonical.Shape;
-const Canonical = routes_hidden_canonical.Canonical;
-const text_of = routes_hidden_canonical.text_of;
+const Shape = router_hidden_canonical.Shape;
+const Canonical = router_hidden_canonical.Canonical;
+const text_of = router_hidden_canonical.text_of;
 
 /// The octets of "other": ALPHA and DIGIT, which are unreserved (RFC 3986 §2.3).
 const other_octets = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 /// The first route of `table`, in table order, that ruling 12 refuses, or null. `layout` is the
-/// layout of `table`, which `routes_trie.refusal_of` passed. The check reads the layout's trie,
+/// layout of `table`, which `router_trie.refusal_of` passed. The check reads the layout's trie,
 /// and it reads `table` only to name the route that it refuses. Comptime-only.
-pub fn refusal_of(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
-    // The calls in the loops get a view of a copy in a var (`routes_trie.zig`).
+pub fn refusal_of(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?router_trie.Refusal {
+    // The calls in the loops get a view of a copy in a var (`router_trie.zig`).
     var copy = layout;
-    return view_refusal(Value, routes_hidden_canonical.view_of(&copy), table);
+    return view_refusal(Value, router_hidden_canonical.view_of(&copy), table);
 }
 
-/// `refusal_of` on `layout`, a view of the layout (`routes_hidden_canonical.View`).
-fn view_refusal(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?routes_trie.Refusal {
+/// `refusal_of` on `layout`, a view of the layout (`router_hidden_canonical.View`).
+fn view_refusal(comptime Value: type, comptime layout: anytype, comptime table: anytype) ?router_trie.Refusal {
     const depth_max = @TypeOf(layout).depth_max;
     const lengths = depth_max + lengths_past_depth;
     const pairs = layout.leaves.len * layout.leaves.len;
-    @setEvalBranchQuota(routes_trie.hidden_quota_of(table, .{ .pairs = pairs, .lengths = lengths, .segments = depth_max + 1 }));
-    const shapes = routes_hidden_canonical.leaf_shapes(layout);
+    @setEvalBranchQuota(router_trie.hidden_quota_of(table, .{ .pairs = pairs, .lengths = lengths, .segments = depth_max + 1 }));
+    const shapes = router_hidden_canonical.leaf_shapes(layout);
     const other = other_of(&shapes);
-    const canonicals = routes_hidden_canonical.all_canonicals_of(layout, &shapes, depth_max);
+    const canonicals = router_hidden_canonical.all_canonicals_of(layout, &shapes, depth_max);
     var walks: usize = 0;
     for (canonicals) |list| walks += list.len;
-    const walk_steps = routes_match.walk_steps_max(layout.nodes.len);
+    const walk_steps = router_match.walk_steps_max(layout.nodes.len);
     // A canonical path holds a literal or "other" in each segment.
     var segment_len_max = other.len;
     for (layout.edges) |edge| segment_len_max = @max(segment_len_max, edge.segment.len);
-    @setEvalBranchQuota(routes_trie.hidden_quota_of(table, .{
+    @setEvalBranchQuota(router_trie.hidden_quota_of(table, .{
         .pairs = pairs,
         .lengths = lengths,
         .segments = depth_max + 1,
         .walks = walks,
         .walk_steps = walk_steps,
-        .octets = walk_octets(layout.text.len, lengths, walk_steps, routes_match.search_passes_max(layout.edges.len), segment_len_max),
+        .octets = walk_octets(layout.text.len, lengths, walk_steps, router_match.search_passes_max(layout.edges.len), segment_len_max),
     }));
-    var verdicts: [layout.entries.len]?routes_trie.Reason = @splat(null);
+    var verdicts: [layout.entries.len]?router_trie.Reason = @splat(null);
     for (canonicals, 0..) |list, leaf| leaf_verdicts(Value, layout, &shapes, other, leaf, list, &verdicts);
     return first_refusal(layout, &shapes, table, &verdicts);
 }
@@ -131,16 +131,16 @@ fn view_refusal(comptime Value: type, comptime layout: anytype, comptime table: 
 /// length counts as a walk. A test that builds several tables in one function raises its quota
 /// by this for each table. Comptime-only.
 pub fn quota_bound_of(comptime table: anytype) u32 {
-    @setEvalBranchQuota(routes_trie.quota_of(table));
-    const routes = routes_trie.routes_of(table);
+    @setEvalBranchQuota(router_trie.quota_of(table));
+    const routes = router_trie.routes_of(table);
     var depth_max: usize = 0;
     var segments: usize = 0;
     var octets: usize = 0;
     // A segment of a pattern is no longer than the pattern.
     var segment_len_max: usize = other_len_bound;
     for (routes.patterns, routes.tokens) |pattern, token| {
-        depth_max = @max(depth_max, routes_pattern.segments_count(pattern));
-        segments += routes_pattern.segments_count(pattern);
+        depth_max = @max(depth_max, router_pattern.segments_count(pattern));
+        segments += router_pattern.segments_count(pattern);
         octets += pattern.len + token.len;
         segment_len_max = @max(segment_len_max, pattern.len);
     }
@@ -148,18 +148,18 @@ pub fn quota_bound_of(comptime table: anytype) u32 {
     const pairs = table.len * table.len;
     // The trie holds the root and a node for each segment at most, and an edge for each segment
     // at most.
-    const walk_steps = routes_match.walk_steps_max(segments + 1);
-    return routes_trie.hidden_quota_of(table, .{
+    const walk_steps = router_match.walk_steps_max(segments + 1);
+    return router_trie.hidden_quota_of(table, .{
         .pairs = pairs,
         .lengths = lengths,
         .segments = depth_max + 1,
         .walks = pairs * lengths,
         .walk_steps = walk_steps,
-        .octets = walk_octets(octets, lengths, walk_steps, routes_match.search_passes_max(segments), segment_len_max),
+        .octets = walk_octets(octets, lengths, walk_steps, router_match.search_passes_max(segments), segment_len_max),
     });
 }
 
-/// The octets that one walk of the check reads, at most (`routes_trie.zig`): the text, the path
+/// The octets that one walk of the check reads, at most (`router_trie.zig`): the text, the path
 /// of `lengths` segments at most, and the segment of each pass once for each comparison of the
 /// search and once more.
 fn walk_octets(text_len: usize, lengths: usize, walk_steps: usize, search_passes: usize, segment_len_max: usize) usize {
@@ -185,7 +185,7 @@ fn leaf_verdicts(
     other: []const u8,
     leaf: usize,
     canonicals: []const Canonical,
-    verdicts: []?routes_trie.Reason,
+    verdicts: []?router_trie.Reason,
 ) void {
     const at = layout.leaves[leaf];
     const entries = verdicts[at.entries_first..][0..at.entries_count];
@@ -198,7 +198,7 @@ fn leaf_verdicts(
         if (canonical.leaf != leaf) break false;
     } else true;
     for (canonicals) |canonical| {
-        const path = routes_hidden_canonical.canonical_path(shapes[leaf], shapes[canonical.leaf], canonical.segments, other);
+        const path = router_hidden_canonical.canonical_path(shapes[leaf], shapes[canonical.leaf], canonical.segments, other);
         switch (walk_of(layout, shapes[leaf], path, alone)) {
             .too_long => too_long = too_long or canonical.leaf == leaf,
             .reached => reached = true,
@@ -226,7 +226,7 @@ fn walk_of(comptime layout: anytype, shape: Shape, path: []const u8, alone: bool
     if (alone) return .reached;
     var parameters: PathParameters = .{};
     // T matches the path, so the walk stops at T or at a leaf before it.
-    const stop = (routes_match.stop(layout, path, &parameters) orelse unreachable).node;
+    const stop = (router_match.stop(layout, path, &parameters) orelse unreachable).node;
     if (stop == shape.node) return .reached;
     return .{ .stopped = layout.nodes[stop].leaf.? };
 }
@@ -239,26 +239,26 @@ fn hidden_verdicts(
     stop_leaf: usize,
     path: []const u8,
     pattern: []const u8,
-    entries: []?routes_trie.Reason,
+    entries: []?router_trie.Reason,
 ) void {
     for (layout.entries[at.entries_first..][0..at.entries_count], entries) |entry, *verdict| {
         if (verdict.* != null) continue;
         const method = text_of(layout, entry.method);
         // Decision 122 ruling 12: a path of the route gets 405 from another leaf. `choose` decides
         // whether a leaf serves a method, as it does for a request (RFC 9110 §9.3.2).
-        if (routes_match.choose(Value, layout, stop_leaf, method) != .found) {
+        if (router_match.choose(Value, layout, stop_leaf, method) != .found) {
             verdict.* = .{ .route_hidden = .{ .method = method, .path = path, .pattern = pattern } };
         }
     }
 }
 
 /// The refusal of the first route, in table order, whose entry has a verdict, or null.
-fn first_refusal(comptime layout: anytype, shapes: []const Shape, comptime table: anytype, verdicts: []const ?routes_trie.Reason) ?routes_trie.Refusal {
+fn first_refusal(comptime layout: anytype, shapes: []const Shape, comptime table: anytype, verdicts: []const ?router_trie.Reason) ?router_trie.Refusal {
     for (verdicts) |verdict| {
         if (verdict != null) break;
     } else return null;
-    var routes = routes_trie.routes_of(table);
-    var first: ?routes_trie.Refusal = null;
+    var routes = router_trie.routes_of(table);
+    var first: ?router_trie.Refusal = null;
     for (layout.leaves, shapes) |at, shape| {
         for (layout.entries[at.entries_first..][0..at.entries_count], verdicts[at.entries_first..][0..at.entries_count]) |entry, verdict| {
             const reason = verdict orelse continue;

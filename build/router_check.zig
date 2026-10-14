@@ -1,9 +1,9 @@
-//! `zig build routes-check` (decision 122, design §8 step 21e.4): each table that `server.routes`
+//! `zig build router-check` (decision 122, design §8 step 21e.4): each table that `server.router`
 //! refuses fails to compile, with the message that names its entry and its refusal.
 //!
-//! The tests in `src/server/routes/routes_refusal_test.zig` call each check at compile time. They
-//! do not show that `server.routes` stops the compile. This step compiles
-//! `tools/fixtures/routes_refused.zig` once for each case, with the build option `case` set to
+//! The tests in `src/server/router/router_refusal_test.zig` call each check at compile time. They
+//! do not show that `server.router` stops the compile. This step compiles
+//! `tools/fixtures/router_refused.zig` once for each case, with the build option `case` set to
 //! the name of the case. The fixture compiles that case's table alone. The step requires the
 //! compile to fail with the case's message at the end of an error line.
 //!
@@ -20,146 +20,146 @@ const Case = struct {
     message: ?[]const u8,
 };
 
-/// One case for each refusal of `server.routes` and the control. The text after `server.routes:`
-/// is the name of the refusal and its sentence, from `routes_pattern.zig`, `routes_method.zig`
-/// and `routes_trie.zig`.
+/// One case for each refusal of `server.router` and the control. The text after `server.router:`
+/// is the name of the refusal and its sentence, from `router_pattern.zig`, `router_method.zig`
+/// and `router_trie.zig`.
 const cases = [_]Case{
     .{ .name = "accepted", .message = null },
     .{
         .name = "pattern_not_absolute",
-        .message = "server.routes: route 1, \"users\": pattern_not_absolute: " ++
+        .message = "server.router: route 1, \"users\": pattern_not_absolute: " ++
             "a pattern starts with \"/\" (RFC 9110 §4.1)",
     },
     .{
         .name = "segment_empty",
-        .message = "server.routes: route 1, \"/a//b\": segment_empty: " ++
+        .message = "server.router: route 1, \"/a//b\": segment_empty: " ++
             "a segment of a pattern is not empty, and only the pattern \"/\" ends in \"/\"",
     },
     .{
         .name = "segment_dot",
-        .message = "server.routes: route 1, \"/a/./b\": segment_dot: " ++
+        .message = "server.router: route 1, \"/a/./b\": segment_dot: " ++
             "a segment of a pattern is not \".\" or \"..\" (RFC 3986 §3.3)",
     },
     .{
         .name = "segment_encoded",
-        .message = "server.routes: route 1, \"/caf%C3%A9\": segment_encoded: " ++
+        .message = "server.router: route 1, \"/caf%C3%A9\": segment_encoded: " ++
             "a pattern holds no \"%\", because a path with one matches no route (RFC 3986 §2.1)",
     },
     .{
         .name = "octet_outside_path",
-        .message = "server.routes: route 1, \"/a b\": octet_outside_path: " ++
+        .message = "server.router: route 1, \"/a b\": octet_outside_path: " ++
             "each octet of a segment is a pchar other than \"%\" (RFC 3986 §3.3)",
     },
     .{
         .name = "parameter_unnamed",
-        .message = "server.routes: route 1, \"/users/:\": parameter_unnamed: " ++
+        .message = "server.router: route 1, \"/users/:\": parameter_unnamed: " ++
             "a parameter has a name after its \":\"",
     },
     .{
         .name = "parameter_name_invalid",
-        .message = "server.routes: route 1, \"/:user-id\": parameter_name_invalid: " ++
+        .message = "server.router: route 1, \"/:user-id\": parameter_name_invalid: " ++
             "a parameter name is 1*( ALPHA / DIGIT / \"_\" ), and a parameter is a whole segment",
     },
     .{
         .name = "parameter_repeated",
-        .message = "server.routes: route 1, \"/:id/posts/:id\": parameter_repeated: " ++
+        .message = "server.router: route 1, \"/:id/posts/:id\": parameter_repeated: " ++
             "each parameter of a pattern has a name of its own",
     },
     .{
         .name = "parameters_too_many",
-        .message = "server.routes: route 1, \"/:a/:b/:c/:d/:e/:f/:g/:h/:i\": parameters_too_many: " ++
+        .message = "server.router: route 1, \"/:a/:b/:c/:d/:e/:f/:g/:h/:i\": parameters_too_many: " ++
             "a pattern holds server.constants.path_parameters_max parameters at most",
     },
     .{
         .name = "wildcard_not_last",
-        .message = "server.routes: route 1, \"/files/*/meta\": wildcard_not_last: " ++
+        .message = "server.router: route 1, \"/files/*/meta\": wildcard_not_last: " ++
             "the wildcard \"*\" is the last segment of its pattern",
     },
     .{
         .name = "method_unknown",
-        .message = "server.routes: route 1, \"/a\": method_unknown: " ++
+        .message = "server.router: route 1, \"/a\": method_unknown: " ++
             "no member of http.method.Standard has this name; write a method " ++
             "outside RFC 9110's eight as its token, such as \"PATCH\"",
     },
     .{
         .name = "method_not_token",
-        .message = "server.routes: route 1, \"/a\": method_not_token: " ++
+        .message = "server.router: route 1, \"/a\": method_not_token: " ++
             "a method is a token (RFC 9110 §9.1)",
     },
     .{
         .name = "method_standard_as_token",
-        .message = "server.routes: route 1, \"/a\": method_standard_as_token: " ++
+        .message = "server.router: route 1, \"/a\": method_standard_as_token: " ++
             "write a method of RFC 9110's eight as its enum literal, such as .get",
     },
     .{
         .name = "method_connect",
-        .message = "server.routes: route 1, \"/a\": method_connect: " ++
+        .message = "server.router: route 1, \"/a\": method_connect: " ++
             "a CONNECT request has no path (RFC 9110 §9.3.6, decision 19)",
     },
     .{
         .name = "method_type",
-        .message = "server.routes: route 1, \"/a\": method_type: " ++
+        .message = "server.router: route 1, \"/a\": method_type: " ++
             "a method is an enum literal, a value of http.method.Standard, or a token",
     },
     .{
         .name = "table_empty",
-        .message = "server.routes: table_empty: a table holds one route at least",
+        .message = "server.router: table_empty: a table holds one route at least",
     },
     .{
         .name = "entry_shape",
-        .message = "server.routes: route 1, \"\": entry_shape: " ++
+        .message = "server.router: route 1, \"\": entry_shape: " ++
             "an entry is a tuple of a method, a pattern and a value",
     },
     .{
         .name = "parameter_names_differ",
-        .message = "server.routes: route 1, \"/users/:user\": parameter_names_differ: " ++
+        .message = "server.router: route 1, \"/users/:user\": parameter_names_differ: " ++
             "two routes with the same segments before a parameter give the parameter one name",
     },
     .{
         .name = "route_repeated",
-        .message = "server.routes: route 1, \"/a\": route_repeated: " ++
+        .message = "server.router: route 1, \"/a\": route_repeated: " ++
             "two routes name one method and one path",
     },
     .{
         .name = "allow_too_long",
-        .message = "server.routes: route 1, \"/a\": allow_too_long: " ++
+        .message = "server.router: route 1, \"/a\": allow_too_long: " ++
             "the Allow value of the routes of one pattern holds " ++
             "core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
     },
     .{
         .name = "route_hidden",
-        .message = "server.routes: route 1, \"/users/:id\": route_hidden: " ++
+        .message = "server.router: route 1, \"/users/:id\": route_hidden: " ++
             "a request that this route matches gets 405 from another pattern: " ++
             "PUT \"/users/me\" matches \"/users/me\" first, and no route of that pattern names PUT",
     },
     .{
         .name = "route_unreachable",
-        .message = "server.routes: route 1, \"/a/*\": route_unreachable: " ++
+        .message = "server.router: route 1, \"/a/*\": route_unreachable: " ++
             "no request reaches this route, because another pattern matches each of its paths first: " ++
             "\"/a/:x\", \"/a/:x/*\"",
     },
 };
 
-/// Adds `zig build routes-check` and returns its step, which `zig build test` depends on.
+/// Adds `zig build router-check` and returns its step, which `zig build test` depends on.
 pub fn add(
     b: *std.Build,
     graph: modules.Modules,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
 ) *std.Build.Step {
-    const step = b.step("routes-check", "Require each malformed route table to fail to compile");
+    const step = b.step("router-check", "Require each malformed route table to fail to compile");
     for (cases) |case| {
         const options = b.addOptions();
         options.addOption([]const u8, "case", case.name);
         const module = b.createModule(.{
-            .root_source_file = b.path("tools/fixtures/routes_refused.zig"),
+            .root_source_file = b.path("tools/fixtures/router_refused.zig"),
             .target = target,
             .optimize = optimize,
         });
         module.addImport("server", graph.server);
         module.addImport("http", graph.http);
-        module.addOptions("routes_case", options);
-        const compile = b.addObject(.{ .name = b.fmt("routes_{s}", .{case.name}), .root_module = module });
+        module.addOptions("router_case", options);
+        const compile = b.addObject(.{ .name = b.fmt("router_{s}", .{case.name}), .root_module = module });
         // Zig fails the step when the compile succeeds, or when no error line ends with the
         // message. With no message, the step fails when the compile fails.
         if (case.message) |message| compile.expect_errors = .{ .contains = message };
@@ -168,24 +168,24 @@ pub fn add(
     return step;
 }
 
-/// Adds `zig build routes-hidden-check` and returns its step, which `zig build test` depends on.
-/// It runs the cross-check of `src/server/routes/routes_hidden_test.zig` in a test binary of its
+/// Adds `zig build router-hidden-check` and returns its step, which `zig build test` depends on.
+/// It runs the cross-check of `src/server/router/router_hidden_test.zig` in a test binary of its
 /// own, apart from `zig build test-server` (the owner's ruling of 2026-10-14). Its compile takes
 /// about a minute.
 ///
-/// The root `src/server/routes_hidden_check.zig` compiles with the imports of `server`, as the
+/// The root `src/server/router_hidden_check.zig` compiles with the imports of `server`, as the
 /// root of `test-server` does (build/modules_test_roots.zig). No packaged module imports the root.
 pub fn add_hidden(b: *std.Build, server: *std.Build.Module) *std.Build.Step {
     const module = b.createModule(.{
-        .root_source_file = b.path("src/server/routes_hidden_check.zig"),
+        .root_source_file = b.path("src/server/router_hidden_check.zig"),
         .target = server.resolved_target,
         .optimize = server.optimize,
     });
     for (server.import_table.keys(), server.import_table.values()) |name, imported| {
         module.addImport(name, imported);
     }
-    const tests = b.addTest(.{ .name = "routes-hidden", .root_module = module });
-    const step = b.step("routes-hidden-check", "Compare the check of hidden routes with a brute force");
+    const tests = b.addTest(.{ .name = "router-hidden", .root_module = module });
+    const step = b.step("router-hidden-check", "Compare the check of hidden routes with a brute force");
     step.dependOn(&b.addRunArtifact(tests).step);
     return step;
 }

@@ -1,7 +1,7 @@
 //! The fuzz test and the sweep of `match` (decision 122, design §8 step 21e).
 const std = @import("std");
 const core = @import("core");
-const routes = @import("routes.zig").routes;
+const router = @import("router.zig").router;
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 
 const testing = std.testing;
@@ -11,12 +11,12 @@ const testing = std.testing;
 /// one segment before the wildcard can, so the wildcard has a table of its own.
 const swept_patterns = [_][]const u8{ "/", "/a", "/:x" };
 const swept_binding = 2;
-const swept = routes(u8, .{
+const swept = router(u8, .{
     .{ .get, swept_patterns[0], 0 },
     .{ .get, swept_patterns[1], 1 },
     .{ .get, swept_patterns[swept_binding], swept_binding },
 });
-const swept_wildcard = routes(u8, .{
+const swept_wildcard = router(u8, .{
     .{ .get, swept_patterns[0], 0 },
     .{ .get, swept_patterns[1], 1 },
     .{ .get, "/*", swept_binding },

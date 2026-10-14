@@ -1,7 +1,7 @@
 .{
-    .name = .colibri_routes_bench,
+    .name = .colibri_router_bench,
     .version = "0.0.0",
-    .fingerprint = 0xfc9b7236b5da610e,
+    .fingerprint = 0x5aec798226bf89fe,
     .minimum_zig_version = "0.16.0",
     // The scripts copy this directory into the tree's `.zig-cache`, two levels below the tree.
     .dependencies = .{

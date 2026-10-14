@@ -1,31 +1,31 @@
 //! The tests of each check that refuses a table (decision 122, design §8 step 21e). Each test
 //! calls a check at compile time on a refused case and on a valid case beside it, so a test
-//! fails when a check goes and when a check refuses too much. `zig build routes-check` shows
-//! that `server.routes` turns each refusal into a compile error.
+//! fails when a check goes and when a check refuses too much. `zig build router-check` shows
+//! that `server.router` turns each refusal into a compile error.
 const std = @import("std");
 const http = @import("http");
-const routes_pattern = @import("routes_pattern.zig");
-const routes_method = @import("routes_method.zig");
-const routes_trie = @import("routes_trie.zig");
-const routes_trie_layout = @import("routes_trie_layout.zig");
-const routes_hidden = @import("routes_hidden.zig");
+const router_pattern = @import("router_pattern.zig");
+const router_method = @import("router_method.zig");
+const router_trie = @import("router_trie.zig");
+const router_trie_layout = @import("router_trie_layout.zig");
+const router_hidden = @import("router_hidden.zig");
 const constants = @import("../constants.zig");
 const core = @import("core");
-const routes = @import("routes.zig").routes;
-const support = @import("routes_test_support.zig");
+const router = @import("router.zig").router;
+const support = @import("router_test_support.zig");
 
 const testing = std.testing;
 
-fn expect_pattern(comptime expected: ?routes_pattern.Refusal, comptime pattern: []const u8) !void {
-    try testing.expectEqual(expected, comptime routes_pattern.refusal_of(pattern));
+fn expect_pattern(comptime expected: ?router_pattern.Refusal, comptime pattern: []const u8) !void {
+    try testing.expectEqual(expected, comptime router_pattern.refusal_of(pattern));
 }
 
-fn expect_method(comptime expected: ?routes_method.Refusal, comptime method: anytype) !void {
-    try testing.expectEqual(expected, comptime routes_method.refusal_of(method));
+fn expect_method(comptime expected: ?router_method.Refusal, comptime method: anytype) !void {
+    try testing.expectEqual(expected, comptime router_method.refusal_of(method));
 }
 
-fn expect_table(comptime expected: ?routes_trie.Reason, comptime table: anytype) !void {
-    const refusal = comptime routes_trie.refusal_of(table);
+fn expect_table(comptime expected: ?router_trie.Reason, comptime table: anytype) !void {
+    const refusal = comptime router_trie.refusal_of(table);
     if (expected) |reason| {
         const refused = refusal orelse return error.TestExpectedRefusal;
         try testing.expectEqual(reason, refused.reason);
@@ -194,12 +194,12 @@ test "refusal 15, method_type: a method is an enum literal, a Standard or a toke
 }
 
 test "decision 122: each method's token and its place in an Allow value" {
-    try testing.expectEqualStrings("GET", comptime routes_method.token_of(.get));
-    try testing.expectEqualStrings("OPTIONS", comptime routes_method.token_of(http.method.Standard.options));
-    try testing.expectEqualStrings("PATCH", comptime routes_method.token_of("PATCH"));
-    try testing.expectEqual(0, comptime routes_method.rank_of(.get));
-    try testing.expectEqual(7, comptime routes_method.rank_of(.trace));
-    try testing.expectEqual(8, comptime routes_method.rank_of("PATCH"));
+    try testing.expectEqualStrings("GET", comptime router_method.token_of(.get));
+    try testing.expectEqualStrings("OPTIONS", comptime router_method.token_of(http.method.Standard.options));
+    try testing.expectEqualStrings("PATCH", comptime router_method.token_of("PATCH"));
+    try testing.expectEqual(0, comptime router_method.rank_of(.get));
+    try testing.expectEqual(7, comptime router_method.rank_of(.trace));
+    try testing.expectEqual(8, comptime router_method.rank_of("PATCH"));
 }
 
 const Route = enum { one, two };
@@ -245,7 +245,7 @@ test "refusal 19, parameter_names_differ: decision 122 ruling 5, one parameter n
 }
 
 test "decision 122: two names at one node refuse the later route, before a repeated route" {
-    const refusal = comptime routes_trie.refusal_of(.{
+    const refusal = comptime router_trie.refusal_of(.{
         .{ .get, "/a", .one },
         .{ .get, "/users/:id", .one },
         .{ .get, "/users/:name", .two },
@@ -253,12 +253,12 @@ test "decision 122: two names at one node refuse the later route, before a repea
     }).?;
     try testing.expectEqual(2, refusal.route);
     try testing.expectEqualStrings("/users/:name", refusal.pattern);
-    try testing.expectEqual(routes_trie.Reason.parameter_names_differ, refusal.reason);
+    try testing.expectEqual(router_trie.Reason.parameter_names_differ, refusal.reason);
     try expect_table(.route_repeated, .{ .{ .get, "/users/:id", .one }, .{ .get, "/users/:id", .two } });
     // The repeated route is not the first route of its pattern.
     try expect_table(.route_repeated, .{ .{ .get, "/a", .one }, .{ .put, "/a", .two }, .{ .put, "/a", .one } });
     // A third name, and a second name at another node, come after the first second name.
-    const first = comptime routes_trie.refusal_of(.{
+    const first = comptime router_trie.refusal_of(.{
         .{ .get, "/a/:x", .one },
         .{ .get, "/b/:y", .one },
         .{ .get, "/a/:z", .two },
@@ -271,43 +271,43 @@ test "decision 122: two names at one node refuse the later route, before a repea
 
 test "decision 122: a table's checks run in order, and the first refusal names its entry" {
     // An entry's method is checked before its pattern, and the entries in table order.
-    const refusal = comptime routes_trie.refusal_of(.{
+    const refusal = comptime router_trie.refusal_of(.{
         .{ .get, "/a", .one },
         .{ .gte, "a", .two },
         .{ .get, "b", .one },
     }).?;
     try testing.expectEqual(1, refusal.route);
     try testing.expectEqualStrings("a", refusal.pattern);
-    try testing.expectEqual(routes_trie.Reason{ .method = .method_unknown }, refusal.reason);
+    try testing.expectEqual(router_trie.Reason{ .method = .method_unknown }, refusal.reason);
     try expect_table(.{ .pattern = .pattern_not_absolute }, .{.{ .get, "a", .one }});
 }
 
 test "decision 122: the compile error names the entry, the refusal and its reason" {
     try testing.expectEqualStrings(
-        "server.routes: route 1, \"/a//b\": segment_empty: a segment of a pattern is not empty, " ++
+        "server.router: route 1, \"/a//b\": segment_empty: a segment of a pattern is not empty, " ++
             "and only the pattern \"/\" ends in \"/\"",
-        comptime routes_trie.message(.{ .route = 1, .pattern = "/a//b", .reason = .{ .pattern = .segment_empty } }),
+        comptime router_trie.message(.{ .route = 1, .pattern = "/a//b", .reason = .{ .pattern = .segment_empty } }),
     );
     try testing.expectEqualStrings(
-        "server.routes: table_empty: a table holds one route at least",
-        comptime routes_trie.message(.{ .route = 0, .pattern = "", .reason = .table_empty }),
+        "server.router: table_empty: a table holds one route at least",
+        comptime router_trie.message(.{ .route = 0, .pattern = "", .reason = .table_empty }),
     );
 }
 
-/// The first refusal of `table` that reads its layout, in the order of `server.routes`:
+/// The first refusal of `table` that reads its layout, in the order of `server.router`:
 /// `allow_too_long`, then `route_hidden` and `route_unreachable`. `table` passes every check
 /// before the build. Comptime-only.
-fn layout_refusal(comptime table: anytype) ?routes_trie.Refusal {
+fn layout_refusal(comptime table: anytype) ?router_trie.Refusal {
     // The bound of the check is the largest `u32` at most, so the sum saturates.
-    @setEvalBranchQuota(routes_trie.quota_of(table) +| routes_hidden.quota_bound_of(table));
-    std.debug.assert(routes_trie.refusal_of(table) == null);
-    const trie = routes_trie.trie_of(table);
-    const layout = routes_trie_layout.build(u8, table, &trie);
-    if (routes_trie_layout.allow_refusal(layout, table, &trie)) |refusal| return refusal;
-    return routes_hidden.refusal_of(u8, layout, table);
+    @setEvalBranchQuota(router_trie.quota_of(table) +| router_hidden.quota_bound_of(table));
+    std.debug.assert(router_trie.refusal_of(table) == null);
+    const trie = router_trie.trie_of(table);
+    const layout = router_trie_layout.build(u8, table, &trie);
+    if (router_trie_layout.allow_refusal(layout, table, &trie)) |refusal| return refusal;
+    return router_hidden.refusal_of(u8, layout, table);
 }
 
-const Tag = std.meta.Tag(routes_trie.Reason);
+const Tag = std.meta.Tag(router_trie.Reason);
 
 /// Requires the refusal of `table` that reads its layout to name route `route` with `expected`,
 /// or no refusal when `expected` is null.
@@ -341,7 +341,7 @@ test "refusal 20, route_hidden: decision 122 ruling 12, a request that a route m
     try expect_hidden(1, "PUT", "/users/me", "/users/me", .{ .{ .get, "/users/me", 0 }, .{ .put, "/users/:id", 1 } });
     try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .head, "/users/me", 1 } });
     // Two patterns give 405 on a path of the route. The refusal names the pattern that comes
-    // first in the table. The walk of the trie in `routes_hidden_canonical.zig` finds "/b" first.
+    // first in the table. The walk of the trie in `router_hidden_canonical.zig` finds "/b" first.
     try expect_hidden(2, "GET", "/a", "/a", .{ .{ .put, "/a", 0 }, .{ .put, "/b", 1 }, .{ .get, "/:x", 2 } });
     // The owner's examples 1, 4 and 6, and each refused table with the routes that it lacks.
     try expect_layout(null, 0, .{ .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 } });
@@ -370,7 +370,7 @@ test "refusal 21, route_unreachable: decision 122 ruling 12, a request reaches e
     try expect_layout(null, 0, .{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x/b", 1 }, .{ .get, "/a/:x", 2 } });
 }
 
-test "docs/usage.md: each table of the Routes section compiles or is refused as the guide says" {
+test "docs/usage.md: each table of the Router section compiles or is refused as the guide says" {
     // `route_hidden`: a GET of `/users/me` matches `/users/me` first, which names no GET.
     try expect_hidden(0, "GET", "/users/me", "/users/me", .{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } });
     // `route_unreachable`: each path of two segments matches `/a/:x` first, and each longer path
@@ -381,7 +381,7 @@ test "docs/usage.md: each table of the Routes section compiles or is refused as 
         .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 },
     });
     // The guide adds `PUT /users/me`, and the table compiles.
-    const added = routes(u8, .{
+    const added = router(u8, .{
         .{ .get, "/users/me", 0 }, .{ .get, "/users/:id", 1 }, .{ .put, "/users/:id", 2 }, .{ .put, "/users/me", 3 },
     });
     try support.expect_found(added, @as(u8, 3), "PUT", "/users/me");
@@ -413,7 +413,7 @@ fn filler(comptime rest: usize) []const u8 {
 }
 
 test "decision 122 ruling 12: \"other\" counts a literal that repeats once, at path_len_max" {
-    // Claims 8 and 9 of routes_hidden.zig: "other" is "b" beside 62 segments "a", so each path
+    // Claims 8 and 9 of router_hidden.zig: "other" is "b" beside 62 segments "a", so each path
     // below has `path_len_max` octets and a walk reads it.
     inline for (.{ 61, 62 }) |count| {
         try expect_layout(null, 0, .{ .{ .get, repeated_pattern(count), 0 }, .{ .get, "/" ++ filler(3) ++ "/:x", 1 } });
@@ -458,19 +458,19 @@ const valid_entry = .{ .get, "/", 0 };
 
 test "decision 122: the compile error of a hidden route names the request and the pattern" {
     try testing.expectEqualStrings(
-        "server.routes: route 0, \"/users/:id\": route_hidden: a request that this route matches gets 405 " ++
+        "server.router: route 0, \"/users/:id\": route_hidden: a request that this route matches gets 405 " ++
             "from another pattern: GET \"/users/me\" matches \"/users/me\" first, and no route of that " ++
             "pattern names GET",
-        comptime routes_trie.message(layout_refusal(.{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } }).?),
+        comptime router_trie.message(layout_refusal(.{ .{ .get, "/users/:id", 0 }, .{ .put, "/users/me", 1 } }).?),
     );
     try testing.expectEqualStrings(
-        "server.routes: route 0, \"/a/*\": route_unreachable: no request reaches this route, because " ++
+        "server.router: route 0, \"/a/*\": route_unreachable: no request reaches this route, because " ++
             "another pattern matches each of its paths first: \"/a/:x\", \"/a/:x/*\"",
-        comptime routes_trie.message(layout_refusal(.{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } }).?),
+        comptime router_trie.message(layout_refusal(.{ .{ .get, "/a/*", 0 }, .{ .get, "/a/:x", 1 }, .{ .get, "/a/:x/*", 2 } }).?),
     );
     try testing.expectEqualStrings(
-        "server.routes: route 1, \"/a\": allow_too_long: the Allow value of the routes of one pattern " ++
+        "server.router: route 1, \"/a\": allow_too_long: the Allow value of the routes of one pattern " ++
             "holds core.constants.field_value_len_max octets at most, because a 405 sends it as a field value",
-        comptime routes_trie.message(.{ .route = 1, .pattern = "/a", .reason = .allow_too_long }),
+        comptime router_trie.message(.{ .route = 1, .pattern = "/a", .reason = .allow_too_long }),
     );
 }

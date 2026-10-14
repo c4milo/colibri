@@ -1,4 +1,4 @@
-//! The tables of `zig build routes-check` (build/routes_check.zig, decision 122). The build option
+//! The tables of `zig build router-check` (build/router_check.zig, decision 122). The build option
 //! `case` names one declaration of `tables`, and the `comptime` block below builds that table
 //! alone. Zig analyses only the declaration that the block names, so the other tables do not
 //! change the result.
@@ -7,7 +7,7 @@
 //! its name. In a refused table the first entry is valid, so the message must name route 1.
 const server = @import("server");
 const http = @import("http");
-const case = @import("routes_case").case;
+const case = @import("router_case").case;
 
 /// A valid entry, which each refused table holds first.
 const valid = .{ .get, "/", 0 };
@@ -54,5 +54,5 @@ const tables = struct {
 };
 
 comptime {
-    _ = server.routes(u8, @field(tables, case));
+    _ = server.router(u8, @field(tables, case));
 }

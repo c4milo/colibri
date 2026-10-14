@@ -3891,9 +3891,10 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
         prior knowledge when it does not.
      5. The bounds that named a version move into a `limits` field, named by what they bound.
         `versions` stays out of it, because a choice of version bounds nothing.
-     6. A router, `server.routes`: a table of methods and paths the program declares at compile
+     6. A router, `server.router`: a table of methods and paths the program declares at compile
         time, which matches a path and returns its parameters, and does nothing more (design §8
-        step 21e). A parameter is the value a pattern's `:name` segment binds, and a program
+        step 21e). Its first name was `server.routes`, and decision 122 as amended on 2026-10-14
+        records the rename. A parameter is the value a pattern's `:name` segment binds, and a program
         reads them from a `server.PathParameters`. The owner named them on 2026-10-10: the first
         draft called them captures, which names what a matcher does and not what a program
         reads.
@@ -4484,3 +4485,23 @@ Entry 36 was ruled after entries 1 to 35 were numbered, so it takes the next num
        less than the brute force on 2,838 tables.
      - The cross-check: `zig build test-server` as it was, a minute slower to compile.
      - Large tables: the compile time accepted, with an issue filed for a later step.
+
+     **Amended again by the owner on 2026-10-14: the router is `server.router`.** The owner
+     asked why the name was `server.routes` and not `server.router`, and ruled the rename. Nothing
+     pushed breaks, because `server.routes` exists only on the branch of step 21e.
+     - `server.routes` becomes `server.router`, and the server's root lists `router` in place of
+       `routes`. The type that the call returns, `Match`, `match`, `PathParameters` and the names
+       of the refusals keep their names. A route is still one entry of a table.
+     - `src/server/routes/` becomes `src/server/router/`, and each file `routes*.zig` in it
+       becomes `router*.zig`. `src/server/routes_hidden_check.zig` becomes
+       `router_hidden_check.zig`.
+     - `build/routes_check.zig` becomes `build/router_check.zig`,
+       `tools/fixtures/routes_refused.zig` becomes `router_refused.zig`, and `bench/routes/`
+       becomes `bench/router/`.
+     - `zig build routes-check` becomes `zig build router-check`, and `zig build
+       routes-hidden-check` becomes `zig build router-hidden-check`.
+     - Each compile error of a table starts with "server.router:" in place of "server.routes:".
+     - The text of this decision before this amendment keeps the old names. Read each old name
+       as its new name.
+
+     The alternative refused: keep `routes`, because the call returns the table of routes.

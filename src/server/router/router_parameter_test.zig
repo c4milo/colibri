@@ -1,17 +1,17 @@
 //! The tests of `match` on routes with a parameter or the wildcard (decision 122, design §8 step
 //! 21e).
 const std = @import("std");
-const routes = @import("routes.zig").routes;
+const router = @import("router.zig").router;
 const PathParameters = @import("../path_parameters.zig").PathParameters;
 const constants = @import("../constants.zig");
-const support = @import("routes_test_support.zig");
+const support = @import("router_test_support.zig");
 
 const testing = std.testing;
 const expect_not_found = support.expect_not_found;
 
 const Person = enum { user, posts, post };
 
-const people = routes(Person, .{
+const people = router(Person, .{
     .{ .get, "/users/:id", .user },
     .{ .get, "/users/:id/posts", .posts },
     .{ .get, "/users/:id/posts/:post", .post },
@@ -50,13 +50,13 @@ test "decision 122: a result other than found leaves no parameter" {
     try testing.expect(people.match("GET", "/users/42/comments", &parameters) == .not_found);
     try testing.expectEqual(0, parameters.count);
     // The walk binds `id`, and then the node holds no leaf.
-    const deep = routes(u8, .{.{ .get, "/users/:id/posts/all", 1 }});
+    const deep = router(u8, .{.{ .get, "/users/:id/posts/all", 1 }});
     try testing.expect(deep.match("GET", "/users/42/posts", &parameters) == .not_found);
     try testing.expectEqual(0, parameters.count);
 }
 
 test "decision 122: each parameter has the name of its own node" {
-    const pairs = routes(u8, .{.{ .get, "/pairs/:left/:right", 1 }});
+    const pairs = router(u8, .{.{ .get, "/pairs/:left/:right", 1 }});
     var parameters: PathParameters = .{};
     try testing.expectEqual(1, pairs.match("GET", "/pairs/a/b", &parameters).found);
     try testing.expectEqualStrings("a", parameters.get("left").?);
@@ -64,8 +64,8 @@ test "decision 122: each parameter has the name of its own node" {
 }
 
 test "decision 122: the literal wins over the parameter, whatever the table's order" {
-    const me_first = routes(u8, .{ .{ .get, "/users/me", 1 }, .{ .get, "/users/:id", 2 } });
-    const id_first = routes(u8, .{ .{ .get, "/users/:id", 2 }, .{ .get, "/users/me", 1 } });
+    const me_first = router(u8, .{ .{ .get, "/users/me", 1 }, .{ .get, "/users/:id", 2 } });
+    const id_first = router(u8, .{ .{ .get, "/users/:id", 2 }, .{ .get, "/users/me", 1 } });
     inline for (.{ me_first, id_first }) |table| {
         var parameters: PathParameters = .{};
         try testing.expectEqual(1, table.match("GET", "/users/me", &parameters).found);
@@ -82,14 +82,14 @@ test "decision 122: the walk does not back up for a method, so a literal leaf an
     // literal does not name. So in a table that compiles, a back-up for a method finds no other
     // route. The route `PUT /users` makes PUT a method of the table, so the request gets 405, not
     // 501.
-    const me = routes(u8, .{ .{ .get, "/users/me", 1 }, .{ .put, "/users", 2 } });
+    const me = router(u8, .{ .{ .get, "/users/me", 1 }, .{ .put, "/users", 2 } });
     var parameters: PathParameters = .{};
     try testing.expectEqualStrings("GET, HEAD", me.match("PUT", "/users/me", &parameters).method_not_allowed);
     try testing.expectEqual(0, parameters.count);
     try expect_not_found(me, "PUT", "/users/you");
 }
 
-const posts = routes(Person, .{
+const posts = router(Person, .{
     .{ .get, "/users/:id", .user },
     .{ .get, "/users/:id/posts", .posts },
 });
@@ -110,7 +110,7 @@ test "RFC 3986 §3.3: a path with a \"%\", an empty or dot segment, or an octet 
 /// The kind of segment that a route of the wildcard's tests ends with.
 const Last = enum { parameter, literal, wildcard };
 
-const files = routes(Last, .{
+const files = router(Last, .{
     .{ .get, "/files/*", .wildcard },
     .{ .get, "/files/a*b", .literal },
 });
@@ -139,9 +139,9 @@ test "decision 122 ruling 6: the wildcard matches one segment or more, the rest 
 
 /// Tables where the wildcard competes with a literal and a parameter. Each table is a constant of
 /// the file, so each one has the comptime branch quota of its own build.
-const parameter_first = routes(Last, .{ .{ .get, "/a/:x", .parameter }, .{ .get, "/a/b", .literal }, .{ .get, "/a/*", .wildcard } });
-const wildcard_first = routes(Last, .{ .{ .get, "/a/*", .wildcard }, .{ .get, "/a/b", .literal }, .{ .get, "/a/:x", .parameter } });
-const literal_and_wildcard = routes(Last, .{ .{ .get, "/a/*", .wildcard }, .{ .get, "/a/b", .literal } });
+const parameter_first = router(Last, .{ .{ .get, "/a/:x", .parameter }, .{ .get, "/a/b", .literal }, .{ .get, "/a/*", .wildcard } });
+const wildcard_first = router(Last, .{ .{ .get, "/a/*", .wildcard }, .{ .get, "/a/b", .literal }, .{ .get, "/a/:x", .parameter } });
+const literal_and_wildcard = router(Last, .{ .{ .get, "/a/*", .wildcard }, .{ .get, "/a/b", .literal } });
 
 test "decision 122: the literal and the parameter win over the wildcard, whatever the table's order" {
     inline for (.{ parameter_first, wildcard_first }) |table| {
@@ -179,7 +179,7 @@ const ruling_10_units = 4;
 
 test "decision 122 ruling 10: the parameters and the wildcard of a pattern fill path_parameters_max entries" {
     @setEvalBranchQuota(ruling_10_units * constants.path_parameters_max * branches_per_parameter);
-    const most = routes(u8, .{.{ .get, comptime most_parameters(":", "p") ++ "/*", 1 }});
+    const most = router(u8, .{.{ .get, comptime most_parameters(":", "p") ++ "/*", 1 }});
     const path = comptime most_parameters("", "v") ++ "/w/x";
     var parameters: PathParameters = .{};
     try testing.expectEqual(1, most.match("GET", path, &parameters).found);

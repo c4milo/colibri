@@ -8563,11 +8563,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       `src/client/client.zig` hold no connection type. The roots of `h11`, `h2`, `h3` and `quic`
       keep `Connection` until 21f. The test counts stay through each `files` move. Each rule has
       a mutation a test catches.
-  - **21e, the router.** `server.routes`, a table of methods and paths the program declares at
+  - **21e, the router.** `server.router`, a table of methods and paths the program declares at
     compile time, matched through a trie of path segments as
     [#96](https://github.com/c4milo/colibri/issues/96) describes (decision 122 records the
     rulings).
-    - The server's root exports 49 names: the 47 of 21d, then `PathParameters` and `routes`.
+    - The server's root exports 49 names: the 47 of 21d, then `PathParameters` and `router`.
       `http.method` exports `Standard` beside `standard` and `validate`.
     - Each table has a type of its own, whose public declarations are `Match` and `match`.
       `PathParameters` has one public function, `get`. A test lists each.
@@ -8595,7 +8595,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       - 21e.1: decision 122, INV-32 and this text.
       - 21e.2: `http.method.Standard`.
       - 21e.3: literal routes, with every public name and its list.
-      - 21e.4: `zig build routes-check`.
+      - 21e.4: `zig build router-check`.
       - 21e.5: parameters, the checks of a path, and `path_len_max`.
       - 21e.6: the wildcard as the last segment.
       - 21e.7a: the back-up (INV-32).
@@ -8610,7 +8610,7 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
       precedence whatever the table's order, 404, 405 with its Allow list, 501, HEAD, and a path
       that matches nothing because it holds an encoded octet, a dot segment or an empty segment.
       A test of each version shows that a response to HEAD carries no content. `zig build
-      routes-check` requires each malformed table and each table with a conflict to fail to
+      router-check` requires each malformed table and each table with a conflict to fail to
       compile, a hidden route too, and a valid one to compile. A test compares the check of
       hidden routes with a brute force on small tables. `zig build examples`,
       `tools/doc_snippets.sh` and `tools/consumer_check.sh` pass. Each rule has a mutation a test
@@ -9329,6 +9329,11 @@ Sizes are the owner's estimate of effort, given for planning and not as a commit
     - c05ce20: the text that the second review found wrong. 181 steps, 2973, 467.
     - 1c3a4f2: `bench/routes/`, the probes of the router's cost. 181 steps, 2973, 467.
     - The record of the second review, after 1c3a4f2, changes no check.
+    - After 310eff2, on 2026-10-14: the owner ruled the name `server.router` in place of
+      `server.routes` (decision 122 as amended). The files, the directory and the two build
+      steps were renamed with it, as `zig build router-check` and `zig build
+      router-hidden-check`. 181 steps, 2973, 467. `zig build router-check` passed 65 steps,
+      and `zig build router-hidden-check` 8 tests.
     - From 21e.2 on, `zig build test -Drelease` passed the count of `zig build test` after each
       commit.
   - **What stayed.**

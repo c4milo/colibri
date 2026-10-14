@@ -1,5 +1,5 @@
-//! `zig build test` runs each top-level step whose name ends in `-check`, such as `routes-check`
-//! and `routes-hidden-check`. CI runs `zig build test` through `tools/ci.sh`, so a check that
+//! `zig build test` runs each top-level step whose name ends in `-check`, such as `router-check`
+//! and `router-hidden-check`. CI runs `zig build test` through `tools/ci.sh`, so a check that
 //! `test` does not run is a check that CI does not run.
 //!
 //! `require` reads the step graph after build.zig has made it. A `-check` step runs in `test`

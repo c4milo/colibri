@@ -128,7 +128,7 @@ pub const Request = struct {
     /// asterisk-form (RFC 9112 §3.2). An absolute-form target with an empty path and no query
     /// gives "/" (RFC 9110 §4.2.3). With a query it gives the query alone, such as "?x"
     /// (https://github.com/c4milo/colibri/issues/103). Null for CONNECT (RFC 9113 §8.5, RFC 9114
-    /// §4.4, RFC 9112 §3.2.3). `server.routes` matches this value.
+    /// §4.4, RFC 9112 §3.2.3). `server.router` matches this value.
     path: ?[]const u8,
     fields: Fields,
     /// Whether the head ended the request, so no content follows.

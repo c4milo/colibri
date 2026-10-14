@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
 # The instructions of one `match` (design §8 step 21e, decision 122 as amended on 2026-10-14).
-# It builds bench/routes/run_time.zig in ReleaseSafe for Linux on the host's architecture, from
-# a copy of bench/routes/ in the .zig-cache of a tree. Then it runs the probe under callgrind in
-# a container that bench/routes/valgrind.Dockerfile builds. For each count k of literal edges and
+# It builds bench/router/run_time.zig in ReleaseSafe for Linux on the host's architecture, from
+# a copy of bench/router/ in the .zig-cache of a tree. Then it runs the probe under callgrind in
+# a container that bench/router/valgrind.Dockerfile builds. For each count k of literal edges and
 # each path, it prints k, the path, and the instructions of one match: callgrind's count for
 # <count> matches less its count for none, divided by <count>, then the remainder.
 #
-#   bench/routes/run_time.sh [--tree <tree>] [count]
+#   bench/router/run_time.sh [--tree <tree>] [count]
 #
 # The tree is this checkout unless --tree names another. The count is 100000 by default. It
 # needs Zig and Docker. Its numbers are a laptop's and are never published (decision 32).
@@ -44,10 +44,10 @@ case "$(uname -m)" in
   *) echo "run_time.sh: no Linux target for $(uname -m)" >&2; exit 1 ;;
 esac
 
-readonly probe="${tree}/.zig-cache/bench-routes"
+readonly probe="${tree}/.zig-cache/bench-router"
 mkdir -p "${probe}"
 cp "${here}"/*.zig "${here}/build.zig.zon" "${here}/run_time.sh" "${probe}/"
 (cd "${probe}" && zig build probe -Dtarget="${arch}-linux")
-readonly image=colibri-bench-routes-valgrind
+readonly image=colibri-bench-router-valgrind
 docker build --quiet -t "${image}" -f "${here}/valgrind.Dockerfile" "${here}" >/dev/null
 docker run --rm -v "${probe}:/probe" "${image}" /probe/run_time.sh inside /probe/zig-out/bin/probe "${count}"

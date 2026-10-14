@@ -32,9 +32,9 @@ const std = @import("std");
 const assert = std.debug.assert;
 const constants = @import("../constants.zig");
 const PathParameters = @import("../path_parameters.zig").PathParameters;
-const routes_method = @import("routes_method.zig");
-const routes_pattern = @import("routes_pattern.zig");
-const routes_trie = @import("routes_trie.zig");
+const router_method = @import("router_method.zig");
+const router_pattern = @import("router_pattern.zig");
+const router_trie = @import("router_trie.zig");
 
 /// The octet that ends a path and starts its query (RFC 3986 §3.3, §3.4).
 const query_start = '?';
@@ -81,7 +81,7 @@ pub fn match(
 }
 
 /// The node where the walk on the path of `target` stops, or null when the path matches no
-/// route. `match` and the check of hidden routes (`routes_hidden.zig`) both call it, so the check
+/// route. `match` and the check of hidden routes (`router_hidden.zig`) both call it, so the check
 /// reads the walk that a request gets.
 pub fn stop(comptime layout: anytype, target: []const u8, parameters: *PathParameters) ?Walked {
     const path = path_of(target) orelse return null;
@@ -91,13 +91,13 @@ pub fn stop(comptime layout: anytype, target: []const u8, parameters: *PathParam
 /// Whether a route of `layout` names `method`. A table that names GET names HEAD too. The loop
 /// reads each method of the table's set once.
 fn implemented(comptime layout: anytype, method: []const u8) bool {
-    const head = std.mem.eql(u8, method, routes_method.head_token);
+    const head = std.mem.eql(u8, method, router_method.head_token);
     for (layout.methods) |range| {
         const token = text_of(layout, range);
         // RFC 9110 §9.1: the method token is case-sensitive.
         if (std.mem.eql(u8, token, method)) return true;
         // RFC 9110 §9.1, §9.3.2: a HEAD request finds a GET route, so GET implements HEAD.
-        if (head and std.mem.eql(u8, token, routes_method.get_token)) return true;
+        if (head and std.mem.eql(u8, token, router_method.get_token)) return true;
     }
     return false;
 }
@@ -109,20 +109,20 @@ fn path_of(target: []const u8) ?[]const u8 {
     if (target.len > constants.path_len_max) return null;
     // RFC 9110 §4.1: absolute-path = 1*( "/" segment ). So "*" (RFC 9112 §3.2.4), the "" of a
     // CONNECT request, and a query alone match nothing.
-    if (target.len == 0 or target[0] != routes_pattern.separator) return null;
+    if (target.len == 0 or target[0] != router_pattern.separator) return null;
     var segment_first: usize = 1;
     for (target[1..], 1..) |octet, index| {
         // RFC 3986 §3.3: the first "?" ends the path, and RFC 9112 §3.2.1, RFC 9113 §8.3.1 and
         // RFC 9114 §4.3.1 put the query after it.
         if (octet == query_start) return path_end(target[0..index], segment_first);
-        if (octet == routes_pattern.separator) {
+        if (octet == router_pattern.separator) {
             if (!segment_matches(target[segment_first..index])) return null;
             segment_first = index + 1;
             continue;
         }
         // RFC 3986 §3.3: segment = *pchar. `path_octets` holds no "%", which starts a
         // pct-encoded octet (RFC 3986 §2.1), so a path with one matches nothing (decision 122).
-        if (!routes_pattern.path_octets[octet]) return null;
+        if (!router_pattern.path_octets[octet]) return null;
     }
     return path_end(target, segment_first);
 }
@@ -173,12 +173,12 @@ pub fn walk_steps_max(comptime nodes: usize) usize {
 /// exists. The walk writes each parameter's name and value into `parameters` and counts them in
 /// `Walked`.
 fn walk(comptime layout: anytype, path: []const u8, parameters: *PathParameters) ?Walked {
-    assert(path.len > 0 and path[0] == routes_pattern.separator);
+    assert(path.len > 0 and path[0] == router_pattern.separator);
     const depth_max = @TypeOf(layout).depth_max;
     var frames: [depth_max + 1]Frame = undefined;
     // Decision 122: the path "/" is the root, with no segment.
     const segment_first: usize = if (path.len == 1) path.len + 1 else 1;
-    frames[0] = .{ .node = routes_trie.root, .tried = .none, .segment_first = segment_first, .count = 0 };
+    frames[0] = .{ .node = router_trie.root, .tried = .none, .segment_first = segment_first, .count = 0 };
     var depth: usize = 0;
     for (0..walk_steps_max(layout.nodes.len)) |_| {
         switch (step(layout, path, &frames[depth], parameters)) {
@@ -209,7 +209,7 @@ fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *
         if (layout.nodes[frame.node].leaf == null) return .back;
         return .{ .found = .{ .node = frame.node, .count = frame.count } };
     }
-    const segment_end = std.mem.indexOfScalarPos(u8, path, frame.segment_first, routes_pattern.separator) orelse path.len;
+    const segment_end = std.mem.indexOfScalarPos(u8, path, frame.segment_first, router_pattern.separator) orelse path.len;
     const segment = path[frame.segment_first..segment_end];
     const at = layout.nodes[frame.node];
     const next_first = segment_end + 1;
@@ -232,7 +232,7 @@ fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *
         frame.tried = .wildcard;
         // Decision 122 ruling 6: the wildcard matches one segment or more, the rest of the path.
         if (at.wildcard) |wildcard| {
-            bind(parameters, frame.count, routes_pattern.wildcard, path[frame.segment_first..]);
+            bind(parameters, frame.count, router_pattern.wildcard, path[frame.segment_first..]);
             return .{ .found = .{ .node = wildcard, .count = frame.count + 1 } };
         }
     }
@@ -241,7 +241,7 @@ fn step(comptime layout: anytype, path: []const u8, frame: *Frame, parameters: *
 
 /// Writes `name` and `value` as the parameter at `index` of a walk.
 fn bind(parameters: *PathParameters, index: usize, name: []const u8, value: []const u8) void {
-    // `routes_pattern.refusal_of` passed each pattern, so a walk meets `path_parameters_max`
+    // `router_pattern.refusal_of` passed each pattern, so a walk meets `path_parameters_max`
     // parameters at most, the wildcard included.
     assert(index < constants.path_parameters_max);
     assert(value.len > 0);
@@ -250,7 +250,7 @@ fn bind(parameters: *PathParameters, index: usize, name: []const u8, value: []co
 }
 
 /// The child of `node` after the literal edge that equals `segment`, or null. The edges of a node
-/// are sorted by length and then by octets (`routes_trie_layout.segment_less`). So a binary search
+/// are sorted by length and then by octets (`router_trie_layout.segment_less`). So a binary search
 /// in that order compares O(log k) edges of the k edges of the node.
 pub fn literal_child(comptime layout: anytype, node: usize, segment: []const u8) ?usize {
     const at = layout.nodes[node];
@@ -280,7 +280,7 @@ pub fn search_passes_max(comptime edges: usize) usize {
 /// for a run of k edges, and one more pass finds the run empty.
 const search_passes_past_log = 2;
 
-/// The order of `edge` and `segment` in the order of `routes_trie_layout.segment_less`: the
+/// The order of `edge` and `segment` in the order of `router_trie_layout.segment_less`: the
 /// shorter first, then by octets.
 fn segment_order(edge: []const u8, segment: []const u8) std.math.Order {
     if (edge.len != segment.len) return std.math.order(edge.len, segment.len);
@@ -288,7 +288,7 @@ fn segment_order(edge: []const u8, segment: []const u8) std.math.Order {
 }
 
 /// The result of `method` at `leaf`: `found` or `method_not_allowed`. The check of hidden routes
-/// (`routes_hidden.zig`) calls it too, so a leaf serves a method for the check as it does for a
+/// (`router_hidden.zig`) calls it too, so a leaf serves a method for the check as it does for a
 /// request.
 pub fn choose(comptime Value: type, comptime layout: anytype, leaf: usize, method: []const u8) Match(Value) {
     const at = layout.leaves[leaf];
@@ -301,7 +301,7 @@ pub fn choose(comptime Value: type, comptime layout: anytype, leaf: usize, metho
     // RFC 9110 §9.1, §9.3.2: a HEAD request finds the GET entry of a leaf with no HEAD entry.
     // The entries come in RFC 9110 §9.1's order, so a GET entry is the first.
     const first = text_of(layout, entries[0].method);
-    if (std.mem.eql(u8, method, routes_method.head_token) and std.mem.eql(u8, first, routes_method.get_token)) {
+    if (std.mem.eql(u8, method, router_method.head_token) and std.mem.eql(u8, first, router_method.get_token)) {
         return .{ .found = entries[0].value };
     }
     // RFC 9110 §15.5.6: a 405 carries an Allow field with the target's methods.
@@ -313,7 +313,7 @@ fn text_of(comptime layout: anytype, range: anytype) []const u8 {
 }
 
 const testing = std.testing;
-const routes_trie_layout = @import("routes_trie_layout.zig");
+const router_trie_layout = @import("router_trie_layout.zig");
 
 /// The search of `literal_child` before the binary search: it reads each edge of the node in turn.
 /// The test compares the two searches.
@@ -404,15 +404,15 @@ fn layout_differs(comptime layout: anytype) bool {
 /// The quota of the builds of `search_tables` in one test: one build's quota for each table.
 fn search_tables_quota() u32 {
     var quota: u32 = 0;
-    inline for (search_tables) |table| quota += routes_trie.quota_of(table);
+    inline for (search_tables) |table| quota += router_trie.quota_of(table);
     return quota;
 }
 
 test "decision 122: the binary search finds the literal edge that the scan of each edge finds" {
     @setEvalBranchQuota(comptime search_tables_quota());
     inline for (search_tables) |table| {
-        const trie = comptime routes_trie.trie_of(table);
-        const layout = comptime routes_trie_layout.build(u8, table, &trie);
+        const trie = comptime router_trie.trie_of(table);
+        const layout = comptime router_trie_layout.build(u8, table, &trie);
         try testing.expect(!layout_differs(layout));
     }
 }

@@ -1,6 +1,6 @@
 //! The probes of the router's cost (design §8 step 21e, decision 122 as amended on 2026-10-14).
 //! A project of its own that depends on the colibri tree two levels up as a path package.
-//! `bench/routes/compile_time.sh` and `bench/routes/run_time.sh` run it from a copy inside that
+//! `bench/router/compile_time.sh` and `bench/router/run_time.sh` run it from a copy inside that
 //! tree's `.zig-cache`, so the packages that Zig fetches stay out of `bench/`.
 //!   - `zig build compile -Dtable=<name> -Dstamp=<n>` compiles one table of `tables.zig` into a
 //!     Debug test binary for the host and runs it. A new stamp makes the compiler build it again.
@@ -14,7 +14,7 @@ const Table = enum {
     literals_256_parameter,
     literals_512_parameter,
     literals_512_literal,
-    routes_test_256,
+    router_test_256,
     resources_50,
     mixed_338,
     named_256,

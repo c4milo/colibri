@@ -125,7 +125,7 @@ The program moves datagrams and octets between its sockets and the channel's `se
 A server holds its TCP and QUIC connections in one endpoint, and calls `accept` for each TCP socket
 it accepts. It gets one event from each `receive`, and answers a request by its id, in h11, h2 and
 h3 alike. It finds the route of a method and a path through a table that it declares at compile
-time, with `server.routes`. These lines are from
+time, with `server.router`. These lines are from
 [`examples/server_exchange.zig`](examples/server_exchange.zig):
 
 ```zig
